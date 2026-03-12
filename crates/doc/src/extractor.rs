@@ -180,9 +180,17 @@ impl Extractor {
         indicator: &AtomicBool,
     ) {
         match doc {
-            OwnedNode::Heap(n) => {
-                Self::extract_all_indicate_truncation(n.get(), extractors, out, indicator)
-            }
+            OwnedNode::Heap(n) => match n.access() {
+                Ok(heap_node) => {
+                    Self::extract_all_indicate_truncation(&heap_node, extractors, out, indicator)
+                }
+                Err(embedded) => Self::extract_all_indicate_truncation(
+                    embedded.get(),
+                    extractors,
+                    out,
+                    indicator,
+                ),
+            },
             OwnedNode::Archived(n) => {
                 Self::extract_all_indicate_truncation(n.get(), extractors, out, indicator)
             }

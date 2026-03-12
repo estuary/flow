@@ -6,7 +6,7 @@ pub use bumpalo::Bump as Allocator;
 // and an ArchivedNode serialized by the `rkyv` crate.
 // The serde_json::Value implementation lives in the json crate.
 pub mod heap;
-pub use heap::{HeapField, HeapNode};
+pub use heap::{HeapField, HeapNode, HeapRoot};
 
 mod archived;
 pub use archived::{ArchivedField, ArchivedNode};
@@ -41,7 +41,7 @@ pub use lazy::LazyNode;
 
 // OwnedNode owns its HeapNode or ArchivedNode.
 mod owned;
-pub use owned::{OwnedArchivedNode, OwnedHeapNode, OwnedNode};
+pub use owned::{OwnedArchivedNode, OwnedHeapRoot, OwnedNode};
 
 // JSON-schema annotation extensions supported by Flow documents.
 mod annotation;
@@ -153,6 +153,10 @@ mod test {
         // with many variants, most of which are 8-byte aligned.
         assert_eq!(std::mem::size_of::<HeapNode<'static>>(), 16);
         assert_eq!(std::mem::align_of::<HeapNode<'static>>(), 8);
+
+        // HeapRoot has all HeapNode variants plus Embedded, same 16-byte size.
+        assert_eq!(std::mem::size_of::<super::HeapRoot<'static>>(), 16);
+        assert_eq!(std::mem::align_of::<super::HeapRoot<'static>>(), 8);
 
         // String references are "fat" pointers which is why we don't use them.
         // If we did, it would increase wasted space by 33%.

@@ -1,5 +1,8 @@
 use super::{DrainedDoc, Error, HeapEntry, Meta, Spec, SpillWriter};
-use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode, redact, reduce, validation};
+use crate::{
+    Extractor, HeapEmbedded, HeapNode, HeapRoot, LazyNode, OwnedHeapRoot, OwnedNode, redact,
+    reduce, validation,
+};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::cmp::Ordering;
@@ -74,7 +77,8 @@ impl Entries {
             (l.meta.0)
                 .cmp(&r.meta.0)
                 .then_with(|| {
-                    Extractor::compare_key(&self.spec.keys[l.meta.binding()], &l.root, &r.root)
+                    // Cold path: Meta prefix was equal, so compare the full key.
+                    compare_root_keys(&self.spec.keys[l.meta.binding()], &l.root, &r.root)
                 })
                 .then_with(|| l.meta.front().cmp(&r.meta.front()).reverse())
         };
@@ -83,25 +87,24 @@ impl Entries {
         // Closure which attempts an associative reduction of `index` into `index-1`.
         // If the reduction succeeds then the item at `index` is removed.
         let mut maybe_reduce = |next: &mut Vec<HeapEntry<'_>>, index: usize| -> Result<(), Error> {
-            let rhs = &mut next[index];
+            let rhs = &next[index];
 
-            let rhs_valid = validators[rhs.meta.binding()]
-                .validate(&rhs.root, validation::reduce_filter)
-                .map_err(|invalid| {
-                    Error::FailedValidation(self.spec.names[rhs.meta.binding()].clone(), invalid)
-                })?;
+            let rhs_valid = validate_root(
+                &rhs.root,
+                &mut validators[rhs.meta.binding()],
+                &self.spec.names[rhs.meta.binding()],
+                validation::reduce_filter,
+            )?;
 
             let (lhs, rhs) = (&next[index - 1], &next[index]);
 
-            match reduce::reduce::<crate::ArchivedNode>(
-                LazyNode::Heap(&lhs.root),
-                LazyNode::Heap(&rhs.root),
-                &rhs_valid,
-                alloc,
+            match reduce_roots(
+                &lhs.root, &rhs.root, &rhs_valid, alloc,
                 false, // Compactions are always associative.
             ) {
                 Ok((root, _deleted)) => {
-                    next[index - 1].root = root;
+                    next[index - 1].root = HeapRoot::from_heap_node(root);
+                    next[index - 1].meta.set_known_valid(false); // Must re-validate.
                     next.remove(index);
                     Ok(())
                 }
@@ -226,28 +229,71 @@ impl MemTable {
         &self.zz_alloc
     }
 
-    /// Parse a JSON document string into a HeapNode using this MemTable's allocator.
-    pub fn parse_json_str<'s>(&'s self, doc_json: &str) -> serde_json::Result<HeapNode<'s>> {
-        let mut de = serde_json::Deserializer::from_str(doc_json);
-        HeapNode::from_serde(&mut de, self.alloc())
-    }
-
     /// Add the document to the MemTable.
     pub fn add<'s>(&'s self, binding: u16, root: HeapNode<'s>, front: bool) -> Result<(), Error> {
         // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
         let root = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(root) };
 
-        Extractor::extract_all(
+        () = Extractor::extract_all(
             &root,
             &entries.spec.keys[binding as usize],
             &mut entries.scratch,
         );
+        let meta = Meta::new(
+            binding,
+            &entries.scratch,
+            front,
+            false, // `known_valid`
+        );
+
         entries.queued.push(HeapEntry {
-            meta: Meta::new(binding, &entries.scratch, front),
-            root,
+            meta,
+            root: HeapRoot::from_heap_node(root),
         });
         entries.scratch.clear();
+
+        if entries.should_compact() {
+            self.compact()
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Add a pre-serialized ArchivedEmbedded document from the shuffle reader.
+    /// The packed_key_prefix is the first 16 bytes of the packed key of the document.
+    pub fn add_embedded<'s>(
+        &'s self,
+        binding: u16,
+        packed_key_prefix: &[u8; 16],
+        embedded: HeapEmbedded<'s>,
+        front: bool,
+        known_valid: bool,
+    ) -> Result<(), Error> {
+        // Safety: mutable borrow does not escape this function.
+        let entries = unsafe { &mut *self.entries.get() };
+
+        // Debug assertion: verify packed key prefix matches what we'd extract.
+        #[cfg(debug_assertions)]
+        {
+            let keys = &entries.spec.keys[binding as usize];
+            Extractor::extract_all(embedded.get(), keys, &mut entries.scratch);
+            debug_assert!(
+                entries
+                    .scratch
+                    .starts_with(&packed_key_prefix[..13.min(entries.scratch.len())]),
+                "packed_key_prefix mismatch: expected {:?}, got {:?}",
+                &packed_key_prefix[..13],
+                &entries.scratch[..13.min(entries.scratch.len())],
+            );
+            entries.scratch.clear();
+        }
+
+        let raw = embedded.as_u64le_slice();
+        let root = HeapRoot::Embedded(raw.as_ptr(), raw.len() as u32);
+
+        let meta = Meta::from_packed_prefix(binding, packed_key_prefix, front, known_valid);
+        entries.queued.push(HeapEntry { meta, root });
 
         if entries.should_compact() {
             self.compact()
@@ -300,9 +346,9 @@ impl MemTable {
     ) -> Result<Spec, Error> {
         let (mut sorted, mut spec, alloc) = self.try_into_parts()?;
 
-        // Validate all !front() documents of the spilled segment, applying
-        // "redact" annotations as we go so that no redacted data is written
-        // to disk.
+        // Validate all !front() && !known_valid() documents of the spilled
+        // segment, applying "redact" annotations as we go so that no redacted
+        // data is written to disk.
         //
         // This also accelerates a common case where no further reduction is
         // required across spilled segments, and we're typically doing this
@@ -314,22 +360,34 @@ impl MemTable {
         // wasted work. If it happens that there is no further reduction then
         // we'll validate the document upon drain.
         //
-        // We also do not redact front() documents (for example, Loaded documents
-        // of a materialization), as by-construction these have been redacted.
+        // Note there's a trade-off here: this means we may write front() docs
+        // to disk before applying redaction, and we want to redact BEFORE that.
+        // The justification is that use cases of front() are for documents that
+        // have already been redacted (e.g., Loaded docs of a materialization).
         for doc in sorted.iter_mut() {
-            if doc.meta.front() {
+            if doc.meta.front() || doc.meta.known_valid() {
                 continue;
             }
-            let valid = spec.validators[doc.meta.binding()]
-                .validate(&doc.root, validation::redact_filter)
-                .map_err(|invalid| {
-                    Error::FailedValidation(spec.names[doc.meta.binding()].clone(), invalid)
-                })?;
+            let outcomes = validate_root(
+                &doc.root,
+                &mut spec.validators[doc.meta.binding()],
+                &spec.names[doc.meta.binding()],
+                validation::redact_filter,
+            )?;
+            doc.meta.set_known_valid(true);
 
-            // Redact the document as needed. There's an argument that we should revalidate
-            // if the outcome isn't Outcome::Unchanged but this carries a performance cost,
-            // and doc::Shape inspections will catch most issues at publication time.
-            let _outcome = redact::redact(&mut doc.root, &valid, &alloc, &spec.redact_salt)?;
+            // Do we need to apply redaction outcomes?
+            if outcomes.is_empty() {
+                continue;
+            }
+
+            let mut heap_node = match doc.root.access() {
+                Ok(heap_node) => heap_node,
+                Err(embedded) => HeapNode::from_node(embedded.get(), &alloc),
+            };
+            let _outcome = redact::redact(&mut heap_node, &outcomes, &alloc, &spec.redact_salt)?;
+
+            doc.root = HeapRoot::from_heap_node(heap_node);
         }
 
         let bytes = writer.write_segment(&sorted, chunk_target_size)?;
@@ -364,14 +422,13 @@ impl MemDrainer {
             return Ok(None);
         };
         let is_full = self.spec.is_full[meta.binding()];
-        let key = self.spec.keys[meta.binding()].as_ref();
+        let keys = self.spec.keys[meta.binding()].as_ref();
+        let name = &self.spec.names[meta.binding()];
         let validator = &mut self.spec.validators[meta.binding()];
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {
-            if meta.binding() != next.meta.binding()
-                || !Extractor::compare_key(key, &root, &next.root).is_eq()
-            {
+            if meta.0 != next.meta.0 || !compare_root_keys(keys, &root, &next.root).is_eq() {
                 self.in_group = false;
                 break;
             } else if !is_full && (!self.in_group || meta.not_associative()) {
@@ -382,22 +439,13 @@ impl MemDrainer {
                 break;
             }
 
-            let rhs_valid = validator
-                .validate(&next.root, validation::reduce_filter)
-                .map_err(|invalid| {
-                    Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
-                })?;
+            let rhs_valid = validate_root(&next.root, validator, name, validation::reduce_filter)?;
 
-            match reduce::reduce::<crate::ArchivedNode>(
-                LazyNode::Heap(&root),
-                LazyNode::Heap(&next.root),
-                &rhs_valid,
-                &self.zz_alloc,
-                is_full,
-            ) {
+            match reduce_roots(&root, &next.root, &rhs_valid, &self.zz_alloc, is_full) {
                 Ok((node, deleted)) => {
                     meta.set_deleted(deleted);
-                    root = node;
+                    meta.set_known_valid(false); // Must re-validate.
+                    root = HeapRoot::from_heap_node(node);
                     _ = self.it.next().unwrap(); // Discard.
                 }
                 Err(reduce::Error::NotAssociative) => {
@@ -408,17 +456,38 @@ impl MemDrainer {
             }
         }
 
-        let valid = validator
-            .validate(&root, validation::redact_filter)
-            .map_err(|invalid| {
-                Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
-            })?;
+        let outcomes = if meta.known_valid() {
+            Vec::new() // Skip validation.
+        } else {
+            meta.set_known_valid(true); // Optimistic.
+            validate_root(&root, validator, name, validation::redact_filter)?
+        };
 
-        // Redact the document as needed. See comment in spill() regarding revalidation.
-        let _outcome = redact::redact(&mut root, &valid, &self.zz_alloc, &self.spec.redact_salt)?;
+        // If we don't need to apply redaction outcomes, return the root as-is.
+        if outcomes.is_empty() {
+            let root = unsafe { OwnedHeapRoot::new(root, self.zz_alloc.clone()) };
 
-        // Safety: `root` was allocated from `self.zz_alloc`.
-        let root = unsafe { OwnedHeapNode::new(root, self.zz_alloc.clone()) };
+            return Ok(Some(DrainedDoc {
+                meta,
+                root: OwnedNode::Heap(root),
+            }));
+        }
+
+        // We must promote to HeapNode (if not already) to apply redaction.
+        let mut heap_node = match root.access() {
+            Ok(heap_node) => heap_node,
+            Err(embedded) => HeapNode::from_node(embedded.get(), &self.zz_alloc),
+        };
+        let _outcome = redact::redact(
+            &mut heap_node,
+            &outcomes,
+            &self.zz_alloc,
+            &self.spec.redact_salt,
+        )?;
+
+        let root = unsafe {
+            OwnedHeapRoot::new(HeapRoot::from_heap_node(heap_node), self.zz_alloc.clone())
+        };
 
         Ok(Some(DrainedDoc {
             meta,
@@ -451,6 +520,75 @@ impl MemDrainer {
     }
 }
 
+/// Compare keys of two HeapRoot entries, dispatching through `access()`.
+fn compare_root_keys(keys: &[Extractor], l: &HeapRoot, r: &HeapRoot) -> Ordering {
+    match (l.access(), r.access()) {
+        (Ok(lh), Ok(rh)) => Extractor::compare_key(keys, &lh, &rh),
+        (Ok(lh), Err(re)) => Extractor::compare_key(keys, &lh, re.get()),
+        (Err(le), Ok(rh)) => Extractor::compare_key(keys, le.get(), &rh),
+        (Err(le), Err(re)) => Extractor::compare_key(keys, le.get(), re.get()),
+    }
+}
+
+/// Validate a HeapRoot, dispatching through `access()`.
+fn validate_root<'v, F>(
+    root: &HeapRoot,
+    validator: &'v mut crate::Validator,
+    name: &str,
+    filter: F,
+) -> Result<Vec<validation::ScopedOutcome<'v>>, Error>
+where
+    F: Fn(validation::Outcome<'_>) -> Option<validation::Outcome<'_>>,
+{
+    let valid = match root.access() {
+        Ok(heap_node) => validator.validate(&heap_node, &filter),
+        Err(embedded) => validator.validate(embedded.get(), &filter),
+    };
+    valid.map_err(|invalid| Error::FailedValidation(name.to_string(), invalid))
+}
+
+/// Reduce two HeapRoot entries, dispatching each through `access()` to
+/// build the appropriate LazyNode variant. The by-value HeapNodes from
+/// `access()` live on the stack for the duration of the `reduce` call.
+fn reduce_roots<'alloc>(
+    lhs: &HeapRoot<'alloc>,
+    rhs: &HeapRoot<'alloc>,
+    rhs_valid: &[validation::ScopedOutcome<'_>],
+    alloc: &'alloc bumpalo::Bump,
+    full: bool,
+) -> Result<(HeapNode<'alloc>, bool), reduce::Error> {
+    match (lhs.access(), rhs.access()) {
+        (Ok(lh), Ok(rh)) => reduce::reduce::<crate::ArchivedNode>(
+            LazyNode::Heap(&lh),
+            LazyNode::Heap(&rh),
+            rhs_valid,
+            alloc,
+            full,
+        ),
+        (Ok(lh), Err(re)) => reduce::reduce::<crate::ArchivedNode>(
+            LazyNode::Heap(&lh),
+            LazyNode::Node(re.get()),
+            rhs_valid,
+            alloc,
+            full,
+        ),
+        (Err(le), Ok(rh)) => reduce::reduce::<crate::ArchivedNode>(
+            LazyNode::Node(le.get()),
+            LazyNode::Heap(&rh),
+            rhs_valid,
+            alloc,
+            full,
+        ),
+        (Err(le), Err(re)) => reduce::reduce::<crate::ArchivedNode>(
+            LazyNode::Node(le.get()),
+            LazyNode::Node(re.get()),
+            rhs_valid,
+            alloc,
+            full,
+        ),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -459,6 +597,41 @@ mod test {
     use crate::{SerPolicy, Validator, combine::CHUNK_TARGET_SIZE};
     use itertools::Itertools;
     use json::schema::build::build_schema;
+
+    /// Serialize a JSON `Value` into a `HeapEmbedded` backed by the given allocator.
+    fn to_embedded<'a>(value: &Value, alloc: &'a Bump) -> crate::HeapEmbedded<'a> {
+        let heap_node = HeapNode::from_node(value, alloc);
+        let archived = heap_node.to_archive();
+
+        let byte_len = archived.len();
+        let u64_len = (byte_len + 7) / 8;
+        let buf = alloc.alloc_slice_fill_default::<crate::embedded::U64Le>(u64_len);
+        unsafe {
+            std::ptr::copy_nonoverlapping(archived.as_ptr(), buf.as_mut_ptr() as *mut u8, byte_len);
+        }
+        unsafe { crate::HeapEmbedded::from_buffer(buf) }
+    }
+
+    /// Add a document to a MemTable via `add_embedded()`, extracting the packed
+    /// key prefix from the given extractors.
+    fn add_as_embedded(
+        memtable: &MemTable,
+        binding: u16,
+        doc: &Value,
+        front: bool,
+        keys: &[Extractor],
+    ) {
+        let embedded = to_embedded(doc, memtable.alloc());
+        let mut scratch = bytes::BytesMut::new();
+        Extractor::extract_all(embedded.get(), keys, &mut scratch);
+        let mut packed_prefix = [0u8; 16];
+        let copy_len = scratch.len().min(16);
+        packed_prefix[..copy_len].copy_from_slice(&scratch[..copy_len]);
+
+        memtable
+            .add_embedded(binding, &packed_prefix, embedded, front, false)
+            .unwrap();
+    }
 
     #[test]
     fn test_memtable_combine_reduce_sequence() {
@@ -495,12 +668,21 @@ mod test {
         );
         let memtable = MemTable::new(spec);
 
+        let keys = vec![Extractor::with_default(
+            "/key",
+            &SerPolicy::noop(),
+            json!("def"),
+        )];
+
+        // Binding 0 uses `add()` (heap), binding 1 uses `add_embedded()`.
+        // This exercises all cross-dispatch arms (Heap×Embedded) in
+        // compare_root_keys, validate_root, and reduce_roots during
+        // compaction and drain.
         let add_and_compact = |docs: &[(bool, Value)]| {
             for (front, doc) in docs {
                 let doc_0 = HeapNode::from_node(doc, memtable.alloc());
-                let doc_1 = HeapNode::from_node(doc, memtable.alloc());
                 memtable.add(0, doc_0, *front).unwrap();
-                memtable.add(1, doc_1, *front).unwrap();
+                add_as_embedded(&memtable, 1, doc, *front, &keys);
             }
             memtable.compact().unwrap();
         };
@@ -767,7 +949,7 @@ mod test {
             for HeapEntry { meta, root } in entries.sorted.iter() {
                 b.push_str(&format!(
                     "{meta:?} {}\n",
-                    serde_json::to_string(&SerPolicy::debug().on(root)).unwrap()
+                    serde_json::to_string(&SerPolicy::debug().on(&root.access().unwrap())).unwrap()
                 ));
             }
             b
@@ -969,19 +1151,19 @@ mod test {
                 serde_json::to_string(&SerPolicy::debug().on_owned(&root)).unwrap()
             ));
         }
-        insta::assert_snapshot!(drained, @r###"
-        Meta(0, "F") {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
-        Meta(0) {"k":2}
-        Meta(0, "F") {"k":3,"v":"other"}
-        Meta(1, "F") {"k":1,"v":{"a":{"init":1}}}
-        Meta(1, "F", "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
-        Meta(1, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
-        Meta(1, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
-        Meta(1) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
-        Meta(1) {"k":2,"v":[1,2]}
-        Meta(1) {"k":2,"v":null,"z":null}
-        Meta(1, "F") {"k":3,"v":"other"}
-        "###);
+        insta::assert_snapshot!(drained, @r#"
+        Meta(0, "F", "V") {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(0, "V") {"k":2}
+        Meta(0, "F", "V") {"k":3,"v":"other"}
+        Meta(1, "F", "V") {"k":1,"v":{"a":{"init":1}}}
+        Meta(1, "F", "NA", "V") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(1, "NA", "V") {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(1, "NA", "V") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
+        Meta(1, "V") {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(1, "V") {"k":2,"v":[1,2]}
+        Meta(1, "V") {"k":2,"v":null,"z":null}
+        Meta(1, "F", "V") {"k":3,"v":"other"}
+        "#);
     }
 
     #[test]
@@ -1021,18 +1203,18 @@ mod test {
         let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
 
         let (spill, ranges) = spill.into_parts();
-        assert_eq!(ranges, vec![0..137]);
-        insta::assert_snapshot!(to_hex(spill.get_ref()), @r"
-        |81000000 08010000 79000002 61616100| ........y...aaa. 00000000
-        |01008040 0000006b 6579ff01 00700800| ...@...key...p.. 00000010
-        |00006161 610b0010 ff250011 760a0002| ..aaa....%..v... 00000020
-        |18004067 6f6f640c 00001800 d0060000| ..@good......... 00000030
-        |00030000 00c8ffff ff021100 51000262| ............Q..b 00000040
-        |62620900 0402001c 01580030 6262623f| bb.......X.0bbb? 00000050
-        |000f5800 1d346363 63530001 02000d58| ..X..4cccS.....X 00000060
-        |003f6363 63580002 216261af 00017000| .?cccX..!ba...p. 00000070
-        |07b00050 ff020000 00|                ...P.....        00000080
-                                                               00000089
+        assert_eq!(ranges, vec![0..138]);
+        insta::assert_snapshot!(to_hex(spill.get_ref()), @"
+        |82000000 08010000 78000002 61616100| ........x...aaa. 00000000
+        |01009008 40000000 6b6579ff 01007008| ....@...key...p. 00000010
+        |00000061 61610b00 10ff2500 11760a00| ...aaa....%..v.. 00000020
+        |02180040 676f6f64 0c000018 00d00600| ...@good........ 00000030
+        |00000300 0000c8ff ffff0211 00510002| .............Q.. 00000040
+        |62626209 00040200 1c015800 30626262| bbb.......X.0bbb 00000050
+        |3f000f58 001d3463 63635300 0102000d| ?..X..4cccS..... 00000060
+        |58003f63 63635800 02216261 af000170| X.?cccX..!ba...p 00000070
+        |0007b000 50ff0200 0000|              ....P.....       00000080
+                                                               0000008a
         ");
 
         // New MemTable. This time we attempt to spill an invalid, non-reduced document.
@@ -1149,8 +1331,12 @@ mod test {
             MemTable::new(spec)
         };
 
+        let keys = vec![Extractor::new("/key", &SerPolicy::noop())];
+
         // Part 1: Expect we redact all !front documents upon spill.
         // (By construction, front documents must have already been redacted).
+        // k2 is added as an embedded doc to exercise the Embedded promotion path
+        // during spill validation and the embedded write path in SpillWriter.
         {
             let memtable = new_memtable();
 
@@ -1163,9 +1349,15 @@ mod test {
                 false,
                 json!({"key": "k1", "public": "visible", "secret": "remove-me", "pii": "alice"}),
             );
-            add(
+            // Added as embedded: exercises HeapNode::from_node(embedded.get(), ..)
+            // promotion during spill redaction, and the Embedded write path in
+            // SpillWriter::write_segment.
+            add_as_embedded(
+                &memtable,
+                0,
+                &json!({"key": "k2", "public": "also-visible", "pii": "bob"}),
                 false,
-                json!({"key": "k2", "public": "also-visible", "pii": "bob"}),
+                &keys,
             );
             add(
                 true, // Is front.
@@ -1186,43 +1378,56 @@ mod test {
                 })
                 .join("\n");
 
-            insta::assert_snapshot!(docs, @r###"
+            insta::assert_snapshot!(docs, @r#"
             {"key":"k1","pii":"sha256:e55a039cd18a0ddf1b15d9e6a190d734e36b8a6392af89109d099cd91112628d","public":"visible"}
             {"key":"k2","pii":"sha256:ad5525f56b4cd76a9acc02e5c485361fc7443d6585d35e9624e276cb9260ef37","public":"also-visible"}
-            {"key":"k3","pii":"passed","public":"front-doc","secret":"passed"}
-            "###);
+            {"key":"k3","pii":"sha256:bf1d9002c41d0b111c7be3ce8fa80fcde9cfec5a4c77835c17dc8e3760d6f276","public":"front-doc"}
+            "#);
         }
 
         // Part 2: Expect drain_next() redacts all documents.
         // This happens after reduction, but documents having no reduction are still redacted.
+        // The second "reduced-key" and "z-other-key" are added as embedded to exercise
+        // the Embedded promotion path during drain-time redaction.
         {
             let memtable = new_memtable();
 
-            // Add multiple documents with same key to trigger reduction
             let add = |doc: Value| {
                 let doc = HeapNode::from_node(&doc, memtable.alloc());
                 memtable.add(0, doc, false).unwrap();
             };
 
-            // These will be reduced together
+            // These will be reduced together (heap + embedded).
             add(json!({
                 "key": "reduced-key",
                 "public": "first",
                 "pii": "alice"
             }));
 
-            add(json!({
-                "key": "reduced-key",
-                "public": "second",
-                "secret": "remove-me"
-            }));
+            add_as_embedded(
+                &memtable,
+                0,
+                &json!({
+                    "key": "reduced-key",
+                    "public": "second",
+                    "secret": "remove-me"
+                }),
+                false,
+                &keys,
+            );
 
-            // Different key to ensure we have multiple docs
-            add(json!({
-                "key": "z-other-key",
-                "pii": "bob",
-                "secret": "also removed"
-            }));
+            // Different key as embedded to exercise standalone embedded redaction.
+            add_as_embedded(
+                &memtable,
+                0,
+                &json!({
+                    "key": "z-other-key",
+                    "pii": "bob",
+                    "secret": "also removed"
+                }),
+                false,
+                &keys,
+            );
 
             // Drain and verify redaction happens after reduction
             let drainer = memtable.try_into_drainer().unwrap();
@@ -1326,6 +1531,39 @@ mod test {
             }
             "###);
         }
+    }
+
+    #[test]
+    fn test_drainer_into_spec() {
+        let spec = Spec::with_one_binding(
+            true,
+            vec![Extractor::new("/key", &SerPolicy::noop())],
+            "test-source",
+            Vec::new(),
+            Validator::new(
+                build_schema(
+                    &url::Url::parse("http://example/schema").unwrap(),
+                    &json!({
+                        "properties": {
+                            "key": { "type": "string" },
+                            "v": { "type": "integer" }
+                        },
+                        "reduce": { "strategy": "lastWriteWins" }
+                    }),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+        let memtable = MemTable::new(spec);
+
+        let doc = HeapNode::from_node(&json!({"key": "aaa", "v": 1}), memtable.alloc());
+        memtable.add(0, doc, false).unwrap();
+
+        let drainer = memtable.try_into_drainer().unwrap();
+        // Drop the drainer without fully draining and recover the Spec.
+        let spec = drainer.into_spec();
+        assert_eq!(spec.names, vec!["test-source"]);
     }
 
     fn to_hex(b: &[u8]) -> String {

@@ -494,7 +494,7 @@ fn do_merge_bounded(
         // When a full reduction with a null merge-patch operand fires
         // the LWW delete flag, the value position is removed from the
         // array. In that case the semantic result is JSON null.
-        let doc::HeapNode::Array(_, array) = root.get() else {
+        let Ok(doc::HeapNode::Array(_, array)) = root.access() else {
             unreachable!()
         };
         match array.get(1) {

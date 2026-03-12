@@ -1,6 +1,8 @@
 use super::{BUMP_THRESHOLD, DrainedDoc, Error, HeapEntry, Meta, Spec, bump_mem_used, reduce};
 use crate::owned::OwnedArchivedNode;
-use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode, validation};
+use crate::{
+    Extractor, HeapNode, HeapRoot, LazyNode, OwnedHeapRoot, OwnedNode, redact, validation,
+};
 use bumpalo::Bump;
 use bytes::Buf;
 use std::collections::BinaryHeap;
@@ -66,12 +68,19 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
             raw_buf.extend_from_slice(&meta.0);
             raw_buf.extend_from_slice(&[0, 0, 0, 0, meta.1, 0, 0, 0, 0]);
 
-            raw_buf = rkyv::api::low::to_bytes_in_with_alloc::<_, _, rkyv::rancor::Error>(
-                root,
-                raw_buf,
-                arena.acquire(),
-            )
-            .expect("serialize of HeapNode to memory always succeeds");
+            match root.access() {
+                Ok(root) => {
+                    raw_buf = rkyv::api::low::to_bytes_in_with_alloc::<_, _, rkyv::rancor::Error>(
+                        &root,
+                        raw_buf,
+                        arena.acquire(),
+                    )
+                    .expect("serialize of HeapNode to memory always succeeds");
+                }
+                Err(embedded) => {
+                    raw_buf.extend_from_slice(embedded.as_bytes());
+                }
+            }
 
             // Update header with the final document length, excluding header.
             let doc_len = raw_buf.len() - offset - ENTRY_HEADER_LEN;
@@ -350,7 +359,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
 
         // Attempt to reduce additional entries.
         while let Some(cmp::Reverse(next)) = self.heap.peek() {
-            if meta.binding() != next.head.meta.binding()
+            if meta.0 != next.head.meta.0
                 || !Extractor::compare_key(key, root.get(), next.head.root.get()).is_eq()
             {
                 self.in_group = false;
@@ -384,6 +393,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
             ) {
                 Ok((node, deleted)) => {
                     meta.set_deleted(deleted);
+                    meta.set_known_valid(false); // Must re-validate.
                     reduced = Some(node);
 
                     // Discard the peeked entry, which was reduced into `reduced_root`.
@@ -401,36 +411,52 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
             }
         }
 
-        // Map `reduced` into an owned variant.
-        let root = match reduced {
-            None => {
-                // `root` was spilled to disk and was not reduced again.
-                // We validate !front() documents when spilling to disk and
-                // can skip doing so now (this is the common case).
-                if meta.front() {
-                    let _valid = validator
-                        .validate(root.get(), |_| None)
-                        .map_err(|invalid| {
-                            Error::FailedValidation(
-                                self.spec.names[meta.binding()].clone(),
-                                invalid,
-                            )
-                        })?;
+        let outcomes = if meta.known_valid() {
+            Vec::new() // Skip validation.
+        } else {
+            meta.set_known_valid(true); // Optimistic.
+
+            match &reduced {
+                None => validator.validate(root.get(), validation::redact_filter),
+                Some(reduced) => validator.validate(reduced, validation::redact_filter),
+            }
+            .map_err(|invalid| {
+                Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
+            })?
+        };
+
+        // If we don't need to apply redaction outcomes, return the root as-is.
+        let root = if outcomes.is_empty() {
+            match reduced {
+                None => OwnedNode::Archived(root),
+                Some(reduced) => {
+                    // Safety: we allocated `reduced` out of `self.alloc`.
+                    let root = unsafe {
+                        OwnedHeapRoot::new(HeapRoot::from_heap_node(reduced), self.alloc.clone())
+                    };
+
+                    OwnedNode::Heap(root)
                 }
-
-                OwnedNode::Archived(root)
             }
-            Some(reduced) => {
-                // We built `reduced` via reduction and must re-validate it.
-                validator.validate(&reduced, |_| None).map_err(|invalid| {
-                    Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
-                })?;
+        } else {
+            // We must promote to HeapNode (if not already) to apply redaction.
+            let mut heap_node = match reduced {
+                Some(heap_node) => heap_node,
+                None => HeapNode::from_node(root.get(), &self.alloc),
+            };
+            let _outcome = redact::redact(
+                &mut heap_node,
+                &outcomes,
+                &self.alloc,
+                &self.spec.redact_salt,
+            )?;
 
-                // Safety: we allocated `reduced` out of `self.alloc`.
-                let reduced = unsafe { OwnedHeapNode::new(reduced, self.alloc.clone()) };
+            // Safety: we allocated `reduced` out of `self.alloc`.
+            let reduced = unsafe {
+                OwnedHeapRoot::new(HeapRoot::from_heap_node(heap_node), self.alloc.clone())
+            };
 
-                OwnedNode::Heap(reduced)
-            }
+            OwnedNode::Heap(reduced)
         };
 
         // Safety: we must hold `alloc` constant for all reductions of a yielded entry.
@@ -512,8 +538,8 @@ mod test {
         // Assert we wrote the expected range and regression fixture.
         assert_eq!(ranges, vec![0..179]);
 
-        insta::assert_snapshot!(to_hex(&spill.get_ref()), @r"
-        |62000000 b0000000 1f000100 00804000| b.............@. 00000000
+        insta::assert_snapshot!(to_hex(&spill.get_ref()), @"
+        |62000000 b0000000 1e000100 90084000| b.............@. 00000000
         |00006b65 79ff0100 70080000 00616161| ..key...p....aaa 00000010
         |0b0010ff 2b001176 0a000318 00437070| ....+..v.....Cpp 00000020
         |6c651800 d0060000 00030000 00c8ffff| le.............. 00000030
@@ -560,6 +586,18 @@ mod test {
         // Stepping the segment again consumes it, as no chunks remain.
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
         assert!(next_segment.is_none());
+
+        // Verify that embedded entries produce byte-identical spill output.
+        // The on-disk format should not distinguish add() vs add_embedded().
+        let embedded_segment = segment_fixture_embedded(fixture, &alloc);
+        let mut embedded_spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+        embedded_spill
+            .write_segment(&embedded_segment, 130)
+            .unwrap();
+        let (embedded_spill, embedded_ranges) = embedded_spill.into_parts();
+
+        assert_eq!(embedded_ranges, ranges);
+        assert_eq!(embedded_spill.into_inner(), spill.into_inner());
     }
 
     #[test]
@@ -606,7 +644,9 @@ mod test {
                 ],
                 &alloc,
             ),
-            segment_fixture(
+            // Use embedded entries for this segment to exercise the Embedded
+            // write path in SpillWriter and ArchivedEmbedded read-back during drain.
+            segment_fixture_embedded(
                 &[
                     (0, json!({"key": "bbb", "v": ["avocado"]}), true),
                     (1, json!({"key": "bbb", "v": ["apricot"]}), true),
@@ -919,6 +959,125 @@ mod test {
         assert_eq!(all_keys, expected);
     }
 
+    #[test]
+    fn test_spill_drain_associative() {
+        // Exercise the !is_full (associative) path in SpillDrainer::drain_next,
+        // including the NotAssociative error branch.
+        let schema = json::schema::build(
+            &url::Url::parse("http://example/schema").unwrap(),
+            &json!({
+                "properties": {
+                    "key": { "type": "string" },
+                    "v": {
+                        "reduce": { "strategy": "merge" }
+                    }
+                },
+                "reduce": { "strategy": "merge" }
+            }),
+        )
+        .unwrap();
+
+        let spec = Spec::with_bindings(
+            [(
+                false, // Associative (not full) reduction.
+                vec![Extractor::new("/key", &SerPolicy::noop())],
+                "source",
+                Validator::new(schema).unwrap(),
+            )]
+            .into_iter(),
+            Vec::new(),
+        );
+
+        let alloc = Bump::new();
+
+        // Segment 1: two docs for key "aaa" that reduce associatively,
+        // and a doc that will trigger NotAssociative.
+        let fixtures = vec![
+            segment_fixture(
+                &[
+                    (0, json!({"key": "aaa", "v": {"a": 1}}), true),
+                    (0, json!({"key": "aaa", "v": {"b": 2}}), false),
+                    // This will be non-associative with the next segment's entry
+                    // because merging a string into an object isn't associative.
+                    (0, json!({"key": "bbb", "v": {"x": 1}}), false),
+                ],
+                &alloc,
+            ),
+            segment_fixture(
+                &[
+                    (0, json!({"key": "aaa", "v": {"c": 3}}), false),
+                    (0, json!({"key": "bbb", "v": {"y": 2}}), false),
+                ],
+                &alloc,
+            ),
+        ];
+
+        let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+        for segment in fixtures {
+            spill.write_segment(&segment, CHUNK_TARGET_SIZE).unwrap();
+        }
+
+        let (spill, ranges) = spill.into_parts();
+        let drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
+
+        let actual = drainer
+            .map_ok(|doc| {
+                (
+                    serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap(),
+                    doc.meta.front(),
+                    doc.meta.not_associative(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        insta::assert_json_snapshot!(actual, @r###"
+        [
+          [
+            {
+              "key": "aaa",
+              "v": {
+                "a": 1
+              }
+            },
+            true,
+            false
+          ],
+          [
+            {
+              "key": "aaa",
+              "v": {
+                "b": 2,
+                "c": 3
+              }
+            },
+            false,
+            false
+          ],
+          [
+            {
+              "key": "bbb",
+              "v": {
+                "x": 1
+              }
+            },
+            false,
+            false
+          ],
+          [
+            {
+              "key": "bbb",
+              "v": {
+                "y": 2
+              }
+            },
+            false,
+            false
+          ]
+        ]
+        "###);
+    }
+
     fn to_hex(b: &[u8]) -> String {
         hexdump::hexdump_iter(b)
             .map(|line| format!("{line}"))
@@ -933,8 +1092,43 @@ mod test {
         fixture
             .into_iter()
             .map(|(binding, value, front)| HeapEntry {
-                meta: Meta::new(*binding, &[], *front),
-                root: HeapNode::from_node(value, &alloc),
+                // !front() entries are marked known_valid, simulating having
+                // been validated during memtable::spill().
+                meta: Meta::new(*binding, &[], *front, !front),
+                root: HeapRoot::from_heap_node(HeapNode::from_node(value, &alloc)),
+            })
+            .collect()
+    }
+
+    /// Like `segment_fixture` but produces `HeapRoot::Embedded` entries,
+    /// exercising the embedded write path in `SpillWriter::write_segment`
+    /// and embedded read-back via `ArchivedEmbedded`.
+    fn segment_fixture_embedded<'alloc>(
+        fixture: &[(u16, Value, bool)],
+        alloc: &'alloc bumpalo::Bump,
+    ) -> Vec<HeapEntry<'alloc>> {
+        fixture
+            .into_iter()
+            .map(|(binding, value, front)| {
+                let heap_node = HeapNode::from_node(value, alloc);
+                let archived = heap_node.to_archive();
+
+                let byte_len = archived.len();
+                let u64_len = (byte_len + 7) / 8;
+                let buf = alloc.alloc_slice_fill_default::<crate::embedded::U64Le>(u64_len);
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        archived.as_ptr(),
+                        buf.as_mut_ptr() as *mut u8,
+                        byte_len,
+                    );
+                }
+                let raw = buf as &[crate::embedded::U64Le];
+
+                HeapEntry {
+                    meta: Meta::new(*binding, &[], *front, !front),
+                    root: HeapRoot::Embedded(raw.as_ptr(), raw.len() as u32),
+                }
             })
             .collect()
     }

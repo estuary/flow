@@ -37,6 +37,11 @@ impl<'a> HeapEmbedded<'a> {
         let s = self.0;
         unsafe { core::slice::from_raw_parts(s.as_ptr() as *const u8, s.len() * 8) }
     }
+
+    /// Return the underlying `&[U64Le]` slice.
+    pub fn as_u64le_slice(&self) -> &[U64Le] {
+        self.0
+    }
 }
 
 impl ArchivedEmbedded<'_> {
@@ -49,6 +54,17 @@ impl ArchivedEmbedded<'_> {
     pub fn as_bytes(&self) -> &[u8] {
         let s = self.0.as_slice();
         unsafe { core::slice::from_raw_parts(s.as_ptr() as *const u8, s.len() * 8) }
+    }
+
+    /// Return the underlying `&[U64Le]` slice.
+    pub fn as_u64le_slice(&self) -> &[U64Le] {
+        self.0.as_slice()
+    }
+
+    /// Promote the ArchivedEmbedded to a HeapEmbedded backed by the Allocator.
+    pub fn to_heap<'alloc>(&self, alloc: &'alloc crate::Allocator) -> HeapEmbedded<'alloc> {
+        let src = self.0.as_slice();
+        HeapEmbedded(alloc.alloc_slice_copy(src))
     }
 }
 

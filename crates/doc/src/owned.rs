@@ -1,10 +1,10 @@
-use super::{ArchivedNode, HeapNode};
+use super::{ArchivedNode, HeapEmbedded, HeapNode, HeapRoot};
 use std::sync::Arc;
 
-/// OwnedNode is an enum over OwnedArchivedNode and OwnedHeapNode.
+/// OwnedNode is an enum over OwnedArchivedNode and OwnedHeapRoot.
 pub enum OwnedNode {
     Archived(OwnedArchivedNode),
-    Heap(OwnedHeapNode),
+    Heap(OwnedHeapRoot),
 }
 
 /// OwnedArchivedNode is an owned, aligned Bytes buffer holding an ArchivedNode.
@@ -37,37 +37,41 @@ impl OwnedArchivedNode {
     }
 }
 
-pub struct OwnedHeapNode {
-    node: HeapNode<'static>,
+/// OwnedHeapRoot wraps a HeapRoot (which may be a live HeapNode tree or a
+/// HeapEmbedded archived buffer) together with its backing bump allocator.
+pub struct OwnedHeapRoot {
+    root: HeapRoot<'static>,
     _zz_alloc: Arc<bumpalo::Bump>,
 }
 
-impl OwnedHeapNode {
-    /// Build an OwnedHeapNode around a HeapNode and its backing Bump allocator.
-    /// The caller must ensure the HeapNode is entirely allocated within the argument Bump.
-    pub unsafe fn new<'s>(node: HeapNode<'s>, alloc: Arc<bumpalo::Bump>) -> Self {
-        // Safety: `node` is backed by `alloc`, which is an owned reference
-        // to the Bump and is stored alongside `node`.
-        let node = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(node) };
+impl OwnedHeapRoot {
+    /// Build an OwnedHeapRoot around a HeapRoot and its backing Bump allocator.
+    /// The caller must ensure the HeapRoot is entirely allocated within the
+    /// argument Bump (both heap tree pointers and embedded buffer pointers).
+    pub unsafe fn new<'s>(root: HeapRoot<'s>, alloc: Arc<bumpalo::Bump>) -> Self {
+        // Safety: `root` is backed by `alloc`, which is an owned reference
+        // to the Bump and is stored alongside `root`.
+        let root = unsafe { std::mem::transmute::<HeapRoot<'s>, HeapRoot<'static>>(root) };
 
         Self {
-            node,
+            root,
             _zz_alloc: alloc,
         }
     }
 
+    /// Dispatch to either a by-value HeapNode or a HeapEmbedded.
     #[inline]
-    pub fn get<'s>(&'s self) -> &'s HeapNode<'s> {
-        &self.node
+    pub fn access<'s>(&'s self) -> Result<HeapNode<'s>, HeapEmbedded<'s>> {
+        self.root.access()
     }
 }
 
-// impl Drop to disallow destructuring of OwnedHeapNode,
-// because that can separate the lifetimes of `node` and `_alloc`.
-impl Drop for OwnedHeapNode {
+// impl Drop to disallow destructuring of OwnedHeapRoot,
+// because that can separate the lifetimes of `root` and `_alloc`.
+impl Drop for OwnedHeapRoot {
     fn drop(&mut self) {}
 }
 
-// OwnedHeapNode is Send because we maintain a coupled lifetime between HeapNode
+// OwnedHeapRoot is Send because we maintain a coupled lifetime between HeapRoot
 // and its backing allocator, and they're sent together.
-unsafe impl Send for OwnedHeapNode {}
+unsafe impl Send for OwnedHeapRoot {}
