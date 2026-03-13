@@ -1,0 +1,26 @@
+---
+source: crates/shuffle/src/slice/state.rs
+expression: "&state.flushed"
+---
+Frontier {
+    journals: [
+        JournalFrontier {
+            journal: "test/journal/A",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:00:00:00:00:00),
+                    last_commit: Clock(100s 0ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: -50,
+                },
+                ProducerFrontier {
+                    producer: Producer(03:00:00:00:00:00),
+                    last_commit: Clock(200s 0ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: -100,
+                },
+            ],
+        },
+    ],
+}

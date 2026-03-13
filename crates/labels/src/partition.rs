@@ -51,14 +51,18 @@ pub fn add_value<N: json::AsNode>(
 }
 
 /// Decode logical partition field values and their key range.
-pub fn decode_field_range(set: &LabelSet) -> Result<((u32, u32), Vec<Value>), Error> {
+/// `fields` are the ordered, bare field names (without FIELD_PREFIX).
+pub fn decode_field_range<S: AsRef<str>>(
+    set: &LabelSet,
+    fields: &[S],
+) -> Result<((u32, u32), Vec<Value>), Error> {
     let key_range = decode_key_range(set)?;
-    let mut values = Vec::new();
+    let mut values = Vec::with_capacity(fields.len());
 
-    for Label { name, value, .. } in &set.labels {
-        if name.starts_with(FIELD_PREFIX) {
-            values.push(decode_field_value(value)?);
-        }
+    for field in fields {
+        let label_name = format!("{FIELD_PREFIX}{}", field.as_ref());
+        let encoded = expect_one(set, &label_name)?;
+        values.push(decode_field_value(encoded)?);
     }
 
     Ok((key_range, values))
@@ -292,7 +296,9 @@ mod test {
 
     #[test]
     fn test_decode_cases() {
-        let case = |set| match decode_field_range(&set) {
+        let fields = ["Bool", "String", "messy", "the_int"];
+
+        let case = |set| match decode_field_range(&set, &fields) {
             Ok(ok) => serde_json::to_value(ok).unwrap(),
             Err(err) => serde_json::Value::String(err.to_string()),
         };
