@@ -135,8 +135,8 @@ The following patterns are available:
 - `%H`: The hour as a 2-digit number with a 24-hour clock. (01, 02, ..., 23)
 - `%M`: The minute as a 2-digit number. (01, 02, ..., 59)
 - `%S`: The second as a 2-digit number. (01, 02, ..., 59)
-- `%Z`: The timezone abbreviation. (UTC)
-- `%z`: The timezone as an HHMM offset. (+0000)
+- `%Z`: The timezone abbreviation. (will always be `UTC`)
+- `%z`: The timezone as an HHMM offset. (will always be `+0000`)
 
 ## Multipart Upload Cleanup
 
