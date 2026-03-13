@@ -1838,6 +1838,29 @@ impl TestControlPlane {
         mocks.fail_activations.insert(catalog_name.to_string());
     }
 
+    /// Asserts that a specific task was activated, without requiring it to be
+    /// the only activation. Calls `reset_activations` at the end.
+    pub fn assert_activated(&mut self, desc: &str, catalog_name: &str, catalog_type: CatalogType) {
+        let mocks = self.mocks.lock().unwrap();
+        let found = mocks.activations.iter().any(|a| {
+            a.catalog_name == catalog_name
+                && a.catalog_type == catalog_type
+                && a.built_spec.is_some()
+        });
+        assert!(
+            found,
+            "{desc}: expected {catalog_name} ({catalog_type:?}) to be activated, but it was not. \
+             actual activations: {:?}",
+            mocks
+                .activations
+                .iter()
+                .map(|a| a.catalog_name.as_str())
+                .collect::<Vec<_>>()
+        );
+        std::mem::drop(mocks);
+        self.reset_activations();
+    }
+
     /// Asserts that there were calls to activate or delete all the given specs.
     /// If the catalog type is `Some`, then expect an activation, otherwise expect
     /// a deletion. Calls `reset_activations` at the end, assuming assertions pass.
@@ -1912,6 +1935,10 @@ pub fn get_collection_generation_id(state: &ControllerState) -> models::Id {
 
 #[async_trait::async_trait]
 impl ControlPlane for TestControlPlane {
+    fn system_user_id(&self) -> sqlx::types::Uuid {
+        self.inner.system_user_id
+    }
+
     fn can_auto_discover(&self) -> bool {
         self.auto_discover_enabled
     }
@@ -1949,6 +1976,22 @@ impl ControlPlane for TestControlPlane {
 
     async fn get_shard_failures(&self, catalog_name: String) -> anyhow::Result<Vec<ShardFailure>> {
         self.inner.get_shard_failures(catalog_name).await
+    }
+
+    async fn fetch_last_user_publication_at(
+        &self,
+        live_spec_id: Id,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
+        self.inner
+            .fetch_last_user_publication_at(live_spec_id)
+            .await
+    }
+
+    async fn fetch_last_data_movement_ts(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
+        self.inner.fetch_last_data_movement_ts(catalog_name).await
     }
 
     async fn delete_shard_failures(

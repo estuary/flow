@@ -91,6 +91,48 @@ pub async fn fetch_controller_job(
     .await
 }
 
+pub async fn fetch_last_user_publication_at(
+    live_spec_id: Id,
+    system_user_id: Uuid,
+    db: impl sqlx::PgExecutor<'static>,
+) -> sqlx::Result<Option<DateTime<Utc>>> {
+    sqlx::query_scalar!(
+        r#"
+        select ps.published_at
+        from publication_specs ps
+        where ps.live_spec_id = $1
+            and ps.user_id != $2
+        order by ps.pub_id desc
+        limit 1
+        "#,
+        live_spec_id as Id,
+        system_user_id as Uuid,
+    )
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn fetch_last_data_movement_ts(
+    catalog_name: &str,
+    db: impl sqlx::PgExecutor<'static>,
+) -> sqlx::Result<Option<DateTime<Utc>>> {
+    sqlx::query_scalar!(
+        r#"
+        select ts
+        from catalog_stats_daily
+        where catalog_name = $1
+            and ts > now() - interval '60 days'
+            and (bytes_written_by_me + bytes_read_by_me
+                + bytes_written_to_me + bytes_read_from_me) > 0
+        order by ts desc
+        limit 1
+        "#,
+        catalog_name,
+    )
+    .fetch_optional(db)
+    .await
+}
+
 #[tracing::instrument(level = "debug", skip(txn, status, controller_version))]
 pub async fn update_status(
     txn: &mut sqlx::PgConnection,

@@ -73,6 +73,12 @@ pub struct ActivationStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "crate::option_datetime_schema")]
     pub next_retry: Option<DateTime<Utc>>,
+
+    /// Number of shard restarts since the last sustained PRIMARY status.
+    /// Resets to 0 when shards hold sustained PRIMARY for SUSTAINED_PRIMARY_MIN_CHECKS
+    /// consecutive Ok health checks.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub restarts_since_last_primary: u32,
 }
 
 fn is_zero(i: &u32) -> bool {
@@ -110,6 +116,7 @@ impl Default for ActivationStatus {
             recent_failure_count: 0,
             next_retry: None,
             shard_status: None,
+            restarts_since_last_primary: 0,
         }
     }
 }

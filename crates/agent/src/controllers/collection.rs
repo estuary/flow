@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::{
-    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, activation,
+    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, abandon, activation,
     backoff_data_plane_activate, backoff_publication_failure, coalesce_results,
     dependencies::Dependencies,
     periodic,
@@ -48,6 +48,15 @@ pub async fn update<C: ControlPlane>(
     .with_retry(backoff_data_plane_activate(state.failures))
     .map_err(Into::into);
 
+    let abandon_result =
+        abandon::evaluate_abandoned(alerts, publications, state, control_plane).await;
+    if abandon_result
+        .as_ref()
+        .is_ok_and(|r| r.is_some_and(|n| n.is_immediately()))
+    {
+        return Ok(Some(NextRun::immediately()));
+    }
+
     let notify_result =
         publication_status::update_observed_pub_id(publications, alerts, state, control_plane)
             .await
@@ -65,6 +74,7 @@ pub async fn update<C: ControlPlane>(
             published.map(|_| periodic::next_periodic_publish(state)),
             Ok(inferred_schema_next),
             activation_result,
+            abandon_result,
             notify_result,
         ],
     )
