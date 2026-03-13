@@ -39,6 +39,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/credentials/access_token`** | API Key | Your Pendo API key. | string | Required |
+| `/host` | Pendo Host | Your Pendo host. Select the host that matches the region of your Pendo subscription. Options are `app.pendo.io` (US), `us1.app.pendo.io` (US1), `app.eu.pendo.io` (EU), `app.jpn.pendo.io` (Japan), and `app.au.pendo.io` (Australia). | string | `app.pendo.io` |
 | `/startDate` | Replication Start Date | UTC date and time in the format "YYYY-MM-DDTHH:MM:SSZ". Data prior to this date will not be replicated. | string | 1 hour before the current time |
 
 #### Bindings
@@ -58,6 +59,7 @@ captures:
         config:
           credentials:
             access_token: <secret>
+          host: app.pendo.io
     bindings:
       - resource:
           name: FeatureEvents
