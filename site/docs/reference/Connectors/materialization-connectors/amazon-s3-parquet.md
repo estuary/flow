@@ -47,7 +47,7 @@ Estuary collections to your bucket.
 | `/credentials/awsSecretAccessKey`    | AWS Secret Access key | Secret Access Key for writing data to the bucket.  Required when using the `AWSAccessKey` auth type.                                          | string  |                  |
 | `/credentials/aws_role_arn`          | AWS Role ARN          | Role to assume for writing data to the bucket.  Required when using the `AWSIAM` auth type.                                                   | string  |                  |
 | `/credentials/aws_region`            | Region                | Region of the bucket to write to.  Required when using the `AWSIAM` auth type.                                                                | string  |                  |
-| `/prefix`                            | Prefix                | Optional prefix that will be used to store objects.                                                                                           | string  |                  |
+| `/prefix`                            | Prefix                | Optional prefix that will be used to store objects.  May contain [date patterns](#date-patterns).                                             | string  |                  |
 | `/fileSizeLimit`                     | File Size Limit       | Approximate maximum size of materialized files in bytes. Defaults to 10737418240 (10 GiB) if blank.                                           | integer |                  |
 | `/endpoint`                          | Custom S3 Endpoint    | The S3 endpoint URI to connect to. Use if you're materializing to a compatible API that isn't provided by AWS. Should normally be left blank. | string  |                  |
 | `/parquetConfig/rowGroupRowLimit`    | Row Group Row Limit   | Maximum number of rows in a row group. Defaults to 1000000 if blank.                                                                          | integer |                  |
@@ -120,11 +120,34 @@ specific to the binding configuration. **v0000000000** represents the current **
 for binding and will be increased if the binding is re-backfilled, along with the file names
 starting back over from 0.
 
-## Eventual Consistency
+### Date Patterns
 
-In rare circumstances, recently materialized files may be re-written by files with the same name if
-the materialization shard is interrupted in the middle of processing a transaction and the
-transaction must be re-started. Files that were committed as part of a completed transaction will
-never be re-written. In this way, eventually all collection data will be written to files
-effectively-once, although inconsistencies are possible when accessing the most recently written
-data.
+The **prefix** option of the endpoint configuration can contain patterns that
+are expanded using the time of the start of the transaction.
+
+:::note The transaction time is always represented as UTC.
+:::
+
+The following patterns are available:
+- `%Y`: The year as a 4-digit number. (2025, 2026)
+- `%m`: The month as a 2-digit number. (01, 02, ..., 12)
+- `%d`: The day as a 2-digit number. (01, 02, ..., 31)
+- `%H`: The hour as a 2-digit number with a 24-hour clock. (01, 02, ..., 23)
+- `%M`: The minute as a 2-digit number. (01, 02, ..., 59)
+- `%S`: The second as a 2-digit number. (01, 02, ..., 59)
+- `%Z`: The timezone abbreviation. (will always be `UTC`)
+- `%z`: The timezone as an HHMM offset. (will always be `+0000`)
+
+## Multipart Upload Cleanup
+
+This materialization uses S3 multipart uploads to ensure exactly-once
+semantics.  If the materialization shard is interrupted while processing a
+transaction and the transaction must be re-started, there may be incomplete
+multipart uploads left behind.
+
+As a best practice it is recommended to add a [lifecycle rule to the bucket to
+automatically remove incompleted uploads][abort-lifecycle].  A 1-day or greater
+delay removing incomplete multipart uploads will be sufficient for the current
+transaction to complete.
+
+[abort-lifecycle]: https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpu-abort-incomplete-mpu-lifecycle-config.html
