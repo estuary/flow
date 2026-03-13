@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n              ct.id as \"id: Id\",\n              ct.image_tag,\n              ct.connector_id as \"connector_id: Id\",\n              ct.protocol as \"protocol: ConnectorProto\",\n              ct.created_at,\n              ct.updated_at,\n              ct.documentation_url,\n              ct.endpoint_spec_schema as \"endpoint_spec_schema: JsonRawValue\",\n              ct.resource_spec_schema as \"resource_spec_schema: JsonRawValue\",\n              ct.disable_backfill\n            from unnest($1::flowid[], $2::text[]) as input(connector_id, image_tag)\n            join connector_tags ct on input.connector_id = ct.connector_id and input.image_tag = ct.image_tag\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "image_tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "connector_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 3,
+        "name": "protocol: ConnectorProto",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "documentation_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "endpoint_spec_schema: JsonRawValue",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 8,
+        "name": "resource_spec_schema: JsonRawValue",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 9,
+        "name": "disable_backfill",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "6924f7c380a7d78e2c0ddf989fe63f082d9b71ab37cfc34e98fd4e41fa79cdfd"
+}

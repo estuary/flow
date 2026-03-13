@@ -1,0 +1,260 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/connectors.rs
+expression: response
+---
+{
+  "data": {
+    "captures": {
+      "edges": [
+        {
+          "node": {
+            "defaultTag": {
+              "disableBackfill": false,
+              "endpointSpecSchema": {
+                "type": "object"
+              },
+              "imageTag": ":v1",
+              "protocol": "capture",
+              "resourceSpecSchema": {
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "x-collection-name": true
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "imageName": "source/multi-tag-test",
+            "missingTag": null,
+            "recommended": false,
+            "tags": [
+              {
+                "imageTag": ":dev",
+                "protocol": "capture",
+                "specSucceeded": true
+              },
+              {
+                "imageTag": ":v1",
+                "protocol": "capture",
+                "specSucceeded": true
+              }
+            ],
+            "title": "test",
+            "vTwoTagResult": {
+              "disableBackfill": false,
+              "endpointSpecSchema": {
+                "type": "object"
+              },
+              "imageTag": ":v1",
+              "protocol": "capture",
+              "resourceSpecSchema": {
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "x-collection-name": true
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "node": {
+            "defaultTag": {
+              "disableBackfill": false,
+              "endpointSpecSchema": {
+                "type": "object"
+              },
+              "imageTag": ":test",
+              "protocol": "capture",
+              "resourceSpecSchema": {
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "x-collection-name": true
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "imageName": "source/test",
+            "missingTag": null,
+            "recommended": false,
+            "tags": [
+              {
+                "imageTag": ":test",
+                "protocol": "capture",
+                "specSucceeded": true
+              }
+            ],
+            "title": "test",
+            "vTwoTagResult": {
+              "disableBackfill": false,
+              "endpointSpecSchema": {
+                "type": "object"
+              },
+              "imageTag": ":test",
+              "protocol": "capture",
+              "resourceSpecSchema": {
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "x-collection-name": true
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "materializations": {
+      "edges": [
+        {
+          "node": {
+            "defaultTag": {
+              "disableBackfill": false,
+              "endpointSpecSchema": {
+                "type": "object"
+              },
+              "imageTag": ":v3",
+              "protocol": "materialization",
+              "resourceSpecSchema": {
+                "properties": {
+                  "delta": {
+                    "type": "boolean",
+                    "x-delta-updates": true
+                  },
+                  "id": {
+                    "type": "string",
+                    "x-collection-name": true
+                  },
+                  "schema": {
+                    "type": "string",
+                    "x-schema-name": true
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "imageName": "materialize/multi-tag-test",
+            "missingTag": null,
+            "recommended": false,
+            "tags": [
+              {
+                "imageTag": ":dev",
+                "protocol": "materialization",
+                "specSucceeded": true
+              },
+              {
+                "imageTag": ":v2",
+                "protocol": "materialization",
+                "specSucceeded": false
+              },
+              {
+                "imageTag": ":v3",
+                "protocol": "materialization",
+                "specSucceeded": true
+              }
+            ],
+            "title": "test",
+            "vTwoTagResult": {
+              "disableBackfill": false,
+              "endpointSpecSchema": {
+                "type": "object"
+              },
+              "imageTag": ":v3",
+              "protocol": "materialization",
+              "resourceSpecSchema": {
+                "properties": {
+                  "delta": {
+                    "type": "boolean",
+                    "x-delta-updates": true
+                  },
+                  "id": {
+                    "type": "string",
+                    "x-collection-name": true
+                  },
+                  "schema": {
+                    "type": "string",
+                    "x-schema-name": true
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "node": {
+            "defaultTag": {
+              "disableBackfill": false,
+              "endpointSpecSchema": {
+                "type": "object"
+              },
+              "imageTag": ":test-no-annotation",
+              "protocol": "materialization",
+              "resourceSpecSchema": {
+                "properties": {
+                  "delta": {
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "type": "string",
+                    "x-collection-name": true
+                  },
+                  "schema": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "imageName": "materialize/test",
+            "missingTag": null,
+            "recommended": false,
+            "tags": [
+              {
+                "imageTag": ":test-no-annotation",
+                "protocol": "materialization",
+                "specSucceeded": true
+              },
+              {
+                "imageTag": ":test",
+                "protocol": "materialization",
+                "specSucceeded": true
+              }
+            ],
+            "title": "test",
+            "vTwoTagResult": {
+              "disableBackfill": false,
+              "endpointSpecSchema": {
+                "type": "object"
+              },
+              "imageTag": ":test-no-annotation",
+              "protocol": "materialization",
+              "resourceSpecSchema": {
+                "properties": {
+                  "delta": {
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "type": "string",
+                    "x-collection-name": true
+                  },
+                  "schema": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

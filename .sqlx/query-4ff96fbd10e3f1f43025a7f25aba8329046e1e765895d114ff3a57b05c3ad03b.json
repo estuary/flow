@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n                c.id as \"id: Id\",\n                c.created_at,\n                c.external_url,\n                c.image_name,\n\n                c.recommended,\n                c.short_description as \"short_description: I18nValue\",\n                c.long_description as \"long_description: I18nValue\",\n                c.title as \"title: I18nValue\",\n                c.logo_url as \"logo_url: I18nValue\",\n\n                coalesce(\n                  array_agg(\n                    (\n                      ct.image_tag,\n                      ct.protocol,\n                      (ct.endpoint_spec_schema is not null and ct.resource_spec_schema is not null)\n                    )\n                  ) filter (\n                    where ct.image_tag is not null\n                  ),\n                  '{}'\n                ) as \"tags!: Vec<ConnectorTagRef>\"\n            from connectors c\n            left outer join connector_tags ct on c.id = ct.connector_id\n            where c.image_name = $1\n            group by c.id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "external_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "image_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "recommended",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "short_description: I18nValue",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "long_description: I18nValue",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "title: I18nValue",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "logo_url: I18nValue",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "tags!: Vec<ConnectorTagRef>",
+        "type_info": "RecordArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "4ff96fbd10e3f1f43025a7f25aba8329046e1e765895d114ff3a57b05c3ad03b"
+}

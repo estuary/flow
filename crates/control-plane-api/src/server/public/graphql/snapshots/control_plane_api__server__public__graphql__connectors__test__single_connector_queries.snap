@@ -1,0 +1,109 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/connectors.rs
+expression: response
+---
+{
+  "data": {
+    "dest": {
+      "defaultTag": {
+        "disableBackfill": false,
+        "endpointSpecSchema": {
+          "type": "object"
+        },
+        "imageTag": ":v3",
+        "protocol": "materialization",
+        "resourceSpecSchema": {
+          "properties": {
+            "delta": {
+              "type": "boolean",
+              "x-delta-updates": true
+            },
+            "id": {
+              "type": "string",
+              "x-collection-name": true
+            },
+            "schema": {
+              "type": "string",
+              "x-schema-name": true
+            }
+          },
+          "type": "object"
+        }
+      },
+      "imageName": "materialize/multi-tag-test",
+      "recommended": false,
+      "tags": [
+        {
+          "imageTag": ":dev",
+          "protocol": "materialization",
+          "specSucceeded": true
+        },
+        {
+          "imageTag": ":v2",
+          "protocol": "materialization",
+          "specSucceeded": false
+        },
+        {
+          "imageTag": ":v3",
+          "protocol": "materialization",
+          "specSucceeded": true
+        }
+      ],
+      "title": "test"
+    },
+    "missing": null,
+    "noTagsDest": {
+      "defaultTag": null,
+      "imageName": "materialize/no-tags-test",
+      "recommended": false,
+      "tags": [],
+      "title": "test"
+    },
+    "noTagsSource": {
+      "defaultTag": null,
+      "imageName": "source/no-tags-test",
+      "recommended": false,
+      "tags": [],
+      "title": "test"
+    },
+    "source": {
+      "defaultTag": {
+        "disableBackfill": false,
+        "endpointSpecSchema": {
+          "type": "object"
+        },
+        "imageTag": ":v1",
+        "protocol": "capture",
+        "resourceSpecSchema": {
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-collection-name": true
+            }
+          },
+          "type": "object"
+        }
+      },
+      "imageName": "source/multi-tag-test",
+      "recommended": false,
+      "tags": [
+        {
+          "imageTag": ":dev",
+          "protocol": "capture",
+          "specSucceeded": true
+        },
+        {
+          "imageTag": ":v1",
+          "protocol": "capture",
+          "specSucceeded": true
+        },
+        {
+          "imageTag": ":v2",
+          "protocol": null,
+          "specSucceeded": false
+        }
+      ],
+      "title": "test"
+    }
+  }
+}
