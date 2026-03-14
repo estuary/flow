@@ -152,10 +152,6 @@ impl Shuffle {
 
         // Per-member reader state, taken during each scan and returned after.
         let log_dir = std::path::Path::new(&log_dir_str);
-        type MemberState = (
-            shuffle::log::reader::Reader,
-            std::collections::VecDeque<shuffle::log::reader::Remainder>,
-        );
         let mut member_state: Vec<Option<MemberState>> = (0..*member_count)
             .map(|i| {
                 Some((
@@ -170,11 +166,9 @@ impl Shuffle {
             tempfile::tempfile().context("opening combiner spill file")?,
         )?;
 
-        let ser_policy = doc::SerPolicy::noop();
         let mut total_read_docs: usize = 0;
         let mut total_read_bytes: i64 = 0;
         let mut bytes_behind: i64 = 0;
-        let mut buf: Vec<u8> = Vec::new();
 
         let interval = std::time::Duration::from_millis(*interval);
         let start = std::time::Instant::now();
@@ -193,51 +187,18 @@ impl Shuffle {
                 .await
                 .context("requesting next checkpoint")?;
 
-            let total_producers: usize = frontier.journals.iter().map(|j| j.producers.len()).sum();
-
-            tracing::debug!(
-                i,
-                journals = frontier.journals.len(),
-                total_producers,
-                flushed_lsn = ?frontier.flushed_lsn,
-                "received NextCheckpoint"
-            );
-
             // Scan committed entries from each member's log,
             // pushing documents into the combiner.
-            let mut read_docs: usize = 0;
+            let scan_frontier = frontier.clone();
+            let (next_member_state, next_accumulator, read_docs) =
+                tokio::task::spawn_blocking(move || {
+                    scan_frontier_members(scan_frontier, member_state, accumulator)
+                })
+                .await
+                .context("joining scan task")??;
 
-            for (member_index, state_slot) in member_state.iter_mut().enumerate() {
-                let (reader, remainders) = state_slot.take().expect("member state must be present");
-
-                let mut scan = shuffle::log::reader::FrontierScan::new(
-                    frontier.clone(),
-                    reader,
-                    remainders,
-                )
-                .with_context(|| format!("creating FrontierScan for member {member_index}"))?;
-
-                while scan
-                    .advance_block()
-                    .with_context(|| format!("advancing block for member {member_index}"))?
-                {
-                    let memtable = accumulator.memtable()?;
-
-                    for entry in scan.block_iter() {
-                        memtable.add_embedded(
-                            entry.meta.binding.to_native(),
-                            &entry.doc.packed_key_prefix,
-                            entry.doc.doc.to_heap(memtable.alloc()),
-                            false,
-                            true,
-                        )?;
-                        read_docs += 1;
-                    }
-                }
-
-                let (_, reader, remainders) = scan.into_parts();
-                *state_slot = Some((reader, remainders));
-            }
+            member_state = next_member_state;
+            accumulator = next_accumulator;
 
             let read_bytes: i64 = frontier.journals.iter().map(|jf| jf.bytes_read_delta).sum();
             bytes_behind += frontier
@@ -249,30 +210,22 @@ impl Shuffle {
             total_read_bytes += read_bytes;
             total_read_docs += read_docs;
 
-            // Drain combined documents to stdout.
-            let mut stdout = std::io::stdout();
-            let mut combined_docs: usize = 0;
-            let mut combined_bytes: usize = 0;
+            let (next_accumulator, combined_docs, combined_bytes) =
+                tokio::task::spawn_blocking(move || drain_accumulator_to_stdout(accumulator))
+                    .await
+                    .context("joining drain task")??;
 
-            let mut drainer = accumulator.into_drainer()?;
-            while let Some(drained) = drainer.next() {
-                let drained = drained.context("draining combined document")?;
-                serde_json::to_writer(&mut buf, &ser_policy.on_owned(&drained.root))
-                    .context("writing NDJSON")?;
-                buf.push(b'\n');
-                combined_docs += 1;
-            }
-            std::io::Write::write_all(&mut stdout, &buf).context("flushing NDJSON to stdout")?;
-
-            combined_bytes += buf.len();
-            buf.clear();
-
-            accumulator = drainer
-                .into_new_accumulator()
-                .context("recycling accumulator")?;
+            accumulator = next_accumulator;
 
             tracing::info!(
                 i,
+                journals = frontier.journals.len(),
+                total_producers = frontier
+                    .journals
+                    .iter()
+                    .map(|j| j.producers.len())
+                    .sum::<usize>(),
+                flushed_lsn = ?frontier.flushed_lsn,
                 read_docs,
                 read_mib = read_bytes / (1024 * 1024),
                 combined_docs,
@@ -299,6 +252,79 @@ impl Shuffle {
 
         Ok(())
     }
+}
+
+type MemberState = (
+    shuffle::log::reader::Reader,
+    std::collections::VecDeque<shuffle::log::reader::Remainder>,
+);
+
+fn scan_frontier_members(
+    frontier: shuffle::Frontier,
+    mut member_state: Vec<Option<MemberState>>,
+    mut accumulator: combine::Accumulator,
+) -> anyhow::Result<(Vec<Option<MemberState>>, combine::Accumulator, usize)> {
+    let mut read_docs: usize = 0;
+
+    for (member_index, state_slot) in member_state.iter_mut().enumerate() {
+        let (reader, remainders) = state_slot.take().expect("member state must be present");
+
+        let mut scan =
+            shuffle::log::reader::FrontierScan::new(frontier.clone(), reader, remainders)
+                .with_context(|| format!("creating FrontierScan for member {member_index}"))?;
+
+        while scan
+            .advance_block()
+            .with_context(|| format!("advancing block for member {member_index}"))?
+        {
+            let memtable = accumulator.memtable()?;
+
+            for entry in scan.block_iter() {
+                memtable.add_embedded(
+                    entry.meta.binding.to_native(),
+                    &entry.doc.packed_key_prefix,
+                    entry.doc.doc.to_heap(memtable.alloc()),
+                    false,
+                    true,
+                )?;
+                read_docs += 1;
+            }
+        }
+
+        let (_, reader, remainders) = scan.into_parts();
+        *state_slot = Some((reader, remainders));
+    }
+
+    Ok((member_state, accumulator, read_docs))
+}
+
+fn drain_accumulator_to_stdout(
+    accumulator: combine::Accumulator,
+) -> anyhow::Result<(combine::Accumulator, usize, usize)> {
+    let ser_policy = doc::SerPolicy::noop();
+    let mut stdout = std::io::stdout();
+    let mut combined_docs: usize = 0;
+    let mut combined_bytes: usize = 0;
+    let mut buf = Vec::<u8>::new();
+
+    let mut drainer = accumulator.into_drainer()?;
+    while let Some(drained) = drainer.next() {
+        let drained = drained.context("draining combined document")?;
+        serde_json::to_writer(&mut buf, &ser_policy.on_owned(&drained.root))
+            .context("writing NDJSON")?;
+        buf.push(b'\n');
+        combined_docs += 1;
+        combined_bytes += buf.len();
+
+        std::io::Write::write_all(&mut stdout, &buf).context("flushing NDJSON to stdout")?;
+        buf.clear();
+    }
+
+    let accumulator = drainer
+        .into_new_accumulator()
+        .context("recycling accumulator")?;
+
+    Ok((accumulator, combined_docs, combined_bytes))
 }
 
 async fn fetch_task_spec(
