@@ -47,7 +47,6 @@ pub(crate) mod test_support {
                     flags: 0x0001,
                     clock,
                 },
-                0i64,
                 bytes::Bytes::from_static(b"packed_key_prefix"),
                 doc_bytes.clone(),
             ));

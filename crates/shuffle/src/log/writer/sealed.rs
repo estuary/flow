@@ -293,7 +293,6 @@ mod test {
                     flags: 0x0001,
                     clock: 100,
                 },
-                0i64,
                 bytes::Bytes::from_static(b"packed_key_______"),
                 doc_bytes,
             )];
@@ -321,7 +320,6 @@ mod test {
                     flags: 0x0001,
                     clock: 200,
                 },
-                10i64,
                 bytes::Bytes::from_static(b"packed_key2______"),
                 doc_bytes,
             )];

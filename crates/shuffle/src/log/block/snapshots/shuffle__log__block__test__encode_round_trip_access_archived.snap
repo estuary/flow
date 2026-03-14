@@ -1,5 +1,6 @@
 ---
 source: crates/shuffle/src/log/block/mod.rs
+assertion_line: 323
 expression: archived
 ---
 ArchivedBlock {
@@ -63,7 +64,6 @@ ArchivedBlock {
     ],
     docs: [
         ArchivedBlockDoc {
-            offset: 100,
             packed_key_prefix: [
                 112,
                 97,
@@ -87,7 +87,6 @@ ArchivedBlock {
             ),
         },
         ArchivedBlockDoc {
-            offset: 200,
             packed_key_prefix: [
                 112,
                 97,

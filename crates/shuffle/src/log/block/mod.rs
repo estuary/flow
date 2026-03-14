@@ -36,7 +36,7 @@ pub struct Block<'alloc> {
     pub producers_reverse: Vec<u16>,
     /// Per-document metadata, 1:1 with `docs`.
     pub meta: Vec<BlockMeta>,
-    /// Per-document content with offset and key prefix.
+    /// Per-document content with key prefix.
     pub docs: Vec<BlockDoc<'alloc>>,
 }
 
@@ -84,11 +84,9 @@ pub struct BlockMeta {
     pub clock: u64,
 }
 
-/// Per-document content with its journal offset and packed key prefix.
+/// Per-document content with packed key prefix.
 #[derive(Debug, rkyv::Archive, rkyv::Serialize)]
 pub struct BlockDoc<'alloc> {
-    /// Journal byte offset where this document begins.
-    pub offset: i64,
     /// Leading prefix of the packed key, zero-padded if shorter than 16 bytes.
     pub packed_key_prefix: [u8; 16],
     /// Pre-serialized document content as an embedded ArchivedNode buffer.
@@ -111,7 +109,6 @@ impl std::fmt::Debug for ArchivedBlock<'_> {
 impl std::fmt::Debug for ArchivedBlockDoc<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArchivedBlockDoc")
-            .field("offset", &self.offset)
             .field("packed_key_prefix", &self.packed_key_prefix)
             .field("doc", &self.doc)
             .finish()
@@ -127,7 +124,7 @@ impl std::fmt::Debug for ArchivedBlockDoc<'_> {
 pub fn encode(
     journals: HashMap<String, u16>,
     producers: HashMap<uuid::Producer, u16>,
-    entries: Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
+    entries: Vec<(BlockMeta, bytes::Bytes, bytes::Bytes)>,
 ) -> rkyv::util::AlignedVec {
     // Asserts are unreachable because BlockState::is_full() caps entries at 65,536,
     // and each entry introduces at most one new journal and one new producer.
@@ -199,13 +196,13 @@ fn encode_journals(journals: HashMap<String, u16>) -> Vec<BlockJournal> {
 }
 
 fn encode_entries(
-    entries: Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
+    entries: Vec<(BlockMeta, bytes::Bytes, bytes::Bytes)>,
 ) -> (Vec<BlockMeta>, Vec<encoding::BytesDoc>) {
     // Split entries into `meta` and `docs` columns.
     let mut meta = Vec::with_capacity(entries.len());
     let mut docs = Vec::with_capacity(entries.len());
 
-    for (block_meta, offset, packed_key, doc_bytes) in entries {
+    for (block_meta, packed_key, doc_bytes) in entries {
         meta.push(block_meta);
 
         let mut packed_key_prefix = [0u8; 16];
@@ -213,7 +210,6 @@ fn encode_entries(
         packed_key_prefix[..copy_len].copy_from_slice(&packed_key[..copy_len]);
 
         docs.push(encoding::BytesDoc {
-            offset,
             packed_key_prefix,
             doc_bytes,
         });
@@ -311,13 +307,11 @@ mod test {
         let entries = vec![
             (
                 meta(0, 0, 0, 10),
-                100i64,
                 bytes::Bytes::from_static(b"packed_key_one__"),
                 bytes::Bytes::from(doc1.to_archive().to_vec()),
             ),
             (
                 meta(1, 1, 1, 20),
-                200i64,
                 bytes::Bytes::from_static(b"packed_key_two__extra_ignored"),
                 bytes::Bytes::from(doc2.to_archive().to_vec()),
             ),

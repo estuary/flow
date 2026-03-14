@@ -21,7 +21,6 @@ pub struct BytesBlock {
 /// layout as `BlockDoc`. The complete `doc_bytes` buffer is written as opaque
 /// sub-data behind an `ArchivedVec<u64>` (via `ArchivedEmbedded`).
 pub struct BytesDoc {
-    pub offset: i64,
     pub packed_key_prefix: [u8; 16],
     pub doc_bytes: bytes::Bytes,
 }
@@ -62,11 +61,6 @@ impl rkyv::Archive for BytesDoc {
             let ptr = out.ptr();
 
             // Resolve the fixed-size fields.
-            rkyv::Archive::resolve(
-                &self.offset,
-                (),
-                rkyv::Place::from_field_unchecked(out, core::ptr::addr_of_mut!((*ptr).offset)),
-            );
             rkyv::Archive::resolve(
                 &self.packed_key_prefix,
                 [(); 16],
@@ -175,7 +169,6 @@ mod test {
             .map(|val| {
                 let heap = doc::HeapNode::from_serde(val, &alloc).unwrap();
                 BytesDoc {
-                    offset: 0,
                     packed_key_prefix: [0; 16],
                     doc_bytes: bytes::Bytes::from(heap.to_archive().to_vec()),
                 }
@@ -258,7 +251,6 @@ mod test {
             let archive_buf = heap_doc.to_archive();
             let doc_bytes = bytes::Bytes::from(archive_buf.to_vec());
             let bytes_doc = BytesDoc {
-                offset: 42,
                 packed_key_prefix: [0xAB; 16],
                 doc_bytes,
             };
@@ -281,7 +273,6 @@ mod test {
                 doc::HeapEmbedded::from_buffer(buffer)
             };
             let block_doc = crate::log::block::BlockDoc {
-                offset: 42,
                 packed_key_prefix: [0xAB; 16],
                 doc: embedded_doc,
             };

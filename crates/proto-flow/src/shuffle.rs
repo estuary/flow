@@ -357,23 +357,20 @@ pub mod log_request {
         /// Zero (the common case) means no delay.
         #[prost(uint64, tag = "5")]
         pub read_delay: u64,
-        /// Begin offset (inclusive) of the document within the journal.
-        #[prost(int64, tag = "6")]
-        pub begin_offset: i64,
         /// Producer of the document, extracted from its UUID.
-        #[prost(int64, tag = "7")]
+        #[prost(int64, tag = "6")]
         pub producer: i64,
         /// Publication clock of the document, extracted from its UUID.
-        #[prost(fixed64, tag = "8")]
+        #[prost(fixed64, tag = "7")]
         pub clock: u64,
         /// Packed shuffle key of the document.
-        #[prost(bytes = "bytes", tag = "9")]
+        #[prost(bytes = "bytes", tag = "8")]
         pub packed_key: ::prost::bytes::Bytes,
         /// Document content as transcoded ArchivedNode bytes.
-        #[prost(bytes = "bytes", tag = "10")]
+        #[prost(bytes = "bytes", tag = "9")]
         pub doc_archived: ::prost::bytes::Bytes,
         /// Whether the document passed schema validation.
-        #[prost(bool, tag = "11")]
+        #[prost(bool, tag = "10")]
         pub valid: bool,
     }
     /// Flush requests a durability barrier.

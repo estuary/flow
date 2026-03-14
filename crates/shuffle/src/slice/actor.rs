@@ -810,7 +810,6 @@ impl SliceActor {
                     binding: binding.index as u32,
                     priority: binding.priority,
                     read_delay: binding.read_delay.as_u64(),
-                    begin_offset: *begin_offset,
                     producer: producer.as_i64(),
                     clock: clock.as_u64(),
                     packed_key: packed_key.clone(),

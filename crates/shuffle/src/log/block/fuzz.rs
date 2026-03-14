@@ -12,7 +12,6 @@ struct FuzzEntry {
     journal_idx: u8,
     producer_idx: u8,
     binding: u16,
-    offset: i64,
     clock: u64,
     packed_key: Vec<u8>,
     value: String,
@@ -36,7 +35,6 @@ impl Arbitrary for FuzzEntry {
             journal_idx: u8::arbitrary(g) % 4,
             producer_idx: u8::arbitrary(g) % 4,
             binding: u16::arbitrary(g),
-            offset: i64::arbitrary(g),
             clock: u64::arbitrary(g),
             packed_key,
             value: String::arbitrary(g),
@@ -101,7 +99,6 @@ fn round_trip(input: FuzzInput) -> bool {
 
         encode_entries.push((
             meta,
-            entry.offset,
             bytes::Bytes::copy_from_slice(&entry.packed_key),
             bytes::Bytes::from(doc_bytes.to_vec()),
         ));
@@ -120,7 +117,6 @@ fn round_trip(input: FuzzInput) -> bool {
         };
 
         heap_docs.push(BlockDoc {
-            offset: entry.offset,
             packed_key_prefix,
             doc: embedded_doc,
         });

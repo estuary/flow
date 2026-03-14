@@ -78,7 +78,7 @@ impl Writer {
         &mut self,
         journals: HashMap<String, u16>,
         producers: HashMap<uuid::Producer, u16>,
-        entries: Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
+        entries: Vec<(BlockMeta, bytes::Bytes, bytes::Bytes)>,
     ) -> anyhow::Result<(Lsn, Option<SealedSegment>)> {
         let raw = block::encode(journals, producers, entries);
 
@@ -211,7 +211,6 @@ mod test {
         };
         let entries = vec![(
             meta,
-            100i64,
             bytes::Bytes::from_static(b"packed_key_______"),
             doc_bytes,
         )];

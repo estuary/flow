@@ -581,9 +581,6 @@ impl serde::Serialize for log_request::Append {
         if self.read_delay != 0 {
             len += 1;
         }
-        if self.begin_offset != 0 {
-            len += 1;
-        }
         if self.producer != 0 {
             len += 1;
         }
@@ -616,11 +613,6 @@ impl serde::Serialize for log_request::Append {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("readDelay", ToString::to_string(&self.read_delay).as_str())?;
-        }
-        if self.begin_offset != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("beginOffset", ToString::to_string(&self.begin_offset).as_str())?;
         }
         if self.producer != 0 {
             #[allow(clippy::needless_borrow)]
@@ -663,8 +655,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
             "priority",
             "read_delay",
             "readDelay",
-            "begin_offset",
-            "beginOffset",
             "producer",
             "clock",
             "packed_key",
@@ -681,7 +671,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
             Binding,
             Priority,
             ReadDelay,
-            BeginOffset,
             Producer,
             Clock,
             PackedKey,
@@ -713,7 +702,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
                             "binding" => Ok(GeneratedField::Binding),
                             "priority" => Ok(GeneratedField::Priority),
                             "readDelay" | "read_delay" => Ok(GeneratedField::ReadDelay),
-                            "beginOffset" | "begin_offset" => Ok(GeneratedField::BeginOffset),
                             "producer" => Ok(GeneratedField::Producer),
                             "clock" => Ok(GeneratedField::Clock),
                             "packedKey" | "packed_key" => Ok(GeneratedField::PackedKey),
@@ -743,7 +731,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
                 let mut binding__ = None;
                 let mut priority__ = None;
                 let mut read_delay__ = None;
-                let mut begin_offset__ = None;
                 let mut producer__ = None;
                 let mut clock__ = None;
                 let mut packed_key__ = None;
@@ -786,14 +773,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
                                 return Err(serde::de::Error::duplicate_field("readDelay"));
                             }
                             read_delay__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::BeginOffset => {
-                            if begin_offset__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("beginOffset"));
-                            }
-                            begin_offset__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -843,7 +822,6 @@ impl<'de> serde::Deserialize<'de> for log_request::Append {
                     binding: binding__.unwrap_or_default(),
                     priority: priority__.unwrap_or_default(),
                     read_delay: read_delay__.unwrap_or_default(),
-                    begin_offset: begin_offset__.unwrap_or_default(),
                     producer: producer__.unwrap_or_default(),
                     clock: clock__.unwrap_or_default(),
                     packed_key: packed_key__.unwrap_or_default(),

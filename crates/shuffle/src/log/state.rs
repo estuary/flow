@@ -29,7 +29,7 @@ pub struct BlockState {
     /// Producer-to-bid map for the block being accumulated.
     producers: HashMap<uuid::Producer, u16>,
     /// Entries accumulating for the current block.
-    entries: Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
+    entries: Vec<(BlockMeta, bytes::Bytes, bytes::Bytes)>,
     /// Total byte count of doc_archived in current entries.
     entries_bytes: usize,
 }
@@ -108,12 +108,8 @@ impl BlockState {
         };
 
         self.entries_bytes += append.doc_archived.len();
-        self.entries.push((
-            meta,
-            append.begin_offset,
-            append.packed_key.clone(),
-            append.doc_archived.clone(),
-        ));
+        self.entries
+            .push((meta, append.packed_key.clone(), append.doc_archived.clone()));
     }
 
     /// Take all accumulated block state for flush handoff, resetting for next block.
@@ -122,7 +118,7 @@ impl BlockState {
     ) -> (
         HashMap<String, u16>,
         HashMap<uuid::Producer, u16>,
-        Vec<(BlockMeta, i64, bytes::Bytes, bytes::Bytes)>,
+        Vec<(BlockMeta, bytes::Bytes, bytes::Bytes)>,
     ) {
         self.entries_bytes = 0;
         (
@@ -236,18 +232,11 @@ impl FlushState {
 mod test {
     use super::*;
 
-    fn append(
-        binding: u16,
-        clock: u64,
-        valid: bool,
-        offset: i64,
-        doc: &[u8],
-    ) -> shuffle::log_request::Append {
+    fn append(binding: u16, clock: u64, valid: bool, doc: &[u8]) -> shuffle::log_request::Append {
         shuffle::log_request::Append {
             binding: binding as u32,
             clock,
             valid,
-            begin_offset: offset,
             packed_key: bytes::Bytes::from_static(b"k"),
             doc_archived: bytes::Bytes::copy_from_slice(doc),
             ..Default::default()
@@ -270,7 +259,7 @@ mod test {
         block.accumulate(
             "journals/alpha",
             prod_1,
-            &append(0, 100, true, 0, b"doc_a_content"),
+            &append(0, 100, true, b"doc_a_content"),
         );
         assert_eq!(
             (
@@ -281,11 +270,7 @@ mod test {
             (0, 0, 0x0001)
         );
 
-        block.accumulate(
-            "journals/alpha",
-            prod_1,
-            &append(1, 200, false, 100, b"doc_b"),
-        );
+        block.accumulate("journals/alpha", prod_1, &append(1, 200, false, b"doc_b"));
         assert_eq!(
             (
                 last_meta(&block).journal_bid,
@@ -299,7 +284,7 @@ mod test {
         block.accumulate(
             "journals/beta",
             prod_2,
-            &append(0, 100, true, 0, b"doc_a_content"),
+            &append(0, 100, true, b"doc_a_content"),
         );
         assert_eq!(
             (
@@ -310,13 +295,7 @@ mod test {
         );
 
         assert!(!block.is_empty());
-        insta::assert_debug_snapshot!(
-            &block
-                .entries
-                .iter()
-                .map(|(m, off, _, _)| (m, off))
-                .collect::<Vec<_>>()
-        );
+        insta::assert_debug_snapshot!(&block.entries.iter().map(|(m, _, _)| m).collect::<Vec<_>>());
 
         // take() returns accumulated state and resets.
         let (journals, producers, entries) = block.take();
@@ -328,16 +307,16 @@ mod test {
         block.accumulate(
             "j/a",
             prod_1,
-            &append(0, 1, true, 0, &vec![0u8; BLOCK_BYTES_THRESHOLD - 1]),
+            &append(0, 1, true, &vec![0u8; BLOCK_BYTES_THRESHOLD - 1]),
         );
         assert!(!block.is_full());
-        block.accumulate("j/a", prod_1, &append(0, 2, true, 0, b"x"));
+        block.accumulate("j/a", prod_1, &append(0, 2, true, b"x"));
         assert!(block.is_full());
 
         // Entry and BID-space exhaustion also triggers is_full.
         let mut block = BlockState::new();
         for i in 0..(1 << 16) {
-            block.accumulate(&format!("j/{i}"), prod_1, &append(0, 1, true, 0, b"x"));
+            block.accumulate(&format!("j/{i}"), prod_1, &append(0, 1, true, b"x"));
         }
         assert!(block.is_full());
     }

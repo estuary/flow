@@ -276,18 +276,16 @@ message LogRequest {
     // The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
     // Zero (the common case) means no delay.
     uint64 read_delay = 5;
-    // Begin offset (inclusive) of the document within the journal.
-    int64 begin_offset = 6;
     // Producer of the document, extracted from its UUID.
-    int64 producer = 7;
+    int64 producer = 6;
     // Publication clock of the document, extracted from its UUID.
-    fixed64 clock = 8;
+    fixed64 clock = 7;
     // Packed shuffle key of the document.
-    bytes packed_key = 9;
+    bytes packed_key = 8;
     // Document content as transcoded ArchivedNode bytes.
-    bytes doc_archived = 10;
+    bytes doc_archived = 9;
     // Whether the document passed schema validation.
-    bool valid = 11;
+    bool valid = 10;
   }
   Append append = 2;
 
