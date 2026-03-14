@@ -17,6 +17,8 @@ PipelineSnapshot {
                         offset: -100,
                     },
                 ],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
             },
         ],
         flushed_lsn: [
@@ -41,6 +43,8 @@ PipelineSnapshot {
                         offset: -800,
                     },
                 ],
+                bytes_read_delta: 500,
+                bytes_behind_delta: 2000,
             },
             JournalFrontier {
                 binding: 0,
@@ -53,6 +57,8 @@ PipelineSnapshot {
                         offset: -300,
                     },
                 ],
+                bytes_read_delta: 300,
+                bytes_behind_delta: -100,
             },
             JournalFrontier {
                 binding: 0,
@@ -65,6 +71,8 @@ PipelineSnapshot {
                         offset: -200,
                     },
                 ],
+                bytes_read_delta: 150,
+                bytes_behind_delta: 800,
             },
         ],
         flushed_lsn: [

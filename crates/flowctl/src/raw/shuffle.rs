@@ -1,4 +1,5 @@
 use anyhow::Context;
+use doc::combine;
 use proto_flow::flow;
 
 #[derive(Debug, clap::Args)]
@@ -125,6 +126,7 @@ impl Shuffle {
         };
 
         tracing::info!(log_dir = %log_dir_str, "using log directory");
+        let combine_spec = build_combine_spec(&task).context("building combine spec")?;
 
         // Create member topology: even-indexed members use even server, odd use odd.
         let members =
@@ -163,9 +165,15 @@ impl Shuffle {
             })
             .collect();
 
+        let mut accumulator = combine::Accumulator::new(
+            combine_spec,
+            tempfile::tempfile().context("opening combiner spill file")?,
+        )?;
+
         let ser_policy = doc::SerPolicy::noop();
-        let mut total_docs: usize = 0;
-        let mut total_bytes: usize = 0;
+        let mut total_read_docs: usize = 0;
+        let mut total_read_bytes: i64 = 0;
+        let mut bytes_behind: i64 = 0;
         let mut buf: Vec<u8> = Vec::new();
 
         let interval = std::time::Duration::from_millis(*interval);
@@ -195,10 +203,9 @@ impl Shuffle {
                 "received NextCheckpoint"
             );
 
-            // Scan committed entries from each member's log.
-            let mut stdout = std::io::stdout();
-            let mut checkpoint_docs: usize = 0;
-            let mut checkpoint_bytes: usize = 0;
+            // Scan committed entries from each member's log,
+            // pushing documents into the combiner.
+            let mut read_docs: usize = 0;
 
             for (member_index, state_slot) in member_state.iter_mut().enumerate() {
                 let (reader, remainders) = state_slot.take().expect("member state must be present");
@@ -214,35 +221,64 @@ impl Shuffle {
                     .advance_block()
                     .with_context(|| format!("advancing block for member {member_index}"))?
                 {
+                    let memtable = accumulator.memtable()?;
+
                     for entry in scan.block_iter() {
-                        let node = entry.doc.doc.get();
-                        serde_json::to_writer(&mut buf, &ser_policy.on(node))
-                            .context("writing NDJSON")?;
-                        buf.push(b'\n');
-
-                        checkpoint_docs += 1;
-                        total_docs += 1;
+                        memtable.add_embedded(
+                            entry.meta.binding.to_native(),
+                            &entry.doc.packed_key_prefix,
+                            entry.doc.doc.to_heap(memtable.alloc()),
+                            false,
+                            true,
+                        )?;
+                        read_docs += 1;
                     }
-                    std::io::Write::write_all(&mut stdout, &buf)
-                        .context("flushing NDJSON to stdout")?;
-
-                    checkpoint_bytes += buf.len();
-                    total_bytes += buf.len();
-
-                    buf.clear();
                 }
 
                 let (_, reader, remainders) = scan.into_parts();
                 *state_slot = Some((reader, remainders));
             }
 
+            let read_bytes: i64 = frontier.journals.iter().map(|jf| jf.bytes_read_delta).sum();
+            bytes_behind += frontier
+                .journals
+                .iter()
+                .map(|jf| jf.bytes_behind_delta)
+                .sum::<i64>();
+
+            total_read_bytes += read_bytes;
+            total_read_docs += read_docs;
+
+            // Drain combined documents to stdout.
+            let mut stdout = std::io::stdout();
+            let mut combined_docs: usize = 0;
+            let mut combined_bytes: usize = 0;
+
+            let mut drainer = accumulator.into_drainer()?;
+            while let Some(drained) = drainer.next() {
+                let drained = drained.context("draining combined document")?;
+                serde_json::to_writer(&mut buf, &ser_policy.on_owned(&drained.root))
+                    .context("writing NDJSON")?;
+                buf.push(b'\n');
+                combined_docs += 1;
+            }
+            std::io::Write::write_all(&mut stdout, &buf).context("flushing NDJSON to stdout")?;
+
+            combined_bytes += buf.len();
+            buf.clear();
+
+            accumulator = drainer
+                .into_new_accumulator()
+                .context("recycling accumulator")?;
+
             tracing::info!(
                 i,
-                checkpoint_docs,
-                checkpoint_mib = checkpoint_bytes / (1024 * 1024),
-                total_docs,
-                total_mib = total_bytes / (1024 * 1024),
-                "scanned checkpoint"
+                read_docs,
+                read_mib = read_bytes / (1024 * 1024),
+                combined_docs,
+                combined_mib = combined_bytes / (1024 * 1024),
+                mib_behind = bytes_behind / (1024 * 1024),
+                "scanned and combined checkpoint"
             );
         }
         let elapsed = start.elapsed();
@@ -250,10 +286,11 @@ impl Shuffle {
         client.close().await.context("closing session")?;
 
         tracing::info!(
-            total_docs,
-            total_mib = total_bytes / (1024 * 1024),
-            doc_rate = total_docs as f64 / elapsed.as_secs_f64(),
-            mib_rate = total_bytes as f64 / (elapsed.as_secs_f64() * 1024f64 * 1024f64),
+            total_read_docs,
+            total_read_mib = total_read_bytes / (1024 * 1024),
+            avg_doc_rate = total_read_docs as f64 / elapsed.as_secs_f64(),
+            avg_mib_rate = total_read_bytes as f64 / (elapsed.as_secs_f64() * 1024f64 * 1024f64),
+            mib_behind = bytes_behind / (1024 * 1024),
             "shuffle test completed successfully"
         );
 
@@ -323,6 +360,46 @@ async fn fetch_task_spec(
     };
 
     Ok(task)
+}
+
+/// Build a `combine::Spec` from the task's collection specs.
+///
+/// Each binding corresponds to a source collection, and uses the collection's
+/// own key extractors for reduction (not the shuffle key, which may differ
+/// for derivation transforms with explicit shuffle keys).
+fn build_combine_spec(task: &shuffle::proto::Task) -> anyhow::Result<combine::Spec> {
+    let collection_specs: Vec<&flow::CollectionSpec> = match &task.task {
+        Some(shuffle::proto::task::Task::CollectionPartitions(cp)) => {
+            vec![cp.collection.as_ref().context("missing collection spec")?]
+        }
+        Some(shuffle::proto::task::Task::Materialization(mat)) => mat
+            .bindings
+            .iter()
+            .map(|b| b.collection.as_ref().context("missing collection spec"))
+            .collect::<anyhow::Result<_>>()?,
+        Some(shuffle::proto::task::Task::Derivation(col)) => {
+            let derivation = col.derivation.as_ref().context("missing derivation")?;
+            derivation
+                .transforms
+                .iter()
+                .map(|t| t.collection.as_ref().context("missing collection spec"))
+                .collect::<anyhow::Result<_>>()?
+        }
+        None => anyhow::bail!("missing task variant"),
+    };
+
+    let bindings = collection_specs.into_iter().map(|spec| {
+        let (validator, shape) =
+            shuffle::binding::build_schema(&spec.read_schema_json, &spec.write_schema_json)?;
+        let key_extractors = shuffle::binding::build_key_extractors(&spec.key, &shape);
+
+        Ok::<_, anyhow::Error>((true, key_extractors, spec.name.clone(), validator))
+    });
+
+    // Collect to surface errors before passing to with_bindings.
+    let bindings: Vec<_> = bindings.collect::<anyhow::Result<_>>()?;
+
+    Ok(combine::Spec::with_bindings(bindings, Vec::new()))
 }
 
 /// Build a member topology with `count` members, splitting the key space evenly.

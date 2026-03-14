@@ -33,6 +33,24 @@ pub fn jf(
         binding,
         journal: journal.into(),
         producers,
+        bytes_read_delta: 0,
+        bytes_behind_delta: 0,
+    }
+}
+
+pub fn jf_with_bytes(
+    journal: &str,
+    binding: u16,
+    producers: Vec<crate::ProducerFrontier>,
+    bytes_read_delta: i64,
+    bytes_behind_delta: i64,
+) -> crate::JournalFrontier {
+    crate::JournalFrontier {
+        binding,
+        journal: journal.into(),
+        producers,
+        bytes_read_delta,
+        bytes_behind_delta,
     }
 }
 

@@ -21,6 +21,8 @@ Frontier {
                     offset: -100,
                 },
             ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
         },
     ],
     flushed_lsn: [

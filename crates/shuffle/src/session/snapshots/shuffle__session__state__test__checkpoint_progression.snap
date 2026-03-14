@@ -15,6 +15,8 @@ Frontier {
                     offset: -200,
                 },
             ],
+            bytes_read_delta: 1200,
+            bytes_behind_delta: 5000,
         },
         JournalFrontier {
             binding: 0,
@@ -27,6 +29,8 @@ Frontier {
                     offset: -800,
                 },
             ],
+            bytes_read_delta: 900,
+            bytes_behind_delta: -300,
         },
     ],
     flushed_lsn: [],

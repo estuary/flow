@@ -47,6 +47,13 @@ pub struct JournalFrontier {
     /// Producers of this journal.
     /// Entries are sorted and unique on `producer`.
     pub producers: Vec<ProducerFrontier>,
+    /// Delta of non-ACK, non-filtered document bytes read since last checkpoint.
+    /// Summed during reduction.
+    pub bytes_read_delta: i64,
+    /// Delta of bytes-behind (write_head - read_offset) since last checkpoint.
+    /// Positive when the reader is falling behind, negative when catching up.
+    /// Summed during reduction.
+    pub bytes_behind_delta: i64,
 }
 
 impl JournalFrontier {
@@ -83,6 +90,8 @@ impl JournalFrontier {
             binding: self.binding,
             journal: self.journal,
             producers: merged,
+            bytes_read_delta: self.bytes_read_delta + other.bytes_read_delta,
+            bytes_behind_delta: self.bytes_behind_delta + other.bytes_behind_delta,
         }
     }
 
@@ -150,6 +159,8 @@ impl JournalFrontier {
                         offset: p.offset,
                     })
                     .collect(),
+                bytes_read_delta: jf.bytes_read_delta,
+                bytes_behind_delta: jf.bytes_behind_delta,
             }
         })
     }
@@ -183,6 +194,8 @@ impl JournalFrontier {
                             offset: p.offset,
                         })
                         .collect(),
+                    bytes_read_delta: jf.bytes_read_delta,
+                    bytes_behind_delta: jf.bytes_behind_delta,
                 }
             })
             .collect();
@@ -439,6 +452,8 @@ impl Frontier {
                         binding: jf.binding,
                         journal: jf.journal.clone(),
                         producers,
+                        bytes_read_delta: 0,
+                        bytes_behind_delta: 0,
                     })
                 }
             })
@@ -545,7 +560,7 @@ impl std::fmt::Debug for Drain {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::testing::{jf, pf, pf_tuple};
+    use crate::testing::{jf, jf_with_bytes, pf, pf_tuple};
     use log::Lsn;
 
     #[test]
@@ -579,18 +594,20 @@ mod test {
         //   producer 0x05: only in reads (pass-through)
         let reads = Frontier {
             journals: vec![
-                jf("journal/A", 0, vec![pf(0x01, 100, 0, -500)]),
-                jf(
+                jf_with_bytes("journal/A", 0, vec![pf(0x01, 100, 0, -500)], 200, 1000),
+                jf_with_bytes(
                     "journal/B",
                     0,
                     vec![pf(0x03, 200, 0, -1000), pf(0x05, 50, 0, -200)],
+                    100,
+                    500,
                 ),
             ],
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(3)],
         };
         let hints = Frontier {
             journals: vec![
-                jf("journal/B", 0, vec![pf(0x03, 0, 300, 0)]),
+                jf_with_bytes("journal/B", 0, vec![pf(0x03, 0, 300, 0)], 50, -300),
                 jf("journal/C", 1, vec![pf(0x03, 0, 300, 0)]),
             ],
             flushed_lsn: vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(30)],
@@ -601,9 +618,10 @@ mod test {
         // journal/B: merged; producer 0x03 reduced (commit=200, hint=300, offset=-1000),
         //            producer 0x05 reads-only pass-through.
         // journal/C: hints-only pass-through.
+        // Byte deltas are summed during reduction.
         insta::assert_debug_snapshot!(r.journals.iter().map(|j| {
             let ps: Vec<_> = j.producers.iter().map(pf_tuple).collect();
-            (&*j.journal, j.binding, ps)
+            (&*j.journal, j.binding, ps, j.bytes_read_delta, j.bytes_behind_delta)
         }).collect::<Vec<_>>(), @r#"
         [
             (
@@ -616,6 +634,8 @@ mod test {
                         -500,
                     ),
                 ],
+                200,
+                1000,
             ),
             (
                 "journal/B",
@@ -632,6 +652,8 @@ mod test {
                         -200,
                     ),
                 ],
+                150,
+                200,
             ),
             (
                 "journal/C",
@@ -643,6 +665,8 @@ mod test {
                         0,
                     ),
                 ],
+                0,
+                0,
             ),
         ]
         "#);
@@ -716,20 +740,24 @@ mod test {
     fn test_encode_decode_round_trip() {
         let frontier = Frontier::new(
             vec![
-                jf(
+                jf_with_bytes(
                     "estuary/tenants/acme/orders/pivot=00",
                     0,
                     vec![pf(0x01, 100, 0, -500)],
+                    1500,
+                    42000,
                 ),
                 jf(
                     "estuary/tenants/acme/orders/pivot=01",
                     0,
                     vec![pf(0x01, 50, 0, -200)],
                 ),
-                jf(
+                jf_with_bytes(
                     "estuary/tenants/acme/users/pivot=00",
                     0,
                     vec![pf(0x05, 300, 400, 42)],
+                    900,
+                    -300,
                 ),
                 jf(
                     "estuary/tenants/acme/orders/pivot=00",
@@ -754,6 +782,8 @@ mod test {
         for (a, b) in decoded.iter().zip(frontier.journals.iter()) {
             assert_eq!(&*a.journal, &*b.journal);
             assert_eq!(a.binding, b.binding);
+            assert_eq!(a.bytes_read_delta, b.bytes_read_delta);
+            assert_eq!(a.bytes_behind_delta, b.bytes_behind_delta);
         }
 
         // Multi-chunk: each chunk is independently decodable.
@@ -788,6 +818,14 @@ mod test {
             for (a, b) in reassembled.journals.iter().zip(frontier.journals.iter()) {
                 assert_eq!(&*a.journal, &*b.journal, "chunk_size={chunk_size}");
                 assert_eq!(a.binding, b.binding, "chunk_size={chunk_size}");
+                assert_eq!(
+                    a.bytes_behind_delta, b.bytes_behind_delta,
+                    "chunk_size={chunk_size}"
+                );
+                assert_eq!(
+                    a.bytes_read_delta, b.bytes_read_delta,
+                    "chunk_size={chunk_size}"
+                );
             }
         }
     }

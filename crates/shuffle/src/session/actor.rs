@@ -57,7 +57,7 @@ impl SessionActor {
                 progress_ready = ?self.progress_ready,
                 start_reads = self.start_reads.len(),
                 "SessionActor::serve iteration"
-            );
+            ); // debug, not trace, because we don't loop on documents.
 
             // First, attempt non-blocking sends.
             let wake_slice_request_tx = self.try_slice_request_tx()?;

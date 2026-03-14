@@ -492,7 +492,7 @@ pub fn range_span(members: &[shuffle::Member], begin: u32, end: u32) -> (usize, 
 mod test {
     use super::*;
     use crate::testing::{
-        jf, pf, test_binding, test_journal_spec, test_listing_added, test_members_3,
+        jf, jf_with_bytes, pf, test_binding, test_journal_spec, test_listing_added, test_members_3,
     };
     use proto_flow::flow;
 
@@ -571,7 +571,13 @@ mod test {
         let cases = vec![
             Case {
                 name: "no_hints_single_member",
-                progressed: vec![jf("journal/A", 0, vec![pf(0x01, 10, 0, -500)])],
+                progressed: vec![jf_with_bytes(
+                    "journal/A",
+                    0,
+                    vec![pf(0x01, 10, 0, -500)],
+                    1200, // byte_read_delta
+                    5000, // bytes_behind_delta
+                )],
                 // No hints → promoted all the way to ready.
                 expect_ready_len: 1,
                 expect_unresolved_len: 0,
@@ -580,7 +586,13 @@ mod test {
             },
             Case {
                 name: "no_hints_two_members",
-                progressed: vec![jf("journal/B", 0, vec![pf(0x03, 20, 0, -800)])],
+                progressed: vec![jf_with_bytes(
+                    "journal/B",
+                    0,
+                    vec![pf(0x03, 20, 0, -800)],
+                    900,
+                    -300,
+                )],
                 // Both reduced into ready.
                 expect_ready_len: 2,
                 expect_unresolved_len: 0,
@@ -882,7 +894,13 @@ mod test {
         let mut pipeline = test_pipeline();
         ingest_progressed(
             &mut pipeline,
-            vec![jf("journal/X", 0, vec![pf(0x01, 100, 0, -500)])],
+            vec![jf_with_bytes(
+                "journal/X",
+                0,
+                vec![pf(0x01, 100, 0, -500)],
+                750,
+                3000,
+            )],
             vec![],
         );
         insta::assert_debug_snapshot!("no_recovery", pipeline_snapshot(&pipeline));
@@ -903,8 +921,8 @@ mod test {
         ingest_progressed(
             &mut pipeline,
             vec![
-                jf("journal/A", 0, vec![pf(0x01, 250, 0, -800)]),
-                jf("journal/B", 0, vec![pf(0x03, 100, 0, -300)]),
+                jf_with_bytes("journal/A", 0, vec![pf(0x01, 250, 0, -800)], 500, 2000),
+                jf_with_bytes("journal/B", 0, vec![pf(0x03, 100, 0, -300)], 300, -100),
             ],
             vec![1000],
         );
@@ -914,7 +932,13 @@ mod test {
         // the recovery checkpoint sitting in ready.
         ingest_progressed(
             &mut pipeline,
-            vec![jf("journal/C", 0, vec![pf(0x05, 50, 0, -200)])],
+            vec![jf_with_bytes(
+                "journal/C",
+                0,
+                vec![pf(0x05, 50, 0, -200)],
+                150,
+                800,
+            )],
             vec![2000],
         );
         insta::assert_debug_snapshot!("after_second_progressed", pipeline_snapshot(&pipeline));
@@ -928,7 +952,13 @@ mod test {
         // Normal pipeline resumes with accumulated progress.
         ingest_progressed(
             &mut pipeline,
-            vec![jf("journal/D", 0, vec![pf(0x07, 30, 0, -150)])],
+            vec![jf_with_bytes(
+                "journal/D",
+                0,
+                vec![pf(0x07, 30, 0, -150)],
+                100,
+                400,
+            )],
             vec![3000],
         );
         insta::assert_debug_snapshot!("after_normal_resumes", pipeline_snapshot(&pipeline));

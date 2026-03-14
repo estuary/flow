@@ -647,6 +647,10 @@ mod test {
             journal: "test/journal/A".into(),
             settled: producers,
             pending: Default::default(),
+            bytes_read_delta: 0,
+            write_head: 0,
+            read_offset: 0,
+            prev_bytes_behind: 0,
         });
 
         // Clock before notBefore: suppresses append but not commit.
@@ -697,6 +701,10 @@ mod test {
             journal: "test/journal/A".into(),
             settled: producers,
             pending: Default::default(),
+            bytes_read_delta: 0,
+            write_head: 0,
+            read_offset: 0,
+            prev_bytes_behind: 0,
         });
 
         // Initially: flush not ready → should_flush false.
@@ -725,10 +733,7 @@ mod test {
 
         // Build frontier and start flush with 3 members.
         let frontier =
-            super::super::producer::build_flush_frontier(&s.reads, std::iter::empty(), 3);
-        for read in s.reads.iter_mut() {
-            read.settled.extend(read.pending.drain());
-        }
+            super::super::producer::build_flush_frontier(&mut s.reads, std::iter::empty(), 3);
         assert!(!frontier.journals.is_empty(), "flushing frontier built");
 
         let flush_cycle = s.flush.start(3, frontier);
@@ -785,6 +790,8 @@ mod test {
                     hinted_commit: Clock::from_u64(0),
                     offset: -500,
                 }],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
             }],
             flushed_lsn: vec![],
         };
@@ -844,6 +851,10 @@ mod test {
             journal: "test/journal/A".into(),
             settled: producers,
             pending: Default::default(),
+            bytes_read_delta: 0,
+            write_head: 0,
+            read_offset: 0,
+            prev_bytes_behind: 0,
         });
 
         // ContinueBeginSpan: enqueued, no commit, offset set to begin_offset.

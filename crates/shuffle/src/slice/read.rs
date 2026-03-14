@@ -19,6 +19,15 @@ pub struct ReadState {
     /// Producers updated since the last flush cycle started.
     /// Drained into `settled` at the start of each flush.
     pub pending: ProducerMap<ProducerState>,
+    /// Non-ACK non-filtered document bytes accumulated since last flush drain.
+    pub bytes_read_delta: i64,
+    /// Most recent write_head observed for this journal.
+    pub write_head: i64,
+    /// End offset of most recently processed document.
+    pub read_offset: i64,
+    /// Bytes-behind as of last flush (0 before first flush).
+    /// First delta = (write_head - read_offset) - 0 = absolute initial lag.
+    pub prev_bytes_behind: i64,
 }
 
 /// Application-local flag packed into `Flags`: document passed schema validation.

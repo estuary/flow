@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 /// conflict between this crate and the protobuf module.
 pub use proto_flow::shuffle as proto;
 
-mod binding;
+pub mod binding;
 mod client;
 pub mod frontier;
 pub mod log;

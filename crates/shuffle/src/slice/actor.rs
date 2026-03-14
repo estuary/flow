@@ -117,7 +117,7 @@ impl SliceActor {
         let mut loop_count: u64 = 0;
         loop {
             loop_count += 1;
-            tracing::debug!(
+            tracing::trace!(
                 loop_count,
                 total_reads = self.reads.len(),
                 tailing_reads = self.tailing_reads,
@@ -318,6 +318,10 @@ impl SliceActor {
             journal,
             settled: producers,
             pending: Default::default(),
+            bytes_read_delta: 0,
+            write_head: 0,
+            read_offset: offset,
+            prev_bytes_behind: 0,
         });
 
         self.pending_probes.push(Box::pin(async move {
@@ -370,7 +374,7 @@ impl SliceActor {
         result: Option<gazette::RetryResult<gazette::journal::read::LinesBatch>>,
         mut read: super::ReadLines,
     ) -> anyhow::Result<()> {
-        let read_state = &self.reads[read.id() as usize];
+        let read_state = &mut self.reads[read.id() as usize];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
 
         let Some(result) = result else {
@@ -423,10 +427,11 @@ impl SliceActor {
             Ok(lines_batch) => lines_batch,
         };
 
-        // Pending read has now resolved. Update tailing aggregate.
+        // Pending read has now resolved. Update tailing aggregate and write_head.
         if lines_batch.tailing {
             self.tailing_reads = self.tailing_reads.strict_sub(1);
         }
+        read_state.write_head = read.write_head();
 
         let transcoded = match simd_doc::transcode_many(
             &mut self.parser,
@@ -593,15 +598,22 @@ impl SliceActor {
                 inner: read,
                 meta:
                     Meta {
+                        begin_offset,
+                        end_offset,
                         producer,
                         clock,
                         flags,
-                        ..
                     },
                 doc,
                 mut doc_tail,
                 mut meta_tail,
             } = *ready_read;
+
+            // Track read progress for bytes-behind and bytes-delta metrics.
+            read_state.read_offset = end_offset;
+            if sequenced.is_append {
+                read_state.bytes_read_delta += end_offset - begin_offset;
+            }
 
             if sequenced.is_commit {
                 if flags == uuid::Flags::ACK_TXN {
@@ -679,16 +691,12 @@ impl SliceActor {
         }
 
         // Build the frontier from pending producers and causal hints,
-        // and then drain pending→settled.
+        // draining pending→settled and resetting byte accumulators.
         let frontier = super::producer::build_flush_frontier(
-            &self.reads,
+            &mut self.reads,
             self.causal_hints.drain(),
             self.topology.members.len(),
         );
-
-        for read in self.reads.iter_mut() {
-            read.settled.extend(read.pending.drain());
-        }
         let flush_cycle = self.flush.start(self.log_request_tx.len(), frontier);
 
         for permit in permits.drain(..) {
@@ -762,7 +770,7 @@ impl SliceActor {
             valid = ready_read.meta.is_schema_valid(),
             r_clock,
             ?targets,
-            "appending document to members"
+            "routed document Append to Log RPC members"
         );
 
         // Safety: `permits` is always cleared prior to return (retaining only capacity).

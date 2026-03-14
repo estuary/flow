@@ -92,9 +92,18 @@ pub struct JournalFrontier {
     /// Suffix to append to the preceding, truncated name.
     #[prost(string, tag = "3")]
     pub journal_name_suffix: ::prost::alloc::string::String,
+    /// Delta of non-ACK, non-filtered document bytes read since last checkpoint.
+    /// Summed during reduction.
+    #[prost(int64, tag = "4")]
+    pub bytes_read_delta: i64,
+    /// Delta of bytes-behind (write_head - read_offset) since last checkpoint.
+    /// Positive when the reader is falling behind, negative when catching up.
+    /// Summed during reduction.
+    #[prost(int64, tag = "5")]
+    pub bytes_behind_delta: i64,
     /// Producers of this journal.
     /// Sorted and unique on `producer`.
-    #[prost(message, repeated, tag = "4")]
+    #[prost(message, repeated, tag = "6")]
     pub producers: ::prost::alloc::vec::Vec<ProducerFrontier>,
 }
 /// FrontierChunk is a portion of a frontier sequence for streaming.

@@ -87,15 +87,20 @@ const _: () = assert!(std::mem::size_of::<ProducerState>() == 24);
 ///
 /// Both inputs may arrive in arbitrary order; outputs are sorted.
 pub fn build_flush_frontier(
-    reads: &[super::read::ReadState],
+    reads: &mut [super::read::ReadState],
     hints: impl Iterator<Item = ((Box<str>, u16), Vec<(Producer, Clock)>)>,
     member_count: usize,
 ) -> crate::Frontier {
-    // Build JournalFrontier entries from read-derived pending producers.
-    let mut by_journal: Vec<(&str, u16, Vec<crate::ProducerFrontier>)> = Vec::new();
+    // Walk all journal reads to build their JournalFrontier.
+    let mut journals: Vec<crate::JournalFrontier> = Vec::new();
 
-    for read_state in reads.iter() {
+    for read_state in reads.iter_mut() {
         if read_state.pending.is_empty() {
+            // No reportable progress for this journal since the last flush.
+            // We intentionally defer bytes_behind reporting as well:
+            // the next reported delta is computed from prev_bytes_behind
+            // to the current (write_head - read_offset), so reported lag is
+            // eventually correct even if write_head advanced meanwhile.
             continue;
         }
         let mut producers: Vec<_> = read_state
@@ -110,22 +115,27 @@ pub fn build_flush_frontier(
             .collect();
         producers.sort_by(|a, b| a.producer.cmp(&b.producer));
 
-        by_journal.push((&read_state.journal, read_state.binding_index, producers));
+        let bytes_behind_delta =
+            (read_state.write_head - read_state.read_offset) - read_state.prev_bytes_behind;
+
+        journals.push(crate::JournalFrontier {
+            binding: read_state.binding_index,
+            journal: read_state.journal.clone().into(),
+            producers,
+            bytes_read_delta: read_state.bytes_read_delta,
+            bytes_behind_delta,
+        });
+
+        // Update the baseline for the next delta computation.
+        read_state.bytes_read_delta = 0;
+        read_state.prev_bytes_behind = read_state.write_head - read_state.read_offset;
+        read_state.settled.extend(read_state.pending.drain());
     }
 
-    by_journal.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(b.0)));
+    journals.sort_by(|a, b| a.binding.cmp(&b.binding).then(a.journal.cmp(&b.journal)));
 
     let reads_frontier = crate::Frontier {
-        journals: by_journal
-            .into_iter()
-            .map(
-                |(journal_name, binding, producers)| crate::JournalFrontier {
-                    binding,
-                    journal: journal_name.into(),
-                    producers,
-                },
-            )
-            .collect(),
+        journals,
         flushed_lsn: vec![crate::log::Lsn::ZERO; member_count],
     };
 
@@ -154,6 +164,8 @@ pub fn build_flush_frontier(
                 binding,
                 journal,
                 producers,
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
             }
         })
         .collect();
@@ -181,6 +193,18 @@ mod test {
         binding: u16,
         pending: &[(u8, u64, i64)],
     ) -> super::super::read::ReadState {
+        read_state_with_bytes(journal, binding, pending, 0, 0, 0, 0)
+    }
+
+    fn read_state_with_bytes(
+        journal: &str,
+        binding: u16,
+        pending: &[(u8, u64, i64)],
+        bytes_read_delta: i64,
+        write_head: i64,
+        read_offset: i64,
+        prev_bytes_behind: i64,
+    ) -> super::super::read::ReadState {
         let mut map = ProducerMap::default();
         for &(id, last_commit, offset) in pending {
             map.insert(
@@ -197,6 +221,10 @@ mod test {
             journal: journal.into(),
             settled: ProducerMap::default(),
             pending: map,
+            bytes_read_delta,
+            write_head,
+            read_offset,
+            prev_bytes_behind,
         }
     }
 
@@ -225,11 +253,32 @@ mod test {
             // Both empty.
             ("empty", vec![], vec![]),
             // Reads only, reverse input order verifies sorting.
+            // Non-zero byte tracking: journal/B is 5000 bytes behind
+            // (write_head=50000, read_offset=45000, prev=0 → delta=5000),
+            // with 1200 doc bytes. journal/A is catching up (delta=-300).
             (
                 "reads_only",
                 vec![
-                    read_state("journal/B", 0, &[(0x03, 200, -1000)]),
-                    read_state("journal/A", 0, &[(0x01, 100, -500)]),
+                    read_state_with_bytes(
+                        "journal/B",
+                        0,
+                        &[(0x03, 200, -1000)],
+                        1200,
+                        50000,
+                        45000,
+                        0,
+                    ),
+                    read_state_with_bytes(
+                        "journal/A",
+                        0,
+                        &[(0x01, 100, -500)],
+                        800,
+                        10000,
+                        9500,
+                        800,
+                    ),
+                    // No pending producers: not part of frontier, not modified.
+                    read_state_with_bytes("journal/C", 0, &[], 0, 25000, 123, 456),
                 ],
                 vec![],
             ),
@@ -253,11 +302,29 @@ mod test {
             ),
             // Reads and hints reduce: journal/A reads-only, journal/B merged
             // (producer 0x03 gets hint), journal/C hints-only.
+            // Byte deltas: journal/A has 500 bytes_read_delta, journal/B has 2000.
+            // Hint-only journal/C gets 0 for both byte fields.
             (
                 "reads_and_hints",
                 vec![
-                    read_state("journal/A", 0, &[(0x01, 100, -500)]),
-                    read_state("journal/B", 0, &[(0x03, 200, -1000), (0x05, 50, -200)]),
+                    read_state_with_bytes(
+                        "journal/A",
+                        0,
+                        &[(0x01, 100, -500)],
+                        500,
+                        20000,
+                        19000,
+                        500,
+                    ),
+                    read_state_with_bytes(
+                        "journal/B",
+                        0,
+                        &[(0x03, 200, -1000), (0x05, 50, -200)],
+                        2000,
+                        80000,
+                        75000,
+                        3000,
+                    ),
                 ],
                 vec![
                     hint("journal/B", 0, &[(0x03, 300)]),
@@ -293,9 +360,9 @@ mod test {
 
         let snap = cases
             .into_iter()
-            .map(|(name, reads, hints)| {
-                let f = build_flush_frontier(&reads, hints.into_iter(), 3);
-                (name, f)
+            .map(|(name, mut reads, hints)| {
+                let f = build_flush_frontier(&mut reads, hints.into_iter(), 3);
+                (name, f, reads)
             })
             .collect::<Vec<_>>();
 

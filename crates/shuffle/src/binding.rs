@@ -431,7 +431,7 @@ fn assign_cohorts(bindings: &mut [Binding]) {
 
 /// Parse a collection schema bundle into a Validator and inferred Shape.
 /// Prefers the read schema; falls back to the write schema.
-fn build_schema(
+pub fn build_schema(
     read_schema_json: &bytes::Bytes,
     write_schema_json: &bytes::Bytes,
 ) -> anyhow::Result<(doc::validation::Validator, doc::Shape)> {
@@ -449,7 +449,7 @@ fn build_schema(
 
 /// Build key extractors from string-encoded JSON pointers,
 /// using schema-annotated defaults from the inferred shape.
-fn build_key_extractors(pointers: &[String], shape: &doc::Shape) -> Vec<doc::Extractor> {
+pub fn build_key_extractors(pointers: &[String], shape: &doc::Shape) -> Vec<doc::Extractor> {
     let policy = doc::SerPolicy::noop();
     pointers
         .iter()

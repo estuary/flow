@@ -258,6 +258,12 @@ impl serde::Serialize for JournalFrontier {
         if !self.journal_name_suffix.is_empty() {
             len += 1;
         }
+        if self.bytes_read_delta != 0 {
+            len += 1;
+        }
+        if self.bytes_behind_delta != 0 {
+            len += 1;
+        }
         if !self.producers.is_empty() {
             len += 1;
         }
@@ -270,6 +276,16 @@ impl serde::Serialize for JournalFrontier {
         }
         if !self.journal_name_suffix.is_empty() {
             struct_ser.serialize_field("journalNameSuffix", &self.journal_name_suffix)?;
+        }
+        if self.bytes_read_delta != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("bytesReadDelta", ToString::to_string(&self.bytes_read_delta).as_str())?;
+        }
+        if self.bytes_behind_delta != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("bytesBehindDelta", ToString::to_string(&self.bytes_behind_delta).as_str())?;
         }
         if !self.producers.is_empty() {
             struct_ser.serialize_field("producers", &self.producers)?;
@@ -289,6 +305,10 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
             "journalNameTruncateDelta",
             "journal_name_suffix",
             "journalNameSuffix",
+            "bytes_read_delta",
+            "bytesReadDelta",
+            "bytes_behind_delta",
+            "bytesBehindDelta",
             "producers",
         ];
 
@@ -297,6 +317,8 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
             Binding,
             JournalNameTruncateDelta,
             JournalNameSuffix,
+            BytesReadDelta,
+            BytesBehindDelta,
             Producers,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -322,6 +344,8 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
                             "binding" => Ok(GeneratedField::Binding),
                             "journalNameTruncateDelta" | "journal_name_truncate_delta" => Ok(GeneratedField::JournalNameTruncateDelta),
                             "journalNameSuffix" | "journal_name_suffix" => Ok(GeneratedField::JournalNameSuffix),
+                            "bytesReadDelta" | "bytes_read_delta" => Ok(GeneratedField::BytesReadDelta),
+                            "bytesBehindDelta" | "bytes_behind_delta" => Ok(GeneratedField::BytesBehindDelta),
                             "producers" => Ok(GeneratedField::Producers),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -345,6 +369,8 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
                 let mut binding__ = None;
                 let mut journal_name_truncate_delta__ = None;
                 let mut journal_name_suffix__ = None;
+                let mut bytes_read_delta__ = None;
+                let mut bytes_behind_delta__ = None;
                 let mut producers__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -370,6 +396,22 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
                             }
                             journal_name_suffix__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::BytesReadDelta => {
+                            if bytes_read_delta__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("bytesReadDelta"));
+                            }
+                            bytes_read_delta__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::BytesBehindDelta => {
+                            if bytes_behind_delta__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("bytesBehindDelta"));
+                            }
+                            bytes_behind_delta__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::Producers => {
                             if producers__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("producers"));
@@ -382,6 +424,8 @@ impl<'de> serde::Deserialize<'de> for JournalFrontier {
                     binding: binding__.unwrap_or_default(),
                     journal_name_truncate_delta: journal_name_truncate_delta__.unwrap_or_default(),
                     journal_name_suffix: journal_name_suffix__.unwrap_or_default(),
+                    bytes_read_delta: bytes_read_delta__.unwrap_or_default(),
+                    bytes_behind_delta: bytes_behind_delta__.unwrap_or_default(),
                     producers: producers__.unwrap_or_default(),
                 })
             }

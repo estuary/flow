@@ -50,9 +50,9 @@ impl std::fmt::Debug for FlushState {
         f.debug_struct("FlushState")
             .field("flushed_lsn", &self.flushed_lsn)
             .field("flush_in_flight", &self.flush_in_flight)
-            .field("pending_flush", &self.pending_flush.len())
+            .field("pending_request", &self.pending_request.len())
             .field("next_pending_flush", &self.next_pending_flush.len())
-            .field("pending_flushed", &self.pending_flushed.len())
+            .field("pending_response", &self.pending_response.len())
             .finish()
     }
 }
@@ -143,13 +143,13 @@ pub struct FlushState {
     /// Whether a background flush task is currently running.
     flush_in_flight: bool,
     /// Slice index and cycle awaiting the current flush completion.
-    pending_flush: Vec<(usize, u64)>,
+    pending_request: Vec<(usize, u64)>,
     /// Slice index and cycle awaiting completion of the *next* flush
     /// after the current one. Non-empty only while a flush is underway.
     next_pending_flush: Vec<(usize, u64)>,
     /// Completed flushes awaiting send of their Flushed response.
     /// Each entry is (member_index, cycle, flushed_lsn).
-    pending_flushed: Vec<(usize, u64, Lsn)>,
+    pending_response: Vec<(usize, u64, Lsn)>,
 }
 
 impl FlushState {
@@ -157,9 +157,9 @@ impl FlushState {
         Self {
             flushed_lsn: Lsn::ZERO,
             flush_in_flight: false,
-            pending_flush: Vec::new(),
+            pending_request: Vec::new(),
             next_pending_flush: Vec::new(),
-            pending_flushed: Vec::new(),
+            pending_response: Vec::new(),
         }
     }
 
@@ -173,8 +173,8 @@ impl FlushState {
     }
 
     /// Whether there are pending flush requests that need a flush to start.
-    pub fn has_pending_flush(&self) -> bool {
-        !self.pending_flush.is_empty()
+    pub fn has_pending_request(&self) -> bool {
+        !self.pending_request.is_empty()
     }
 
     /// Route a Flush request based on current state.
@@ -186,7 +186,7 @@ impl FlushState {
         if self.flush_in_flight {
             if block_is_empty {
                 // Flush is in-flight and no new entries: covered by in-flight flush.
-                self.pending_flush.push((member_index, cycle));
+                self.pending_request.push((member_index, cycle));
             } else {
                 // Flush is in-flight AND we have new entries not covered by it.
                 // Must wait for the *next* flush after the current one completes.
@@ -194,11 +194,11 @@ impl FlushState {
             }
         } else if block_is_empty {
             // Not flushing and no entries: already trivially flushed.
-            self.pending_flushed
+            self.pending_response
                 .push((member_index, cycle, self.flushed_lsn));
         } else {
             // Not flushing but have entries: must await a future flush.
-            self.pending_flush.push((member_index, cycle));
+            self.pending_request.push((member_index, cycle));
         }
     }
 
@@ -214,21 +214,21 @@ impl FlushState {
         self.flush_in_flight = false;
         self.flushed_lsn = flushed_lsn;
 
-        for (slice_idx, cycle) in self.pending_flush.drain(..) {
-            self.pending_flushed
+        for (slice_idx, cycle) in self.pending_request.drain(..) {
+            self.pending_response
                 .push((slice_idx, cycle, self.flushed_lsn));
         }
-        std::mem::swap(&mut self.pending_flush, &mut self.next_pending_flush);
+        std::mem::swap(&mut self.pending_request, &mut self.next_pending_flush);
     }
 
     /// Peek at the last completed flush response (LIFO order).
-    pub fn peek_pending_flushed(&self) -> Option<&(usize, u64, Lsn)> {
-        self.pending_flushed.last()
+    pub fn peek_pending_response(&self) -> Option<&(usize, u64, Lsn)> {
+        self.pending_response.last()
     }
 
     /// Pop the last completed flush response (LIFO order).
-    pub fn pop_pending_flushed(&mut self) -> Option<(usize, u64, Lsn)> {
-        self.pending_flushed.pop()
+    pub fn pop_pending_response(&mut self) -> Option<(usize, u64, Lsn)> {
+        self.pending_response.pop()
     }
 }
 
@@ -345,19 +345,20 @@ mod test {
     #[test]
     fn test_flush_state_machine() {
         let mut flush = FlushState::new();
-        let drain =
-            |f: &mut FlushState| std::iter::from_fn(|| f.pop_pending_flushed()).collect::<Vec<_>>();
+        let drain = |f: &mut FlushState| {
+            std::iter::from_fn(|| f.pop_pending_response()).collect::<Vec<_>>()
+        };
 
         // No inflight + empty block: immediately resolved.
         flush.on_flush(0, 0, true);
-        assert_eq!(flush.pop_pending_flushed(), Some((0, 0, Lsn::ZERO)));
-        assert!(!flush.has_pending_flush());
+        assert_eq!(flush.pop_pending_response(), Some((0, 0, Lsn::ZERO)));
+        assert!(!flush.has_pending_request());
 
         // No inflight + non-empty block: queued to pending_flush.
         flush.on_flush(0, 1, false);
         flush.on_flush(1, 1, false);
-        assert!(flush.has_pending_flush());
-        assert_eq!(flush.pop_pending_flushed(), None);
+        assert!(flush.has_pending_request());
+        assert_eq!(flush.pop_pending_response(), None);
 
         // Start flush cycle 1.
         flush.start_flush();
@@ -379,13 +380,13 @@ mod test {
         insta::assert_debug_snapshot!("first_batch", drain(&mut flush));
 
         // Slices 4, 5 (from next_pending) have swapped into pending_flush.
-        assert!(flush.has_pending_flush());
+        assert!(flush.has_pending_request());
 
         // Flush cycle 2.
         flush.start_flush();
         flush.on_flushed(Lsn::new(1, 1));
 
         insta::assert_debug_snapshot!("second_batch", drain(&mut flush));
-        assert!(!flush.has_pending_flush());
+        assert!(!flush.has_pending_request());
     }
 }

@@ -77,9 +77,16 @@ message JournalFrontier {
   int32 journal_name_truncate_delta = 2;
   // Suffix to append to the preceding, truncated name.
   string journal_name_suffix = 3;
+  // Delta of non-ACK, non-filtered document bytes read since last checkpoint.
+  // Summed during reduction.
+  int64 bytes_read_delta = 4;
+  // Delta of bytes-behind (write_head - read_offset) since last checkpoint.
+  // Positive when the reader is falling behind, negative when catching up.
+  // Summed during reduction.
+  int64 bytes_behind_delta = 5;
   // Producers of this journal.
   // Sorted and unique on `producer`.
-  repeated ProducerFrontier producers = 4;
+  repeated ProducerFrontier producers = 6;
 }
 
 // FrontierChunk is a portion of a frontier sequence for streaming.

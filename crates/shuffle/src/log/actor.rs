@@ -64,6 +64,8 @@ impl LogActor {
         mut self,
         log_request_rx: Vec<BoxStream<'static, tonic::Result<shuffle::LogRequest>>>,
     ) -> anyhow::Result<()> {
+        // Number of still-connected Slice RPC members.
+        let mut connected = log_request_rx.len();
         // Build rx futures for the next LogRequest from each Slice.
         let mut pending_slice_rx: futures::stream::FuturesUnordered<_> = log_request_rx
             .into_iter()
@@ -79,10 +81,10 @@ impl LogActor {
         // Each stream yields negative size deltas as disk space is freed.
         let mut sealed_segments = futures::stream::SelectAll::new();
 
-        // Aggregate on-disk bytes across all living sealed segments.
-        let mut disk_backlog_bytes: u64 = 0;
         // Threshold at which we'll stop draining Append requests.
         let disk_backlog_threshold = self.topology.disk_backlog_threshold;
+        // Aggregate on-disk bytes across all living sealed segments.
+        let mut disk_backlog_bytes: u64 = 0;
         // Hysteresis flag: engaged at disk_backlog_threshold, released at 50%.
         let mut disk_back_pressure = false;
 
@@ -98,16 +100,17 @@ impl LogActor {
             // We may begin a non-empty block flush if one isn't underway, and either:
             // - We've been asked to flush by a slice, OR
             // - The block has reached capacity.
-            // Invariant: pending flushes always have a non-empty block to flush,
-            // because on_flush immediately resolves when the block is empty.
+            // Note that we immediately reply to a Flush request if our current
+            // block is empty (using the LSN of the last-completed flush).
             let may_flush = !self.flush.flush_in_flight()
                 && !self.block.is_empty()
-                && (self.flush.has_pending_flush() || self.block.is_full());
+                && (self.flush.has_pending_request() || self.block.is_full());
 
-            tracing::debug!(
+            tracing::trace!(
                 loop_count,
                 append_heap = self.append_heap.len(),
                 block = ?self.block,
+                connected,
                 disk_backlog_mib = disk_backlog_bytes / (1024 * 1024),
                 flush = ?self.flush,
                 flushing = flush_handle.is_some(),
@@ -117,7 +120,7 @@ impl LogActor {
                 "LogActor::serve iteration"
             );
 
-            // First, attempt non-blocking sends of completed Flushed responses.
+            // First, attempt non-blocking sends of pending Flushed responses.
             let wake_log_response_tx = self.try_log_response_tx()?;
 
             tokio::select! {
@@ -131,15 +134,8 @@ impl LogActor {
                         Ok(rx) => pending_slice_rx.push(next_log_rx((member_index, rx))),
                         Err(true) => {}, // `rx` is parked in self.slice_appends
                         Err(false) => {
-                            let remaining = pending_slice_rx.len() + self.append_heap.len();
-                            tracing::debug!(member_index, remaining, "Slice LogRequest stream EOF");
-
-                            if remaining != 0 {
-                                continue;
-                            }
-                            // Drop SealedSegments: the Stream now yields None, which
-                            // allows the select! `else` arm to fire and break the loop.
-                            sealed_segments.clear();
+                            connected -= 1;
+                            tracing::debug!(member_index, connected, "Slice LogRequest stream EOF");
                         }
                     }
                 }
@@ -174,8 +170,10 @@ impl LogActor {
                     sealed_segments.push(Box::pin(sealed.serve()));
                 }
 
-                // Read an update of a sealed segment, reclaiming disk from compression or unlink.
-                Some(reclaimed) = sealed_segments.next() => {
+                // Read an update reclaiming disk from compression or unlink.
+                // This arm is deactivated if no `connected` members remain,
+                // to allow the `else` arm below to fire and exit.
+                Some(reclaimed) = sealed_segments.next(), if connected != 0 => {
                     disk_backlog_bytes = disk_backlog_bytes
                         .checked_sub(reclaimed?)
                         .expect("disk_backlog_bytes underflow");
@@ -227,13 +225,13 @@ impl LogActor {
 
         // This loop may head-of-line block if we're unable to send a LIFO Flushed.
         // We accept this property for implementation simplicity.
-        while let Some(&(member_index, cycle, flushed_lsn)) = self.flush.peek_pending_flushed() {
+        while let Some(&(member_index, cycle, flushed_lsn)) = self.flush.peek_pending_response() {
             let tx = &self.log_response_tx[member_index];
 
             let Ok(permit) = tx.try_reserve() else {
                 return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
             };
-            self.flush.pop_pending_flushed();
+            self.flush.pop_pending_response();
 
             permit.send(Ok(shuffle::LogResponse {
                 flushed: Some(shuffle::log_response::Flushed {
