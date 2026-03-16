@@ -13,7 +13,7 @@ Private deployments are a way to run Estuary's data infrastructure within a priv
 You'll need a license for a private deployment. [Reach out to an Estuary representative](mailto:support@estuary.dev) to start the process.
 :::
 
-Estuary stores data in [your private account](../getting-started/installation.mdx) with any deployment option. For a private deployment, your data additionally stays within your private network as it moves through your data pipeline.
+Estuary stores data in [your private account](/getting-started/installation) with any deployment option. For a private deployment, your data additionally stays within your private network as it moves through your data pipeline.
 
 Estuary supports private deployments in any region in **AWS**, **GCP**, and **Azure**.
 
