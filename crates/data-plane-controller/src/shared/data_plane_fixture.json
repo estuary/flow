@@ -108,7 +108,8 @@
         "service_attachment": "projects/customer-project/regions/us-central1/serviceAttachments/customer-db",
         "region": "us-central1",
         "dns_zone_name": "estuary-psc",
-        "dns_record_names": ["customer-db", "customer-api"]
+        "dns_record_names": ["customer-db", "customer-api"],
+        "all_ports": true
       }
     ],
     "gcp_byoc": {
