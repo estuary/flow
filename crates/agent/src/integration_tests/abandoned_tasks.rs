@@ -174,7 +174,7 @@ async fn test_idle_fires_when_no_data_and_old(
     tracing::info!(%catalog_name, "idle fires for old task with no data");
     publish_and_await_ready(harness, task_type, catalog_name).await;
 
-    // Make the task old enough (past IDLE_THRESHOLD).
+    // Make the task old enough (past the idle threshold).
     push_back_created_at(catalog_name, chrono::Duration::days(45), harness).await;
     override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
 
@@ -194,7 +194,7 @@ async fn test_idle_fires_when_no_data_and_old(
     assert_within_minutes(wake_at, 25 * 60);
 }
 
-/// With DISABLE_ABANDONED_TASKS enabled, the controller publishes
+/// With `disable_abandoned_tasks` enabled, the controller publishes
 /// `shards.disable = true` when the chronically-failing grace period expires.
 async fn test_auto_disable_publishes_disable(
     harness: &mut TestHarness,
@@ -203,7 +203,9 @@ async fn test_auto_disable_publishes_disable(
 ) {
     tracing::info!(%catalog_name, "auto-disable publishes shards.disable");
 
-    crate::controllers::abandon::DISABLE_ABANDONED_TASKS.set(true);
+    let mut config = harness.control_plane().controller_config();
+    config.disable_abandoned_tasks = true;
+    harness.control_plane().set_controller_config(config);
 
     publish_and_await_ready(harness, task_type, catalog_name).await;
 
@@ -255,8 +257,6 @@ async fn test_auto_disable_publishes_disable(
     harness
         .assert_alert_clear(catalog_name, AlertType::TaskAutoDisabledFailing)
         .await;
-
-    crate::controllers::abandon::DISABLE_ABANDONED_TASKS.set(false);
 }
 
 async fn override_shard_status_last_ts(
@@ -308,7 +308,7 @@ async fn trigger_shard_failed_alert(
     let state = harness.get_controller_state(catalog_name).await;
     let shard = shard_ref(state.last_build_id, catalog_name);
 
-    // Insert enough failures to trigger the alert (ALERT_AFTER_SHARD_FAILURES = 3)
+    // Insert enough failures to trigger the alert (default threshold is 3)
     for _ in 0..3 {
         harness.fail_shard(&shard).await;
     }

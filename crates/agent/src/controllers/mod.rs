@@ -1,6 +1,5 @@
-#[macro_use]
-pub(crate) mod activation;
 pub(crate) mod abandon;
+pub(crate) mod activation;
 pub(crate) mod alerts;
 pub(crate) mod capture;
 pub(crate) mod catalog_test;
@@ -25,44 +24,68 @@ use std::fmt::Debug;
 
 pub use executor::{Inbox, LiveSpecControllerExecutor};
 
-/// A configuration value with optional per-thread test overrides.
-/// In test builds, `set()` stores a per-thread override keyed by
-/// `std::thread::ThreadId` (which is never reused), so overrides
-/// are automatically scoped to the calling test.
-pub(super) struct EnvConfig<T: Copy + Send + 'static> {
-    value: T,
-    #[cfg(test)]
-    test_override: std::sync::Mutex<std::collections::HashMap<std::thread::ThreadId, T>>,
+fn parse_chrono_duration(s: &str) -> Result<chrono::Duration, String> {
+    let std_dur = humantime::parse_duration(s).map_err(|e| e.to_string())?;
+    chrono::Duration::from_std(std_dur).map_err(|e| e.to_string())
 }
 
-impl<T: Copy + Send + 'static> EnvConfig<T> {
-    pub fn new(value: T) -> Self {
-        Self {
-            value,
-            #[cfg(test)]
-            test_override: std::sync::Mutex::new(std::collections::HashMap::new()),
-        }
-    }
+/// Configuration values for controller automations, parsed from CLI
+/// arguments and threaded through `ControlPlane`.
+#[derive(Copy, Clone, Debug, clap::Parser)]
+pub struct ControllerConfig {
+    /// Retention window for rows in the `shard_failures` table. Failures older
+    /// than this are deleted when the controller runs.
+    #[clap(long, env = "SHARD_FAILURE_RETENTION", default_value = "8h")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub shard_failure_retention: chrono::Duration,
+    /// How long shard health must be Ok before resolving a ShardFailed alert.
+    #[clap(long, env = "RESOLVE_SHARD_FAILED_ALERT_AFTER", default_value = "2h")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub resolve_shard_failed_alert_after: chrono::Duration,
+    /// Maximum interval between shard health checks.
+    #[clap(long, env = "FLOW_MAX_SHARD_STATUS_INTERVAL", default_value = "2h")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub max_shard_status_interval: chrono::Duration,
+    /// Number of recent shard failures required to fire a ShardFailed alert.
+    #[clap(long, env = "ALERT_AFTER_SHARD_FAILURES", default_value = "3")]
+    pub alert_after_shard_failures: u32,
+    /// Consecutive Ok health checks before counting as sustained PRIMARY.
+    #[clap(long, env = "SUSTAINED_PRIMARY_MIN_CHECKS", default_value = "3")]
+    pub sustained_primary_min_checks: u32,
+    /// ShardFailed must be continuously firing for this long before the task
+    /// is considered chronically failing.
+    #[clap(long, env = "CHRONICALLY_FAILING_THRESHOLD", default_value = "30d")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub chronically_failing_threshold: chrono::Duration,
+    /// Grace period after firing the chronically-failing warning before
+    /// auto-disabling.
+    #[clap(long, env = "CHRONICALLY_FAILING_DISABLE_AFTER", default_value = "7d")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub chronically_failing_disable_after: chrono::Duration,
+    /// Task must have no data movement for this long before we consider it idle.
+    #[clap(long, env = "ABANDON_IDLE_THRESHOLD", default_value = "30d")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub abandon_idle_threshold: chrono::Duration,
+    /// A user publication within this timeframe prevents abandonment alerts
+    /// from firing and tasks from being disabled.
+    #[clap(long, env = "ABANDON_USER_PUB_RECENCY", default_value = "14d")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub abandon_user_pub_recency: chrono::Duration,
+    /// Grace period after firing the idle warning before auto-disabling.
+    #[clap(long, env = "ABANDON_IDLE_DISABLE_AFTER", default_value = "7d")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub abandon_idle_disable_after: chrono::Duration,
+    /// Whether to actually disable abandoned tasks (vs only alerting).
+    #[clap(long, env = "DISABLE_ABANDONED_TASKS", default_value = "false")]
+    pub disable_abandoned_tasks: bool,
+}
 
-    pub fn get(&self) -> T {
-        #[cfg(test)]
-        if let Some(&v) = self
-            .test_override
-            .lock()
-            .unwrap()
-            .get(&std::thread::current().id())
-        {
-            return v;
-        }
-        self.value
-    }
-
-    #[cfg(test)]
-    pub fn set(&self, value: T) {
-        self.test_override
-            .lock()
-            .unwrap()
-            .insert(std::thread::current().id(), value);
+impl Default for ControllerConfig {
+    fn default() -> Self {
+        // Parse with an empty arg list so every field gets its clap
+        // `default_value`, keeping defaults defined in exactly one place.
+        use clap::Parser;
+        Self::parse_from(std::iter::empty::<&str>())
     }
 }
 

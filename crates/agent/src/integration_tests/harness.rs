@@ -259,6 +259,7 @@ impl HarnessBuilder {
             snapshot_watch,
             1.0, // auto_discover_probability
             publication_cooldown,
+            crate::controllers::ControllerConfig::default(),
         ));
 
         let controller_exec =
@@ -1779,6 +1780,7 @@ pub struct TestControlPlane {
     pub auto_discover_enabled: bool,
     inner: PGControlPlane<MockDiscoverConnectors>,
     mocks: Arc<Mutex<ControlPlaneMocks>>,
+    controller_config: Arc<Mutex<crate::controllers::ControllerConfig>>,
 }
 
 /// A `Finalize` that can inject build failures in order to test failure scenarios.
@@ -1822,7 +1824,14 @@ impl TestControlPlane {
                 shards: BTreeMap::new(),
             })),
             auto_discover_enabled: true,
+            controller_config: Arc::new(
+                Mutex::new(crate::controllers::ControllerConfig::default()),
+            ),
         }
+    }
+
+    pub fn set_controller_config(&self, config: crate::controllers::ControllerConfig) {
+        *self.controller_config.lock().unwrap() = config;
     }
 
     pub fn reset_activations(&mut self) {
@@ -1945,6 +1954,10 @@ impl ControlPlane for TestControlPlane {
 
     fn controller_publication_cooldown(&self) -> chrono::Duration {
         self.inner.controller_publication_cooldown()
+    }
+
+    fn controller_config(&self) -> crate::controllers::ControllerConfig {
+        *self.controller_config.lock().unwrap()
     }
 
     #[tracing::instrument(level = "debug", err, skip(self))]
@@ -2172,4 +2185,13 @@ impl ControlPlane for TestControlPlane {
 enum Either<L, R> {
     L(L),
     R(R),
+}
+
+pub fn assert_within_minutes(wake_at: chrono::DateTime<chrono::Utc>, within_minutes: i64) {
+    let diff = wake_at - chrono::Utc::now();
+    assert!(
+        diff < chrono::Duration::minutes(within_minutes),
+        "expected next run to be within {within_minutes} minutes, but was at {wake_at} ({} minutes)",
+        diff.num_minutes()
+    );
 }

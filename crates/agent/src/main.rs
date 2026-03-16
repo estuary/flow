@@ -150,6 +150,9 @@ struct Args {
     #[clap(long, env, default_value = "10m")]
     #[arg(value_parser = humantime::parse_duration)]
     data_movement_alert_interval: std::time::Duration,
+
+    #[command(flatten)]
+    controller_config: agent::controllers::ControllerConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -310,6 +313,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         snapshot_watch.clone(),
         args.auto_discover_probability,
         controller_publication_cooldown,
+        args.controller_config,
     );
 
     // Wire up the agent's API Application and server.
