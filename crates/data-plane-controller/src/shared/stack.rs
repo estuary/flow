@@ -639,6 +639,7 @@ mod test {
                 region: "us-central1".to_string(),
                 dns_zone_name: "estuary-psc".to_string(),
                 dns_record_names: vec!["customer-db".to_string(), "customer-api".to_string()],
+                all_ports: true,
             }),
         );
         assert_eq!(
