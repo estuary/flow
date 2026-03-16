@@ -1,35 +1,10 @@
-use super::{ControllerState, NextRun, alerts};
+use super::{ControllerConfig, ControllerState, NextRun, alerts};
 use crate::controllers::activation::has_task_shards;
 use crate::controllers::publication_status::PendingPublication;
 use crate::controlplane::ControlPlane;
 use chrono::{DateTime, Utc};
 use models::status::publications::PublicationStatus;
 use models::status::{AlertType, Alerts};
-
-env_config_interval! {
-    /// ShardFailed must be continuously firing for this long before we consider the task chronically failing.
-    CHRONICALLY_FAILING_THRESHOLD, chrono::Duration::days(30)
-}
-env_config_interval! {
-    /// Grace period after firing the chronically-failing warning before auto-disabling.
-    CHRONICALLY_FAILING_DISABLE_AFTER, chrono::Duration::days(7)
-}
-env_config_interval! {
-    /// Task must have no data movement for this long before we consider it idle.
-    IDLE_THRESHOLD, chrono::Duration::days(30)
-}
-env_config_interval! {
-    /// A user publication within this timeframe will prevent task abandonment alerts from firing and tasks from being disabled.
-    USER_PUB_THRESHOLD, chrono::Duration::days(14)
-}
-env_config_interval! {
-    /// Grace period after firing the idle warning before auto-disabling.
-    IDLE_DISABLE_AFTER, chrono::Duration::days(7)
-}
-env_config_bool! {
-    /// Allows for running the abandonment controller without actually disabling tasks.
-    pub(crate) DISABLE_ABANDONED_TASKS, false
-}
 
 /// Extra field keys stored in alert `extra` maps for notification templates.
 const EXTRA_DISABLE_AT: &str = "disable_at";
@@ -70,12 +45,14 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
     }
 
     let now = control_plane.current_time();
-    let timestamps = fetch_abandonment_timestamps(alerts_status, state, control_plane, now).await?;
+    let config = control_plane.controller_config();
+    let timestamps =
+        fetch_abandonment_timestamps(alerts_status, state, control_plane, now, &config).await?;
 
-    let disable_reason = evaluate_alerts(alerts_status, state, now, timestamps);
+    let disable_reason = evaluate_alerts(alerts_status, state, now, timestamps, &config);
 
     if let Some(reason) = disable_reason {
-        if DISABLE_ABANDONED_TASKS.get() {
+        if config.disable_abandoned_tasks {
             if maybe_disable_task(reason, state, publications, control_plane).await? {
                 return Ok(Some(NextRun::immediately()));
             }
@@ -93,6 +70,7 @@ async fn fetch_abandonment_timestamps<C: ControlPlane>(
     state: &ControllerState,
     control_plane: &C,
     now: DateTime<Utc>,
+    config: &ControllerConfig,
 ) -> anyhow::Result<AbandonmentTimestamps> {
     let last_user_pub_at = control_plane
         .fetch_last_user_publication_at(state.live_spec_id)
@@ -100,7 +78,8 @@ async fn fetch_abandonment_timestamps<C: ControlPlane>(
 
     let has_failure_alerts = alerts_status.contains_key(&AlertType::ShardFailed)
         || alerts_status.contains_key(&AlertType::TaskChronicallyFailing);
-    let user_pub_stale = last_user_pub_at.map_or(true, |ts| (now - ts) >= USER_PUB_THRESHOLD.get());
+    let user_pub_stale =
+        last_user_pub_at.map_or(true, |ts| (now - ts) >= config.abandon_user_pub_recency);
 
     let last_data_movement_ts = if has_failure_alerts || !user_pub_stale {
         None
@@ -124,6 +103,7 @@ fn evaluate_alerts(
     state: &ControllerState,
     now: DateTime<Utc>,
     timestamps: AbandonmentTimestamps,
+    config: &ControllerConfig,
 ) -> Option<DisableReason> {
     // Tasks that are disabled, Dekaf, or lack shards don't get abandonment checks.
     // Silently resolve any alerts that may have been firing so re-enablement starts clean.
@@ -136,17 +116,17 @@ fn evaluate_alerts(
 
     let user_pub_stale = timestamps
         .last_user_pub_at
-        .map_or(true, |ts| (now - ts) >= USER_PUB_THRESHOLD.get());
+        .map_or(true, |ts| (now - ts) >= config.abandon_user_pub_recency);
 
     // Sequence 1: Chronically Failing
-    // Fires when ShardFailed has been continuously active for > CHRONICALLY_FAILING_THRESHOLD
+    // Fires when ShardFailed has been continuously active for an extended period
     // and no user has published changes recently (a recent publication signals active debugging).
     let shard_failed_since = alerts_status
         .get(&AlertType::ShardFailed)
         .map(|a| a.first_ts);
 
     let is_chronically_failing = shard_failed_since
-        .is_some_and(|first_ts| (now - first_ts) >= CHRONICALLY_FAILING_THRESHOLD.get())
+        .is_some_and(|first_ts| (now - first_ts) >= config.chronically_failing_threshold)
         && user_pub_stale;
 
     let mut disable_reason = None;
@@ -159,7 +139,7 @@ fn evaluate_alerts(
         // shift the disable date if the env config changes between runs.
         if !alerts_status.contains_key(&AlertType::TaskChronicallyFailing) {
             let failing_since = shard_failed_first_ts.format("%Y-%m-%d").to_string();
-            let disable_at = (now + CHRONICALLY_FAILING_DISABLE_AFTER.get())
+            let disable_at = (now + config.chronically_failing_disable_after)
                 .format("%Y-%m-%d")
                 .to_string();
 
@@ -237,13 +217,13 @@ fn evaluate_alerts(
 
     let data_stale = timestamps
         .last_data_movement_ts
-        .map_or(true, |ts| (now - ts) >= IDLE_THRESHOLD.get());
+        .map_or(true, |ts| (now - ts) >= config.abandon_idle_threshold);
 
     let is_idle = !has_failure_alerts && data_stale && user_pub_stale;
 
     if is_idle {
         if !alerts_status.contains_key(&AlertType::TaskIdle) {
-            let disable_at = (now + IDLE_DISABLE_AFTER.get())
+            let disable_at = (now + config.abandon_idle_disable_after)
                 .format("%Y-%m-%d")
                 .to_string();
 
@@ -448,12 +428,19 @@ mod test {
 
     #[test]
     fn no_shard_failed_means_not_chronically_failing() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         let state = mock_state(Some(enabled_capture()), now - Duration::days(60));
         let mut alerts: Alerts = Default::default();
 
-        evaluate_alerts(&mut alerts, &state, now, AbandonmentTimestamps::default());
+        evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            AbandonmentTimestamps::default(),
+            &config,
+        );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -473,6 +460,7 @@ mod test {
 
     #[test]
     fn recent_shard_failed_not_chronically_failing() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         let state = mock_state(Some(enabled_capture()), now - Duration::days(60));
@@ -482,7 +470,13 @@ mod test {
             shard_failed_alert(now - Duration::days(10), now),
         );
 
-        evaluate_alerts(&mut alerts, &state, now, AbandonmentTimestamps::default());
+        evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            AbandonmentTimestamps::default(),
+            &config,
+        );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -501,6 +495,7 @@ mod test {
 
     #[test]
     fn recent_user_pub_suppresses_chronically_failing() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         let state = mock_state(Some(enabled_capture()), now - Duration::days(60));
@@ -518,6 +513,7 @@ mod test {
                 last_user_pub_at: Some(now - Duration::days(5)),
                 ..Default::default()
             },
+            &config,
         );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
@@ -537,6 +533,7 @@ mod test {
 
     #[test]
     fn stale_user_pub_does_not_suppress_chronically_failing() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         let state = mock_state(Some(enabled_capture()), now - Duration::days(60));
@@ -544,7 +541,7 @@ mod test {
         alerts.insert(
             AlertType::ShardFailed,
             shard_failed_alert(
-                now - CHRONICALLY_FAILING_THRESHOLD.get() - Duration::days(5),
+                now - config.chronically_failing_threshold - Duration::days(5),
                 now,
             ),
         );
@@ -557,6 +554,7 @@ mod test {
                 last_user_pub_at: Some(now - Duration::days(20)),
                 ..Default::default()
             },
+            &config,
         );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
@@ -590,6 +588,7 @@ mod test {
     /// shard later recovers and data starts moving again, all alerts resolve.
     #[test]
     fn chronically_failing_lifecycle() {
+        let config = ControllerConfig::default();
         let shard_failed_at = fixed_now();
         let created_at = shard_failed_at - Duration::days(90);
         let state = mock_state(Some(enabled_capture()), created_at);
@@ -602,8 +601,8 @@ mod test {
         );
 
         // Tick 1: 29 days of failure, below the 30-day chronically-failing threshold.
-        let now = shard_failed_at + CHRONICALLY_FAILING_THRESHOLD.get() - Duration::days(1);
-        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps);
+        let now = shard_failed_at + config.chronically_failing_threshold - Duration::days(1);
+        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps, &config);
         assert!(reason.is_none());
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -621,8 +620,8 @@ mod test {
 
         // Tick 2: 31 days of failure, over threshold. TaskChronicallyFailing fires
         // with a 7-day grace period before auto-disable.
-        let now = shard_failed_at + CHRONICALLY_FAILING_THRESHOLD.get() + Duration::days(1);
-        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps);
+        let now = shard_failed_at + config.chronically_failing_threshold + Duration::days(1);
+        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps, &config);
         assert!(reason.is_none());
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -650,8 +649,8 @@ mod test {
         "#);
 
         // Tick 3: 4 days into grace period, still within the window.
-        let now = shard_failed_at + CHRONICALLY_FAILING_THRESHOLD.get() + Duration::days(5);
-        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps);
+        let now = shard_failed_at + config.chronically_failing_threshold + Duration::days(5);
+        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps, &config);
         assert!(reason.is_none());
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -681,9 +680,9 @@ mod test {
         // Tick 4: Grace period expired. The disable_at was set at tick 2
         // (threshold + 1d) plus DISABLE_AFTER, so we need to reach that date.
         let chronically_fired_at =
-            shard_failed_at + CHRONICALLY_FAILING_THRESHOLD.get() + Duration::days(1);
-        let now = chronically_fired_at + CHRONICALLY_FAILING_DISABLE_AFTER.get();
-        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps);
+            shard_failed_at + config.chronically_failing_threshold + Duration::days(1);
+        let now = chronically_fired_at + config.chronically_failing_disable_after;
+        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps, &config);
         assert_eq!(reason, Some(DisableReason::ChronicallyFailing));
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -724,7 +723,7 @@ mod test {
         // again. All failing-sequence alerts resolve cleanly.
         alerts.remove(&AlertType::ShardFailed);
         let now =
-            chronically_fired_at + CHRONICALLY_FAILING_DISABLE_AFTER.get() + Duration::days(1);
+            chronically_fired_at + config.chronically_failing_disable_after + Duration::days(1);
         let reason = evaluate_alerts(
             &mut alerts,
             &state,
@@ -733,6 +732,7 @@ mod test {
                 last_data_movement_ts: Some(now - Duration::days(1)),
                 ..Default::default()
             },
+            &config,
         );
         assert!(reason.is_none());
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @"{}");
@@ -744,8 +744,9 @@ mod test {
     /// changes between controller runs.
     #[test]
     fn chronically_failing_stored_disable_at_honored() {
+        let mut config = ControllerConfig::default();
         let base = fixed_now();
-        let shard_failed_at = base - CHRONICALLY_FAILING_THRESHOLD.get() - Duration::days(15);
+        let shard_failed_at = base - config.chronically_failing_threshold - Duration::days(15);
         let created_at = shard_failed_at - Duration::days(30);
         let state = mock_state(Some(enabled_capture()), created_at);
         let timestamps = AbandonmentTimestamps::default();
@@ -758,7 +759,7 @@ mod test {
 
         // Tick 1: Grace period is 7 days. TaskChronicallyFailing fires with
         // disable_at = base + 7d.
-        let reason = evaluate_alerts(&mut alerts, &state, base, timestamps);
+        let reason = evaluate_alerts(&mut alerts, &state, base, timestamps, &config);
         assert!(reason.is_none());
 
         let original_disable_at = alerts
@@ -774,12 +775,12 @@ mod test {
         // Shrink the grace period to 1 day. If disable_at were recomputed,
         // tick 2 would set it to now+1d and immediately trigger auto-disable
         // on tick 3.
-        CHRONICALLY_FAILING_DISABLE_AFTER.set(Duration::days(1));
+        config.chronically_failing_disable_after = Duration::days(1);
 
         // Tick 2: 3 days later. Past the new 1-day grace period, but still
         // before the original 7-day disable_at. The stored date wins.
         let now = base + Duration::days(3);
-        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps);
+        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps, &config);
         assert!(reason.is_none());
 
         // Verify the stored disable_at hasn't changed.
@@ -798,6 +799,7 @@ mod test {
 
     #[test]
     fn new_task_with_recent_pub_not_idle() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         // The initial publication that created the task sets last_user_pub_at,
@@ -813,6 +815,7 @@ mod test {
                 last_user_pub_at: Some(now - Duration::days(10)),
                 ..Default::default()
             },
+            &config,
         );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @"{}");
@@ -820,6 +823,7 @@ mod test {
 
     #[test]
     fn recent_data_movement_prevents_idle() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         let state = mock_state(Some(enabled_capture()), now - Duration::days(60));
@@ -833,6 +837,7 @@ mod test {
                 last_data_movement_ts: Some(now - Duration::days(5)),
                 ..Default::default()
             },
+            &config,
         );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @"{}");
@@ -840,6 +845,7 @@ mod test {
 
     #[test]
     fn recent_user_pub_prevents_idle() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         let state = mock_state(Some(enabled_capture()), now - Duration::days(60));
@@ -853,6 +859,7 @@ mod test {
                 last_user_pub_at: Some(now - Duration::days(5)),
                 ..Default::default()
             },
+            &config,
         );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @"{}");
@@ -860,6 +867,7 @@ mod test {
 
     #[test]
     fn stale_data_but_recent_user_pub_not_idle() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         let state = mock_state(Some(enabled_capture()), now - Duration::days(60));
@@ -870,9 +878,12 @@ mod test {
             &state,
             now,
             AbandonmentTimestamps {
-                last_data_movement_ts: Some(now - IDLE_THRESHOLD.get() - Duration::days(5)),
+                last_data_movement_ts: Some(
+                    now - config.abandon_idle_threshold - Duration::days(5),
+                ),
                 last_user_pub_at: Some(now - Duration::days(3)),
             },
+            &config,
         );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @"{}");
@@ -880,6 +891,7 @@ mod test {
 
     #[test]
     fn shard_failed_suppresses_idle() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         let state = mock_state(Some(enabled_capture()), now - Duration::days(60));
@@ -889,7 +901,13 @@ mod test {
             shard_failed_alert(now - Duration::days(5), now),
         );
 
-        evaluate_alerts(&mut alerts, &state, now, AbandonmentTimestamps::default());
+        evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            AbandonmentTimestamps::default(),
+            &config,
+        );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -908,6 +926,7 @@ mod test {
 
     #[test]
     fn chronically_failing_suppresses_idle() {
+        let config = ControllerConfig::default();
         let now = fixed_now();
 
         let state = mock_state(Some(enabled_capture()), now - Duration::days(60));
@@ -917,7 +936,13 @@ mod test {
             shard_failed_alert(now - Duration::days(40), now),
         );
 
-        evaluate_alerts(&mut alerts, &state, now, AbandonmentTimestamps::default());
+        evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            AbandonmentTimestamps::default(),
+            &config,
+        );
 
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -950,6 +975,7 @@ mod test {
     /// resolve when data starts moving again.
     #[test]
     fn idle_lifecycle() {
+        let config = ControllerConfig::default();
         let base = fixed_now();
         let created_at = base - Duration::days(90);
         let state = mock_state(Some(enabled_materialization()), created_at);
@@ -964,14 +990,21 @@ mod test {
                 last_data_movement_ts: Some(base - Duration::days(1)),
                 ..Default::default()
             },
+            &config,
         );
         assert!(reason.is_none());
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @"{}");
 
         // Tick 2: No data movement, no user pub, no failure alerts. TaskIdle fires
         // with a 7-day grace period.
-        let now = base + IDLE_THRESHOLD.get();
-        let reason = evaluate_alerts(&mut alerts, &state, now, AbandonmentTimestamps::default());
+        let now = base + config.abandon_idle_threshold;
+        let reason = evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            AbandonmentTimestamps::default(),
+            &config,
+        );
         assert!(reason.is_none());
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -989,8 +1022,14 @@ mod test {
         "#);
 
         // Tick 3: Grace period expired. TaskAutoDisabledIdle fires.
-        let now = now + IDLE_DISABLE_AFTER.get();
-        let reason = evaluate_alerts(&mut alerts, &state, now, AbandonmentTimestamps::default());
+        let now = now + config.abandon_idle_disable_after;
+        let reason = evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            AbandonmentTimestamps::default(),
+            &config,
+        );
         assert_eq!(reason, Some(DisableReason::Idle));
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -1026,6 +1065,7 @@ mod test {
                 last_data_movement_ts: Some(now - Duration::days(1)),
                 ..Default::default()
             },
+            &config,
         );
         assert!(reason.is_none());
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @"{}");
@@ -1035,6 +1075,7 @@ mod test {
     /// honored on subsequent evaluations rather than being recomputed.
     #[test]
     fn idle_stored_disable_at_honored() {
+        let mut config = ControllerConfig::default();
         let base = fixed_now();
         let created_at = base - Duration::days(90);
         let state = mock_state(Some(enabled_materialization()), created_at);
@@ -1042,7 +1083,7 @@ mod test {
         let mut alerts: Alerts = Default::default();
 
         // Tick 1: Grace period is 7 days. TaskIdle fires with disable_at = base + 7d.
-        let reason = evaluate_alerts(&mut alerts, &state, base, timestamps);
+        let reason = evaluate_alerts(&mut alerts, &state, base, timestamps, &config);
         assert!(reason.is_none());
 
         let original_disable_at = alerts
@@ -1058,12 +1099,12 @@ mod test {
         // Shrink the grace period to 1 day. If disable_at were recomputed,
         // tick 2 would set it to now+1d and immediately trigger auto-disable
         // on tick 3.
-        IDLE_DISABLE_AFTER.set(Duration::days(1));
+        config.abandon_idle_disable_after = Duration::days(1);
 
         // Tick 2: 3 days later. Past the new 1-day grace period, but still
         // before the original 7-day disable_at. The stored date wins.
         let now = base + Duration::days(3);
-        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps);
+        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps, &config);
         assert!(reason.is_none());
 
         // Verify the stored disable_at hasn't changed.
@@ -1082,6 +1123,7 @@ mod test {
     /// regardless of which sequence produced them.
     #[test]
     fn disabled_task_resolves_abandon_alerts() {
+        let config = ControllerConfig::default();
         let base = fixed_now();
         let created_at = base - Duration::days(90);
         let state = mock_state(Some(enabled_capture()), created_at);
@@ -1089,7 +1131,7 @@ mod test {
         let mut alerts: Alerts = Default::default();
 
         // Tick 1: Task is idle, no data, no user pub.
-        let reason = evaluate_alerts(&mut alerts, &state, base, timestamps);
+        let reason = evaluate_alerts(&mut alerts, &state, base, timestamps, &config);
         assert!(reason.is_none());
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -1109,7 +1151,7 @@ mod test {
         // Tick 2: Task is now disabled. All abandonment alerts resolve.
         let disabled_state = mock_state(Some(disabled_capture()), created_at);
         let now = base + Duration::days(1);
-        let reason = evaluate_alerts(&mut alerts, &disabled_state, now, timestamps);
+        let reason = evaluate_alerts(&mut alerts, &disabled_state, now, timestamps, &config);
         assert!(reason.is_none());
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @"{}");
     }
