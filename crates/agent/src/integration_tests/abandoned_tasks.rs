@@ -1,6 +1,6 @@
 use crate::{
     ControlPlane,
-    integration_tests::harness::{TestHarness, draft_catalog},
+    integration_tests::harness::{TestHarness, assert_within_minutes, draft_catalog},
     integration_tests::shard_failures::{publish_and_await_ready, shard_ref},
 };
 use models::{CatalogType, status::AlertType};
@@ -155,6 +155,11 @@ async fn test_shard_failed_fires_abandonment_alert(
         extra.get("disable_at").and_then(|v| v.as_str()).is_some(),
         "expected disable_at in alert arguments, got: {extra:?}"
     );
+
+    // The controller should schedule a future wake within the 24h abandon safety-net,
+    // coalesced with the ~2h activation health check interval.
+    let wake_at = harness.assert_controller_pending(catalog_name).await;
+    assert_within_minutes(wake_at, 25 * 60);
 }
 
 /// Idle detection: old task with no data movement and no user publication.
@@ -184,6 +189,9 @@ async fn test_idle_fires_when_no_data_and_old(
         extra.get("disable_at").and_then(|v| v.as_str()).is_some(),
         "expected disable_at in alert arguments, got: {extra:?}"
     );
+
+    let wake_at = harness.assert_controller_pending(catalog_name).await;
+    assert_within_minutes(wake_at, 25 * 60);
 }
 
 /// With DISABLE_ABANDONED_TASKS enabled, the controller publishes
