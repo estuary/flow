@@ -1,5 +1,6 @@
 use super::harness::{
-    HarnessBuilder, draft_catalog, get_collection_generation_id, mock_inferred_schema,
+    HarnessBuilder, assert_within_minutes, draft_catalog, get_collection_generation_id,
+    mock_inferred_schema,
 };
 use crate::{controllers::ControllerState, integration_tests::harness::InjectBuildError};
 use chrono::{DateTime, Utc};
@@ -462,13 +463,4 @@ fn get_effective_inferred_schema(state: &ControllerState) -> serde_json::Value {
         );
     };
     schema_val.take()
-}
-
-fn assert_within_minutes(wake_at: DateTime<Utc>, within_minutes: i64) {
-    let diff = wake_at - Utc::now();
-    assert!(
-        diff < chrono::Duration::minutes(within_minutes),
-        "expected next run to be within {within_minutes} minutes, but was at {wake_at} ({} minutes)",
-        diff.num_minutes()
-    );
 }
