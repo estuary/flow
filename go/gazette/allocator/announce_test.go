@@ -127,8 +127,7 @@ func (s *AnnounceSuite) TestBasicSessionStart(c *gc.C) {
 	close(sigCh)
 
 	c.Check(args.Tasks.Wait(), gc.IsNil) // All tasks have exited.
-	c.Check(spec.E, gc.Equals, true) // Member was marked as exiting.
-	c.Check(spec.R, gc.Equals, 0)   // TODO(whb): Remove once backward compat is removed.
+	c.Check(spec.E, gc.Equals, true)     // Member was marked as exiting.
 
 	leasesResp, err := etcd.Leases(context.Background())
 	c.Check(err, gc.IsNil)

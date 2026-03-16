@@ -361,8 +361,7 @@ type testMember struct {
 
 func (m testMember) ItemLimit() int   { return m.R }
 func (m testMember) Validate() error  { return nil }
-// TODO(whb): Zero'ing R is for backward compatibility; remove once deployment is complete.
-func (m *testMember) SetExiting()     { m.E = true; m.R = 0 }
+func (m *testMember) SetExiting()     { m.E = true }
 func (m testMember) IsExiting() bool  { return m.E }
 
 func (m *testMember) MarshalString() string {

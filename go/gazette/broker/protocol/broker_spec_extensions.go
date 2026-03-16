@@ -56,9 +56,7 @@ func (m *BrokerSpec) ItemLimit() int { return int(m.JournalLimit) }
 func (m *BrokerSpec) IsExiting() bool { return m.Exiting }
 
 // SetExiting marks this BrokerSpec as exiting.
-// TODO(whb): Zero'ing JournalLimit is for backward compatibility; remove once
-// deployment is complete.
-func (m *BrokerSpec) SetExiting() { m.Exiting = true; m.JournalLimit = 0 }
+func (m *BrokerSpec) SetExiting() { m.Exiting = true }
 
 const (
 	minZoneLen            = 1
