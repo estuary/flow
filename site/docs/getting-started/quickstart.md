@@ -23,7 +23,7 @@ When you register, your account will use Estuary's secure cloud storage bucket t
 Data in Estuary's cloud storage bucket is deleted 20 days after collection.
 
 For production use cases, you
-should [configure your own cloud storage bucket](./installation.mdx).
+should [configure your own cloud storage bucket](/getting-started/installation).
 
 ## Step 1. Set up a Capture<a id="step-2-set-up-a-capture"></a>
 

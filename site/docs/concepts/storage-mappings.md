@@ -1,6 +1,7 @@
 ---
 sidebar_position: 10
 ---
+
 # Storage Mappings
 
 Estuary stores the documents that comprise your collections in a cloud storage bucket.
@@ -9,9 +10,12 @@ Your **storage mapping** tells Estuary which bucket to use.
 When you first register for Estuary, your storage mapping is Estuary's secure Google Cloud Storage bucket.
 Data in Estuary's cloud storage bucket is deleted 20 days after collection.
 
-For production workflows, you should [set up your own cloud storage bucket as a storage mapping](../getting-started/installation.mdx).
+For production workflows, you should [set up your own cloud storage bucket as a storage mapping](/getting-started/installation).
 
-You can set up a [bucket lifecycle policy](#bucket-lifecycle-policies) to manage data retention in your storage mapping;
+You can define multiple storage mappings to cover different sub-prefixes.
+For example, you may configure tasks under `acmeCo/us/` to route collection data to one storage bucket while tasks under `acmeCo/eu/` use a different bucket.
+
+You can also set up a [bucket lifecycle policy](#bucket-lifecycle-policies) to manage data retention in your storage mapping;
 for example, to remove data after six months.
 
 ## Recovery logs
