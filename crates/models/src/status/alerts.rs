@@ -45,36 +45,19 @@ pub enum AlertType {
     /// continue to make progress in between failures, but at a minimum, performance will
     /// be degraded. And in many scenarios, the task will be unable to process data at all.
     ShardFailed,
-    /// Warning that a task has been unable to run for an extended period and will
-    /// be auto-disabled unless someone intervenes.
-    ///
-    /// Fires when all of:
-    /// - `has_task_shards` (enabled, non-Dekaf task with shards)
-    /// - `ShardFailed` has been continuously firing >= `CHRONICALLY_FAILING_THRESHOLD` (30d)
-    /// - No user publication within `USER_PUB_THRESHOLD` (14d)
-    ///
-    /// Resolves when ShardFailed resolves, a user publishes, or the task is disabled.
+    /// Warning that a task has been unable to run for an extended period. It will
+    /// be automatically disabled unless the issue is addressed or a new version
+    /// of the spec is published.
     TaskChronicallyFailing,
-    /// One-shot notification that a chronically failing task has been auto-disabled.
-    ///
-    /// Fires when `TaskChronicallyFailing` has been firing >=
-    /// `CHRONICALLY_FAILING_DISABLE_AFTER` (7d). Publishes `shards.disable = true`,
-    /// after which `has_task_shards` returns false and all abandon alerts resolve.
+    /// The task was automatically disabled because its shards have been
+    /// failing continuously for an extended period without any user intervention.
     TaskAutoDisabledFailing,
-    /// Warning that a task has not moved any data and will be auto-disabled.
-    ///
-    /// Fires when all of:
-    /// - `has_task_shards` (enabled, non-Dekaf task with shards)
-    /// - No `ShardFailed` or `TaskChronicallyFailing` alert is active
-    /// - No data movement in `catalog_stats_daily` within `IDLE_THRESHOLD` (30d)
-    /// - No user publication within `USER_PUB_THRESHOLD` (14d)
-    ///
-    /// Resolves when data moves, a user publishes, ShardFailed fires, or task is disabled.
+    /// Warning that a task has not processed any data for an extended period
+    /// and has not been modified recently. It will be automatically disabled
+    /// unless a new version of the spec is published.
     TaskIdle,
-    /// One-shot notification that an idle task has been auto-disabled.
-    ///
-    /// Fires when `TaskIdle` has been firing >= `IDLE_DISABLE_AFTER` (7d).
-    /// Publishes `shards.disable = true`, after which all abandon alerts resolve.
+    /// The task was automatically disabled because it had not processed any
+    /// data for an extended period and had not been modified recently.
     TaskAutoDisabledIdle,
     /// Triggers when an automated background process needs to publish a spec,
     /// but is unable to because of publication errors. Background publications
