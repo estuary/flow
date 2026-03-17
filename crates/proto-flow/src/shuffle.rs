@@ -8,6 +8,11 @@ pub struct Member {
     /// gRPC endpoint of this member.
     #[prost(string, tag = "2")]
     pub endpoint: ::prost::alloc::string::String,
+    /// Filesystem path where the Log actor writes segment files for this member.
+    /// The consumer joins over shuffle-produced log segments via this directory.
+    /// Multiple member indices may share a single directory.
+    #[prost(string, tag = "3")]
+    pub directory: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionPartitions {
@@ -17,6 +22,10 @@ pub struct CollectionPartitions {
     /// Partition selector for filtering source collection journals.
     #[prost(message, optional, tag = "2")]
     pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
+    /// Disk backlog threshold in bytes before engaging back-pressure.
+    /// Used for ad-hoc reads where the caller controls the threshold.
+    #[prost(uint64, tag = "3")]
+    pub disk_backlog_threshold: u64,
 }
 /// Task which we're performing shuffles for.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -43,8 +52,8 @@ pub mod task {
 /// ProducerFrontier is the frontier state of a single producer within a journal.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ProducerFrontier {
-    /// Producer ID, extracted from document UUID.
-    #[prost(sfixed64, tag = "1")]
+    /// Producer ID, extracted from document UUID. Only the low 6 bytes are used.
+    #[prost(int64, tag = "1")]
     pub producer: i64,
     /// Clock of the last committing ACK_TXN or OUTSIDE_TXN.
     #[prost(fixed64, tag = "2")]
@@ -62,6 +71,13 @@ pub struct ProducerFrontier {
 /// JournalFrontier is the frontier state for a single journal under a specific binding.
 /// It uses delta-encoding for journal names: given a preceding journal name,
 /// truncate `journal_name_truncate_delta` bytes then append `journal_name_suffix`.
+///
+/// At a given time, the set of distinct producers writing to a journal is small.
+/// However, Producer IDs come and go over time, and the historical set of producers
+/// who have EVER written to a journal may be large.
+///
+/// Most JournalFrontier focuses on *deltas* of frontier state, and have few producers.
+/// The exception is when a Coordinator client is streaming in a resume checkpoint.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalFrontier {
     /// Number of bytes to truncate from the preceding name.
@@ -76,9 +92,18 @@ pub struct JournalFrontier {
     /// `journal_read_suffix` to ensure stability across task versions.
     #[prost(uint32, tag = "3")]
     pub binding: u32,
+    /// Delta of journal bytes read since the last checkpoint.
+    /// Summed during reduction.
+    #[prost(int64, tag = "4")]
+    pub bytes_read_delta: i64,
+    /// Delta of bytes-behind (write_head - read_offset) since last checkpoint.
+    /// Positive when the reader is falling behind, negative when catching up.
+    /// Summed during reduction.
+    #[prost(int64, tag = "5")]
+    pub bytes_behind_delta: i64,
     /// Producers of this journal.
     /// Sorted and unique on `producer`.
-    #[prost(message, repeated, tag = "4")]
+    #[prost(message, repeated, tag = "6")]
     pub producers: ::prost::alloc::vec::Vec<ProducerFrontier>,
 }
 /// FrontierChunk is a portion of a frontier sequence for streaming.
@@ -88,21 +113,42 @@ pub struct JournalFrontier {
 pub struct FrontierChunk {
     #[prost(message, repeated, tag = "1")]
     pub journals: ::prost::alloc::vec::Vec<JournalFrontier>,
+    /// Per-member flushed LSN, indexed by member_index.
+    /// Populated only on the terminal (empty-journals) chunk of a
+    /// Progressed or NextCheckpoint sequence. Empty otherwise.
+    #[prost(uint64, repeated, tag = "2")]
+    pub flushed_lsn: ::prost::alloc::vec::Vec<u64>,
 }
 /// SessionRequest is sent by the Coordinator to manage the shuffle session.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SessionRequest {
     #[prost(message, optional, tag = "1")]
     pub open: ::core::option::Option<session_request::Open>,
-    /// The resume checkpoint: the frontier from which the session resumes.
-    /// It's streamed by the Coordinator after reading SessionResponse.Opened.
-    /// Producers with non-zero `hinted_commit` represent read-through state:
+    /// The resume checkpoint: the non-delta frontier from which the
+    /// session is to resume. It's streamed by the Coordinator client after reading
+    /// SessionResponse.Opened.
+    ///
+    /// This is a comprehensive checkpoint, reflecting all journals and producers
+    /// which have committed transactions. There may be a *lot* of historical producers
+    /// in long-lived tasks, and the Coordinator should employ regular "pruning" to
+    /// remove producers having a `last_commit` clock which is far older than the
+    /// latest `last_commit` of a peer journal producer. Such producers are assumed
+    /// to have been retired and will produce no further transactions.
+    ///
+    /// Resume checkpoint producers use `hinted_commit` to represent read-through state:
     /// transactions that were prepared but not yet committed during the previous
     /// session. The Session will read through these and emit the read-through
     /// frontier as the first NextCheckpoint response.
+    ///
+    /// The Coordinator should use a last unfinished NextCheckpoint of a prior
+    /// Session to initialize `hinted_commit` of its resume checkpoint, by mapping
+    /// an incomplete producer `last_commit` to `hinted_commit`. This ensures that
+    /// the first NextCheckpoint of the current session will match the last
+    /// unfinished NextCheckpoint of its prior session, which enables the transaction
+    /// to be idempotent.
     #[prost(message, optional, tag = "2")]
     pub resume_checkpoint_chunk: ::core::option::Option<FrontierChunk>,
-    #[prost(message, optional, tag = "4")]
+    #[prost(message, optional, tag = "3")]
     pub next_checkpoint: ::core::option::Option<session_request::NextCheckpoint>,
 }
 /// Nested message and enum types in `SessionRequest`.
@@ -111,10 +157,6 @@ pub mod session_request {
     /// Sent once at the start of the Session RPC.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
-        /// Unique identifier for this session instance.
-        /// Used to correlate Slice and Queue RPCs, and to name queue files.
-        #[prost(fixed64, tag = "1")]
-        pub session_id: u64,
         /// Task for which we're performing shuffles.
         #[prost(message, optional, tag = "2")]
         pub task: ::core::option::Option<super::Task>,
@@ -124,8 +166,8 @@ pub mod session_request {
     }
     /// NextCheckpoint requests the next available checkpoint delta.
     /// This is a blocking request: the Session only responds when progress is
-    /// available. The client requests a next checkpoint at times of its choosing
-    /// (e.g., after completing processing of the previous checkpoint).
+    /// available. The Coordinator client requests a next checkpoint at times of
+    /// its choosing (e.g., after completing processing of the previous checkpoint).
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct NextCheckpoint {}
 }
@@ -138,6 +180,11 @@ pub struct SessionResponse {
     /// of a transaction which is ready to be processed. It's sent in response to
     /// SessionRequest.NextCheckpoint, and is never empty (though the Session may
     /// block indefinitely until progress is available).
+    ///
+    /// The Coordinator client should retain this checkpoint and use it to initialize
+    /// `hinted_commit` of future session resume checkpoint. Then, upon it's durable
+    /// completion of all downstream processing related to the NextCheckpoint,
+    /// it should merge it into its base checkpoint.
     #[prost(message, optional, tag = "2")]
     pub next_checkpoint_chunk: ::core::option::Option<FrontierChunk>,
 }
@@ -163,12 +210,12 @@ pub struct SliceRequest {
 /// Nested message and enum types in `SliceRequest`.
 pub mod slice_request {
     /// Open initiates the Slice.
-    /// The Slice opens Queue RPCs to all members before responding Opened.
+    /// The Slice opens Log RPCs to all members before responding Opened.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
-        /// Session ID from SessionRequest.Open.
-        #[prost(fixed64, tag = "1")]
-        pub session_id: u64,
+        /// Session ID, generated by the Session actor for tracing correlation.
+        #[prost(fixed32, tag = "1")]
+        pub session_id: u32,
         /// Task for which we're performing shuffles.
         #[prost(message, optional, tag = "2")]
         pub task: ::core::option::Option<super::Task>,
@@ -223,7 +270,7 @@ pub struct SliceResponse {
     pub opened: ::core::option::Option<slice_response::Opened>,
     #[prost(message, optional, tag = "2")]
     pub listing_added: ::core::option::Option<slice_response::ListingAdded>,
-    /// Progressed reports the frontier of queue progress since the last Progressed.
+    /// Progressed reports the frontier of log progress since the last Progressed.
     /// It's sent in response to a Request.Progress, and only once at least one
     /// flush cycle has completed since the prior Progressed.
     #[prost(message, optional, tag = "3")]
@@ -232,7 +279,7 @@ pub struct SliceResponse {
 /// Nested message and enum types in `SliceResponse`.
 pub mod slice_response {
     /// Opened confirms the Slice is ready.
-    /// Sent after all Queue RPCs have responded Opened.
+    /// Sent after all Log RPCs have responded Opened.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Opened {}
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -254,27 +301,26 @@ pub mod slice_response {
         pub route: ::core::option::Option<::proto_gazette::broker::Route>,
     }
 }
-/// QueueRequest is sent by Slices to each member's Queue.
+/// LogRequest is sent by Slices to each member's Log.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct QueueRequest {
+pub struct LogRequest {
     #[prost(message, optional, tag = "1")]
-    pub open: ::core::option::Option<queue_request::Open>,
+    pub open: ::core::option::Option<log_request::Open>,
     #[prost(message, optional, tag = "2")]
-    pub enqueue: ::core::option::Option<queue_request::Enqueue>,
+    pub append: ::core::option::Option<log_request::Append>,
     #[prost(message, optional, tag = "3")]
-    pub flush: ::core::option::Option<queue_request::Flush>,
+    pub flush: ::core::option::Option<log_request::Flush>,
 }
-/// Nested message and enum types in `QueueRequest`.
-pub mod queue_request {
-    /// Open initiates the Queue RPC.
-    /// Multiple Slices open Queue RPCs to the same member, and the Queue
+/// Nested message and enum types in `LogRequest`.
+pub mod log_request {
+    /// Open initiates the Log RPC.
+    /// Multiple Slices open Log RPCs to the same member, and the Log
     /// task joins these streams and processes documents in merged order.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
         /// Session ID for correlating streams from the same session.
-        /// Combined with member_index to deterministically name the queue file.
-        #[prost(fixed64, tag = "1")]
-        pub session_id: u64,
+        #[prost(fixed32, tag = "1")]
+        pub session_id: u32,
         /// Members participating in this shuffle session.
         /// Must be the same members and order as Session.Open.
         #[prost(message, repeated, tag = "2")]
@@ -282,14 +328,17 @@ pub mod queue_request {
         /// Index of the source Slice member within the session's member list.
         #[prost(uint32, tag = "3")]
         pub slice_member_index: u32,
-        /// Index of the target Queue member within the session's member list.
+        /// Index of the target Log member within the session's member list.
         #[prost(uint32, tag = "4")]
-        pub queue_member_index: u32,
+        pub log_member_index: u32,
+        /// Disk backlog threshold in bytes before engaging back-pressure.
+        #[prost(uint64, tag = "5")]
+        pub disk_backlog_threshold: u64,
     }
-    /// Enqueue sends a document to be written to the queue.
-    /// The Queue merges across Slice streams, ordering by (priority, clock).
+    /// Append sends a document to be written to the log.
+    /// The Log actor merges across Slice streams, ordering by (priority, clock).
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Enqueue {
+    pub struct Append {
         /// Number of bytes to truncate from the preceding name.
         /// Must align with a UTF-8 code point boundary.
         #[prost(int32, tag = "1")]
@@ -297,60 +346,74 @@ pub mod queue_request {
         /// Suffix to append to the preceding, truncated name.
         #[prost(string, tag = "2")]
         pub journal_name_suffix: ::prost::alloc::string::String,
-        /// Begin offset (inclusive) of the document within the journal.
-        #[prost(int64, tag = "3")]
-        pub begin_offset: i64,
         /// Binding index for this document.
-        #[prost(uint32, tag = "4")]
+        #[prost(uint32, tag = "3")]
         pub binding: u32,
         /// Priority of this binding.
-        /// Queue orders documents by (priority DESC, clock ASC).
-        #[prost(uint32, tag = "5")]
+        #[prost(uint32, tag = "4")]
         pub priority: u32,
+        /// Read delay of the binding, as a uuid::Clock duration.
+        /// The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
+        /// Zero (the common case) means no delay.
+        #[prost(uint64, tag = "5")]
+        pub read_delay: u64,
         /// Producer of the document, extracted from its UUID.
-        #[prost(sfixed64, tag = "6")]
+        #[prost(int64, tag = "6")]
         pub producer: i64,
-        /// Adjusted Clock of the the document, extracted from its UUID
-        /// and adjusted by the binding's read delay.
+        /// Publication clock of the document, extracted from its UUID.
         #[prost(fixed64, tag = "7")]
-        pub adjusted_clock: u64,
+        pub clock: u64,
+        /// Publication flags of the document, extracted from its UUID.
+        /// Bit 15 (FLAGS_SCHEMA_VALID = 0x8000) is set when the document passes schema validation.
+        /// Bits 0-9 carry UUID transaction flags (OUTSIDE_TXN, CONTINUE_TXN, etc.).
+        #[prost(uint32, tag = "8")]
+        pub flags: u32,
         /// Packed shuffle key of the document.
-        #[prost(bytes = "bytes", tag = "8")]
+        #[prost(bytes = "bytes", tag = "9")]
         pub packed_key: ::prost::bytes::Bytes,
         /// Document content as transcoded ArchivedNode bytes.
-        #[prost(bytes = "bytes", tag = "9")]
+        #[prost(bytes = "bytes", tag = "10")]
         pub doc_archived: ::prost::bytes::Bytes,
+        /// Byte length of this document in its source journal (end_offset - begin_offset).
+        /// Always fits in uint32 because a single document is always \< 4 GiB.
+        #[prost(uint32, tag = "11")]
+        pub source_byte_length: u32,
     }
     /// Flush requests a durability barrier.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flush {
-        /// Sequence number for correlating Flush with Flushed response.
+        /// Cycle number for correlating Flush with Flushed response.
         /// Allows pipelining if we later want multiple in-flight flushes.
         #[prost(uint64, tag = "1")]
-        pub seq: u64,
+        pub cycle: u64,
     }
 }
-/// QueueResponse is sent by the Queue back to each Slice.
+/// LogResponse is sent by the Log actor back to each Slice.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct QueueResponse {
+pub struct LogResponse {
     #[prost(message, optional, tag = "1")]
-    pub opened: ::core::option::Option<queue_response::Opened>,
+    pub opened: ::core::option::Option<log_response::Opened>,
     #[prost(message, optional, tag = "2")]
-    pub flushed: ::core::option::Option<queue_response::Flushed>,
+    pub flushed: ::core::option::Option<log_response::Flushed>,
 }
-/// Nested message and enum types in `QueueResponse`.
-pub mod queue_response {
-    /// Opened confirms the Queue is ready to receive documents.
-    /// Sent after the Queue has joined over the member's queue file.
+/// Nested message and enum types in `LogResponse`.
+pub mod log_response {
+    /// Opened confirms the Log is ready to receive documents.
+    /// Sent after this Log RPC has joined over the member's single session Log actor.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Opened {}
-    /// Flushed confirms all preceding documents are durable on disk.
-    /// Only after receiving Flushed from ALL Queues can a Slice safely
+    /// Flushed confirms all preceding documents are visible for dequeue.
+    /// Only after receiving Flushed from ALL Log RPCs can a Slice safely
     /// report ProgressDelta to the Session.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flushed {
-        /// Sequence number from the corresponding Flush request.
+        /// Cycle number from the corresponding Flush request.
         #[prost(uint64, tag = "1")]
-        pub seq: u64,
+        pub cycle: u64,
+        /// Log head position after all preceding appends are durable.
+        /// The consumer must read through this LSN to observe all
+        /// documents appended before this flush.
+        #[prost(uint64, tag = "2")]
+        pub flushed_lsn: u64,
     }
 }
