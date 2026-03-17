@@ -97,6 +97,12 @@ impl Client {
             req.offset = metadata.write_head;
             () = co.yield_(Ok(metadata)).await;
             return Ok(());
+        } else if metadata.status() != broker::Status::Ok {
+            // Note: we used to fall through and retry below on !Ok. That was
+            // subtly wrong, because we may have a transient error here that
+            // resolves before the Read RPC below, where that RPC then fails
+            // with an OffsetNotYetAvailable not having our above handling.
+            return Err(Error::BrokerStatus(metadata.status()));
         }
 
         // Can we directly read the fragment from cloud storage?
