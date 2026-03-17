@@ -352,9 +352,19 @@ pub fn sequence(
                 Ok(SequenceOutcome::AckCleanRollback)
             }
         } else if clock < *last_commit {
-            *last_commit = clock;
-            *max_continue = Clock::zero();
-            Ok(SequenceOutcome::AckDeepRollback)
+            if *max_continue == Clock::zero() {
+                // If there are no pending CONTINUEs, then likely a duplicate
+                // observed under a conservative re-read of journal content
+                // (from a lower-bound starting offset).
+                Ok(SequenceOutcome::AckDuplicate)
+            } else {
+                // Given pending CONTINUEs (which are not possible under a
+                // conservative re-read of journal content), this is a deep
+                // rollback.
+                *last_commit = clock;
+                *max_continue = Clock::zero();
+                Ok(SequenceOutcome::AckDeepRollback)
+            }
         } else if *max_continue == Clock::zero() {
             *last_commit = clock;
             Ok(SequenceOutcome::AckEmpty)
@@ -485,8 +495,8 @@ mod test {
             (A, 20, 10, 0, AckEmpty, (20, 0)),
             (A, 10, 10, 0, AckDuplicate, (10, 0)),
             (A, 10, 10, 20, AckCleanRollback, (10, 0)),
-            (A, 3, 10, 0, AckDeepRollback, (3, 0)),
-            (A, 3, 10, 20, AckDeepRollback, (3, 0)),
+            (A, 3, 10, 0, AckDuplicate, (10, 0)), // No pending CONTINUEs: stale ACK, not rollback.
+            (A, 3, 10, 20, AckDeepRollback, (3, 0)), // Pending CONTINUEs: genuine deep rollback.
         ];
         for (flags, clock, lc_in, mc_in, expected, (lc_out, mc_out)) in ok_cases {
             let (mut lc, mut mc) = (clk(*lc_in), clk(*mc_in));
@@ -546,7 +556,7 @@ mod test {
                 (A, 20, AckCommit),
                 (O, 30, OutsideCommit),
                 (O, 30, OutsideDuplicate),
-                (A, 20, AckDeepRollback),
+                (A, 20, AckDuplicate), // No pending CONTINUEs, so stale ACK is a duplicate.
             ],
         );
 
