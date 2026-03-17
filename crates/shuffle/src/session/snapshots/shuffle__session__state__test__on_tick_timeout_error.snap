@@ -1,0 +1,7 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: "format!(\"{err}\")"
+---
+causal hint resolution timed out: 2 hint(s) unresolved across 2 journal(s)
+  journal "journal/alpha" binding=0 producer=Producer(01:00:00:00:00:00) last_commit=Clock(10s 0ns) hinted_commit=Clock(50s 0ns)
+  journal "journal/beta" binding=1 producer=Producer(03:00:00:00:00:00) last_commit=Clock(20s 0ns) hinted_commit=Clock(80s 0ns)
