@@ -17,14 +17,19 @@ PipelineSnapshot {
                         offset: -500,
                     },
                 ],
+                bytes_read_delta: 750,
+                bytes_behind_delta: 3000,
             },
         ],
+        flushed_lsn: [],
     },
     unresolved: Frontier {
         journals: [],
+        flushed_lsn: [],
     },
     unresolved_count: 0,
     progressed: Frontier {
         journals: [],
+        flushed_lsn: [],
     },
 }

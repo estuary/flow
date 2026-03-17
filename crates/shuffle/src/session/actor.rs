@@ -2,6 +2,7 @@ use futures::{FutureExt, StreamExt, future, stream::BoxStream};
 use proto_flow::shuffle;
 use tokio::sync::mpsc;
 
+/// SessionActor implements the main event loop of a shuffle Session RPC.
 pub struct SessionActor {
     /// Immutable session configuration: topology, bindings, resume checkpoint.
     pub topology: super::state::Topology,
@@ -23,6 +24,7 @@ pub struct SessionActor {
 impl SessionActor {
     #[tracing::instrument(
         level = "debug",
+        ret,
         err(Debug, level = "warn"),
         skip_all,
         fields(
@@ -45,7 +47,21 @@ impl SessionActor {
             .map(next_slice_rx)
             .collect();
 
+        let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        let mut loop_count: u64 = 0;
         loop {
+            loop_count += 1;
+            tracing::debug!(
+                loop_count,
+                checkpoint = ?self.checkpoint,
+                drain_empty = ?self.checkpoint_drain,
+                progress_ready = ?self.progress_ready,
+                start_reads = self.start_reads.len(),
+                "SessionActor::serve iteration"
+            ); // debug, not trace, because we don't loop on documents.
+
             // First, attempt non-blocking sends.
             let wake_slice_request_tx = self.try_slice_request_tx()?;
             let wake_session_response_tx = self.try_session_response_tx()?;
@@ -58,7 +74,7 @@ impl SessionActor {
                 session_request = session_request_rx.next() => {
                     match session_request {
                         Some(result) => self.on_session_request(result)?,
-                        None => break Ok(()), // Clean EOF: shutdown.
+                        None => break,
                     }
                 }
                 Some((member_index, slice_response, rx)) = slice_response_rx.next() => {
@@ -69,8 +85,34 @@ impl SessionActor {
                 // Next priority is draining ready-to-send messages.
                 true = wake_slice_request_tx => {}
                 true = wake_session_response_tx => {}
+
+                // Periodic tick ensures tracing fires even when idle,
+                // and detects stalled causal hint resolution.
+                _ = ticker.tick() => {
+                    self.checkpoint.on_tick()?;
+                }
             }
         }
+
+        tracing::debug!(loop_count, "SessionActor::serve exiting on coordinator EOF");
+        self.slice_request_tx.clear(); // Drop all tx handles to close.
+
+        // Read clean EOF from all Slice RPCs.
+        while let Some((member_index, slice_response, rx)) = slice_response_rx.next().await {
+            let verify = crate::verify(
+                "SliceResponse",
+                "EOF",
+                &self.topology.members[member_index].endpoint,
+                member_index,
+            );
+            match slice_response {
+                None => (), // Clean EOF.
+                Some(Ok(_ignored)) => slice_response_rx.push(next_slice_rx((member_index, rx))),
+                Some(Err(status)) => return Err(verify.fail_status(status)),
+            }
+        }
+
+        Ok(())
     }
 
     fn try_slice_request_tx(&mut self) -> anyhow::Result<impl Future<Output = bool> + 'static> {
@@ -127,6 +169,7 @@ impl SessionActor {
 
         if self.checkpoint_drain.is_empty() {
             if let Some(frontier) = self.checkpoint.take_ready() {
+                tracing::debug!(?frontier, "sending NextCheckpoint to client");
                 self.checkpoint_drain.start(frontier);
             }
         }
@@ -160,7 +203,10 @@ impl SessionActor {
             shuffle::SessionRequest {
                 next_checkpoint: Some(shuffle::session_request::NextCheckpoint {}),
                 ..
-            } => self.checkpoint.request(),
+            } => {
+                tracing::debug!("received NextCheckpoint request from coordinator");
+                self.checkpoint.request()
+            }
             request => Err(verify.fail(request)),
         }
     }
@@ -184,6 +230,14 @@ impl SessionActor {
                 ..
             } => {
                 let routed = self.topology.route_read(&added)?;
+                tracing::debug!(
+                    member_index,
+                    binding = added.binding,
+                    journal = added.spec.as_ref().map(|s| s.name.as_str()).unwrap_or(""),
+                    target_member = routed.member_index,
+                    candidates = routed.member_stop - routed.member_start,
+                    "received ListingAdded, assigning read"
+                );
                 let (member_index, start_read) = self.topology.build_start_read(&routed, added);
                 self.start_reads.push_back((member_index, start_read));
                 Ok(())
@@ -194,6 +248,10 @@ impl SessionActor {
                 ..
             } => {
                 if self.checkpoint.on_progressed_chunk(member_index, chunk)? {
+                    tracing::debug!(
+                        member_index,
+                        "Progressed sequence complete, sending next ProgressRequest"
+                    );
                     self.progress_ready[member_index] = true;
                 }
                 Ok(())

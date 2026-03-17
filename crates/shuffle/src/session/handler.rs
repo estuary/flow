@@ -18,11 +18,13 @@ where
         .context("expected Open request")?
         .map_err(crate::status_to_anyhow)?;
 
-    let shuffle::session_request::Open {
-        session_id,
-        task,
-        members,
-    } = open.open.context("first message must be Open")?;
+    let shuffle::session_request::Open { task, members } =
+        open.open.context("first message must be Open")?;
+
+    let session_id: u32 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u32;
 
     if members.first().map(|m| &m.endpoint) != Some(&service.peer_endpoint) {
         anyhow::bail!(
@@ -33,7 +35,8 @@ where
     super::state::validate_member_ranges(&members)?;
 
     let task = task.context("Open must include task")?;
-    let (task_name, bindings) = crate::Binding::from_task(&task)?;
+    let (task_name, bindings, _validators, _disk_backlog_threshold) =
+        crate::Binding::from_task(&task)?;
 
     tracing::info!(
         session_id,
@@ -96,8 +99,10 @@ where
             request => return Err(verify.fail(request)),
         };
     }
-    let resume_checkpoint =
-        crate::Frontier::new(resume_checkpoint).context("validating resume_checkpoint frontier")?;
+    let resume_checkpoint = crate::Frontier::new(resume_checkpoint, Vec::new())
+        .context("validating resume_checkpoint frontier")?;
+
+    tracing::info!(session_id, ?resume_checkpoint, "Session resume checkpoint");
 
     // Send Start to all Slices.
     // Non-blocking capacity: first message of `slice_request_tx`.
@@ -143,7 +148,7 @@ where
 )]
 pub async fn open_slice_rpc(
     service: &crate::Service,
-    session_id: u64,
+    session_id: u32,
     task: &shuffle::Task,
     members: &[shuffle::Member],
     slice_member_index: u32,

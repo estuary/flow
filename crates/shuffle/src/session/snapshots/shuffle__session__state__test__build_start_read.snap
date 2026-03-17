@@ -1,6 +1,6 @@
 ---
 source: crates/shuffle/src/session/state.rs
-expression: "&[start_read_f, start_read_g]"
+expression: "&[start_read_f, start_read_f2, start_read_g]"
 ---
 [
     StartRead {
@@ -42,6 +42,39 @@ expression: "&[start_read_f, start_read_g]"
                 offset: -500,
             },
         ],
+    },
+    StartRead {
+        binding: 0,
+        spec: Some(
+            JournalSpec {
+                name: "test/journal/F",
+                replication: 0,
+                labels: Some(
+                    LabelSet {
+                        labels: [
+                            Label {
+                                name: "estuary.dev/key-begin",
+                                value: "10000000",
+                                prefix: false,
+                            },
+                            Label {
+                                name: "estuary.dev/key-end",
+                                value: "20000000",
+                                prefix: false,
+                            },
+                        ],
+                    },
+                ),
+                fragment: None,
+                flags: 0,
+                max_append_rate: 0,
+                suspend: None,
+            },
+        ),
+        create_revision: 1,
+        mod_revision: 1,
+        route: None,
+        checkpoint: [],
     },
     StartRead {
         binding: 0,
