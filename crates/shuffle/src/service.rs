@@ -1,4 +1,4 @@
-use crate::{anyhow_to_status, new_channel, queue, session, slice};
+use crate::{anyhow_to_status, log, new_channel, session, slice};
 use proto_flow::shuffle;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,9 +16,9 @@ pub struct ServiceImpl {
     pub(crate) journal_client_factory: JournalClientFactory,
     /// Transport channels to dialed peers.
     pub(crate) channels: std::sync::Mutex<HashMap<String, tonic::transport::Channel>>,
-    /// Shared state for coordinating Queue RPCs from multiple Slices into a single QueueActor.
-    /// Keyed by (session_id, queue_member_index).
-    pub(crate) queue_joins: std::sync::Mutex<HashMap<(u64, u32), queue::QueueJoin>>,
+    /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
+    /// Keyed by (session_id, directory, log_member_index).
+    pub(crate) log_joins: std::sync::Mutex<HashMap<(u32, String, u32), log::LogJoin>>,
 }
 
 /// JournalClientFactory is a boxed closure which builds and returns a Gazette
@@ -32,7 +32,7 @@ impl Service {
             peer_endpoint,
             journal_client_factory,
             channels: std::sync::Mutex::new(HashMap::new()),
-            queue_joins: std::sync::Mutex::new(HashMap::new()),
+            log_joins: std::sync::Mutex::new(HashMap::new()),
         }))
     }
 
@@ -43,6 +43,11 @@ impl Service {
                 .max_decoding_message_size(usize::MAX)
                 .max_encoding_message_size(usize::MAX),
         )
+    }
+
+    /// Return endpoint of this service as seen by peers.
+    pub fn peer_endpoint(&self) -> &str {
+        &self.peer_endpoint
     }
 
     pub fn spawn_session<R>(
@@ -83,19 +88,16 @@ impl Service {
         response_rx
     }
 
-    pub fn spawn_queue<R>(
-        &self,
-        request_rx: R,
-    ) -> mpsc::Receiver<tonic::Result<shuffle::QueueResponse>>
+    pub fn spawn_log<R>(&self, request_rx: R) -> mpsc::Receiver<tonic::Result<shuffle::LogResponse>>
     where
-        R: futures::Stream<Item = tonic::Result<shuffle::QueueRequest>> + Send + Unpin + 'static,
+        R: futures::Stream<Item = tonic::Result<shuffle::LogRequest>> + Send + Unpin + 'static,
     {
         let service = self.clone();
-        let (response_tx, response_rx) = new_channel::<tonic::Result<shuffle::QueueResponse>>();
+        let (response_tx, response_rx) = new_channel::<tonic::Result<shuffle::LogResponse>>();
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = queue::serve_queue(service, request_rx, response_tx).await {
+            if let Err(e) = log::serve_log(service, request_rx, response_tx).await {
                 let _ = error_tx.send(Err(anyhow_to_status(e))).await;
             }
         });
@@ -149,8 +151,7 @@ impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
         tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::SessionResponse>>;
     type SliceStream =
         tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::SliceResponse>>;
-    type QueueStream =
-        tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::QueueResponse>>;
+    type LogStream = tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::LogResponse>>;
 
     async fn session(
         &self,
@@ -170,12 +171,12 @@ impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
         ))
     }
 
-    async fn queue(
+    async fn log(
         &self,
-        request: tonic::Request<tonic::Streaming<shuffle::QueueRequest>>,
-    ) -> tonic::Result<tonic::Response<Self::QueueStream>> {
+        request: tonic::Request<tonic::Streaming<shuffle::LogRequest>>,
+    ) -> tonic::Result<tonic::Response<Self::LogStream>> {
         Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(self.spawn_queue(request.into_inner())),
+            tokio_stream::wrappers::ReceiverStream::new(self.spawn_log(request.into_inner())),
         ))
     }
 }
