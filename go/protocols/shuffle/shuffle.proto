@@ -1,11 +1,12 @@
 syntax = "proto3";
 
 package shuffle;
-option go_package = "github.com/estuary/flow/go/protocols/shuffle";
 
 import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
+
+option go_package = "github.com/estuary/flow/go/protocols/shuffle";
 
 // Member represents a participant in the shuffle topology (e.x. a task shard).
 message Member {
@@ -13,6 +14,10 @@ message Member {
   flow.RangeSpec range = 1;
   // gRPC endpoint of this member.
   string endpoint = 2;
+  // Filesystem path where the Log actor writes segment files for this member.
+  // The consumer joins over shuffle-produced log segments via this directory.
+  // Multiple member indices may share a single directory.
+  string directory = 3;
 }
 
 message CollectionPartitions {
@@ -20,6 +25,9 @@ message CollectionPartitions {
   flow.CollectionSpec collection = 1;
   // Partition selector for filtering source collection journals.
   protocol.LabelSelector partition_selector = 2;
+  // Disk backlog threshold in bytes before engaging back-pressure.
+  // Used for ad-hoc reads where the caller controls the threshold.
+  uint64 disk_backlog_threshold = 3;
 }
 
 // Task which we're performing shuffles for.
@@ -37,8 +45,8 @@ message Task {
 
 // ProducerFrontier is the frontier state of a single producer within a journal.
 message ProducerFrontier {
-  // Producer ID, extracted from document UUID.
-  sfixed64 producer = 1;
+  // Producer ID, extracted from document UUID. Only the low 6 bytes are used.
+  int64 producer = 1;
   // Clock of the last committing ACK_TXN or OUTSIDE_TXN.
   fixed64 last_commit = 2;
   // Clock of the last hinted (causal) commit, or zero if no hint.
@@ -52,6 +60,13 @@ message ProducerFrontier {
 // JournalFrontier is the frontier state for a single journal under a specific binding.
 // It uses delta-encoding for journal names: given a preceding journal name,
 // truncate `journal_name_truncate_delta` bytes then append `journal_name_suffix`.
+//
+// At a given time, the set of distinct producers writing to a journal is small.
+// However, Producer IDs come and go over time, and the historical set of producers
+// who have EVER written to a journal may be large.
+//
+// Most JournalFrontier focuses on _deltas_ of frontier state, and have few producers.
+// The exception is when a Coordinator client is streaming in a resume checkpoint.
 message JournalFrontier {
   // Number of bytes to truncate from the preceding name.
   // Must align with a UTF-8 code point boundary.
@@ -62,9 +77,16 @@ message JournalFrontier {
   // When persisting across sessions, this should be mapped via the task binding's
   // `journal_read_suffix` to ensure stability across task versions.
   uint32 binding = 3;
+  // Delta of non-ACK, non-filtered document bytes read since last checkpoint.
+  // Summed during reduction.
+  int64 bytes_read_delta = 4;
+  // Delta of bytes-behind (write_head - read_offset) since last checkpoint.
+  // Positive when the reader is falling behind, negative when catching up.
+  // Summed during reduction.
+  int64 bytes_behind_delta = 5;
   // Producers of this journal.
   // Sorted and unique on `producer`.
-  repeated ProducerFrontier producers = 4;
+  repeated ProducerFrontier producers = 6;
 }
 
 // FrontierChunk is a portion of a frontier sequence for streaming.
@@ -72,6 +94,10 @@ message JournalFrontier {
 // A final empty chunk (empty `journals`) represents end-of-sequence.
 message FrontierChunk {
   repeated JournalFrontier journals = 1;
+  // Per-member flushed LSN, indexed by member_index.
+  // Populated only on the terminal (empty-journals) chunk of a
+  // Progressed or NextCheckpoint sequence. Empty otherwise.
+  repeated uint64 flushed_lsn = 2;
 }
 
 // SessionRequest is sent by the Coordinator to manage the shuffle session.
@@ -79,9 +105,6 @@ message SessionRequest {
   // Open initiates a new shuffle session.
   // Sent once at the start of the Session RPC.
   message Open {
-    // Unique identifier for this session instance.
-    // Used to correlate Slice and Queue RPCs, and to name queue files.
-    fixed64 session_id = 1;
     // Task for which we're performing shuffles.
     Task task = 2;
     // Members participating in this shuffle session.
@@ -89,20 +112,36 @@ message SessionRequest {
   }
   Open open = 1;
 
-  // The resume checkpoint: the frontier from which the session resumes.
-  // It's streamed by the Coordinator after reading SessionResponse.Opened.
-  // Producers with non-zero `hinted_commit` represent read-through state:
+  // The resume checkpoint: the non-delta frontier from which the
+  // session is to resume. It's streamed by the Coordinator client after reading
+  // SessionResponse.Opened.
+  //
+  // This is a comprehensive checkpoint, reflecting all journals and producers
+  // which have committed transactions. There may be a *lot* of historical producers
+  // in long-lived tasks, and the Coordinator should employ regular "pruning" to
+  // remove producers having a `last_commit` clock which is far older than the
+  // latest `last_commit` of a peer journal producer. Such producers are assumed
+  // to have been retired and will produce no further transactions.
+  //
+  // Resume checkpoint producers use `hinted_commit` to represent read-through state:
   // transactions that were prepared but not yet committed during the previous
   // session. The Session will read through these and emit the read-through
   // frontier as the first NextCheckpoint response.
+  //
+  // The Coordinator should use a last unfinished NextCheckpoint of a prior
+  // Session to initialize `hinted_commit` of its resume checkpoint, by mapping
+  // an incomplete producer `last_commit` to `hinted_commit`. This ensures that
+  // the first NextCheckpoint of the current session will match the last
+  // unfinished NextCheckpoint of its prior session, which enables the transaction
+  // to be idempotent.
   FrontierChunk resume_checkpoint_chunk = 2;
 
   // NextCheckpoint requests the next available checkpoint delta.
   // This is a blocking request: the Session only responds when progress is
-  // available. The client requests a next checkpoint at times of its choosing
-  // (e.g., after completing processing of the previous checkpoint).
+  // available. The Coordinator client requests a next checkpoint at times of
+  // its choosing (e.g., after completing processing of the previous checkpoint).
   message NextCheckpoint {}
-  NextCheckpoint next_checkpoint = 4;
+  NextCheckpoint next_checkpoint = 3;
 }
 
 // SessionResponse is sent by the Session to the Coordinator.
@@ -116,16 +155,21 @@ message SessionResponse {
   // of a transaction which is ready to be processed. It's sent in response to
   // SessionRequest.NextCheckpoint, and is never empty (though the Session may
   // block indefinitely until progress is available).
+  //
+  // The Coordinator client should retain this checkpoint and use it to initialize
+  // `hinted_commit` of future session resume checkpoint. Then, upon it's durable
+  // completion of all downstream processing related to the NextCheckpoint,
+  // it should merge it into its base checkpoint.
   FrontierChunk next_checkpoint_chunk = 2;
 }
 
 // SliceRequest is sent by the Session to each member's Slice RPC.
 message SliceRequest {
   // Open initiates the Slice.
-  // The Slice opens Queue RPCs to all members before responding Opened.
+  // The Slice opens Log RPCs to all members before responding Opened.
   message Open {
-    // Session ID from SessionRequest.Open.
-    fixed64 session_id = 1;
+    // Session ID, generated by the Session actor for tracing correlation.
+    fixed32 session_id = 1;
     // Task for which we're performing shuffles.
     Task task = 2;
     // Members participating in this shuffle session.
@@ -172,7 +216,7 @@ message SliceRequest {
 // SliceResponse is sent by each Slice back to the Session.
 message SliceResponse {
   // Opened confirms the Slice is ready.
-  // Sent after all Queue RPCs have responded Opened.
+  // Sent after all Log RPCs have responded Opened.
   message Opened {}
   Opened opened = 1;
 
@@ -190,80 +234,90 @@ message SliceResponse {
   }
   ListingAdded listing_added = 2;
 
-  // Progressed reports the frontier of queue progress since the last Progressed.
+  // Progressed reports the frontier of log progress since the last Progressed.
   // It's sent in response to a Request.Progress, and only once at least one
   // flush cycle has completed since the prior Progressed.
   FrontierChunk progressed = 3;
 }
 
-// QueueRequest is sent by Slices to each member's Queue.
-message QueueRequest {
-  // Open initiates the Queue RPC.
-  // Multiple Slices open Queue RPCs to the same member, and the Queue
+// LogRequest is sent by Slices to each member's Log.
+message LogRequest {
+  // Open initiates the Log RPC.
+  // Multiple Slices open Log RPCs to the same member, and the Log
   // task joins these streams and processes documents in merged order.
   message Open {
     // Session ID for correlating streams from the same session.
-    // Combined with member_index to deterministically name the queue file.
-    fixed64 session_id = 1;
+    fixed32 session_id = 1;
     // Members participating in this shuffle session.
     // Must be the same members and order as Session.Open.
     repeated Member members = 2;
     // Index of the source Slice member within the session's member list.
     uint32 slice_member_index = 3;
-    // Index of the target Queue member within the session's member list.
-    uint32 queue_member_index = 4;
+    // Index of the target Log member within the session's member list.
+    uint32 log_member_index = 4;
+    // Disk backlog threshold in bytes before engaging back-pressure.
+    uint64 disk_backlog_threshold = 5;
   }
   Open open = 1;
 
-  // Enqueue sends a document to be written to the queue.
-  // The Queue merges across Slice streams, ordering by (priority, clock).
-  message Enqueue {
+  // Append sends a document to be written to the log.
+  // The Log actor merges across Slice streams, ordering by (priority, clock).
+  message Append {
     // Number of bytes to truncate from the preceding name.
     // Must align with a UTF-8 code point boundary.
     int32 journal_name_truncate_delta = 1;
     // Suffix to append to the preceding, truncated name.
     string journal_name_suffix = 2;
-    // Begin offset (inclusive) of the document within the journal.
-    int64 begin_offset = 3;
     // Binding index for this document.
-    uint32 binding = 4;
+    uint32 binding = 3;
     // Priority of this binding.
-    // Queue orders documents by (priority DESC, clock ASC).
-    uint32 priority = 5;
+    uint32 priority = 4;
+    // Read delay of the binding, as a uuid::Clock duration.
+    // The Log actor applies adjusted_clock = clock + read_delay for merge ordering.
+    // Zero (the common case) means no delay.
+    uint64 read_delay = 5;
     // Producer of the document, extracted from its UUID.
-    sfixed64 producer = 6;
-    // Adjusted Clock of the the document, extracted from its UUID
-    // and adjusted by the binding's read delay.
-    fixed64 adjusted_clock = 7;
+    int64 producer = 6;
+    // Publication clock of the document, extracted from its UUID.
+    fixed64 clock = 7;
     // Packed shuffle key of the document.
     bytes packed_key = 8;
     // Document content as transcoded ArchivedNode bytes.
     bytes doc_archived = 9;
+    // Whether the document passed schema validation.
+    bool valid = 10;
+    // Byte length of this document in its source journal (end_offset - begin_offset).
+    // Always fits in uint32 because a single document is always < 4 GiB.
+    uint32 source_byte_length = 11;
   }
-  Enqueue enqueue = 2;
+  Append append = 2;
 
   // Flush requests a durability barrier.
   message Flush {
-    // Sequence number for correlating Flush with Flushed response.
+    // Cycle number for correlating Flush with Flushed response.
     // Allows pipelining if we later want multiple in-flight flushes.
-    uint64 seq = 1;
+    uint64 cycle = 1;
   }
   Flush flush = 3;
 }
 
-// QueueResponse is sent by the Queue back to each Slice.
-message QueueResponse {
-  // Opened confirms the Queue is ready to receive documents.
-  // Sent after the Queue has joined over the member's queue file.
+// LogResponse is sent by the Log actor back to each Slice.
+message LogResponse {
+  // Opened confirms the Log is ready to receive documents.
+  // Sent after this Log RPC has joined over the member's single session Log actor.
   message Opened {}
   Opened opened = 1;
 
-  // Flushed confirms all preceding documents are durable on disk.
-  // Only after receiving Flushed from ALL Queues can a Slice safely
+  // Flushed confirms all preceding documents are visible for dequeue.
+  // Only after receiving Flushed from ALL Log RPCs can a Slice safely
   // report ProgressDelta to the Session.
   message Flushed {
-    // Sequence number from the corresponding Flush request.
-    uint64 seq = 1;
+    // Cycle number from the corresponding Flush request.
+    uint64 cycle = 1;
+    // Log head position after all preceding appends are durable.
+    // The consumer must read through this LSN to observe all
+    // documents appended before this flush.
+    uint64 flushed_lsn = 2;
   }
   Flushed flushed = 2;
 }
@@ -275,11 +329,11 @@ service Shuffle {
   // and checkpoint aggregation.
   rpc Session(stream SessionRequest) returns (stream SessionResponse);
 
-  // Slice is opened by the Session to each member. Each Slice reads
-  // an assigned subset of journals and routes documents to Queues.
+  // Slice is opened by the Session to each member.
+  // Each Slice watches binding journals, reads from its assigned subset of journals, and routes documents to Logs.
   rpc Slice(stream SliceRequest) returns (stream SliceResponse);
 
-  // Queue is opened by each Slice to each member. Documents flow
-  // from Slices through Queues to on-disk queue files.
-  rpc Queue(stream QueueRequest) returns (stream QueueResponse);
+  // Log is opened by each Slice to each member.
+  // Documents flow from Slices through Log RPCs to on-disk log files.
+  rpc Log(stream LogRequest) returns (stream LogResponse);
 }
