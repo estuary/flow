@@ -324,9 +324,11 @@ mod tests {
     async fn test_graphql_data_planes(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
-        let server =
-            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
-                .await;
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::new_snapshot(pool, false).await,
+        )
+        .await;
 
         let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
 

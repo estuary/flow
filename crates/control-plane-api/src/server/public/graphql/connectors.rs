@@ -477,7 +477,7 @@ mod test {
     async fn test_connectors_query(pool: sqlx::PgPool) {
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
 
@@ -550,7 +550,7 @@ mod test {
     async fn test_single_connector_queries(pool: sqlx::PgPool) {
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
 

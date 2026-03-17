@@ -94,7 +94,7 @@ mod tests {
             pool.clone(),
             // Use an immediate Snapshot. Prefixes doesn't use Envelope::authorization_outcome
             // and won't trigger an authorization retry.
-            test_server::snapshot(pool, false).await,
+            test_server::new_snapshot(pool, false).await,
         )
         .await;
 

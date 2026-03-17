@@ -287,9 +287,11 @@ mod tests {
     )]
     async fn test_graphql_live_specs_by_prefix(pool: sqlx::PgPool) {
         let _guard = test_server::init();
-        let server =
-            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, true).await)
-                .await;
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::new_snapshot(pool, true).await,
+        )
+        .await;
 
         let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
 

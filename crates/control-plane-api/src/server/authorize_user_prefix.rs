@@ -591,7 +591,7 @@ mod tests {
 
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
         let user_tokens = server.make_fixed_user_tokens(uuid::Uuid::from_bytes([0x11; 16]), None);
@@ -630,7 +630,7 @@ mod tests {
 
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
         let user_tokens = server.make_fixed_user_tokens(

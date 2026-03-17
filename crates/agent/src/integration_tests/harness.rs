@@ -1,5 +1,4 @@
 mod alerts;
-pub mod connectors;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -13,22 +12,22 @@ use crate::{
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use control_plane_api::publications::PruneUnboundCollections;
-use control_plane_api::server;
 use control_plane_api::{
     TextJson,
     discovers::{DiscoverHandler, DiscoverOutput},
     draft,
     publications::{
         self, DefaultRetryPolicy, DraftPublication, NoopInitialize, NoopWithCommit,
-        PublicationResult, Publisher, UncommittedBuild,
+        PruneUnboundCollections, PublicationResult, Publisher, UncommittedBuild,
     },
+    server,
+    test_server::mock_connectors::{MockDiscover, MockDiscoverConnectors},
 };
 use gazette::consumer::ReplicaStatus;
-use models::status::activation::ShardFailure;
-use models::status::connector::ConfigUpdate;
-use models::status::{AlertState, AlertType, ShardRef};
-use models::{Capability, CatalogType, Id};
+use models::{
+    Capability, CatalogType, Id,
+    status::{AlertState, AlertType, ShardRef, activation::ShardFailure, connector::ConfigUpdate},
+};
 use proto_flow::AnyBuiltSpec;
 use proto_gazette::consumer::replica_status;
 use serde::Deserialize;
@@ -37,8 +36,6 @@ use sqlx::types::Uuid;
 use tables::DraftRow;
 use tempfile::tempdir;
 use tokio::sync::Semaphore;
-
-use self::connectors::MockDiscoverConnectors;
 
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
@@ -173,7 +170,7 @@ pub struct TestHarness {
     pub publisher: Publisher,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
-    pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
+    pub discover_handler: DiscoverHandler<MockDiscoverConnectors>,
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
     pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
@@ -232,7 +229,7 @@ impl HarnessBuilder {
             eprintln!("end of PUB-LOG");
         });
 
-        let mock_connectors = connectors::MockDiscoverConnectors::default();
+        let mock_connectors = MockDiscoverConnectors::default();
         let discover_handler = DiscoverHandler::new(mock_connectors.clone());
 
         let builder = control_plane_api::publications::builds::new_builder(mock_connectors);
@@ -1200,7 +1197,7 @@ impl TestHarness {
         draft_id: Id,
         endpoint_config: &str, // TODO: different type?
         update_only: bool,
-        mock_discover_resp: connectors::MockDiscover,
+        mock_discover_resp: MockDiscover,
     ) -> UserDiscoverResult {
         let connector_tag = sqlx::query!(
             r##"select ct.id as "id: Id"

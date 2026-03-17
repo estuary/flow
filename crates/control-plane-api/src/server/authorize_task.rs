@@ -494,7 +494,7 @@ mod tests {
 
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
         tokio::time::pause();
@@ -538,7 +538,7 @@ mod tests {
 
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
         tokio::time::pause();
