@@ -1,32 +1,32 @@
 use proto_gazette::uuid;
 use std::ops::{Deref, DerefMut};
 
-/// EnqueueEntry holds the ordering fields for a pending Enqueue and
-/// the index of the slice that sent it. The actual Enqueue and the slice's rx
-/// stream are stored in `QueueActor::slice_enqueues` indexed by `member_index`.
+/// AppendEntry holds the ordering fields for a pending Append and
+/// the index of the slice that sent it. The actual Append and the slice's rx
+/// stream are stored in `LogActor::slice_appends` indexed by `member_index`.
 /// We keep this struct small to optimize heap sift operations.
-pub struct EnqueueEntry {
+pub struct AppendEntry {
     /// Binding priority (higher = more urgent).
     pub priority: u32,
     /// Adjusted clock of the document (publication + read_delay).
     pub adjusted_clock: uuid::Clock,
-    /// Index of the Slice member that sent this Enqueue.
+    /// Index of the Slice member that sent this Append.
     pub member_index: usize,
 }
 
-/// EnqueueHeap is a max-heap of EnqueueEntry. It yields the entry having
+/// AppendHeap is a max-heap of AppendEntry. It yields the entry having
 /// - Maximum priority, or (if equal)
 /// - Minimum adjusted_clock
-pub struct EnqueueHeap(std::collections::BinaryHeap<EnqueueEntry>);
+pub struct AppendHeap(std::collections::BinaryHeap<AppendEntry>);
 
-impl EnqueueHeap {
+impl AppendHeap {
     pub fn new() -> Self {
         Self(std::collections::BinaryHeap::new())
     }
 }
 
-impl Deref for EnqueueHeap {
-    type Target = std::collections::BinaryHeap<EnqueueEntry>;
+impl Deref for AppendHeap {
+    type Target = std::collections::BinaryHeap<AppendEntry>;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -34,14 +34,14 @@ impl Deref for EnqueueHeap {
     }
 }
 
-impl DerefMut for EnqueueHeap {
+impl DerefMut for AppendHeap {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl Ord for EnqueueEntry {
+impl Ord for AppendEntry {
     #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.priority
@@ -50,21 +50,21 @@ impl Ord for EnqueueEntry {
     }
 }
 
-impl PartialOrd for EnqueueEntry {
+impl PartialOrd for AppendEntry {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl PartialEq for EnqueueEntry {
+impl PartialEq for AppendEntry {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other).is_eq()
     }
 }
 
-impl Eq for EnqueueEntry {}
+impl Eq for AppendEntry {}
 
 #[cfg(test)]
 mod test {
@@ -72,8 +72,8 @@ mod test {
     use std::cmp::Ordering;
     use std::collections::BinaryHeap;
 
-    fn test_entry(priority: u32, clock: u64, member_index: usize) -> EnqueueEntry {
-        EnqueueEntry {
+    fn test_entry(priority: u32, clock: u64, member_index: usize) -> AppendEntry {
+        AppendEntry {
             priority,
             adjusted_clock: uuid::Clock::from_u64(clock),
             member_index,
@@ -83,7 +83,7 @@ mod test {
     #[test]
     fn test_ordering() {
         // BinaryHeap is a max-heap: pop() returns the greatest element.
-        // EnqueueEntry::Ord should yield Greatest for max priority,
+        // AppendEntry::Ord should yield Greatest for max priority,
         // then min adjusted_clock (via .reverse()).
 
         assert_eq!(
@@ -134,8 +134,8 @@ mod test {
     }
 
     #[test]
-    fn test_enqueue_heap_wrapper() {
-        let mut heap = EnqueueHeap::new();
+    fn test_append_heap_wrapper() {
+        let mut heap = AppendHeap::new();
         assert!(heap.is_empty());
 
         heap.push(test_entry(1, 100, 0));
