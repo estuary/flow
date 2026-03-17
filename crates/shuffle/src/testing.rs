@@ -26,13 +26,31 @@ pub fn pf(id: u8, last_commit: u64, hinted_commit: u64, offset: i64) -> crate::P
 
 pub fn jf(
     journal: &str,
-    binding: u32,
+    binding: u16,
     producers: Vec<crate::ProducerFrontier>,
 ) -> crate::JournalFrontier {
     crate::JournalFrontier {
-        journal: journal.into(),
         binding,
+        journal: journal.into(),
         producers,
+        bytes_read_delta: 0,
+        bytes_behind_delta: 0,
+    }
+}
+
+pub fn jf_with_bytes(
+    journal: &str,
+    binding: u16,
+    producers: Vec<crate::ProducerFrontier>,
+    bytes_read_delta: i64,
+    bytes_behind_delta: i64,
+) -> crate::JournalFrontier {
+    crate::JournalFrontier {
+        binding,
+        journal: journal.into(),
+        producers,
+        bytes_read_delta,
+        bytes_behind_delta,
     }
 }
 
@@ -58,7 +76,8 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
                 r_clock_begin: 0,
                 r_clock_end: 0xffffffff,
             }),
-            ..Default::default()
+            endpoint: String::new(),
+            directory: "/test/log/member-0".to_string(),
         },
         shuffle::Member {
             range: Some(flow::RangeSpec {
@@ -67,7 +86,8 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
                 r_clock_begin: 0,
                 r_clock_end: 0xffffffff,
             }),
-            ..Default::default()
+            endpoint: String::new(),
+            directory: "/test/log/member-1".to_string(),
         },
         shuffle::Member {
             range: Some(flow::RangeSpec {
@@ -76,30 +96,25 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
                 r_clock_begin: 0,
                 r_clock_end: 0xffffffff,
             }),
-            ..Default::default()
+            endpoint: String::new(),
+            directory: "/test/log/member-2".to_string(),
         },
     ]
 }
 
 /// Build a minimal Binding with just the fields used by on_listing_added.
 pub fn test_binding(
-    index: u32,
+    index: u16,
     uses_source_key: bool,
     partition_fields: Option<Vec<String>>,
     journal_read_suffix: &str,
 ) -> crate::Binding {
-    let schema_bundle =
-        doc::validation::build_bundle(b"{}").expect("building trivial schema bundle");
-    let schema =
-        doc::validation::Validator::new(schema_bundle).expect("indexing trivial schema bundle");
-
     crate::Binding {
         index,
         collection: models::Collection::new("test/collection"),
         filter_r_clocks: false,
         journal_read_suffix: journal_read_suffix.to_string(),
         priority: 0,
-        projections: Vec::new(),
         read_delay: Clock::from_u64(0),
         key_extractors: Vec::new(),
         shuffle_key_partition_fields: partition_fields,
@@ -107,11 +122,11 @@ pub fn test_binding(
         source_uuid_ptr: json::Pointer::from_str("/_meta/uuid"),
         uses_lambda: false,
         uses_source_key,
-        schema,
-        validate_on_read: false,
         not_before: Clock::UNIX_EPOCH,
         not_after: Clock::from_u64(u64::MAX),
         cohort: 0,
+        partition_template_name: "test/collection".into(),
+        partition_fields: Vec::new(),
     }
 }
 
