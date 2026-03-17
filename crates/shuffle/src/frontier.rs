@@ -1,3 +1,4 @@
+use crate::log;
 use proto_flow::shuffle;
 use proto_gazette::uuid::{Clock, Producer};
 
@@ -18,14 +19,21 @@ pub struct ProducerFrontier {
 impl ProducerFrontier {
     /// Reduce two ProducerFrontier entries for the same producer.
     ///
-    /// Maximizes `last_commit` and `hinted_commit`. Takes `offset` from
-    /// the side with the larger `last_commit`, or the larger `offset` if
-    /// `last_commit` is equal (preferring begin offset over end offset).
+    /// Maximizes `last_commit` and `hinted_commit`. Takes `offset` with the
+    /// largest absolute value, because the sign encodes semantics (negative =
+    /// committed end, non-negative = uncommitted begin) and the magnitude
+    /// represents how far into the journal we've read.
     pub fn reduce(self, other: Self) -> Self {
-        let offset = match self.last_commit.cmp(&other.last_commit) {
-            std::cmp::Ordering::Greater => self.offset,
-            std::cmp::Ordering::Less => other.offset,
-            std::cmp::Ordering::Equal => self.offset.max(other.offset),
+        // We cannot simply take the offset from whichever side has the larger
+        // `last_commit`, because causal hint resolution (`resolve_hints`) elevates
+        // `last_commit` on hint-only entries that carry `offset: 0`. When such a
+        // resolved entry is reduced into `ready`, the elevated `last_commit` would
+        // win and its zero offset would overwrite the actual journal position from
+        // the read-derived side.
+        let offset = if self.offset.abs() >= other.offset.abs() {
+            self.offset
+        } else {
+            other.offset
         };
         Self {
             producer: self.producer,
@@ -39,12 +47,20 @@ impl ProducerFrontier {
 /// Frontier state for a single journal under a specific binding.
 #[derive(Debug, Clone)]
 pub struct JournalFrontier {
+    /// Journal name.
     pub journal: Box<str>,
-    /// Binding under which the journal is read.
-    pub binding: u32,
+    /// Binding index under which the journal is read.
+    pub binding: u16,
     /// Producers of this journal.
     /// Entries are sorted and unique on `producer`.
     pub producers: Vec<ProducerFrontier>,
+    /// Delta of journal bytes read since the last checkpoint.
+    /// Summed during reduction.
+    pub bytes_read_delta: i64,
+    /// Delta of bytes-behind (write_head - read_offset) since last checkpoint.
+    /// Positive when the reader is falling behind, negative when catching up.
+    /// Summed during reduction.
+    pub bytes_behind_delta: i64,
 }
 
 impl JournalFrontier {
@@ -81,6 +97,8 @@ impl JournalFrontier {
             journal: self.journal,
             binding: self.binding,
             producers: merged,
+            bytes_read_delta: self.bytes_read_delta + other.bytes_read_delta,
+            bytes_behind_delta: self.bytes_behind_delta + other.bytes_behind_delta,
         }
     }
 
@@ -137,7 +155,7 @@ impl JournalFrontier {
             );
             JournalFrontier {
                 journal: journal_name.clone().into_boxed_str(),
-                binding: jf.binding,
+                binding: jf.binding as u16,
                 producers: jf
                     .producers
                     .into_iter()
@@ -148,6 +166,8 @@ impl JournalFrontier {
                         offset: p.offset,
                     })
                     .collect(),
+                bytes_read_delta: jf.bytes_read_delta,
+                bytes_behind_delta: jf.bytes_behind_delta,
             }
         })
     }
@@ -170,7 +190,7 @@ impl JournalFrontier {
                 shuffle::JournalFrontier {
                     journal_name_truncate_delta: truncate_delta,
                     journal_name_suffix: suffix.to_string(),
-                    binding: jf.binding,
+                    binding: jf.binding as u32,
                     producers: jf
                         .producers
                         .iter()
@@ -181,27 +201,46 @@ impl JournalFrontier {
                             offset: p.offset,
                         })
                         .collect(),
+                    bytes_read_delta: jf.bytes_read_delta,
+                    bytes_behind_delta: jf.bytes_behind_delta,
                 }
             })
             .collect();
 
-        shuffle::FrontierChunk { journals }
+        shuffle::FrontierChunk {
+            journals,
+            flushed_lsn: vec![],
+        }
     }
 }
 
 /// Frontier tracks journal progress including causal hints.
+///
+/// A Frontier may represent either a cumulative checkpoint (full state of all
+/// journals and producers) or a checkpoint delta (only journals and producers
+/// that progressed since the last checkpoint). The `reduce` method merges a
+/// delta into a cumulative base: new journals from the delta are added, base
+/// journals absent from the delta are preserved, and matching entries are
+/// reduced by maximizing clocks.
+///
+/// See the CheckpointPipeline (README §11) for how deltas are produced.
 #[derive(Debug, Clone, Default)]
 pub struct Frontier {
     /// Journals which constitute the frontier.
     /// Entries are sorted and unique on `(journal, binding)`.
     pub journals: Vec<JournalFrontier>,
+    /// Per-member flushed LSN (log read-through barrier), indexed by member_index.
+    /// Empty when not applicable (e.g. resume checkpoints).
+    pub flushed_lsn: Vec<log::Lsn>,
 }
 
 impl Frontier {
-    /// Construct a `Frontier` from a list of journal entries, validating that
-    /// entries are sorted and unique on `(journal, binding)` and that producers
-    /// within each entry are sorted and unique on `producer`.
-    pub fn new(journals: Vec<JournalFrontier>) -> anyhow::Result<Self> {
+    /// Construct a `Frontier` from journal entries and per-member flushed LSNs,
+    /// validating that entries are sorted and unique on `(journal, binding)` and
+    /// that producers within each entry are sorted and unique on `producer`.
+    pub fn new(journals: Vec<JournalFrontier>, flushed_lsn: Vec<u64>) -> anyhow::Result<Self> {
+        let flushed_lsn = flushed_lsn.into_iter().map(log::Lsn::from_u64).collect();
+
         for (index, window) in journals.windows(2).enumerate() {
             let (prev, curr) = (&window[0], &window[1]);
             match prev
@@ -235,30 +274,61 @@ impl Frontier {
                     std::cmp::Ordering::Equal => anyhow::bail!(
                         "ProducerFrontier is not unique on producer at index {} in ({}, {})",
                         index + 1,
-                        jf.journal,
                         jf.binding,
+                        jf.journal,
                     ),
                     std::cmp::Ordering::Greater => anyhow::bail!(
                         "ProducerFrontier is not ordered on producer at index {} in ({}, {})",
                         index + 1,
-                        jf.journal,
                         jf.binding,
+                        jf.journal,
                     ),
                 }
             }
         }
-        Ok(Self { journals })
+        Ok(Self {
+            journals,
+            flushed_lsn,
+        })
     }
 
-    /// Reduce two Frontiers by sorted-merging their journal lists.
-    /// Matching (journal, binding) entries are reduced via `JournalFrontier::reduce`;
-    /// unmatched entries pass through. Both inputs may contain non-unique keys,
-    /// which are reduced to single entries.
+    /// Element-wise max of two per-member `flushed_lsn` vectors.
+    /// Extends the shorter vector with zeros.
+    pub fn merge_flushed_lsn(a: Vec<log::Lsn>, b: Vec<log::Lsn>) -> Vec<log::Lsn> {
+        if a.is_empty() {
+            return b;
+        } else if b.is_empty() {
+            return a;
+        }
+        let len = a.len().max(b.len());
+        (0..len)
+            .map(|i| {
+                let va = a.get(i).copied().unwrap_or(log::Lsn::ZERO);
+                let vb = b.get(i).copied().unwrap_or(log::Lsn::ZERO);
+                va.max(vb)
+            })
+            .collect()
+    }
+
+    /// Merge two Frontiers by sorted-merging their journal lists.
+    /// Typically used to merge a checkpoint delta into a cumulative base:
+    /// new journals from the delta are added, base journals absent from the
+    /// delta are preserved unchanged, and matching `(journal, binding)` entries
+    /// are reduced via `JournalFrontier::reduce` (maximizing clocks).
+    /// Both inputs may contain non-unique keys, which are reduced to single entries.
     pub fn reduce(self, other: Self) -> Self {
+        let flushed_lsn = Self::merge_flushed_lsn(self.flushed_lsn, other.flushed_lsn);
+
         if self.journals.is_empty() {
-            return other;
+            return Self {
+                flushed_lsn,
+                ..other
+            };
         } else if other.journals.is_empty() {
-            return self;
+            return Self {
+                flushed_lsn,
+                ..self
+            };
         }
 
         let mut merged = Vec::with_capacity(self.journals.len() + other.journals.len());
@@ -294,11 +364,14 @@ impl Frontier {
         }
         merged.shrink_to_fit();
 
-        Self { journals: merged }
+        Self {
+            journals: merged,
+            flushed_lsn,
+        }
     }
 
     /// Look up a journal entry by `(journal, binding)`.
-    pub fn find_journal(&self, journal: &str, binding: u32) -> Option<&JournalFrontier> {
+    pub fn find_journal(&mut self, journal: &str, binding: u16) -> Option<&mut JournalFrontier> {
         self.journals
             .binary_search_by(|jf| {
                 jf.journal
@@ -307,7 +380,7 @@ impl Frontier {
                     .then(jf.binding.cmp(&binding))
             })
             .ok()
-            .map(|i| &self.journals[i])
+            .map(|i| &mut self.journals[i])
     }
 
     /// Resolve causal hints in `self` using progress from `progressed`.
@@ -321,6 +394,12 @@ impl Frontier {
     /// matching the sorted invariants of both frontiers.
     ///
     /// Returns the number of producers that were resolved.
+    ///
+    /// Liveness: unresolved hints always eventually resolve because a producer's
+    /// write-ahead log guarantees that if any journal in a transaction receives an ACK,
+    /// all journals in that transaction will eventually receive their ACKs as well.
+    /// If the producer WAL commit fails, no ACKs are written to any journal,
+    /// so unresolved hints for failed transactions never appear.
     pub fn resolve_hints(&mut self, progressed: &Frontier) -> usize {
         let mut resolved = 0usize;
         let mut lhs = self.journals.iter_mut().peekable();
@@ -384,12 +463,17 @@ impl Frontier {
                         journal: jf.journal.clone(),
                         binding: jf.binding,
                         producers,
+                        bytes_read_delta: 0,
+                        bytes_behind_delta: 0,
                     })
                 }
             })
             .collect();
 
-        Frontier { journals }
+        Frontier {
+            journals,
+            flushed_lsn: vec![],
+        }
     }
 }
 
@@ -454,9 +538,13 @@ impl Drain {
         }
 
         let end = (self.offset + self.journals_per_chunk).min(self.frontier.journals.len());
-        let chunk = JournalFrontier::encode(&self.frontier.journals[self.offset..end]);
+        let mut chunk = JournalFrontier::encode(&self.frontier.journals[self.offset..end]);
 
         if chunk.journals.is_empty() {
+            chunk.flushed_lsn = std::mem::take(&mut self.frontier.flushed_lsn)
+                .into_iter()
+                .map(|lsn| lsn.as_u64())
+                .collect();
             self.frontier = Default::default(); // Release memory.
             self.offset = usize::MAX;
         } else {
@@ -467,22 +555,35 @@ impl Drain {
     }
 }
 
+impl std::fmt::Debug for Drain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.offset == usize::MAX {
+            f.write_str("empty")
+        } else {
+            f.debug_struct("Drain")
+                .field("offset", &self.offset)
+                .field("journals", &self.frontier.journals.len())
+                .finish()
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::testing::{jf, pf, pf_tuple};
+    use crate::testing::{jf, jf_with_bytes, pf, pf_tuple};
+    use log::Lsn;
 
     #[test]
     fn test_producer_frontier_reduce() {
         // (a_commit, a_hint, a_offset, b_commit, b_hint, b_offset) => (commit, hint, offset)
         let cases: Vec<((u64, u64, i64), (u64, u64, i64), (u64, u64, i64))> = vec![
-            // a.last_commit > b: a's offset wins.
+            // Largest absolute offset wins, regardless of last_commit ordering.
             ((200, 0, -1000), (100, 0, -500), (200, 0, -1000)),
-            // b.last_commit > a: b's offset wins.
             ((100, 0, -500), (200, 0, -1000), (200, 0, -1000)),
-            // Equal last_commit: larger offset wins (begin offset over end offset).
-            ((100, 0, -300), (100, 0, 50), (100, 0, 50)),
-            // Maximizes hinted_commit across sides.
+            // Larger absolute offset wins over smaller positive offset.
+            ((100, 0, -300), (100, 0, 50), (100, 0, -300)),
+            // Default offset=0 (e.g. from hint) does not override meaningful offset.
             ((200, 0, -800), (0, 500, 0), (200, 500, -800)),
         ];
 
@@ -503,19 +604,23 @@ mod test {
         //   producer 0x05: only in reads (pass-through)
         let reads = Frontier {
             journals: vec![
-                jf("journal/A", 0, vec![pf(0x01, 100, 0, -500)]),
-                jf(
+                jf_with_bytes("journal/A", 0, vec![pf(0x01, 100, 0, -500)], 200, 1000),
+                jf_with_bytes(
                     "journal/B",
                     0,
                     vec![pf(0x03, 200, 0, -1000), pf(0x05, 50, 0, -200)],
+                    100,
+                    500,
                 ),
             ],
+            flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(3)],
         };
         let hints = Frontier {
             journals: vec![
-                jf("journal/B", 0, vec![pf(0x03, 0, 300, 0)]),
+                jf_with_bytes("journal/B", 0, vec![pf(0x03, 0, 300, 0)], 50, -300),
                 jf("journal/C", 1, vec![pf(0x03, 0, 300, 0)]),
             ],
+            flushed_lsn: vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(30)],
         };
         let r = reads.reduce(hints);
 
@@ -523,9 +628,10 @@ mod test {
         // journal/B: merged; producer 0x03 reduced (commit=200, hint=300, offset=-1000),
         //            producer 0x05 reads-only pass-through.
         // journal/C: hints-only pass-through.
+        // Byte deltas are summed during reduction.
         insta::assert_debug_snapshot!(r.journals.iter().map(|j| {
             let ps: Vec<_> = j.producers.iter().map(pf_tuple).collect();
-            (&*j.journal, j.binding, ps)
+            (&*j.journal, j.binding, ps, j.bytes_read_delta, j.bytes_behind_delta)
         }).collect::<Vec<_>>(), @r#"
         [
             (
@@ -538,6 +644,8 @@ mod test {
                         -500,
                     ),
                 ],
+                200,
+                1000,
             ),
             (
                 "journal/B",
@@ -554,6 +662,8 @@ mod test {
                         -200,
                     ),
                 ],
+                150,
+                200,
             ),
             (
                 "journal/C",
@@ -565,16 +675,28 @@ mod test {
                         0,
                     ),
                 ],
+                0,
+                0,
             ),
         ]
         "#);
+        assert_eq!(
+            r.flushed_lsn,
+            vec![Lsn::from_u64(40), Lsn::from_u64(50), Lsn::from_u64(30)],
+            "element-wise max of flushed_lsn"
+        );
 
-        // Identity: empty reduces are no-ops.
+        // Identity: empty reduces are no-ops and preserve flushed_lsn.
         let f = Frontier {
             journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
+            flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(20)],
         };
-        assert_eq!(f.clone().reduce(Frontier::default()).journals.len(), 1);
-        assert_eq!(Frontier::default().reduce(f).journals.len(), 1);
+        let r = f.clone().reduce(Frontier::default());
+        assert_eq!(r.journals.len(), 1);
+        assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
+        let r = Frontier::default().reduce(f);
+        assert_eq!(r.journals.len(), 1);
+        assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
         assert!(
             Frontier::default()
                 .reduce(Frontier::default())
@@ -584,34 +706,82 @@ mod test {
     }
 
     #[test]
+    fn test_merge_flushed_lsn() {
+        // Both empty.
+        assert_eq!(
+            Frontier::merge_flushed_lsn(vec![], vec![]),
+            Vec::<log::Lsn>::new()
+        );
+        // One empty: returns the other.
+        assert_eq!(
+            Frontier::merge_flushed_lsn(vec![Lsn::from_u64(10), Lsn::from_u64(20)], vec![],),
+            vec![Lsn::from_u64(10), Lsn::from_u64(20)]
+        );
+        assert_eq!(
+            Frontier::merge_flushed_lsn(vec![], vec![Lsn::from_u64(30), Lsn::from_u64(40)],),
+            vec![Lsn::from_u64(30), Lsn::from_u64(40)]
+        );
+        // Same length: element-wise max.
+        assert_eq!(
+            Frontier::merge_flushed_lsn(
+                vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(30)],
+                vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(60)],
+            ),
+            vec![Lsn::from_u64(40), Lsn::from_u64(50), Lsn::from_u64(60)]
+        );
+        // Different lengths: shorter extended with zeros.
+        assert_eq!(
+            Frontier::merge_flushed_lsn(
+                vec![Lsn::from_u64(10), Lsn::from_u64(20)],
+                vec![Lsn::from_u64(5), Lsn::from_u64(25), Lsn::from_u64(30)],
+            ),
+            vec![Lsn::from_u64(10), Lsn::from_u64(25), Lsn::from_u64(30)]
+        );
+        assert_eq!(
+            Frontier::merge_flushed_lsn(
+                vec![Lsn::from_u64(10), Lsn::from_u64(20), Lsn::from_u64(30)],
+                vec![Lsn::from_u64(5)],
+            ),
+            vec![Lsn::from_u64(10), Lsn::from_u64(20), Lsn::from_u64(30)]
+        );
+    }
+
+    #[test]
     fn test_encode_decode_round_trip() {
-        let frontier = Frontier::new(vec![
-            jf(
-                "estuary/tenants/acme/orders/pivot=00",
-                0,
-                vec![pf(0x01, 100, 0, -500)],
-            ),
-            jf(
-                "estuary/tenants/acme/orders/pivot=00",
-                1,
-                vec![pf(0x03, 200, 0, -1000)],
-            ),
-            jf(
-                "estuary/tenants/acme/orders/pivot=01",
-                0,
-                vec![pf(0x01, 50, 0, -200)],
-            ),
-            jf(
-                "estuary/tenants/acme/users/pivot=00",
-                0,
-                vec![pf(0x05, 300, 400, 42)],
-            ),
-            jf(
-                "estuary/tenants/other/events/pivot=00",
-                2,
-                vec![pf(0x07, 10, 0, -100)],
-            ),
-        ])
+        let frontier = Frontier::new(
+            vec![
+                jf_with_bytes(
+                    "estuary/tenants/acme/orders/pivot=00",
+                    0,
+                    vec![pf(0x01, 100, 0, -500)],
+                    1500,
+                    42000,
+                ),
+                jf(
+                    "estuary/tenants/acme/orders/pivot=00",
+                    1,
+                    vec![pf(0x03, 200, 0, -1000)],
+                ),
+                jf(
+                    "estuary/tenants/acme/orders/pivot=01",
+                    0,
+                    vec![pf(0x01, 50, 0, -200)],
+                ),
+                jf_with_bytes(
+                    "estuary/tenants/acme/users/pivot=00",
+                    0,
+                    vec![pf(0x05, 300, 400, 42)],
+                    900,
+                    -300,
+                ),
+                jf(
+                    "estuary/tenants/other/events/pivot=00",
+                    2,
+                    vec![pf(0x07, 10, 0, -100)],
+                ),
+            ],
+            vec![],
+        )
         .unwrap();
 
         // Single chunk round-trips correctly.
@@ -622,6 +792,8 @@ mod test {
         for (a, b) in decoded.iter().zip(frontier.journals.iter()) {
             assert_eq!(&*a.journal, &*b.journal);
             assert_eq!(a.binding, b.binding);
+            assert_eq!(a.bytes_read_delta, b.bytes_read_delta);
+            assert_eq!(a.bytes_behind_delta, b.bytes_behind_delta);
         }
 
         // Multi-chunk: each chunk is independently decodable.
@@ -651,11 +823,19 @@ mod test {
             }
 
             // Reassembled frontier matches the original.
-            let reassembled = Frontier::new(reassembled).unwrap();
+            let reassembled = Frontier::new(reassembled, vec![]).unwrap();
             assert_eq!(reassembled.journals.len(), frontier.journals.len());
             for (a, b) in reassembled.journals.iter().zip(frontier.journals.iter()) {
                 assert_eq!(&*a.journal, &*b.journal, "chunk_size={chunk_size}");
                 assert_eq!(a.binding, b.binding, "chunk_size={chunk_size}");
+                assert_eq!(
+                    a.bytes_behind_delta, b.bytes_behind_delta,
+                    "chunk_size={chunk_size}"
+                );
+                assert_eq!(
+                    a.bytes_read_delta, b.bytes_read_delta,
+                    "chunk_size={chunk_size}"
+                );
             }
         }
     }
@@ -668,17 +848,34 @@ mod test {
 
     #[test]
     fn test_frontier_new_validates_journal_order() {
-        // Out-of-order journals.
-        let err = Frontier::new(vec![jf("journal/B", 0, vec![]), jf("journal/A", 0, vec![])])
-            .unwrap_err();
+        // Out-of-order journals within the same binding.
+        let err = Frontier::new(
+            vec![jf("journal/B", 0, vec![]), jf("journal/A", 0, vec![])],
+            vec![],
+        )
+        .unwrap_err();
+        assert!(
+            format!("{err}").contains("not ordered"),
+            "expected ordering error, got: {err}"
+        );
+
+        // Out-of-order bindings.
+        let err = Frontier::new(
+            vec![jf("journal/A", 1, vec![]), jf("journal/A", 0, vec![])],
+            vec![],
+        )
+        .unwrap_err();
         assert!(
             format!("{err}").contains("not ordered"),
             "expected ordering error, got: {err}"
         );
 
         // Duplicate (journal, binding).
-        let err = Frontier::new(vec![jf("journal/A", 0, vec![]), jf("journal/A", 0, vec![])])
-            .unwrap_err();
+        let err = Frontier::new(
+            vec![jf("journal/A", 0, vec![]), jf("journal/A", 0, vec![])],
+            vec![],
+        )
+        .unwrap_err();
         assert!(
             format!("{err}").contains("not unique"),
             "expected uniqueness error, got: {err}"
@@ -688,11 +885,14 @@ mod test {
     #[test]
     fn test_frontier_new_validates_producer_order() {
         // Out-of-order producers within a journal.
-        let err = Frontier::new(vec![jf(
-            "journal/A",
-            0,
-            vec![pf(0x05, 100, 0, -1), pf(0x01, 200, 0, -2)],
-        )])
+        let err = Frontier::new(
+            vec![jf(
+                "journal/A",
+                0,
+                vec![pf(0x05, 100, 0, -1), pf(0x01, 200, 0, -2)],
+            )],
+            vec![],
+        )
         .unwrap_err();
         assert!(
             format!("{err}").contains("not ordered"),
@@ -700,11 +900,14 @@ mod test {
         );
 
         // Duplicate producers.
-        let err = Frontier::new(vec![jf(
-            "journal/A",
-            0,
-            vec![pf(0x01, 100, 0, -1), pf(0x01, 200, 0, -2)],
-        )])
+        let err = Frontier::new(
+            vec![jf(
+                "journal/A",
+                0,
+                vec![pf(0x01, 100, 0, -1), pf(0x01, 200, 0, -2)],
+            )],
+            vec![],
+        )
         .unwrap_err();
         assert!(
             format!("{err}").contains("not unique"),
@@ -725,6 +928,7 @@ mod test {
                     vec![pf(0x03, 0, 300, 0), pf(0x05, 100, 0, -500)],
                 ),
             ],
+            flushed_lsn: vec![],
         };
 
         // Progressed: journal/A has P1 with last_commit=250 (matches hint @200),
@@ -734,6 +938,7 @@ mod test {
                 jf("journal/A", 0, vec![pf(0x01, 250, 0, -800)]),
                 jf("journal/B", 0, vec![pf(0x03, 250, 0, -600)]),
             ],
+            flushed_lsn: vec![],
         };
 
         let resolved = pending.resolve_hints(&progressed);
@@ -752,6 +957,7 @@ mod test {
         // Second round: P3 now has enough progress.
         let progressed2 = Frontier {
             journals: vec![jf("journal/B", 0, vec![pf(0x03, 400, 0, -900)])],
+            flushed_lsn: vec![],
         };
         let resolved2 = pending.resolve_hints(&progressed2);
         assert_eq!(resolved2, 1);
@@ -773,9 +979,11 @@ mod test {
         // Should NOT match (different bindings).
         let mut pending = Frontier {
             journals: vec![jf("journal/X", 1, vec![pf(0x01, 0, 100, 0)])],
+            flushed_lsn: vec![],
         };
         let progressed = Frontier {
             journals: vec![jf("journal/X", 0, vec![pf(0x01, 200, 0, -500)])],
+            flushed_lsn: vec![],
         };
         assert_eq!(pending.resolve_hints(&progressed), 0);
     }
@@ -801,6 +1009,7 @@ mod test {
                 ),
                 jf("journal/C", 1, vec![pf(0x07, 100, 0, -200)]), // no hint
             ],
+            flushed_lsn: vec![],
         };
         assert_eq!(f.count_unresolved_hints(), 2);
         assert_eq!(Frontier::default().count_unresolved_hints(), 0);
@@ -821,6 +1030,7 @@ mod test {
                 jf("journal/B", 0, vec![pf(0x05, 100, 0, -200)]), // no hint
                 jf("journal/C", 1, vec![pf(0x07, 0, 300, 0)]),    // unresolved
             ],
+            flushed_lsn: vec![],
         };
 
         let projected = f.project_unresolved_hints();
@@ -860,6 +1070,7 @@ mod test {
         // No hints: empty projection.
         let no_hints = Frontier {
             journals: vec![jf("journal/A", 0, vec![pf(0x01, 100, 0, -200)])],
+            flushed_lsn: vec![],
         };
         assert!(no_hints.project_unresolved_hints().journals.is_empty());
 
@@ -899,6 +1110,7 @@ mod test {
             let mut drain = Drain::with_journals_per_chunk(chunk_size);
             drain.start(Frontier {
                 journals: all_journals[..n].to_vec(),
+                flushed_lsn: vec![],
             });
             assert_eq!(
                 drain_all(&mut drain),
@@ -922,6 +1134,7 @@ mod test {
         for _ in 0..3 {
             drain.start(Frontier {
                 journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
+                flushed_lsn: vec![],
             });
             assert_eq!(drain_all(&mut drain), [1, 0]);
         }
@@ -933,27 +1146,37 @@ mod test {
         let mut drain = Drain::with_journals_per_chunk(1);
         drain.start(Frontier {
             journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
+            flushed_lsn: vec![],
         });
         drain.start(Frontier::default());
     }
 
     #[test]
     fn test_drain_round_trip() {
-        let original = Frontier::new(vec![
-            jf("journal/A", 0, vec![pf(0x01, 100, 0, -500)]),
-            jf("journal/A", 1, vec![pf(0x03, 200, 0, -800)]),
-            jf("journal/B", 0, vec![pf(0x05, 300, 400, 42)]),
-        ])
+        let original = Frontier::new(
+            vec![
+                jf("journal/A", 0, vec![pf(0x01, 100, 0, -500)]),
+                jf("journal/A", 1, vec![pf(0x03, 200, 0, -800)]),
+                jf("journal/B", 0, vec![pf(0x05, 300, 400, 42)]),
+            ],
+            vec![100, 200, 300],
+        )
         .unwrap();
 
         for chunk_size in [1, 2, 3] {
             let mut drain = Drain::with_journals_per_chunk(chunk_size);
             drain.start(original.clone());
 
-            let reassembled: Vec<_> = std::iter::from_fn(|| drain.next_chunk())
-                .flat_map(JournalFrontier::decode)
-                .collect();
-            let reassembled = Frontier::new(reassembled).unwrap();
+            let mut reassembled_journals = Vec::new();
+            let mut terminal_flushed_lsn = Vec::new();
+            for chunk in std::iter::from_fn(|| drain.next_chunk()) {
+                if chunk.journals.is_empty() {
+                    terminal_flushed_lsn = chunk.flushed_lsn;
+                } else {
+                    reassembled_journals.extend(JournalFrontier::decode(chunk));
+                }
+            }
+            let reassembled = Frontier::new(reassembled_journals, terminal_flushed_lsn).unwrap();
 
             assert_eq!(reassembled.journals.len(), original.journals.len());
             for (a, b) in reassembled.journals.iter().zip(original.journals.iter()) {
@@ -961,6 +1184,10 @@ mod test {
                 assert_eq!(a.binding, b.binding);
                 assert_eq!(a.producers.len(), b.producers.len());
             }
+            assert_eq!(
+                reassembled.flushed_lsn, original.flushed_lsn,
+                "flushed_lsn round-trips through drain (chunk_size={chunk_size})"
+            );
         }
     }
 }
