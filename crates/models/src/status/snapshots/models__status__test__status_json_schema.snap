@@ -44,12 +44,6 @@ expression: schema
           "minimum": 0,
           "type": "integer"
         },
-        "restarts_since_last_primary": {
-          "description": "Number of shard restarts since the last sustained PRIMARY status.\nResets to 0 when shards hold sustained PRIMARY for SUSTAINED_PRIMARY_MIN_CHECKS\nconsecutive Ok health checks.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
         "shard_status": {
           "anyOf": [
             {

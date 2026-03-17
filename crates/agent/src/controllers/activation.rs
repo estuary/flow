@@ -80,7 +80,6 @@ pub async fn update_activation<C: ControlPlane>(
                 "restarting failed task shards"
             );
             do_activate(now, state, status, control_plane).await?;
-            status.restarts_since_last_primary += 1;
             if has_task_shards(state) {
                 // Reset the shard health status, as we'll need to await another successful check.
                 status.shard_status = Some(ShardStatusCheck {
@@ -392,13 +391,6 @@ async fn update_shard_health<C: ControlPlane>(
         status: new_status,
     });
 
-    update_sustained_primary(
-        status,
-        new_status,
-        count,
-        config.sustained_primary_min_checks,
-    );
-
     // If there's been at least 3 failed checks in a row, then consider the
     // shard failed. We require at least 3 failed checks in a row because it's
     // possible that the ShardFailed event delivery is simply delayed we don't
@@ -472,19 +464,6 @@ fn synthesize_shard_failed_events(
 
 fn is_ops_catalog_task(state: &ControllerState) -> bool {
     state.catalog_name.starts_with("ops/") || state.catalog_name.starts_with("ops.us-central1.v1/")
-}
-
-/// Resets `restarts_since_last_primary` to 0 when shards have been Ok for
-/// enough consecutive checks, indicating sustained healthy operation.
-fn update_sustained_primary(
-    status: &mut ActivationStatus,
-    new_status: ShardsStatus,
-    consecutive_ok_count: u32,
-    sustained_primary_min_checks: u32,
-) {
-    if new_status == ShardsStatus::Ok && consecutive_ok_count >= sustained_primary_min_checks {
-        status.restarts_since_last_primary = 0;
-    }
 }
 
 fn aggregate_shard_status(
@@ -805,41 +784,6 @@ mod test {
             ],
         );
         assert_eq!(ShardsStatus::Failed, actual);
-    }
-
-    #[test]
-    fn test_sustained_primary_tracking() {
-        let mut status = ActivationStatus {
-            restarts_since_last_primary: 10,
-            ..Default::default()
-        };
-
-        let min_checks = ControllerConfig::default().sustained_primary_min_checks;
-
-        // Below threshold: no reset
-        update_sustained_primary(&mut status, ShardsStatus::Ok, 1, min_checks);
-        assert_eq!(status.restarts_since_last_primary, 10);
-
-        update_sustained_primary(&mut status, ShardsStatus::Ok, 2, min_checks);
-        assert_eq!(status.restarts_since_last_primary, 10);
-
-        // At threshold: resets counter
-        update_sustained_primary(&mut status, ShardsStatus::Ok, 3, min_checks);
-        assert_eq!(status.restarts_since_last_primary, 0);
-
-        // Above threshold: continues resetting
-        status.restarts_since_last_primary = 5;
-        update_sustained_primary(&mut status, ShardsStatus::Ok, 10, min_checks);
-        assert_eq!(status.restarts_since_last_primary, 0);
-
-        // Failed status: no reset regardless of count
-        status.restarts_since_last_primary = 7;
-        update_sustained_primary(&mut status, ShardsStatus::Failed, 5, min_checks);
-        assert_eq!(status.restarts_since_last_primary, 7);
-
-        // Pending status: no reset regardless of count
-        update_sustained_primary(&mut status, ShardsStatus::Pending, 5, min_checks);
-        assert_eq!(status.restarts_since_last_primary, 7);
     }
 
     #[test]

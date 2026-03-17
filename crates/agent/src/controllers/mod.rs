@@ -49,9 +49,6 @@ pub struct ControllerConfig {
     /// Number of recent shard failures required to fire a ShardFailed alert.
     #[clap(long, env = "ALERT_AFTER_SHARD_FAILURES", default_value = "3")]
     pub alert_after_shard_failures: u32,
-    /// Consecutive Ok health checks before counting as sustained PRIMARY.
-    #[clap(long, env = "SUSTAINED_PRIMARY_MIN_CHECKS", default_value = "3")]
-    pub sustained_primary_min_checks: u32,
     /// ShardFailed must be continuously firing for this long before the task
     /// is considered chronically failing.
     #[clap(long, env = "CHRONICALLY_FAILING_THRESHOLD", default_value = "30d")]
