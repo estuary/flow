@@ -65,7 +65,7 @@ pub struct ActivationStatus {
 
     /// Count of shard failures that have been observed over the last 24 hours for the currently activated
     /// build. This resets to 0 when a newly published build is activated.
-    #[serde(default, skip_serializing_if = "is_zero")]
+    #[serde(default, skip_serializing_if = "crate::is_u32_zero")]
     pub recent_failure_count: u32,
 
     /// The next time at which failed task shards will be re-activated. If this is present, then
@@ -73,16 +73,6 @@ pub struct ActivationStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "crate::option_datetime_schema")]
     pub next_retry: Option<DateTime<Utc>>,
-
-    /// Number of shard restarts since the last sustained PRIMARY status.
-    /// Resets to 0 when shards hold sustained PRIMARY for SUSTAINED_PRIMARY_MIN_CHECKS
-    /// consecutive Ok health checks.
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub restarts_since_last_primary: u32,
-}
-
-fn is_zero(i: &u32) -> bool {
-    *i == 0
 }
 
 /// The shape of a connector status, which matches that of an ops::Log.
@@ -116,7 +106,6 @@ impl Default for ActivationStatus {
             recent_failure_count: 0,
             next_retry: None,
             shard_status: None,
-            restarts_since_last_primary: 0,
         }
     }
 }
