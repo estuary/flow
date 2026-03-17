@@ -36,6 +36,20 @@ impl<'alloc, T> BumpVec<'alloc, T> {
         }
     }
 
+    /// Produce a bitwise copy of this handle. The copy shares the same
+    /// backing allocation in the bump allocator.
+    ///
+    /// Safety: the caller must not mutate the backing storage through
+    /// either the original or the copy while both are live.
+    /// Entry mutation through one instance will be observed by the other.
+    #[inline]
+    pub unsafe fn shallow_copy(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+            marker: self.marker,
+        }
+    }
+
     #[inline]
     pub fn with_capacity_in(capacity: usize, alloc: &'alloc bumpalo::Bump) -> Self {
         if capacity == 0 {
