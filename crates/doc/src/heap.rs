@@ -348,9 +348,13 @@ impl<'alloc> json::Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
 
     #[inline]
     fn get<'a>(&'a self, property: &str) -> Option<Self::Field<'a>> {
-        match self.binary_search_by(|l| l.property.cmp(property)) {
-            Ok(ind) => Some(&self[ind]),
-            Err(_) => None,
+        if self.len() < 16 {
+            self.iter().find(|l| l.property.as_ref() == property)
+        } else {
+            match self.binary_search_by(|l| l.property.cmp(property)) {
+                Ok(ind) => Some(&self[ind]),
+                Err(_) => None,
+            }
         }
     }
     #[inline]
