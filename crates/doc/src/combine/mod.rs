@@ -1,5 +1,5 @@
 use crate::{
-    Extractor, HeapNode, OwnedNode, redact, reduce,
+    Extractor, HeapRoot, OwnedNode, redact, reduce,
     validation::{FailedValidation, Validator},
 };
 use std::io::{self, Seek};
@@ -109,7 +109,7 @@ pub struct Meta(
 /// It's produced by MemTable and is consumed by SpillWriter.
 pub struct HeapEntry<'s> {
     meta: Meta,
-    root: HeapNode<'s>,
+    root: HeapRoot<'s>,
 }
 
 pub mod memtable;
@@ -262,17 +262,50 @@ impl Combiner {
 
 impl Meta {
     #[inline]
-    fn new(binding: u16, key: &[u8], front: bool) -> Self {
-        let binding = binding.to_be_bytes();
-        let mut packed = [
-            binding[0], binding[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
+    fn new(binding: u16, key: &[u8], front: bool, known_valid: bool) -> Self {
+        let b = binding.to_be_bytes();
+        let mut packed = [b[0], b[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         // Copy up to 13 bytes of `key` into the packed representation.
         // Shorter keys leave trailing zeroes.
         for (s, t) in key.iter().zip(packed[2..].iter_mut()) {
             *t = *s;
         }
-        Self(packed, if front { META_FLAG_FRONT } else { 0x00 })
+
+        let mut flags = 0u8;
+        if front {
+            flags |= META_FLAG_FRONT;
+        }
+        if known_valid {
+            flags |= META_FLAG_KNOWN_VALID;
+        }
+        Self(packed, flags)
+    }
+
+    /// Build a Meta from a pre-extracted 16-byte packed key prefix.
+    /// We take the first 13 bytes for Meta.
+    #[inline]
+    pub fn from_packed_prefix(
+        binding: u16,
+        packed_key_prefix: &[u8; 16],
+        front: bool,
+        known_valid: bool,
+    ) -> Self {
+        let b = binding.to_be_bytes();
+        let p = packed_key_prefix;
+
+        let packed = [
+            b[0], b[1], p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11],
+            p[12],
+        ];
+
+        let mut flags = 0u8;
+        if front {
+            flags |= META_FLAG_FRONT;
+        }
+        if known_valid {
+            flags |= META_FLAG_KNOWN_VALID;
+        }
+        Self(packed, flags)
     }
 
     /// The binding for this entry.
@@ -289,6 +322,17 @@ impl Meta {
         self.1 & META_FLAG_FRONT != 0
     }
 
+    /// Is this entry known to be valid? Known-valid entries skip validation
+    /// during spill/drain, and are assumed to not need redaction (validation
+    /// drives redaction).
+    ///
+    /// Note that the `shuffle` pipeline validates documents at read time,
+    /// which allows loading pre-validated documents into a Combiner.
+    #[inline]
+    pub fn known_valid(&self) -> bool {
+        self.1 & META_FLAG_KNOWN_VALID != 0
+    }
+
     /// Is this entry marked as deleted by its reduction annotation?
     /// Deleted entries are conceptually a "tombstone" that can be used to
     /// delete a document from a downstream system (instead of doing an upsert).
@@ -301,6 +345,15 @@ impl Meta {
     #[inline]
     fn not_associative(&self) -> bool {
         self.1 & META_FLAG_NOT_ASSOCIATIVE != 0
+    }
+
+    #[inline]
+    fn set_known_valid(&mut self, known_valid: bool) {
+        if known_valid {
+            self.1 |= META_FLAG_KNOWN_VALID;
+        } else {
+            self.1 &= !META_FLAG_KNOWN_VALID;
+        }
     }
 
     #[inline]
@@ -332,6 +385,9 @@ impl std::fmt::Debug for Meta {
         if self.deleted() {
             s.field(&"D");
         }
+        if self.known_valid() {
+            s.field(&"V");
+        }
         s.finish()
     }
 }
@@ -342,6 +398,8 @@ const META_FLAG_FRONT: u8 = 0x01;
 const META_FLAG_NOT_ASSOCIATIVE: u8 = 0x02;
 // Flag marking this entry is a deletion tombstone.
 const META_FLAG_DELETED: u8 = 0x04;
+// Flag marking this entry is known to be valid against its schema.
+const META_FLAG_KNOWN_VALID: u8 = 0x08;
 
 // The number of used bytes within a Bump allocator.
 fn bump_mem_used(alloc: &bumpalo::Bump) -> usize {
@@ -351,8 +409,8 @@ fn bump_mem_used(alloc: &bumpalo::Bump) -> usize {
 // The bump-allocator threshold after which we'll spill a MemTable to a SpillWriter.
 // We _could_ make this a knob, but empirically using larger values doesn't increase
 // performance in common cases where little reduction is happening, because we're
-// essentially trading a merge-sort of in-memory HeapDocs for a heap merge-sort of
-// ArchivedDocs.
+// essentially trading a merge-sort of in-memory HeapNodes for a heap merge-sort of
+// ArchivedNodes.
 //
 // If we're writing too many segments -- enough that keeping all of their chunks
 // resident in memory is a problem -- then larger values will decrease the number
@@ -391,3 +449,231 @@ fn _assert_combiner_is_send(t: Combiner) {
     _assert_send(t)
 }
 fn _assert_send<T: Send>(_t: T) {}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{Extractor, HeapNode, SerPolicy, Validator};
+    use itertools::Itertools;
+    use serde_json::json;
+
+    fn make_spec() -> Spec {
+        let schema = json::schema::build::build_schema(
+            &url::Url::parse("http://example/schema").unwrap(),
+            &json!({
+                "properties": {
+                    "key": { "type": "string", "default": "def" },
+                    "v": {
+                        "type": "array",
+                        "reduce": { "strategy": "append" }
+                    }
+                },
+                "reduce": { "strategy": "merge" }
+            }),
+        )
+        .unwrap();
+
+        Spec::with_one_binding(
+            true,
+            vec![Extractor::with_default(
+                "/key",
+                &SerPolicy::noop(),
+                json!("def"),
+            )],
+            "test-source",
+            Vec::new(),
+            Validator::new(schema).unwrap(),
+        )
+    }
+
+    fn drain_all(drainer: &mut Drainer) -> Vec<(usize, serde_json::Value, bool)> {
+        std::iter::from_fn(|| drainer.drain_next().transpose())
+            .map_ok(|doc| {
+                (
+                    doc.meta.binding(),
+                    serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap(),
+                    doc.meta.front(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_accumulator_mem_only() {
+        let spill = tempfile::tempfile().unwrap();
+        let mut acc = Accumulator::new(make_spec(), spill).unwrap();
+
+        // Add documents through memtable().
+        for doc_json in [
+            json!({"key": "aaa", "v": ["apple"]}),
+            json!({"key": "bbb", "v": ["banana"]}),
+            json!({"key": "aaa", "v": ["avocado"]}),
+        ] {
+            let mt = acc.memtable().unwrap();
+            let node = HeapNode::from_node(&doc_json, mt.alloc());
+            mt.add(0, node, false).unwrap();
+        }
+
+        // No spill occurred — drain via the Mem variant.
+        let mut drainer = acc.into_drainer().unwrap();
+        assert!(matches!(&drainer, Drainer::Mem { .. }));
+
+        let actual = drain_all(&mut drainer);
+        insta::assert_json_snapshot!(actual, @r###"
+        [
+          [
+            0,
+            {
+              "key": "aaa",
+              "v": [
+                "apple",
+                "avocado"
+              ]
+            },
+            false
+          ],
+          [
+            0,
+            {
+              "key": "bbb",
+              "v": [
+                "banana"
+              ]
+            },
+            false
+          ]
+        ]
+        "###);
+
+        // Recycle the drainer into a new accumulator.
+        let mut acc = drainer.into_new_accumulator().unwrap();
+
+        // Add more docs and drain again to verify the recycled accumulator works.
+        let mt = acc.memtable().unwrap();
+        let node = HeapNode::from_node(&json!({"key": "ccc", "v": ["carrot"]}), mt.alloc());
+        mt.add(0, node, false).unwrap();
+
+        let mut drainer = acc.into_drainer().unwrap();
+        let actual = drain_all(&mut drainer);
+        assert_eq!(actual.len(), 1);
+        assert_eq!(actual[0].1["key"], "ccc");
+    }
+
+    #[test]
+    fn test_accumulator_with_spill() {
+        let spill = tempfile::tempfile().unwrap();
+        let spec = make_spec();
+        let mut acc = Accumulator::new(spec, spill).unwrap();
+
+        // Add documents through memtable, then manually spill.
+        for doc_json in [
+            json!({"key": "aaa", "v": ["apple"]}),
+            json!({"key": "bbb", "v": ["banana"]}),
+        ] {
+            let mt = acc.memtable().unwrap();
+            let node = HeapNode::from_node(&doc_json, mt.alloc());
+            mt.add(0, node, false).unwrap();
+        }
+
+        // Force a spill by taking the memtable and spilling it.
+        let spec = acc
+            .memtable
+            .take()
+            .unwrap()
+            .spill(&mut acc.spill, CHUNK_TARGET_SIZE)
+            .unwrap();
+        acc.memtable = Some(MemTable::new(spec));
+
+        // Add more documents to a fresh memtable (second segment).
+        for doc_json in [
+            json!({"key": "aaa", "v": ["avocado"]}),
+            json!({"key": "ccc", "v": ["carrot"]}),
+        ] {
+            let mt = acc.memtable().unwrap();
+            let node = HeapNode::from_node(&doc_json, mt.alloc());
+            mt.add(0, node, false).unwrap();
+        }
+
+        // Drain via the Spill variant.
+        let mut drainer = acc.into_drainer().unwrap();
+        assert!(matches!(&drainer, Drainer::Spill { .. }));
+
+        let actual = drain_all(&mut drainer);
+        insta::assert_json_snapshot!(actual, @r###"
+        [
+          [
+            0,
+            {
+              "key": "aaa",
+              "v": [
+                "apple",
+                "avocado"
+              ]
+            },
+            false
+          ],
+          [
+            0,
+            {
+              "key": "bbb",
+              "v": [
+                "banana"
+              ]
+            },
+            false
+          ],
+          [
+            0,
+            {
+              "key": "ccc",
+              "v": [
+                "carrot"
+              ]
+            },
+            false
+          ]
+        ]
+        "###);
+
+        // Recycle the spill drainer into a new accumulator.
+        let mut acc = drainer.into_new_accumulator().unwrap();
+
+        let mt = acc.memtable().unwrap();
+        let node = HeapNode::from_node(&json!({"key": "ddd", "v": ["dill"]}), mt.alloc());
+        mt.add(0, node, false).unwrap();
+
+        let mut drainer = acc.into_drainer().unwrap();
+        let actual = drain_all(&mut drainer);
+        assert_eq!(actual.len(), 1);
+        assert_eq!(actual[0].1["key"], "ddd");
+    }
+
+    #[test]
+    fn test_drainer_iterator() {
+        let spill = tempfile::tempfile().unwrap();
+        let mut acc = Accumulator::new(make_spec(), spill).unwrap();
+
+        let mt = acc.memtable().unwrap();
+        let node = HeapNode::from_node(&json!({"key": "aaa", "v": ["apple"]}), mt.alloc());
+        mt.add(0, node, false).unwrap();
+
+        // Exercise the Iterator impl (which delegates to drain_next).
+        let drainer = acc.into_drainer().unwrap();
+        let actual: Vec<_> = drainer
+            .map(|r| {
+                let doc = r.unwrap();
+                serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap()
+            })
+            .collect();
+        assert_eq!(actual.len(), 1);
+        assert_eq!(actual[0]["key"], "aaa");
+    }
+
+    #[test]
+    fn test_combiner_new() {
+        let spill = tempfile::tempfile().unwrap();
+        let combiner = Combiner::new(make_spec(), spill).unwrap();
+        assert!(matches!(combiner, Combiner::Accumulator(_)));
+    }
+}
