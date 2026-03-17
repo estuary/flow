@@ -7,7 +7,13 @@ expression: snap
         "empty",
         Frontier {
             journals: [],
+            flushed_lsn: [
+                0/0,
+                0/0,
+                0/0,
+            ],
         },
+        [],
     ),
     (
         "reads_only",
@@ -24,6 +30,8 @@ expression: snap
                             offset: -500,
                         },
                     ],
+                    bytes_read_delta: 800,
+                    bytes_behind_delta: -300,
                 },
                 JournalFrontier {
                     journal: "journal/B",
@@ -36,9 +44,60 @@ expression: snap
                             offset: -1000,
                         },
                     ],
+                    bytes_read_delta: 1200,
+                    bytes_behind_delta: 5000,
                 },
             ],
+            flushed_lsn: [
+                0/0,
+                0/0,
+                0/0,
+            ],
         },
+        [
+            ReadState {
+                binding_index: 0,
+                journal: "journal/B",
+                settled: {
+                    Producer(03:00:00:00:00:00): ProducerState {
+                        last_commit: Clock(0s 32ns),
+                        max_continue: Clock(0s 0ns),
+                        offset: -1000,
+                    },
+                },
+                pending: {},
+                read_offset: 45000,
+                prev_read_offset: 45000,
+                write_head: 50000,
+                prev_write_head: 50000,
+            },
+            ReadState {
+                binding_index: 0,
+                journal: "journal/A",
+                settled: {
+                    Producer(01:00:00:00:00:00): ProducerState {
+                        last_commit: Clock(0s 16ns),
+                        max_continue: Clock(0s 0ns),
+                        offset: -500,
+                    },
+                },
+                pending: {},
+                read_offset: 9500,
+                prev_read_offset: 9500,
+                write_head: 10000,
+                prev_write_head: 10000,
+            },
+            ReadState {
+                binding_index: 0,
+                journal: "journal/C",
+                settled: {},
+                pending: {},
+                read_offset: 123,
+                prev_read_offset: 0,
+                write_head: 25000,
+                prev_write_head: 456,
+            },
+        ],
     ),
     (
         "hints_only",
@@ -55,6 +114,8 @@ expression: snap
                             offset: 0,
                         },
                     ],
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
                 },
                 JournalFrontier {
                     journal: "journal/C",
@@ -67,9 +128,17 @@ expression: snap
                             offset: 0,
                         },
                     ],
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
                 },
             ],
+            flushed_lsn: [
+                0/0,
+                0/0,
+                0/0,
+            ],
         },
+        [],
     ),
     (
         "empty_pending_skipped",
@@ -86,9 +155,44 @@ expression: snap
                             offset: -500,
                         },
                     ],
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
                 },
             ],
+            flushed_lsn: [
+                0/0,
+                0/0,
+                0/0,
+            ],
         },
+        [
+            ReadState {
+                binding_index: 0,
+                journal: "journal/A",
+                settled: {
+                    Producer(01:00:00:00:00:00): ProducerState {
+                        last_commit: Clock(0s 16ns),
+                        max_continue: Clock(0s 0ns),
+                        offset: -500,
+                    },
+                },
+                pending: {},
+                read_offset: 0,
+                prev_read_offset: 0,
+                write_head: 0,
+                prev_write_head: 0,
+            },
+            ReadState {
+                binding_index: 0,
+                journal: "journal/B",
+                settled: {},
+                pending: {},
+                read_offset: 0,
+                prev_read_offset: 0,
+                write_head: 0,
+                prev_write_head: 0,
+            },
+        ],
     ),
     (
         "reads_and_hints",
@@ -105,6 +209,8 @@ expression: snap
                             offset: -500,
                         },
                     ],
+                    bytes_read_delta: 500,
+                    bytes_behind_delta: 500,
                 },
                 JournalFrontier {
                     journal: "journal/B",
@@ -123,6 +229,8 @@ expression: snap
                             offset: -200,
                         },
                     ],
+                    bytes_read_delta: 2000,
+                    bytes_behind_delta: 2000,
                 },
                 JournalFrontier {
                     journal: "journal/C",
@@ -135,9 +243,55 @@ expression: snap
                             offset: 0,
                         },
                     ],
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
                 },
             ],
+            flushed_lsn: [
+                0/0,
+                0/0,
+                0/0,
+            ],
         },
+        [
+            ReadState {
+                binding_index: 0,
+                journal: "journal/A",
+                settled: {
+                    Producer(01:00:00:00:00:00): ProducerState {
+                        last_commit: Clock(0s 16ns),
+                        max_continue: Clock(0s 0ns),
+                        offset: -500,
+                    },
+                },
+                pending: {},
+                read_offset: 19000,
+                prev_read_offset: 19000,
+                write_head: 20000,
+                prev_write_head: 20000,
+            },
+            ReadState {
+                binding_index: 0,
+                journal: "journal/B",
+                settled: {
+                    Producer(03:00:00:00:00:00): ProducerState {
+                        last_commit: Clock(0s 32ns),
+                        max_continue: Clock(0s 0ns),
+                        offset: -1000,
+                    },
+                    Producer(05:00:00:00:00:00): ProducerState {
+                        last_commit: Clock(0s 8ns),
+                        max_continue: Clock(0s 0ns),
+                        offset: -200,
+                    },
+                },
+                pending: {},
+                read_offset: 75000,
+                prev_read_offset: 75000,
+                write_head: 80000,
+                prev_write_head: 80000,
+            },
+        ],
     ),
     (
         "same_journal_diff_bindings",
@@ -154,6 +308,8 @@ expression: snap
                             offset: -200,
                         },
                     ],
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
                 },
                 JournalFrontier {
                     journal: "journal/X",
@@ -166,6 +322,8 @@ expression: snap
                             offset: 0,
                         },
                     ],
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
                 },
                 JournalFrontier {
                     journal: "journal/X",
@@ -178,8 +336,120 @@ expression: snap
                             offset: -400,
                         },
                     ],
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
                 },
             ],
+            flushed_lsn: [
+                0/0,
+                0/0,
+                0/0,
+            ],
         },
+        [
+            ReadState {
+                binding_index: 2,
+                journal: "journal/X",
+                settled: {
+                    Producer(01:00:00:00:00:00): ProducerState {
+                        last_commit: Clock(0s 16ns),
+                        max_continue: Clock(0s 0ns),
+                        offset: -400,
+                    },
+                },
+                pending: {},
+                read_offset: 0,
+                prev_read_offset: 0,
+                write_head: 0,
+                prev_write_head: 0,
+            },
+            ReadState {
+                binding_index: 0,
+                journal: "journal/X",
+                settled: {
+                    Producer(03:00:00:00:00:00): ProducerState {
+                        last_commit: Clock(0s 8ns),
+                        max_continue: Clock(0s 0ns),
+                        offset: -200,
+                    },
+                },
+                pending: {},
+                read_offset: 0,
+                prev_read_offset: 0,
+                write_head: 0,
+                prev_write_head: 0,
+            },
+        ],
+    ),
+    (
+        "duplicate_hint_producers",
+        Frontier {
+            journals: [
+                JournalFrontier {
+                    journal: "journal/A",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(01:00:00:00:00:00),
+                            last_commit: Clock(0s 0ns),
+                            hinted_commit: Clock(0s 32ns),
+                            offset: 0,
+                        },
+                    ],
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
+                },
+            ],
+            flushed_lsn: [
+                0/0,
+                0/0,
+                0/0,
+            ],
+        },
+        [],
+    ),
+    (
+        "duplicate_hints_merged_with_reads",
+        Frontier {
+            journals: [
+                JournalFrontier {
+                    journal: "journal/A",
+                    binding: 0,
+                    producers: [
+                        ProducerFrontier {
+                            producer: Producer(01:00:00:00:00:00),
+                            last_commit: Clock(0s 8ns),
+                            hinted_commit: Clock(0s 32ns),
+                            offset: -300,
+                        },
+                    ],
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
+                },
+            ],
+            flushed_lsn: [
+                0/0,
+                0/0,
+                0/0,
+            ],
+        },
+        [
+            ReadState {
+                binding_index: 0,
+                journal: "journal/A",
+                settled: {
+                    Producer(01:00:00:00:00:00): ProducerState {
+                        last_commit: Clock(0s 8ns),
+                        max_continue: Clock(0s 0ns),
+                        offset: -300,
+                    },
+                },
+                pending: {},
+                read_offset: 0,
+                prev_read_offset: 0,
+                write_head: 0,
+                prev_write_head: 0,
+            },
+        ],
     ),
 ]
