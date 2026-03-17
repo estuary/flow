@@ -67,9 +67,9 @@ flowchart TB
 
     subgraph QUEUE["QUEUE (per member)"]
         Q1["Receives documents from all Slices"]
-        Q2["Merges/orders incoming streams (best-effort read leveling)"]
-        Q3["Writes to on-disk queue file"]
-        Q4["Responds to Flush with Flushed once durable"]
+        Q2["Merge-orders Slice streams by (priority, clock) — backpressures lower-priority Slices"]
+        Q3["Writes to on-disk queue storage"]
+        Q4["Responds to Flush with Flushed once visible to consumer"]
     end
 
     SESSION -->|"Opens N Slice RPCs (one per member)"| SLICE
@@ -88,9 +88,9 @@ flowchart TB
 
 **Cohorts**: Journals are grouped into cohorts based on their shuffle configuration (priority and read-delay). Cohorts are the unit of transaction visibility coordination: causal hints are only tracked within a cohort, allowing different cohorts to make progress independently. Each binding carries an explicit `cohort` field computed during binding construction: ascending integers assigned by walking task bindings in binding-index order and identifying unique `(priority, read_delay)` tuples. The Session and Slice RPCs use the binding's cohort field to facilitate filtering and projection of hinted journals to bindings, and bindings to cohorts.
 
-**Complete Frontier**: The Session tracks a *complete frontier* per (cohort, producer)—the highest transaction clock through which all that producer's cross-journal transactions are confirmed complete within the cohort. A transaction is complete when all hinted journals within the cohort have reported the producer committed at that clock. The complete frontier determines transaction visibility in NextCheckpoint: a producer's commits are only visible up to its complete frontier, even if raw progress shows later commits. Producers with no pending cross-journal hints have their commits immediately complete. See Checkpoint Semantics for full details.
+**Causal Hint Resolution**: When a Slice reports an ACK with causal hints (references to other journals in the same transaction), the Session records a pending entry for each hinted journal. A pending entry is resolved when a Slice reports that the hinted journal's producer committed at or past the hinted clock. All pending entries from a batch of progress must resolve before that batch is promoted to a checkpoint—this is a batch-level gate, not per-producer. Producers with no pending cross-journal hints may have their commits promoted immediately. See Checkpoint Semantics for full details.
 
-**Delta-Encoded Journal Names**: Frontiers and progress deltas reference journals by name, but names can be long (200+ chars) and repetitive within an ordered sequence. Portions of the protocol use delta-encoding: sequenced protocol messages encode a truncation count and suffix relative to the preceding journal name. In cases where consecutive entries share the same journal name (different bindings), the name fields are zero-valued and omitted from the wire.
+**Delta-Encoded Journal Names**: Frontiers and progress deltas reference journals by name, but names can be long (200+ chars) and repetitive within an ordered sequence. Portions of the protocol use delta-encoding: sequenced protocol messages encode a truncation count and suffix relative to the preceding journal name. Within a binding group, consecutive journal names typically share long common prefixes.
 
 ### Startup Sequence
 
@@ -117,14 +117,11 @@ flowchart TB
 
 **`resume_checkpoint`**: The fully committed frontier from which the session resumes. All reads resume from this point. Producers with non-zero `hinted_commit` represent read-through state: transactions that were prepared but not yet committed during the previous session. On recovery, the Session waits until Slices have reported raw progress such that every (journal, producer) pair with a `hinted_commit` has a committed clock reaching or exceeding that hint. The completion condition is evaluated purely in terms of producer clocks—offsets are advisory and used only to establish a read-from position on next startup. Once this condition is met, the Session emits the read-through frontier as the first NextCheckpoint, bypassing the Producer Frontier Model for that one checkpoint. This enables idempotent transaction retry: the consumer replays the exact same prepared transaction. Subsequent NextCheckpoints use the normal frontier model. Recovery relies on re-reading data already written to journals (guaranteed by the conservative read strategy), not on producers being alive or producing new data.
 
-**`NextCheckpoint`**: A sparse delta containing only journals with progress since last checkpoint. Client merges this into their base checkpoint. NextCheckpoint reflects aggregate progress available at poll time; Session does not await Slices beyond what it has already received from outstanding ProgressRequests (except blocking until at least one Slice has responded if no progress has yet occurred).
+**`NextCheckpoint`**: A sparse delta containing only journals with progress since last checkpoint. Client merges this into their base checkpoint. NextCheckpoint reflects aggregate progress available at poll time; Session does not await Slices beyond what it has already received from outstanding ProgressRequests.
 
-**Producer Frontier Model**: Session tracks a "complete frontier" per (cohort, producer)—the highest transaction clock through which all that producer's cross-journal transactions are confirmed complete. A transaction is complete when all hinted journals within the cohort have reported the producer committed at that clock. When generating NextCheckpoint:
-- Journal offsets reflect actual flushed read progress (not filtered by the frontier)
-- Producer commit states are filtered by complete frontier: a producer appears committed only up to its complete frontier, even if raw progress shows later commits
-- Transactions after the complete frontier appear as uncommitted, with begin_offset from the oldest pending transaction
+**Causal Hint Resolution Model**: The Session's `CheckpointPipeline` accumulates progress from Slices into a `progressed` frontier, then promotes it through an `unresolved` stage (where causal hints are resolved against incoming progress) before it becomes `ready` for the client. This is a batch-level gate: all unresolved hints in a batch must resolve before any of that batch promotes to `ready`. Progress arriving while a batch is unresolved accumulates separately and promotes in the next cycle.
 
-This model allows unrelated producers to make independent progress. If producer P has a pending cross-journal transaction while producer Q (writing only to one journal) commits, Q's commit is immediately visible in NextCheckpoint—P's pending state doesn't block Q. Producers with no pending cross-journal hints (including those writing to only one journal) have their commits immediately complete—no hints means no journals to await.
+This means a producer with pending cross-journal hints can delay visibility of other producers' progress within the same batch. In practice, hints resolve quickly (bounded by the time for all journals in a transaction to report their ACKs), so the window is small. Producers with no cross-journal hints have their commits promoted immediately (no hints means nothing to resolve).
 
 ## Key Design Decisions
 
@@ -134,10 +131,9 @@ This model allows unrelated producers to make independent progress. If producer 
 
 **Cross-journal coordination via causal hints**: When a Slice observes an ACK, it extracts these hints and reports them to the Session alongside its ProgressDelta. The Session uses hints to coordinate visibility:
 
-1. When producer P commits in journal A with hints [B, C], Session records a pending transaction for (cohort, P) awaiting confirmation from B and C
-2. As Slices report P committed in B and C, Session marks those journals confirmed
-3. Once all hinted journals confirm, the transaction is complete and P's complete frontier advances
-4. NextCheckpoint generation filters producer states by complete frontier
+1. When producer P commits in journal A with hints [B, C], Session records pending entries for B and C in the `unresolved` frontier
+2. As Slices report P committed in B and C, Session resolves those entries via `Frontier::resolve_hints`
+3. Once all pending entries in the batch resolve, the batch promotes to `ready` for the next NextCheckpoint
 
 **Hint filtering**: Slices filter hints before reporting:
 - Only journals in the same cohort (different cohorts make progress independently)
@@ -170,7 +166,7 @@ Duplicate data documents are expected during normal operation and are not error 
 
 Progress flows through the system via two decoupled mechanisms: autonomous flush pipelining at the Slice, and pull-based progress reporting between Session and Slice.
 
-**Autonomous flush pipelining**: Each Slice maintains at most one in-flight Flush to its Queues. When a commit is observed (an ACK_TXN is read or an OUTSIDE_TXN is enqueued) and no Flush is in-flight, the Slice immediately sends a Flush to all Queues. Each Queue responds Flushed once all preceding documents are durable on disk. When a Flushed completes, if any commit has been observed since the Flush was sent, the Slice starts another Flush immediately. This runs continuously and independently of Session progress requests, ensuring flush latency is pipelined with the Session↔Slice request round-trip rather than serialized after it. Open uncommitted transactions, even long-lived ones, do not trigger a Flush until a commit is observed, as until then there is no meaningful progress to flush.
+**Autonomous flush pipelining**: Each Slice maintains at most one in-flight Flush to its Queues. When a commit is observed (an ACK_TXN is read or an OUTSIDE_TXN is enqueued) and no Flush is in-flight, the Slice immediately sends a Flush to all Queues. Each Queue responds Flushed once all preceding documents are visible to the consumer. When a Flushed completes, if any commit has been observed since the Flush was sent, the Slice starts another Flush immediately. This runs continuously and independently of Session progress requests, ensuring flush latency is pipelined with the Session↔Slice request round-trip rather than serialized after it. Open uncommitted transactions, even long-lived ones, do not trigger a Flush until a commit is observed, as until then there is no meaningful progress to flush.
 
 **Pull-based progress reporting**: The Session maintains exactly one outstanding ProgressRequest per Slice. On receiving a request, the Slice responds once at least one Flushed has completed since its last response—if one has already completed, the response is immediate; otherwise the Slice awaits the next Flushed completion. The ProgressDelta reflects all state flushed across all Flush/Flushed cycles since the last response: producer clocks, read offsets, and causal hints. Documents held by the Slice (e.g., awaiting read_delay expiry) or enqueued but not yet flushed are not represented. The Session processes the delta and immediately sends the next ProgressRequest to that Slice.
 
@@ -178,7 +174,7 @@ Progress flows through the system via two decoupled mechanisms: autonomous flush
 
 **Natural batching**: The Slice accumulates progress state internally—producer clocks, causal hints—across Flush/Flushed cycles and bundles everything into one delta when responding to a ProgressRequest. The longer between requests, the more aggregation occurs per delta. This bounds Session processing to at most M deltas in flight (one per member), regardless of journal or producer count.
 
-**Backpressure**: Document sends to Queues are not gated by flush or progress synchronization—documents flow continuously as the Slice reads and routes them. Queue RPCs may become "stuffed" as the sender outpaces the reader. This backpressures from Queues to Slices, and from Slices to their individual journal reads. The overall rate of progress is bounded by the write throughput of the slowest Queue file, and all participants make progress together.
+**Backpressure**: Document sends to Queues are not gated by flush or progress synchronization—documents flow continuously as the Slice reads and routes them. Each Queue merge-orders its incoming Slice streams by (priority DESC, adjusted clock ASC), preferentially draining higher-priority and earlier-clock streams first. Under contention, lower-priority Slice streams back up, which backpressures those Slices and in turn their journal reads. This is the mechanism by which the system as a whole reads higher-priority data before lower-priority data: the Queue's intake ordering propagates back through Slices to journal reads. The overall rate of progress is bounded by the write throughput of the slowest Queue, and all participants make progress together.
 
 **Decoupled NextCheckpoint**: The Session's aggregated state and the client's NextCheckpoint polls are not subject to progress synchronization backpressure—they surface already completed, available progress. Queue data is not consumable by downstream readers until it appears in a NextCheckpoint, so the progress synchronization rate does not affect durability guarantees.
 
@@ -202,7 +198,8 @@ A rollback occurs when a producer crashes mid-transaction and its recovery mecha
 
 **Duplicate ACKs are not rollbacks**: An ACK with clock equal to the last acknowledged clock and no pending span is a harmless duplicate—journals provide at-least-once delivery, so the same ACK may be appended to the journal multiple times. The Slice ignores these. They are expected during normal operation.
 
-**Queue-side dequeue and rollback pruning**: The consumer uses the checkpoint's per-producer offset as the upper bound for dequeue. Entries beyond this offset are pending, while those below are dequeued. The committed clock C discriminates the disposition of individual entries: those with clock ≤ C are committed and consumed, while entries with clock > C are from a rolled-back transaction and are discarded. The latter arise because a producer's abandoned CONTINUE_TXN documents are written to the journal before its final rollback ACK, so their offsets fall within the covered offset range.
+**Queue-side dequeue and rollback pruning**: The consumer uses the checkpoint's last_commit clock as the upper bound for dequeue. Entries beyond this clock are pending, while those below are dequeued.
+Rolled-back data is left idle in the queue until session end, when the entire queue is discarded.
 
 ### Fail-Fast Recovery Model
 
@@ -216,9 +213,9 @@ Error propagation flows up the RPC hierarchy:
 
 This keeps the failure model simple: no partial state recovery, no deduplication needed at Queues. Member topology changes (shard additions, removals, or failures) are handled via fail-fast: the Session terminates and restarts from checkpoint with the new topology.
 
-### Queue Dequeue is Out-of-Band
+### Dequeue is Out-of-Band
 
-The Queue RPC protocol handles enqueue and flush only. Queues merge incoming document streams from multiple Slices using best-effort read leveling: documents are ordered to prevent any single journal from running far ahead of others in the queue file. This is a performance optimization for sequential consumer reads, not a correctness requirement. Downstream consumers read from queue files directly via file access, with hole punching to release disk space. Consumers learn of available data through periodic NextCheckpoint polls of the Session—the specific notification mechanism varies by context and is outside this protocol's scope.
+The Queue RPC protocol handles enqueue and flush only. Queues merge incoming document streams from multiple Slices into storage. Downstream consumers read from storage directly, and inform it when space can be released. Consumers learn of available data through periodic NextCheckpoint polls of the Session—the specific notification mechanism varies by context and is outside this protocol's scope.
 
 ### Session State is Ephemeral
 
@@ -237,9 +234,8 @@ Session re-derives all state from `resume_checkpoint` on startup (read-through s
 ## Non-Goals (Out of Scope)
 
 - Coordinator selection (determined by encapsulating context)
-- Supplemental fault detection beyond gRPC stream errors
 - Partial failure recovery (fail-fast model only)
-- Queue file format details (must support efficient skip of uncommitted data and per-producer indexing; deferred to separate design)
+- Queue storage details (deferred to separate design)
 - Dequeue protocol (direct file access, notification via NextCheckpoint polling)
 - ACK document hint embedding (see Causal Hints concept)
 - Producer state pruning strategy (needed for scale; e.g. time-horizon pruning of producers whose last clock is far in the past relative to other producers of the same journal; deferred)
@@ -250,7 +246,7 @@ The protocol tracks journal progress using a single unified data structure:
 
 **Frontier** (`FrontierChunk` on the wire): A frontier is a sequence of `JournalFrontier` entries, each containing a journal name, binding index, and a sorted list of `ProducerFrontier` entries. Each `ProducerFrontier` carries four fields: producer ID, last committed clock, hinted commit clock (causal hint, zero if no hint), and a byte offset whose sign encodes producer state (non-negative means begin offset of the first uncommitted document, negative means negated end offset of the last committed document).
 
-Frontier entries are sorted and unique on `(journal name, binding)`. The same journal may appear in multiple entries if it is read by multiple bindings (e.g., two derivation transforms reading the same collection). Both clients and the internal protocol use the same `FrontierChunk` wire type. Clients that have no causal hints simply leave `hinted_commit` as zero. Read-through state (transactions prepared but not yet committed) is communicated via non-zero `hinted_commit` values in the `resume_checkpoint` frontier.
+Frontier entries are sorted and unique on `(binding, journal name)`. The same journal may appear in multiple entries if it is read by multiple bindings (e.g., two derivation transforms reading the same collection). Both clients and the internal protocol use the same `FrontierChunk` wire type. Clients that have no causal hints simply leave `hinted_commit` as zero. Read-through state (transactions prepared but not yet committed) is communicated via non-zero `hinted_commit` values in the `resume_checkpoint` frontier.
 
 **Hint projection**: When a Slice reads an ACK from producer P in journal A that hints journals B and C, the Slice projects these into `JournalFrontier` entries for B and C (under their actual task bindings), each with a `ProducerFrontier` for P carrying the hinted commit clock. Projection filters by cohort membership and task binding existence.
 
@@ -268,7 +264,7 @@ The `flowctl raw shuffle` command (`crates/flowctl/src/raw/shuffle.rs`) runs the
 # Run against a collection with 3 members.
 # Uses RUST_LOG to control verbosity; shuffle=info shows lifecycle events.
 # This can produce a lot of output, so use `head` to limit the amount read.
-RUST_LOG=shuffle=info \
+RUST_LOG=flowctl=info,shuffle=info \
   cargo run -p flowctl -- raw shuffle \
     --name demo/wikipedia/recentchange-sampled \
     --members 3
