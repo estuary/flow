@@ -368,7 +368,10 @@ impl Shape {
     #[inline]
     pub fn widen_owned(&mut self, node: &OwnedNode) -> bool {
         match node {
-            OwnedNode::Heap(n) => self.widen(n.get()),
+            OwnedNode::Heap(n) => match n.access() {
+                Ok(heap_node) => self.widen(&heap_node),
+                Err(embedded) => self.widen(embedded.get()),
+            },
             OwnedNode::Archived(n) => self.widen(n.get()),
         }
     }
