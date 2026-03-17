@@ -21,8 +21,8 @@ pub mod publications;
 pub mod server;
 mod text_json;
 
-#[cfg(any(test, feature = "test-server"))]
-pub mod test_server;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 
 /// TextJson encodes JSON for Postgres while preserving property ordering.
 pub use text_json::TextJson;

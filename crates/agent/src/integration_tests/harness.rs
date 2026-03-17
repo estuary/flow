@@ -21,7 +21,7 @@ use control_plane_api::{
         PruneUnboundCollections, PublicationResult, Publisher, UncommittedBuild,
     },
     server,
-    test_server::mock_connectors::{MockDiscover, MockDiscoverConnectors},
+    testing::mock_connectors::{MockDiscover, MockDiscoverConnectors},
 };
 use gazette::consumer::ReplicaStatus;
 use models::{

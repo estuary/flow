@@ -91,4 +91,4 @@ tracing-subscriber = { workspace = true }
 default = ["sqlx-support"]
 sqlx-support = []
 # Whether to export the test_server module, for use in integration tests
-test-server = ["flow-client-next"]
+testing = ["flow-client-next"]
