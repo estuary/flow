@@ -110,6 +110,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Gladly
   - [Configuration](./gladly.md)
   - Package - ghcr.io/estuary/source-gladly:v1
+- Gong
+  - [Configuration](./gong.md)
+  - Package - ghcr.io/estuary/source-gong:v1
 - Google Ads
   - [Configuration](./google-ads.md)
   - Package - ghcr.io/estuary/source-google-ads:v2
