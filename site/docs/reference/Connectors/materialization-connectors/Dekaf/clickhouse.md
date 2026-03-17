@@ -3,6 +3,8 @@
 
 This connector materializes Estuary collections as Kafka-compatible messages that a ClickHouse Kafka consumer can read. [ClickHouse](https://clickhouse.com/) is a real-time analytical database and warehouse.
 
+Estuary also provides a [direct materialization with ClickHouse](../ClickHouse.md).
+
 ## Prerequisites
 
 To use this connector, you'll need:
