@@ -59,6 +59,9 @@ In the future, other open-source materialization connectors from third parties c
 * Bytewax
   * [Configuration](./Dekaf/bytewax.md)
 * ClickHouse
+  * [Configuration](./ClickHouse.md)
+  * Package - ghcr.io/estuary/materialize-clickhouse:v1
+* ClickHouse (Dekaf)
   * [Configuration](./Dekaf/clickhouse.md)
 * CSV Files in GCS
   * [Configuration](./google-gcs-csv.md)
