@@ -1,0 +1,55 @@
+---
+source: crates/shuffle/tests/scenario_fixtures.rs
+expression: "Checkpoint { frontier: &progress_frontier, read: progress_read, }"
+---
+Checkpoint {
+    frontier: Frontier {
+        journals: [
+            JournalFrontier {
+                journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
+                binding: 0,
+                producers: [
+                    ProducerFrontier {
+                        producer: Producer(01:00:00:00:00:01),
+                        last_commit: Clock(0s 16ns),
+                        hinted_commit: Clock(0s 12ns),
+                        offset: -362,
+                    },
+                ],
+                bytes_read_delta: 362,
+                bytes_behind_delta: 0,
+            },
+            JournalFrontier {
+                journal: "testing/bananas/2020202020202020/category=alpha/pivot=00",
+                binding: 1,
+                producers: [
+                    ProducerFrontier {
+                        producer: Producer(01:00:00:00:00:01),
+                        last_commit: Clock(0s 12ns),
+                        hinted_commit: Clock(0s 12ns),
+                        offset: -257,
+                    },
+                ],
+                bytes_read_delta: 257,
+                bytes_behind_delta: 0,
+            },
+        ],
+        flushed_lsn: [
+            1/0,
+        ],
+    },
+    read: [
+        ReadEntry {
+            binding: 0,
+            journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
+            doc: Object {
+                "_meta": Object {
+                    "uuid": String("13814000-1dd2-11b2-9000-010000000001"),
+                },
+                "category": String("alpha"),
+                "id": String("r-apple2"),
+                "value": Number(300),
+            },
+        },
+    ],
+}
