@@ -1,8 +1,14 @@
 use tokio::sync::mpsc;
 
-mod binding;
+/// Re-export of `proto_flow::shuffle` so that dependents can refer to
+/// protocol message types as `shuffle::proto::*`, avoiding the naming
+/// conflict between this crate and the protobuf module.
+pub use proto_flow::shuffle as proto;
+
+pub mod binding;
+mod client;
 pub mod frontier;
-mod queue;
+pub mod log;
 mod service;
 mod session;
 mod slice;
@@ -11,6 +17,7 @@ mod slice;
 pub(crate) mod testing;
 
 pub use binding::Binding;
+pub use client::SessionClient;
 pub use frontier::{Frontier, JournalFrontier, ProducerFrontier};
 pub use service::Service;
 
@@ -106,7 +113,6 @@ struct Verify<'p> {
 }
 
 impl<'p> Verify<'p> {
-    #[must_use]
     #[inline]
     fn ok<T>(&self, t: tonic::Result<T>) -> anyhow::Result<T> {
         match t {
@@ -115,7 +121,15 @@ impl<'p> Verify<'p> {
         }
     }
 
-    #[must_use]
+    #[inline]
+    fn eof<T: serde::Serialize>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<()> {
+        match t {
+            None => Ok(()),
+            Some(Err(status)) => Err(self.fail_status(status)),
+            Some(Ok(t)) => Err(self.fail(t)),
+        }
+    }
+
     #[inline]
     fn not_eof<T>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<T> {
         if let Some(t) = t {
@@ -162,3 +176,9 @@ impl<'p> Verify<'p> {
         ))
     }
 }
+
+/// Interval at which all actor event loops tick, ensuring per-loop tracing
+/// instrumentation fires periodically even when no other events arrive.
+/// The Session actor additionally uses ticks for mark-and-sweep detection
+/// of stalled causal hint resolution.
+const ACTOR_TICKER_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
