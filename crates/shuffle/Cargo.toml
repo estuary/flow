@@ -45,6 +45,7 @@ serde-transcode = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 superslice = { workspace = true }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
@@ -59,5 +60,4 @@ e2e-support = { path = "../e2e-support" }
 insta = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
-tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }
