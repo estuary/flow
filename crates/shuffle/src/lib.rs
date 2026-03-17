@@ -16,6 +16,14 @@ mod slice;
 #[cfg(test)]
 pub(crate) mod testing;
 
+/// Document passed JSON Schema validation.
+/// Bit 15 of the flags u16, above the 10-bit UUID wire space (bits 0-9).
+/// Shared by `slice::read::Meta::flags` and `log::block::BlockMeta::flags`.
+///
+/// Note that `uuid::build()` asserts flags fit in 10 bits, so accidental
+/// round-trip (for example, in an actual document) is impossible.
+pub const FLAGS_SCHEMA_VALID: u16 = 0x8000;
+
 pub use binding::Binding;
 pub use client::SessionClient;
 pub use frontier::{Frontier, JournalFrontier, ProducerFrontier};

@@ -1,0 +1,35 @@
+---
+source: crates/shuffle/src/slice/state.rs
+assertion_line: 999
+expression: entries
+---
+[
+    (
+        "acmeCo/anvils/part=a/pivot=00",
+        0,
+        [
+            (
+                Producer(01:00:00:00:00:00),
+                Clock(0s 16ns),
+            ),
+            (
+                Producer(03:00:00:00:00:00),
+                Clock(0s 32ns),
+            ),
+            (
+                Producer(03:00:00:00:00:00),
+                Clock(0s 32ns),
+            ),
+        ],
+    ),
+    (
+        "acmeCo/bananas/pivot=00",
+        1,
+        [
+            (
+                Producer(01:00:00:00:00:00),
+                Clock(0s 16ns),
+            ),
+        ],
+    ),
+]
