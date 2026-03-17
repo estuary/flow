@@ -500,7 +500,12 @@ pub async fn try_fetch(
             SELECT 1 FROM tenants t
             WHERE t.tenant ^@ g.object_role
               AND t.enforce_sso
-              AND NOT coalesce((SELECT au.is_sso_user FROM auth.users au WHERE au.id = g.user_id), false)
+              AND NOT EXISTS (
+                SELECT 1 FROM auth.identities ai
+                WHERE ai.user_id = g.user_id
+                  AND ai.provider = 'sso'
+                  AND ai.provider_id = t.sso_provider_id::text
+              )
         )
         "#,
     )
@@ -607,6 +612,39 @@ mod tests {
                 .is_none(),
             "expected the defunct data plane to be excluded"
         );
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "sso_tenant"))
+    )]
+    async fn test_snapshot_sso_enforcement(pool: sqlx::PgPool) {
+        let mut decrypted_keys = HashMap::new();
+        let result = try_fetch(&pool, &mut decrypted_keys)
+            .await
+            .expect("snapshot refresh should succeed");
+
+        let alice_uid: uuid::Uuid = "11111111-1111-1111-1111-111111111111".parse().unwrap();
+        let bob_uid: uuid::Uuid = "22222222-2222-2222-2222-222222222222".parse().unwrap();
+        let carol_uid: uuid::Uuid = "33333333-3333-3333-3333-333333333333".parse().unwrap();
+
+        let grants_for = |uid: uuid::Uuid| -> Vec<String> {
+            result
+                .user_grants
+                .iter()
+                .filter(move |g| g.user_id == uid)
+                .map(|g| g.object_role.to_string())
+                .collect()
+        };
+
+        // Alice has matching SSO identity — sees both tenants.
+        assert_eq!(grants_for(alice_uid), vec!["acmeCo/", "openCo/"]);
+
+        // Bob has SSO identity for a *different* provider — excluded from acmeCo.
+        assert_eq!(grants_for(bob_uid), vec!["openCo/"]);
+
+        // Carol has no SSO identity — excluded from acmeCo.
+        assert_eq!(grants_for(carol_uid), vec!["openCo/"]);
     }
 
     #[test]
