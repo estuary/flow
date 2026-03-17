@@ -1,4 +1,4 @@
-use proto_gazette::broker;
+use proto_gazette::{broker, uuid};
 
 mod actor;
 mod handler;
@@ -33,3 +33,8 @@ pub type ReadLines = std::pin::Pin<
         >,
     >,
 >;
+
+/// Accumulated causal hints from ACK documents, keyed by (journal name, binding index).
+/// Drained into the flush frontier each flush cycle.
+pub type CausalHints =
+    std::collections::HashMap<(Box<str>, u16), Vec<(uuid::Producer, uuid::Clock)>>;

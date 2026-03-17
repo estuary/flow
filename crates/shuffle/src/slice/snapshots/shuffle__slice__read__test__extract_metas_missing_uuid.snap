@@ -1,0 +1,5 @@
+---
+source: crates/shuffle/src/slice/read.rs
+expression: err.to_string()
+---
+"journal test/journal offset 12345: document is missing a valid UUID"

@@ -65,7 +65,7 @@ pub fn spawn_listing(
     };
     let list_watch = client.list_watch_with(
         request,
-        gazette::journal::list::SubscriberFold::new(subscriber),
+        gazette::journal::list::SubscriberFold::new_filtering_suspended(subscriber),
     );
 
     let collection = binding.collection.clone();
