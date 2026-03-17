@@ -1947,10 +1947,6 @@ pub fn get_collection_generation_id(state: &ControllerState) -> models::Id {
 
 #[async_trait::async_trait]
 impl ControlPlane for TestControlPlane {
-    fn system_user_id(&self) -> sqlx::types::Uuid {
-        self.inner.system_user_id
-    }
-
     fn can_auto_discover(&self) -> bool {
         self.auto_discover_enabled
     }
