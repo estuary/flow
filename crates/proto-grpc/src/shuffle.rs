@@ -111,8 +111,8 @@ pub mod shuffle_client {
                 .insert(GrpcMethod::new("shuffle.Shuffle", "Session"));
             self.inner.streaming(req, path, codec).await
         }
-        /// Slice is opened by the Session to each member. Each Slice reads
-        /// an assigned subset of journals and routes documents to Queues.
+        /// Slice is opened by the Session to each member.
+        /// Each Slice watches binding journals, reads from its assigned subset of journals, and routes documents to Logs.
         pub async fn slice(
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::shuffle::SliceRequest>,
@@ -130,23 +130,23 @@ pub mod shuffle_client {
                 .insert(GrpcMethod::new("shuffle.Shuffle", "Slice"));
             self.inner.streaming(req, path, codec).await
         }
-        /// Queue is opened by each Slice to each member. Documents flow
-        /// from Slices through Queues to on-disk queue files.
-        pub async fn queue(
+        /// Log is opened by each Slice to each member.
+        /// Documents flow from Slices through Log RPCs to on-disk log files.
+        pub async fn log(
             &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::shuffle::QueueRequest>,
+            request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::shuffle::LogRequest>,
         ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<::proto_flow::shuffle::QueueResponse>>,
+            tonic::Response<tonic::codec::Streaming<::proto_flow::shuffle::LogResponse>>,
             tonic::Status,
         > {
             self.inner.ready().await.map_err(|e| {
                 tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
             })?;
             let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/shuffle.Shuffle/Queue");
+            let path = http::uri::PathAndQuery::from_static("/shuffle.Shuffle/Log");
             let mut req = request.into_streaming_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("shuffle.Shuffle", "Queue"));
+                .insert(GrpcMethod::new("shuffle.Shuffle", "Log"));
             self.inner.streaming(req, path, codec).await
         }
     }
@@ -182,23 +182,23 @@ pub mod shuffle_server {
                 Item = std::result::Result<::proto_flow::shuffle::SliceResponse, tonic::Status>,
             > + std::marker::Send
             + 'static;
-        /// Slice is opened by the Session to each member. Each Slice reads
-        /// an assigned subset of journals and routes documents to Queues.
+        /// Slice is opened by the Session to each member.
+        /// Each Slice watches binding journals, reads from its assigned subset of journals, and routes documents to Logs.
         async fn slice(
             &self,
             request: tonic::Request<tonic::Streaming<::proto_flow::shuffle::SliceRequest>>,
         ) -> std::result::Result<tonic::Response<Self::SliceStream>, tonic::Status>;
-        /// Server streaming response type for the Queue method.
-        type QueueStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<::proto_flow::shuffle::QueueResponse, tonic::Status>,
+        /// Server streaming response type for the Log method.
+        type LogStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<::proto_flow::shuffle::LogResponse, tonic::Status>,
             > + std::marker::Send
             + 'static;
-        /// Queue is opened by each Slice to each member. Documents flow
-        /// from Slices through Queues to on-disk queue files.
-        async fn queue(
+        /// Log is opened by each Slice to each member.
+        /// Documents flow from Slices through Log RPCs to on-disk log files.
+        async fn log(
             &self,
-            request: tonic::Request<tonic::Streaming<::proto_flow::shuffle::QueueRequest>>,
-        ) -> std::result::Result<tonic::Response<Self::QueueStream>, tonic::Status>;
+            request: tonic::Request<tonic::Streaming<::proto_flow::shuffle::LogRequest>>,
+        ) -> std::result::Result<tonic::Response<Self::LogStream>, tonic::Status>;
     }
     /// Shuffle service provides coordinated, disk-backed shuffled reads.
     #[derive(Debug)]
@@ -362,25 +362,25 @@ pub mod shuffle_server {
                     };
                     Box::pin(fut)
                 }
-                "/shuffle.Shuffle/Queue" => {
+                "/shuffle.Shuffle/Log" => {
                     #[allow(non_camel_case_types)]
-                    struct QueueSvc<T: Shuffle>(pub Arc<T>);
+                    struct LogSvc<T: Shuffle>(pub Arc<T>);
                     impl<T: Shuffle>
-                        tonic::server::StreamingService<::proto_flow::shuffle::QueueRequest>
-                        for QueueSvc<T>
+                        tonic::server::StreamingService<::proto_flow::shuffle::LogRequest>
+                        for LogSvc<T>
                     {
-                        type Response = ::proto_flow::shuffle::QueueResponse;
-                        type ResponseStream = T::QueueStream;
+                        type Response = ::proto_flow::shuffle::LogResponse;
+                        type ResponseStream = T::LogStream;
                         type Future =
                             BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<
-                                tonic::Streaming<::proto_flow::shuffle::QueueRequest>,
+                                tonic::Streaming<::proto_flow::shuffle::LogRequest>,
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Shuffle>::queue(&inner, request).await };
+                            let fut = async move { <T as Shuffle>::log(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
@@ -390,7 +390,7 @@ pub mod shuffle_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = QueueSvc(inner);
+                        let method = LogSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

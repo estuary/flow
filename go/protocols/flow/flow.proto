@@ -220,8 +220,7 @@ message CollectionSpec {
   // JSON pointer locating the UUID of each collection document.
   string uuid_ptr = 4;
   // Logical partition fields of this collection, and their applied order.
-  // At present partitions are always in ascending lexicographic order on
-  // their field name, but this could change at some point.
+  // Partitions are always in ascending lexicographic order on their field name.
   repeated string partition_fields = 5;
   // Logical projections of this collection, ordered on ascending field.
   repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
