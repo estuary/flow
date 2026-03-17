@@ -12,9 +12,11 @@ Frontier {
                     producer: Producer(01:00:00:00:00:00),
                     last_commit: Clock(40s 0ns),
                     hinted_commit: Clock(40s 0ns),
-                    offset: -200,
+                    offset: -800,
                 },
             ],
+            bytes_read_delta: 1200,
+            bytes_behind_delta: 5000,
         },
         JournalFrontier {
             journal: "journal/B",
@@ -27,6 +29,9 @@ Frontier {
                     offset: -800,
                 },
             ],
+            bytes_read_delta: 900,
+            bytes_behind_delta: -300,
         },
     ],
+    flushed_lsn: [],
 }
