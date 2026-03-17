@@ -57,9 +57,6 @@ pub struct ConnectorSpec {
 /// other language bindings.
 #[async_trait::async_trait]
 pub trait ControlPlane: Send + Sync {
-    /// Returns the system user id used for automated publications.
-    fn system_user_id(&self) -> Uuid;
-
     /// Returns the current time. Having controllers access the current time through this api
     /// allows tests of controllers to be deterministic.
     fn current_time(&self) -> DateTime<Utc>;
@@ -320,10 +317,6 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
 
 #[async_trait::async_trait]
 impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> {
-    fn system_user_id(&self) -> Uuid {
-        self.system_user_id
-    }
-
     fn can_auto_discover(&self) -> bool {
         if self.auto_discover_probability == 1.0 {
             return true;
