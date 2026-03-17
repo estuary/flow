@@ -3573,6 +3573,7 @@ dependencies = [
  "bytes",
  "coroutines",
  "doc",
+ "flate2",
  "futures",
  "futures-core",
  "hexdump",
