@@ -13,7 +13,7 @@ pub enum Error {
     InvalidEndpoint(String),
     #[error(transparent)]
     Transport(#[from] tonic::transport::Error),
-    #[error(transparent)]
+    #[error("gRPC code: {:?}, message: {}", .0.code(), .0.message())]
     Grpc(#[from] tonic::Status),
     #[error("failed to fetch fragment from storage URL")]
     FetchFragment(#[source] reqwest::Error),
@@ -97,13 +97,27 @@ impl Error {
                 _ => false, // Others are not.
             },
 
-            // At this level, we do not consider BrokerStatus or ConsumerStatus
-            // to be transient. Callers may want to special-case certain values
-            // as fits their circumstances however.
+            Error::BrokerStatus(status) => match status {
+                // Transient because a broker is in the process of being assigned
+                // (or would be, if the broker cluster had capacity to assign one).
+                broker::Status::NoJournalPrimaryBroker
+                // Transient because replicas are in the process of being assigned.
+                | broker::Status::InsufficientJournalBrokers
+                // Transient because its a condition of the cluster which an
+                // operator must resolve, and not an error of the client.
+                | broker::Status::IndexHasGreaterOffset => true,
+                // All other errors are not transient (callers may special case).
+                _ => false,
+            },
+            Error::ConsumerStatus(status) => match status {
+                // Transient because a primary is in the process of being assigned.
+                consumer::Status::NoShardPrimary => true,
+                // All other errors are not transient (callers may special case).
+                _ => false,
+            },
+
             Error::AppendRead(_) => false,
             Error::BearerToken(_) => false,
-            Error::BrokerStatus(_) => false,
-            Error::ConsumerStatus(_) => false,
             Error::InvalidEndpoint(_) => false,
             Error::JWT(_) => false,
             Error::Parsing { .. } => false,
