@@ -30,17 +30,14 @@ Use regular `cargo` and `go` tools to build and test crates.
 go build -tags libsqlite3 ./go/bindings
 
 # Regenerate checked-in protobuf (required after .proto changes)
-mise run go-protobufs
-mise run rust-protobufs
+mise run build:go-protobufs
+mise run build:rust-protobufs
 
-# Run pgTAP SQL Tests`
-mise run tap-tests
+# Run pgTAP SQL Tests
+mise run ci:sql-tap
 
 # E2E tests over derivation examples (SLOW)
-make catalog-test
-
-# E2E tests over capture / materialize examples (VERY SLOW)
-make end-to-end-test
+mise run ci:catalog-test
 ```
 
 ### Development
