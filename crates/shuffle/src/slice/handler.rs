@@ -1,5 +1,4 @@
-use super::state::{FlushState, ProgressState, Topology};
-use super::{LazyJournalClient, SliceActor, heap::ReadyReadHeap};
+use super::{LazyJournalClient, SliceActor, heap::ReadyReadHeap, state};
 use anyhow::Context;
 use futures::{StreamExt, stream};
 use proto_flow::shuffle;
@@ -38,7 +37,8 @@ where
         );
     }
     let task = task.context("Open must include task")?;
-    let (task_name, bindings) = crate::Binding::from_task(&task)?;
+    let (task_name, bindings, validators, disk_backlog_threshold) =
+        crate::Binding::from_task(&task)?;
 
     tracing::info!(
         session_id,
@@ -47,33 +47,34 @@ where
         "Slice received Open"
     );
 
-    // Concurrently Open a Queue RPC with every member.
+    // Concurrently Open a Log RPC with every member.
     let open_results =
-        futures::future::join_all((0..members.len()).into_iter().map(|queue_member_index| {
-            open_queue_rpc(
+        futures::future::join_all((0..members.len()).into_iter().map(|log_member_index| {
+            open_log_rpc(
                 &service,
                 session_id,
                 slice_member_index as u32,
                 &members,
-                queue_member_index as u32,
+                log_member_index as u32,
+                disk_backlog_threshold,
             )
         }))
         .await;
 
     // Walk results and partition into Senders and receiver Streams.
-    let mut queue_request_tx = Vec::with_capacity(members.len());
-    let mut queue_response_rx = Vec::with_capacity(members.len());
+    let mut log_request_tx = Vec::with_capacity(members.len());
+    let mut log_response_rx = Vec::with_capacity(members.len());
 
     for result in open_results {
         let (tx, rx) = result?;
-        queue_request_tx.push(tx);
-        queue_response_rx.push(rx);
+        log_request_tx.push(tx);
+        log_response_rx.push(rx);
     }
 
     tracing::info!(
         session_id,
-        queue_count = queue_request_tx.len(),
-        "Slice opened all Queue RPCs"
+        log_count = log_request_tx.len(),
+        "Slice opened all Log RPCs"
     );
 
     // Send Opened response to Slice client (the Session).
@@ -99,24 +100,28 @@ where
         })
         .collect();
 
-    let topology = Topology {
+    let hint_index = state::HintIndex::from_bindings(&bindings);
+
+    let topology = state::Topology {
         session_id,
         members,
         slice_member_index,
         task_name,
         bindings,
         journal_clients,
+        hint_index,
     };
 
     SliceActor {
         topology,
+        validators,
         reads: Vec::new(),
         causal_hints: Default::default(),
-        flush: FlushState::new(),
-        progress: ProgressState::new(),
+        flush: state::FlushState::new(),
+        progress: state::ProgressState::new(),
         slice_response_tx,
-        queue_prev_journal: vec![String::new(); queue_request_tx.len()],
-        queue_request_tx,
+        log_prev_journal: vec![String::new(); log_request_tx.len()],
+        log_request_tx,
         pending_probes: stream::FuturesUnordered::new(),
         pending_reads: stream::FuturesUnordered::new(),
         parser: simd_doc::SimdParser::new(1_000_000),
@@ -124,44 +129,45 @@ where
         tailing_reads: 0,
         progressed_drain: crate::frontier::Drain::new(),
     }
-    .serve(slice_request_rx, queue_response_rx)
+    .serve(slice_request_rx, log_response_rx)
     .await
 }
 
-/// Open Queue RPCs to all members and wait for Opened responses.
+/// Open Log RPCs to all members and wait for Opened responses.
 #[tracing::instrument(level = "debug", skip(service, members), err(Debug, level = "warn"))]
-async fn open_queue_rpc(
+async fn open_log_rpc(
     service: &crate::Service,
-    session_id: u64,
+    session_id: u32,
     slice_member_index: u32,
     members: &[shuffle::Member],
-    queue_member_index: u32,
+    log_member_index: u32,
+    disk_backlog_threshold: u64,
 ) -> anyhow::Result<(
-    mpsc::Sender<shuffle::QueueRequest>,
-    stream::BoxStream<'static, tonic::Result<shuffle::QueueResponse>>,
+    mpsc::Sender<shuffle::LogRequest>,
+    stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>,
 )> {
     let verify = crate::verify(
-        "QueueResponse",
+        "LogResponse",
         "Opened",
-        &members[queue_member_index as usize].endpoint,
-        queue_member_index as usize,
+        &members[log_member_index as usize].endpoint,
+        log_member_index as usize,
     );
-    let (request_tx, request_rx) = crate::new_channel::<shuffle::QueueRequest>();
+    let (request_tx, request_rx) = crate::new_channel::<shuffle::LogRequest>();
 
     // Spawn or dial RPC, yielding a boxed response stream.
     let request_rx = tokio_stream::wrappers::ReceiverStream::new(request_rx);
 
-    let mut response_rx = if queue_member_index == slice_member_index {
-        tracing::debug!("spawning in-process Queue RPC");
-        tokio_stream::wrappers::ReceiverStream::new(service.spawn_queue(request_rx.map(Ok))).boxed()
+    let mut response_rx = if log_member_index == slice_member_index {
+        tracing::debug!("spawning in-process Log RPC");
+        tokio_stream::wrappers::ReceiverStream::new(service.spawn_log(request_rx.map(Ok))).boxed()
     } else {
-        let endpoint = &members[queue_member_index as usize].endpoint;
-        tracing::debug!(queue_member_index, endpoint=%endpoint, "dialing remote Queue RPC");
+        let endpoint = &members[log_member_index as usize].endpoint;
+        tracing::debug!(log_member_index, endpoint=%endpoint, "dialing remote Log RPC");
         let channel = verify.ok(service.dial_channel(&endpoint))?;
         let mut client = proto_grpc::shuffle::shuffle_client::ShuffleClient::new(channel);
 
         verify
-            .ok(client.queue(request_rx).await)?
+            .ok(client.log(request_rx).await)?
             .into_inner()
             .boxed()
     };
@@ -170,22 +176,23 @@ async fn open_queue_rpc(
     // Capacity: fresh channel, this is the first message.
     crate::verify_send(
         &request_tx,
-        shuffle::QueueRequest {
-            open: Some(shuffle::queue_request::Open {
+        shuffle::LogRequest {
+            open: Some(shuffle::log_request::Open {
                 session_id,
                 members: members.to_vec(),
                 slice_member_index,
-                queue_member_index,
+                log_member_index,
+                disk_backlog_threshold,
             }),
-            enqueue: None,
+            append: None,
             flush: None,
         },
     )?;
 
     // Wait for Opened response.
     match verify.not_eof(response_rx.next().await)? {
-        shuffle::QueueResponse {
-            opened: Some(shuffle::queue_response::Opened {}),
+        shuffle::LogResponse {
+            opened: Some(shuffle::log_response::Opened {}),
             ..
         } => Ok((request_tx, response_rx)),
 

@@ -1,0 +1,27 @@
+---
+source: crates/shuffle/src/slice/read.rs
+expression: metas
+---
+[
+    Meta {
+        begin_offset: 12345,
+        end_offset: 12430,
+        clock: Clock(1000s 4ns),
+        flags: Flags(8000 (OUTSIDE_TXN)),
+        producer: Producer(01:00:00:00:00:00),
+    },
+    Meta {
+        begin_offset: 12430,
+        end_offset: 12504,
+        clock: Clock(1000s 8ns),
+        flags: Flags(1 (CONTINUE_TXN)),
+        producer: Producer(01:00:00:00:00:00),
+    },
+    Meta {
+        begin_offset: 12504,
+        end_offset: 12562,
+        clock: Clock(1000s 12ns),
+        flags: Flags(2 (ACK_TXN)),
+        producer: Producer(01:00:00:00:00:00),
+    },
+]
