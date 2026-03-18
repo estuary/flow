@@ -66,6 +66,7 @@ expression: "(&outcome.built_materializations[0].model,\n&outcome.built_material
                 ring_buffer_size: None,
                 read_channel_size: None,
                 log_level: None,
+                flags: {},
             },
             expect_pub_id: None,
             triggers: None,

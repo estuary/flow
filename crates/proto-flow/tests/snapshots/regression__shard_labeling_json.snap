@@ -16,5 +16,9 @@ expression: json_test(msg)
   "taskName": "the/task/name",
   "taskType": "derivation",
   "logsJournal": "ops/logs/one=capture/two=the%2Ftask%2Fname",
-  "statsJournal": "ops/stats/one=capture/two=the%2Ftask%2Fname"
+  "statsJournal": "ops/stats/one=capture/two=the%2Ftask%2Fname",
+  "flags": {
+    "buffer-size": "1024",
+    "enable-new-thing": "true"
+  }
 }

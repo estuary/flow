@@ -411,6 +411,9 @@ impl serde::Serialize for ShardLabeling {
         if !self.stats_journal.is_empty() {
             len += 1;
         }
+        if !self.flags.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("ops.ShardLabeling", len)?;
         if !self.build.is_empty() {
             struct_ser.serialize_field("build", &self.build)?;
@@ -446,6 +449,9 @@ impl serde::Serialize for ShardLabeling {
         if !self.stats_journal.is_empty() {
             struct_ser.serialize_field("statsJournal", &self.stats_journal)?;
         }
+        if !self.flags.is_empty() {
+            struct_ser.serialize_field("flags", &self.flags)?;
+        }
         struct_ser.end()
     }
 }
@@ -473,6 +479,7 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
             "logsJournal",
             "stats_journal",
             "statsJournal",
+            "flags",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -487,6 +494,7 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
             TaskType,
             LogsJournal,
             StatsJournal,
+            Flags,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -518,6 +526,7 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                             "taskType" | "task_type" => Ok(GeneratedField::TaskType),
                             "logsJournal" | "logs_journal" => Ok(GeneratedField::LogsJournal),
                             "statsJournal" | "stats_journal" => Ok(GeneratedField::StatsJournal),
+                            "flags" => Ok(GeneratedField::Flags),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -547,6 +556,7 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                 let mut task_type__ = None;
                 let mut logs_journal__ = None;
                 let mut stats_journal__ = None;
+                let mut flags__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Build => {
@@ -609,6 +619,14 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                             }
                             stats_journal__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Flags => {
+                            if flags__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flags"));
+                            }
+                            flags__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
+                            );
+                        }
                     }
                 }
                 Ok(ShardLabeling {
@@ -622,6 +640,7 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                     task_type: task_type__.unwrap_or_default(),
                     logs_journal: logs_journal__.unwrap_or_default(),
                     stats_journal: stats_journal__.unwrap_or_default(),
+                    flags: flags__.unwrap_or_default(),
                 })
             }
         }

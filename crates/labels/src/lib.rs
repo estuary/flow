@@ -9,6 +9,7 @@ pub const BUILD: &str = "estuary.dev/build";
 pub const COLLECTION: &str = "estuary.dev/collection";
 pub const CORDON: &str = "estuary.dev/cordon";
 pub const FIELD_PREFIX: &str = "estuary.dev/field/";
+pub const FLAG_PREFIX: &str = "estuary.dev/flag/";
 pub const KEY_BEGIN: &str = "estuary.dev/key-begin";
 pub const KEY_BEGIN_MIN: &str = "00000000";
 pub const KEY_END: &str = "estuary.dev/key-end";
