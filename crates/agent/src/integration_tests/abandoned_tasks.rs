@@ -11,6 +11,11 @@ async fn test_abandoned_task_detection_and_resolution() {
     let mut harness = TestHarness::init("test_abandoned_tasks").await;
     let _user_id = harness.setup_tenant("pandas").await;
 
+    // Disable the check interval so evaluations run on every controller wake.
+    let mut config = (*harness.control_plane().controller_config()).clone();
+    config.abandon_check_interval = chrono::Duration::zero();
+    harness.control_plane().set_controller_config(config);
+
     let draft = draft_catalog(serde_json::json!({
         "collections": {
             "pandas/bamboo": {
@@ -203,7 +208,7 @@ async fn test_auto_disable_publishes_disable(
 ) {
     tracing::info!(%catalog_name, "auto-disable publishes shards.disable");
 
-    let mut config = harness.control_plane().controller_config();
+    let mut config = (*harness.control_plane().controller_config()).clone();
     config.disable_abandoned_tasks = true;
     harness.control_plane().set_controller_config(config);
 

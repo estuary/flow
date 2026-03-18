@@ -1,3 +1,4 @@
+pub mod abandon;
 pub mod activation;
 pub mod alerts;
 pub mod capture;
@@ -16,6 +17,7 @@ use serde::{Deserialize, Serialize};
 pub use self::alerts::{AlertState, AlertType, Alerts, ControllerAlert};
 pub use self::connector::ConnectorStatus;
 pub use self::summary::{StatusSummaryType, Summary};
+pub use abandon::AbandonStatus;
 pub use activation::ActivationStatus;
 pub use capture::AutoDiscoverStatus;
 pub use collection::InferredSchemaStatus;
@@ -160,6 +162,16 @@ impl ControllerStatus {
             ControllerStatus::Collection(status) => Some(&status.alerts),
             ControllerStatus::Materialization(status) => Some(&status.alerts),
             ControllerStatus::Test(status) => Some(&status.alerts),
+            _ => None,
+        }
+    }
+
+    /// Present for captures, collections, and materializations.
+    async fn abandon(&self) -> Option<&AbandonStatus> {
+        match self {
+            ControllerStatus::Capture(status) => status.abandon.as_ref(),
+            ControllerStatus::Collection(status) => status.abandon.as_ref(),
+            ControllerStatus::Materialization(status) => status.abandon.as_ref(),
             _ => None,
         }
     }
@@ -395,6 +407,7 @@ mod test {
                 }),
             },
             alerts: Default::default(),
+            abandon: None,
         });
 
         let as_json = serde_json::to_string_pretty(&status).expect("failed to serialize status");

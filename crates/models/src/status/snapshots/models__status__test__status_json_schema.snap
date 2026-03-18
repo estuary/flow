@@ -4,6 +4,20 @@ expression: schema
 ---
 {
   "$defs": {
+    "AbandonStatus": {
+      "description": "Status of the abandonment evaluation for a task.",
+      "properties": {
+        "last_evaluated": {
+          "description": "When this spec was last checked for abandonment",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ActivationStatus": {
       "description": "Status of the task shards running in the data-plane. This records information about\nthe activations of builds in the data-plane, including any subsequent re-activations\ndue to shard failures.",
       "properties": {
@@ -211,6 +225,16 @@ expression: schema
     "CaptureStatus": {
       "description": "Status of a capture controller",
       "properties": {
+        "abandon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AbandonStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "activation": {
           "$ref": "#/$defs/ActivationStatus",
           "default": {}
@@ -270,6 +294,16 @@ expression: schema
     "CollectionStatus": {
       "description": "The status of a collection controller",
       "properties": {
+        "abandon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AbandonStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "activation": {
           "$ref": "#/$defs/ActivationStatus",
           "default": {}
@@ -490,6 +524,16 @@ expression: schema
     "MaterializationStatus": {
       "description": "Status of a materialization controller",
       "properties": {
+        "abandon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AbandonStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "activation": {
           "$ref": "#/$defs/ActivationStatus",
           "default": {}

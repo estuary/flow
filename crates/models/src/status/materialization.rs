@@ -21,6 +21,8 @@ pub struct MaterializationStatus {
     pub config_updates: Option<PendingConfigUpdateStatus>,
     #[serde(default, skip_serializing_if = "Alerts::is_empty")]
     pub alerts: Alerts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abandon: Option<super::AbandonStatus>,
 }
 
 /// Status information about the `sourceCapture`

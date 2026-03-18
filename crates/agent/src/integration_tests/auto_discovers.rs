@@ -537,6 +537,7 @@ async fn test_auto_discovers_no_evolution() {
     let capture_status = capture_state.current_status.unwrap_capture();
     // Expect to see that the discover succeeded, but that the publication failed.
     insta::assert_json_snapshot!(capture_status, {
+        ".abandon.last_evaluated" => "[ts]",
         ".activation.last_activated" => "[build_id]",
         ".activation.last_activated_at" => "[ts]",
         ".activation.shard_status.first_ts" => "[ts]",
@@ -608,6 +609,9 @@ async fn test_auto_discovers_no_evolution() {
             }
           }
         }
+      },
+      "abandon": {
+        "last_evaluated": "[ts]"
       }
     }
     "###);

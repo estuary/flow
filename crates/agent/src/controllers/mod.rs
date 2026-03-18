@@ -31,7 +31,7 @@ fn parse_chrono_duration(s: &str) -> Result<chrono::Duration, String> {
 
 /// Configuration values for controller automations, parsed from CLI
 /// arguments and threaded through `ControlPlane`.
-#[derive(Copy, Clone, Debug, clap::Parser)]
+#[derive(Clone, Debug, clap::Parser)]
 pub struct ControllerConfig {
     /// Retention window for rows in the `shard_failures` table. Failures older
     /// than this are deleted when the controller runs.
@@ -75,6 +75,10 @@ pub struct ControllerConfig {
     /// Whether to actually disable abandoned tasks (vs only alerting).
     #[clap(long, env = "DISABLE_ABANDONED_TASKS", default_value = "false")]
     pub disable_abandoned_tasks: bool,
+    /// Minimum interval between abandonment evaluations for a given task.
+    #[clap(long, env = "ABANDON_CHECK_INTERVAL", default_value = "24h")]
+    #[arg(value_parser = parse_chrono_duration)]
+    pub abandon_check_interval: chrono::Duration,
 }
 
 impl Default for ControllerConfig {
@@ -613,6 +617,7 @@ async fn controller_update<C: ControlPlane>(
             catalog_test::update(test_status, state, events, control_plane, t).await?
         }
     };
+
     tracing::info!(?next_run, "finished controller update");
     Ok(next_run)
 }
