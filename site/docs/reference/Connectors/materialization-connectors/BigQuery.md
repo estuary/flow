@@ -123,6 +123,21 @@ materializations:
 This connector supports configuring a schedule for sync frequency. You can read
 about how to configure this [here](/reference/materialization-sync-schedule).
 
+### BigQuery quota considerations
+
+BigQuery enforces a limit of **1,500 load jobs per table per day** ([see BigQuery quotas](https://cloud.google.com/bigquery/quotas#load_jobs)). Each sync cycle produces a load job for every table with new data, so aggressive sync frequencies can exhaust this quota.
+
+The connector won't start a new transaction until the previous one finishes, so the actual rate of load jobs depends on both the sync frequency and how long each commit takes. Small tables with fast commits can complete well under a minute, meaning a `30s` or `0s` frequency may produce load jobs faster than you'd expect. We recommend a sync frequency of **5 minutes or longer** to stay safely within the quota:
+
+| Sync Frequency | Approx. Load Jobs / Day | Recommendation |
+|---|---|---|
+| 30s – 0s | Up to ~2,880 | Risk of exceeding limit |
+| 2m | ~720 | Safe for most workloads |
+| 5m | ~288 | Recommended |
+| 30m (default) | ~48 | Safe |
+
+If you hit this quota, the materialization will report `quotaExceeded` errors. Enabling [delta updates](#delta-updates) on high-volume bindings avoids the load job quota entirely.
+
 ## Storage Read API
 
 This connector is able to use the [BigQuery Storage Read
