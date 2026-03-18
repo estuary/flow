@@ -715,6 +715,11 @@ fn ex_shard_labeling() -> ops::ShardLabeling {
         split_target: String::new(),
         task_name: "the/task/name".to_string(),
         task_type: ops::TaskType::Derivation as i32,
+        flags: [
+            ("buffer-size".to_string(), "1024".to_string()),
+            ("enable-new-thing".to_string(), "true".to_string()),
+        ]
+        .into(),
         logs_journal: "ops/logs/one=capture/two=the%2Ftask%2Fname".to_string(),
         stats_journal: "ops/stats/one=capture/two=the%2Ftask%2Fname".to_string(),
     }

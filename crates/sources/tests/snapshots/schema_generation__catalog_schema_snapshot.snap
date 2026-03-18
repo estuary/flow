@@ -1217,6 +1217,17 @@ expression: "&schema"
           "title": "Disable processing of the task's shards.",
           "type": "boolean"
         },
+        "flags": {
+          "title": "Flags are string-valued feature flags.",
+          "description": "Flag names must be valid tokens (Unicode letters, numbers, '-', '_', '.').\nEach flag produces a shard label `estuary.dev/flag/<name>`.",
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[\\p{Letter}\\p{Number}\\-_\\.]+$": {
+              "$ref": "#/$defs/Token"
+            }
+          }
+        },
         "hotStandbys": {
           "title": "Number of hot standbys to keep for each task shard.",
           "description": "Hot standbys of a shard actively replicate the shard's state to another\nmachine, and are able to be quickly promoted to take over processing for\nthe shard should its current primary fail.\nIf not set, then no hot standbys are maintained.\nEXPERIMENTAL: this field MAY be removed.",
@@ -1621,6 +1632,14 @@ expression: "&schema"
         "collection",
         "documents"
       ]
+    },
+    "Token": {
+      "description": "Token is Unicode letters, numbers, '-', '_', or '.'.",
+      "type": "string",
+      "examples": [
+        "token"
+      ],
+      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+$"
     },
     "Transform": {
       "description": "Transform names are Unicode letters, numbers, '-', '_', or '.'.",

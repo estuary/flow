@@ -861,12 +861,18 @@ impl serde::Serialize for ConsumerSpec {
         if self.shard_limit != 0 {
             len += 1;
         }
+        if self.exiting {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("consumer.ConsumerSpec", len)?;
         if let Some(v) = self.process_spec.as_ref() {
             struct_ser.serialize_field("processSpec", v)?;
         }
         if self.shard_limit != 0 {
             struct_ser.serialize_field("shardLimit", &self.shard_limit)?;
+        }
+        if self.exiting {
+            struct_ser.serialize_field("exiting", &self.exiting)?;
         }
         struct_ser.end()
     }
@@ -882,12 +888,14 @@ impl<'de> serde::Deserialize<'de> for ConsumerSpec {
             "processSpec",
             "shard_limit",
             "shardLimit",
+            "exiting",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ProcessSpec,
             ShardLimit,
+            Exiting,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -911,6 +919,7 @@ impl<'de> serde::Deserialize<'de> for ConsumerSpec {
                         match value {
                             "processSpec" | "process_spec" => Ok(GeneratedField::ProcessSpec),
                             "shardLimit" | "shard_limit" => Ok(GeneratedField::ShardLimit),
+                            "exiting" => Ok(GeneratedField::Exiting),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -932,6 +941,7 @@ impl<'de> serde::Deserialize<'de> for ConsumerSpec {
             {
                 let mut process_spec__ = None;
                 let mut shard_limit__ = None;
+                let mut exiting__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ProcessSpec => {
@@ -948,11 +958,18 @@ impl<'de> serde::Deserialize<'de> for ConsumerSpec {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Exiting => {
+                            if exiting__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("exiting"));
+                            }
+                            exiting__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(ConsumerSpec {
                     process_spec: process_spec__,
                     shard_limit: shard_limit__.unwrap_or_default(),
+                    exiting: exiting__.unwrap_or_default(),
                 })
             }
         }

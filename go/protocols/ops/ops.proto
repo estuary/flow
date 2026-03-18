@@ -46,6 +46,8 @@ message ShardLabeling {
   // Journal to which task stats are directed.
   string stats_journal = 11
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  // Flags are arbitrary string-valued feature flags set on the task's shard template.
+  map<string, string> flags = 12;
 }
 
 // Common `shard` sub-document logged by Stats and Log.
