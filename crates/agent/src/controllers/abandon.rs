@@ -3,6 +3,7 @@ use crate::controllers::activation::has_task_shards;
 use crate::controllers::publication_status::PendingPublication;
 use crate::controlplane::ControlPlane;
 use chrono::{DateTime, Utc};
+use models::status::AbandonStatus;
 use models::status::publications::PublicationStatus;
 use models::status::{AlertType, Alerts};
 
@@ -35,6 +36,7 @@ impl std::fmt::Display for DisableReason {
 pub async fn evaluate_abandoned<C: ControlPlane>(
     alerts_status: &mut Alerts,
     publications: &mut PublicationStatus,
+    abandon_status: &mut AbandonStatus,
     state: &ControllerState,
     control_plane: &C,
 ) -> anyhow::Result<Option<NextRun>> {
@@ -46,6 +48,19 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
 
     let now = control_plane.current_time();
     let config = control_plane.controller_config();
+
+    let check_interval_minutes = config.abandon_check_interval.num_minutes().max(1) as u32;
+
+    // Throttle evaluations to avoid excessive catalog_stats_daily queries.
+    if let Some(last) = abandon_status.last_evaluated {
+        let remaining = config.abandon_check_interval - (now - last);
+        if remaining > chrono::Duration::zero() {
+            return Ok(Some(NextRun::after_minutes(
+                remaining.num_minutes().max(1) as u32
+            )));
+        }
+    }
+    abandon_status.last_evaluated = Some(now);
     let timestamps =
         fetch_abandonment_timestamps(alerts_status, state, control_plane, now, &config).await?;
 
@@ -59,10 +74,7 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
         }
     }
 
-    // Safety-net wake: controllers already wake every ~2 hours for shard health
-    // checks, so this 24-hour timer just ensures abandon evaluation isn't skipped
-    // indefinitely if those checks stop scheduling wakes.
-    Ok(Some(NextRun::after_minutes(24 * 60)))
+    Ok(Some(NextRun::after_minutes(check_interval_minutes)))
 }
 
 async fn fetch_abandonment_timestamps<C: ControlPlane>(

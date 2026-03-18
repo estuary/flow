@@ -17,6 +17,8 @@ pub struct CollectionStatus {
     pub activation: ActivationStatus,
     #[serde(default, skip_serializing_if = "Alerts::is_empty")]
     pub alerts: Alerts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abandon: Option<super::AbandonStatus>,
 }
 
 /// Status of the inferred schema

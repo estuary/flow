@@ -65,7 +65,7 @@ pub trait ControlPlane: Send + Sync {
     /// schema update before another update can be attempted.
     fn controller_publication_cooldown(&self) -> chrono::Duration;
 
-    fn controller_config(&self) -> crate::controllers::ControllerConfig;
+    fn controller_config(&self) -> std::sync::Arc<crate::controllers::ControllerConfig>;
 
     /// Returns whether an auto-discover is allowed to happen at this time.
     fn can_auto_discover(&self) -> bool;
@@ -220,7 +220,7 @@ pub struct PGControlPlane<C: DiscoverConnectors + MakeConnectors> {
     pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     pub auto_discover_probability: f64,
     pub controller_publication_cooldown: chrono::Duration,
-    pub controller_config: crate::controllers::ControllerConfig,
+    pub controller_config: std::sync::Arc<crate::controllers::ControllerConfig>,
 }
 
 impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
@@ -244,7 +244,7 @@ impl<C: DiscoverConnectors + MakeConnectors> PGControlPlane<C> {
             snapshot_watch,
             auto_discover_probability,
             controller_publication_cooldown,
-            controller_config,
+            controller_config: std::sync::Arc::new(controller_config),
         }
     }
 
@@ -330,8 +330,8 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         self.controller_publication_cooldown
     }
 
-    fn controller_config(&self) -> crate::controllers::ControllerConfig {
-        self.controller_config
+    fn controller_config(&self) -> std::sync::Arc<crate::controllers::ControllerConfig> {
+        self.controller_config.clone()
     }
 
     #[tracing::instrument(level = "debug", err, skip(self))]

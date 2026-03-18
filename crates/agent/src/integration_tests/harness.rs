@@ -1952,8 +1952,8 @@ impl ControlPlane for TestControlPlane {
         self.inner.controller_publication_cooldown()
     }
 
-    fn controller_config(&self) -> crate::controllers::ControllerConfig {
-        *self.controller_config.lock().unwrap()
+    fn controller_config(&self) -> std::sync::Arc<crate::controllers::ControllerConfig> {
+        std::sync::Arc::new(self.controller_config.lock().unwrap().clone())
     }
 
     #[tracing::instrument(level = "debug", err, skip(self))]

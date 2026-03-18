@@ -131,6 +131,7 @@ pub async fn update<C: ControlPlane>(
         activation,
         alerts,
         publications,
+        abandon,
         ..
     } = status;
     let activation_result = activation::update_activation(
@@ -145,14 +146,10 @@ pub async fn update<C: ControlPlane>(
     .with_retry(backoff_data_plane_activate(state.failures))
     .map_err(Into::into);
 
+    let abandon_status = abandon.get_or_insert_with(Default::default);
     let abandon_result =
-        abandon::evaluate_abandoned(alerts, publications, state, control_plane).await;
-    if abandon_result
-        .as_ref()
-        .is_ok_and(|r| r.is_some_and(|n| n.is_immediately()))
-    {
-        return Ok(Some(NextRun::immediately()));
-    }
+        abandon::evaluate_abandoned(alerts, publications, abandon_status, state, control_plane)
+            .await;
 
     let observe_result =
         publication_status::update_observed_pub_id(publications, alerts, state, control_plane)

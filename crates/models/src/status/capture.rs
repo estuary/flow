@@ -25,6 +25,8 @@ pub struct CaptureStatus {
     pub auto_discover: Option<AutoDiscoverStatus>,
     #[serde(default, skip_serializing_if = "Alerts::is_empty")]
     pub alerts: Alerts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abandon: Option<super::AbandonStatus>,
 }
 
 /// A capture binding that has changed as a result of a discover
