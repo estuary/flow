@@ -255,6 +255,41 @@ impl InviteLinksMutation {
             }
         };
 
+        // If the invite's tenant enforces SSO, verify the redeeming user
+        // has an identity linked to that tenant's SSO provider.
+
+        // We check auth.identities rather than session-level claims (e.g. amr)
+        // because Supabase Auth excludes SAML SSO from identity linking — a user
+        // with an SSO identity row can only have obtained it by authenticating
+        // through SAML. If this assumption changes, we should check the JWT's
+        // amr claim to verify the current session used SSO.
+        let sso_enforced = sqlx::query!(
+            r#"
+            SELECT t.tenant
+            FROM tenants t
+            WHERE $1 ^@ t.tenant
+              AND t.enforce_sso
+              AND NOT EXISTS (
+                SELECT 1 FROM auth.identities ai
+                WHERE ai.user_id = $2
+                  AND ai.provider = 'sso'
+                  AND ai.provider_id = t.sso_provider_id::text
+              )
+            LIMIT 1
+            "#,
+            invite.catalog_prefix,
+            claims.sub,
+        )
+        .fetch_optional(&mut *txn)
+        .await?;
+
+        if let Some(row) = sso_enforced {
+            return Err(async_graphql::Error::new(format!(
+                "Tenant {} requires SSO authentication. Please sign in with the organization's SSO provider to redeem this invite.",
+                row.tenant,
+            )));
+        }
+
         // Delete single-use invite links upon redemption.
         if invite.single_use {
             sqlx::query!("DELETE FROM internal.invite_links WHERE token = $1", token,)
@@ -1117,5 +1152,168 @@ mod test {
             4,
             "parent prefix filter returns all invite links under the grant"
         );
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "sso_tenant"))
+    )]
+    async fn test_redeem_invite_sso_enforcement(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice_token =
+            server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), Some("alice@acme.co"));
+        let bob_token =
+            server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), Some("bob@other.co"));
+        let carol_token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x33; 16]),
+            Some("carol@example.com"),
+        );
+
+        // Alice (matching SSO) creates an invite link for acmeCo/.
+        let create_response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($prefix: Prefix!, $capability: Capability!) {
+                        createInviteLink(
+                            catalogPrefix: $prefix
+                            capability: $capability
+                            singleUse: false
+                        ) { token }
+                    }"#,
+                    "variables": {
+                        "prefix": "acmeCo/",
+                        "capability": "write"
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+
+        let invite_token = create_response["data"]["createInviteLink"]["token"]
+            .as_str()
+            .expect("should have token");
+
+        // Bob (SSO identity for a different provider) is rejected.
+        let bob_redeem: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": invite_token }
+                }),
+                Some(&bob_token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!("redeem_sso_wrong_provider", bob_redeem);
+
+        // Carol (no SSO identity) is rejected.
+        let carol_redeem: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": invite_token }
+                }),
+                Some(&carol_token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!("redeem_sso_no_identity", carol_redeem);
+
+        // Alice (matching SSO identity) succeeds.
+        let alice_redeem: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": invite_token }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!("redeem_sso_matching", alice_redeem);
+
+        // Also create an invite on openCo/ (no SSO enforcement) — Bob can redeem it.
+        // Insert directly since Bob lacks admin on openCo.
+        let open_token: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO internal.invite_links (catalog_prefix, capability, single_use) \
+             VALUES ('openCo/', 'read', false) RETURNING token",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let bob_open_redeem: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": open_token }
+                }),
+                Some(&bob_token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!("redeem_no_sso_enforcement", bob_open_redeem);
+
+        // Sub-prefix invite: acmeCo/production/ should still be covered by
+        // the SSO enforcement on tenant acmeCo/.
+        let sub_prefix_token: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO internal.invite_links (catalog_prefix, capability, single_use) \
+             VALUES ('acmeCo/production/', 'read', false) RETURNING token",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // Bob (wrong SSO provider) is rejected for the sub-prefix too.
+        let bob_sub_prefix: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": sub_prefix_token }
+                }),
+                Some(&bob_token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!("redeem_sso_sub_prefix_rejected", bob_sub_prefix);
+
+        // Alice (matching SSO) succeeds for the sub-prefix.
+        let alice_sub_prefix: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": sub_prefix_token }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+
+        insta::assert_json_snapshot!("redeem_sso_sub_prefix_allowed", alice_sub_prefix);
     }
 }
