@@ -172,6 +172,9 @@ pub struct ConsumerSpec {
     /// Maximum number of assigned Shards.
     #[prost(uint32, tag = "2")]
     pub shard_limit: u32,
+    /// When true, this consumer has been signaled to exit.
+    #[prost(bool, tag = "3")]
+    pub exiting: bool,
 }
 /// ReplicaStatus is the status of a ShardSpec assigned to a ConsumerSpec.
 /// It serves as an allocator AssignmentValue. ReplicaStatus is reduced by taking

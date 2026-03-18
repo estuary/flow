@@ -50,6 +50,7 @@ expression: "(selections, errors)"
                         ring_buffer_size: None,
                         read_channel_size: None,
                         log_level: None,
+                        flags: {},
                     },
                     expect_pub_id: None,
                     delete: false,

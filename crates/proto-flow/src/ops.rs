@@ -2,7 +2,7 @@
 /// ShardLabeling is a parsed and validated representation of the Flow
 /// labels which are attached to Gazette ShardSpecs, that are understood
 /// by the Flow runtime and influence its behavior with respect to the shard.
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShardLabeling {
     /// Catalog build identifier which the task uses.
     #[prost(string, tag = "1")]
@@ -34,6 +34,12 @@ pub struct ShardLabeling {
     /// Journal to which task stats are directed.
     #[prost(string, tag = "11")]
     pub stats_journal: ::prost::alloc::string::String,
+    /// Flags are arbitrary string-valued feature flags set on the task's shard template.
+    #[prost(btree_map = "string, string", tag = "12")]
+    pub flags: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 /// Common `shard` sub-document logged by Stats and Log.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -183,23 +189,6 @@ pub mod stats {
         #[prost(uint64, tag = "2")]
         pub bytes_total: u64,
     }
-    /// MaterializeBinding represents stats for a single binding of a materialization task.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct MaterializeBinding {
-        #[prost(message, optional, tag = "1")]
-        pub left: ::core::option::Option<DocsAndBytes>,
-        #[prost(message, optional, tag = "2")]
-        pub right: ::core::option::Option<DocsAndBytes>,
-        #[prost(message, optional, tag = "3")]
-        pub out: ::core::option::Option<DocsAndBytes>,
-        /// The most recent publish timestamp from the source documents that were
-        /// read by this binding.
-        #[prost(message, optional, tag = "4")]
-        pub last_source_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
-        /// Total bytes behind across all source journals of this binding.
-        #[prost(uint64, tag = "5")]
-        pub bytes_behind: u64,
-    }
     /// CaptureBinding represents stats for a single binding of a capture task.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct CaptureBinding {
@@ -247,6 +236,23 @@ pub mod stats {
             #[prost(uint64, tag = "4")]
             pub bytes_behind: u64,
         }
+    }
+    /// MaterializeBinding represents stats for a single binding of a materialization task.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct MaterializeBinding {
+        #[prost(message, optional, tag = "1")]
+        pub left: ::core::option::Option<DocsAndBytes>,
+        #[prost(message, optional, tag = "2")]
+        pub right: ::core::option::Option<DocsAndBytes>,
+        #[prost(message, optional, tag = "3")]
+        pub out: ::core::option::Option<DocsAndBytes>,
+        /// The most recent publish timestamp from the source documents that were
+        /// read by this binding.
+        #[prost(message, optional, tag = "4")]
+        pub last_source_published_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        /// Total bytes behind across all source journals of this binding.
+        #[prost(uint64, tag = "5")]
+        pub bytes_behind: u64,
     }
     /// Interval metrics are emitted at regular intervals.
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]

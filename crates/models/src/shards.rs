@@ -1,9 +1,11 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::time::Duration;
+use validator::Validate;
 
 /// A ShardTemplate configures how shards process a catalog task.
-#[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone, PartialEq, Validate)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = ShardTemplate::example())]
 pub struct ShardTemplate {
@@ -77,6 +79,12 @@ pub struct ShardTemplate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
     pub log_level: Option<String>,
+    /// # Flags are string-valued feature flags.
+    /// Flag names must be valid tokens (Unicode letters, numbers, '-', '_', '.').
+    /// Each flag produces a shard label `estuary.dev/flag/<name>`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[validate(nested)]
+    pub flags: BTreeMap<super::Token, super::Token>,
 }
 
 impl ShardTemplate {
@@ -96,6 +104,7 @@ impl ShardTemplate {
             ring_buffer_size: o4,
             read_channel_size: o5,
             log_level: o6,
+            flags,
         } = self;
 
         !disable
@@ -105,5 +114,6 @@ impl ShardTemplate {
             && o4.is_none()
             && o5.is_none()
             && o6.is_none()
+            && flags.is_empty()
     }
 }

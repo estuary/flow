@@ -22,6 +22,8 @@ const (
 	// Field is a logical partition of the Collection that's implemented by this
 	// journal.
 	FieldPrefix = "estuary.dev/field/"
+	// Flag is a named feature flag which controls low-level task behavior.
+	FlagPrefix = "estuary.dev/flag/"
 	// KeyBegin is a hexadecimal encoding of the beginning key range (inclusive)
 	// managed by this journal or shard, in an order-preserving packed []byte embedding.
 	KeyBegin = "estuary.dev/key-begin"

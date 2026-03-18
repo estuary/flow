@@ -867,12 +867,18 @@ impl serde::Serialize for BrokerSpec {
         if self.journal_limit != 0 {
             len += 1;
         }
+        if self.exiting {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("protocol.BrokerSpec", len)?;
         if let Some(v) = self.process_spec.as_ref() {
             struct_ser.serialize_field("processSpec", v)?;
         }
         if self.journal_limit != 0 {
             struct_ser.serialize_field("journalLimit", &self.journal_limit)?;
+        }
+        if self.exiting {
+            struct_ser.serialize_field("exiting", &self.exiting)?;
         }
         struct_ser.end()
     }
@@ -888,12 +894,14 @@ impl<'de> serde::Deserialize<'de> for BrokerSpec {
             "processSpec",
             "journal_limit",
             "journalLimit",
+            "exiting",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ProcessSpec,
             JournalLimit,
+            Exiting,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -917,6 +925,7 @@ impl<'de> serde::Deserialize<'de> for BrokerSpec {
                         match value {
                             "processSpec" | "process_spec" => Ok(GeneratedField::ProcessSpec),
                             "journalLimit" | "journal_limit" => Ok(GeneratedField::JournalLimit),
+                            "exiting" => Ok(GeneratedField::Exiting),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -938,6 +947,7 @@ impl<'de> serde::Deserialize<'de> for BrokerSpec {
             {
                 let mut process_spec__ = None;
                 let mut journal_limit__ = None;
+                let mut exiting__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ProcessSpec => {
@@ -954,11 +964,18 @@ impl<'de> serde::Deserialize<'de> for BrokerSpec {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Exiting => {
+                            if exiting__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("exiting"));
+                            }
+                            exiting__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(BrokerSpec {
                     process_spec: process_spec__,
                     journal_limit: journal_limit__.unwrap_or_default(),
+                    exiting: exiting__.unwrap_or_default(),
                 })
             }
         }

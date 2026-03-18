@@ -12,6 +12,8 @@ import (
 func TestParsingShardLabels(t *testing.T) {
 	var set = pb.MustLabelSet(
 		Build, "a-build",
+		FlagPrefix+"buffer-size", "1024",
+		FlagPrefix+"enable-new-thing", "true",
 		LogLevel, "debug",
 		KeyBegin, "aaaaaaaa",
 		KeyEnd, "bbbbbbbb",
@@ -48,6 +50,10 @@ func TestParsingShardLabels(t *testing.T) {
 		TaskType:     ops.TaskType_capture,
 		LogsJournal:  "logs/journal",
 		StatsJournal: "stats/journal",
+		Flags: map[string]string{
+			"buffer-size":      "1024",
+			"enable-new-thing": "true",
+		},
 	}, out)
 
 	// Case: logs & stats journals are ommitted and use legacy behavior.

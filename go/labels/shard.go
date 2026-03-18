@@ -2,6 +2,7 @@ package labels
 
 import (
 	"fmt"
+	"strings"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
@@ -63,6 +64,13 @@ func ParseShardLabels(set pf.LabelSet) (ops.ShardLabeling, error) {
 		out.StatsJournal = legacyStatsJournal(out.TaskType, out.TaskName)
 	} else if out.StatsJournal = pb.Journal(j); out.StatsJournal.Validate() != nil {
 		return out, fmt.Errorf("invalid stats journal: %w", out.StatsJournal.Validate())
+	}
+
+	out.Flags = make(map[string]string)
+	for _, l := range set.Labels {
+		if name, ok := strings.CutPrefix(l.Name, FlagPrefix); ok {
+			out.Flags[name] = l.Value
+		}
 	}
 
 	if out.SplitSource != "" && out.SplitTarget != "" {

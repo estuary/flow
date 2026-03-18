@@ -288,6 +288,9 @@ pub struct BrokerSpec {
     /// Maximum number of assigned Journal replicas.
     #[prost(uint32, tag = "2")]
     pub journal_limit: u32,
+    /// When true, this broker has been signaled to exit.
+    #[prost(bool, tag = "3")]
+    pub exiting: bool,
 }
 /// Fragment is a content-addressed description of a contiguous Journal span,
 /// defined by the \[begin, end) offset range covered by the Fragment and the
