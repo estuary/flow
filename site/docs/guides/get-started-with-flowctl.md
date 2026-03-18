@@ -41,6 +41,11 @@ or using a remote development environment.
 
 The flowctl source files are also on GitHub [here](https://go.estuary.dev/flowctl).
 
+:::info Dependencies
+Make sure you have [Docker](https://www.docker.com/) installed to make full use of flowctl.
+Some flowctl commands require the Docker daemon to be running.
+:::
+
 Once you've installed flowctl and are ready to begin working, authenticate your session using an access token.
 
 1. Ensure that you have an Estuary account and have signed into the Estuary web app before.

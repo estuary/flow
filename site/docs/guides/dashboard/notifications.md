@@ -64,3 +64,8 @@ Billing alerts are automatically subscribed to when a user inputs their email in
 |---|---|---|---|
 | **`/catalogPrefix`**| Prefix | Subscribe to notifications for this tenant| string |
 | **`/email`** | Email  | Alert the following email with all notifications | string |
+
+## Set Up Alerts in External Platforms
+
+Beyond Estuary's built-in alerting capabilities, you can also configure your own alerts in platforms like Datadog and Grafana.
+See Estuary's [OpenMetrics API](/reference/openmetrics-api) for available metrics and connection instructions.

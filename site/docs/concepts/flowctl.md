@@ -38,8 +38,10 @@ flowctl binaries for MacOS and Linux are available. For Windows, [install Window
 
    You can also find the source files on GitHub [here](https://go.estuary.dev/flowctl).
 
+2. Some flowctl commands, such as `flowctl generate`, require a Docker daemon to be running.
+   Make sure you have [Docker](https://www.docker.com/) installed to use these commands.
 
-2. To connect to your Estuary account and start a session, [use an authentication token](/reference/authentication/#authenticating-estuary-using-the-cli) from the web app.
+3. To connect to your Estuary account and start a session, [use an authentication token](/reference/authentication/#authenticating-estuary-using-the-cli) from the web app.
 
 ## User guides
 
