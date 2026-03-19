@@ -68,6 +68,7 @@ expression: "(&outcome.built_materializations[0].model,\n&outcome.built_material
                 log_level: None,
             },
             expect_pub_id: None,
+            triggers: None,
             delete: false,
             reset: false,
         },

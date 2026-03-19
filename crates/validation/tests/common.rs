@@ -296,6 +296,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             expect_pub_id: None,
             shards: models::ShardTemplate::default(),
             source: None,
+            triggers: None,
             delete: false,
             reset: false,
             on_incompatible_schema_change: Default::default(),
@@ -344,6 +345,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             shard_template: Some(shard_template),
             config_json: bytes::Bytes::new(),
             inactive_bindings: Vec::new(),
+            triggers_json: bytes::Bytes::new(),
         };
         live.materializations.insert_row(
             materialization,

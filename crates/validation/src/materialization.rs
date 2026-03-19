@@ -118,6 +118,7 @@ async fn walk_materialization<C: Connectors>(
         bindings: bindings_model,
         mut shards,
         expect_pub_id: _,
+        triggers,
         delete: _,
         reset,
     } = model;
@@ -602,6 +603,14 @@ async fn walk_materialization<C: Connectors>(
         false, // Don't disable wait_for_ack.
         &network_ports,
     );
+    let triggers_json: bytes::Bytes = match &triggers {
+        None => bytes::Bytes::new(),
+        Some(t) => {
+            validate_triggers(scope.push_prop("triggers"), &t.config, errors);
+            bytes::Bytes::from(serde_json::to_vec(t).expect("triggers must serialize"))
+        }
+    };
+
     let spec = flow::MaterializationSpec {
         name: materialization.to_string(),
         connector_type,
@@ -611,6 +620,7 @@ async fn walk_materialization<C: Connectors>(
         shard_template: Some(shard_template),
         network_ports,
         inactive_bindings,
+        triggers_json,
     };
     let model = models::MaterializationDef {
         source: sources,
@@ -619,6 +629,7 @@ async fn walk_materialization<C: Connectors>(
         bindings: bindings_model,
         shards,
         expect_pub_id: None,
+        triggers,
         delete: false,
         reset: false,
     };
@@ -1024,4 +1035,73 @@ fn temporary_group_by_migration(
         .iter()
         .map(|field| models::Field::new(field))
         .collect()
+}
+
+fn validate_triggers(
+    scope: Scope,
+    triggers: &[models::TriggerConfig],
+    errors: &mut tables::Errors,
+) {
+    let placeholder = models::TriggerVariables::placeholder();
+
+    for (index, trigger) in triggers.iter().enumerate() {
+        let scope = scope.push_item(index);
+
+        match url::Url::parse(&trigger.url) {
+            Err(err) => {
+                Error::TriggerInvalidUrl {
+                    index,
+                    detail: err.to_string(),
+                }
+                .push(scope, errors);
+            }
+            Ok(url) if url.scheme() != "http" && url.scheme() != "https" => {
+                Error::TriggerInvalidUrl {
+                    index,
+                    detail: format!(
+                        "unsupported scheme '{}', must be http or https",
+                        url.scheme()
+                    ),
+                }
+                .push(scope, errors);
+            }
+            _ => {}
+        }
+
+        if trigger.timeout.is_zero() {
+            Error::TriggerInvalidTimeout { index }.push(scope, errors);
+        }
+
+        // Use the trigger's header keys with placeholder values so that
+        // `{{headers.Name}}` references pass strict mode validation without
+        // needing real (possibly encrypted) secret values.
+        let placeholder_headers: std::collections::BTreeMap<String, String> = trigger
+            .headers
+            .keys()
+            .map(|k| {
+                let key = k.strip_suffix("_sops").unwrap_or(k).to_string();
+                (key, "placeholder".to_string())
+            })
+            .collect();
+        let context = models::build_template_context(&placeholder, &placeholder_headers);
+
+        match models::render_payload_template(&trigger.payload_template, &context) {
+            Err(err) => {
+                Error::TriggerTemplateInvalid {
+                    index,
+                    detail: err.to_string(),
+                }
+                .push(scope, errors);
+            }
+            Ok(rendered) => {
+                if let Err(err) = serde_json::from_str::<serde_json::Value>(&rendered) {
+                    Error::TriggerTemplateInvalidJson {
+                        index,
+                        detail: err.to_string(),
+                    }
+                    .push(scope, errors);
+                }
+            }
+        }
+    }
 }

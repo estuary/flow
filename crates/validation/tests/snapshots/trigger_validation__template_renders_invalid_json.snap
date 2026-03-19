@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/trigger_validation.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,
+        error: trigger 0: rendered payload template is not valid JSON: expected ident at line 1 column 2,
+    },
+]

@@ -52,6 +52,7 @@ expression: "(selections, errors)"
                         log_level: None,
                     },
                     expect_pub_id: None,
+                    triggers: None,
                     delete: false,
                     reset: false,
                 },

@@ -356,6 +356,15 @@ pub enum Error {
         listed_data_planes: Vec<String>,
     },
 
+    #[error("trigger {index}: invalid URL: {detail}")]
+    TriggerInvalidUrl { index: usize, detail: String },
+    #[error("trigger {index}: timeout must be greater than 0")]
+    TriggerInvalidTimeout { index: usize },
+    #[error("trigger {index}: payload template is invalid: {detail}")]
+    TriggerTemplateInvalid { index: usize, detail: String },
+    #[error("trigger {index}: rendered payload template is not valid JSON: {detail}")]
+    TriggerTemplateInvalidJson { index: usize, detail: String },
+
     #[error("raising an error because {this_entity} specifies `onIncompatibleSchemaChange: abort`")]
     AbortOnIncompatibleSchemaChange {
         this_entity: String,

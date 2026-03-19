@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/transition_tests.rs
+assertion_line: 379
 expression: outcome
 ---
 Outcome {
@@ -336,6 +337,7 @@ Outcome {
                 ),
                 network_ports: [],
                 inactive_bindings: [],
+                triggers_json: b"",
             },
             is_touch: 0,
             dependency_hash: NULL,

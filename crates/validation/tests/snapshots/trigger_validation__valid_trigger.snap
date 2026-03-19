@@ -1,0 +1,19 @@
+---
+source: crates/validation/tests/trigger_validation.rs
+expression: triggers
+---
+{
+  "config": [
+    {
+      "headers": {
+        "Authorization": "Bearer my-secret-token",
+        "X-Tenant-Id": "tenant-abc"
+      },
+      "maxAttempts": 5,
+      "method": "POST",
+      "payloadTemplate": "{\n  \"materialization\": \"{{materialization_name}}\",\n  \"auth\": \"{{headers.Authorization}}\",\n  \"tenant\": \"{{headers.X-Tenant-Id}}\",\n  \"collections\": [{{#each collection_names}}\"{{this}}\"{{#unless @last}}, {{/unless}}{{/each}}]\n}\n",
+      "timeout": "1m",
+      "url": "https://example.com/webhook"
+    }
+  ]
+}
