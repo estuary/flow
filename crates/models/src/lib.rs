@@ -27,6 +27,7 @@ mod source_capture;
 pub(crate) mod sqlx_json;
 pub mod status;
 mod tests;
+pub mod triggers;
 
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
@@ -60,6 +61,10 @@ pub use shards::ShardTemplate;
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
 pub use source_capture::{SourceDef, SourceType, TargetNaming};
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
+pub use triggers::{
+    HttpMethod, TriggerConfig, TriggerVariables, Triggers, build_template_context,
+    render_payload_template, triggers_schema,
+};
 
 /// Uniquely identifies a resource in an external system that can be either
 /// captured from or materialized into. For example, a `[schema, table]` in

@@ -1,0 +1,85 @@
+---
+source: crates/models/src/triggers.rs
+expression: schema
+---
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "title": "Triggers",
+  "description": "Webhook triggers that fire upon materialization transaction completion.",
+  "type": "object",
+  "properties": {
+    "config": {
+      "title": "Trigger Configurations",
+      "description": "List of webhook triggers to fire when new data is materialized.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TriggerConfig"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "config"
+  ],
+  "$defs": {
+    "HttpMethod": {
+      "description": "HTTP method for the webhook request.",
+      "type": "string",
+      "enum": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    "TriggerConfig": {
+      "description": "Configuration for a webhook trigger that fires when new data is\nmaterialized to the endpoint.",
+      "type": "object",
+      "properties": {
+        "headers": {
+          "title": "HTTP headers to include in the webhook request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "secret": true
+          }
+        },
+        "maxAttempts": {
+          "title": "Maximum number of delivery attempts (including the initial attempt).",
+          "description": "The task is failed if all attempts are exhausted without a successful delivery.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 3,
+          "minimum": 0
+        },
+        "method": {
+          "title": "HTTP method to use for the webhook request.",
+          "$ref": "#/$defs/HttpMethod",
+          "default": "POST"
+        },
+        "payloadTemplate": {
+          "title": "Handlebars template for the JSON payload body.",
+          "type": "string"
+        },
+        "timeout": {
+          "title": "Request timeout for each delivery attempt.",
+          "description": "The task is failed if all attempts are exhausted without a successful delivery.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "30s",
+          "pattern": "^\\d+(s|m|h|d)$"
+        },
+        "url": {
+          "title": "URL of the webhook endpoint.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "payloadTemplate"
+      ]
+    }
+  }
+}
