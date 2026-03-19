@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 8
 expression: outcome
 ---
 Outcome {
@@ -6726,6 +6727,7 @@ Outcome {
                 ),
                 network_ports: [],
                 inactive_bindings: [],
+                triggers_json: b"",
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -7861,6 +7863,7 @@ Outcome {
                     },
                 ],
                 inactive_bindings: [],
+                triggers_json: b"",
             },
             previous_spec: NULL,
             is_touch: 0,

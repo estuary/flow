@@ -253,6 +253,7 @@ fn inline_materialization(
         bindings,
         shards: _,
         expect_pub_id: _,
+        triggers: _,
         delete: _,
         reset: _,
         on_incompatible_schema_change: _,

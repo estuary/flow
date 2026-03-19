@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/transition_tests.rs
+assertion_line: 488
 expression: outcome.built_materializations
 ---
 [
@@ -589,6 +590,7 @@ expression: outcome.built_materializations
             ),
             network_ports: [],
             inactive_bindings: [],
+            triggers_json: b"",
         },
         previous_spec: MaterializationSpec {
             name: "the/materialization",
@@ -668,6 +670,7 @@ expression: outcome.built_materializations
             ),
             network_ports: [],
             inactive_bindings: [],
+            triggers_json: b"",
         },
         is_touch: 0,
         dependency_hash: 5b38dc32c776e2b2,

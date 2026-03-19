@@ -1,0 +1,18 @@
+---
+source: crates/validation/tests/trigger_validation.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,
+        error: trigger 0: invalid URL: relative URL without a base,
+    },
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,
+        error: trigger 0: timeout must be greater than 0,
+    },
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,
+        error: trigger 0: payload template is invalid: Error rendering "t" line 1, col 12: Failed to access variable in strict mode Some("bogus"),
+    },
+]
