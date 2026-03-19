@@ -178,12 +178,32 @@ impl RocksDB {
         Ok(initial)
     }
 
+    /// Load persisted trigger template variables, if any.
+    /// Returns `None` if the key does not exist (no pending trigger delivery).
+    pub async fn load_trigger_params<T>(&self) -> anyhow::Result<Option<T>>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let Some(bytes) = self
+            .get_opt(Self::TRIGGER_PARAMS, rocksdb::ReadOptions::default())
+            .await
+            .context("failed to load trigger params")?
+        else {
+            return Ok(None);
+        };
+        serde_json::from_slice(&bytes)
+            .context("failed to decode trigger params")
+            .map(Some)
+    }
+
     // Key encoding under which the last-applied specification is stored.
     pub const LAST_APPLIED: &'static str = "last-applied";
     // Key encoding under which a marshalled checkpoint is stored.
     pub const CHECKPOINT_KEY: &'static str = "checkpoint";
     // Key encoding under which a connector state is stored.
     pub const CONNECTOR_STATE_KEY: &'static str = "connector-state";
+    // Key encoding under which trigger template variables are stored.
+    pub const TRIGGER_PARAMS: &'static str = "trigger-params";
 }
 
 // Enqueues a MERGE or PUT to the WriteBatch for this `state` update.
