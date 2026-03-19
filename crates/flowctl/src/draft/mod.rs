@@ -13,7 +13,7 @@ mod encrypt;
 
 pub use author::{author, upsert_draft_specs};
 pub use develop::develop;
-pub use encrypt::encrypt_endpoint_configs;
+pub use encrypt::encrypt_configs;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]

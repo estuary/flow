@@ -31,7 +31,7 @@ pub async fn author(
     draft_id: models::Id,
     draft: &mut tables::DraftCatalog,
 ) -> anyhow::Result<Vec<SpecSummaryItem>> {
-    encrypt::encrypt_endpoint_configs(draft, client).await?;
+    encrypt::encrypt_configs(draft, client).await?;
     upsert_draft_specs(client, draft_id, &*draft).await
 }
 
