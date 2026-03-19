@@ -76,6 +76,29 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 
    - Find the instance's host under Server Name. The port is always `1433`. Together, you'll use the host:port as the `address` property when you configure the connector.
 
+#### IAM Authentication
+
+Instead of using username/password authentication, you can optionally use an
+Azure App Registration to access the database.
+
+Follow the steps in the [Azure IAM guide][azure-iam] to create an App
+Registration and make note of the Application ID and Tenant ID to use when
+configuring the connector's authentication options.
+
+Ensure that the SQL logical server has Entra authentication enabled and connect
+to the Azure SQL Database as the Entra admin.  This can be done from the
+Database Query Editor.  Run the following commands to create a user for the App
+Registration:
+
+```sql
+CREATE USER [my-app-registration-name] FROM EXTERNAL PROVIDER;
+ALTER ROLE db_datareader ADD MEMBER [my-app-registration-name];
+ALTER ROLE db_datawriter ADD MEMBER [my-app-registration-name];
+ALTER ROLE db_ddladmin ADD MEMBER [my-app-registration-name];
+```
+
+[azure-iam]: /guides/iam-auth/azure/
+
 ## Configuration
 
 To use this connector, begin with data in one or more Estuary collections.
@@ -107,6 +130,12 @@ Credentials for authentication.  Use one of the following sets of options:
 | **`/credentials/auth_type`**             | Auth Type               | Method to use for authentication.                        | string  | Required: `AWSIAM` |
 | **`/credentials/aws_role_arn`**          | AWS Role ARN            | IAM Role to assume.                                      | string  | Required           |
 | **`/credentials/aws_region`**            | AWS Region              | AWS Region to authenticate in.                           | string  | Required           |
+
+| Property                                 | Title                   | Description                                              | Type    | Required/Default     |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------- | ------- | -------------------- |
+| **`/credentials/auth_type`**             | Auth Type               | Method to use for authentication.                        | string  | Required: `AzureIAM` |
+| **`/credentials/azure_client_id`**       | Azure Client ID         | Application (client) ID of the App Registration.         | string  | Required             |
+| **`/credentials/azure_tenant_id`**       | Azure Tenant ID         | Directory (tenant) ID of the App Registration.           | string  | Required             |
 
 #### Bindings
 
