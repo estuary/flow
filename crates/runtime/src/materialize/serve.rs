@@ -1,4 +1,8 @@
-use super::{LoadKeySet, RequestStream, ResponseStream, Transaction, connector, protocol::*};
+use super::{
+    LoadKeySet, RequestStream, ResponseStream, Transaction, connector,
+    protocol::*,
+    triggers::{self, CompiledTriggers},
+};
 use crate::Accumulator;
 use crate::{LogHandler, Runtime, rocksdb::RocksDB, verify};
 use anyhow::Context;
@@ -86,6 +90,63 @@ async fn serve_session<L: LogHandler>(
 ) -> anyhow::Result<Option<Request>> {
     recv_client_open(&mut open, &db).await?;
 
+    // Extract trigger config and connector image from the spec.
+    let (triggers_json, connector_image) = {
+        let spec = open.open.as_ref().and_then(|o| o.materialization.as_ref());
+        let triggers_json = spec
+            .map(|s| &s.triggers_json)
+            .filter(|b| !b.is_empty())
+            .cloned();
+
+        // For IMAGE connectors, deserialize the config to extract the image name.
+        let connector_image = spec
+            .filter(|s| {
+                s.connector_type
+                    == proto_flow::flow::materialization_spec::ConnectorType::Image as i32
+            })
+            .and_then(|s| {
+                serde_json::from_slice::<models::ConnectorConfig>(&s.config_json)
+                    .ok()
+                    .map(|c| c.image)
+            })
+            .unwrap_or_default();
+
+        (triggers_json, connector_image)
+    };
+
+    // Decrypt trigger configs and pre-compile their Handlebars templates.
+    let compiled_triggers: Option<CompiledTriggers> = match triggers_json {
+        None => None,
+        Some(triggers_json) => {
+            let mut triggers: models::Triggers =
+                serde_json::from_slice(&triggers_json).context("parsing triggers JSON")?;
+
+            // Strip HMAC-excluded fields before decryption (they were stripped
+            // during encryption so SOPS HMAC doesn't cover them), then restore.
+            let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
+            let stripped = models::RawValue::from_value(
+                &serde_json::to_value(&triggers).context("serializing stripped triggers")?,
+            );
+
+            let mut decrypted: models::Triggers = serde_json::from_str(
+                unseal::decrypt_sops(&stripped)
+                    .await
+                    .context("decrypting triggers_json")?
+                    .get(),
+            )
+            .context("parsing decrypted triggers JSON")?;
+
+            models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
+
+            Some(
+                CompiledTriggers::compile(decrypted.config)
+                    .context("compiling trigger templates")?,
+            )
+        }
+    };
+
+    let trigger_http_client = reqwest::Client::new();
+
     // Start connector stream and read Opened.
     let (mut connector_tx, mut connector_rx) = connector::start(runtime, open.clone()).await?;
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
@@ -171,12 +232,14 @@ async fn serve_session<L: LogHandler>(
                 Step::ConnectorRx(response) => {
                     if let Some(send) = recv_connector_acked_or_loaded_or_flushed(
                         &mut accumulator,
-                        &db,
+                        db,
+                        &trigger_http_client,
                         response,
                         &mut saw_acknowledged,
                         &mut saw_flush,
                         &mut saw_flushed,
                         &task,
+                        &compiled_triggers,
                         &mut txn,
                         &mut wb,
                     )
@@ -224,6 +287,12 @@ async fn serve_session<L: LogHandler>(
         }
         () = co.yield_(send_client_flushed(&mut buf, &task, &txn)).await;
 
+        let trigger_variables = if compiled_triggers.is_some() && !txn.stats.is_empty() {
+            Some(triggers::trigger_variables(&task, &txn, &connector_image))
+        } else {
+            None
+        };
+
         // Read StartCommit and forward to the connector.
         let start_commit = request_rx.try_next().await?;
         let (start_commit, wb) = recv_client_start_commit(last_checkpoint, start_commit, &mut txn)?;
@@ -237,7 +306,9 @@ async fn serve_session<L: LogHandler>(
 
         // Read StartedCommit and forward to the client.
         let started_commit = connector_rx.try_next().await?;
-        let started_commit = recv_connector_started_commit(&db, started_commit, wb).await?;
+        let started_commit =
+            recv_connector_started_commit(&db, started_commit, wb, trigger_variables.as_ref())
+                .await?;
         () = co.yield_(started_commit).await;
 
         last_checkpoint = txn.checkpoint;

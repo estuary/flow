@@ -21,6 +21,7 @@ impl Task {
             recovery_log_template: _,
             shard_template: _,
             inactive_bindings: _,
+            triggers_json: _,
         } = spec.as_ref().context("missing materialization")?;
         let range = range.context("missing range")?;
 

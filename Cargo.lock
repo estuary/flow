@@ -6987,6 +6987,7 @@ dependencies = [
  "extractors",
  "futures",
  "gazette",
+ "handlebars 6.3.2",
  "iam-auth",
  "insta",
  "json",

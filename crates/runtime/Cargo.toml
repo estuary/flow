@@ -41,6 +41,7 @@ tuple = { path = "../tuple" }
 unseal = { path = "../unseal" }
 
 anyhow = { workspace = true }
+handlebars = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-sts = { workspace = true }
 aws-credential-types = { workspace = true }
@@ -62,10 +63,11 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 xxhash-rust = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+axum = { workspace = true }
 insta = { workspace = true }
 quickcheck = { workspace = true }
