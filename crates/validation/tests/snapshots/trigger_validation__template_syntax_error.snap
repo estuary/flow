@@ -1,0 +1,17 @@
+---
+source: crates/validation/tests/trigger_validation.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,
+        error: trigger 0: payload template is invalid: Template error: invalid handlebars syntax: expected escape, expression, html_expression, decorator_expression, partial_expression, invert_tag, invert_chain_tag, helper_block_start, helper_block_end, decorator_block_start, partial_block_start, raw_block_start, hbs_comment, or hbs_comment_compact
+            --> Template error in "t":1:43
+             |
+           0 | {"unclosed": "{{#each collection_names}}"}
+             |------------------------------------------
+             |
+             = reason: invalid handlebars syntax: expected escape, expression, html_expression, decorator_expression, partial_expression, invert_tag, invert_chain_tag, helper_block_start, helper_block_end, decorator_block_start, partial_block_start, raw_block_start, hbs_comment, or hbs_comment_compact
+        ,
+    },
+]

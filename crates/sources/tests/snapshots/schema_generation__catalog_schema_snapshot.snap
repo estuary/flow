@@ -803,6 +803,15 @@ expression: "&schema"
         "name"
       ]
     },
+    "HttpMethod": {
+      "description": "HTTP method for the webhook request.",
+      "type": "string",
+      "enum": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
     "Id": {
       "type": "string"
     },
@@ -970,6 +979,17 @@ expression: "&schema"
         "source": {
           "title": "Automatically materialize new bindings from a named capture",
           "$ref": "#/$defs/SourceType"
+        },
+        "triggers": {
+          "title": "Triggers to fire upon transaction completion.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Triggers"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,
@@ -1693,6 +1713,71 @@ expression: "&schema"
         "name",
         "source",
         "shuffle"
+      ]
+    },
+    "TriggerConfig": {
+      "description": "Configuration for a webhook trigger that fires when new data is\nmaterialized to the endpoint.",
+      "type": "object",
+      "properties": {
+        "headers": {
+          "title": "HTTP headers to include in the webhook request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "secret": true
+          }
+        },
+        "maxAttempts": {
+          "title": "Maximum number of delivery attempts (including the initial attempt).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 3,
+          "minimum": 0
+        },
+        "method": {
+          "title": "HTTP method to use for the webhook request.",
+          "$ref": "#/$defs/HttpMethod",
+          "default": "POST"
+        },
+        "payloadTemplate": {
+          "title": "Handlebars template for the JSON payload body.",
+          "type": "string"
+        },
+        "timeoutSecs": {
+          "title": "Request timeout in seconds.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "minimum": 0
+        },
+        "url": {
+          "title": "URL of the webhook endpoint.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "payloadTemplate"
+      ]
+    },
+    "Triggers": {
+      "title": "Triggers",
+      "description": "Webhook triggers that fire upon materialization transaction completion.",
+      "type": "object",
+      "properties": {
+        "config": {
+          "title": "Trigger Configurations",
+          "description": "List of webhook triggers to fire when new data is materialized.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TriggerConfig"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "config"
       ]
     },
     "Value": true

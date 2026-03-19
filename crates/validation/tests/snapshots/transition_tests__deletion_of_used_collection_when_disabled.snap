@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/transition_tests.rs
+assertion_line: 446
 expression: outcome
 ---
 Outcome {
@@ -1063,6 +1064,7 @@ Outcome {
                         ser_policy: None,
                     },
                 ],
+                triggers_json: b"",
             },
             previous_spec: MaterializationSpec {
                 name: "the/materialization",
@@ -1142,6 +1144,7 @@ Outcome {
                 ),
                 network_ports: [],
                 inactive_bindings: [],
+                triggers_json: b"",
             },
             is_touch: 0,
             dependency_hash: NULL,
