@@ -219,6 +219,55 @@ fn test_field_selection() {
     );
 }
 
+#[wasm_bindgen_test]
+fn test_strip_and_restore_trigger_hmac_excluded_fields() {
+    let original = json!({
+        "config": [{
+            "url": "https://example.com/webhook",
+            "method": "POST",
+            "headers": {"Authorization": "Bearer secret"},
+            "payloadTemplate": "my template",
+            "timeout": "45s",
+            "maxAttempts": 5
+        }]
+    });
+
+    let stripped_result =
+        flow_web::strip_trigger_hmac_excluded_fields(&to_string(&original).unwrap())
+            .expect("strip should succeed");
+
+    #[derive(serde::Deserialize)]
+    struct StripOutput {
+        stripped: String,
+        originals: serde_json::Value,
+    }
+    let StripOutput {
+        stripped,
+        originals,
+    } = serde_wasm_bindgen::from_value(stripped_result).unwrap();
+
+    let stripped_value: serde_json::Value = serde_json::from_str(&stripped).unwrap();
+
+    // HMAC-excluded fields replaced with placeholders; secret header untouched.
+    assert_eq!(stripped_value["config"][0]["payloadTemplate"], "");
+    assert_eq!(stripped_value["config"][0]["timeout"], "0s");
+    assert_eq!(stripped_value["config"][0]["maxAttempts"], 0);
+    assert_eq!(
+        stripped_value["config"][0]["headers"]["Authorization"],
+        "Bearer secret"
+    );
+
+    // Restore the originals into the stripped JSON (simulating post-encryption restore).
+    let restored =
+        flow_web::restore_trigger_hmac_excluded_fields(&stripped, to_js_value(&originals))
+            .expect("restore should succeed");
+
+    let restored_str: String = serde_wasm_bindgen::from_value(restored).unwrap();
+    let restored_value: serde_json::Value = serde_json::from_str(&restored_str).unwrap();
+
+    assert_eq!(restored_value, original);
+}
+
 fn to_js_value(val: &serde_json::Value) -> JsValue {
     use serde::Serialize;
     // We need to use the json compatible serializer because the default

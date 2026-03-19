@@ -43,6 +43,66 @@ pub use collection::skim_collection_projections;
 pub use field_selection::evaluate_field_selection;
 
 #[wasm_bindgen]
+pub fn get_trigger_config_schema() -> Result<JsValue, JsValue> {
+    crate::utils::set_panic_hook();
+
+    let schema = models::triggers::triggers_schema();
+
+    schema
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|err| JsValue::from_str(&format!("{err:?}")))
+}
+
+/// Strip HMAC-excluded fields from trigger configs before passing to the
+/// config-encryption service. Returns `{stripped, originals}` where `stripped`
+/// is the JSON string to send for encryption and `originals` is an opaque token
+/// to pass back to `restore_trigger_hmac_excluded_fields` afterward.
+#[wasm_bindgen]
+pub fn strip_trigger_hmac_excluded_fields(triggers_json: &str) -> Result<JsValue, JsValue> {
+    crate::utils::set_panic_hook();
+
+    let mut triggers: models::Triggers = serde_json::from_str(triggers_json)
+        .map_err(|err| JsValue::from_str(&format!("invalid triggers JSON: {err}")))?;
+
+    let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
+
+    #[derive(Serialize)]
+    struct Output {
+        stripped: String,
+        originals: Vec<models::triggers::HmacExcludedOriginals>,
+    }
+    serde_wasm_bindgen::to_value(&Output {
+        stripped: serde_json::to_string(&triggers).unwrap(),
+        originals,
+    })
+    .map_err(|err| JsValue::from_str(&format!("{err:?}")))
+}
+
+/// Restore HMAC-excluded fields to an encrypted triggers JSON string. Pass the
+/// `originals` token returned by `strip_trigger_hmac_excluded_fields` and the
+/// encrypted JSON string returned by the config-encryption service. Returns the
+/// final triggers JSON string with non-secret fields restored.
+#[wasm_bindgen]
+pub fn restore_trigger_hmac_excluded_fields(
+    encrypted_json: &str,
+    originals: JsValue,
+) -> Result<JsValue, JsValue> {
+    crate::utils::set_panic_hook();
+
+    let mut triggers: models::Triggers = serde_json::from_str(encrypted_json)
+        .map_err(|err| JsValue::from_str(&format!("invalid encrypted JSON: {err}")))?;
+
+    let originals: Vec<models::triggers::HmacExcludedOriginals> =
+        serde_wasm_bindgen::from_value(originals)
+            .map_err(|err| JsValue::from_str(&format!("invalid originals token: {err:?}")))?;
+
+    models::triggers::restore_hmac_excluded_fields(&mut triggers, originals);
+
+    serde_wasm_bindgen::to_value(&serde_json::to_string(&triggers).unwrap())
+        .map_err(|err| JsValue::from_str(&format!("{err:?}")))
+}
+
+#[wasm_bindgen]
 pub fn update_materialization_resource_spec(input: JsValue) -> Result<JsValue, JsValue> {
     crate::utils::set_panic_hook();
 
