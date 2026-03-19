@@ -8,7 +8,7 @@ use std::collections::HashMap;
 /// The encryption is performed by calling the config encryption service endpoint,
 /// passing the `connector_tags.endpoint_spec_schema` for the connector image. If
 /// no `connector_tags` row is found, then encryption will be skipped.
-pub async fn encrypt_endpoint_configs(
+pub async fn encrypt_configs(
     draft: &mut tables::DraftCatalog,
     client: &Client,
 ) -> anyhow::Result<()> {
@@ -45,12 +45,15 @@ pub async fn encrypt_endpoint_configs(
         }
     }
 
+    let triggers_schema = RawValue::from_value(&models::triggers_schema());
+
     for materialization in draft.materializations.iter_mut() {
-        if let Some(models::MaterializationEndpoint::Connector(connector)) = materialization
-            .model
-            .as_mut()
-            .map(|model| &mut model.endpoint)
-        {
+        let Some(model) = materialization.model.as_mut() else {
+            continue;
+        };
+
+        // Encrypt endpoint config if not already encrypted.
+        if let models::MaterializationEndpoint::Connector(connector) = &mut model.endpoint {
             if !is_encrypted(&connector.config) {
                 let schema =
                     fetch_or_cache_schema(&connector.image, &mut schema_cache, client).await?;
@@ -73,9 +76,52 @@ pub async fn encrypt_endpoint_configs(
                 }
             }
         }
+
+        // Encrypt trigger configs if present and not already encrypted.
+        if let Some(triggers) = &mut model.triggers
+            && triggers.sops.is_none()
+        {
+            *triggers = encrypt_triggers(
+                client,
+                materialization.materialization.as_str(),
+                triggers,
+                &triggers_schema,
+            )
+            .await?;
+        }
     }
 
     Ok(())
+}
+
+/// Encrypt trigger configs, substituting placeholder values for fields that
+/// should not be HMAC-protected by SOPS. This allows users to modify these
+/// fields without causing HMAC mismatches that would require re-entering secret
+/// header values.
+async fn encrypt_triggers(
+    client: &crate::Client,
+    task_name: &str,
+    triggers: &models::Triggers,
+    schema: &RawValue,
+) -> anyhow::Result<models::Triggers> {
+    let mut to_encrypt = triggers.clone();
+    let originals = models::triggers::strip_hmac_excluded_fields(&mut to_encrypt);
+
+    let stripped_json = serde_json::to_string(&to_encrypt).context("serializing triggers")?;
+    let encrypted_raw = encrypt_config(
+        client,
+        task_name,
+        models::CatalogType::Materialization,
+        &RawValue::from_string(stripped_json).context("triggers JSON is invalid")?,
+        schema,
+    )
+    .await?;
+
+    let mut encrypted: models::Triggers =
+        serde_json::from_str(encrypted_raw.get()).context("deserializing encrypted triggers")?;
+    models::triggers::restore_hmac_excluded_fields(&mut encrypted, originals);
+
+    Ok(encrypted)
 }
 
 async fn encrypt_config(

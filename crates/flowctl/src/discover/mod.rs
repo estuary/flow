@@ -75,7 +75,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     };
     tracing::info!(%data_plane_name, "using data-plane for discovery");
 
-    draft::encrypt_endpoint_configs(&mut draft_catalog, &ctx.client)
+    draft::encrypt_configs(&mut draft_catalog, &ctx.client)
         .await
         .context("encrypting endpoint configurations")?;
 
