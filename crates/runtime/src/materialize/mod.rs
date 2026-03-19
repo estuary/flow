@@ -1,5 +1,6 @@
 use ::ops::stats::DocsAndBytes;
 use futures::Stream;
+use models::TriggerVariables;
 use proto_flow::materialize::{Request, Response};
 use proto_gazette::{consumer, uuid::Clock};
 use std::collections::BTreeMap;
@@ -8,6 +9,7 @@ mod connector;
 mod protocol;
 mod serve;
 mod task;
+pub mod triggers;
 
 pub trait RequestStream: Stream<Item = anyhow::Result<Request>> + Send + Unpin + 'static {}
 impl<T: Stream<Item = anyhow::Result<Request>> + Send + Unpin + 'static> RequestStream for T {}
@@ -38,12 +40,21 @@ struct Binding {
     uuid_ptr: json::Pointer,
 }
 
+#[derive(Debug, Default)]
+pub struct BindingStats {
+    left: DocsAndBytes,
+    right: DocsAndBytes,
+    out: DocsAndBytes,
+    first_source_clock: Clock,
+    last_source_clock: Clock,
+}
+
 #[derive(Debug)]
 pub struct Transaction {
-    checkpoint: consumer::Checkpoint, // Recorded checkpoint.
-    stats: BTreeMap<u32, (DocsAndBytes, DocsAndBytes, DocsAndBytes, Clock)>, // Per-binding (left, right, out, last-source-clock) stats.
-    started: bool,                     // Has the transaction been started?
-    started_at: std::time::SystemTime, // Time of first Read request.
+    checkpoint: consumer::Checkpoint,   // Recorded checkpoint.
+    stats: BTreeMap<u32, BindingStats>, // Per-binding stats.
+    started: bool,                      // Has the transaction been started?
+    started_at: std::time::SystemTime,  // Time of first Read request.
 }
 
 impl Transaction {

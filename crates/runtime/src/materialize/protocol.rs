@@ -1,3 +1,4 @@
+use super::triggers::{CompiledTriggers, fire_pending_triggers};
 use super::{Binding, LoadKeySet, Task, Transaction};
 use crate::rocksdb::{RocksDB, queue_connector_state_update};
 use crate::{Accumulator, verify};
@@ -247,14 +248,19 @@ pub fn recv_client_load_or_flush(
 
             // Accumulate metrics over reads for our transforms.
             let stats = &mut txn.stats.entry(binding_index).or_default();
-            stats.1.docs_total += 1;
-            stats.1.bytes_total += doc_json.len() as u64;
+            stats.right.docs_total += 1;
+            stats.right.bytes_total += doc_json.len() as u64;
 
             if let Some((_, clock, _)) = binding.uuid_ptr.query(&doc).and_then(|node| match node {
                 doc::HeapNode::String(uuid) => proto_gazette::uuid::parse_str(uuid.as_str()).ok(),
                 _ => None,
             }) {
-                stats.3 = clock;
+                if stats.right.docs_total == 1 || clock < stats.first_source_clock {
+                    stats.first_source_clock = clock;
+                }
+                if clock > stats.last_source_clock {
+                    stats.last_source_clock = clock;
+                }
             }
 
             memtable.add(binding_index as u16, doc, false)?;
@@ -316,11 +322,14 @@ pub fn recv_client_load_or_flush(
 pub async fn recv_connector_acked_or_loaded_or_flushed(
     accumulator: &mut Accumulator,
     db: &RocksDB,
+    http_client: &reqwest::Client,
     response: Option<Response>,
     saw_acknowledged: &mut bool,
     saw_flush: &mut bool,
     saw_flushed: &mut bool,
     task: &Task,
+    compiled_triggers: &Option<std::sync::Arc<CompiledTriggers>>,
+    trigger_handle: &mut Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
     txn: &mut Transaction,
     wb: &mut rocksdb::WriteBatch,
 ) -> anyhow::Result<Option<Response>> {
@@ -348,8 +357,8 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
 
             // Accumulate metrics over reads for our transforms.
             let stats = &mut txn.stats.entry(binding_index).or_default();
-            stats.0.docs_total += 1;
-            stats.0.bytes_total += doc_json.len() as u64;
+            stats.left.docs_total += 1;
+            stats.left.bytes_total += doc_json.len() as u64;
 
             Ok(None)
         }
@@ -366,6 +375,16 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
                 let mut wb = rocksdb::WriteBatch::default();
                 queue_connector_state_update(&state, &mut wb).context("invalid Acknowledged")?;
                 db.write_opt(wb, rocksdb::WriteOptions::default()).await?;
+            }
+            if let Some(compiled) = compiled_triggers
+                && let Some(variables) =
+                    db.load_trigger_params::<models::TriggerVariables>().await?
+            {
+                let compiled = std::sync::Arc::clone(compiled);
+                let http_client = http_client.clone();
+                *trigger_handle = Some(tokio::spawn(async move {
+                    fire_pending_triggers(&compiled, &variables, &http_client).await
+                }));
             }
 
             Ok(Some(Response {
@@ -444,8 +463,8 @@ pub fn send_connector_store(
 
     // Accumulate metrics over reads for our transforms.
     let stats = &mut txn.stats.entry(binding_index as u32).or_default();
-    stats.2.docs_total += 1;
-    stats.2.bytes_total += doc_json.len() as u64;
+    stats.out.docs_total += 1;
+    stats.out.bytes_total += doc_json.len() as u64;
 
     if !binding.store_document {
         doc_json.clear(); // see comment above
@@ -475,12 +494,12 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
             .entry(task.bindings[index].collection_name.clone())
             .or_default();
 
-        ops::merge_docs_and_bytes(&binding_stats.0, &mut entry.left);
-        ops::merge_docs_and_bytes(&binding_stats.1, &mut entry.right);
-        ops::merge_docs_and_bytes(&binding_stats.2, &mut entry.out);
+        ops::merge_docs_and_bytes(&binding_stats.left, &mut entry.left);
+        ops::merge_docs_and_bytes(&binding_stats.right, &mut entry.right);
+        ops::merge_docs_and_bytes(&binding_stats.out, &mut entry.out);
 
         if entry.right.is_some() {
-            entry.last_source_published_at = binding_stats.3.to_pb_json_timestamp();
+            entry.last_source_published_at = binding_stats.last_source_clock.to_pb_json_timestamp();
         }
     }
 
@@ -590,6 +609,7 @@ pub async fn recv_connector_started_commit(
     db: &RocksDB,
     response: Option<Response>,
     mut wb: rocksdb::WriteBatch,
+    trigger_variables: Option<&super::TriggerVariables>,
 ) -> anyhow::Result<Response> {
     let verify = verify("connector", "StartedCommit with runtime_checkpoint");
     let response = verify.not_eof(response)?;
@@ -605,6 +625,14 @@ pub async fn recv_connector_started_commit(
     if let Some(state) = state {
         queue_connector_state_update(state, &mut wb).context("invalid StartedCommit")?;
     }
+
+    if let Some(vars) = trigger_variables {
+        wb.put(
+            RocksDB::TRIGGER_PARAMS,
+            serde_json::to_vec(vars).context("serializing trigger variables")?,
+        );
+    }
+
     db.write_opt(wb, Default::default())
         .await
         .context("failed to write atomic RocksDB commit")?;
@@ -614,4 +642,176 @@ pub async fn recv_connector_started_commit(
 
 fn max_key_key(binding: &Binding) -> String {
     format!("MK-v2:{}", &binding.state_key)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use models::TriggerVariables;
+    use proto_flow::materialize::{Response, response};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    async fn start_mock_server(
+        app: axum::Router,
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.ok();
+        });
+        (addr, handle)
+    }
+
+    fn make_trigger_with_url(url: &str, template: &str) -> models::TriggerConfig {
+        models::TriggerConfig {
+            url: url.to_string(),
+            method: models::HttpMethod::POST,
+            headers: Default::default(),
+            payload_template: template.to_string(),
+            timeout: std::time::Duration::from_secs(5),
+            max_attempts: 3,
+        }
+    }
+
+    fn dummy_accumulator() -> crate::Accumulator {
+        crate::Accumulator::new(doc::combine::Spec::with_one_binding(
+            false,
+            Vec::<doc::Extractor>::new(),
+            "",
+            Vec::new(),
+            doc::Validator::new(doc::validation::build_bundle(b"true").unwrap()).unwrap(),
+        ))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn trigger_persist_and_fire() {
+        let call_count = Arc::new(AtomicU32::new(0));
+        let count_clone = call_count.clone();
+
+        let app = axum::Router::new().route(
+            "/webhook",
+            axum::routing::post(move || {
+                let count = count_clone.clone();
+                async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    axum::http::StatusCode::OK
+                }
+            }),
+        );
+
+        let (addr, _handle) = start_mock_server(app).await;
+        let url = format!("http://{addr}/webhook");
+        let compiled_triggers = Some(Arc::new(
+            CompiledTriggers::compile(vec![
+                make_trigger_with_url(&url, r#"{"mat": "{{materialization_name}}"}"#),
+                make_trigger_with_url(&url, r#"{"img": "{{connector_image}}"}"#),
+                make_trigger_with_url(&url, r#"{"run": "{{run_id}}"}"#),
+            ])
+            .unwrap(),
+        ));
+        let http_client = reqwest::Client::new();
+        let db = RocksDB::open(None).await.unwrap();
+
+        let dummy_task = super::super::Task {
+            bindings: Vec::new(),
+            shard_ref: Default::default(),
+        };
+        let mut accumulator = dummy_accumulator();
+
+        // Step 1: StartedCommit persists trigger parameters.
+        recv_connector_started_commit(
+            &db,
+            Some(Response {
+                started_commit: Some(response::StartedCommit { state: None }),
+                ..Default::default()
+            }),
+            rocksdb::WriteBatch::default(),
+            Some(&TriggerVariables::placeholder()),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            db.load_trigger_params::<TriggerVariables>()
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // Step 2: Acknowledged spawns trigger delivery and clears parameters.
+        let mut saw_acknowledged = false;
+        let mut saw_flush = false;
+        let mut saw_flushed = false;
+        let mut trigger_handle = None;
+        let mut txn = super::super::Transaction::new();
+        let mut wb = rocksdb::WriteBatch::default();
+
+        recv_connector_acked_or_loaded_or_flushed(
+            &mut accumulator,
+            &db,
+            &http_client,
+            Some(Response {
+                acknowledged: Some(response::Acknowledged { state: None }),
+                ..Default::default()
+            }),
+            &mut saw_acknowledged,
+            &mut saw_flush,
+            &mut saw_flushed,
+            &dummy_task,
+            &compiled_triggers,
+            &mut trigger_handle,
+            &mut txn,
+            &mut wb,
+        )
+        .await
+        .unwrap();
+
+        // Await the spawned trigger delivery, then delete params.
+        trigger_handle.take().unwrap().await.unwrap().unwrap();
+        {
+            let mut wb = rocksdb::WriteBatch::default();
+            wb.delete(RocksDB::TRIGGER_PARAMS);
+            db.write_opt(wb, Default::default()).await.unwrap();
+        }
+
+        assert_eq!(call_count.load(Ordering::SeqCst), 3);
+        assert!(
+            db.load_trigger_params::<TriggerVariables>()
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        // Step 3: Another Acknowledged does not re-fire since parameters are cleared.
+        saw_acknowledged = false;
+
+        recv_connector_acked_or_loaded_or_flushed(
+            &mut accumulator,
+            &db,
+            &http_client,
+            Some(Response {
+                acknowledged: Some(response::Acknowledged { state: None }),
+                ..Default::default()
+            }),
+            &mut saw_acknowledged,
+            &mut saw_flush,
+            &mut saw_flushed,
+            &dummy_task,
+            &compiled_triggers,
+            &mut trigger_handle,
+            &mut txn,
+            &mut wb,
+        )
+        .await
+        .unwrap();
+
+        assert!(trigger_handle.is_none(), "no trigger spawned");
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            3,
+            "no additional webhooks"
+        );
+    }
 }

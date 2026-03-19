@@ -1,4 +1,6 @@
-use super::{LoadKeySet, RequestStream, ResponseStream, Transaction, connector, protocol::*};
+use super::{
+    LoadKeySet, RequestStream, ResponseStream, Transaction, connector, protocol::*, triggers,
+};
 use crate::Accumulator;
 use crate::{LogHandler, Runtime, rocksdb::RocksDB, verify};
 use anyhow::Context;
@@ -62,7 +64,7 @@ async fn serve_unary<L: LogHandler>(
     let mut wb = rocksdb::WriteBatch::default();
     recv_client_unary(db, &mut request, &mut wb).await?;
 
-    let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
+    let (connector_tx, mut connector_rx, _) = connector::start(runtime, request.clone()).await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     let verify = verify("connector", "unary response");
@@ -86,8 +88,18 @@ async fn serve_session<L: LogHandler>(
 ) -> anyhow::Result<Option<Request>> {
     recv_client_open(&mut open, &db).await?;
 
-    // Start connector stream and read Opened.
-    let (mut connector_tx, mut connector_rx) = connector::start(runtime, open.clone()).await?;
+    let trigger_http_client = reqwest::Client::new();
+
+    // Start connector stream (which also decrypts triggers) and read Opened.
+    let (mut connector_tx, mut connector_rx, open_extras) =
+        connector::start(runtime, open.clone()).await?;
+
+    let connector::OpenExtras {
+        compiled_triggers,
+        connector_image,
+    } = open_extras;
+    let compiled_triggers = compiled_triggers.map(std::sync::Arc::new);
+
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
     let (
@@ -116,6 +128,7 @@ async fn serve_session<L: LogHandler>(
         let mut saw_flush = false;
         let mut saw_flushed = false;
         let mut saw_reset = false;
+        let mut trigger_handle: Option<tokio::task::JoinHandle<anyhow::Result<()>>> = None;
         let mut send_fut = None;
         let mut txn = Transaction::new();
         let mut wb = rocksdb::WriteBatch::default();
@@ -171,12 +184,15 @@ async fn serve_session<L: LogHandler>(
                 Step::ConnectorRx(response) => {
                     if let Some(send) = recv_connector_acked_or_loaded_or_flushed(
                         &mut accumulator,
-                        &db,
+                        db,
+                        &trigger_http_client,
                         response,
                         &mut saw_acknowledged,
                         &mut saw_flush,
                         &mut saw_flushed,
                         &task,
+                        &compiled_triggers,
+                        &mut trigger_handle,
                         &mut txn,
                         &mut wb,
                     )
@@ -198,6 +214,16 @@ async fn serve_session<L: LogHandler>(
             anyhow::bail!(
                 "connector reset its connection unexpectedly but sent Flushed without an error"
             );
+        }
+
+        // Await any in-flight trigger delivery from the previous transaction.
+        if let Some(handle) = trigger_handle.take() {
+            let result: anyhow::Result<()> =
+                handle.await.context("trigger delivery task panicked")?;
+            result.context("trigger delivery failed")?;
+            let mut wb = rocksdb::WriteBatch::default();
+            wb.delete(RocksDB::TRIGGER_PARAMS);
+            db.write_opt(wb, Default::default()).await?;
         }
 
         // We must durably commit updates to `max_keys` now, before we send any Store
@@ -224,6 +250,12 @@ async fn serve_session<L: LogHandler>(
         }
         () = co.yield_(send_client_flushed(&mut buf, &task, &txn)).await;
 
+        let trigger_variables = if compiled_triggers.is_some() && !txn.stats.is_empty() {
+            Some(triggers::trigger_variables(&task, &txn, &connector_image))
+        } else {
+            None
+        };
+
         // Read StartCommit and forward to the connector.
         let start_commit = request_rx.try_next().await?;
         let (start_commit, wb) = recv_client_start_commit(last_checkpoint, start_commit, &mut txn)?;
@@ -237,7 +269,9 @@ async fn serve_session<L: LogHandler>(
 
         // Read StartedCommit and forward to the client.
         let started_commit = connector_rx.try_next().await?;
-        let started_commit = recv_connector_started_commit(&db, started_commit, wb).await?;
+        let started_commit =
+            recv_connector_started_commit(&db, started_commit, wb, trigger_variables.as_ref())
+                .await?;
         () = co.yield_(started_commit).await;
 
         last_checkpoint = txn.checkpoint;
