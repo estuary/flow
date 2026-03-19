@@ -33,7 +33,22 @@ BEGIN
             id uuid primary key,
             email text,
             is_sso_user boolean,
-            raw_user_meta_data jsonb
+            raw_user_meta_data jsonb,
+            created_at timestamptz default now(),
+            banned_until timestamptz
+        );
+        create table auth.sso_providers (
+            id uuid primary key
+        );
+        create table auth.identities (
+            user_id uuid references auth.users(id),
+            provider text,
+            provider_id text,
+            identity_data jsonb
+        );
+        create table auth.sessions (
+            id uuid primary key default gen_random_uuid(),
+            user_id uuid references auth.users(id)
         );
 
         -- Stub for auth.uid() function.
