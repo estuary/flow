@@ -1,5 +1,6 @@
 ---
 source: crates/proto-flow/tests/regression.rs
+assertion_line: 932
 expression: json_test(msg)
 ---
 {
@@ -190,5 +191,6 @@ expression: json_test(msg)
     {
       "number": 9000
     }
-  ]
+  ],
+  "triggers": [{"method":"POST","payloadTemplate":"{}","url":"https://example.com/webhook"}]
 }

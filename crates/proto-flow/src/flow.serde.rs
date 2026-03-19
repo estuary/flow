@@ -3821,6 +3821,9 @@ impl serde::Serialize for MaterializationSpec {
         if !self.inactive_bindings.is_empty() {
             len += 1;
         }
+        if !self.triggers_json.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -3850,6 +3853,11 @@ impl serde::Serialize for MaterializationSpec {
         if !self.inactive_bindings.is_empty() {
             struct_ser.serialize_field("inactiveBindings", &self.inactive_bindings)?;
         }
+        if !self.triggers_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("triggers", &crate::as_raw_json(&self.triggers_json)?)?;
+        }
         struct_ser.end()
     }
 }
@@ -3874,6 +3882,8 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             "networkPorts",
             "inactive_bindings",
             "inactiveBindings",
+            "triggers_json",
+            "triggers",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3886,6 +3896,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             RecoveryLogTemplate,
             NetworkPorts,
             InactiveBindings,
+            TriggersJson,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3915,6 +3926,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             "recoveryLogTemplate" | "recovery_log_template" => Ok(GeneratedField::RecoveryLogTemplate),
                             "networkPorts" | "network_ports" => Ok(GeneratedField::NetworkPorts),
                             "inactiveBindings" | "inactive_bindings" => Ok(GeneratedField::InactiveBindings),
+                            "triggers" | "triggers_json" => Ok(GeneratedField::TriggersJson),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3942,6 +3954,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                 let mut recovery_log_template__ = None;
                 let mut network_ports__ = None;
                 let mut inactive_bindings__ = None;
+                let mut triggers_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -3994,6 +4007,14 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             }
                             inactive_bindings__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::TriggersJson => {
+                            if triggers_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("triggers"));
+                            }
+                            triggers_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(MaterializationSpec {
@@ -4005,6 +4026,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                     recovery_log_template: recovery_log_template__,
                     network_ports: network_ports__.unwrap_or_default(),
                     inactive_bindings: inactive_bindings__.unwrap_or_default(),
+                    triggers_json: triggers_json__.unwrap_or_default(),
                 })
             }
         }

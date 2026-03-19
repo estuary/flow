@@ -310,6 +310,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         }],
         network_ports: ex_network_ports(),
         inactive_bindings: Vec::new(),
+        triggers_json: json!([{"url": "https://example.com/webhook", "method": "POST", "payloadTemplate": "{}"}]).to_string().into(),
     }
 }
 

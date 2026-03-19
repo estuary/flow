@@ -1,5 +1,6 @@
 ---
 source: crates/proto-flow/tests/regression.rs
+assertion_line: 938
 expression: proto_test(msg)
 ---
 |0a166163 6d65436f 2f6d6174 65726961| ..acmeCo/materia 00000000
@@ -66,5 +67,10 @@ expression: proto_test(msg)
 |61746510 03222108 80804010 041a1473| ate.."!...@....s 000003d0
 |333a2f2f 6275636b 65742f72 65636f76| 3://bucket/recov 000003e0
 |65727922 0308ac02 3a0c0890 3f120568| ery"....:...?..h 000003f0
-|74747073 18013a03 08a846|            ttps..:...F      00000400
-                                                       0000040b
+|74747073 18013a03 08a84652 4e5b7b22| ttps..:...FRN[{" 00000400
+|6d657468 6f64223a 22504f53 54222c22| method":"POST"," 00000410
+|7061796c 6f616454 656d706c 61746522| payloadTemplate" 00000420
+|3a227b7d 222c2275 726c223a 22687474| :"{}","url":"htt 00000430
+|70733a2f 2f657861 6d706c65 2e636f6d| ps://example.com 00000440
+|2f776562 686f6f6b 227d5d|            /webhook"}]      00000450
+                                                       0000045b
