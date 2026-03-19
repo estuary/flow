@@ -1,0 +1,18 @@
+---
+source: crates/models/src/triggers.rs
+expression: "serde_json::to_value(&triggers).unwrap()"
+---
+{
+  "config": [
+    {
+      "headers": {
+        "Authorization": "Bearer secret"
+      },
+      "maxAttempts": 0,
+      "method": "POST",
+      "payloadTemplate": "",
+      "timeoutSecs": 0,
+      "url": "https://example.com/webhook"
+    }
+  ]
+}

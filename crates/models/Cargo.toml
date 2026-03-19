@@ -12,6 +12,7 @@ license.workspace = true
 # NOTE(johnny): DO NOT add proto-flow or proto-gazette to this crate.
 
 anyhow = { workspace = true }
+handlebars = { workspace = true }
 async-graphql = { workspace = true, optional = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
