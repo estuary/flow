@@ -648,6 +648,9 @@ pub struct MaterializationSpec {
     /// overlap with active bindings.
     #[prost(message, repeated, tag = "9")]
     pub inactive_bindings: ::prost::alloc::vec::Vec<materialization_spec::Binding>,
+    /// JSON-encoded trigger configurations for this materialization.
+    #[prost(bytes = "bytes", tag = "10")]
+    pub triggers_json: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {

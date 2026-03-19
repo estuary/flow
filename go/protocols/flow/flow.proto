@@ -468,6 +468,11 @@ message MaterializationSpec {
   // Inactive bindings are unique by their resource path, and have no
   // overlap with active bindings.
   repeated Binding inactive_bindings = 9;
+  // JSON-encoded trigger configurations for this materialization.
+  bytes triggers_json = 10 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "triggers"
+  ];
 }
 
 // OAuth2 describes an OAuth2 provider
