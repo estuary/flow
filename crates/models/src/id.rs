@@ -16,6 +16,19 @@ pub struct Id([u8; 8]);
 #[cfg(feature = "async-graphql")]
 async_graphql::scalar!(Id);
 
+#[cfg(feature = "async-graphql")]
+impl async_graphql::connection::CursorType for Id {
+    type Error = <Id as FromStr>::Err;
+
+    fn decode_cursor(s: &str) -> Result<Self, Self::Error> {
+        Id::from_hex(s)
+    }
+
+    fn encode_cursor(&self) -> String {
+        self.to_string()
+    }
+}
+
 impl Id {
     pub const fn new(b: [u8; 8]) -> Self {
         Self(b)

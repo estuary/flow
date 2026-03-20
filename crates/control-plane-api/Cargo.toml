@@ -81,3 +81,11 @@ insta = { workspace = true }
 md5 = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
+
+# We need to define a feature with this name in order to allow us to use the
+# `sqlx_json` macro from the models crate. This is because the macro definition
+# wraps everything in `#[cfg("sqlx-support")]`, which gets interpreted by
+# whichever crate is _using_ the macro.
+[features]
+default = ["sqlx-support"]
+sqlx-support = []
