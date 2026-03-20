@@ -120,7 +120,7 @@ The connector can optionally require each request to present an authentication t
 
 ### CORS allowed origins
 
-Under **Endpoint Config**, you can set [CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS) (Cross-Origin Resource Sharing) allowed origins for your webhook URLs. By default, CORS will be disabled. Enable it by adding at least one allowed request origin to the list. Each value in the list will be permitted by the [`Access-Control-Allow-Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin) header.
+Under **Endpoint Config**, you can set [CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS) (Cross-Origin Resource Sharing) allowed origins for your webhook URLs. By default, all origins are allowed (`*`). To restrict access, replace the wildcard with specific allowed origins. Set to an empty array to disable CORS entirely. Each value in the list will be permitted by the [`Access-Control-Allow-Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin) header. The wildcard `*` must not be used when an authentication token is configured.
 
 ### Webhook signature verification
 
@@ -202,7 +202,7 @@ To reliably capture webhook data, the sender must retry any requests that fail w
 | **** | EndpointConfig |  | object | Required |
 | `/requireAuthToken` | Authentication token | Optional bearer token to authenticate webhook requests. WARNING: If this is empty or unset, then anyone who knows the URL of the connector will be able to write data to your collections. | null, string | `null` |
 | `/paths` | URL Paths |  List of URL paths to accept requests at. Discovery will return a separate collection for each given path. Paths must be provided without any percent encoding, and should not include any query parameters or fragment. | null, string | `null` |
-| `/allowedCorsOrigins` | CORS Allowed Origins | List of allowed CORS origins. If empty, CORS will be disabled. | string array | `[]` |
+| `/allowedCorsOrigins` | CORS Allowed Origins | List of allowed CORS origins. Set to an empty array to disable CORS. Must not include `*` when an authentication token is configured. | string array | `["*"]` |
 | `/signatureConfig` | Signature Verification | Configuration for verifying webhook signatures. | object | `{"provider": "none"}` |
 
 #### Signature Config: None
