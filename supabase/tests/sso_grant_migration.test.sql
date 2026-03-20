@@ -27,8 +27,8 @@ declare
   provider_acme uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
   provider_bigcorp uuid = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
-  old_alice uuid = '11111111-1111-1111-1111-111111111111';
-  new_alice uuid = '55555555-5555-5555-5555-555555555555';
+  old_alice uuid = 'a1111111-1111-1111-1111-111111111111';
+  new_alice uuid = 'a5555555-5555-5555-5555-555555555555';
 begin
   perform tests._clean_sso_migration();
 
@@ -66,7 +66,7 @@ begin
   -- bigcorpCo/ (different SSO provider) should be skipped.
   return next results_eq(
     $i$ select object_role::text, capability::text
-        from user_grants where user_id = '55555555-5555-5555-5555-555555555555'
+        from user_grants where user_id = 'a5555555-5555-5555-5555-555555555555'
         order by object_role $i$,
     $i$ values ('acmeCo/', 'admin'), ('openCo/', 'write') $i$,
     'matching SSO + non-SSO grants transferred to new user'
@@ -75,7 +75,7 @@ begin
   -- Old user's grants are preserved (account is banned but grants kept for potential reactivation).
   return next results_eq(
     $i$ select count(*)::int from user_grants
-        where user_id = '11111111-1111-1111-1111-111111111111' $i$,
+        where user_id = 'a1111111-1111-1111-1111-111111111111' $i$,
     $i$ values (3) $i$,
     'old user grants preserved'
   );
@@ -83,7 +83,7 @@ begin
   -- Old user is banned in GoTrue.
   return next results_eq(
     $i$ select (banned_until > now())::boolean from auth.users
-        where id = '11111111-1111-1111-1111-111111111111' $i$,
+        where id = 'a1111111-1111-1111-1111-111111111111' $i$,
     $i$ values (true) $i$,
     'old user banned in GoTrue'
   );
@@ -91,21 +91,21 @@ begin
   -- Old user sessions cleaned up.
   return next is_empty(
     $i$ select 1 from auth.sessions
-        where user_id = '11111111-1111-1111-1111-111111111111' $i$,
+        where user_id = 'a1111111-1111-1111-1111-111111111111' $i$,
     'old user sessions deleted'
   );
 
   -- Old user refresh tokens cleaned up.
   return next is_empty(
     $i$ select 1 from refresh_tokens
-        where user_id = '11111111-1111-1111-1111-111111111111' $i$,
+        where user_id = 'a1111111-1111-1111-1111-111111111111' $i$,
     'old user refresh tokens deleted'
   );
 
   -- bigcorpCo/ grant (different SSO provider) was NOT transferred.
   return next is_empty(
     $i$ select 1 from user_grants
-        where user_id = '55555555-5555-5555-5555-555555555555'
+        where user_id = 'a5555555-5555-5555-5555-555555555555'
           and object_role = 'bigcorpCo/' $i$,
     'grant on tenant with different SSO provider not transferred'
   );
@@ -119,8 +119,8 @@ create function tests.test_sso_grant_migration_capability_upgrade()
 returns setof text as $$
 declare
   provider_acme uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-  old_bob uuid = '22222222-2222-2222-2222-222222222222';
-  new_bob uuid = '66666666-6666-6666-6666-666666666666';
+  old_bob uuid = 'a2222222-2222-2222-2222-222222222222';
+  new_bob uuid = 'a6666666-6666-6666-6666-666666666666';
 begin
   perform tests._clean_sso_migration();
 
@@ -148,7 +148,7 @@ begin
 
   return next results_eq(
     $i$ select capability::text from user_grants
-        where user_id = '66666666-6666-6666-6666-666666666666'
+        where user_id = 'a6666666-6666-6666-6666-666666666666'
           and object_role = 'openCo/' $i$,
     $i$ values ('admin') $i$,
     'capability upgraded from read to admin'
@@ -163,8 +163,8 @@ create function tests.test_sso_grant_migration_capability_no_downgrade()
 returns setof text as $$
 declare
   provider_acme uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-  old_bob uuid = '22222222-2222-2222-2222-222222222222';
-  new_bob uuid = '66666666-6666-6666-6666-666666666666';
+  old_bob uuid = 'a2222222-2222-2222-2222-222222222222';
+  new_bob uuid = 'a6666666-6666-6666-6666-666666666666';
 begin
   perform tests._clean_sso_migration();
 
@@ -192,7 +192,7 @@ begin
 
   return next results_eq(
     $i$ select capability::text from user_grants
-        where user_id = '66666666-6666-6666-6666-666666666666'
+        where user_id = 'a6666666-6666-6666-6666-666666666666'
           and object_role = 'openCo/' $i$,
     $i$ values ('admin') $i$,
     'capability not downgraded from admin to read'
@@ -207,7 +207,7 @@ create function tests.test_sso_grant_migration_no_old_user()
 returns setof text as $$
 declare
   provider_acme uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-  new_carol uuid = '77777777-7777-7777-7777-777777777777';
+  new_carol uuid = 'a7777777-7777-7777-7777-777777777777';
 begin
   perform tests._clean_sso_migration();
 
@@ -222,7 +222,7 @@ begin
   -- No grants should exist (none to migrate).
   return next is_empty(
     $i$ select 1 from user_grants
-        where user_id = '77777777-7777-7777-7777-777777777777' $i$,
+        where user_id = 'a7777777-7777-7777-7777-777777777777' $i$,
     'no grants created for brand-new SSO user with no prior social account'
   );
 
@@ -237,8 +237,8 @@ declare
   provider_acme uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
   provider_bigcorp uuid = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
-  old_eve uuid = '44444444-4444-4444-4444-444444444444';
-  new_eve uuid = '99999999-9999-9999-9999-999999999999';
+  old_eve uuid = 'a4444444-4444-4444-4444-444444444444';
+  new_eve uuid = 'a9999999-9999-9999-9999-999999999999';
 begin
   perform tests._clean_sso_migration();
 
@@ -267,7 +267,7 @@ begin
   -- acmeCo/team/data/ should transfer (sub-prefix of matching SSO tenant).
   return next results_eq(
     $i$ select object_role::text, capability::text
-        from user_grants where user_id = '99999999-9999-9999-9999-999999999999'
+        from user_grants where user_id = 'a9999999-9999-9999-9999-999999999999'
         order by object_role $i$,
     $i$ values ('acmeCo/team/data/', 'write') $i$,
     'sub-prefix grant under matching SSO tenant transferred'
@@ -276,7 +276,7 @@ begin
   -- bigcorpCo/eng/ should NOT transfer (sub-prefix of different SSO tenant).
   return next is_empty(
     $i$ select 1 from user_grants
-        where user_id = '99999999-9999-9999-9999-999999999999'
+        where user_id = 'a9999999-9999-9999-9999-999999999999'
           and object_role = 'bigcorpCo/eng/' $i$,
     'sub-prefix grant under different SSO tenant not transferred'
   );
@@ -289,8 +289,8 @@ $$ language plpgsql;
 create function tests.test_sso_grant_migration_non_sso_identity()
 returns setof text as $$
 declare
-  old_dave uuid = '33333333-3333-3333-3333-333333333333';
-  new_dave uuid = '88888888-8888-8888-8888-888888888888';
+  old_dave uuid = 'a3333333-3333-3333-3333-333333333333';
+  new_dave uuid = 'a8888888-8888-8888-8888-888888888888';
 begin
   perform tests._clean_sso_migration();
 
@@ -315,7 +315,7 @@ begin
   -- Old Dave's grants should still be intact.
   return next results_eq(
     $i$ select count(*)::int from user_grants
-        where user_id = '33333333-3333-3333-3333-333333333333' $i$,
+        where user_id = 'a3333333-3333-3333-3333-333333333333' $i$,
     $i$ values (1) $i$,
     'old user grants untouched for non-SSO identity insert'
   );
@@ -323,7 +323,7 @@ begin
   -- New Dave should have no grants (trigger didn't fire).
   return next is_empty(
     $i$ select 1 from user_grants
-        where user_id = '88888888-8888-8888-8888-888888888888' $i$,
+        where user_id = 'a8888888-8888-8888-8888-888888888888' $i$,
     'no grants migrated for non-SSO identity'
   );
 
