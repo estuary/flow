@@ -40,6 +40,11 @@ BEGIN
         create table auth.sso_providers (
             id uuid primary key
         );
+        create table auth.sso_domains (
+            id uuid primary key default gen_random_uuid(),
+            sso_provider_id uuid references auth.sso_providers(id),
+            domain text not null
+        );
         create table auth.identities (
             user_id uuid references auth.users(id),
             provider text,
