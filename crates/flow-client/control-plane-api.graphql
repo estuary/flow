@@ -301,6 +301,103 @@ type ConnectionHealthTestResult {
 	allPassed: Boolean!
 }
 
+type Connector {
+	"""
+	Unique id of the connector
+	"""
+	id: Id!
+	"""
+	Timestamp of when the connector was first created
+	"""
+	createdAt: DateTime!
+	"""
+	Link to an external site with more information about the endpoint
+	"""
+	externalUrl: String!
+	"""
+	Name of the conector's OCI (Docker) Container image, for example "ghcr.io/estuary/source-postgres"
+	"""
+	imageName: String!
+	"""
+	Does Estuary's marketing team want this one to appear at the top of the results?
+	"""
+	recommended: Boolean!
+	"""
+	Brief human readable description, at most a few sentences
+	"""
+	shortDescription: String
+	"""
+	A longform description of this connector
+	"""
+	longDescription: String
+	"""
+	The title, a few words at most
+	"""
+	title: String
+	"""
+	The connector's logo image, represented as a URL per locale
+	"""
+	logoUrl: String
+	"""
+	All the tags that are available for this connector.
+	"""
+	tags: [ConnectorTagRef!]!
+	"""
+	Returns the ConnectorTag object for the given image tag, which must begin with a `:`.
+	"""
+	connectorTag(
+		"""
+		the OCI Image tag, including the leading ':', e.g. ':v1'
+		"""
+		imageTag: String,
+		"""
+		Whether to return the default connector tag instead when the requested tag is not present or has not had a successful Spec RPC
+		"""
+		orDefault: Boolean!
+	): ConnectorTag
+	"""
+	Returns the default `ConnectorTag` for this connector. This is the one
+	that should be used by default when publishing new tasks for this
+	connector. There will only be a default image tag if at least one tag
+	has successfully completed the connector Spec RPC.
+	"""
+	defaultImageTag: String
+}
+
+type ConnectorConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [ConnectorEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type ConnectorEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Connector!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+The type of task that the connector is used for. Note that derivation
+connectors do exist, but aren't yet represented in `connector_tags`.
+"""
+enum ConnectorProto {
+	capture
+	materialization
+}
+
 """
 The shape of a connector status, which matches that of an ops::Log.
 """
@@ -322,6 +419,75 @@ type ConnectorStatus {
 	specific fields and their meanings are entirely up to the connector.
 	"""
 	fields: JSONObject!
+}
+
+type ConnectorTag {
+	"""
+	Unique id of the connector tag
+	"""
+	id: Id!
+	"""
+	The id of the connector this tag relates to.
+	"""
+	connectorId: Id!
+	"""
+	The OCI Image tag value, including the leading `:`. For example `:v1`
+	"""
+	imageTag: String!
+	"""
+	The protocol of the connector with this tag value
+	"""
+	protocol: ConnectorProto
+	"""
+	Time at which the ConnectorTag was created
+	"""
+	createdAt: DateTime!
+	"""
+	Time at which the ConnectorTag was last updated
+	"""
+	updatedAt: DateTime!
+	"""
+	URL pointing to the documentation page for this connector
+	"""
+	documentationUrl: String
+	"""
+	Endpoint specification JSON-Schema of the tagged connector
+	"""
+	endpointSpecSchema: JSON
+	"""
+	Resource specification JSON-Schema of the tagged connector
+	"""
+	resourceSpecSchema: JSON
+	"""
+	Whether the UI should hide the backfill button for this connector
+	"""
+	disableBackfill: Boolean!
+}
+
+type ConnectorTagRef {
+	"""
+	The OCI image tag, includeing the leading `:`, for example `:v2`
+	"""
+	imageTag: String!
+	"""
+	The protocol of this connector tag, if known
+	"""
+	protocol: ConnectorProto
+	"""
+	Returns whether a connector Spec RPC has ever been successful for this tag.
+	Concretely, this is used to determine whether the tag could be used by the
+	UI or flowctl for publishing tasks, because the Spec RPC populates the
+	`endpointSpecSchema`, `resourceSpecSchema`, `protocol`, etc.
+	"""
+	specSucceeded: Boolean!
+	"""
+	The canonical id of this connector tag
+	"""
+	id: Id!
+}
+
+input ConnectorsFilter {
+	protocol: ProtocolFilter!
 }
 
 """
@@ -776,21 +942,21 @@ type LockFailure {
 type MutationRoot {
 	"""
 	Create a storage mapping for the given catalog prefix.
-	
+
 	This validates that the user has admin access to the catalog prefix,
 	runs health checks to verify that data planes can access the storage buckets,
 	and then saves the storage mapping to the database.
-	
+
 	All health checks must pass before the storage mapping is created.
 	"""
 	createStorageMapping(catalogPrefix: Prefix!, detail: String, spec: JSON!): CreateStorageMappingResult!
 	"""
 	Update an existing storage mapping for the given catalog prefix.
-	
+
 	This validates that the user has admin access to the catalog prefix,
 	runs health checks to verify that data planes can access the storage buckets,
 	and then updates the storage mapping in the database.
-	
+
 	Health checks for newly added stores or data planes must pass before the
 	storage mapping is updated. Health check failures for existing stores/data planes
 	are allowed (they were already validated when created).
@@ -798,10 +964,10 @@ type MutationRoot {
 	updateStorageMapping(catalogPrefix: Prefix!, detail: String, spec: JSON!): UpdateStorageMappingResult!
 	"""
 	Check storage health for a given catalog prefix and storage definition.
-	
+
 	This validates the inputs, verifies that the user has admin access to the catalog prefix,
 	and runs health checks to verify that data planes can access the storage buckets.
-	
+
 	Unlike create/update mutations, this does not modify any data and always returns
 	health check results (both successes and failures) rather than erroring on failures.
 	"""
@@ -822,7 +988,7 @@ type MutationRoot {
 	deleteAlertSubscription(prefix: Prefix!, email: String!): AlertSubscription!
 	"""
 	Create an invite link that grants access to a catalog prefix.
-	
+
 	The caller must have admin capability on the catalog prefix.
 	Share the returned token with the intended recipient out-of-band.
 	"""
@@ -834,7 +1000,7 @@ type MutationRoot {
 	redeemInviteLink(token: UUID!): RedeemInviteLinkResult!
 	"""
 	Delete an invite link, revoking it so it can no longer be redeemed.
-	
+
 	The caller must have admin capability on the invite link's catalog prefix.
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
@@ -928,6 +1094,10 @@ input PrefixesBy {
 	minCapability: Capability!
 }
 
+input ProtocolFilter {
+	eq: ConnectorProto!
+}
+
 """
 Summary of a publication that was attempted by a controller.
 """
@@ -1004,7 +1174,7 @@ type QueryRoot {
 	"""
 	Returns a paginated list of live specs under the given prefix and
 	matching the given type.
-	
+
 	Note that the `user_capability` that's returned as part of the reference
 	represents the user's capability to the whole prefix, and it is possible
 	that there are more specific grants for a broader capability. In other
@@ -1028,25 +1198,68 @@ type QueryRoot {
 	alertSubscriptions(by: AlertSubscriptionsBy!): [AlertSubscription!]!
 	"""
 	Returns storage mappings accessible to the current user.
-	
+
 	Requires at least read capability to the queried prefixes.
 	Results are paginated and sorted by catalog_prefix.
 	"""
 	storageMappings(by: StorageMappingsBy!, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
 	"""
 	Returns data planes accessible to the current user.
-	
+
 	Results are paginated and sorted by data_plane_name.
 	Only data planes the user has at least read capability to are returned.
 	"""
 	dataPlanes(after: String, before: String, first: Int, last: Int): DataPlaneConnection!
 	"""
 	List invite links the caller has admin access to.
-	
+
 	Returns invite links under all prefixes where the caller has admin
 	capability, optionally narrowed by a prefix filter.
 	"""
 	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
+	"""
+	Returns the ConnectorTag for a given full (including the version) OCI
+	image name. The returned tag may be different from the version in the
+	image name. This would happen if there is no connector spec for the
+	given tag, but one exists for a different tag. The return value will be
+	null if either the connector image is unkown, or if there has not been a
+	successful Spec for any version of that image.
+	"""
+	connectorTag(
+		"""
+		the full OCI image name, including the version tag, e.g. 'ghcr.io/estuary/source-foo:v1'
+		"""
+		fullImageName: String,
+		"""
+		the id of the connectorTag, with or without ':' separators, e.g. '1122334455aabbcc'
+		"""
+		id: Id
+	): ConnectorTag
+	"""
+	Returns information about a single connector, which may or may not have
+	had a successful Spec RPC, and thus may or may not be usable in the
+	Estuary UI. At least one parameter must be provided. If multiple
+	parameters are provided, then the connector must match _both_ the image
+	name and id parameters in order to be returned.
+	"""
+	connector(
+		"""
+		the OCI image name, without a version tag, e.g. 'ghcr.io/estuary/source-foo'
+		"""
+		imageName: String,
+		"""
+		the id of the connector, with or without ':' separators, e.g. '1122334455aabbcc'
+		"""
+		id: Id
+	): Connector
+	"""
+	Returns a paginated list of connectors. This query only returns
+	connectors that have at least one `ConnectorTag` that has had a
+	successful Spec RPC. Connectors that have not had at least one
+	successful Spec RPC cannot be used by the Estuary UI, and so are
+	excluded here.
+	"""
+	connectors(filter: ConnectorsFilter!, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 }
 
 """
