@@ -89,7 +89,11 @@ begin
               excluded.capability
             ),
             updated_at = now(),
-            detail = excluded.detail;
+            detail = case
+              when excluded.capability > public.user_grants.capability
+              then excluded.detail
+              else public.user_grants.detail
+            end;
     end if;
   end loop;
 
