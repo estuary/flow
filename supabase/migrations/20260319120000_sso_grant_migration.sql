@@ -109,11 +109,6 @@ begin
     set banned_until = '2999-01-01'::timestamptz
     where id = old_user_id;
 
-  -- Record suspension for our own tracking.
-  -- insert into internal.account_suspensions (user_id, reason)
-  -- values (old_user_id, 'Replaced by SSO account ' || NEW.user_id::text)
-  -- on conflict (user_id) do nothing;
-
   return null;
 end;
 $$;
