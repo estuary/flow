@@ -23,4 +23,5 @@ __pycache__
 # OS generated files
 .DS_Store
 
-.claude/
+.claude/*
+!.claude/skills/
