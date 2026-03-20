@@ -65,6 +65,15 @@ Billing alerts are automatically subscribed to when a user inputs their email in
 | **`/catalogPrefix`**| Prefix | Subscribe to notifications for this tenant| string |
 | **`/email`** | Email  | Alert the following email with all notifications | string |
 
+## Send Alerts to Slack
+
+You can send alert notifications to Slack via email.
+
+Slack provides several methods to [send emails to Slack](https://slack.com/intl/en-au/help/articles/206819278-Send-emails-to-Slack), including creating a dedicated email address or using an add-on.
+Depending on the method, you can route emails to a specific channel or conversation.
+
+Whichever method you use, configure the associated email address as an Estuary notification recipient to receive alerts in Slack.
+
 ## Set Up Alerts in External Platforms
 
 Beyond Estuary's built-in alerting capabilities, you can also configure your own alerts in platforms like Datadog and Grafana.
