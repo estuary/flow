@@ -36,10 +36,12 @@ begin
     where id = NEW.user_id;
 
   if new_user_email is null then
-    return NEW;
+    return null;
   end if;
 
-  -- Find the most recent social-auth user with a matching email.
+  -- Find the prior social-auth user with a matching email. OAuth auto-linking
+  -- means there's typically one social account per email, but limit 1 guards
+  -- against edge cases (e.g. duplicates from disabled linking or data fixes).
   select id into old_user_id
     from auth.users
     where email = new_user_email
@@ -49,7 +51,7 @@ begin
     limit 1;
 
   if old_user_id is null then
-    return NEW;
+    return null;
   end if;
 
   -- Process each grant on the old user. Use a lateral join to find
@@ -112,7 +114,7 @@ begin
   -- values (old_user_id, 'Replaced by SSO account ' || NEW.user_id::text)
   -- on conflict (user_id) do nothing;
 
-  return NEW;
+  return null;
 end;
 $$;
 
