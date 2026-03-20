@@ -13,6 +13,9 @@ begin
     select id from auth.users where email like '%@sso-migration-test.example'
   );
   delete from auth.users where email like '%@sso-migration-test.example';
+  -- Delete role_grants and tenants before sso_providers (FK + trigger constraints).
+  delete from role_grants where subject_role = 'estuary_support/';
+  delete from tenants;
   delete from auth.sso_providers where id in (
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
@@ -60,7 +63,7 @@ begin
 
   -- This INSERT fires the trigger.
   insert into auth.identities (user_id, provider, provider_id, identity_data) values
-    (new_alice, 'sso', provider_acme::text, '{}'::jsonb);
+    (new_alice, 'sso:' || provider_acme::text, provider_acme::text, '{}'::jsonb);
 
   -- acmeCo/ (matching SSO) and openCo/ (no SSO) should transfer.
   -- bigcorpCo/ (different SSO provider) should be skipped.
@@ -144,7 +147,7 @@ begin
 
   -- Trigger fires: old Bob's admin should upgrade new Bob's read.
   insert into auth.identities (user_id, provider, provider_id, identity_data) values
-    (new_bob, 'sso', provider_acme::text, '{}'::jsonb);
+    (new_bob, 'sso:' || provider_acme::text, provider_acme::text, '{}'::jsonb);
 
   return next results_eq(
     $i$ select capability::text from user_grants
@@ -188,7 +191,7 @@ begin
 
   -- Trigger fires: old Bob's read should NOT downgrade new Bob's admin.
   insert into auth.identities (user_id, provider, provider_id, identity_data) values
-    (new_bob, 'sso', provider_acme::text, '{}'::jsonb);
+    (new_bob, 'sso:' || provider_acme::text, provider_acme::text, '{}'::jsonb);
 
   return next results_eq(
     $i$ select capability::text from user_grants
@@ -217,7 +220,7 @@ begin
     (new_carol, 'carol@sso-migration-test.example', true);
 
   insert into auth.identities (user_id, provider, provider_id, identity_data) values
-    (new_carol, 'sso', provider_acme::text, '{}'::jsonb);
+    (new_carol, 'sso:' || provider_acme::text, provider_acme::text, '{}'::jsonb);
 
   -- No grants should exist (none to migrate).
   return next is_empty(
@@ -262,7 +265,7 @@ begin
     (new_eve, 'eve@sso-migration-test.example', true);
 
   insert into auth.identities (user_id, provider, provider_id, identity_data) values
-    (new_eve, 'sso', provider_acme::text, '{}'::jsonb);
+    (new_eve, 'sso:' || provider_acme::text, provider_acme::text, '{}'::jsonb);
 
   -- acmeCo/team/data/ should transfer (sub-prefix of matching SSO tenant).
   return next results_eq(

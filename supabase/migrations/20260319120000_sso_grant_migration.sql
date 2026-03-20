@@ -70,7 +70,7 @@ begin
     where ug.user_id = old_user_id
   loop
     if grant_row.tenant_sso_provider_id is not null
-       and grant_row.tenant_sso_provider_id is distinct from NEW.provider_id::uuid
+       and grant_row.tenant_sso_provider_id is distinct from substring(NEW.provider from 5)::uuid
     then
       -- Tenant has a different SSO provider: skip.
       null;
@@ -118,10 +118,12 @@ begin
 end;
 $$;
 
+drop trigger if exists on_sso_identity_insert on auth.identities;
+
 create trigger on_sso_identity_insert
   after insert on auth.identities
   for each row
-  when (NEW.provider = 'sso')
+  when (NEW.provider like 'sso:%')
   execute function internal.on_sso_identity_insert();
 
 commit;
