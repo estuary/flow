@@ -75,6 +75,7 @@ func newTaskBase[TaskSpec pf.Task](
 
 	term, err := newTaskTerm[TaskSpec](nil, extractFn, host, opsPublisher, shard)
 	if err != nil {
+		opsCancel()
 		return nil, err
 	}
 
@@ -88,6 +89,7 @@ func newTaskBase[TaskSpec pf.Task](
 		opsPublisher.PublishLog,
 	)
 	if err != nil {
+		opsCancel()
 		return nil, fmt.Errorf("creating task service: %w", err)
 	}
 

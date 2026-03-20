@@ -101,12 +101,7 @@ expression: json_test(msg)
     "binding": 4,
     "doc": {"loaded":"doc"}
   },
-  "flushed": {
-    "state": {
-      "updated": {"state":"update"},
-      "mergePatch": true
-    }
-  },
+  "flushed": {},
   "startedCommit": {
     "state": {
       "updated": {"state":"update"},

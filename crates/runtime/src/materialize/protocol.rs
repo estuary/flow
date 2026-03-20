@@ -322,7 +322,6 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
     saw_flushed: &mut bool,
     task: &Task,
     txn: &mut Transaction,
-    wb: &mut rocksdb::WriteBatch,
 ) -> anyhow::Result<Option<Response>> {
     match response {
         Some(Response {
@@ -374,7 +373,7 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
             }))
         }
         Some(Response {
-            flushed: Some(response::Flushed { state }),
+            flushed: Some(response::Flushed {}),
             ..
         }) => {
             if !*saw_acknowledged {
@@ -384,11 +383,6 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
                 anyhow::bail!("connector sent Flushed before receiving Flush");
             }
             *saw_flushed = true;
-
-            if let Some(state) = state {
-                // Add to WriteBatch which is synchronously written with max-keys updates.
-                queue_connector_state_update(&state, wb).context("invalid Flushed")?;
-            }
 
             Ok(None)
         }
@@ -499,7 +493,7 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
     };
 
     Response {
-        flushed: Some(response::Flushed { state: None }),
+        flushed: Some(response::Flushed {}),
         ..Default::default()
     }
     .with_internal_buf(buf, |internal| {

@@ -496,14 +496,8 @@ pub mod response {
     }
     /// Flushed responds to a Request.Flush.
     /// The driver will send no further Loaded responses.
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Flushed {
-        /// Optional update to ConnectorState.
-        /// This update is durably written before the connector receives a following
-        /// Store or StartCommit request.
-        #[prost(message, optional, tag = "1")]
-        pub state: ::core::option::Option<super::super::flow::ConnectorState>,
-    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Flushed {}
     /// StartedCommit responds to a Request.StartCommit.
     /// The driver has processed all Store requests, it has started to commit its
     /// transaction (if it has one), and it is now ready for the runtime to start

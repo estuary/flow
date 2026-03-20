@@ -1,51 +1,49 @@
 syntax = "proto3";
 
 package ops;
-option go_package = "github.com/estuary/flow/go/protocols/ops";
 
 import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
 import "google/protobuf/timestamp.proto";
 
+option go_package = "github.com/estuary/flow/go/protocols/ops";
+option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
-option (gogoproto.goproto_getters_all) = false;
 
 // The type of a catalog task.
 enum TaskType {
-    invalid_type = 0;
-    capture = 1;
-    derivation = 2;
-    materialization = 3;
+  invalid_type = 0;
+  capture = 1;
+  derivation = 2;
+  materialization = 3;
 }
 
 // ShardLabeling is a parsed and validated representation of the Flow
 // labels which are attached to Gazette ShardSpecs, that are understood
 // by the Flow runtime and influence its behavior with respect to the shard.
 message ShardLabeling {
-	// Catalog build identifier which the task uses.
+  // Catalog build identifier which the task uses.
   string build = 1;
-	// Network-addressable hostname of this task shard.
-	string hostname = 2;
-	// Logging level of the task.
-	Log.Level log_level = 3;
-	// Key and R-Clock range of the shard.
-	flow.RangeSpec range = 5 [(gogoproto.nullable) = false];
-	// If non-empty, the shard which this task is splitting from.
+  // Network-addressable hostname of this task shard.
+  string hostname = 2;
+  // Logging level of the task.
+  Log.Level log_level = 3;
+  // Key and R-Clock range of the shard.
+  flow.RangeSpec range = 5 [(gogoproto.nullable) = false];
+  // If non-empty, the shard which this task is splitting from.
   string split_source = 6;
-	// If non-empty, the shard which this task is splitting into.
-	string split_target = 7;
-	// Name of the shard's task.
+  // If non-empty, the shard which this task is splitting into.
+  string split_target = 7;
+  // Name of the shard's task.
   string task_name = 8;
-	// Type of this task (capture, derivation, or materialization).
-	TaskType task_type = 9;
+  // Type of this task (capture, derivation, or materialization).
+  TaskType task_type = 9;
   // Journal to which task logs are directed.
-  string logs_journal = 10
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  string logs_journal = 10 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
   // Journal to which task stats are directed.
-  string stats_journal = 11
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  string stats_journal = 11 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
   // Flags are arbitrary string-valued feature flags set on the task's shard template.
   map<string, string> flags = 12;
 }
@@ -66,7 +64,7 @@ message ShardRef {
 
 // Common Meta sub-document of Log and Stats documents.
 message Meta {
-    string uuid = 1;
+  string uuid = 1;
 }
 
 // Log is Flow's unified representation of task logs.
@@ -87,7 +85,7 @@ message Log {
     info = 3;
     debug = 4;
     trace = 5;
-  };
+  }
   Level level = 4;
   // Message of the log.
   string message = 5;
@@ -128,10 +126,10 @@ message Stats {
 
   // CaptureBinding represents stats for a single binding of a capture task.
   message CaptureBinding {
-      DocsAndBytes right = 1;
-      DocsAndBytes out = 2;
-      // The most recent publish timestamp of documents captured by this binding.
-      google.protobuf.Timestamp last_published_at = 3;
+    DocsAndBytes right = 1;
+    DocsAndBytes out = 2;
+    // The most recent publish timestamp of documents captured by this binding.
+    google.protobuf.Timestamp last_published_at = 3;
   }
 
   // Capture metrics.
@@ -162,14 +160,14 @@ message Stats {
 
   // MaterializeBinding represents stats for a single binding of a materialization task.
   message MaterializeBinding {
-      DocsAndBytes left = 1;
-      DocsAndBytes right = 2;
-      DocsAndBytes out = 3;
-      // The most recent publish timestamp from the source documents that were
-      // read by this binding.
-      google.protobuf.Timestamp last_source_published_at = 4;
-      // Total bytes behind across all source journals of this binding.
-      uint64 bytes_behind = 5;
+    DocsAndBytes left = 1;
+    DocsAndBytes right = 2;
+    DocsAndBytes out = 3;
+    // The most recent publish timestamp from the source documents that were
+    // read by this binding.
+    google.protobuf.Timestamp last_source_published_at = 4;
+    // Total bytes behind across all source journals of this binding.
+    uint64 bytes_behind = 5;
   }
 
   // Materialization metrics.

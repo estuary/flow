@@ -1,7 +1,6 @@
 syntax = "proto3";
 
 package runtime;
-option go_package = "github.com/estuary/flow/go/protocols/runtime";
 
 import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
@@ -9,10 +8,11 @@ import "go/protocols/flow/flow.proto";
 import "go/protocols/ops/ops.proto";
 import "gogoproto/gogo.proto";
 
+option go_package = "github.com/estuary/flow/go/protocols/runtime";
+option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
-option (gogoproto.goproto_getters_all) = false;
 
 // Plane describes the type of data plane in which the runtime is operating.
 enum Plane {
@@ -30,7 +30,7 @@ message TaskServiceConfig {
   string task_name = 2;
   string uds_path = 3;
   string container_network = 4;
-  Plane  plane = 6;
+  Plane plane = 6;
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.
@@ -49,8 +49,7 @@ message TaskServiceConfig {
 // common "read rings" which consolidate their underlying journal reads.
 message ShuffleRequest {
   // Journal to be shuffled.
-  string journal = 1
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  string journal = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
   // Is this a reply of the journal's content? We separate ongoing vs replayed
   // reads of a journal's content into distinct rings.
   bool replay = 2;
@@ -58,19 +57,16 @@ message ShuffleRequest {
   string build_id = 3;
 
   // Offset to begin reading the journal from.
-  int64 offset = 4
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  int64 offset = 4 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset"];
   // Offset to stop reading the journal at, or zero if unbounded.
-  int64 end_offset = 5
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  int64 end_offset = 5 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset"];
   // Ranges of responsibility which are unique to this reader,
   // against which document shuffle outcomes are matched to determine
   // read eligibility.
-  flow.RangeSpec range = 6 [ (gogoproto.nullable) = false ];
+  flow.RangeSpec range = 6 [(gogoproto.nullable) = false];
 
   // Coordinator is the Shard ID which is responsible for reads of this journal.
-  string coordinator = 7
-      [ (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID" ];
+  string coordinator = 7 [(gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID"];
   // Resolution header of the |shuffle.coordinator| shard.
   protocol.Header resolution = 8;
 
@@ -101,27 +97,24 @@ message ShuffleResponse {
   // retried.
   string terminal_error = 3;
   // Offset which was read through to produce this ShuffleResponse.
-  int64 read_through = 4
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  int64 read_through = 4 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset"];
   // WriteHead of the journal as reported by the broker, as of the creation of
   // this ShuffleResponse.
-  int64 write_head = 5
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  int64 write_head = 5 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset"];
   // Memory arena of this message.
-  bytes arena = 6 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+  bytes arena = 6 [(gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena"];
   // Shuffled documents, each encoded in the 'application/json'
   // media-type.
-  repeated flow.Slice docs = 7 [ (gogoproto.nullable) = false ];
+  repeated flow.Slice docs = 7 [(gogoproto.nullable) = false];
   // The journal offsets of each document within the requested journal.
   // For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1]
   // ).
-  repeated int64 offsets = 8
-      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  repeated int64 offsets = 8 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset"];
   // UUIDParts of each document.
-  repeated flow.UUIDParts uuid_parts = 9 [ (gogoproto.nullable) = false ];
+  repeated flow.UUIDParts uuid_parts = 9 [(gogoproto.nullable) = false];
   // Packed, embedded encoding of the shuffle key into a byte string.
   // If the Shuffle specified a Hash to use, it's applied as well.
-  repeated flow.Slice packed_key = 10 [ (gogoproto.nullable) = false ];
+  repeated flow.Slice packed_key = 10 [(gogoproto.nullable) = false];
 }
 
 service Shuffler {
@@ -129,10 +122,10 @@ service Shuffler {
 }
 
 message RocksDBDescriptor {
-    // Instrumented RocksDB environment which should be opened.
-    fixed64 rocksdb_env_memptr = 1;
-    // Path to the RocksDB directory to be opened.
-    string rocksdb_path = 2;
+  // Instrumented RocksDB environment which should be opened.
+  fixed64 rocksdb_env_memptr = 1;
+  // Path to the RocksDB directory to be opened.
+  string rocksdb_path = 2;
 }
 
 // Container is a description of a running connector container.
@@ -166,7 +159,6 @@ message CaptureRequestExt {
   StartCommit start_commit = 3;
 }
 
-
 message CaptureResponseExt {
   Container container = 1;
 
@@ -176,10 +168,10 @@ message CaptureResponseExt {
   Opened opened = 2;
 
   message Captured {
-      // Packed key extracted from the captured document.
-      bytes key_packed = 1;
-      // Packed partition values extracted from the captured document.
-      bytes partitions_packed = 2;
+    // Packed key extracted from the captured document.
+    bytes key_packed = 1;
+    // Packed partition values extracted from the captured document.
+    bytes partitions_packed = 2;
   }
   Captured captured = 3;
 
@@ -225,12 +217,12 @@ message DeriveResponseExt {
   Opened opened = 2;
 
   message Published {
-      // Maximum UUID Clock of sourced document clocks which lead to this published document.
-      fixed64 max_clock = 1;
-      // Packed key extracted from the published document.
-      bytes key_packed = 2;
-      // Packed partition values extracted from the published document.
-      bytes partitions_packed = 3;
+    // Maximum UUID Clock of sourced document clocks which lead to this published document.
+    fixed64 max_clock = 1;
+    // Packed key extracted from the published document.
+    bytes key_packed = 2;
+    // Packed partition values extracted from the published document.
+    bytes partitions_packed = 3;
   }
   Published published = 3;
 
@@ -264,7 +256,7 @@ message CombineRequest {
       // Composite key to combine over, as JSON-Pointers.
       repeated string key = 2;
       // Projections of the collection, which must include all `key` and `values` pointers.
-      repeated flow.Projection projections = 3 [ (gogoproto.nullable) = false ];
+      repeated flow.Projection projections = 3 [(gogoproto.nullable) = false];
       // Collection JSON-Schema to reduce over.
       bytes schema_json = 4 [(gogoproto.casttype) = "encoding/json.RawMessage"];
       // Optional SerPolicy to use for extracted fields and the document.
@@ -274,9 +266,9 @@ message CombineRequest {
       string uuid_ptr = 6;
       // Values to extract and return.
       repeated string values = 7;
-    };
+    }
     repeated Binding bindings = 1;
-  };
+  }
   Open open = 1;
 
   message Add {
@@ -286,7 +278,7 @@ message CombineRequest {
     bytes doc_json = 2 [(gogoproto.casttype) = "encoding/json.RawMessage"];
     // Add document to the front (true), or back (false) of the combiner?
     bool front = 3;
-  };
+  }
   Add add = 2;
 }
 
@@ -319,8 +311,7 @@ message ConnectorProxyRequest {
 message ConnectorProxyResponse {
   // Address to dial for invoking connector RPCs.
   // Sent with the first response.
-  string address = 1
-    [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Endpoint" ];
+  string address = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Endpoint"];
 
   // Proxy ID to be attached as metadata key "proxy-id" to connector RPCs.
   // Sent with the first response.

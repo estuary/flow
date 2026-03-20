@@ -1,16 +1,16 @@
 syntax = "proto3";
 
 package materialize;
-option go_package = "github.com/estuary/flow/go/protocols/materialize";
 
 import "consumer/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
 
+option go_package = "github.com/estuary/flow/go/protocols/materialize";
+option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
-option (gogoproto.goproto_getters_all) = false;
 
 service Connector {
   rpc Materialize(stream Request) returns (stream Response);
@@ -40,9 +40,7 @@ message Request {
   // potential issues for the user to address.
   message Validate {
     // Name of the materialization being validated.
-    string name = 1
-        [ (gogoproto.casttype) =
-              "github.com/estuary/flow/go/protocols/flow.Materialization" ];
+    string name = 1 [(gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Materialization"];
     // Connector type addressed by this request.
     flow.MaterializationSpec.ConnectorType connector_type = 2;
     // Connector configuration, as an encoded JSON object.
@@ -59,7 +57,7 @@ message Request {
         json_name = "resourceConfig"
       ];
       // Collection to be materialized.
-      flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+      flow.CollectionSpec collection = 2 [(gogoproto.nullable) = false];
       // Projection configuration, keyed by the projection field name,
       // with JSON-encoded and driver-defined configuration objects.
       map<string, bytes> field_config_json_map = 3 [
@@ -186,8 +184,8 @@ message Request {
     bytes values_packed = 5;
     // JSON document to store.
     bytes doc_json = 6 [
-        (gogoproto.casttype) = "encoding/json.RawMessage",
-        json_name = "doc"
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "doc"
     ];
     // Exists is true if this document has previously been loaded or stored.
     bool exists = 7;
@@ -210,7 +208,7 @@ message Request {
   Acknowledge acknowledge = 9;
 
   // Reserved for internal use.
-  bytes internal = 100 [ json_name = "$internal" ];
+  bytes internal = 100 [json_name = "$internal"];
 }
 
 message Response {
@@ -405,8 +403,8 @@ message Response {
     uint32 binding = 1;
     // Loaded JSON document.
     bytes doc_json = 2 [
-        (gogoproto.casttype) = "encoding/json.RawMessage",
-        json_name = "doc"
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "doc"
     ];
   }
   Loaded loaded = 5;
@@ -414,10 +412,7 @@ message Response {
   // Flushed responds to a Request.Flush.
   // The driver will send no further Loaded responses.
   message Flushed {
-    // Optional update to ConnectorState.
-    // This update is durably written before the connector receives a following
-    // Store or StartCommit request.
-    flow.ConnectorState state = 1;
+    reserved 1;
   }
   Flushed flushed = 6;
 
@@ -449,7 +444,7 @@ message Response {
   Acknowledged acknowledged = 8;
 
   // Reserved for internal use.
-  bytes internal = 100 [ json_name = "$internal" ];
+  bytes internal = 100 [json_name = "$internal"];
 }
 
 // Extra messages used by connectors

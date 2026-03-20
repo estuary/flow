@@ -1,17 +1,17 @@
 syntax = "proto3";
 
 package flow;
-option go_package = "github.com/estuary/flow/go/protocols/flow";
 
 import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
 import "gogoproto/gogo.proto";
 import "google/protobuf/timestamp.proto";
 
+option go_package = "github.com/estuary/flow/go/protocols/flow";
+option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
-option (gogoproto.goproto_getters_all) = false;
 
 // Slice represents a contiguous slice of bytes within an associated Arena.
 message Slice {
@@ -45,8 +45,7 @@ message UUIDParts {
   fixed64 node = 1;
   // Clock is a v1 UUID 60-bit timestamp (60 MSBs), followed by 4 bits of
   // sequence counter.
-  fixed64 clock = 2
-      [ (gogoproto.casttype) = "go.gazette.dev/core/message.Clock" ];
+  fixed64 clock = 2 [(gogoproto.casttype) = "go.gazette.dev/core/message.Clock"];
 }
 
 // Projection is a mapping between a document location, specified as a
@@ -65,7 +64,7 @@ message Projection {
   // Does this location form (part of) the collection key?
   bool is_primary_key = 5;
   // Inference of this projection.
-  Inference inference = 6 [ (gogoproto.nullable) = false ];
+  Inference inference = 6 [(gogoproto.nullable) = false];
 }
 
 // Inference details type information which is statically known
@@ -88,7 +87,7 @@ message Inference {
     // The location cannot exist. For example, it's outside of permitted
     // array bounds, or is a disallowed property, or has an impossible type.
     CANNOT = 4;
-  };
+  }
   // Reduce enumerates the possible `reduce` strategies for a location.
   enum Reduce {
     REDUCE_UNSET = 0;
@@ -203,7 +202,7 @@ message CollectionSpec {
   // Next tag: 13.
 
   // Name of this collection.
-  string name = 1 [ (gogoproto.casttype) = "Collection" ];
+  string name = 1 [(gogoproto.casttype) = "Collection"];
   // Bundled write-time JSON Schema of the collection.
   bytes write_schema_json = 8 [
     (gogoproto.casttype) = "encoding/json.RawMessage",
@@ -223,12 +222,12 @@ message CollectionSpec {
   // Partitions are always in ascending lexicographic order on their field name.
   repeated string partition_fields = 5;
   // Logical projections of this collection, ordered on ascending field.
-  repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
+  repeated Projection projections = 6 [(gogoproto.nullable) = false];
   // JSON-encoded document template for creating Gazette consumer
   // transaction acknowledgements of writes into this collection.
-  bytes ack_template_json = 7
-      [ (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "ackTemplate"
+  bytes ack_template_json = 7 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "ackTemplate"
   ];
   // Template for partitions of this collection.
   protocol.JournalSpec partition_template = 9;
@@ -258,11 +257,11 @@ message CollectionSpec {
       // Next tag: 14.
 
       // Stable and unique name of this transform.
-      string name = 1 [ (gogoproto.casttype) = "Transform" ];
+      string name = 1 [(gogoproto.casttype) = "Transform"];
       // Source collection which is read by this transform.
-      CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+      CollectionSpec collection = 2 [(gogoproto.nullable) = false];
       // Selector of collection partitions which this materialization reads.
-      protocol.LabelSelector partition_selector = 3 [ (gogoproto.nullable) = false ];
+      protocol.LabelSelector partition_selector = 3 [(gogoproto.nullable) = false];
       // Priority of this transform, with respect to other transforms of the derivation.
       // Higher values imply higher priority.
       uint32 priority = 4;
@@ -295,7 +294,7 @@ message CollectionSpec {
       // Every increment of this counter results in a new backfill.
       uint32 backfill = 13;
     }
-    repeated Transform transforms = 3 [ (gogoproto.nullable) = false ];
+    repeated Transform transforms = 3 [(gogoproto.nullable) = false];
     // JSON types of shuffle key components extracted by the transforms of this derivation.
     enum ShuffleType {
       INVALID_SHUFFLE_TYPE = 0;
@@ -342,7 +341,7 @@ message FieldSelection {
 // CaptureSpec describes a collection and its capture from an endpoint.
 message CaptureSpec {
   // Name of this capture.
-  string name = 1 [ (gogoproto.casttype) = "Capture" ];
+  string name = 1 [(gogoproto.casttype) = "Capture"];
   // Type of the capture's connector.
   enum ConnectorType {
     INVALID = 0;
@@ -369,7 +368,7 @@ message CaptureSpec {
     // subresource being captured.
     repeated string resource_path = 2;
     // Collection to be captured into.
-    CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
+    CollectionSpec collection = 3 [(gogoproto.nullable) = false];
     // Backfill counter for this binding.
     // Every increment of this counter results in a new backfill.
     uint32 backfill = 4;
@@ -397,7 +396,7 @@ message CaptureSpec {
 // endpoint.
 message MaterializationSpec {
   // Name of this materialization.
-  string name = 1 [ (gogoproto.casttype) = "Materialization" ];
+  string name = 1 [(gogoproto.casttype) = "Materialization"];
   // Type of the materialization's connector.
   enum ConnectorType {
     INVALID = 0;
@@ -425,20 +424,20 @@ message MaterializationSpec {
     // subresource being materialized.
     repeated string resource_path = 2;
     // Collection to be materialized.
-    CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
+    CollectionSpec collection = 3 [(gogoproto.nullable) = false];
     // Selector of collection partitions which this materialization reads.
-    protocol.LabelSelector partition_selector = 7 [ (gogoproto.nullable) = false ];
+    protocol.LabelSelector partition_selector = 7 [(gogoproto.nullable) = false];
     // Priority of this binding, with respect to other bindings of the materialization.
     // Higher values imply higher priority.
     uint32 priority = 9;
     // Resolved fields selected for materialization.
-    FieldSelection field_selection = 4 [ (gogoproto.nullable) = false ];
+    FieldSelection field_selection = 4 [(gogoproto.nullable) = false];
     // Materialize delta updates of documents rather than full reductions.
     bool delta_updates = 5;
     // Deprecated shuffle message which holds an alternate location for `partition_selector`.
     message DeprecatedShuffle {
       string group_name = 1;
-      protocol.LabelSelector partition_selector = 3 [ (gogoproto.nullable) = false ];
+      protocol.LabelSelector partition_selector = 3 [(gogoproto.nullable) = false];
     }
     DeprecatedShuffle deprecated_shuffle = 6;
     // Stable, unique value used to suffix journal read checkpoints of this binding.
@@ -580,16 +579,16 @@ message TestSpec {
     // Scope of the test definition location.
     string step_scope = 4;
     // Collection ingested or verified by this step.
-    string collection = 5 [ (gogoproto.casttype) = "Collection" ];
+    string collection = 5 [(gogoproto.casttype) = "Collection"];
     // JSON documents to ingest or verify.
     repeated bytes docs_json_vec = 6 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "docs"
     ];
     // When verifying, selector over logical partitions of the collection.
-    protocol.LabelSelector partitions = 7 [ (gogoproto.nullable) = false ];
+    protocol.LabelSelector partitions = 7 [(gogoproto.nullable) = false];
   }
-  repeated Step steps = 2 [ (gogoproto.nullable) = false ];
+  repeated Step steps = 2 [(gogoproto.nullable) = false];
 }
 
 // RangeSpec describes the ranges of shuffle keys and r-clocks which a reader
@@ -669,16 +668,15 @@ message ExtractAPI {
     string uuid_ptr = 1;
     // JSON schema to validate non-ACK documents against.
     // If empty then schema validation is not performed.
-    bytes schema_json = 2
-        [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
+    bytes schema_json = 2 [(gogoproto.casttype) = "encoding/json.RawMessage"];
     // Field JSON pointers to extract from documents and return as packed
     // tuples.
     repeated string field_ptrs = 3;
     // A set of Projections which must include `field_ptrs`.
     // TODO(johnny): This is a kludge as we seek to remove this API.
-    repeated Projection projections = 4 [ (gogoproto.nullable) = false ];
-  };
-};
+    repeated Projection projections = 4 [(gogoproto.nullable) = false];
+  }
+}
 
 // ContentType enumerates the content types understood by Flow.
 enum ContentType {
@@ -719,14 +717,16 @@ message ResetStateRequest {}
 message ResetStateResponse {}
 
 // AdvanceTimeRequest is the request of the Testing.AdvanceTime RPC.
-message AdvanceTimeRequest { uint64 advance_seconds = 1; }
+message AdvanceTimeRequest {
+  uint64 advance_seconds = 1;
+}
 
 // AdvanceTimeResponse is the response of the Testing.AdvanceTime RPC.
 message AdvanceTimeResponse {}
 
 message IngestRequest {
   // Name of the collection into which to ingest.
-  string collection = 1 [ (gogoproto.casttype) = "Collection" ];
+  string collection = 1 [(gogoproto.casttype) = "Collection"];
   // Build ID of the ingested collection.
   string build_id = 2;
   // JSON documents to ingest or verify.
@@ -744,7 +744,7 @@ message IngestResponse {
     (gogoproto.castvalue) = "go.gazette.dev/core/broker/protocol.Offset"
   ];
   // Etcd header which describes current journal partitions.
-  protocol.Header.Etcd journal_etcd = 2 [ (gogoproto.nullable) = false ];
+  protocol.Header.Etcd journal_etcd = 2 [(gogoproto.nullable) = false];
 }
 
 service Testing {
@@ -758,14 +758,11 @@ message TaskNetworkProxyRequest {
     // Header contains information about the shard resolution that was done by the client
     protocol.Header header = 1;
 
-    string shard_id = 2 [
-      (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID"
-    ];
+    string shard_id = 2 [(gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID"];
     // The port number inside the container that the client wishes to connect to.
     uint32 target_port = 3;
     // The network address of the client that is establishing the connection.
     string client_addr = 4;
-
   }
   Open open = 1;
   bytes data = 2;
@@ -778,15 +775,15 @@ message TaskNetworkProxyResponse {
   // though some statuses have taken on broader meanings.
   enum Status {
     OK = 0;
-  	// The named shard does not exist.
-  	SHARD_NOT_FOUND = 1;
-  	// There is no current primary consumer process for the shard. This is a
-  	// temporary condition which should quickly resolve, assuming sufficient
-  	// consumer capacity.
-  	NO_SHARD_PRIMARY = 2;
-  	// The present consumer process is not the assigned primary for the shard,
-  	// and was not instructed to proxy the request.
-  	NOT_SHARD_PRIMARY = 3;
+    // The named shard does not exist.
+    SHARD_NOT_FOUND = 1;
+    // There is no current primary consumer process for the shard. This is a
+    // temporary condition which should quickly resolve, assuming sufficient
+    // consumer capacity.
+    NO_SHARD_PRIMARY = 2;
+    // The present consumer process is not the assigned primary for the shard,
+    // and was not instructed to proxy the request.
+    NOT_SHARD_PRIMARY = 3;
     // Used to indicate an error in the proxying machinery.
     // This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is considered
     // a specific case of the broader category of "internal" errors, since the proxy API

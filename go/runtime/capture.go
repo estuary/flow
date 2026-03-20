@@ -64,7 +64,7 @@ func newCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 }
 
 // RestoreCheckpoint initializes a catalog task term and restores the last
-// persisted checkpoint, if any, by delegating to its JsonStore.
+// persisted checkpoint, if any.
 func (c *captureApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _err error) {
 	defer func() {
 		if _err != nil {

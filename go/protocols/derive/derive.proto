@@ -1,16 +1,16 @@
 syntax = "proto3";
 
 package derive;
-option go_package = "github.com/estuary/flow/go/protocols/derive";
 
 import "consumer/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
 
+option go_package = "github.com/estuary/flow/go/protocols/derive";
+option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
-option (gogoproto.goproto_getters_all) = false;
 
 service Connector {
   rpc Derive(stream Request) returns (stream Response);
@@ -47,13 +47,13 @@ message Request {
       json_name = "config"
     ];
     // Collection to be derived.
-    flow.CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
+    flow.CollectionSpec collection = 3 [(gogoproto.nullable) = false];
 
     message Transform {
       // Stable name of this transform.
       string name = 1;
       // Sourced collection of this transform.
-      flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+      flow.CollectionSpec collection = 2 [(gogoproto.nullable) = false];
       // JSON-encoded object which specifies the shuffle lambda configuration.
       // If this transform has no shuffle lambda, this is empty.
       bytes shuffle_lambda_config_json = 3 [
@@ -159,7 +159,7 @@ message Request {
   Reset reset = 7;
 
   // Reserved for internal use.
-  bytes internal = 100 [ json_name = "$internal" ];
+  bytes internal = 100 [json_name = "$internal"];
 }
 
 message Response {
@@ -242,5 +242,5 @@ message Response {
   StartedCommit started_commit = 6;
 
   // Reserved for internal use.
-  bytes internal = 100 [ json_name = "$internal" ];
+  bytes internal = 100 [json_name = "$internal"];
 }

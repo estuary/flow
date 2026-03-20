@@ -1,15 +1,15 @@
 syntax = "proto3";
 
 package capture;
-option go_package = "github.com/estuary/flow/go/protocols/capture";
 
 import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
 
+option go_package = "github.com/estuary/flow/go/protocols/capture";
+option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
-option (gogoproto.goproto_getters_all) = false;
 
 // A capture is a long-lived RPC through which the Flow runtime and a
 // connector cooperatively execute an unbounded number of transactions.
@@ -86,8 +86,7 @@ message Request {
   // Discover returns the set of resources available from this connector.
   message Discover {
     // Name of the capture being discovered.
-    string name = 3
-        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Capture" ];
+    string name = 3 [(gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Capture"];
     // Connector type addressed by this request.
     flow.CaptureSpec.ConnectorType connector_type = 1;
     // Connector configuration, as an encoded JSON object.
@@ -105,8 +104,7 @@ message Request {
   // potential issues for the user to address.
   message Validate {
     // Name of the capture being validated.
-    string name = 1
-        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Capture" ];
+    string name = 1 [(gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Capture"];
     // Connector type addressed by this request.
     flow.CaptureSpec.ConnectorType connector_type = 2;
     // Connector configuration, as an encoded JSON object.
@@ -123,7 +121,7 @@ message Request {
         json_name = "resourceConfig"
       ];
       // Collection to be captured.
-      flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+      flow.CollectionSpec collection = 2 [(gogoproto.nullable) = false];
       // Backfill counter for this binding.
       uint32 backfill = 3;
     }
@@ -190,7 +188,7 @@ message Request {
   Acknowledge acknowledge = 6;
 
   // Reserved for internal use.
-  bytes internal = 100 [ json_name = "$internal" ];
+  bytes internal = 100 [json_name = "$internal"];
 }
 
 message Response {
@@ -322,8 +320,8 @@ message Response {
     uint32 binding = 1;
     // Published JSON document.
     bytes doc_json = 2 [
-        (gogoproto.casttype) = "encoding/json.RawMessage",
-        json_name = "doc"
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "doc"
     ];
   }
   Captured captured = 6;
@@ -368,5 +366,5 @@ message Response {
   Checkpoint checkpoint = 7;
 
   // Reserved for internal use.
-  bytes internal = 100 [ json_name = "$internal" ];
+  bytes internal = 100 [json_name = "$internal"];
 }

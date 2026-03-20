@@ -695,9 +695,7 @@ fn ex_materialize_response() -> materialize::Response {
             binding: 4,
             doc_json: json!({"loaded": "doc"}).to_string().into(),
         }),
-        flushed: Some(materialize::response::Flushed {
-            state: Some(ex_connector_state()),
-        }),
+        flushed: Some(materialize::response::Flushed {}),
         started_commit: Some(materialize::response::StartedCommit {
             state: Some(ex_connector_state()),
         }),
