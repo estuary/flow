@@ -45,6 +45,10 @@ jwt_expiry = 604800
 # Allow/disallow new user signups to your project.
 enable_signup = true
 
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/check_sso_requirement"
+
 [auth.email]
 # Allow/disallow new user signups via email to your project.
 enable_signup = true
