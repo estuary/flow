@@ -60,13 +60,8 @@ begin
     select ug.object_role, ug.capability, ug.detail,
            t.sso_provider_id as tenant_sso_provider_id
     from public.user_grants ug
-    left join lateral (
-      select t2.sso_provider_id
-      from public.tenants t2
-      where ug.object_role ^@ t2.tenant
-      order by length(t2.tenant::text) desc
-      limit 1
-    ) t on true
+    left join public.tenants t
+      on t.tenant = split_part(ug.object_role::text, '/', 1) || '/'
     where ug.user_id = old_user_id
   loop
     if grant_row.tenant_sso_provider_id is not null
