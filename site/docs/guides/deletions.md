@@ -6,10 +6,11 @@ slug: /reference/deletions/
 
 Estuary supports two categories of deletions: **soft deletes** and **hard deletes**. These deletion types determine how documents are marked and treated within the system. Below is an explanation of each category.
 
-Delete events contain a very limited set of fields compared to create and update events.
-Only the primary key and meta information are present. The `_meta/op` field will be set to `d`.
+Delete events always contain the document's primary key and `_meta` fields, with `_meta/op` set to `d`.
+Depending on the source connector and its configuration, additional fields may also be present.
+For example, PostgreSQL CDC with `REPLICA IDENTITY FULL` will include all column values in the delete event.
 See [Document Metadata Fields](/guides/advanced-usage/metadata-fields) for details on all `_meta` fields.
-For example:
+For example, a minimal delete event:
 
 ```json
 {
@@ -68,7 +69,7 @@ There are a couple best practices to consider when writing derivations in conjun
 
 **Filtering**
 
-Since delete events lack most document fields, it can be easy to accidentally filter them out from downstream systems.
+Since delete events can lack standard document fields, it can be easy to accidentally filter them out from downstream systems.
 
 You may therefore want to explicitly check the `_meta/op` field as part of any filtering statement in your transformation logic.
 For example:

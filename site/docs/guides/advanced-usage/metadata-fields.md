@@ -31,7 +31,7 @@ If multiple documents are captured in a single transaction, each receives a `flo
 
 ### Delete Events
 
-Delete events (`op: "d"`) contain only the document key and `_meta` fields—other fields are omitted. When processing deletes, use the key to identify which document was removed. See the [deletions guide](/reference/deletions/) for handling soft and hard deletes.
+Delete events (`op: "d"`) always contain the document key and `_meta` fields. Depending on the source connector and its configuration, additional fields may also be present — for example, PostgreSQL CDC with `REPLICA IDENTITY FULL` includes all column values. When processing deletes, use the key to identify which document was removed. See the [deletions guide](/reference/deletions/) for handling soft and hard deletes.
 
 ## Common Source Fields (SQL Captures)
 
