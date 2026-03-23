@@ -9,7 +9,7 @@ expression: errors
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,
-        error: trigger 0: timeout_secs must be greater than 0,
+        error: trigger 0: timeout must be greater than 0,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,

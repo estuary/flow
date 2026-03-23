@@ -12,7 +12,7 @@ expression: triggers
       "maxAttempts": 5,
       "method": "POST",
       "payloadTemplate": "{\n  \"materialization\": \"{{materialization_name}}\",\n  \"auth\": \"{{headers.Authorization}}\",\n  \"tenant\": \"{{headers.X-Tenant-Id}}\",\n  \"collections\": [{{#each collection_names}}\"{{this}}\"{{#unless @last}}, {{/unless}}{{/each}}]\n}\n",
-      "timeoutSecs": 60,
+      "timeout": "1m",
       "url": "https://example.com/webhook"
     }
   ]

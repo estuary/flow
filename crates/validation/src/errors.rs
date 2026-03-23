@@ -358,7 +358,7 @@ pub enum Error {
 
     #[error("trigger {index}: invalid URL: {detail}")]
     TriggerInvalidUrl { index: usize, detail: String },
-    #[error("trigger {index}: timeout_secs must be greater than 0")]
+    #[error("trigger {index}: timeout must be greater than 0")]
     TriggerInvalidTimeout { index: usize },
     #[error("trigger {index}: payload template is invalid: {detail}")]
     TriggerTemplateInvalid { index: usize, detail: String },

@@ -11,7 +11,7 @@ expression: "serde_json::to_value(&triggers).unwrap()"
       "maxAttempts": 0,
       "method": "POST",
       "payloadTemplate": "",
-      "timeoutSecs": 0,
+      "timeout": "0s",
       "url": "https://example.com/webhook"
     }
   ]

@@ -24,7 +24,7 @@ test://example/db-views:
                 "tenant": "{{headers.X-Tenant-Id}}",
                 "collections": [{{#each collection_names}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]
               }
-            timeoutSecs: 60
+            timeout: 60s
             maxAttempts: 5
 "#,
     );
@@ -58,7 +58,7 @@ test://example/db-views:
         config:
           - url: "not a url"
             payloadTemplate: '{"bogus": "{{bogus}}"}'
-            timeoutSecs: 0
+            timeout: 0s
 "#,
     );
     insta::assert_debug_snapshot!(errors);

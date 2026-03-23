@@ -1729,6 +1729,7 @@ expression: "&schema"
         },
         "maxAttempts": {
           "title": "Maximum number of delivery attempts (including the initial attempt).",
+          "description": "The task is failed if all attempts are exhausted without a successful delivery.",
           "type": "integer",
           "format": "uint32",
           "default": 3,
@@ -1743,12 +1744,15 @@ expression: "&schema"
           "title": "Handlebars template for the JSON payload body.",
           "type": "string"
         },
-        "timeoutSecs": {
-          "title": "Request timeout in seconds.",
-          "type": "integer",
-          "format": "uint32",
-          "default": 30,
-          "minimum": 0
+        "timeout": {
+          "title": "Request timeout for each delivery attempt.",
+          "description": "The task is failed if all attempts are exhausted without a successful delivery.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "30s",
+          "pattern": "^\\d+(s|m|h|d)$"
         },
         "url": {
           "title": "URL of the webhook endpoint.",

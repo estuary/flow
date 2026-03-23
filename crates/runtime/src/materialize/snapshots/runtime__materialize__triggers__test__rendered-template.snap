@@ -11,6 +11,6 @@ expression: parsed
   "event": "materialization_transaction_completed",
   "flow_published_at_max": "2024-01-01T00:01:00Z",
   "flow_published_at_min": "2024-01-01T00:00:00Z",
-  "flow_run_id": "00000000-0000-0000-0000-000000000000",
-  "materialization": "acmeCo/example/materialization"
+  "materialization": "acmeCo/example/materialization",
+  "run_id": "2024-01-01T00:00:00.000Z"
 }

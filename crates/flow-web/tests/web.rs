@@ -227,7 +227,7 @@ fn test_strip_and_restore_trigger_hmac_excluded_fields() {
             "method": "POST",
             "headers": {"Authorization": "Bearer secret"},
             "payloadTemplate": "my template",
-            "timeoutSecs": 45,
+            "timeout": "45s",
             "maxAttempts": 5
         }]
     });
@@ -250,7 +250,7 @@ fn test_strip_and_restore_trigger_hmac_excluded_fields() {
 
     // HMAC-excluded fields replaced with placeholders; secret header untouched.
     assert_eq!(stripped_value["config"][0]["payloadTemplate"], "");
-    assert_eq!(stripped_value["config"][0]["timeoutSecs"], 0);
+    assert_eq!(stripped_value["config"][0]["timeout"], "0s");
     assert_eq!(stripped_value["config"][0]["maxAttempts"], 0);
     assert_eq!(
         stripped_value["config"][0]["headers"]["Authorization"],

@@ -607,13 +607,6 @@ async fn walk_materialization<C: Connectors>(
         None => bytes::Bytes::new(),
         Some(t) => {
             validate_triggers(scope.push_prop("triggers"), &t.config, errors);
-
-            // TODO(whb): SOPS HMAC integrity of encrypted triggers is currently
-            // only verified at runtime (in serve_session). To catch HMAC
-            // mismatches at publication time, the config-encryption service
-            // would need a decrypt endpoint that the agent could call during
-            // validation — the agent doesn't have SOPS keys in production.
-
             bytes::Bytes::from(serde_json::to_vec(t).expect("triggers must serialize"))
         }
     };
@@ -1075,7 +1068,7 @@ fn validate_triggers(
             _ => {}
         }
 
-        if trigger.timeout_secs == 0 {
+        if trigger.timeout.is_zero() {
             Error::TriggerInvalidTimeout { index }.push(scope, errors);
         }
 

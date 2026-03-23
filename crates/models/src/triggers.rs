@@ -1,6 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 /// # Triggers
 /// Webhook triggers that fire upon materialization transaction completion.
@@ -33,11 +34,13 @@ pub struct TriggerConfig {
     pub headers: BTreeMap<String, String>,
     /// # Handlebars template for the JSON payload body.
     pub payload_template: String,
-    /// # Request timeout in seconds.
-    #[serde(default = "default_timeout_secs")]
-    #[schemars(extend("default" = 30_u32))]
-    pub timeout_secs: u32,
+    /// # Request timeout for each delivery attempt.
+    /// The task is failed if all attempts are exhausted without a successful delivery.
+    #[serde(default = "default_timeout", with = "humantime_serde")]
+    #[schemars(schema_with = "super::duration_schema", extend("default" = "30s"))]
+    pub timeout: Duration,
     /// # Maximum number of delivery attempts (including the initial attempt).
+    /// The task is failed if all attempts are exhausted without a successful delivery.
     #[serde(default = "default_max_attempts")]
     #[schemars(extend("default" = 3_u32))]
     pub max_attempts: u32,
@@ -57,8 +60,8 @@ impl Default for HttpMethod {
     }
 }
 
-fn default_timeout_secs() -> u32 {
-    30
+fn default_timeout() -> Duration {
+    Duration::from_secs(30)
 }
 
 fn default_max_attempts() -> u32 {
@@ -74,7 +77,7 @@ pub struct TriggerVariables {
     pub materialization_name: String,
     pub flow_published_at_min: String,
     pub flow_published_at_max: String,
-    pub flow_run_id: String,
+    pub run_id: String,
 }
 
 impl TriggerVariables {
@@ -86,7 +89,7 @@ impl TriggerVariables {
             materialization_name: "acmeCo/example/materialization".to_string(),
             flow_published_at_min: "2024-01-01T00:00:00Z".to_string(),
             flow_published_at_max: "2024-01-01T00:01:00Z".to_string(),
-            flow_run_id: "00000000-0000-0000-0000-000000000000".to_string(),
+            run_id: "2024-01-01T00:00:00.000Z".to_string(),
         }
     }
 }
@@ -126,7 +129,7 @@ pub fn build_template_context(
 #[serde(rename_all = "camelCase")]
 pub struct HmacExcludedOriginals {
     pub payload_template: String,
-    pub timeout_secs: u32,
+    pub timeout: Duration,
     pub max_attempts: u32,
 }
 
@@ -139,7 +142,7 @@ pub fn strip_hmac_excluded_fields(triggers: &mut Triggers) -> Vec<HmacExcludedOr
         .iter_mut()
         .map(|config| HmacExcludedOriginals {
             payload_template: std::mem::take(&mut config.payload_template),
-            timeout_secs: std::mem::replace(&mut config.timeout_secs, 0),
+            timeout: std::mem::replace(&mut config.timeout, Duration::ZERO),
             max_attempts: std::mem::replace(&mut config.max_attempts, 0),
         })
         .collect()
@@ -152,7 +155,7 @@ pub fn restore_hmac_excluded_fields(
 ) {
     for (config, orig) in triggers.config.iter_mut().zip(originals) {
         config.payload_template = orig.payload_template;
-        config.timeout_secs = orig.timeout_secs;
+        config.timeout = orig.timeout;
         config.max_attempts = orig.max_attempts;
     }
 }
@@ -197,7 +200,7 @@ mod test {
                     .into_iter()
                     .collect(),
                 payload_template: "my template".to_string(),
-                timeout_secs: 45,
+                timeout: Duration::from_secs(45),
                 max_attempts: 5,
             }],
             sops: None,

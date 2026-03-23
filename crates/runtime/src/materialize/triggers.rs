@@ -74,7 +74,9 @@ pub fn trigger_variables(
         .map(|c| clock_to_rfc3339(&c))
         .unwrap_or_default();
 
-    let flow_run_id = uuid::Uuid::new_v4().to_string();
+    let run_id = time::OffsetDateTime::from(txn.started_at)
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default();
 
     TriggerVariables {
         collection_names,
@@ -82,7 +84,7 @@ pub fn trigger_variables(
         materialization_name,
         flow_published_at_min,
         flow_published_at_max,
-        flow_run_id,
+        run_id,
     }
 }
 
@@ -178,7 +180,6 @@ async fn send_single_webhook(
     base_backoff: std::time::Duration,
 ) -> anyhow::Result<()> {
     let total_attempts = trigger.max_attempts.max(1);
-    let timeout = std::time::Duration::from_secs(trigger.timeout_secs as u64);
 
     let mut last_err = String::new();
 
@@ -203,7 +204,7 @@ async fn send_single_webhook(
 
         let mut request = client
             .request(method, &trigger.url)
-            .timeout(timeout)
+            .timeout(trigger.timeout)
             .body(body.clone());
 
         if !has_content_type {
@@ -292,7 +293,7 @@ mod test {
             method: models::HttpMethod::POST,
             headers: Default::default(),
             payload_template: template.to_string(),
-            timeout_secs: 5,
+            timeout: std::time::Duration::from_secs(5),
             max_attempts: 3,
         }
     }
@@ -308,7 +309,7 @@ mod test {
   "materialization": "{{materialization_name}}",
   "flow_published_at_min": "{{flow_published_at_min}}",
   "flow_published_at_max": "{{flow_published_at_max}}",
-  "flow_run_id": "{{flow_run_id}}",
+  "run_id": "{{run_id}}",
   "auth": "{{headers.Authorization}}"
 }"#,
         );
@@ -371,7 +372,7 @@ mod test {
         stats.last_source_clock = Clock::from_unix(4000, 0);
 
         let mut vars = trigger_variables(&task, &txn, "ghcr.io/estuary/materialize-postgres:dev");
-        vars.flow_run_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890".to_string();
+        vars.run_id = "2024-06-15T12:30:00.000Z".to_string();
 
         insta::assert_json_snapshot!("trigger-variables", vars);
     }

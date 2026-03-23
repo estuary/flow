@@ -1,7 +1,7 @@
 use super::{
     LoadKeySet, RequestStream, ResponseStream, Transaction, connector,
     protocol::*,
-    triggers::{self, CompiledTriggers},
+    triggers,
 };
 use crate::Accumulator;
 use crate::{LogHandler, Runtime, rocksdb::RocksDB, verify};
@@ -66,7 +66,7 @@ async fn serve_unary<L: LogHandler>(
     let mut wb = rocksdb::WriteBatch::default();
     recv_client_unary(db, &mut request, &mut wb).await?;
 
-    let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
+    let (connector_tx, mut connector_rx, _) = connector::start(runtime, request.clone()).await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     let verify = verify("connector", "unary response");
@@ -90,65 +90,17 @@ async fn serve_session<L: LogHandler>(
 ) -> anyhow::Result<Option<Request>> {
     recv_client_open(&mut open, &db).await?;
 
-    // Extract trigger config and connector image from the spec.
-    let (triggers_json, connector_image) = {
-        let spec = open.open.as_ref().and_then(|o| o.materialization.as_ref());
-        let triggers_json = spec
-            .map(|s| &s.triggers_json)
-            .filter(|b| !b.is_empty())
-            .cloned();
-
-        // For IMAGE connectors, deserialize the config to extract the image name.
-        let connector_image = spec
-            .filter(|s| {
-                s.connector_type
-                    == proto_flow::flow::materialization_spec::ConnectorType::Image as i32
-            })
-            .and_then(|s| {
-                serde_json::from_slice::<models::ConnectorConfig>(&s.config_json)
-                    .ok()
-                    .map(|c| c.image)
-            })
-            .unwrap_or_default();
-
-        (triggers_json, connector_image)
-    };
-
-    // Decrypt trigger configs and pre-compile their Handlebars templates.
-    let compiled_triggers: Option<CompiledTriggers> = match triggers_json {
-        None => None,
-        Some(triggers_json) => {
-            let mut triggers: models::Triggers =
-                serde_json::from_slice(&triggers_json).context("parsing triggers JSON")?;
-
-            // Strip HMAC-excluded fields before decryption (they were stripped
-            // during encryption so SOPS HMAC doesn't cover them), then restore.
-            let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
-            let stripped = models::RawValue::from_value(
-                &serde_json::to_value(&triggers).context("serializing stripped triggers")?,
-            );
-
-            let mut decrypted: models::Triggers = serde_json::from_str(
-                unseal::decrypt_sops(&stripped)
-                    .await
-                    .context("decrypting triggers_json")?
-                    .get(),
-            )
-            .context("parsing decrypted triggers JSON")?;
-
-            models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
-
-            Some(
-                CompiledTriggers::compile(decrypted.config)
-                    .context("compiling trigger templates")?,
-            )
-        }
-    };
-
     let trigger_http_client = reqwest::Client::new();
 
-    // Start connector stream and read Opened.
-    let (mut connector_tx, mut connector_rx) = connector::start(runtime, open.clone()).await?;
+    // Start connector stream (which also decrypts triggers) and read Opened.
+    let (mut connector_tx, mut connector_rx, open_extras) =
+        connector::start(runtime, open.clone()).await?;
+
+    let connector::OpenExtras {
+        compiled_triggers,
+        connector_image,
+    } = open_extras;
+
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
     let (

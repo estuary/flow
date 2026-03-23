@@ -1,3 +1,4 @@
+use super::triggers::CompiledTriggers;
 use crate::{LogHandler, Runtime};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, TryStreamExt, channel::mpsc, stream::BoxStream};
@@ -8,14 +9,24 @@ use proto_flow::{
 use unseal;
 use zeroize::Zeroize;
 
+/// Ancillary data extracted during connector start for Open requests.
+pub struct OpenExtras {
+    /// Pre-compiled trigger configurations, if any were specified.
+    pub compiled_triggers: Option<CompiledTriggers>,
+    /// The OCI image name of the connector (empty for non-image connectors).
+    pub connector_image: String,
+}
+
 // Start a materialization connector as indicated by the `initial` Request.
-// Returns a pair of Streams for sending Requests and receiving Responses.
+// Returns a pair of Streams for sending Requests and receiving Responses,
+// plus OpenExtras with decrypted trigger configs and connector metadata.
 pub async fn start<L: LogHandler>(
     runtime: &Runtime<L>,
     mut initial: Request,
 ) -> anyhow::Result<(
     mpsc::Sender<Request>,
     BoxStream<'static, anyhow::Result<Response>>,
+    OpenExtras,
 )> {
     let log_level = initial.get_internal()?.log_level();
     let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
@@ -41,17 +52,17 @@ pub async fn start<L: LogHandler>(
         .boxed()
     }
 
-    let mut connector_rx = match endpoint {
+    let (mut connector_rx, connector_image) = match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
         }) => {
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
-            crate::image_connector::serve(
+            let rx = crate::image_connector::serve(
                 attach_container,
                 1, // Skip first (internal) Spec response.
-                image,
+                image.clone(),
                 runtime.log_handler.clone(),
                 log_level,
                 &runtime.container_network,
@@ -62,7 +73,9 @@ pub async fn start<L: LogHandler>(
                 runtime.plane,
             )
             .await?
-            .boxed()
+            .boxed();
+
+            (rx, image)
         }
         models::MaterializationEndpoint::Local(_)
             if !matches!(runtime.plane, crate::Plane::Local) =>
@@ -80,7 +93,7 @@ pub async fn start<L: LogHandler>(
         }) => {
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
-            crate::local_connector::serve(
+            let rx = crate::local_connector::serve(
                 command,
                 env,
                 runtime.log_handler.clone(),
@@ -88,10 +101,12 @@ pub async fn start<L: LogHandler>(
                 protobuf,
                 connector_rx,
             )?
-            .boxed()
+            .boxed();
+
+            (rx, String::new())
         }
         models::MaterializationEndpoint::Dekaf(_) => {
-            dekaf_connector::connector(connector_rx).boxed()
+            (dekaf_connector::connector(connector_rx).boxed(), String::new())
         }
     };
 
@@ -128,9 +143,53 @@ pub async fn start<L: LogHandler>(
         }
     }
 
+    // Decrypt trigger configs and pre-compile their Handlebars templates.
+    let triggers_json = initial
+        .open
+        .as_ref()
+        .and_then(|open| open.materialization.as_ref())
+        .map(|s| &s.triggers_json)
+        .filter(|b| !b.is_empty());
+
+    let compiled_triggers = match triggers_json {
+        None => None,
+        Some(triggers_json) => {
+            let mut triggers: models::Triggers =
+                serde_json::from_slice(triggers_json).context("parsing triggers JSON")?;
+
+            // Strip HMAC-excluded fields before decryption (they were stripped
+            // during encryption so SOPS HMAC doesn't cover them), then restore.
+            let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
+            let stripped = models::RawValue::from_value(
+                &serde_json::to_value(&triggers)
+                    .context("serializing stripped triggers")?,
+            );
+
+            let mut decrypted: models::Triggers = serde_json::from_str(
+                unseal::decrypt_sops(&stripped)
+                    .await
+                    .context("decrypting triggers_json")?
+                    .get(),
+            )
+            .context("parsing decrypted triggers JSON")?;
+
+            models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
+
+            Some(
+                CompiledTriggers::compile(decrypted.config)
+                    .context("compiling trigger templates")?,
+            )
+        }
+    };
+
+    let open_extras = OpenExtras {
+        compiled_triggers,
+        connector_image,
+    };
+
     connector_tx.try_send(initial).unwrap();
 
-    Ok((connector_tx, connector_rx))
+    Ok((connector_tx, connector_rx, open_extras))
 }
 
 fn extract_endpoint<'r>(

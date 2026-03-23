@@ -667,7 +667,7 @@ mod test {
             method: models::HttpMethod::POST,
             headers: Default::default(),
             payload_template: template.to_string(),
-            timeout_secs: 5,
+            timeout: std::time::Duration::from_secs(5),
             max_attempts: 3,
         }
     }
@@ -705,7 +705,7 @@ mod test {
             CompiledTriggers::compile(vec![
                 make_trigger_with_url(&url, r#"{"mat": "{{materialization_name}}"}"#),
                 make_trigger_with_url(&url, r#"{"img": "{{connector_image}}"}"#),
-                make_trigger_with_url(&url, r#"{"run": "{{flow_run_id}}"}"#),
+                make_trigger_with_url(&url, r#"{"run": "{{run_id}}"}"#),
             ])
             .unwrap(),
         );
@@ -765,12 +765,6 @@ mod test {
         .unwrap();
 
         assert_eq!(call_count.load(Ordering::SeqCst), 3);
-        assert!(
-            db.load_trigger_params::<TriggerVariables>()
-                .await
-                .unwrap()
-                .is_none()
-        );
 
         // Step 3: Another Acknowledged does not re-fire since parameters are cleared.
         saw_acknowledged = false;

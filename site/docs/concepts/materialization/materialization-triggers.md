@@ -83,11 +83,11 @@ materializations:
               "collections": [{{#each collection_names}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}],
               "publishedAtMin": "{{flow_published_at_min}}",
               "publishedAtMax": "{{flow_published_at_max}}",
-              "runId": "{{flow_run_id}}"
+              "runId": "{{run_id}}"
             }
-          # Request timeout in seconds.
-          # Optional. Default: 30.
-          timeoutSecs: 30
+          # Request timeout for each delivery attempt.
+          # Optional. Default: 30s.
+          timeout: 30s
           # Maximum number of delivery attempts (including the initial attempt).
           # Optional. Default: 3.
           maxAttempts: 3
@@ -102,7 +102,7 @@ materializations:
 | **`/triggers/config/*/method`** | HTTP Method | HTTP method for the request. One of `POST`, `PUT`, or `PATCH`. | string | `POST` |
 | **`/triggers/config/*/headers`** | Headers | HTTP headers to include in the request. Values are encrypted at rest. | object | |
 | **`/triggers/config/*/payloadTemplate`** | Payload Template | Handlebars template that renders to the JSON request body. | string | |
-| **`/triggers/config/*/timeoutSecs`** | Timeout | Request timeout in seconds. Must be greater than 0. | integer | `30` |
+| **`/triggers/config/*/timeout`** | Timeout | Request timeout for each delivery attempt. Must be greater than 0. The task is failed if all attempts are exhausted without a successful delivery. | string (duration) | `30s` |
 | **`/triggers/config/*/maxAttempts`** | Max Attempts | Maximum number of delivery attempts (including the initial attempt). | integer | `3` |
 
 ## Template variables
@@ -117,7 +117,7 @@ with the following variables:
 | `{{connector_image}}` | Docker image of the materialization connector. | `ghcr.io/estuary/materialize-postgres:dev` |
 | `{{flow_published_at_min}}` | Earliest document publish timestamp across all bindings in the transaction (RFC 3339). | `2024-01-15T08:30:00Z` |
 | `{{flow_published_at_max}}` | Latest document publish timestamp across all bindings in the transaction (RFC 3339). | `2024-01-15T08:31:00Z` |
-| `{{flow_run_id}}` | Unique identifier for this trigger invocation (UUID v4). | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
+| `{{run_id}}` | Wall-clock start time of the transaction (RFC 3339 with milliseconds). | `2024-01-15T08:30:00.000Z` |
 | `{{headers.Name}}` | Value of the header named `Name` from the trigger's `headers` configuration. Useful for injecting secrets into the payload body. | `Bearer my-secret-token` |
 
 Templates run in strict mode: referencing an undefined variable is an error.
@@ -218,7 +218,7 @@ triggers:
         {
           "apiKey": "{{headers.X-Api-Key}}",
           "materialization": "{{materialization_name}}",
-          "runId": "{{flow_run_id}}"
+          "runId": "{{run_id}}"
         }
 ```
 
@@ -237,7 +237,7 @@ triggers:
       headers:
         Authorization: "Token dbt-token"
       payloadTemplate: |
-        {"cause": "Estuary trigger {{flow_run_id}}"}
+        {"cause": "Estuary trigger {{run_id}}"}
 ```
 
 ## Delivery guarantees and retry behavior
@@ -249,7 +249,7 @@ triggers are re-fired on recovery.
 
 :::warning
 Because delivery is at-least-once, your webhook endpoint should be prepared
-to receive duplicate requests. You can use `{{flow_run_id}}` as an
+to receive duplicate requests. You can use `{{run_id}}` as an
 idempotency key to deduplicate on the receiving side.
 :::
 
@@ -287,6 +287,6 @@ after initial publication without re-entering all secret header values:
 - `method`
 - `headers` (keys and encrypted values)
 
-The remaining fields (`payloadTemplate`, `timeoutSecs`, `maxAttempts`) are
+The remaining fields (`payloadTemplate`, `timeout`, `maxAttempts`) are
 excluded from the SOPS integrity check, so you can modify them freely without
 needing to re-enter your secret header values.
