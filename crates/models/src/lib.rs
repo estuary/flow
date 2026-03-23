@@ -55,6 +55,7 @@ pub use raw_value::RawValue;
 pub use references::{
     CATALOG_PREFIX_RE, Capture, Collection, CompositeKey, Field, JsonPointer, Materialization,
     Name, PartitionField, Prefix, RelativeUrl, StorageEndpoint, TOKEN_RE, Test, Token, Transform,
+    tenant_from,
 };
 pub use schemas::Schema;
 pub use shards::ShardTemplate;

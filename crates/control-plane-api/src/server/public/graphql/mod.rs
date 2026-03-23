@@ -1,8 +1,25 @@
 //! GraphQL API
 //!
 //! The `QueryRoot`
-use async_graphql::{EmptySubscription, Schema};
+use async_graphql::{EmptySubscription, Schema, types::connection};
 use axum::response::IntoResponse;
+use chrono::{DateTime, Utc};
+
+/// A `CursorType` that is just a RFC3339 UTC timestamp.
+/// Used by any paginated connection that cursors on `created_at` or similar.
+pub struct TimestampCursor(pub DateTime<Utc>);
+impl connection::CursorType for TimestampCursor {
+    type Error = chrono::ParseError;
+
+    fn decode_cursor(s: &str) -> Result<Self, Self::Error> {
+        let dt = DateTime::parse_from_rfc3339(s)?;
+        Ok(Self(dt.to_utc()))
+    }
+
+    fn encode_cursor(&self) -> String {
+        self.0.to_rfc3339()
+    }
+}
 
 mod alert_subscriptions;
 mod alerts;

@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+expression: bob_redeem
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 25,
+          "line": 3
+        }
+      ],
+      "message": "This organization requires SSO authentication. Please sign in via SSO to redeem this invite.",
+      "path": [
+        "redeemInviteLink"
+      ]
+    }
+  ]
+}

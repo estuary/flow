@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    token,\n                    catalog_prefix AS \"catalog_prefix!: String\",\n                    capability AS \"capability!: models::Capability\",\n                    single_use AS \"single_use!: bool\",\n                    detail,\n                    created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\"\n                FROM internal.invite_links\n                WHERE catalog_prefix::text ^@ ANY($1)\n                  AND ($5::text IS NULL OR catalog_prefix::text ^@ $5)\n                  AND ($4::bool IS NULL OR single_use = $4)\n                  AND ($2::uuid IS NULL OR token > $2)\n                ORDER BY token\n                LIMIT $3 + 1\n                ",
+  "query": "\n                SELECT\n                    il.token,\n                    il.catalog_prefix AS \"catalog_prefix!: String\",\n                    il.capability AS \"capability!: models::Capability\",\n                    il.single_use AS \"single_use!: bool\",\n                    il.detail,\n                    il.created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n                    t.sso_provider_id\n                FROM internal.invite_links il\n                LEFT JOIN tenants t ON il.catalog_prefix::text ^@ t.tenant\n                WHERE il.catalog_prefix::text ^@ ANY($1)\n                  AND ($5::text IS NULL OR il.catalog_prefix::text ^@ $5)\n                  AND ($4::bool IS NULL OR il.single_use = $4)\n                  AND ($2::timestamptz IS NULL OR il.created_at < $2)\n                ORDER BY il.created_at DESC\n                LIMIT $3 + 1\n                ",
   "describe": {
     "columns": [
       {
@@ -71,12 +71,17 @@
         "ordinal": 5,
         "name": "created_at!: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "sso_provider_id",
+        "type_info": "Uuid"
       }
     ],
     "parameters": {
       "Left": [
         "TextArray",
-        "Uuid",
+        "Timestamptz",
         "Int4",
         "Bool",
         "Text"
@@ -88,8 +93,9 @@
       false,
       false,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "5c35576f65d7ef76f367b31b2238b49d8fdb0cca095fa3bb08380a62b238c1f3"
+  "hash": "6b980602f82b52e0f186d532fd5f93141c03a7f704c461194f45047636867855"
 }

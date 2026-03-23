@@ -233,6 +233,15 @@ string_reference_types! {
     pub struct StorageEndpoint("StorageEndpoint::schema", pattern = ENDPOINT_RE, example = "storage.example.com");
 }
 
+/// Extract the tenant prefix (e.g. "acmeCo/") from a catalog name or prefix.
+/// The input must contain at least one '/'.
+pub fn tenant_from(prefix: &str) -> &str {
+    let idx = prefix
+        .find('/')
+        .expect("prefix must contain at least one /");
+    &prefix[..idx + 1]
+}
+
 impl RelativeUrl {
     pub fn example_relative() -> Self {
         Self("../path/to/local.yaml".to_owned())
