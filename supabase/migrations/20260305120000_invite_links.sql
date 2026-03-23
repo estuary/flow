@@ -91,6 +91,7 @@ from public.directives d
 where (d.spec->>'type') = 'grant'
   and d.token is not null
   and (d.uses_remaining is null or d.uses_remaining > 0)
+  and (d.spec->>'capability') is not null
 on conflict (token) do nothing;
 
 commit;
