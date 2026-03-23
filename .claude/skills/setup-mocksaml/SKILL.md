@@ -2,7 +2,6 @@
 name: setup-mocksaml
 description: Set up MockSAML as a local SAML IdP for testing SSO flows (grant migration, invite enforcement). Run when setting up a fresh local env or after `supabase db reset`.
 disable-model-invocation: true
-allowed-tools: Bash(*), Read
 ---
 
 # Set Up MockSAML for Local SSO Testing
@@ -50,6 +49,18 @@ If `GOTRUE_SAML_ENABLED=true` is already set, skip to step 6.
 openssl genrsa 2048 > /tmp/saml_key.pem
 ```
 
+GoTrue requires PKCS#1 format. Check the header of the generated key:
+
+```bash
+head -1 /tmp/saml_key.pem
+```
+
+- `BEGIN RSA PRIVATE KEY` → PKCS#1, good to go.
+- `BEGIN PRIVATE KEY` → PKCS#8 (OpenSSL 3.x default). Convert it:
+  ```bash
+  openssl rsa -traditional -in /tmp/saml_key.pem -out /tmp/saml_key.pem
+  ```
+
 Strip to raw base64 (no PEM headers, no newlines):
 
 ```bash
@@ -67,10 +78,28 @@ Capture the current container's env vars, image, and network:
 <docker-prefix> docker inspect supabase_auth_flow --format '{{json .NetworkSettings.Networks}}'
 ```
 
-Stop and remove the old container, then recreate with all original env vars
-plus the SAML vars. **Important:** override `API_EXTERNAL_URL` to include the
-`/auth/v1` prefix — GoTrue uses this to generate the SAML ACS callback URL,
-and without the prefix Kong won't route the callback correctly.
+Build an env file for the new container. Using `--env-file` avoids shell
+parsing issues with values that contain template syntax (e.g.
+`GOTRUE_SMS_TEMPLATE=Your code is {{ .Code }}`).
+
+```bash
+grep -v -E '^(PATH=|API_EXTERNAL_URL=)' /tmp/auth_env.txt > /tmp/auth_env_filtered.txt
+echo "GOTRUE_SAML_ENABLED=true" >> /tmp/auth_env_filtered.txt
+echo "GOTRUE_SAML_PRIVATE_KEY=$SAML_KEY_B64" >> /tmp/auth_env_filtered.txt
+echo "API_EXTERNAL_URL=http://127.0.0.1:5431/auth/v1" >> /tmp/auth_env_filtered.txt
+```
+
+**Important:** the `API_EXTERNAL_URL` override includes the `/auth/v1` prefix —
+GoTrue uses this to generate the SAML ACS callback URL, and without the prefix
+Kong won't route the callback correctly.
+
+If using Lima, copy the env file into the VM before running docker:
+
+```bash
+limactl copy /tmp/auth_env_filtered.txt <vm>:/tmp/auth_env_filtered.txt
+```
+
+Stop and remove the old container, then recreate:
 
 ```bash
 <docker-prefix> docker stop supabase_auth_flow && <docker-prefix> docker rm supabase_auth_flow
@@ -79,10 +108,7 @@ and without the prefix Kong won't route the callback correctly.
   --name supabase_auth_flow \
   --network <network-name> \
   --restart always \
-  -e GOTRUE_SAML_ENABLED=true \
-  -e GOTRUE_SAML_PRIVATE_KEY=$SAML_KEY_B64 \
-  -e API_EXTERNAL_URL=http://127.0.0.1:5431/auth/v1 \
-  <all original -e flags from /tmp/auth_env.txt, excluding PATH= and API_EXTERNAL_URL=> \
+  --env-file /tmp/auth_env_filtered.txt \
   <image> auth
 ```
 
@@ -102,6 +128,15 @@ supabase status --output json
 
 Extract `SERVICE_ROLE_KEY` from the output.
 
+If `supabase status` fails (e.g. Docker runs inside a Lima VM), read the key
+from Kong's config instead — it's always accessible since Kong handles routing:
+
+```bash
+<docker-prefix> docker exec supabase_kong_flow cat /home/kong/kong.yml
+```
+
+Look for the `service_role` JWT in the authorization header rewriting rules.
+
 ### 7. Check if MockSAML is already registered
 
 ```bash
@@ -114,6 +149,12 @@ register a new one. If reusing, skip to step 9.
 
 ### 8. Register MockSAML as an SSO provider
 
+Ask the user which email domain to associate with the SSO provider (default:
+`example.com`). This controls which email addresses are routed through SAML
+login. MockSAML's default test user is `jackson@example.com`, so `example.com`
+works out of the box — but the user may want a different domain to match their
+test data.
+
 ```bash
 curl -X POST 'http://127.0.0.1:5431/auth/v1/admin/sso/providers' \
   -H 'Authorization: Bearer <SERVICE_ROLE_KEY>' \
@@ -121,7 +162,7 @@ curl -X POST 'http://127.0.0.1:5431/auth/v1/admin/sso/providers' \
   -d '{
     "type": "saml",
     "metadata_url": "https://mocksaml.com/api/saml/metadata",
-    "domains": ["example.com"]
+    "domains": ["<DOMAIN>"]
   }'
 ```
 

@@ -74,11 +74,7 @@ fn get_deltas(built: &build::Output) -> BTreeMap<&str, (i32, i32)> {
 }
 
 fn tenant(name: &impl AsRef<str>) -> &str {
-    let idx = name
-        .as_ref()
-        .find('/')
-        .expect("catalog name must contain at least one /");
-    name.as_ref().split_at(idx + 1).0
+    models::tenant_from(name.as_ref())
 }
 
 pub async fn check_resource_quotas(
