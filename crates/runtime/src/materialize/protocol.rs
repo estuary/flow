@@ -328,7 +328,8 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
     saw_flush: &mut bool,
     saw_flushed: &mut bool,
     task: &Task,
-    compiled_triggers: &Option<CompiledTriggers>,
+    compiled_triggers: &Option<std::sync::Arc<CompiledTriggers>>,
+    trigger_handle: &mut Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
     txn: &mut Transaction,
     wb: &mut rocksdb::WriteBatch,
 ) -> anyhow::Result<Option<Response>> {
@@ -370,19 +371,20 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
             }
             *saw_acknowledged = true;
 
-            let mut wb = rocksdb::WriteBatch::default();
             if let Some(state) = state {
+                let mut wb = rocksdb::WriteBatch::default();
                 queue_connector_state_update(&state, &mut wb).context("invalid Acknowledged")?;
+                db.write_opt(wb, Default::default()).await?;
             }
             if let Some(compiled) = compiled_triggers
                 && let Some(variables) =
                     db.load_trigger_params::<models::TriggerVariables>().await?
             {
-                fire_pending_triggers(compiled, &variables, http_client).await?;
-                wb.delete(RocksDB::TRIGGER_PARAMS);
-            }
-            if !wb.is_empty() {
-                db.write_opt(wb, Default::default()).await?;
+                let compiled = std::sync::Arc::clone(compiled);
+                let http_client = http_client.clone();
+                *trigger_handle = Some(tokio::spawn(async move {
+                    fire_pending_triggers(&compiled, &variables, &http_client).await
+                }));
             }
 
             Ok(Some(Response {
@@ -701,14 +703,14 @@ mod test {
 
         let (addr, _handle) = start_mock_server(app).await;
         let url = format!("http://{addr}/webhook");
-        let compiled_triggers = Some(
+        let compiled_triggers = Some(Arc::new(
             CompiledTriggers::compile(vec![
                 make_trigger_with_url(&url, r#"{"mat": "{{materialization_name}}"}"#),
                 make_trigger_with_url(&url, r#"{"img": "{{connector_image}}"}"#),
                 make_trigger_with_url(&url, r#"{"run": "{{run_id}}"}"#),
             ])
             .unwrap(),
-        );
+        ));
         let http_client = reqwest::Client::new();
         let db = RocksDB::open(None).await.unwrap();
 
@@ -738,10 +740,11 @@ mod test {
                 .is_some()
         );
 
-        // Step 2: Acknowledged fires all 3 triggers and clears parameters.
+        // Step 2: Acknowledged spawns trigger delivery and clears parameters.
         let mut saw_acknowledged = false;
         let mut saw_flush = false;
         let mut saw_flushed = false;
+        let mut trigger_handle = None;
         let mut txn = super::super::Transaction::new();
         let mut wb = rocksdb::WriteBatch::default();
 
@@ -758,13 +761,28 @@ mod test {
             &mut saw_flushed,
             &dummy_task,
             &compiled_triggers,
+            &mut trigger_handle,
             &mut txn,
             &mut wb,
         )
         .await
         .unwrap();
 
+        // Await the spawned trigger delivery, then delete params.
+        trigger_handle.take().unwrap().await.unwrap().unwrap();
+        {
+            let mut wb = rocksdb::WriteBatch::default();
+            wb.delete(RocksDB::TRIGGER_PARAMS);
+            db.write_opt(wb, Default::default()).await.unwrap();
+        }
+
         assert_eq!(call_count.load(Ordering::SeqCst), 3);
+        assert!(
+            db.load_trigger_params::<TriggerVariables>()
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         // Step 3: Another Acknowledged does not re-fire since parameters are cleared.
         saw_acknowledged = false;
@@ -782,12 +800,14 @@ mod test {
             &mut saw_flushed,
             &dummy_task,
             &compiled_triggers,
+            &mut trigger_handle,
             &mut txn,
             &mut wb,
         )
         .await
         .unwrap();
 
+        assert!(trigger_handle.is_none(), "no trigger spawned");
         assert_eq!(
             call_count.load(Ordering::SeqCst),
             3,

@@ -1,7 +1,5 @@
 use super::{
-    LoadKeySet, RequestStream, ResponseStream, Transaction, connector,
-    protocol::*,
-    triggers,
+    LoadKeySet, RequestStream, ResponseStream, Transaction, connector, protocol::*, triggers,
 };
 use crate::Accumulator;
 use crate::{LogHandler, Runtime, rocksdb::RocksDB, verify};
@@ -100,6 +98,7 @@ async fn serve_session<L: LogHandler>(
         compiled_triggers,
         connector_image,
     } = open_extras;
+    let compiled_triggers = compiled_triggers.map(std::sync::Arc::new);
 
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
@@ -129,6 +128,7 @@ async fn serve_session<L: LogHandler>(
         let mut saw_flush = false;
         let mut saw_flushed = false;
         let mut saw_reset = false;
+        let mut trigger_handle = None;
         let mut send_fut = None;
         let mut txn = Transaction::new();
         let mut wb = rocksdb::WriteBatch::default();
@@ -192,6 +192,7 @@ async fn serve_session<L: LogHandler>(
                         &mut saw_flushed,
                         &task,
                         &compiled_triggers,
+                        &mut trigger_handle,
                         &mut txn,
                         &mut wb,
                     )
@@ -213,6 +214,14 @@ async fn serve_session<L: LogHandler>(
             anyhow::bail!(
                 "connector reset its connection unexpectedly but sent Flushed without an error"
             );
+        }
+
+        // Await any in-flight trigger delivery from the previous transaction.
+        if let Some(handle) = trigger_handle.take() {
+            handle.await.context("trigger delivery task panicked")??;
+            let mut wb = rocksdb::WriteBatch::default();
+            wb.delete(RocksDB::TRIGGER_PARAMS);
+            db.write_opt(wb, Default::default()).await?;
         }
 
         // We must durably commit updates to `max_keys` now, before we send any Store
