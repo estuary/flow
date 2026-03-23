@@ -8,6 +8,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"unique"
 )
 
 // ContentName returns the content-addressed base file name of this Fragment.
@@ -78,7 +79,7 @@ func ParseFragmentFromRelativePath(journal Journal, name string) (Fragment, erro
 			End:              end,
 			Sum:              SHA1SumFromDigest(sum),
 			CompressionCodec: cc,
-			PathPostfix:      postfix,
+			PathPostfix:      unique.Make(postfix).Value(),
 		}
 	}
 	return f, f.Validate()
