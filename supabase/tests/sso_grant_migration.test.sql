@@ -1,0 +1,244 @@
+-- SSO grant migration: automatic transfer when social user re-authenticates via SSO.
+
+-- Helper to clean up state between tests.
+create or replace function tests._clean_sso_migration()
+returns void as $$
+begin
+  delete from internal.sso_grant_migrations;
+  delete from internal.account_suspensions;
+  delete from public.refresh_tokens;
+  delete from public.user_grants;
+  delete from auth.sessions where user_id in (
+    select id from auth.users where email like '%@sso-migration-test.example'
+  );
+  delete from auth.identities where user_id in (
+    select id from auth.users where email like '%@sso-migration-test.example'
+  );
+  delete from auth.users where email like '%@sso-migration-test.example';
+  delete from auth.sso_providers where id in (
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+  );
+end
+$$ language plpgsql;
+
+-- Basic migration + mixed transferable/non-transferable grants.
+create function tests.test_sso_grant_migration()
+returns setof text as $$
+declare
+  provider_acme uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  provider_bigcorp uuid = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+  old_alice uuid = '11111111-1111-1111-1111-111111111111';
+  new_alice uuid = '55555555-5555-5555-5555-555555555555';
+begin
+  perform tests._clean_sso_migration();
+
+  insert into auth.sso_providers (id) values (provider_acme), (provider_bigcorp);
+
+  delete from tenants;
+  insert into tenants (tenant, sso_provider_id, enforce_sso) values
+    ('acmeCo/', provider_acme, true),
+    ('bigcorpCo/', provider_bigcorp, true),
+    ('openCo/', null, false);
+
+  -- Old Alice: social user with grants on all three tenants.
+  insert into auth.users (id, email, is_sso_user) values
+    (old_alice, 'alice@sso-migration-test.example', false);
+
+  insert into user_grants (user_id, object_role, capability) values
+    (old_alice, 'acmeCo/', 'admin'),
+    (old_alice, 'bigcorpCo/', 'read'),
+    (old_alice, 'openCo/', 'write');
+
+  -- Give old Alice a session and a refresh token.
+  insert into auth.sessions (id, user_id) values (gen_random_uuid(), old_alice);
+  insert into refresh_tokens (user_id, hash, valid_for) values
+    (old_alice, 'fakehash', '30 days');
+
+  -- New Alice: SSO user with same email.
+  insert into auth.users (id, email, is_sso_user) values
+    (new_alice, 'alice@sso-migration-test.example', true);
+
+  -- This INSERT fires the trigger.
+  insert into auth.identities (user_id, provider, provider_id, identity_data) values
+    (new_alice, 'sso', provider_acme::text, '{}'::jsonb);
+
+  -- acmeCo/ (matching SSO) and openCo/ (no SSO) should transfer.
+  -- bigcorpCo/ (different SSO provider) should be skipped.
+  return next results_eq(
+    $i$ select object_role::text, capability::text
+        from user_grants where user_id = '55555555-5555-5555-5555-555555555555'
+        order by object_role $i$,
+    $i$ values ('acmeCo/', 'admin'), ('openCo/', 'write') $i$,
+    'matching SSO + non-SSO grants transferred to new user'
+  );
+
+  -- Old user's grants are all deleted.
+  return next is_empty(
+    $i$ select 1 from user_grants
+        where user_id = '11111111-1111-1111-1111-111111111111' $i$,
+    'old user grants deleted'
+  );
+
+  -- Old user is suspended.
+  return next results_eq(
+    $i$ select count(*)::int from internal.account_suspensions
+        where user_id = '11111111-1111-1111-1111-111111111111' $i$,
+    $i$ values (1) $i$,
+    'old user suspended'
+  );
+
+  -- Old user sessions cleaned up.
+  return next is_empty(
+    $i$ select 1 from auth.sessions
+        where user_id = '11111111-1111-1111-1111-111111111111' $i$,
+    'old user sessions deleted'
+  );
+
+  -- Old user refresh tokens cleaned up.
+  return next is_empty(
+    $i$ select 1 from refresh_tokens
+        where user_id = '11111111-1111-1111-1111-111111111111' $i$,
+    'old user refresh tokens deleted'
+  );
+
+  -- Audit log records the migration with correct counts.
+  return next results_eq(
+    $i$ select old_user_id::text, new_user_id::text,
+           jsonb_array_length(transferred_grants),
+           jsonb_array_length(skipped_grants)
+        from internal.sso_grant_migrations $i$,
+    $i$ values ('11111111-1111-1111-1111-111111111111',
+               '55555555-5555-5555-5555-555555555555', 2, 1) $i$,
+    'audit log: 2 transferred, 1 skipped'
+  );
+
+  -- Skipped grant is bigcorpCo/ with reason sso_provider_mismatch.
+  return next results_eq(
+    $i$ select skipped_grants->0->>'object_role',
+           skipped_grants->0->>'reason'
+        from internal.sso_grant_migrations $i$,
+    $i$ values ('bigcorpCo/', 'sso_provider_mismatch') $i$,
+    'skipped grant details recorded'
+  );
+
+  return;
+end
+$$ language plpgsql;
+
+-- Capability upgrade: new user already has a lower grant.
+create function tests.test_sso_grant_migration_capability_upgrade()
+returns setof text as $$
+declare
+  provider_acme uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  old_bob uuid = '22222222-2222-2222-2222-222222222222';
+  new_bob uuid = '66666666-6666-6666-6666-666666666666';
+begin
+  perform tests._clean_sso_migration();
+
+  insert into auth.sso_providers (id) values (provider_acme);
+
+  delete from tenants;
+  insert into tenants (tenant) values ('openCo/');
+
+  insert into auth.users (id, email, is_sso_user) values
+    (old_bob, 'bob@sso-migration-test.example', false);
+
+  insert into user_grants (user_id, object_role, capability) values
+    (old_bob, 'openCo/', 'admin');
+
+  -- New Bob already has a read grant on openCo/.
+  insert into auth.users (id, email, is_sso_user) values
+    (new_bob, 'bob@sso-migration-test.example', true);
+
+  insert into user_grants (user_id, object_role, capability) values
+    (new_bob, 'openCo/', 'read');
+
+  -- Trigger fires: old Bob's admin should upgrade new Bob's read.
+  insert into auth.identities (user_id, provider, provider_id, identity_data) values
+    (new_bob, 'sso', provider_acme::text, '{}'::jsonb);
+
+  return next results_eq(
+    $i$ select capability::text from user_grants
+        where user_id = '66666666-6666-6666-6666-666666666666'
+          and object_role = 'openCo/' $i$,
+    $i$ values ('admin') $i$,
+    'capability upgraded from read to admin'
+  );
+
+  return;
+end
+$$ language plpgsql;
+
+-- No migration when there is no prior social user.
+create function tests.test_sso_grant_migration_no_old_user()
+returns setof text as $$
+declare
+  provider_acme uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  new_carol uuid = '77777777-7777-7777-7777-777777777777';
+begin
+  perform tests._clean_sso_migration();
+
+  insert into auth.sso_providers (id) values (provider_acme);
+
+  insert into auth.users (id, email, is_sso_user) values
+    (new_carol, 'carol@sso-migration-test.example', true);
+
+  insert into auth.identities (user_id, provider, provider_id, identity_data) values
+    (new_carol, 'sso', provider_acme::text, '{}'::jsonb);
+
+  return next is_empty(
+    $i$ select 1 from internal.sso_grant_migrations
+        where new_user_id = '77777777-7777-7777-7777-777777777777' $i$,
+    'no migration audit log for brand-new SSO user'
+  );
+
+  return;
+end
+$$ language plpgsql;
+
+-- Non-SSO identity insert does not fire the trigger.
+create function tests.test_sso_grant_migration_non_sso_identity()
+returns setof text as $$
+declare
+  old_dave uuid = '33333333-3333-3333-3333-333333333333';
+  new_dave uuid = '88888888-8888-8888-8888-888888888888';
+begin
+  perform tests._clean_sso_migration();
+
+  delete from tenants;
+  insert into tenants (tenant) values ('openCo/');
+
+  insert into auth.users (id, email, is_sso_user) values
+    (old_dave, 'dave@sso-migration-test.example', false);
+
+  insert into user_grants (user_id, object_role, capability) values
+    (old_dave, 'openCo/', 'admin');
+
+  -- New Dave signs in with Google (not SSO). Use is_sso_user = true
+  -- to avoid the partial unique constraint on email for non-SSO users.
+  insert into auth.users (id, email, is_sso_user) values
+    (new_dave, 'dave@sso-migration-test.example', true);
+
+  -- Insert a Google identity — trigger should NOT fire.
+  insert into auth.identities (user_id, provider, provider_id, identity_data) values
+    (new_dave, 'google', 'google-id-123', '{}'::jsonb);
+
+  -- Old Dave's grants should still be intact.
+  return next results_eq(
+    $i$ select count(*)::int from user_grants
+        where user_id = '33333333-3333-3333-3333-333333333333' $i$,
+    $i$ values (1) $i$,
+    'old user grants untouched for non-SSO identity insert'
+  );
+
+  return next is_empty(
+    $i$ select 1 from internal.sso_grant_migrations
+        where new_user_id = '88888888-8888-8888-8888-888888888888' $i$,
+    'no migration for non-SSO identity'
+  );
+
+  return;
+end
+$$ language plpgsql;

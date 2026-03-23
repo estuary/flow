@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+expression: bob_sub_prefix
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 25,
+          "line": 3
+        }
+      ],
+      "message": "Tenant acmeCo/ requires SSO authentication. Please sign in with the organization's SSO provider to redeem this invite.",
+      "path": [
+        "redeemInviteLink"
+      ]
+    }
+  ]
+}

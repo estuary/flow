@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            g.user_id AS \"user_id: uuid::Uuid\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\"\n        FROM user_grants g\n        ",
+  "query": "\n        SELECT\n            g.user_id AS \"user_id: uuid::Uuid\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\"\n        FROM user_grants g\n        WHERE NOT EXISTS (\n            SELECT 1 FROM tenants t\n            WHERE t.tenant ^@ g.object_role\n              AND t.enforce_sso\n              AND NOT EXISTS (\n                SELECT 1 FROM auth.identities ai\n                WHERE ai.user_id = g.user_id\n                  AND ai.provider = 'sso'\n                  AND ai.provider_id = t.sso_provider_id::text\n              )\n        )\n        ",
   "describe": {
     "columns": [
       {
@@ -67,5 +67,5 @@
       false
     ]
   },
-  "hash": "bf114fcbbb3b0c8bd057869c92b7c6ceee073f467105083ec751a75c11478adf"
+  "hash": "33c43cf8dd44d4e448fdac5a9f128b11d833f6ab21e90f89bbf5dce433a4293d"
 }

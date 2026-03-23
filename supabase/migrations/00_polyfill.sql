@@ -27,13 +27,27 @@ BEGIN
         -- Roles are cluster-wide and already exist from migrations applied to the
         -- primary `postgres` database. We only need to stub Supabase schemas.
 
-        -- Create auth schema with minimal users table stub.
+        -- Create auth schema with minimal table stubs.
         create schema auth;
         create table auth.users (
             id uuid primary key,
             email text,
             is_sso_user boolean,
-            raw_user_meta_data jsonb
+            raw_user_meta_data jsonb,
+            created_at timestamptz default now()
+        );
+        create table auth.sso_providers (
+            id uuid primary key
+        );
+        create table auth.identities (
+            user_id uuid references auth.users(id),
+            provider text,
+            provider_id text,
+            identity_data jsonb
+        );
+        create table auth.sessions (
+            id uuid primary key default gen_random_uuid(),
+            user_id uuid references auth.users(id)
         );
 
         -- Stub for auth.uid() function.
