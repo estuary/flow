@@ -67,7 +67,11 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
     let disable_reason = evaluate_alerts(alerts_status, state, now, timestamps, &config);
 
     if let Some(reason) = disable_reason {
-        if config.disable_abandoned_tasks {
+        let should_disable = match reason {
+            DisableReason::Idle => config.disable_idle_tasks,
+            DisableReason::ChronicallyFailing => config.disable_failing_tasks,
+        };
+        if should_disable {
             if maybe_disable_task(reason, state, publications, control_plane).await? {
                 return Ok(Some(NextRun::immediately()));
             }

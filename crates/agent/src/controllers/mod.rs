@@ -72,9 +72,12 @@ pub struct ControllerConfig {
     #[clap(long, env = "ABANDON_IDLE_DISABLE_AFTER", default_value = "7d")]
     #[arg(value_parser = parse_chrono_duration)]
     pub abandon_idle_disable_after: chrono::Duration,
-    /// Whether to actually disable abandoned tasks (vs only alerting).
-    #[clap(long, env = "DISABLE_ABANDONED_TASKS", default_value = "false")]
-    pub disable_abandoned_tasks: bool,
+    /// Whether to actually disable idle tasks (vs only alerting).
+    #[clap(long, env = "DISABLE_IDLE_TASKS", default_value = "false")]
+    pub disable_idle_tasks: bool,
+    /// Whether to actually disable chronically failing tasks (vs only alerting).
+    #[clap(long, env = "DISABLE_FAILING_TASKS", default_value = "false")]
+    pub disable_failing_tasks: bool,
     /// Minimum interval between abandonment evaluations for a given task.
     #[clap(long, env = "ABANDON_CHECK_INTERVAL", default_value = "24h")]
     #[arg(value_parser = parse_chrono_duration)]
