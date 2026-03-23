@@ -69,7 +69,7 @@ There are a couple best practices to consider when writing derivations in conjun
 
 **Filtering**
 
-Since delete events lack most document fields, it can be easy to accidentally filter them out from downstream systems.
+Since delete events can lack standard document fields, it can be easy to accidentally filter them out from downstream systems.
 
 You may therefore want to explicitly check the `_meta/op` field as part of any filtering statement in your transformation logic.
 For example:
