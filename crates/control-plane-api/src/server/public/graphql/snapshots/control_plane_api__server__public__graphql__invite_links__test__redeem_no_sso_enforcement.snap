@@ -1,0 +1,12 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+expression: bob_open_redeem
+---
+{
+  "data": {
+    "redeemInviteLink": {
+      "capability": "read",
+      "catalogPrefix": "openCo/"
+    }
+  }
+}

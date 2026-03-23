@@ -98,20 +98,7 @@ impl async_graphql::dataloader::Loader<LastPublicationInfoKey> for PgDataLoader 
     }
 }
 
-/// A `CursorType` that is just a RFC3339 UTC timestamp
-pub struct TimestampCursor(DateTime<Utc>);
-impl connection::CursorType for TimestampCursor {
-    type Error = chrono::ParseError;
-
-    fn decode_cursor(s: &str) -> Result<Self, Self::Error> {
-        let dt = DateTime::parse_from_rfc3339(s)?;
-        Ok(Self(dt.to_utc()))
-    }
-
-    fn encode_cursor(&self) -> String {
-        self.0.to_rfc3339()
-    }
-}
+use super::TimestampCursor;
 
 pub type SpecHistoryConnection = async_graphql::connection::Connection<
     TimestampCursor,

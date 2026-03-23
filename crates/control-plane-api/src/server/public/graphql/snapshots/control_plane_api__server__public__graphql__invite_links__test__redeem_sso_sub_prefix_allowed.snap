@@ -1,0 +1,12 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+expression: alice_sub_prefix
+---
+{
+  "data": {
+    "redeemInviteLink": {
+      "capability": "read",
+      "catalogPrefix": "acmeCo/production/"
+    }
+  }
+}
