@@ -320,8 +320,8 @@ const config = {
           },
         ],
         copyright: `
-          <p>
-            <a href="#" onclick="(function(){ try { window.cookiefirst_show_settings(); } catch(e) { alert('Failed to open Cookie Preferences. CookieFirst has not yet loaded.'); } })();">Manage Cookie Preferences</a>
+          <p style="display:flex;" >
+            <a class="footer__link-item" href="#" onclick="(function(){ try { window.cookiefirst_show_settings(); } catch(e) { alert('Failed to open Cookie Preferences. CookieFirst has not yet loaded.'); } })();">Manage Cookie Preferences</a>
           </p>
           <p>
             Copyright © ${new Date().getFullYear()} Estuary Technologies, Inc. Built with Docusaurus
