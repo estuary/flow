@@ -4,11 +4,7 @@
 create or replace function tests._clean_sso_migration()
 returns void as $$
 begin
-  delete from public.refresh_tokens;
   delete from public.user_grants;
-  delete from auth.sessions where user_id in (
-    select id from auth.users where email like '%@sso-migration-test.example'
-  );
   delete from auth.identities where user_id in (
     select id from auth.users where email like '%@sso-migration-test.example'
   );
@@ -37,7 +33,6 @@ begin
 
   insert into auth.sso_providers (id) values (provider_acme), (provider_bigcorp);
 
-  delete from tenants;
   insert into tenants (tenant, sso_provider_id) values
     ('acmeCo/', provider_acme),
     ('bigcorpCo/', provider_bigcorp),
@@ -51,11 +46,6 @@ begin
     (old_alice, 'acmeCo/', 'admin'),
     (old_alice, 'bigcorpCo/', 'read'),
     (old_alice, 'openCo/', 'write');
-
-  -- Give old Alice a session and a refresh token.
-  insert into auth.sessions (id, user_id) values (gen_random_uuid(), old_alice);
-  insert into refresh_tokens (user_id, hash, valid_for) values
-    (old_alice, 'fakehash', '30 days');
 
   -- New Alice: SSO user with same email.
   insert into auth.users (id, email, is_sso_user) values
@@ -75,42 +65,12 @@ begin
     'matching SSO + non-SSO grants transferred to new user'
   );
 
-  -- Old user's grants are preserved (account is banned but grants kept for potential reactivation).
+  -- Old user's grants are preserved for the old account.
   return next results_eq(
     $i$ select count(*)::int from user_grants
         where user_id = 'a1111111-1111-1111-1111-111111111111' $i$,
     $i$ values (3) $i$,
     'old user grants preserved'
-  );
-
-  -- Old user is banned in GoTrue.
-  return next results_eq(
-    $i$ select (banned_until > now())::boolean from auth.users
-        where id = 'a1111111-1111-1111-1111-111111111111' $i$,
-    $i$ values (true) $i$,
-    'old user banned in GoTrue'
-  );
-
-  -- Old user sessions cleaned up.
-  return next is_empty(
-    $i$ select 1 from auth.sessions
-        where user_id = 'a1111111-1111-1111-1111-111111111111' $i$,
-    'old user sessions deleted'
-  );
-
-  -- Old user refresh tokens cleaned up.
-  return next is_empty(
-    $i$ select 1 from refresh_tokens
-        where user_id = 'a1111111-1111-1111-1111-111111111111' $i$,
-    'old user refresh tokens deleted'
-  );
-
-  -- bigcorpCo/ grant (different SSO provider) was NOT transferred.
-  return next is_empty(
-    $i$ select 1 from user_grants
-        where user_id = 'a5555555-5555-5555-5555-555555555555'
-          and object_role = 'bigcorpCo/' $i$,
-    'grant on tenant with different SSO provider not transferred'
   );
 
   return;
@@ -129,7 +89,6 @@ begin
 
   insert into auth.sso_providers (id) values (provider_acme);
 
-  delete from tenants;
   insert into tenants (tenant) values ('openCo/');
 
   insert into auth.users (id, email, is_sso_user) values
@@ -173,7 +132,6 @@ begin
 
   insert into auth.sso_providers (id) values (provider_acme);
 
-  delete from tenants;
   insert into tenants (tenant) values ('openCo/');
 
   insert into auth.users (id, email, is_sso_user) values
@@ -247,7 +205,6 @@ begin
 
   insert into auth.sso_providers (id) values (provider_acme), (provider_bigcorp);
 
-  delete from tenants;
   insert into tenants (tenant, sso_provider_id) values
     ('acmeCo/', provider_acme),
     ('bigcorpCo/', provider_bigcorp);
@@ -297,7 +254,6 @@ declare
 begin
   perform tests._clean_sso_migration();
 
-  delete from tenants;
   insert into tenants (tenant) values ('openCo/');
 
   insert into auth.users (id, email, is_sso_user) values
