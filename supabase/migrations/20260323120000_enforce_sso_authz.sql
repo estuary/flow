@@ -13,6 +13,13 @@ alter table public.tenants
 comment on column public.tenants.enforce_sso is
   'When true, only users with an SSO identity matching sso_provider_id may access this tenant''s resources';
 
+-- Partial SP-GiST index for the ^@ prefix lookups in the SSO enforcement
+-- WHERE clauses (internal.user_roles and the snapshot query). Only tenants
+-- with enforce_sso = true participate, so this stays tiny.
+create index idx_tenants_tenant_enforce_sso_spgist
+  on public.tenants using spgist (tenant)
+  where enforce_sso;
+
 -- Replace internal.user_roles to exclude grants on SSO-enforced tenants unless
 -- the user authenticated via the tenant's specific SSO provider.
 create or replace function internal.user_roles(
