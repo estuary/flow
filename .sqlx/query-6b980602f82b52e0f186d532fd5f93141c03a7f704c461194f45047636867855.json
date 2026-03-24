@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    il.token,\n                    il.catalog_prefix AS \"catalog_prefix!: String\",\n                    il.capability AS \"capability!: models::Capability\",\n                    il.single_use AS \"single_use!: bool\",\n                    il.detail,\n                    il.created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n                    t.sso_provider_id\n                FROM internal.invite_links il\n                LEFT JOIN tenants t ON il.catalog_prefix::text ^@ t.tenant\n                WHERE il.catalog_prefix::text ^@ ANY($1)\n                  AND ($5::text IS NULL OR il.catalog_prefix::text ^@ $5)\n                  AND ($4::bool IS NULL OR il.single_use = $4)\n                  AND ($2::uuid IS NULL OR il.token > $2)\n                ORDER BY il.token\n                LIMIT $3 + 1\n                ",
+  "query": "\n                SELECT\n                    il.token,\n                    il.catalog_prefix AS \"catalog_prefix!: String\",\n                    il.capability AS \"capability!: models::Capability\",\n                    il.single_use AS \"single_use!: bool\",\n                    il.detail,\n                    il.created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n                    t.sso_provider_id\n                FROM internal.invite_links il\n                LEFT JOIN tenants t ON il.catalog_prefix::text ^@ t.tenant\n                WHERE il.catalog_prefix::text ^@ ANY($1)\n                  AND ($5::text IS NULL OR il.catalog_prefix::text ^@ $5)\n                  AND ($4::bool IS NULL OR il.single_use = $4)\n                  AND ($2::timestamptz IS NULL OR il.created_at < $2)\n                ORDER BY il.created_at DESC\n                LIMIT $3 + 1\n                ",
   "describe": {
     "columns": [
       {
@@ -81,7 +81,7 @@
     "parameters": {
       "Left": [
         "TextArray",
-        "Uuid",
+        "Timestamptz",
         "Int4",
         "Bool",
         "Text"
@@ -97,5 +97,5 @@
       true
     ]
   },
-  "hash": "4f26f42a2519a323aefd30139d4124d620692f75f4bdad1bdaa607c42445d93f"
+  "hash": "6b980602f82b52e0f186d532fd5f93141c03a7f704c461194f45047636867855"
 }
