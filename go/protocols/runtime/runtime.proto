@@ -6,6 +6,7 @@ import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
 import "go/protocols/ops/ops.proto";
+import "go/protocols/shuffle/shuffle.proto";
 import "gogoproto/gogo.proto";
 
 option go_package = "github.com/estuary/flow/go/protocols/runtime";
@@ -13,6 +14,118 @@ option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
+
+message Member {
+  // Key and r-clock document range owned by this member.
+  flow.RangeSpec range = 1;
+  // gRPC endpoint of this member.
+  string endpoint = 2;
+  // Creation revision of this member's Etcd assignment.
+  int64 etcd_create_revision = 3;
+}
+
+message LeaderRequest {
+  message Join {
+    // Shard ID of the shard which is leading transactions.
+    string leader_shard_id = 1;
+    // Members of the topology we expect to join.
+    repeated Member members = 2;
+    // Index of this member within the topology.
+    uint32 member_index = 3;
+    // Etcd modification revision at which members were determined.
+    // Used to resolve disagreement over the current topology.
+    int64 etcd_mod_revision = 4;
+    // Catalog build identifier which we'll be transacting on.
+    string task_build = 5;
+    // Filesystem path where the Log actor writes segment files for this member.
+    // The consumer joins over shuffle-produced log segments via this directory.
+    // Multiple member indices may share a single directory.
+    string directory = 9;
+    // Last-persisted connector checkpoint from a previous session.
+    bytes member_state_json = 10;
+  }
+  Join join = 1;
+
+  // All members send the frontier they're aware of.
+  // The Leader reduces across all members.
+  FrontierChunk resume_checkpoint_chunk = 2;
+
+  message Begin {
+    flow.CaptureSpec capture = 1;
+    flow.CollectionSpec derivation = 2;
+    flow.MaterializationSpec materialization = 3;
+    // Logging level of the task.
+    Log.Level log_level = 4;
+    // Journal to which task logs are directed.
+    string logs_journal = 5;
+    // Journal to which task stats are directed.
+    string stats_journal = 6;
+  }
+  Begin begin = 3;
+
+  // sent after processing an "extend"
+  message Extended {
+    // On-disk size of the combiner.
+    uint64 combiner_usage_bytes = 1;
+  }
+  Extended extended = 4;
+
+  // sent after rx of flush
+  //
+  // capture:
+  //  - drain and publish combiner
+  //  - surface ConnectorState updates
+  //
+  // derivation:
+  //   - send Flush to connector, read Flushed
+  //   - drain and publish combiner
+  //   - send StartCommit to connectork, read StartedCommit
+  //   - surface ConnectorState update
+  //
+  // materialization:
+  //   - send Flush, read Loaded and Flushed.
+  //   - surface ConnectorState updates
+  //
+  message Flushed {
+    // post-condition:
+    //  - derivations have written out all CONTINUE_TXNs
+    //  - materializations have staged all files and are ready to commit
+
+    // * ACK intents go here.
+    // * Connector state updates may go here ?
+    repeated flow.ConnectorState state_update = 2;
+  }
+  Flushed flushed = 5;
+
+  message StartedCommit {}
+}
+
+message LeaderResponse {
+  message Joined {
+    // Last-persisted connector checkpoints from previous session.
+    repeated bytes member_states_json = 10;
+  }
+  Joined joined = 1;
+
+  // Extend the current transaction with a next frontier delta.
+  // This repeats until:
+  //  - We've read over a threshold of raw journal content
+  //  - A member's combiner disk usage has crossed a threshold of desired usage
+  //  - We've reached a transaction min time, and have no immediately ready progress
+  //  - We've reached a transaction max time after a first checkpoint became ready
+  //  - We've been asked to drain
+  shuffle.FrontierChunk extend_chunk = 2;
+
+  // sent when the txn is ready to close
+  message Flush {}
+  Flush flush = 3;
+
+  // Sent only to member zero?
+  message StartCommit {
+    repeated flow.ConnectorState state_update = 1;
+  }
+  StartCommit start_commit = 4;
+}
 
 // Plane describes the type of data plane in which the runtime is operating.
 enum Plane {
