@@ -109,6 +109,6 @@ func resetHead(rjc pb.RoutedJournalClient, journal pb.Journal, done func()) {
 	} else if err == client.ErrWrongAppendOffset {
 		log.WithField("journal", journal).Info("did not reset (raced writes)")
 	} else {
-		mbp.Must(err, "failed to reset journal offset", "journal", journal)
+		log.WithField("journal", journal).WithField("err", err).Error("failed to reset journal offset")
 	}
 }
