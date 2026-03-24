@@ -61,6 +61,7 @@ expression: out
                 "acmeCo/barName",
             ),
             disable: true,
+            reason: None,
         },
     },
     {
@@ -71,6 +72,7 @@ expression: out
                 "acmeCo/discarded",
             ),
             disable: false,
+            reason: None,
         },
     },
 )

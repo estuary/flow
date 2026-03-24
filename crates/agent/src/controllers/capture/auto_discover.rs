@@ -337,6 +337,13 @@ fn summarize_discover(outcome: &DiscoverOutput) -> String {
         write!(&mut publish_detail, ", {added_disabled} added (disabled)").unwrap();
     }
     publish_detail.push(')');
+
+    for changed in outcome.modified.values() {
+        if let Some(reason) = &changed.reason {
+            write!(&mut publish_detail, "\n- {}: {reason}", changed.target).unwrap();
+        }
+    }
+
     publish_detail
 }
 
@@ -359,4 +366,61 @@ fn record_outcome(status: &mut AutoDiscoverStatus, outcome: AutoDiscoverOutcome)
             last_outcome: outcome,
         });
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use models::discovers::Changed;
+
+    #[test]
+    fn test_summarize_discover_includes_reasons() {
+        let mut modified = models::discovers::Changes::new();
+        modified.insert(
+            vec!["some_table".to_string()],
+            Changed {
+                target: models::Collection::new("acmeCo/some_table"),
+                disable: false,
+                reason: Some(
+                    r#"replaced collection key ["/id"] with fallback ["/foo_id", "/bar_id"] because the existing key no longer exists in the discovered schema"#.to_string(),
+                ),
+            },
+        );
+
+        let output = DiscoverOutput {
+            capture_name: models::Capture::new("acmeCo/source-postgres"),
+            draft: Default::default(),
+            added: Default::default(),
+            modified,
+            removed: Default::default(),
+        };
+
+        let summary = summarize_discover(&output);
+        insta::assert_snapshot!(summary, @r#"auto-discover changes (0 added, 1 modified, 0 removed)
+- acmeCo/some_table: replaced collection key ["/id"] with fallback ["/foo_id", "/bar_id"] because the existing key no longer exists in the discovered schema"#);
+    }
+
+    #[test]
+    fn test_summarize_discover_no_reasons() {
+        let mut modified = models::discovers::Changes::new();
+        modified.insert(
+            vec!["some_table".to_string()],
+            Changed {
+                target: models::Collection::new("acmeCo/some_table"),
+                disable: false,
+                reason: None,
+            },
+        );
+
+        let output = DiscoverOutput {
+            capture_name: models::Capture::new("acmeCo/source-postgres"),
+            draft: Default::default(),
+            added: Default::default(),
+            modified,
+            removed: Default::default(),
+        };
+
+        let summary = summarize_discover(&output);
+        insta::assert_snapshot!(summary, @"auto-discover changes (0 added, 1 modified, 0 removed)");
+    }
 }
