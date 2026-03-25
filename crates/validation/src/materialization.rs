@@ -114,6 +114,7 @@ async fn walk_materialization<C: Connectors>(
     let models::MaterializationDef {
         on_incompatible_schema_change,
         source: sources,
+        mut target_naming,
         endpoint,
         bindings: bindings_model,
         mut shards,
@@ -122,6 +123,20 @@ async fn walk_materialization<C: Connectors>(
         delete: _,
         reset,
     } = model;
+
+    // Model fix #1: Promote source.target_naming == WithSchema to top-level
+    // MatchSourceStructure. This is safe because MatchSourceStructure and WithSchema
+    // represent identical behavior.
+    if target_naming.is_none() {
+        if let Some(source) = &sources {
+            if source.to_normalized_def().target_naming == models::TargetNaming::WithSchema {
+                target_naming = Some(models::TargetNamingStrategy::MatchSourceStructure);
+                model_fixes.push(
+                    "promoted source.targetNaming 'withSchema' to top-level targetNaming 'matchSourceStructure'".to_string(),
+                );
+            }
+        }
+    }
 
     indexed::walk_name(
         scope,
@@ -624,6 +639,7 @@ async fn walk_materialization<C: Connectors>(
     };
     let model = models::MaterializationDef {
         source: sources,
+        target_naming,
         on_incompatible_schema_change,
         endpoint,
         bindings: bindings_model,

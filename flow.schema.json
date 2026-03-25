@@ -799,6 +799,15 @@
         "name"
       ]
     },
+    "HttpMethod": {
+      "description": "HTTP method for the webhook request.",
+      "type": "string",
+      "enum": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
     "Id": {
       "type": "string"
     },
@@ -966,6 +975,29 @@
         "source": {
           "title": "Automatically materialize new bindings from a named capture",
           "$ref": "#/$defs/SourceType"
+        },
+        "targetNaming": {
+          "title": "Naming strategy for destination resources.",
+          "description": "Controls how collection names are mapped to destination table and schema\nnames when bindings are added. Only applies to connectors whose\ndestination system supports schemas.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TargetNamingStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "triggers": {
+          "title": "Triggers to fire upon transaction completion.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Triggers"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,
@@ -1411,6 +1443,65 @@
         }
       ]
     },
+    "TargetNamingStrategy": {
+      "description": "Naming strategy for materialization binding resource names.\n\nControls how collection names are mapped to destination table and schema\nnames when bindings are added. Only applies to connectors whose\ndestination system supports schemas.",
+      "oneOf": [
+        {
+          "description": "Mirror the source collection's schema structure in the destination.\nThe schema component of the collection name becomes the destination schema,\nand the final component becomes the table name.",
+          "type": "object",
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "const": "matchSourceStructure"
+            }
+          },
+          "required": [
+            "strategy"
+          ]
+        },
+        {
+          "description": "Place all tables in a single named schema, using only the collection's\nfinal name component as the table name.",
+          "type": "object",
+          "properties": {
+            "schema": {
+              "description": "The destination schema name.",
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string",
+              "const": "singleSchema"
+            }
+          },
+          "required": [
+            "strategy",
+            "schema"
+          ]
+        },
+        {
+          "description": "Prefix table names with the schema component and place them in a named schema.",
+          "type": "object",
+          "properties": {
+            "schema": {
+              "description": "The destination schema name.",
+              "type": "string"
+            },
+            "skipCommonDefaults": {
+              "description": "When true, omit the prefix for common default schema names like \"public\" or \"dbo\".",
+              "type": "boolean",
+              "default": false
+            },
+            "strategy": {
+              "type": "string",
+              "const": "prefixTableNames"
+            }
+          },
+          "required": [
+            "strategy",
+            "schema"
+          ]
+        }
+      ]
+    },
     "TestDef": {
       "description": "Test the behavior of reductions and derivations, through a sequence of test steps.",
       "type": "object",
@@ -1700,6 +1791,75 @@
         "name",
         "source",
         "shuffle"
+      ]
+    },
+    "TriggerConfig": {
+      "description": "Configuration for a webhook trigger that fires when new data is\nmaterialized to the endpoint.",
+      "type": "object",
+      "properties": {
+        "headers": {
+          "title": "HTTP headers to include in the webhook request.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "secret": true
+          }
+        },
+        "maxAttempts": {
+          "title": "Maximum number of delivery attempts (including the initial attempt).",
+          "description": "The task is failed if all attempts are exhausted without a successful delivery.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 3,
+          "minimum": 0
+        },
+        "method": {
+          "title": "HTTP method to use for the webhook request.",
+          "$ref": "#/$defs/HttpMethod",
+          "default": "POST"
+        },
+        "payloadTemplate": {
+          "title": "Handlebars template for the JSON payload body.",
+          "type": "string"
+        },
+        "timeout": {
+          "title": "Request timeout for each delivery attempt.",
+          "description": "The task is failed if all attempts are exhausted without a successful delivery.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "30s",
+          "pattern": "^\\d+(s|m|h|d)$"
+        },
+        "url": {
+          "title": "URL of the webhook endpoint.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "payloadTemplate"
+      ]
+    },
+    "Triggers": {
+      "title": "Triggers",
+      "description": "Webhook triggers that fire upon materialization transaction completion.",
+      "type": "object",
+      "properties": {
+        "config": {
+          "title": "Trigger Configurations",
+          "description": "List of webhook triggers to fire when new data is materialized.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TriggerConfig"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "config"
       ]
     },
     "Value": true

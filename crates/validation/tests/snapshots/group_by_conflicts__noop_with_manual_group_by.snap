@@ -20,6 +20,7 @@ expression: "(selections, errors)"
             Some(
                 MaterializationDef {
                     source: None,
+                    target_naming: None,
                     on_incompatible_schema_change: Abort,
                     endpoint: Connector(
                         ConnectorConfig {
