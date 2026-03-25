@@ -5,6 +5,7 @@ pagination_next: getting-started/who-should-use-flow
 slug: /
 ---
 
+import BrowserOnly from "@docusaurus/BrowserOnly";
 import ReactPlayer from "react-player";
 
 # What is Estuary?
@@ -15,7 +16,7 @@ Estuary synchronizes your systems – SaaS, databases, streaming, and more – a
 cloud and updates in milliseconds. It combines the easy cross-system integration of an ELT tool and a flexible streaming
 backbone, all while remaining aware of your data's complete history.
 
-<ReactPlayer controls url="https://www.youtube.com/watch?v=uOj77vFrx3U" />
+<BrowserOnly>{() => <ReactPlayer controls url="https://www.youtube.com/watch?v=uOj77vFrx3U" />}</BrowserOnly>
 <br />
 
 A few examples of what you can do with Estuary:
