@@ -980,6 +980,18 @@ expression: "&schema"
           "title": "Automatically materialize new bindings from a named capture",
           "$ref": "#/$defs/SourceType"
         },
+        "targetNaming": {
+          "title": "Naming strategy for destination resources.",
+          "description": "Controls how collection names are mapped to destination table and schema\nnames when bindings are added. Only applies to connectors whose\ndestination system supports schemas.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TargetNamingStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "triggers": {
           "title": "Triggers to fire upon transaction completion.",
           "anyOf": [
@@ -1421,6 +1433,65 @@ expression: "&schema"
           "description": "Like `prefixSchema`, except that it will omit the prefix for the\nfollowing common default schema names:\n- public\n- dbo",
           "type": "string",
           "const": "prefixNonDefaultSchema"
+        }
+      ]
+    },
+    "TargetNamingStrategy": {
+      "description": "Naming strategy for materialization binding resource names.\n\nControls how collection names are mapped to destination table and schema\nnames when bindings are added. Only applies to connectors whose\ndestination system supports schemas.",
+      "oneOf": [
+        {
+          "description": "Mirror the source collection's schema structure in the destination.\nThe schema component of the collection name becomes the destination schema,\nand the final component becomes the table name.",
+          "type": "object",
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "const": "matchSourceStructure"
+            }
+          },
+          "required": [
+            "strategy"
+          ]
+        },
+        {
+          "description": "Place all tables in a single named schema, using only the collection's\nfinal name component as the table name.",
+          "type": "object",
+          "properties": {
+            "schema": {
+              "description": "The destination schema name.",
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string",
+              "const": "singleSchema"
+            }
+          },
+          "required": [
+            "strategy",
+            "schema"
+          ]
+        },
+        {
+          "description": "Prefix table names with the schema component and place them in a named schema.",
+          "type": "object",
+          "properties": {
+            "schema": {
+              "description": "The destination schema name.",
+              "type": "string"
+            },
+            "skipCommonDefaults": {
+              "description": "When true, omit the prefix for common default schema names like \"public\" or \"dbo\".",
+              "type": "boolean",
+              "default": false
+            },
+            "strategy": {
+              "type": "string",
+              "const": "prefixTableNames"
+            }
+          },
+          "required": [
+            "strategy",
+            "schema"
+          ]
         }
       ]
     },

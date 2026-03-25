@@ -6,6 +6,7 @@ expression: "(&outcome.built_materializations[0].model,\n&outcome.built_material
     Some(
         MaterializationDef {
             source: None,
+            target_naming: None,
             on_incompatible_schema_change: Backfill,
             endpoint: Connector(
                 ConnectorConfig {

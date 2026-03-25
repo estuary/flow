@@ -309,6 +309,7 @@ pub async fn update_source_capture<C: ControlPlane>(
 
     let mut new_model = model.clone();
     update_linked_materialization(
+        model.target_naming.as_ref(),
         model.source.as_ref().unwrap(),
         resource_spec_pointers,
         &status.add_bindings,
@@ -364,6 +365,7 @@ fn get_bindings_to_add(
 }
 
 fn update_linked_materialization(
+    target_naming: Option<&models::TargetNamingStrategy>,
     source_capture: &SourceType,
     resource_spec_pointers: tables::utils::ResourceSpecPointers,
     bindings_to_add: &BTreeSet<models::Collection>,
@@ -372,7 +374,8 @@ fn update_linked_materialization(
     for collection_name in bindings_to_add {
         let mut resource_spec = serde_json::json!({});
         tables::utils::update_materialization_resource_spec(
-            source_capture,
+            target_naming,
+            Some(source_capture),
             &mut resource_spec,
             &resource_spec_pointers,
             &collection_name,

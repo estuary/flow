@@ -49,7 +49,7 @@ pub use journals::{
 };
 pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
-    RecommendedDepth,
+    RecommendedDepth, TargetNamingStrategy,
 };
 pub use raw_value::RawValue;
 pub use references::{

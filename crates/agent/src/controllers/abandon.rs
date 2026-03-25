@@ -414,6 +414,7 @@ mod test {
             bindings: vec![],
             shards: Default::default(),
             source: None,
+            target_naming: None,
             on_incompatible_schema_change: Default::default(),
             expect_pub_id: None,
             delete: false,
