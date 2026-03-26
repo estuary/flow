@@ -329,7 +329,7 @@ pub async fn fetch_task_splits<'a>(
     (String, Option<JournalSpec>, Vec<JournalSplit>), // Ops stats.
 )> {
     let list_shards = list_shards_request(task_type, task_name);
-    let list_recovery = list_recoverly_logs_request(task_type, task_name);
+    let list_recovery = list_recovery_logs_request(task_type, task_name);
     let list_ops_logs = list_ops_journal(journal_client, task_type, task_name, ops_logs_template);
     let list_ops_stats = list_ops_journal(journal_client, task_type, task_name, ops_stats_template);
 
@@ -384,7 +384,7 @@ pub fn list_shards_request(task_type: ops::TaskType, task_name: &str) -> consume
     }
 }
 
-fn list_recoverly_logs_request(task_type: ops::TaskType, task_name: &str) -> broker::ListRequest {
+fn list_recovery_logs_request(task_type: ops::TaskType, task_name: &str) -> broker::ListRequest {
     broker::ListRequest {
         selector: Some(LabelSelector {
             include: Some(labels::build_set([
@@ -398,8 +398,10 @@ fn list_recoverly_logs_request(task_type: ops::TaskType, task_name: &str) -> bro
     }
 }
 
-/// Build a ListRequest of a collections partitions.
-fn list_partitions_request(collection: &str) -> broker::ListRequest {
+/// Build a ListRequest of a collection's partitions.
+/// This request will enumerate all of a collection's partitions, whereas the
+/// source partition selector bundled in task bindings filters to selected ones.
+pub fn list_partitions_request(collection: &str) -> broker::ListRequest {
     broker::ListRequest {
         selector: Some(LabelSelector {
             include: Some(labels::build_set([
@@ -631,11 +633,8 @@ pub fn partition_changes(
         };
 
         // Sanity-check that the current split matches its implied journal name.
-        let expect_name = format!(
-            "{}/{}",
-            template.name,
-            labels::partition::name_suffix(&split)?
-        );
+        let expect_name = labels::partition::full_name(&template.name, &split)
+            .context("building expected journal name")?;
         if name != expect_name {
             anyhow::bail!("journal {name} doesn't match its expected name, which is {expect_name}");
         }
@@ -689,15 +688,12 @@ pub fn ops_partition_spec(
 ) -> JournalSpec {
     let mut spec = template.clone();
     let set = spec.labels.take().unwrap_or_default();
-    let set = labels::partition::encode_key_range(set, 0, u32::MAX);
-    let set = labels::partition::add_value(set, "name", &json!(task_name)).unwrap();
-    let set = labels::partition::add_value(set, "kind", &json!(task_type.as_str_name())).unwrap();
+    let set = labels::partition::encode_key_range_labels(set, 0, u32::MAX);
+    let set = labels::partition::encode_field_label(set, "name", &json!(task_name)).unwrap();
+    let set = labels::partition::encode_field_label(set, "kind", &json!(task_type.as_str_name()))
+        .unwrap();
 
-    spec.name = format!(
-        "{}/{}",
-        spec.name,
-        labels::partition::name_suffix(&set).unwrap()
-    );
+    spec.name = labels::partition::full_name(&spec.name, &set).unwrap();
     spec.labels = Some(set);
 
     spec
@@ -802,21 +798,20 @@ fn apply_initial_splits<'a>(
 pub fn map_partition_to_split(
     parent: &JournalSplit,
 ) -> anyhow::Result<(JournalSplit, JournalSplit)> {
-    let (parent_begin, parent_end) = labels::partition::decode_key_range(&parent.labels)?;
+    let (parent_begin, parent_end) = labels::partition::decode_key_range_labels(&parent.labels)?;
 
     let pivot = ((parent_begin as u64 + parent_end as u64 + 1) / 2) as u32;
     let lhs_labels =
-        labels::partition::encode_key_range(parent.labels.clone(), parent_begin, pivot - 1);
-    let rhs_labels = labels::partition::encode_key_range(parent.labels.clone(), pivot, parent_end);
+        labels::partition::encode_key_range_labels(parent.labels.clone(), parent_begin, pivot - 1);
+    let rhs_labels =
+        labels::partition::encode_key_range_labels(parent.labels.clone(), pivot, parent_end);
 
     // Extract the journal name prefix and map into a new RHS journal name.
     let name_prefix = labels::partition::name_prefix(&parent.name, &parent.labels)
         .context("failed to split journal name into prefix and suffix")?;
 
-    let rhs_name = format!(
-        "{name_prefix}/{}",
-        labels::partition::name_suffix(&rhs_labels).expect("we encoded the key range")
-    );
+    let rhs_name =
+        labels::partition::full_name(name_prefix, &rhs_labels).expect("we encoded the key range");
 
     Ok((
         JournalSplit {
@@ -923,43 +918,18 @@ mod test {
     fn test_list_task_request() {
         insta::assert_debug_snapshot!((
             list_shards_request(ops::TaskType::Derivation, "the/derivation"),
-            list_recoverly_logs_request(ops::TaskType::Derivation, "the/derivation"),
+            list_recovery_logs_request(ops::TaskType::Derivation, "the/derivation"),
         ),)
-    }
-
-    async fn managed_build(source: url::Url) -> build::Output {
-        use tables::CatalogResolver;
-        let file_root = std::path::Path::new("/");
-        let draft = build::load(&source, file_root).await;
-        if !draft.errors.is_empty() {
-            return build::Output::new(draft, Default::default(), Default::default());
-        }
-        let catalog_names = draft.all_spec_names().collect();
-        let live = build::NoOpCatalogResolver.resolve(catalog_names).await;
-        if !live.errors.is_empty() {
-            return build::Output::new(draft, live, Default::default());
-        }
-
-        build::local(
-            models::Id::new([32; 8]), // pub_id
-            models::Id::new([1; 8]),  // build_id
-            "",                       // connector_network
-            ops::tracing_log_handler,
-            false, // don't no-op validations
-            false, // don't no-op validations
-            false, // don't no-op validations
-            &build::project_root(&source),
-            draft,
-            live,
-        )
-        .await
     }
 
     #[tokio::test]
     async fn fixture_subtests() {
         let source = build::arg_source_to_url("./src/test.flow.yaml", false).unwrap();
 
-        let build::Output { built, .. } = managed_build(source).await.into_result().unwrap();
+        let build::Output { built, .. } = build::for_local_test(&source, true)
+            .await
+            .into_result()
+            .unwrap();
 
         let tables::BuiltCollection { spec, .. } = built
             .built_collections
@@ -1057,10 +1027,12 @@ mod test {
         };
 
         let mut make_partition = |key_begin, key_end, doc: serde_json::Value, labels: LabelSet| {
-            let labels = labels::partition::encode_field_range(
-                labels::add_value(labels, "extra", "1"),
-                key_begin,
-                key_end,
+            let labels = labels::partition::encode_extracted_fields_labels(
+                labels::partition::encode_key_range_labels(
+                    labels::add_value(labels, "extra", "1"),
+                    key_begin,
+                    key_end,
+                ),
                 partition_fields,
                 &extractors,
                 &doc,
@@ -1068,11 +1040,7 @@ mod test {
             .unwrap();
 
             all_partitions.push(JournalSplit {
-                name: format!(
-                    "{}/{}",
-                    partition_template.name,
-                    labels::partition::name_suffix(&labels).unwrap()
-                ),
+                name: labels::partition::full_name(&partition_template.name, &labels).unwrap(),
                 labels,
                 mod_revision: 111,
                 suspend: Some(journal_spec::Suspend {

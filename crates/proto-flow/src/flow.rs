@@ -324,8 +324,7 @@ pub struct CollectionSpec {
     #[prost(string, tag = "4")]
     pub uuid_ptr: ::prost::alloc::string::String,
     /// Logical partition fields of this collection, and their applied order.
-    /// At present partitions are always in ascending lexicographic order on
-    /// their field name, but this could change at some point.
+    /// Partitions are always in ascending lexicographic order on their field name.
     #[prost(string, repeated, tag = "5")]
     pub partition_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Logical projections of this collection, ordered on ascending field.

@@ -1,7 +1,6 @@
 use anyhow::Context;
-use futures::{SinkExt, StreamExt, TryStreamExt};
-use proto_flow::shuffle::{self as proto};
-use proto_grpc::shuffle::shuffle_client::ShuffleClient;
+use doc::combine;
+use proto_flow::flow;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -15,6 +14,18 @@ pub struct Shuffle {
     /// Number of members in the shuffle topology.
     #[clap(long, default_value = "1")]
     members: u32,
+    /// Directory for log segment files. If omitted, a temporary directory is used.
+    #[clap(long)]
+    directory: Option<std::path::PathBuf>,
+    /// Minimum interval between transaction checkpoints, in milliseconds.
+    #[clap(long, default_value = "500")]
+    interval: u64,
+    /// Number of checkpoints to process before exiting.
+    #[clap(long, default_value = "20")]
+    checkpoints: usize,
+    /// Disk backlog threshold in Mebibytes before engaging back-pressure.
+    #[clap(long, default_value = "1024")]
+    disk_backlog_mib: u64,
 }
 
 impl Shuffle {
@@ -23,10 +34,14 @@ impl Shuffle {
             name,
             port,
             members: member_count,
+            directory,
+            interval,
+            checkpoints,
+            disk_backlog_mib,
         } = self;
 
         // Fetch the task spec from the control plane.
-        let task = fetch_task_spec(ctx, name).await?;
+        let task = fetch_task_spec(ctx, name, *disk_backlog_mib * (1024 * 1024)).await?;
 
         // Start two shuffle servers on adjacent ports.
         // Even-indexed members use the first server, odd-indexed use the second.
@@ -60,11 +75,10 @@ impl Shuffle {
             )
         };
 
-        let service_even =
-            ::shuffle::Service::new(peer_addr_even.clone(), Box::new(auth_fn.clone()));
-        let service_odd = ::shuffle::Service::new(peer_addr_odd.clone(), Box::new(auth_fn.clone()));
+        let service_even = shuffle::Service::new(peer_addr_even.clone(), Box::new(auth_fn.clone()));
+        let service_odd = shuffle::Service::new(peer_addr_odd.clone(), Box::new(auth_fn.clone()));
 
-        let server_even = service_even.build_tonic_server();
+        let server_even = service_even.clone().build_tonic_server();
         let server_odd = service_odd.build_tonic_server();
 
         let listener_even = tokio::net::TcpListener::bind(&bind_addr_even)
@@ -97,163 +111,141 @@ impl Shuffle {
                 .context("shuffle server (odd) error")
         });
 
-        // Give the servers a moment to start.
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Use the provided directory or create a temporary one for log segment files.
+        let _tmp_dir; // Hold the TempDir so it isn't dropped until the session ends.
+        let log_dir_str = if let Some(dir) = directory {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("creating log directory {dir:?}"))?;
+            _tmp_dir = None;
+            dir.to_string_lossy().into_owned()
+        } else {
+            let td = tempfile::tempdir().context("creating temp directory for log segments")?;
+            let s = td.path().to_string_lossy().into_owned();
+            _tmp_dir = Some(td);
+            s
+        };
 
-        // Connect as a client to the even server and open a Session.
+        tracing::info!(log_dir = %log_dir_str, "using log directory");
+        let combine_spec = build_combine_spec(&task).context("building combine spec")?;
+
+        // Create member topology: even-indexed members use even server, odd use odd.
+        let members =
+            build_member_topology(*member_count, &peer_addr_even, &peer_addr_odd, &log_dir_str);
+
         tracing::info!(
             addr_even = %peer_addr_even,
             addr_odd = %peer_addr_odd,
             member_count,
-            "connecting to shuffle servers"
+            "opening session"
         );
 
-        let mut client = ShuffleClient::connect(peer_addr_even.clone())
-            .await
-            .context("connecting to shuffle server")?;
+        let mut client = shuffle::SessionClient::open(
+            &service_even,
+            task,
+            members,
+            shuffle::Frontier::default(),
+        )
+        .await
+        .context("opening session")?;
 
-        // Create member topology: even-indexed members use even server, odd use odd.
-        let members = build_member_topology(*member_count, &peer_addr_even, &peer_addr_odd);
+        tracing::info!("session opened, requesting checkpoints");
 
-        // Generate a unique session ID.
-        let session_id = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-
-        // Create the request stream.
-        let (mut request_tx, request_rx) =
-            futures::channel::mpsc::channel::<proto::SessionRequest>(16);
-
-        // Send the Open request.
-        tracing::info!(session_id, "sending Session Open request");
-
-        request_tx
-            .send(proto::SessionRequest {
-                open: Some(proto::session_request::Open {
-                    session_id,
-                    task: Some(task),
-                    members,
-                }),
-                ..Default::default()
+        // Per-member reader state, taken during each scan and returned after.
+        let log_dir = std::path::Path::new(&log_dir_str);
+        let mut member_state: Vec<Option<MemberState>> = (0..*member_count)
+            .map(|i| {
+                Some((
+                    shuffle::log::reader::Reader::new(log_dir, i),
+                    std::collections::VecDeque::new(),
+                ))
             })
-            .await
-            .context("sending Session Open")?;
+            .collect();
 
-        // Start the Session RPC.
-        let mut response_stream = client
-            .session(request_rx)
-            .await
-            .context("starting Session RPC")?
-            .into_inner();
+        let mut accumulator = combine::Accumulator::new(
+            combine_spec,
+            tempfile::tempfile().context("opening combiner spill file")?,
+        )?;
 
-        // Wait for Opened response.
-        let opened = response_stream
-            .try_next()
-            .await
-            .context("waiting for Session Opened")?
-            .context("Session closed without Opened")?;
+        let mut total_read_docs: usize = 0;
+        let mut total_read_bytes: u64 = 0;
+        let mut bytes_behind: i64 = 0;
 
-        anyhow::ensure!(
-            opened.opened.is_some(),
-            "expected Opened response from Session"
-        );
+        let interval = std::time::Duration::from_millis(*interval);
+        let start = std::time::Instant::now();
+        let mut next_txn_time = start + interval;
 
-        tracing::info!(session_id, "received Opened from Session");
+        for i in 0..*checkpoints {
+            // Run no more frequently than once every interval.
+            tokio::time::sleep(next_txn_time.saturating_duration_since(std::time::Instant::now()))
+                .await;
+            next_txn_time = std::time::Instant::now() + interval;
 
-        // Send resume checkpoint frontier (empty).
-        request_tx
-            .send(proto::SessionRequest {
-                resume_checkpoint_chunk: Some(proto::FrontierChunk {
-                    journals: Vec::new(),
-                }),
-                ..Default::default()
-            })
-            .await
-            .context("sending resume checkpoint frontier")?;
+            tracing::debug!(i, "requesting NextCheckpoint");
 
-        // Send some NextCheckpoint requests and read their responses.
-        for i in 0..15 {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            tracing::info!(i, session_id, "sending NextCheckpoint request");
+            let frontier = client
+                .next_checkpoint()
+                .await
+                .context("requesting next checkpoint")?;
 
-            request_tx
-                .send(proto::SessionRequest {
-                    next_checkpoint: Some(proto::session_request::NextCheckpoint {}),
-                    ..Default::default()
+            // Scan committed entries from each member's log,
+            // pushing documents into the combiner.
+            let scan_frontier = frontier.clone();
+            let (next_member_state, next_accumulator, read_docs, read_bytes) =
+                tokio::task::spawn_blocking(move || {
+                    scan_frontier_members(scan_frontier, member_state, accumulator)
                 })
                 .await
-                .context("sending NextCheckpoint")?;
+                .context("joining scan task")??;
 
-            let mut checkpoint = Vec::new();
-            loop {
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(60),
-                    response_stream.next(),
-                )
-                .await
-                {
-                    Ok(Some(Ok(proto::SessionResponse {
-                        next_checkpoint_chunk: Some(chunk),
-                        ..
-                    }))) => {
-                        if chunk.journals.is_empty() {
-                            break; // End-of-sequence for this checkpoint.
-                        } else {
-                            checkpoint.extend(::shuffle::JournalFrontier::decode(chunk));
-                        }
-                    }
-                    Ok(Some(Ok(unexpected))) => {
-                        anyhow::bail!("unexpected Session response received: {unexpected:?}")
-                    }
-                    Ok(None) => {
-                        anyhow::bail!(
-                            "Session response stream closed unexpectedly while request_tx held"
-                        )
-                    }
-                    Ok(Some(Err(status))) => {
-                        return Err(runtime::status_to_anyhow(status));
-                    }
-                    Err(_elapsed) => anyhow::bail!("timeout waiting for Session response"),
-                }
-            }
+            member_state = next_member_state;
+            accumulator = next_accumulator;
 
-            let frontier =
-                ::shuffle::Frontier::new(checkpoint).context("validating checkpoint frontier")?;
+            bytes_behind += frontier
+                .journals
+                .iter()
+                .map(|jf| jf.bytes_behind_delta)
+                .sum::<i64>();
 
-            for ::shuffle::JournalFrontier {
-                journal,
-                binding,
-                producers,
-            } in &frontier.journals
-            {
-                for ::shuffle::ProducerFrontier {
-                    producer,
-                    last_commit,
-                    hinted_commit,
-                    offset,
-                } in producers
-                {
-                    tracing::debug!(
-                        journal,
-                        binding,
-                        ?producer,
-                        ?last_commit,
-                        ?hinted_commit,
-                        offset,
-                        "producer frontier"
-                    );
-                }
-            }
+            total_read_docs += read_docs;
+            total_read_bytes += read_bytes;
+
+            let (next_accumulator, combined_docs, combined_bytes) =
+                tokio::task::spawn_blocking(move || drain_accumulator_to_stdout(accumulator))
+                    .await
+                    .context("joining drain task")??;
+
+            accumulator = next_accumulator;
+
+            tracing::info!(
+                i,
+                journals = frontier.journals.len(),
+                total_producers = frontier
+                    .journals
+                    .iter()
+                    .map(|j| j.producers.len())
+                    .sum::<usize>(),
+                flushed_lsn = ?frontier.flushed_lsn,
+                read_docs,
+                read_mib = read_bytes / (1024 * 1024),
+                combined_docs,
+                combined_mib = combined_bytes / (1024 * 1024),
+                mib_behind = bytes_behind / (1024 * 1024),
+                "scanned and combined checkpoint"
+            );
         }
+        let elapsed = start.elapsed();
 
-        // Close the request stream.
-        drop(request_tx);
-        let _ignored = response_stream.next().await;
+        client.close().await.context("closing session")?;
 
-        tracing::info!(session_id, "shuffle test completed successfully");
+        tracing::info!(
+            total_read_docs,
+            total_read_mib = total_read_bytes / (1024 * 1024),
+            avg_doc_rate = total_read_docs as f64 / elapsed.as_secs_f64(),
+            avg_mib_rate = total_read_bytes as f64 / (elapsed.as_secs_f64() * 1024f64 * 1024f64),
+            mib_behind = bytes_behind / (1024 * 1024),
+            "shuffle test completed successfully"
+        );
 
-        // Abort both servers (we're done testing).
         server_handle_even.abort();
         server_handle_odd.abort();
 
@@ -261,7 +253,86 @@ impl Shuffle {
     }
 }
 
-async fn fetch_task_spec(ctx: &mut crate::CliContext, name: &str) -> anyhow::Result<proto::Task> {
+type MemberState = (
+    shuffle::log::reader::Reader,
+    std::collections::VecDeque<shuffle::log::reader::Remainder>,
+);
+
+fn scan_frontier_members(
+    frontier: shuffle::Frontier,
+    mut member_state: Vec<Option<MemberState>>,
+    mut accumulator: combine::Accumulator,
+) -> anyhow::Result<(Vec<Option<MemberState>>, combine::Accumulator, usize, u64)> {
+    let mut read_docs: usize = 0;
+    let mut read_bytes: u64 = 0;
+
+    for (member_index, state_slot) in member_state.iter_mut().enumerate() {
+        let (reader, remainders) = state_slot.take().expect("member state must be present");
+
+        let mut scan =
+            shuffle::log::reader::FrontierScan::new(frontier.clone(), reader, remainders)
+                .with_context(|| format!("creating FrontierScan for member {member_index}"))?;
+
+        while scan
+            .advance_block()
+            .with_context(|| format!("advancing block for member {member_index}"))?
+        {
+            let memtable = accumulator.memtable()?;
+
+            for entry in scan.block_iter() {
+                memtable.add_embedded(
+                    entry.meta.binding.to_native(),
+                    &entry.doc.packed_key_prefix,
+                    entry.doc.doc.to_heap(memtable.alloc()),
+                    false,
+                    true,
+                )?;
+                read_docs += 1;
+                read_bytes += entry.doc.source_byte_length.to_native() as u64;
+            }
+        }
+
+        let (_, reader, remainders) = scan.into_parts();
+        *state_slot = Some((reader, remainders));
+    }
+
+    Ok((member_state, accumulator, read_docs, read_bytes))
+}
+
+fn drain_accumulator_to_stdout(
+    accumulator: combine::Accumulator,
+) -> anyhow::Result<(combine::Accumulator, usize, usize)> {
+    let ser_policy = doc::SerPolicy::noop();
+    let mut stdout = std::io::stdout();
+    let mut combined_docs: usize = 0;
+    let mut combined_bytes: usize = 0;
+    let mut buf = Vec::<u8>::new();
+
+    let mut drainer = accumulator.into_drainer()?;
+    while let Some(drained) = drainer.next() {
+        let drained = drained.context("draining combined document")?;
+        serde_json::to_writer(&mut buf, &ser_policy.on_owned(&drained.root))
+            .context("writing NDJSON")?;
+        buf.push(b'\n');
+        combined_docs += 1;
+        combined_bytes += buf.len();
+
+        std::io::Write::write_all(&mut stdout, &buf).context("flushing NDJSON to stdout")?;
+        buf.clear();
+    }
+
+    let accumulator = drainer
+        .into_new_accumulator()
+        .context("recycling accumulator")?;
+
+    Ok((accumulator, combined_docs, combined_bytes))
+}
+
+async fn fetch_task_spec(
+    ctx: &mut crate::CliContext,
+    name: &str,
+    disk_backlog_threshold: u64,
+) -> anyhow::Result<shuffle::proto::Task> {
     let builder = ctx
         .client
         .from("live_specs")
@@ -283,30 +354,30 @@ async fn fetch_task_spec(ctx: &mut crate::CliContext, name: &str) -> anyhow::Res
 
     let task = match row.spec_type.as_str() {
         "materialization" => {
-            let spec: proto_flow::flow::MaterializationSpec =
-                serde_json::from_value(row.built_spec)?;
+            let spec: flow::MaterializationSpec = serde_json::from_value(row.built_spec)?;
             tracing::info!(name = spec.name, "fetched materialization");
-            proto::Task {
-                task: Some(proto::task::Task::Materialization(spec)),
+            shuffle::proto::Task {
+                task: Some(shuffle::proto::task::Task::Materialization(spec)),
             }
         }
         "collection" => {
-            let spec: proto_flow::flow::CollectionSpec = serde_json::from_value(row.built_spec)?;
+            let spec: flow::CollectionSpec = serde_json::from_value(row.built_spec)?;
 
             if spec.derivation.is_some() {
                 tracing::info!(name = spec.name, "fetched derivation");
-                proto::Task {
-                    task: Some(proto::task::Task::Derivation(spec)),
+                shuffle::proto::Task {
+                    task: Some(shuffle::proto::task::Task::Derivation(spec)),
                 }
             } else {
                 tracing::info!(name = spec.name, "fetched collection");
                 let partition_selector = Some(assemble::journal_selector(&spec, None));
 
-                proto::Task {
-                    task: Some(proto::task::Task::CollectionPartitions(
-                        proto::CollectionPartitions {
+                shuffle::proto::Task {
+                    task: Some(shuffle::proto::task::Task::CollectionPartitions(
+                        shuffle::proto::CollectionPartitions {
                             collection: Some(spec),
                             partition_selector,
+                            disk_backlog_threshold,
                         },
                     )),
                 }
@@ -318,9 +389,54 @@ async fn fetch_task_spec(ctx: &mut crate::CliContext, name: &str) -> anyhow::Res
     Ok(task)
 }
 
+/// Build a `combine::Spec` from the task's collection specs.
+///
+/// Each binding corresponds to a source collection, and uses the collection's
+/// own key extractors for reduction (not the shuffle key, which may differ
+/// for derivation transforms with explicit shuffle keys).
+fn build_combine_spec(task: &shuffle::proto::Task) -> anyhow::Result<combine::Spec> {
+    let collection_specs: Vec<&flow::CollectionSpec> = match &task.task {
+        Some(shuffle::proto::task::Task::CollectionPartitions(cp)) => {
+            vec![cp.collection.as_ref().context("missing collection spec")?]
+        }
+        Some(shuffle::proto::task::Task::Materialization(mat)) => mat
+            .bindings
+            .iter()
+            .map(|b| b.collection.as_ref().context("missing collection spec"))
+            .collect::<anyhow::Result<_>>()?,
+        Some(shuffle::proto::task::Task::Derivation(col)) => {
+            let derivation = col.derivation.as_ref().context("missing derivation")?;
+            derivation
+                .transforms
+                .iter()
+                .map(|t| t.collection.as_ref().context("missing collection spec"))
+                .collect::<anyhow::Result<_>>()?
+        }
+        None => anyhow::bail!("missing task variant"),
+    };
+
+    let bindings = collection_specs.into_iter().map(|spec| {
+        let (validator, shape) =
+            shuffle::binding::build_schema(&spec.read_schema_json, &spec.write_schema_json)?;
+        let key_extractors = shuffle::binding::build_key_extractors(&spec.key, &shape);
+
+        Ok::<_, anyhow::Error>((true, key_extractors, spec.name.clone(), validator))
+    });
+
+    // Collect to surface errors before passing to with_bindings.
+    let bindings: Vec<_> = bindings.collect::<anyhow::Result<_>>()?;
+
+    Ok(combine::Spec::with_bindings(bindings, Vec::new()))
+}
+
 /// Build a member topology with `count` members, splitting the key space evenly.
 /// Even-indexed members use `addr_even`, odd-indexed members use `addr_odd`.
-fn build_member_topology(count: u32, addr_even: &str, addr_odd: &str) -> Vec<proto::Member> {
+fn build_member_topology(
+    count: u32,
+    addr_even: &str,
+    addr_odd: &str,
+    directory: &str,
+) -> Vec<shuffle::proto::Member> {
     let mut members = Vec::with_capacity(count as usize);
 
     for i in 0..count {
@@ -338,14 +454,15 @@ fn build_member_topology(count: u32, addr_even: &str, addr_odd: &str) -> Vec<pro
 
         let endpoint = if i % 2 == 0 { addr_even } else { addr_odd };
 
-        members.push(proto::Member {
-            range: Some(proto_flow::flow::RangeSpec {
+        members.push(shuffle::proto::Member {
+            range: Some(flow::RangeSpec {
                 key_begin,
                 key_end,
                 r_clock_begin: 0,
                 r_clock_end: u32::MAX,
             }),
             endpoint: endpoint.to_string(),
+            directory: directory.to_string(),
         });
     }
 

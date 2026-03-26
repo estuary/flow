@@ -221,7 +221,7 @@ async fn walk_capture<C: Connectors>(
                 model,
                 built_collections,
                 capture,
-                noop_captures || shards.disable,
+                shards.disable,
                 &live_bindings_model,
                 &live_bindings_spec,
                 &mut model_fixes,

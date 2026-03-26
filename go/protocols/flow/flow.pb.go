@@ -877,8 +877,7 @@ type CollectionSpec struct {
 	// JSON pointer locating the UUID of each collection document.
 	UuidPtr string `protobuf:"bytes,4,opt,name=uuid_ptr,json=uuidPtr,proto3" json:"uuid_ptr,omitempty"`
 	// Logical partition fields of this collection, and their applied order.
-	// At present partitions are always in ascending lexicographic order on
-	// their field name, but this could change at some point.
+	// Partitions are always in ascending lexicographic order on their field name.
 	PartitionFields []string `protobuf:"bytes,5,rep,name=partition_fields,json=partitionFields,proto3" json:"partition_fields,omitempty"`
 	// Logical projections of this collection, ordered on ascending field.
 	Projections []Projection `protobuf:"bytes,6,rep,name=projections,proto3" json:"projections"`

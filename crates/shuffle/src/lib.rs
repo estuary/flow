@@ -1,8 +1,14 @@
 use tokio::sync::mpsc;
 
-mod binding;
+/// Re-export of `proto_flow::shuffle` so that dependents can refer to
+/// protocol message types as `shuffle::proto::*`, avoiding the naming
+/// conflict between this crate and the protobuf module.
+pub use proto_flow::shuffle as proto;
+
+pub mod binding;
+mod client;
 pub mod frontier;
-mod queue;
+pub mod log;
 mod service;
 mod session;
 mod slice;
@@ -10,7 +16,16 @@ mod slice;
 #[cfg(test)]
 pub(crate) mod testing;
 
+/// Document passed JSON Schema validation.
+/// Bit 15 of the flags u16, above the 10-bit UUID wire space (bits 0-9).
+/// Shared by `slice::read::Meta::flags` and `log::block::BlockMeta::flags`.
+///
+/// Note that `uuid::build()` asserts flags fit in 10 bits, so accidental
+/// round-trip (for example, in an actual document) is impossible.
+pub const FLAGS_SCHEMA_VALID: u16 = 0x8000;
+
 pub use binding::Binding;
+pub use client::SessionClient;
 pub use frontier::{Frontier, JournalFrontier, ProducerFrontier};
 pub use service::Service;
 
@@ -38,25 +53,6 @@ fn now_clock() -> proto_gazette::uuid::Clock {
     } else {
         proto_gazette::uuid::Clock::from_time(std::time::SystemTime::now())
     }
-}
-
-// Fixed 32-byte key for HighwayHash, matching the Go implementation
-// in go/flow/mapping.go. The key is interpreted as 4 little-endian u64s.
-const HIGHWAY_KEY: highway::Key = highway::Key([
-    u64::from_le_bytes([0xba, 0x73, 0x7e, 0x89, 0x15, 0x52, 0x38, 0xd4]),
-    u64::from_le_bytes([0x7d, 0x80, 0x67, 0xc3, 0x5a, 0xad, 0x4d, 0x25]),
-    u64::from_le_bytes([0xec, 0xdd, 0x1c, 0x34, 0x88, 0x22, 0x7e, 0x01]),
-    u64::from_le_bytes([0x1f, 0xfa, 0x48, 0x0c, 0x02, 0x2b, 0xd3, 0xba]),
-]);
-
-/// Hash a packed shuffle key using HighwayHash, returning the top 32 bits.
-/// Must produce identical results to Go's flow.PackedKeyHash_HH64.
-fn packed_key_hash(packed_key: &[u8]) -> u32 {
-    use highway::HighwayHash;
-
-    let mut hasher = highway::HighwayHasher::new(HIGHWAY_KEY);
-    hasher.append(packed_key);
-    (hasher.finalize64() >> 32) as u32
 }
 
 fn new_channel<T>() -> (mpsc::Sender<T>, mpsc::Receiver<T>) {
@@ -125,7 +121,6 @@ struct Verify<'p> {
 }
 
 impl<'p> Verify<'p> {
-    #[must_use]
     #[inline]
     fn ok<T>(&self, t: tonic::Result<T>) -> anyhow::Result<T> {
         match t {
@@ -134,7 +129,15 @@ impl<'p> Verify<'p> {
         }
     }
 
-    #[must_use]
+    #[inline]
+    fn eof<T: serde::Serialize>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<()> {
+        match t {
+            None => Ok(()),
+            Some(Err(status)) => Err(self.fail_status(status)),
+            Some(Ok(t)) => Err(self.fail(t)),
+        }
+    }
+
     #[inline]
     fn not_eof<T>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<T> {
         if let Some(t) = t {
@@ -181,3 +184,9 @@ impl<'p> Verify<'p> {
         ))
     }
 }
+
+/// Interval at which all actor event loops tick, ensuring per-loop tracing
+/// instrumentation fires periodically even when no other events arrive.
+/// The Session actor additionally uses ticks for mark-and-sweep detection
+/// of stalled causal hint resolution.
+const ACTOR_TICKER_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);

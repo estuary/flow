@@ -13,7 +13,7 @@ pub enum Error {
     InvalidEndpoint(String),
     #[error(transparent)]
     Transport(#[from] tonic::transport::Error),
-    #[error(transparent)]
+    #[error("gRPC code: {:?}, message: {}", .0.code(), .0.message())]
     Grpc(#[from] tonic::Status),
     #[error("failed to fetch fragment from storage URL")]
     FetchFragment(#[source] reqwest::Error),
@@ -97,13 +97,27 @@ impl Error {
                 _ => false, // Others are not.
             },
 
-            // At this level, we do not consider BrokerStatus or ConsumerStatus
-            // to be transient. Callers may want to special-case certain values
-            // as fits their circumstances however.
+            Error::BrokerStatus(status) => match status {
+                // Transient because a broker is in the process of being assigned
+                // (or would be, if the broker cluster had capacity to assign one).
+                broker::Status::NoJournalPrimaryBroker
+                // Transient because replicas are in the process of being assigned.
+                | broker::Status::InsufficientJournalBrokers
+                // Transient because its a condition of the cluster which an
+                // operator must resolve, and not an error of the client.
+                | broker::Status::IndexHasGreaterOffset => true,
+                // All other errors are not transient (callers may special case).
+                _ => false,
+            },
+            Error::ConsumerStatus(status) => match status {
+                // Transient because a primary is in the process of being assigned.
+                consumer::Status::NoShardPrimary => true,
+                // All other errors are not transient (callers may special case).
+                _ => false,
+            },
+
             Error::AppendRead(_) => false,
             Error::BearerToken(_) => false,
-            Error::BrokerStatus(_) => false,
-            Error::ConsumerStatus(_) => false,
             Error::InvalidEndpoint(_) => false,
             Error::JWT(_) => false,
             Error::Parsing { .. } => false,
@@ -124,6 +138,19 @@ pub type RetryResult<T> = std::result::Result<T, RetryError>;
 pub fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
     use std::time::Duration;
 
+    // Normalize "unix://<authority>/path" to "unix:/path". Go's gRPC requires
+    // a URI authority in UDS endpoints (e.g. "unix://localhost/path" or
+    // "unix://hostname/path"), but tonic strips the "unix://" prefix and uses
+    // the remainder as the socket file path, incorrectly including the authority
+    // (e.g. "localhost/tmp/sock" instead of "/tmp/sock"). Parse as a URL and
+    // drop the host so tonic sees the correct absolute path.
+    let endpoint = match url::Url::parse(endpoint) {
+        Ok(url) if url.scheme() == "unix" && url.has_host() => {
+            std::borrow::Cow::Owned(format!("unix:{}", url.path()))
+        }
+        _ => std::borrow::Cow::Borrowed(endpoint),
+    };
+
     let ep = tonic::transport::Endpoint::from_shared(endpoint.to_string())
         .map_err(|_err| Error::InvalidEndpoint(endpoint.to_string()))?
         // Note this connect_timeout accounts only for TCP connection time and
@@ -142,43 +169,20 @@ pub fn dial_channel(endpoint: &str) -> Result<tonic::transport::Channel> {
         // connection unexpectedly.
         // See: https://github.com/grpc/grpc/blob/master/doc/keepalive.md
         .http2_keep_alive_interval(std::time::Duration::from_secs(301))
-        .initial_connection_window_size(i32::MAX as u32)
-        .tls_config(
+        .initial_connection_window_size(i32::MAX as u32);
+
+    // TLS is only meaningful for TCP, not UDS. Tonic 0.14+ rejects tls_config on UDS endpoints.
+    let ep = if endpoint.starts_with("unix:") {
+        ep
+    } else {
+        ep.tls_config(
             tonic::transport::ClientTlsConfig::new()
                 .with_native_roots()
                 .assume_http2(true),
-        )?;
+        )?
+    };
 
-    let channel =
-        match ep.uri().scheme_str() {
-            Some("unix") => ep.connect_with_connector_lazy(tower::util::service_fn(
-                |uri: tonic::transport::Uri| connect_unix(uri),
-            )),
-            Some("https" | "http") => ep.connect_lazy(),
-
-            _ => return Err(Error::InvalidEndpoint(endpoint.to_string())),
-        };
-
-    Ok(channel)
-}
-
-async fn connect_unix(
-    uri: tonic::transport::Uri,
-) -> std::io::Result<hyper_util::rt::TokioIo<tokio::net::UnixStream>> {
-    let path = uri.path();
-    // Wait until the filesystem path exists, because it's hard to tell from
-    // the error so that we can re-try. This is expected to be cut short by the
-    // connection timeout if the path never appears.
-    for i in 1.. {
-        if let Ok(meta) = tokio::fs::metadata(path).await {
-            tracing::debug!(?path, ?meta, "UDS path now exists");
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20 * i)).await;
-    }
-    Ok(hyper_util::rt::TokioIo::new(
-        tokio::net::UnixStream::connect(path).await?,
-    ))
+    Ok(ep.connect_lazy())
 }
 
 fn backoff(attempt: usize) -> std::time::Duration {

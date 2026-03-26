@@ -1,0 +1,5 @@
+---
+source: crates/publisher/src/intents.rs
+expression: result
+---
+[]

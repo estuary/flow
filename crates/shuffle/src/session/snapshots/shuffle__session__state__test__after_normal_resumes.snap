@@ -17,6 +17,8 @@ PipelineSnapshot {
                         offset: -800,
                     },
                 ],
+                bytes_read_delta: 500,
+                bytes_behind_delta: 2000,
             },
             JournalFrontier {
                 journal: "journal/B",
@@ -29,6 +31,8 @@ PipelineSnapshot {
                         offset: -300,
                     },
                 ],
+                bytes_read_delta: 300,
+                bytes_behind_delta: -100,
             },
             JournalFrontier {
                 journal: "journal/C",
@@ -41,6 +45,8 @@ PipelineSnapshot {
                         offset: -200,
                     },
                 ],
+                bytes_read_delta: 150,
+                bytes_behind_delta: 800,
             },
             JournalFrontier {
                 journal: "journal/D",
@@ -53,14 +59,21 @@ PipelineSnapshot {
                         offset: -150,
                     },
                 ],
+                bytes_read_delta: 100,
+                bytes_behind_delta: 400,
             },
+        ],
+        flushed_lsn: [
+            0/3000,
         ],
     },
     unresolved: Frontier {
         journals: [],
+        flushed_lsn: [],
     },
     unresolved_count: 0,
     progressed: Frontier {
         journals: [],
+        flushed_lsn: [],
     },
 }

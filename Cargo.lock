@@ -2920,6 +2920,7 @@ dependencies = [
  "bytes",
  "futures",
  "hexdump",
+ "highway",
  "insta",
  "itertools 0.14.0",
  "json",
@@ -2985,6 +2986,29 @@ name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
+
+[[package]]
+name = "e2e-support"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-process",
+ "build",
+ "futures",
+ "gazette",
+ "insta",
+ "libc",
+ "models",
+ "proto-gazette",
+ "proto-grpc",
+ "publisher",
+ "serde_json",
+ "tempfile",
+ "tokens",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "ecow"
@@ -3572,10 +3596,10 @@ dependencies = [
  "bytes",
  "coroutines",
  "doc",
+ "flate2",
  "futures",
  "futures-core",
  "hexdump",
- "hyper-util",
  "jsonwebtoken",
  "memchr",
  "ops",
@@ -3591,9 +3615,9 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tonic",
- "tower",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
@@ -6302,6 +6326,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "publisher"
+version = "0.0.0"
+dependencies = [
+ "activate",
+ "anyhow",
+ "base64 0.22.1",
+ "build",
+ "bytes",
+ "doc",
+ "extractors",
+ "futures",
+ "gazette",
+ "insta",
+ "itertools 0.14.0",
+ "json",
+ "labels",
+ "models",
+ "ops",
+ "proto-flow",
+ "proto-gazette",
+ "proto-grpc",
+ "serde",
+ "serde_json",
+ "tables",
+ "tokens",
+ "tokio",
+ "tonic",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "pulldown-cmark"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7611,8 +7668,10 @@ name = "shuffle"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "build",
  "bytes",
  "doc",
+ "e2e-support",
  "flow-client-next",
  "futures",
  "gazette",
@@ -7620,6 +7679,8 @@ dependencies = [
  "insta",
  "json",
  "labels",
+ "libc",
+ "lz4",
  "md5",
  "memchr",
  "models",
@@ -7629,6 +7690,10 @@ dependencies = [
  "proto-flow",
  "proto-gazette",
  "proto-grpc",
+ "publisher",
+ "quickcheck",
+ "quickcheck_macros",
+ "rkyv",
  "schemars",
  "serde",
  "serde-transcode",
@@ -7637,11 +7702,14 @@ dependencies = [
  "simd-doc",
  "superslice",
  "tables",
+ "tempfile",
+ "thiserror 2.0.17",
  "tokens",
  "tokio",
  "tokio-stream",
  "tonic",
  "tracing",
+ "tracing-subscriber",
  "tuple",
  "url",
  "uuid",

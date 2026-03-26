@@ -22,6 +22,7 @@ proto-grpc = { path = "../proto-grpc", features = [
     "shuffle_client",
     "shuffle_server",
 ] }
+publisher = { path = "../publisher" }
 simd-doc = { path = "../simd-doc" }
 tables = { path = "../tables" }
 tokens = { path = "../tokens" }
@@ -31,16 +32,20 @@ anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 highway = { workspace = true }
+libc = { workspace = true }
+lz4 = { workspace = true }
 md5 = { workspace = true }
 memchr = { workspace = true }
 pbjson-types = { workspace = true }
 pin-project-lite = { workspace = true }
+rkyv = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde-transcode = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 superslice = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
@@ -49,5 +54,10 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-
+build = { path = "../build" }
+e2e-support = { path = "../e2e-support" }
 insta = { workspace = true }
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
+tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }

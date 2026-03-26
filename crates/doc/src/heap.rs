@@ -1,4 +1,5 @@
-use super::{BumpStr, BumpVec};
+use super::embedded;
+use super::{BumpStr, BumpVec, HeapEmbedded};
 use json::{AsNode, Field, Fields};
 
 /// HeapNode is a document node representation stored in the heap.
@@ -44,6 +45,33 @@ pub struct HeapField<'alloc> {
     pub property: BumpStr<'alloc>,
     #[rkyv(omit_bounds)]
     pub value: HeapNode<'alloc>,
+}
+
+/// HeapRoot is the root of a document representation stored in the heap.
+/// It has all the same variants as HeapNode plus an Embedded variant,
+/// which represents a heap-backed ArchivedNode buffer.
+///
+/// The extra variant allows for pass-through of archived buffers without
+/// de-ser/re-ser in common cases where documents pass through a combiner
+/// without any required reduction.
+///
+/// The flattened design (duplicating HeapNode's variants rather than wrapping)
+/// is necessary to maintain the 16-byte size — a wrapping enum would inflate
+/// to 24 bytes because HeapNode has no usable niche for enum optimization.
+pub enum HeapRoot<'alloc> {
+    Array(i32, BumpVec<'alloc, HeapNode<'alloc>>),
+    Bool(bool),
+    Bytes(BumpVec<'alloc, u8>),
+    Float(f64),
+    NegInt(i64),
+    Null,
+    Object(i32, BumpVec<'alloc, HeapField<'alloc>>),
+    PosInt(u64),
+    String(BumpStr<'alloc>),
+    /// A pre-serialized ArchivedNode buffer. The pointer is `*const U64Le`
+    /// to enforce 8-byte alignment at the type level. The count is in U64Le
+    /// units, giving a 32 GiB maximum per document.
+    Embedded(*const embedded::U64Le, u32),
 }
 
 impl<'alloc> HeapNode<'alloc> {
@@ -232,6 +260,51 @@ impl<'alloc> HeapNode<'alloc> {
     }
 }
 
+impl<'alloc> HeapRoot<'alloc> {
+    /// Access the document as either a shallow by-value HeapNode or a HeapEmbedded.
+    #[inline]
+    pub fn access<'a>(&'a self) -> Result<HeapNode<'alloc>, HeapEmbedded<'a>> {
+        match self {
+            // Safety (BumpVec/BumpStr shallow copies): the returned HeapNode
+            // shares backing storage with `self`. The caller must not mutate
+            // the returned handles (e.g. push into a BumpVec) while `self`
+            // is live. In practice, all callers pass the result to read-only
+            // operations (validate, compare_key, reduce, serialize). This is
+            // the same shallow-copy pattern used by LazyNode::borrow.
+            Self::Array(tl, v) => Ok(HeapNode::Array(*tl, unsafe { v.shallow_copy() })),
+            Self::Bool(b) => Ok(HeapNode::Bool(*b)),
+            Self::Bytes(b) => Ok(HeapNode::Bytes(unsafe { b.shallow_copy() })),
+            Self::Float(f) => Ok(HeapNode::Float(*f)),
+            Self::NegInt(n) => Ok(HeapNode::NegInt(*n)),
+            Self::Null => Ok(HeapNode::Null),
+            Self::Object(tl, f) => Ok(HeapNode::Object(*tl, unsafe { f.shallow_copy() })),
+            Self::PosInt(n) => Ok(HeapNode::PosInt(*n)),
+            Self::String(s) => Ok(HeapNode::String(*s)),
+            Self::Embedded(ptr, len) => {
+                // Safety: ptr/len were produced from a valid &[U64Le] in the bump allocator.
+                let slice = unsafe { std::slice::from_raw_parts(*ptr, *len as usize) };
+                Err(unsafe { HeapEmbedded::from_buffer(slice) })
+            }
+        }
+    }
+
+    /// Convert a HeapNode into the corresponding HeapRoot variant.
+    #[inline]
+    pub fn from_heap_node(node: HeapNode<'alloc>) -> Self {
+        match node {
+            HeapNode::Array(tl, v) => Self::Array(tl, v),
+            HeapNode::Bool(b) => Self::Bool(b),
+            HeapNode::Bytes(b) => Self::Bytes(b),
+            HeapNode::Float(f) => Self::Float(f),
+            HeapNode::NegInt(n) => Self::NegInt(n),
+            HeapNode::Null => Self::Null,
+            HeapNode::Object(tl, f) => Self::Object(tl, f),
+            HeapNode::PosInt(n) => Self::PosInt(n),
+            HeapNode::String(s) => Self::String(s),
+        }
+    }
+}
+
 impl<'alloc> json::AsNode for HeapNode<'alloc> {
     type Fields = [HeapField<'alloc>];
 
@@ -275,9 +348,13 @@ impl<'alloc> json::Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
 
     #[inline]
     fn get<'a>(&'a self, property: &str) -> Option<Self::Field<'a>> {
-        match self.binary_search_by(|l| l.property.cmp(property)) {
-            Ok(ind) => Some(&self[ind]),
-            Err(_) => None,
+        if self.len() < 16 {
+            self.iter().find(|l| l.property.as_ref() == property)
+        } else {
+            match self.binary_search_by(|l| l.property.cmp(property)) {
+                Ok(ind) => Some(&self[ind]),
+                Err(_) => None,
+            }
         }
     }
     #[inline]

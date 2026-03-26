@@ -180,9 +180,17 @@ impl Extractor {
         indicator: &AtomicBool,
     ) {
         match doc {
-            OwnedNode::Heap(n) => {
-                Self::extract_all_indicate_truncation(n.get(), extractors, out, indicator)
-            }
+            OwnedNode::Heap(n) => match n.access() {
+                Ok(heap_node) => {
+                    Self::extract_all_indicate_truncation(&heap_node, extractors, out, indicator)
+                }
+                Err(embedded) => Self::extract_all_indicate_truncation(
+                    embedded.get(),
+                    extractors,
+                    out,
+                    indicator,
+                ),
+            },
             OwnedNode::Archived(n) => {
                 Self::extract_all_indicate_truncation(n.get(), extractors, out, indicator)
             }
@@ -238,7 +246,30 @@ impl Extractor {
             .find(|o| *o != Ordering::Equal)
             .unwrap_or(Ordering::Equal)
     }
+
+    /// Return the canonical hash of a packed tuple encoding, as produced by extract_all().
+    ///
+    /// The hash is the top 32 bits of a HighwayHash over the tuple's bytes
+    /// using a fixed public (non-cryptographic) key.
+    ///
+    /// This routine's results are identical to Go's flow.PackedKeyHash_HH64.
+    pub fn packed_hash(packed_key: &[u8]) -> u32 {
+        use highway::HighwayHash;
+
+        let mut hasher = highway::HighwayHasher::new(HIGHWAY_KEY);
+        hasher.append(packed_key);
+        (hasher.finalize64() >> 32) as u32
+    }
 }
+
+/// Fixed 32-byte key used with HighwayHash to derive a canonical hash from
+/// a packed tuple encoding. Matches the Go implementation in go/flow/mapping.go.
+pub const HIGHWAY_KEY: highway::Key = highway::Key([
+    u64::from_le_bytes([0xba, 0x73, 0x7e, 0x89, 0x15, 0x52, 0x38, 0xd4]),
+    u64::from_le_bytes([0x7d, 0x80, 0x67, 0xc3, 0x5a, 0xad, 0x4d, 0x25]),
+    u64::from_le_bytes([0xec, 0xdd, 0x1c, 0x34, 0x88, 0x22, 0x7e, 0x01]),
+    u64::from_le_bytes([0x1f, 0xfa, 0x48, 0x0c, 0x02, 0x2b, 0xd3, 0xba]),
+]);
 
 #[cfg(test)]
 mod test {
@@ -477,6 +508,37 @@ mod test {
             Extractor::compare_key(&[two(), two()], d1, d2),
             Ordering::Equal
         );
+    }
+
+    #[test]
+    fn test_packed_hash_regression() {
+        // Regression test matching Go's TestHighwayHashRegression in go/flow/mapping_test.go.
+        // Expect that small (e.g. single bit) changes to the input wildly change the output.
+        use tuple::TuplePack;
+
+        let cases: Vec<(u32, Vec<u8>)> = vec![
+            (0xb9f08d38, (true,).pack_to_vec()),
+            (0x1505e3cb, (false,).pack_to_vec()),
+            (0x6ae719f3, ("foo", "bar").pack_to_vec()),
+            (0x8adddd61, ("foobar",).pack_to_vec()),
+            (0x7273e587, ("foobas",).pack_to_vec()),
+            (0xf4ec4d33, ("1",).pack_to_vec()),
+            (0x1e023d95, ("2",).pack_to_vec()),
+            (0x38a34efe, ("3",).pack_to_vec()),
+            (0x17751bae, ("10",).pack_to_vec()),
+            (0x87d93806, ("11",).pack_to_vec()),
+            (0x3c90c1d9, (1i64,).pack_to_vec()),
+            (0x97901bac, (2i64,).pack_to_vec()),
+            (0xcbc7f1e2, (3i64,).pack_to_vec()),
+            (0xd1d3f3eb, (10i64,).pack_to_vec()),
+        ];
+        for (expect, packed) in &cases {
+            assert_eq!(
+                *expect,
+                Extractor::packed_hash(packed),
+                "packed key: {packed:?}"
+            );
+        }
     }
 
     #[test]

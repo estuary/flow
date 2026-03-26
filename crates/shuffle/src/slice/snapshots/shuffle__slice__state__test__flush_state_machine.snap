@@ -1,6 +1,6 @@
 ---
 source: crates/shuffle/src/slice/state.rs
-expression: "&state.flushed"
+expression: "&s.progress.flushed"
 ---
 Frontier {
     journals: [
@@ -21,6 +21,13 @@ Frontier {
                     offset: -100,
                 },
             ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
         },
+    ],
+    flushed_lsn: [
+        0/100,
+        0/200,
+        0/300,
     ],
 }

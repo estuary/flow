@@ -1,0 +1,8 @@
+---
+source: crates/e2e-support/tests/hello_world.rs
+expression: read_str
+---
+{"_meta":{"uuid":"13814000-1dd2-11b2-8801-010000000001"},"id":"hello-2","message":"Greetings from the test!","region":"eu"}
+{"_meta":{"uuid":"13814000-1dd2-11b2-8c02-010000000001"},"hints":[{"j":[11,"us/pivot=00"],"p":[{}]}],"is_ack":true}
+{"_meta":{"uuid":"13814000-1dd2-11b2-8401-010000000001"},"id":"hello-1","message":"Hello, World!","region":"us"}
+{"_meta":{"uuid":"13814000-1dd2-11b2-8c02-010000000001"},"hints":[{"j":[11,"eu/pivot=00"],"p":[{}]}],"is_ack":true}
