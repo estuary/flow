@@ -156,9 +156,9 @@ Every included field will be mapped to a table column or equivalent in the endpo
 
 5. Choose whether to start with one of Estuary's field selection **modes**. You can customize individual fields later. Modes include and exclude fields based on field depth:
 
-   * **Depth Zero:** Only selects top-level fields
-   * **Depth One:** Selects object fields with one degree of nesting
-   * **Depth Two:** Selects object fields with two degrees of nesting
+   * **Required Only:** Selects only [required fields](#required-fields)
+   * **Depth One:** Selects all top-level fields
+   * **Depth Two:** Selects fields at one and two levels of nesting
    * **Unlimited Depth:** Selects all fields
 
    Selecting a depth limit can help prevent over-materializing complex document structures.
@@ -173,6 +173,16 @@ Every included field will be mapped to a table column or equivalent in the endpo
 8. Click **Save and Publish**.
 
 The named, included fields will be reflected in the endpoint system.
+
+### Required Fields
+
+Regardless of user selections, the connector will always require certain basic fields. These fields can include:
+
+* [Group-by keys](#group-by-keys)
+* Core metadata fields, such as `_meta/op`
+* The current document (when using standard updates, unless the "No Flow Document" option is enabled)
+
+The dashboard will provide a full list of fields that will be materialized, including required fields, along with their selection reasons.
 
 ### Group-By Keys
 

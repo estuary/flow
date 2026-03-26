@@ -118,7 +118,7 @@ Allows materializations to write to tables that already exist in the destination
 - **Caveats:**
   - Enabling this flag disables load-key optimizations for affected bindings, which may impact performance. This is necessary to ensure merge operations work correctly with pre-existing data.
   - The connector cannot verify that existing table schemas are compatible.
-  - This flag alone does **not** prevent backfill of the source collection. To avoid backfilling data into the existing table, also configure [`notBefore`](/concepts/materialization/#backfills) or use "Only Changes" mode on the binding.
+  - This flag alone does **not** prevent backfill of the source collection. To avoid backfilling data into the existing table, also configure [`notBefore`](/reference/time-travel) or use "Only Changes" mode on the binding.
 - **Applies to:** All SQL and warehouse materialization connectors (PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, etc.)
 
 ### retain_existing_data_on_backfill

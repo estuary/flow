@@ -93,7 +93,7 @@ Webhook delivery is typically "at least once". This means that webhooks from com
 In order to prevent problems due to duplicate processing of webhooks, these services typically provide either an HTTP header or a field within each document that serves
 as a unique ID for each webhook event. This can be used to deduplicate the events in your `webhook-data` collection. The key of the discovered `webhook-data` collection is `/_meta/webhookId`.
 By default, this value is generated automatically by the connector, and no-deduplication will be performed.
-You can set the `idFromHeader` option in the [resource configuration](#resource-configuration) to have the connector automatically assign the value of the given HTTP header to the `/_meta/webhookId` property.
+You can set the `idFromHeader` option in the [resource configuration](#resource-properties) to have the connector automatically assign the value of the given HTTP header to the `/_meta/webhookId` property.
 Doing so means that a materialization of the `webhook-data` collection will automatically deduplicate the webhook events.
 
 Here's a table with some common webhook services and headers that they use:

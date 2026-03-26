@@ -388,7 +388,7 @@ High-volume sources with frequent schema changes may see these transient errors 
 
 You can configure how materializations respond to incompatible schema changes using the `onIncompatibleSchemaChange` setting.
 
-**In the Flow web app:**
+**In the web app:**
 
 1. Edit your materialization
 2. Go to **Collections**
