@@ -22,6 +22,7 @@ impl connection::CursorType for TimestampCursor {
 }
 
 mod alert_subscriptions;
+mod alert_types;
 mod alerts;
 mod authorized_prefixes;
 mod data_planes;
@@ -50,6 +51,7 @@ pub struct PgDataLoader(pub sqlx::PgPool);
 pub struct QueryRoot(
     live_spec_refs::LiveSpecsQuery,
     alerts::AlertsQuery,
+    alert_types::AlertTypesQuery,
     prefixes::PrefixesQuery,
     alert_subscriptions::AlertSubscriptionsQuery,
     storage_mappings::StorageMappingsQuery,

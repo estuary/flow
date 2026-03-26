@@ -75,10 +75,17 @@ impl AlertSubscriptionsMutation {
                 email, prefix,
             )));
         }
+
+        let mut resolved_alert_types: Vec<AlertType> = alert_types
+            .as_deref()
+            .unwrap_or(default_alert_types())
+            .to_vec();
+        ensure_system_alerts(&mut resolved_alert_types);
+
         let updated = create_alert_subscription(
             prefix.as_str(),
             email.as_str(),
-            alert_types.as_deref().unwrap_or(DEFAULT_ALERT_TYPES),
+            &resolved_alert_types,
             detail.as_deref(),
             &mut *txn,
         )
@@ -121,12 +128,18 @@ impl AlertSubscriptionsMutation {
             )));
         };
 
+        let mut resolved_alert_types: Vec<AlertType> = alert_types
+            .as_deref()
+            .unwrap_or(&existing.alert_types)
+            .to_vec();
+        ensure_system_alerts(&mut resolved_alert_types);
+
         let new_detail = detail.as_deref().or(existing.detail.as_deref());
 
         let updated = update_alert_subscription(
             prefix.as_str(),
             email.as_str(),
-            alert_types.as_deref().unwrap_or(&existing.alert_types),
+            &resolved_alert_types,
             new_detail,
             &mut *txn,
         )
@@ -178,14 +191,24 @@ async fn verify_authorization(
     Ok(())
 }
 
-const DEFAULT_ALERT_TYPES: &'static [AlertType] = &[
-    AlertType::DataMovementStalled,
-    AlertType::ShardFailed,
-    AlertType::FreeTrial,
-    AlertType::FreeTrialEnding,
-    AlertType::FreeTrialStalled,
-    AlertType::MissingPaymentMethod,
-];
+fn default_alert_types() -> &'static [AlertType] {
+    static DEFAULTS: std::sync::LazyLock<Vec<AlertType>> = std::sync::LazyLock::new(|| {
+        AlertType::all()
+            .iter()
+            .copied()
+            .filter(|t| t.is_default())
+            .collect()
+    });
+    &DEFAULTS
+}
+
+fn ensure_system_alerts(alert_types: &mut Vec<AlertType>) {
+    for system_alert in AlertType::all().iter().filter(|ty| ty.is_system()) {
+        if !alert_types.contains(system_alert) {
+            alert_types.push(*system_alert);
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -257,8 +280,8 @@ mod test {
           "data": {
             "createAlertSubscription": {
               "alertTypes": [
-                "data_movement_stalled",
                 "shard_failed",
+                "data_movement_stalled",
                 "free_trial",
                 "free_trial_ending",
                 "free_trial_stalled",
@@ -294,7 +317,11 @@ mod test {
             "createAlertSubscription": {
               "alertTypes": [
                 "shard_failed",
-                "auto_discover_failed"
+                "auto_discover_failed",
+                "free_trial",
+                "free_trial_ending",
+                "free_trial_stalled",
+                "missing_payment_method"
               ],
               "catalogPrefix": "aliceCo/nested/",
               "destination": "mailto:different@example.test",
@@ -367,7 +394,11 @@ mod test {
           "data": {
             "updateAlertSubscription": {
               "alertTypes": [
-                "auto_discover_failed"
+                "auto_discover_failed",
+                "free_trial",
+                "free_trial_ending",
+                "free_trial_stalled",
+                "missing_payment_method"
               ],
               "catalogPrefix": "aliceCo/nested/",
               "destination": "mailto:different@example.test",
@@ -403,8 +434,8 @@ mod test {
           "data": {
             "deleteAlertSubscription": {
               "alertTypes": [
-                "data_movement_stalled",
                 "shard_failed",
+                "data_movement_stalled",
                 "free_trial",
                 "free_trial_ending",
                 "free_trial_stalled",
@@ -445,6 +476,81 @@ mod test {
                 "email": "different@example.test"
               }
             ]
+          }
+        }
+        "#);
+    }
+
+    /// Verifies that system alert types cannot be removed from a subscription.
+    /// Even when a user updates to only non-system types, the system types
+    /// are re-injected.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_system_alerts_cannot_be_removed(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        // Create a subscription with all alert types (including system ones).
+        let _: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                     mutation {
+                       createAlertSubscription(
+                         prefix: "aliceCo/"
+                         email: "alice@example.test"
+                       ) {
+                       alertTypes
+                       }
+                    }"#
+                }),
+                Some(&token),
+            )
+            .await;
+
+        // Try to update to only non-system types, effectively removing
+        // all system alerts. They should be re-injected.
+        let update_response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                     mutation {
+                       updateAlertSubscription(
+                         prefix: "aliceCo/"
+                         email: "alice@example.test"
+                         alertTypes: ["data_movement_stalled"]
+                       ) {
+                       alertTypes
+                       }
+                    }"#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!(update_response, @r#"
+        {
+          "data": {
+            "updateAlertSubscription": {
+              "alertTypes": [
+                "data_movement_stalled",
+                "free_trial",
+                "free_trial_ending",
+                "free_trial_stalled",
+                "missing_payment_method"
+              ]
+            }
           }
         }
         "#);
