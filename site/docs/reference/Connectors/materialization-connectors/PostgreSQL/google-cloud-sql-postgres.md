@@ -77,11 +77,25 @@ Use the below properties to configure a Postgres materialization, which will dir
 | ------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ---------------- |
 | `/database`         | Database         | Name of the logical database to materialize to.                                                                                                                                                                                | string |                  |
 | **`/address`**      | Address          | Host and port of the database. If only the host is specified, port will default to `5432`.                                                                                                                                     | string | Required         |
-| **`/password`**     | Password         | Password for the specified database user.                                                                                                                                                                                      | string | Required         |
 | `/schema`           | Database Schema  | Database [schema](https://www.postgresql.org/docs/current/ddl-schemas.html) to use for materialized tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | `"public"`       |
 | **`/user`**         | User             | Database user to connect as.                                                                                                                                                                                                   | string | Required         |
+| `/hardDelete` | Hard Delete | If this option is enabled, items deleted in the source will also be deleted from the destination. Otherwise, `_meta/op` in the destination will signify whether rows have been deleted (soft-delete). | boolean | `false` |
 | `/advanced`         | Advanced Options | Options for advanced users. You should not typically need to modify these.                                                                                                                                                     | object |                  |
 | `/advanced/sslmode` | SSL Mode         | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                                                                                                          | string |                  |
+
+##### Authentication
+
+| Property | Title | Description | Type | Required/Default |
+| --- | --- | --- | --- | --- |
+| **`/credentials`** | Authentication | Authentication method and credentials that provide access to the database. | object | Required |
+| `/credentials/auth_type` | Auth Type | The authentication method to use. One of `UserPassword`, `AWSIAM`, `GCPIAM`, or `AzureIAM`. | string |  |
+| `/credentials/password` | Password | Password for the specified database user. | string | Required for `UserPassword` auth |
+| `/credentials/aws_region` | AWS Region | AWS region of your resource. | string | Required for `AWSIAM` auth |
+| `/credentials/aws_role_arn` | AWS Role ARN | AWS role for Estuary to use that has access to the resource. | string | Required for `AWSIAM` auth |
+| `/credentials/gcp_service_account_to_impersonate` | GCP Service Account | GCP service account email for Cloud SQL IAM authentication. | string | Required for `GCPIAM` auth |
+| `/credentials/gcp_workload_identity_pool_audience` | Workload Identity Pool Audience | GCP workload identity pool audience. The format should be similar to: `//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider`. | string | Required for `GCPIAM` auth |
+| `/credentials/azure_client_id` | Azure Client ID | Azure App Registration Client ID for Azure Active Directory authentication. | string | Required for `AzureIAM` auth |
+| `/credentials/azure_tenant_id` | Azure Tenant ID | Azure Tenant ID for Azure Active Directory authentication. | string | Required for `AzureIAM` auth |
 
 #### Bindings
 
@@ -102,9 +116,11 @@ materializations:
         image: ghcr.io/estuary/materialize-postgres:v5
         config:
           database: flow
-          address: localhost:5432
-          password: flow
+          address: host:port
           user: flow
+          credentials:
+            auth_type: UserPassword
+            password: <secret>
     bindings:
       - resource:
           table: ${TABLE_NAME}
