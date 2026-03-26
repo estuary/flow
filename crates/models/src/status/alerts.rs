@@ -128,6 +128,65 @@ impl AlertType {
         }
     }
 
+    /// A short, user-facing title for the alert type.
+    pub fn title(&self) -> &'static str {
+        match self {
+            AlertType::AutoDiscoverFailed => "Auto-Discovery Failed",
+            AlertType::DataMovementStalled => "Data Movement Stalled",
+            AlertType::FreeTrial => "Free Trial",
+            AlertType::FreeTrialEnding => "Free Trial Ending",
+            AlertType::FreeTrialStalled => "Free Trial Stalled",
+            AlertType::MissingPaymentMethod => "Missing Payment Method",
+            AlertType::ShardFailed => "Task Failed",
+            AlertType::TaskChronicallyFailing => "Task Chronically Failing",
+            AlertType::TaskAutoDisabledFailing => "Task Auto-Disabled (Failing)",
+            AlertType::TaskIdle => "Task Idle",
+            AlertType::TaskAutoDisabledIdle => "Task Auto-Disabled (Idle)",
+            AlertType::BackgroundPublicationFailed => "Background Publication Failed",
+        }
+    }
+
+    /// A user-facing description of what this alert type means.
+    pub fn description(&self) -> &'static str {
+        match self {
+            AlertType::AutoDiscoverFailed => {
+                "Triggers when a capture's automated schema discovery fails. The capture may be unable to respond to schema changes in the source system."
+            }
+            AlertType::DataMovementStalled => {
+                "Triggers when a task has not processed any data during its configured alert interval."
+            }
+            AlertType::FreeTrial => {
+                "Triggers when a free trial begins, and resolves when the trial period ends."
+            }
+            AlertType::FreeTrialEnding => {
+                "Triggers when a free trial is getting close to expiring."
+            }
+            AlertType::FreeTrialStalled => {
+                "Triggers when a free trial has expired and no payment method has been added."
+            }
+            AlertType::MissingPaymentMethod => {
+                "Triggers when no payment method is on file, and resolves when one is added."
+            }
+            AlertType::ShardFailed => {
+                "Triggers when a task has experienced repeated failures. It may still make progress, but performance is degraded."
+            }
+            AlertType::TaskChronicallyFailing => {
+                "Triggers when a task has been unable to run for an extended period. It will be automatically disabled unless the issue is addressed."
+            }
+            AlertType::TaskAutoDisabledFailing => {
+                "Triggers when a task is automatically disabled after failing continuously for an extended period."
+            }
+            AlertType::TaskIdle => {
+                "Triggers when a task has not processed any data for an extended period and has not been modified recently. It will be automatically disabled unless a new version is published."
+            }
+            AlertType::TaskAutoDisabledIdle => {
+                "Triggers when a task is automatically disabled after being idle for an extended period without any spec changes."
+            }
+            AlertType::BackgroundPublicationFailed => {
+                "Triggers when an automated background publication fails. Affected tasks are unlikely to function until the issue is addressed."
+            }
+        }
+    }
     pub fn from_str(name: &str) -> Option<AlertType> {
         for alert_type in AlertType::all() {
             if name.eq_ignore_ascii_case(alert_type.name()) {
