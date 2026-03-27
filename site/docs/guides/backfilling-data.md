@@ -207,14 +207,12 @@ In general, you should not change this setting. Make sure you understand your us
    All replication log changes are emitted immediately, whether or not they relate to an unread portion of the table. Therefore, if a change is made, it shows up quickly even if its table is still backfilling.
 
    **Pros:**
-   - All change events (inserts, updates, and deletes) are captured during backfill — no replication events are filtered out.
-   - Changes appear in the destination quickly, even for tables still being backfilled.
+   All change events (inserts, updates, and deletes) are captured during backfill — no replication events are filtered out. Changes appear in the destination quickly, even for tables still being backfilled.
 
    **Cons:**
-   - Duplicate events are possible during the overlap between the backfill scan and replication log stream. These are deduplicated downstream by the runtime's reduce logic if your materialization uses standard (non-delta) updates, but with delta updates enabled, duplicates will not be deduplicated and may result in duplicate records.
-   - The ordering of events for a given key is not guaranteed to be logically consistent during the backfill (e.g. you may see an update before the corresponding insert).
+   Duplicate events are possible during backfill. With standard (non-delta) materializations, duplicates are deduplicated by the runtime. With delta updates enabled, duplicates may result in duplicate records. Event ordering per key is also not guaranteed (e.g. you may see an update captured before the corresponding insert).
 
-* **Precise:** backfills chunks of the table and filters replication events in portions of the table which haven't yet been reached.
+* **Precise:** backfills chunks of the table while capturing replication events only for parts of the table that have been backfilled already.
 
    In Precise mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the replication log.
    Any replication log changes for portions of the table that have already been backfilled are emitted. In contrast to Normal mode, however, replication log changes are suppressed if they relate to a part of the table that hasn't been backfilled yet.
@@ -224,13 +222,10 @@ In general, you should not change this setting. Make sure you understand your us
    Note that Precise backfill is not possible in some cases due to equality comparison challenges when using varying character encodings.
 
    **Pros:**
-   - Produces a logically consistent sequence of changes per key — no duplicates, correct ordering.
-   - More efficient — avoids processing redundant events.
+   Produces a logically consistent sequence of changes per key — no duplicates, correct ordering.
 
    **Cons:**
-   - **Deletes can be silently lost during incremental backfills.** This applies when performing an incremental backfill (where existing records are already present in the collection and destination). If a row is deleted while the backfill scanner has not yet reached it, the DELETE event from the replication log is filtered out (because it relates to a part of the table "ahead" of the scan position). When the scanner eventually reaches that key range, the row no longer exists in the source table and is never seen. The result is the delete is silently dropped — the old version of the row remains in the collection and destination without a delete marker. This does not affect full data flow resets, where the destination is rebuilt from scratch.
-
-   This delete gap only affects rows deleted *during an active backfill*. Once the backfill completes, all subsequent deletes are captured normally. The risk window is the duration of the backfill scan.
+   **Deletes can be silently lost during incremental backfills** (where existing records are already present in the collection and destination). If a row is deleted while the backfill scanner has not yet reached it, the DELETE event is filtered out. When the scanner reaches that key range, the row no longer exists in the source table and is never seen — the old version remains in the destination without a delete marker. This does not affect full data flow resets, where the destination is rebuilt from scratch. Only rows deleted *during* the backfill are affected; once the backfill completes, all subsequent deletes are captured normally.
 
 * **Only Changes:** skips backfilling the table entirely and jumps directly to replication streaming for the entire dataset.
 
@@ -259,10 +254,9 @@ For most SQL captures, Automatic will select **Precise**.
 | Deletes during incremental backfill | Captured (safe) | Can be silently lost |
 | Event ordering per key | Not guaranteed | Guaranteed |
 | Duplicate processing | Possible (deduplicated unless using delta updates) | None |
-| Efficiency | Slightly higher data volume | More efficient |
 | Default for most tables | No | Yes (via Automatic) |
 
-If your workload includes hard deletes and you want to ensure no deletes are lost during incremental backfills (e.g. backfills triggered by schema changes), consider setting the backfill mode to **Normal** on affected bindings. The tradeoff is slightly more data processing during the backfill window.
+If your workload includes hard deletes and you want to ensure no deletes are lost during incremental backfills (e.g. backfills triggered by schema changes), consider setting the backfill mode to **Normal** on affected bindings. The tradeoff is possible duplicate events during the backfill, which are deduplicated automatically unless you are using delta updates.
 
 For MySQL and MariaDB captures, setting `binlog_row_metadata=FULL` can prevent many unnecessary backfills from being triggered by schema changes, reducing the window in which this issue can occur regardless of backfill mode.
 
