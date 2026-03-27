@@ -78,6 +78,7 @@ expression: out
                 "acmeCo/other",
             ),
             disable: true,
+            reason: None,
         },
     },
     {
@@ -88,6 +89,7 @@ expression: out
                 "acmeCo/discarded",
             ),
             disable: false,
+            reason: None,
         },
     },
 )

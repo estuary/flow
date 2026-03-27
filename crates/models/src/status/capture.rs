@@ -42,7 +42,12 @@ pub struct DiscoverChange {
 }
 
 impl DiscoverChange {
-    pub fn new(resource_path: ResourcePath, Changed { target, disable }: Changed) -> Self {
+    pub fn new(
+        resource_path: ResourcePath,
+        Changed {
+            target, disable, ..
+        }: Changed,
+    ) -> Self {
         Self {
             resource_path,
             target,
