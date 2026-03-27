@@ -467,8 +467,7 @@ async fn fetch_connectors_before(
 #[cfg(test)]
 mod test {
 
-    use crate::test_server;
-    //use flow_client_next as flow_client;
+    use crate::testing as test_server;
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",
@@ -614,7 +613,7 @@ mod test {
     async fn test_single_connector_tag(pool: sqlx::PgPool) {
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
 

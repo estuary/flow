@@ -189,7 +189,7 @@ const DEFAULT_ALERT_TYPES: &'static [AlertType] = &[
 
 #[cfg(test)]
 mod test {
-    use crate::test_server;
+    use crate::testing as test_server;
     //use flow_client_next as flow_client;
 
     #[sqlx::test(

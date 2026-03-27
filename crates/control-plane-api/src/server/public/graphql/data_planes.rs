@@ -315,7 +315,7 @@ impl DataPlanesQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_server;
+    use crate::testing as test_server;
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",

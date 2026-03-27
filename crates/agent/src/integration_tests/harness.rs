@@ -43,6 +43,8 @@ pub fn set_of(names: &[&str]) -> BTreeSet<String> {
     names.into_iter().map(|n| n.to_string()).collect()
 }
 
+pub use control_plane_api::testing::publish_helpers::draft_catalog;
+
 #[derive(Debug)]
 pub struct TestAlert {
     pub alert: control_plane_api::alerts::Alert,
@@ -527,82 +529,6 @@ impl TestHarness {
     /// comments for deets.
     pub fn control_plane(&mut self) -> &mut TestControlPlane {
         &mut self.control_plane
-    }
-
-    /// Setup a new tenant with the given name, and return the id of the user
-    /// who has `admin` capabilities to it. Performs essentially the same setup
-    /// as the beta onboarding directive, so the user_grants, role_grants,
-    /// storage_mappings, and tenants tables should all look just like they
-    /// would in production.
-    pub async fn setup_tenant(&self, tenant: &str) -> sqlx::types::Uuid {
-        let user_id = sqlx::types::Uuid::new_v4();
-        let email = format!("{tenant}@{}.test", self.test_name.replace(' ', "-"));
-
-        let meta = serde_json::json!({
-            "picture": format!("http://{tenant}.test/avatar"),
-            "full_name": format!("Full ({tenant}) Name"),
-        });
-
-        let mut txn = self.pool.begin().await.unwrap();
-        sqlx::query!(
-            r#"insert into auth.users(id, email, raw_user_meta_data) values ($1, $2, $3)"#,
-            user_id,
-            email.as_str(),
-            meta
-        )
-        .execute(&mut *txn)
-        .await
-        .expect("failed to create user");
-
-        control_plane_api::directives::beta_onboard::provision_tenant(
-            "support@estuary.dev",
-            Some(format!("for test: {}", self.test_name)),
-            tenant,
-            user_id,
-            &mut txn,
-        )
-        .await
-        .expect("failed to provision tenant");
-
-        // Remove the estuary_support/ role grant, which gets automatically
-        // added by a trigger whenever we create a new tenant. Removing it here
-        // ensures that things still work correctly without it.
-        sqlx::query!(r#"delete from role_grants where subject_role = 'estuary_support/';"#)
-            .execute(&mut *txn)
-            .await
-            .expect("failed to remove estuary_support/ role");
-
-        txn.commit().await.expect("failed to commit transaction");
-        user_id
-    }
-
-    pub async fn add_role_grant(&mut self, subject: &str, object: &str, capability: Capability) {
-        sqlx::query!(
-            r#"
-                insert into role_grants (subject_role, object_role, capability)
-                values ($1, $2, $3)
-            "#,
-            subject as &str,
-            object as &str,
-            capability as Capability,
-        )
-        .execute(&self.pool)
-        .await
-        .unwrap();
-    }
-
-    pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
-        let mut txn = self.pool.begin().await.unwrap();
-        control_plane_api::directives::grant::upsert_user_grant(
-            user_id,
-            role,
-            capability,
-            Some("test grant".to_string()),
-            &mut txn,
-        )
-        .await
-        .unwrap();
-        txn.commit().await.unwrap();
     }
 
     pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
@@ -1562,6 +1488,7 @@ impl TestHarness {
         status.summary
     }
 
+    // TODO: delegate to TestApp
     /// Execute a GraphQL query as the given user and return the deserialized response.
     /// This will initialize the control plane API app if it hasn't been created yet.
     pub async fn execute_graphql_query<T>(
@@ -1724,13 +1651,6 @@ pub fn md5_hash<T: serde::Serialize>(val: &T) -> String {
     let s = serde_json::to_string(val).unwrap();
     let bytes = md5::compute(s);
     format!("{bytes:x}")
-}
-
-/// Returns a draft catalog for the given models::Catalog JSON.
-pub fn draft_catalog(catalog_json: serde_json::Value) -> tables::DraftCatalog {
-    let catalog: models::Catalog =
-        serde_json::from_value(catalog_json).expect("failed to parse catalog");
-    tables::DraftCatalog::from(catalog)
 }
 
 #[derive(Debug, serde::Serialize)]

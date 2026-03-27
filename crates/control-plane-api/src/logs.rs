@@ -7,11 +7,11 @@ use tracing::{debug, trace};
 #[derive(Debug)]
 pub struct Line {
     // Token which identifies the line's log set.
-    token: Uuid,
+    pub token: Uuid,
     // Stream of this logged line.
-    stream: String,
+    pub stream: String,
     // Contents of the line.
-    line: String,
+    pub line: String,
 }
 
 // Tx is the channel sender of log Lines.

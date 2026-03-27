@@ -1,0 +1,9 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "alerts": {
+    "edges": []
+  }
+}

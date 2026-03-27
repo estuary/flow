@@ -357,7 +357,7 @@ mod tests {
     }
 
     // Integration tests below use sqlx::test with actual database
-    use crate::test_server;
+    use crate::testing as test_server;
     use flow_client_next as flow_client;
 
     #[sqlx::test(

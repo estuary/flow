@@ -1,0 +1,412 @@
+---
+source: crates/agent/src/integration_tests/graphql/queries/mod.rs
+expression: bob_result
+---
+{
+  "firstThree": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "bobCo/private/materialization",
+          "lastPublication": {
+            "detail": "Bob's materialization v4\n- updated resource /_meta of 3 bindings",
+            "userEmail": "bobCo@graphql_tests.test"
+          },
+          "publicationHistory": {
+            "edges": [
+              {
+                "node": {
+                  "detail": "Bob's materialization v0\n- updated resource /_meta of 3 bindings",
+                  "model": {
+                    "bindings": [
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "a"
+                            ]
+                          },
+                          "id": "a"
+                        },
+                        "source": "aliceCo/shared/a"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "b"
+                            ]
+                          },
+                          "id": "b"
+                        },
+                        "source": "aliceCo/shared/b"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "c"
+                            ]
+                          },
+                          "id": "c"
+                        },
+                        "source": "aliceCo/shared/c"
+                      }
+                    ],
+                    "endpoint": {
+                      "connector": {
+                        "config": {
+                          "publication": 0
+                        },
+                        "image": "materialize/test:test"
+                      }
+                    }
+                  },
+                  "userEmail": "bobCo@graphql_tests.test"
+                }
+              },
+              {
+                "node": {
+                  "detail": "Bob's materialization v1\n- updated resource /_meta of 3 bindings",
+                  "model": {
+                    "bindings": [
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "a"
+                            ]
+                          },
+                          "id": "a"
+                        },
+                        "source": "aliceCo/shared/a"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "b"
+                            ]
+                          },
+                          "id": "b"
+                        },
+                        "source": "aliceCo/shared/b"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "c"
+                            ]
+                          },
+                          "id": "c"
+                        },
+                        "source": "aliceCo/shared/c"
+                      }
+                    ],
+                    "endpoint": {
+                      "connector": {
+                        "config": {
+                          "publication": 1
+                        },
+                        "image": "materialize/test:test"
+                      }
+                    }
+                  },
+                  "userEmail": "bobCo@graphql_tests.test"
+                }
+              },
+              {
+                "node": {
+                  "detail": "Bob's materialization v2\n- updated resource /_meta of 3 bindings",
+                  "model": {
+                    "bindings": [
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "a"
+                            ]
+                          },
+                          "id": "a"
+                        },
+                        "source": "aliceCo/shared/a"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "b"
+                            ]
+                          },
+                          "id": "b"
+                        },
+                        "source": "aliceCo/shared/b"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "c"
+                            ]
+                          },
+                          "id": "c"
+                        },
+                        "source": "aliceCo/shared/c"
+                      }
+                    ],
+                    "endpoint": {
+                      "connector": {
+                        "config": {
+                          "publication": 2
+                        },
+                        "image": "materialize/test:test"
+                      }
+                    }
+                  },
+                  "userEmail": "bobCo@graphql_tests.test"
+                }
+              }
+            ],
+            "pageInfo": {
+              "hasNextPage": true,
+              "hasPreviousPage": false
+            }
+          },
+          "userCapability": "admin"
+        }
+      }
+    ]
+  },
+  "lastThree": {
+    "edges": [
+      {
+        "node": {
+          "catalogName": "bobCo/private/materialization",
+          "lastPublication": {
+            "detail": "Bob's materialization v4\n- updated resource /_meta of 3 bindings",
+            "userAvatarUrl": "http://bobCo.test/avatar",
+            "userEmail": "bobCo@graphql_tests.test",
+            "userFullName": "Full (bobCo) Name"
+          },
+          "publicationHistory": {
+            "edges": [
+              {
+                "node": {
+                  "detail": "Bob's materialization v2\n- updated resource /_meta of 3 bindings",
+                  "model": {
+                    "bindings": [
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "a"
+                            ]
+                          },
+                          "id": "a"
+                        },
+                        "source": "aliceCo/shared/a"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "b"
+                            ]
+                          },
+                          "id": "b"
+                        },
+                        "source": "aliceCo/shared/b"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "c"
+                            ]
+                          },
+                          "id": "c"
+                        },
+                        "source": "aliceCo/shared/c"
+                      }
+                    ],
+                    "endpoint": {
+                      "connector": {
+                        "config": {
+                          "publication": 2
+                        },
+                        "image": "materialize/test:test"
+                      }
+                    }
+                  },
+                  "userEmail": "bobCo@graphql_tests.test"
+                }
+              },
+              {
+                "node": {
+                  "detail": "Bob's materialization v3\n- updated resource /_meta of 3 bindings",
+                  "model": {
+                    "bindings": [
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "a"
+                            ]
+                          },
+                          "id": "a"
+                        },
+                        "source": "aliceCo/shared/a"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "b"
+                            ]
+                          },
+                          "id": "b"
+                        },
+                        "source": "aliceCo/shared/b"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "c"
+                            ]
+                          },
+                          "id": "c"
+                        },
+                        "source": "aliceCo/shared/c"
+                      }
+                    ],
+                    "endpoint": {
+                      "connector": {
+                        "config": {
+                          "publication": 3
+                        },
+                        "image": "materialize/test:test"
+                      }
+                    }
+                  },
+                  "userEmail": "bobCo@graphql_tests.test"
+                }
+              },
+              {
+                "node": {
+                  "detail": "Bob's materialization v4\n- updated resource /_meta of 3 bindings",
+                  "model": {
+                    "bindings": [
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "a"
+                            ]
+                          },
+                          "id": "a"
+                        },
+                        "source": "aliceCo/shared/a"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "b"
+                            ]
+                          },
+                          "id": "b"
+                        },
+                        "source": "aliceCo/shared/b"
+                      },
+                      {
+                        "fields": {
+                          "recommended": true
+                        },
+                        "resource": {
+                          "_meta": {
+                            "path": [
+                              "c"
+                            ]
+                          },
+                          "id": "c"
+                        },
+                        "source": "aliceCo/shared/c"
+                      }
+                    ],
+                    "endpoint": {
+                      "connector": {
+                        "config": {
+                          "publication": 4
+                        },
+                        "image": "materialize/test:test"
+                      }
+                    }
+                  },
+                  "userEmail": "bobCo@graphql_tests.test"
+                }
+              }
+            ],
+            "pageInfo": {
+              "hasNextPage": false,
+              "hasPreviousPage": true
+            }
+          },
+          "userCapability": "admin"
+        }
+      }
+    ]
+  }
+}

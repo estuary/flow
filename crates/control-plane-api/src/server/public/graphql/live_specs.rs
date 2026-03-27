@@ -279,7 +279,7 @@ impl dataloader::Loader<LiveSpecKey> for super::PgDataLoader {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_server;
+    use crate::testing as test_server;
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",

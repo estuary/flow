@@ -1,0 +1,15 @@
+# For Bob, this is expected to return an empty list.
+# For Alice, expect a retryable auth error
+query AlertsByPrefixBob {
+    alerts(
+        by: { prefix: "bobCo/" }
+        last: 10
+    ) {
+        edges {
+            node {
+                alertType
+                catalogName
+            }
+        }
+    }
+}

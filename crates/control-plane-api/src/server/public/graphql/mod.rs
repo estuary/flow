@@ -19,6 +19,8 @@ mod prefixes;
 mod publication_history;
 pub mod status;
 mod storage_mappings;
+#[cfg(test)]
+mod test;
 
 /// Locale is a placeholder, since we only support a single locale today. Once
 /// we support more than one locale, we should try to determine this

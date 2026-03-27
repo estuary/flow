@@ -354,7 +354,7 @@ async fn verify_authorization(
 
 #[cfg(test)]
 mod test {
-    use crate::test_server;
+    use crate::testing as test_server;
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",
@@ -365,7 +365,7 @@ mod test {
 
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
 
@@ -584,7 +584,7 @@ mod test {
 
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
 
@@ -715,7 +715,7 @@ mod test {
 
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
 
@@ -846,7 +846,7 @@ mod test {
 
         let server = test_server::TestServer::start(
             pool.clone(),
-            test_server::snapshot(pool.clone(), true).await,
+            test_server::new_snapshot(pool.clone(), true).await,
         )
         .await;
 

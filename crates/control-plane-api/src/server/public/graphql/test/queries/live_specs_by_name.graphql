@@ -1,0 +1,43 @@
+fragment Select on LiveSpecRefConnection {
+    edges {
+        node {
+            catalogName
+            userCapability
+            liveSpec {
+                catalogType
+                isDisabled
+            }
+        }
+    }
+}
+
+query LiveSpecsByName {
+    multiForward: liveSpecs(
+        by: {
+            names: [
+                "aliceCo/shared/b"
+                "aliceCo/shared/a"
+                "aliceCo/shared/does-not-exist"
+                "aliceCo/shared/c"
+            ]
+        }
+        after: "aliceCo/shared/b"
+        first: 3
+    ) {
+        ...Select
+    }
+    multiReverse: liveSpecs(
+        by: {
+            names: [
+                "aliceCo/shared/c"
+                "aliceCo/shared/does-not-exist"
+                "aliceCo/shared/a"
+                "aliceCo/shared/b"
+            ]
+        }
+        before: "aliceCo/shared/b"
+        last: 3
+    ) {
+        ...Select
+    }
+}

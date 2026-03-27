@@ -13,10 +13,11 @@ mod commit;
 mod db;
 mod finalize;
 mod initialize;
-mod retry;
-
 mod quotas;
+mod retry;
 pub mod specs;
+#[cfg(test)]
+mod test;
 
 pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, WithCommit};
 pub use self::db::{Row, create, delete_draft, fetch_publication, resolve};
@@ -735,29 +736,4 @@ fn is_transaction_serialization_error(err: &anyhow::Error) -> bool {
     // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
     // for the definition of `40001`.
     db_err.code() == Some(std::borrow::Cow::Borrowed("40001"))
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_errors_result_in_test_failed_status() {
-        let build = UncommittedBuild {
-            publication_id: models::Id::zero(),
-            build_id: models::Id::zero(),
-            user_id: Uuid::new_v4(),
-            detail: None,
-            started_at: tokens::now(),
-            output: Default::default(),
-            test_errors: std::iter::once(tables::Error {
-                scope: tables::synthetic_scope("test", "test/of/a/test"),
-                error: anyhow::anyhow!("test error"),
-            })
-            .collect(),
-            retry_count: 0,
-        };
-        let result = build.build_failed();
-        assert_eq!(StatusType::TestFailed, result.status.r#type);
-    }
 }
