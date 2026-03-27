@@ -39,3 +39,88 @@ jobs:
         uses: rossjrw/pr-preview-action@v1
         with:
           source-dir: ./site/build/
+      - name: Comment with changed pages
+        if: github.event.action != 'closed'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const prNum = context.issue.number;
+            const base = `https://docs.estuary.dev/pr-preview/pr-${prNum}`;
+
+            // Shallow checkout won't have master — fetch it for the diff
+            try {
+              execSync('git fetch origin master --depth=1');
+            } catch (e) {
+              core.warning(`Failed to fetch origin/master: ${e.message}`);
+              return;
+            }
+
+            // Get all changed docs files, filter to md/mdx, exclude deleted files
+            const allFiles = execSync('git diff --name-only origin/master -- site/docs/')
+              .toString().trim().split('\n')
+              .filter(f => /\.(md|mdx)$/.test(f))
+              .filter(f => fs.existsSync(f));
+
+            if (allFiles.length === 0) return;
+
+            const total = allFiles.length;
+            const files = allFiles.slice(0, 5);
+
+            // Resolve each file to its preview URL.
+            // Uses frontmatter `slug:` if present, otherwise derives from file path.
+            const links = files.map(f => {
+              let slug;
+              const content = fs.readFileSync(f, 'utf8');
+              const match = content.match(/^slug:\s*(.+)$/m);
+              if (match) {
+                slug = match[1].trim().replace(/['"]/g, '');
+              }
+              if (!slug) {
+                slug = '/' + f
+                  .replace('site/docs/', '')
+                  .replace(/\/README\.mdx?$/, '/')
+                  .replace(/\.mdx?$/, '/');
+              }
+              if (!slug.startsWith('/')) slug = '/' + slug;
+              return `- [${slug}](${base}${slug})`;
+            });
+
+            const suffix = total > 5 ? `\n- ... and ${total - 5} more` : '';
+            const pagesBlock = `\n\n📄 **Changed pages:**\n${links.join('\n')}${suffix}`;
+
+            // Append to the PR Preview Action comment to keep the PR tidy.
+            // Retry a few times since the preview action posts its comment asynchronously.
+            let previewComment = null;
+            for (let attempt = 0; attempt < 3; attempt++) {
+              const comments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNum,
+              });
+              previewComment = comments.data.find(c =>
+                c.user.login === 'github-actions[bot]' && c.body.includes('PR Preview Action')
+              );
+              if (previewComment) break;
+              await new Promise(r => setTimeout(r, 10000));
+            }
+
+            if (previewComment) {
+              // Strip any previous "Changed pages" block before appending (idempotent on re-runs)
+              const cleanBody = previewComment.body.replace(/\n\n📄 \*\*Changed pages:\*\*[\s\S]*$/, '');
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previewComment.id,
+                body: cleanBody + pagesBlock,
+              });
+            } else {
+              // Fallback if preview comment wasn't found after retries
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNum,
+                body: `📄 **Changed pages:**\n${links.join('\n')}${suffix}`,
+              });
+            }
