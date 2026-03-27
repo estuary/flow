@@ -1,0 +1,78 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/connectors.rs
+expression: response
+---
+{
+  "data": {
+    "byFullName": {
+      "connectorId": "5555555500000005",
+      "endpointSpecSchema": {
+        "type": "object"
+      },
+      "id": "6666666600000006",
+      "imageTag": ":dev",
+      "protocol": "materialization",
+      "resourceSpecSchema": {
+        "properties": {
+          "delta": {
+            "type": "boolean",
+            "x-delta-updates": true
+          },
+          "id": {
+            "type": "string",
+            "x-collection-name": true
+          },
+          "schema": {
+            "type": "string",
+            "x-schema-name": true
+          }
+        },
+        "type": "object"
+      }
+    },
+    "byId": {
+      "connectorId": "5555555500000004",
+      "endpointSpecSchema": {
+        "type": "object"
+      },
+      "id": "6666666600000003",
+      "imageTag": ":dev",
+      "protocol": "capture",
+      "resourceSpecSchema": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "x-collection-name": true
+          }
+        },
+        "type": "object"
+      }
+    },
+    "fallbackToDefault": {
+      "connectorId": "5555555500000005",
+      "endpointSpecSchema": {
+        "type": "object"
+      },
+      "id": "6666666600000008",
+      "imageTag": ":v3",
+      "protocol": "materialization",
+      "resourceSpecSchema": {
+        "properties": {
+          "delta": {
+            "type": "boolean",
+            "x-delta-updates": true
+          },
+          "id": {
+            "type": "string",
+            "x-collection-name": true
+          },
+          "schema": {
+            "type": "string",
+            "x-schema-name": true
+          }
+        },
+        "type": "object"
+      }
+    }
+  }
+}

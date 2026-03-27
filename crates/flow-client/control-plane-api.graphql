@@ -1,4 +1,14 @@
 """
+Status of the abandonment evaluation for a task.
+"""
+type AbandonStatus {
+	"""
+	When this spec was last checked for abandonment
+	"""
+	lastEvaluated: DateTime
+}
+
+"""
 Status of the task shards running in the data-plane. This records information about
 the activations of builds in the data-plane, including any subsequent re-activations
 due to shard failures.
@@ -163,6 +173,28 @@ enum AlertType {
 	"""
 	shard_failed
 	"""
+	Warning that a task has been unable to run for an extended period. It will
+	be automatically disabled unless the issue is addressed or a new version
+	of the spec is published.
+	"""
+	task_chronically_failing
+	"""
+	The task was automatically disabled because its shards have been
+	failing continuously for an extended period without any user intervention.
+	"""
+	task_auto_disabled_failing
+	"""
+	Warning that a task has not processed any data for an extended period
+	and has not been modified recently. It will be automatically disabled
+	unless a new version of the spec is published.
+	"""
+	task_idle
+	"""
+	The task was automatically disabled because it had not processed any
+	data for an extended period and had not been modified recently.
+	"""
+	task_auto_disabled_idle
+	"""
 	Triggers when an automated background process needs to publish a spec,
 	but is unable to because of publication errors. Background publications
 	are peformed on all specs for a variety of reasons. For example,
@@ -298,6 +330,103 @@ type ConnectionHealthTestResult {
 	allPassed: Boolean!
 }
 
+type Connector {
+	"""
+	Unique id of the connector
+	"""
+	id: Id!
+	"""
+	Timestamp of when the connector was first created
+	"""
+	createdAt: DateTime!
+	"""
+	Link to an external site with more information about the endpoint
+	"""
+	externalUrl: String!
+	"""
+	Name of the conector's OCI (Docker) Container image, for example "ghcr.io/estuary/source-postgres"
+	"""
+	imageName: String!
+	"""
+	Does Estuary's marketing team want this one to appear at the top of the results?
+	"""
+	recommended: Boolean!
+	"""
+	Brief human readable description, at most a few sentences
+	"""
+	shortDescription: String
+	"""
+	A longform description of this connector
+	"""
+	longDescription: String
+	"""
+	The title, a few words at most
+	"""
+	title: String
+	"""
+	The connector's logo image, represented as a URL per locale
+	"""
+	logoUrl: String
+	"""
+	All the tags that are available for this connector.
+	"""
+	tags: [ConnectorTagRef!]!
+	"""
+	Returns the ConnectorTag object for the given image tag, which must begin with a `:`.
+	"""
+	connectorTag(
+		"""
+		the OCI Image tag, including the leading ':', e.g. ':v1'
+		"""
+		imageTag: String,
+		"""
+		Whether to return the default connector tag instead when the requested tag is not present or has not had a successful Spec RPC
+		"""
+		orDefault: Boolean!
+	): ConnectorTag
+	"""
+	Returns the default `ConnectorTag` for this connector. This is the one
+	that should be used by default when publishing new tasks for this
+	connector. There will only be a default image tag if at least one tag
+	has successfully completed the connector Spec RPC.
+	"""
+	defaultImageTag: String
+}
+
+type ConnectorConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [ConnectorEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type ConnectorEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Connector!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+The type of task that the connector is used for. Note that derivation
+connectors do exist, but aren't yet represented in `connector_tags`.
+"""
+enum ConnectorProto {
+	capture
+	materialization
+}
+
 """
 The shape of a connector status, which matches that of an ops::Log.
 """
@@ -319,6 +448,75 @@ type ConnectorStatus {
 	specific fields and their meanings are entirely up to the connector.
 	"""
 	fields: JSONObject!
+}
+
+type ConnectorTag {
+	"""
+	Unique id of the connector tag
+	"""
+	id: Id!
+	"""
+	The id of the connector this tag relates to.
+	"""
+	connectorId: Id!
+	"""
+	The OCI Image tag value, including the leading `:`. For example `:v1`
+	"""
+	imageTag: String!
+	"""
+	The protocol of the connector with this tag value
+	"""
+	protocol: ConnectorProto
+	"""
+	Time at which the ConnectorTag was created
+	"""
+	createdAt: DateTime!
+	"""
+	Time at which the ConnectorTag was last updated
+	"""
+	updatedAt: DateTime!
+	"""
+	URL pointing to the documentation page for this connector
+	"""
+	documentationUrl: String
+	"""
+	Endpoint specification JSON-Schema of the tagged connector
+	"""
+	endpointSpecSchema: JSON
+	"""
+	Resource specification JSON-Schema of the tagged connector
+	"""
+	resourceSpecSchema: JSON
+	"""
+	Whether the UI should hide the backfill button for this connector
+	"""
+	disableBackfill: Boolean!
+}
+
+type ConnectorTagRef {
+	"""
+	The OCI image tag, includeing the leading `:`, for example `:v2`
+	"""
+	imageTag: String!
+	"""
+	The protocol of this connector tag, if known
+	"""
+	protocol: ConnectorProto
+	"""
+	Returns whether a connector Spec RPC has ever been successful for this tag.
+	Concretely, this is used to determine whether the tag could be used by the
+	UI or flowctl for publishing tasks, because the Spec RPC populates the
+	`endpointSpecSchema`, `resourceSpecSchema`, `protocol`, etc.
+	"""
+	specSucceeded: Boolean!
+	"""
+	The canonical id of this connector tag
+	"""
+	id: Id!
+}
+
+input ConnectorsFilter {
+	protocol: ProtocolFilter!
 }
 
 """
@@ -354,6 +552,10 @@ type Controller {
 	"""
 	configUpdate: PendingConfigUpdateStatus
 	alerts: JSONObject
+	"""
+	Present for captures, collections, and materializations.
+	"""
+	abandon: AbandonStatus
 	updatedAt: DateTime!
 }
 
@@ -921,6 +1123,10 @@ input PrefixesBy {
 	minCapability: Capability!
 }
 
+input ProtocolFilter {
+	eq: ConnectorProto!
+}
+
 """
 Summary of a publication that was attempted by a controller.
 """
@@ -1036,6 +1242,49 @@ type QueryRoot {
 	capability, optionally narrowed by a prefix filter.
 	"""
 	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
+	"""
+	Returns the ConnectorTag for a given full (including the version) OCI
+	image name. The returned tag may be different from the version in the
+	image name. This would happen if there is no connector spec for the
+	given tag, but one exists for a different tag. The return value will be
+	null if either the connector image is unkown, or if there has not been a
+	successful Spec for any version of that image.
+	"""
+	connectorTag(
+		"""
+		the full OCI image name, including the version tag, e.g. 'ghcr.io/estuary/source-foo:v1'
+		"""
+		fullImageName: String,
+		"""
+		the id of the connectorTag, with or without ':' separators, e.g. '1122334455aabbcc'
+		"""
+		id: Id
+	): ConnectorTag
+	"""
+	Returns information about a single connector, which may or may not have
+	had a successful Spec RPC, and thus may or may not be usable in the
+	Estuary UI. At least one parameter must be provided. If multiple
+	parameters are provided, then the connector must match _both_ the image
+	name and id parameters in order to be returned.
+	"""
+	connector(
+		"""
+		the OCI image name, without a version tag, e.g. 'ghcr.io/estuary/source-foo'
+		"""
+		imageName: String,
+		"""
+		the id of the connector, with or without ':' separators, e.g. '1122334455aabbcc'
+		"""
+		id: Id
+	): Connector
+	"""
+	Returns a paginated list of connectors. This query only returns
+	connectors that have at least one `ConnectorTag` that has had a
+	successful Spec RPC. Connectors that have not had at least one
+	successful Spec RPC cannot be used by the Estuary UI, and so are
+	excluded here.
+	"""
+	connectors(filter: ConnectorsFilter!, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 }
 
 """
