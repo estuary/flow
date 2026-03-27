@@ -225,7 +225,7 @@ The following modes are available:
 
    This mode lacks the exact correctness properties of the Normal backfill mode.
 
-If you do not choose a specific backfill mode, Estuary will default to an automatic mode.
+If you do not choose a specific backfill mode, Estuary defaults to an automatic mode.
 
 ## Advanced backfill configuration in specific systems
 

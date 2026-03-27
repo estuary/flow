@@ -39,3 +39,54 @@ jobs:
         uses: rossjrw/pr-preview-action@v1
         with:
           source-dir: ./site/build/
+      - name: Comment with changed pages
+        if: github.event.action != 'closed'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const prNum = context.issue.number;
+            const base = `https://docs.estuary.dev/pr-preview/pr-${prNum}`;
+
+            // Fetch master for diffing (checkout is shallow by default)
+            execSync('git fetch origin master --depth=1');
+
+            const files = execSync('git diff --name-only origin/master -- site/docs/')
+              .toString().trim().split('\n')
+              .filter(f => /\.(md|mdx)$/.test(f))
+              .slice(0, 5);
+
+            if (files.length === 0) return;
+
+            const links = files.map(f => {
+              let slug;
+              try {
+                const content = fs.readFileSync(f, 'utf8');
+                const match = content.match(/^slug:\s*(.+)$/m);
+                if (match) {
+                  slug = match[1].trim();
+                }
+              } catch (e) {
+                // File may have been deleted
+              }
+              if (!slug) {
+                slug = '/' + f
+                  .replace('site/docs/', '')
+                  .replace(/\/README\.mdx?$/, '/')
+                  .replace(/\.mdx?$/, '/');
+              }
+              if (!slug.startsWith('/')) slug = '/' + slug;
+              return `- [${slug}](${base}${slug})`;
+            });
+
+            const total = execSync('git diff --name-only origin/master -- site/docs/ | grep -cE "\\.(md|mdx)$"')
+              .toString().trim();
+            const suffix = total > 5 ? `\n- ... and ${total - 5} more` : '';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNum,
+              body: `📄 **Changed pages:**\n${links.join('\n')}${suffix}`
+            });
