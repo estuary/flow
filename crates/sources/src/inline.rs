@@ -249,6 +249,7 @@ fn inline_materialization(
 ) {
     let models::MaterializationDef {
         source: _,
+        target_naming: _,
         endpoint,
         bindings,
         shards: _,

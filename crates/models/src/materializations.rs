@@ -9,6 +9,35 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
 
+/// Naming strategy for materialization binding resource names.
+///
+/// Controls how collection names are mapped to destination table and schema
+/// names when bindings are added. Only applies to connectors whose
+/// destination system supports schemas.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
+#[serde(tag = "strategy", rename_all = "camelCase")]
+pub enum TargetNamingStrategy {
+    /// Mirror the source collection's schema structure in the destination.
+    /// The schema component of the collection name becomes the destination schema,
+    /// and the final component becomes the table name.
+    MatchSourceStructure,
+    /// Place all tables in a single named schema, using only the collection's
+    /// final name component as the table name.
+    SingleSchema {
+        /// The destination schema name.
+        schema: String,
+    },
+    /// Prefix table names with the schema component and place them in a named schema.
+    #[serde(rename_all = "camelCase")]
+    PrefixTableNames {
+        /// The destination schema name.
+        schema: String,
+        /// When true, omit the prefix for common default schema names like "public" or "dbo".
+        #[serde(default)]
+        skip_common_defaults: bool,
+    },
+}
+
 /// A Materialization binds a Flow collection with an external system & target
 /// (e.x, a SQL table) into which the collection is to be continuously materialized.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
@@ -19,6 +48,12 @@ pub struct MaterializationDef {
     #[serde(alias = "sourceCapture")]
     #[schemars(with = "SourceType")]
     pub source: Option<SourceType>,
+    /// # Naming strategy for destination resources.
+    /// Controls how collection names are mapped to destination table and schema
+    /// names when bindings are added. Only applies to connectors whose
+    /// destination system supports schemas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_naming: Option<TargetNamingStrategy>,
     /// # Default handling of schema changes that are incompatible with the target resource.
     /// This can be overridden on a per-binding basis.
     #[serde(
@@ -172,6 +207,7 @@ impl MaterializationDef {
     pub fn example() -> Self {
         Self {
             source: None,
+            target_naming: None,
             endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),

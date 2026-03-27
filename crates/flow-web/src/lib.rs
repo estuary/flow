@@ -112,7 +112,10 @@ pub fn update_materialization_resource_spec(input: JsValue) -> Result<JsValue, J
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Input {
-        source_capture: SourceType,
+        #[serde(default)]
+        source_capture: Option<SourceType>,
+        #[serde(default)]
+        target_naming: Option<models::TargetNamingStrategy>,
         resource_spec: serde_json::Value,
         resource_spec_pointers: ResourceSpecPointers,
         collection_name: String,
@@ -120,6 +123,7 @@ pub fn update_materialization_resource_spec(input: JsValue) -> Result<JsValue, J
 
     let Input {
         source_capture,
+        target_naming,
         resource_spec,
         resource_spec_pointers,
         collection_name,
@@ -128,7 +132,8 @@ pub fn update_materialization_resource_spec(input: JsValue) -> Result<JsValue, J
 
     let mut resource_spec = resource_spec.clone();
     tables::utils::update_materialization_resource_spec(
-        &source_capture,
+        target_naming.as_ref(),
+        source_capture.as_ref(),
         &mut resource_spec,
         &resource_spec_pointers,
         collection_name.as_ref(),
