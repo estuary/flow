@@ -199,33 +199,72 @@ The connectors that use CDC (Change Data Capture) allow fine-grained control of 
 In general, you should not change this setting. Make sure you understand your use case, such as [preventing backfills](#preventing-backfills-during-database-upgrades).
 :::
 
-The following modes are available:
+### Available modes
 
 * **Normal:** backfills chunks of the table and emits all replication events regardless of whether they occur within the backfilled portion of the table or not.
 
-   In Normal mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
-   All WAL changes are emitted immediately, whether or not they relate to an unread portion of the table. Therefore, if a change is made, it shows up quickly even if its table is still backfilling.
+   In Normal mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the replication log.
+   All replication log changes are emitted immediately, whether or not they relate to an unread portion of the table. Therefore, if a change is made, it shows up quickly even if its table is still backfilling.
+
+   **Pros:**
+   - All change events (inserts, updates, and deletes) are captured during backfill — no replication events are filtered out.
+   - Changes appear in the destination quickly, even for tables still being backfilled.
+
+   **Cons:**
+   - Duplicate events are possible during the overlap between the backfill scan and replication log stream. These are deduplicated downstream by the runtime's reduce logic if your materialization uses standard (non-delta) updates, but with delta updates enabled, duplicates will not be deduplicated and may result in duplicate records.
+   - The ordering of events for a given key is not guaranteed to be logically consistent during the backfill (e.g. you may see an update before the corresponding insert).
 
 * **Precise:** backfills chunks of the table and filters replication events in portions of the table which haven't yet been reached.
 
-   In Precise mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
-   Any WAL changes for portions of the table that have already been backfilled are emitted. In contrast to Normal mode, however, WAL changes are suppressed if they relate to a part of the table that hasn't been backfilled yet.
+   In Precise mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the replication log.
+   Any replication log changes for portions of the table that have already been backfilled are emitted. In contrast to Normal mode, however, replication log changes are suppressed if they relate to a part of the table that hasn't been backfilled yet.
 
-   WAL changes and backfill chunks get stitched together to produce a fully consistent logical sequence of changes for each key. For example, you are guaranteed to see an insert before an update or delete.
+   Replication log changes and backfill chunks get stitched together to produce a fully consistent logical sequence of changes for each key. For example, you are guaranteed to see an insert before an update or delete.
 
    Note that Precise backfill is not possible in some cases due to equality comparison challenges when using varying character encodings.
 
+   **Pros:**
+   - Produces a logically consistent sequence of changes per key — no duplicates, correct ordering.
+   - More efficient — avoids processing redundant events.
+
+   **Cons:**
+   - **Deletes can be silently lost during incremental backfills.** This applies when performing an incremental backfill (where existing records are already present in the collection and destination). If a row is deleted while the backfill scanner has not yet reached it, the DELETE event from the replication log is filtered out (because it relates to a part of the table "ahead" of the scan position). When the scanner eventually reaches that key range, the row no longer exists in the source table and is never seen. The result is the delete is silently dropped — the old version of the row remains in the collection and destination without a delete marker. This does not affect full data flow resets, where the destination is rebuilt from scratch.
+
+   This delete gap only affects rows deleted *during an active backfill*. Once the backfill completes, all subsequent deletes are captured normally. The risk window is the duration of the backfill scan.
+
 * **Only Changes:** skips backfilling the table entirely and jumps directly to replication streaming for the entire dataset.
 
-   No backfill of the table content is performed at all. Only WAL changes are emitted.
+   No backfill of the table content is performed at all. Only replication log changes are emitted. Use this mode when you only need new changes going forward and don't need historical data, or when you want to avoid the overhead of scanning a large table.
 
 * **Without Primary Key:** can be used to capture tables without any form of unique primary key.
 
-   The connector uses an alternative physical row identifier (such as a Postgres `ctid`) to scan backfill chunks, rather than walking the table in key order.
+   The connector uses an alternative physical row identifier (such as a Postgres `ctid`) to scan backfill chunks, rather than walking the table in key order. Use this mode when a table lacks a usable primary key or unique index.
 
    This mode lacks the exact correctness properties of the Normal backfill mode.
 
-If you do not choose a specific backfill mode, Estuary will default to an automatic mode.
+### Default behavior
+
+If you do not choose a specific backfill mode, Estuary uses **Automatic** mode, which selects the best mode based on the table's characteristics:
+
+- **Precise** is selected for tables with predictable key ordering (most tables with standard primary keys).
+- **Normal** is selected for tables where key ordering is unpredictable (e.g. certain character encodings or collations).
+- **Without Primary Key** is selected for tables that lack a usable primary key or unique index.
+
+For most SQL captures, Automatic will select **Precise**.
+
+### Choosing a mode
+
+| Consideration | Normal | Precise |
+|---|---|---|
+| Deletes during incremental backfill | Captured (safe) | Can be silently lost |
+| Event ordering per key | Not guaranteed | Guaranteed |
+| Duplicate processing | Possible (deduplicated unless using delta updates) | None |
+| Efficiency | Slightly higher data volume | More efficient |
+| Default for most tables | No | Yes (via Automatic) |
+
+If your workload includes hard deletes and you want to ensure no deletes are lost during incremental backfills (e.g. backfills triggered by schema changes), consider setting the backfill mode to **Normal** on affected bindings. The tradeoff is slightly more data processing during the backfill window.
+
+For MySQL and MariaDB captures, setting `binlog_row_metadata=FULL` can prevent many unnecessary backfills from being triggered by schema changes, reducing the window in which this issue can occur regardless of backfill mode.
 
 ## Advanced backfill configuration in specific systems
 
