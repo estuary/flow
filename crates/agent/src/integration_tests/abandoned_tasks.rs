@@ -131,8 +131,14 @@ async fn test_abandoned_task_detection_and_resolution() {
     test_idle_fires_when_no_data_and_old(&mut harness, CatalogType::Capture, "pandas/capture")
         .await;
 
-    // Auto-disable runs last because it leaves the capture disabled.
-    test_auto_disable_publishes_disable(&mut harness, CatalogType::Capture, "pandas/capture").await;
+    // Auto-disable runs last because it leaves tasks disabled.
+    test_auto_disable_idle(
+        &mut harness,
+        CatalogType::Materialization,
+        "pandas/materialize",
+    )
+    .await;
+    test_auto_disable_failing(&mut harness, CatalogType::Capture, "pandas/capture").await;
 }
 
 /// ShardFailed firing for > 30 days triggers TaskChronicallyFailing.
@@ -199,17 +205,76 @@ async fn test_idle_fires_when_no_data_and_old(
     assert_within_minutes(wake_at, 25 * 60);
 }
 
-/// With `disable_abandoned_tasks` enabled, the controller publishes
-/// `shards.disable = true` when the chronically-failing grace period expires.
-async fn test_auto_disable_publishes_disable(
+/// With `disable_idle_tasks` enabled, the controller publishes
+/// `shards.disable = true` when the idle grace period expires.
+async fn test_auto_disable_idle(
     harness: &mut TestHarness,
     task_type: CatalogType,
     catalog_name: &str,
 ) {
-    tracing::info!(%catalog_name, "auto-disable publishes shards.disable");
+    tracing::info!(%catalog_name, "idle auto-disable publishes shards.disable");
 
     let mut config = (*harness.control_plane().controller_config()).clone();
-    config.disable_abandoned_tasks = true;
+    config.disable_idle_tasks = true;
+    harness.control_plane().set_controller_config(config);
+
+    publish_and_await_ready(harness, task_type, catalog_name).await;
+
+    // Make the task old enough and trigger TaskIdle.
+    push_back_created_at(catalog_name, chrono::Duration::days(45), harness).await;
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+    harness.run_pending_controller(catalog_name).await;
+    harness
+        .assert_alert_firing(catalog_name, AlertType::TaskIdle)
+        .await;
+
+    // Expire the grace period and run the controller to auto-disable.
+    set_alert_disable_at(
+        catalog_name,
+        AlertType::TaskIdle,
+        (chrono::Utc::now() - chrono::Duration::days(1))
+            .format("%Y-%m-%d")
+            .to_string(),
+        harness,
+    )
+    .await;
+    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
+
+    harness.run_pending_controller(catalog_name).await;
+    harness.run_pending_controllers(None).await;
+
+    let state = harness.get_controller_state(catalog_name).await;
+    let spec = state.live_spec.as_ref().expect("spec should exist");
+    let is_disabled = match spec {
+        models::AnySpec::Capture(c) => c.shards.disable,
+        models::AnySpec::Collection(c) => c.derive.as_ref().map_or(false, |d| d.shards.disable),
+        models::AnySpec::Materialization(m) => m.shards.disable,
+        models::AnySpec::Test(_) => unreachable!(),
+    };
+    assert!(
+        is_disabled,
+        "expected {catalog_name} to be disabled after idle auto-disable, but shards.disable is false"
+    );
+
+    harness
+        .assert_alert_clear(catalog_name, AlertType::TaskIdle)
+        .await;
+    harness
+        .assert_alert_clear(catalog_name, AlertType::TaskAutoDisabledIdle)
+        .await;
+}
+
+/// With `disable_failing_tasks` enabled, the controller publishes
+/// `shards.disable = true` when the chronically-failing grace period expires.
+async fn test_auto_disable_failing(
+    harness: &mut TestHarness,
+    task_type: CatalogType,
+    catalog_name: &str,
+) {
+    tracing::info!(%catalog_name, "failing auto-disable publishes shards.disable");
+
+    let mut config = (*harness.control_plane().controller_config()).clone();
+    config.disable_failing_tasks = true;
     harness.control_plane().set_controller_config(config);
 
     publish_and_await_ready(harness, task_type, catalog_name).await;
