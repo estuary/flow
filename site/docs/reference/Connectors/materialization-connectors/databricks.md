@@ -142,6 +142,16 @@ SET TBLPROPERTIES (
 );
 ```
 
+## Query Tags
+
+The Databricks connector automatically sets a [query tag](https://docs.databricks.com/en/sql/user/queries/query-tags.html) on every session. The tag has the format `materialization_name:<task_name>`, where `<task_name>` is the full name of your Estuary materialization task.
+
+This requires no configuration. You can use query tags to:
+
+* **Monitor queries**: Filter the Databricks [query history](https://docs.databricks.com/en/sql/user/queries/query-history.html) to see all queries originating from a specific materialization.
+* **Attribute costs**: Break down warehouse costs per materialization task using query tags.
+* **Debug issues**: Quickly identify which materialization task generated a particular query.
+
 ## Reserved words
 
 Databricks has a list of reserved words that must be quoted in order to be used as an identifier. Estuary automatically quotes fields that are in the reserved words list. You can find this list in Databricks's documentation [here](https://docs.databricks.com/en/sql/language-manual/sql-ref-reserved-words.html) and in the table below.
