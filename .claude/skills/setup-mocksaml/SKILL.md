@@ -201,5 +201,5 @@ they can open that URL in a browser to complete the MockSAML login
 ## Teardown
 
 No teardown needed. Be aware:
-- `supabase stop && supabase start` replaces the auth container (loses SAML config) — rerun this skill
-- `supabase db reset` wipes SSO provider registrations — rerun from step 8
+- `supabase stop && supabase start` replaces the auth container (loses SAML env vars) — use `./supabase/start-with-saml.sh` instead, which re-injects them automatically
+- `supabase db reset` wipes SSO provider registrations — use `./supabase/start-with-saml.sh --reset` then rerun from step 8
