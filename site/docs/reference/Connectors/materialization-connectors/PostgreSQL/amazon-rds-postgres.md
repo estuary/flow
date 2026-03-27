@@ -92,14 +92,10 @@ Use the below properties to configure a Postgres materialization, which will dir
 | Property | Title | Description | Type | Required/Default |
 | --- | --- | --- | --- | --- |
 | **`/credentials`** | Authentication | Authentication method and credentials that provide access to the database. | object | Required |
-| `/credentials/auth_type` | Auth Type | The authentication method to use. One of `UserPassword`, `AWSIAM`, `GCPIAM`, or `AzureIAM`. | string |  |
+| `/credentials/auth_type` | Auth Type | The authentication method to use. One of `UserPassword` or `AWSIAM`. | string |  |
 | `/credentials/password` | Password | Password for the specified database user. | string | Required for `UserPassword` auth |
 | `/credentials/aws_region` | AWS Region | AWS region of your resource. | string | Required for `AWSIAM` auth |
 | `/credentials/aws_role_arn` | AWS Role ARN | AWS role for Estuary to use that has access to the resource. | string | Required for `AWSIAM` auth |
-| `/credentials/gcp_service_account_to_impersonate` | GCP Service Account | GCP service account email for Cloud SQL IAM authentication. | string | Required for `GCPIAM` auth |
-| `/credentials/gcp_workload_identity_pool_audience` | Workload Identity Pool Audience | GCP workload identity pool audience. The format should be similar to: `//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider`. | string | Required for `GCPIAM` auth |
-| `/credentials/azure_client_id` | Azure Client ID | Azure App Registration Client ID for Azure Active Directory authentication. | string | Required for `AzureIAM` auth |
-| `/credentials/azure_tenant_id` | Azure Tenant ID | Azure Tenant ID for Azure Active Directory authentication. | string | Required for `AzureIAM` auth |
 
 #### Bindings
 
