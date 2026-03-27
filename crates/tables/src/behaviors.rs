@@ -120,7 +120,7 @@ impl super::UserGrant {
             .map(|grant| grant.capability)
     }
 
-    /// Given a user, determine if they're authorized to the object name for the given capability.
+    /// Given a user, determine if they're authorized to the object name for the given capability. CONSUME HERE
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
