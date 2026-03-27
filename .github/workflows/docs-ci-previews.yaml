@@ -83,10 +83,33 @@ jobs:
             const total = execSync('git diff --name-only origin/master -- site/docs/ | grep -cE "\\.(md|mdx)$"')
               .toString().trim();
             const suffix = total > 5 ? `\n- ... and ${total - 5} more` : '';
+            const pagesBlock = `\n\n📄 **Changed pages:**\n${links.join('\n')}${suffix}`;
 
-            await github.rest.issues.createComment({
+            // Find the PR Preview Action comment and append to it
+            const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNum,
-              body: `📄 **Changed pages:**\n${links.join('\n')}${suffix}`
             });
+            const previewComment = comments.data.find(c =>
+              c.user.login === 'github-actions[bot]' && c.body.includes('PR Preview Action')
+            );
+
+            if (previewComment) {
+              // Strip any previous "Changed pages" block before appending
+              const cleanBody = previewComment.body.replace(/\n\n📄 \*\*Changed pages:\*\*[\s\S]*$/, '');
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previewComment.id,
+                body: cleanBody + pagesBlock,
+              });
+            } else {
+              // Fallback: create a separate comment if preview comment not found
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNum,
+                body: `📄 **Changed pages:**\n${links.join('\n')}${suffix}`,
+              });
+            }
