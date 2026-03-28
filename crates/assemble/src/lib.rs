@@ -379,6 +379,7 @@ pub fn shard_template(
         read_channel_size,
         ring_buffer_size,
         log_level,
+        flags,
     } = shard;
 
     // We hard-code that recovery logs always have prefix "recovery".
@@ -451,6 +452,14 @@ pub fn shard_template(
                 &protocol,
             );
         }
+    }
+
+    for (name, value) in flags {
+        labels = labels::set_value(
+            labels,
+            &format!("{}{}", labels::FLAG_PREFIX, name.as_str()),
+            value,
+        );
     }
 
     consumer::ShardSpec {
