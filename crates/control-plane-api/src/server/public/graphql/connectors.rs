@@ -168,7 +168,7 @@ pub struct ProtocolFilter {
 
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct ConnectorsFilter {
-    protocol: ProtocolFilter,
+    protocol: Option<ProtocolFilter>,
 }
 
 const DEFAULT_PAGE_SIZE: usize = 20;
@@ -300,7 +300,7 @@ impl ConnectorsQuery {
     pub async fn connectors(
         &self,
         ctx: &Context<'_>,
-        filter: ConnectorsFilter,
+        filter: Option<ConnectorsFilter>,
         after: Option<String>,
         before: Option<String>,
         first: Option<i32>,
@@ -361,7 +361,7 @@ impl ConnectorsQuery {
 
 async fn fetch_connectors_after(
     locale: Locale,
-    filter: ConnectorsFilter,
+    filter: Option<ConnectorsFilter>,
     after: Option<Id>,
     limit: i64,
     db: &sqlx::PgPool,
@@ -396,13 +396,13 @@ async fn fetch_connectors_after(
           ) as "tags!: Vec<ConnectorTagRef>"
         from connectors c
         join connector_tags ct on c.id = ct.connector_id
-        where ct.protocol = $1
+        where ($1::text is null or ct.protocol = $1::text)
         and ($2::flowid is null or c.id > $2::flowid)
         group by c.id
         order by c.id asc
         limit $3
           "#,
-        filter.protocol.eq as ConnectorProto,
+        filter.and_then(|f| f.protocol).map(|p| p.eq) as Option<ConnectorProto>,
         after as Option<Id>,
         limit,
         locale.as_ref() as &str,
@@ -414,7 +414,7 @@ async fn fetch_connectors_after(
 
 async fn fetch_connectors_before(
     locale: Locale,
-    filter: ConnectorsFilter,
+    filter: Option<ConnectorsFilter>,
     before: Option<Id>,
     limit: i64,
     db: &sqlx::PgPool,
@@ -446,13 +446,13 @@ async fn fetch_connectors_before(
         ) as "tags!: Vec<ConnectorTagRef>"
         from connectors c
         join connector_tags ct on c.id = ct.connector_id
-        where ct.protocol = $1
+        where ($1::text is null or ct.protocol = $1::text)
         and ($2::flowid is null or c.id < $2::flowid)
         group by c.id
         order by c.id desc
         limit $3
           "#,
-        filter.protocol.eq as ConnectorProto,
+        filter.and_then(|f| f.protocol).map(|p| p.eq) as Option<ConnectorProto>,
         before as Option<Id>,
         limit,
         locale.as_ref() as &str,
@@ -531,6 +531,14 @@ mod test {
                       }
 
                       materializations: connectors(filter: {protocol: {eq: "materialization"}}) {
+                        ...Select
+                      }
+
+                      all: connectors {
+                        ...Select
+                      }
+
+                      allWithEmptyFilter: connectors(filter: {}) {
                         ...Select
                       }
                     }
