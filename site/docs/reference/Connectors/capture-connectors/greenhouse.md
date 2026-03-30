@@ -1,10 +1,13 @@
 
-# Greenhouse
+# Greenhouse (Deprecated)
 
 This connector captures data from Greenhouse into Estuary collections.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Estuary system.
 
+:::warning
+This connector is deprecated. It is recommended that you use the new native [Greenhouse connector](./greenhouse-native.md) instead.
+:::
 
 ## Supported data resources
 
