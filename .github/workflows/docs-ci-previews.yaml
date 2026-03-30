@@ -100,5 +100,5 @@ jobs:
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           message: |
-            🚀 **Preview deployed** to ${{ steps.preview.outputs.preview-url }}
+            🚀 **Preview deployed** to https://docs.estuary.dev/pr-preview/pr-${{ github.event.number }}/
             ${{ steps.pages.outputs.result }}
