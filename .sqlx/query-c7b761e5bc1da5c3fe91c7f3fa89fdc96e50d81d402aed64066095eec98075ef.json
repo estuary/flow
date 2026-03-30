@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n              ct.id as \"id: Id\",\n              ct.image_tag,\n              ct.connector_id as \"connector_id: Id\",\n              ct.protocol as \"protocol: ConnectorProto\",\n              ct.created_at,\n              ct.updated_at,\n              ct.documentation_url,\n              ct.endpoint_spec_schema as \"endpoint_spec_schema: JsonRawValue\",\n              ct.resource_spec_schema as \"resource_spec_schema: JsonRawValue\",\n              ct.disable_backfill\n            from unnest($1::flowid[]) as input(id)\n            join connector_tags ct on input.id = ct.id\n            ",
+  "query": "select\n              ct.id as \"id: Id\",\n              ct.image_tag,\n              ct.connector_id as \"connector_id: Id\",\n              ct.protocol as \"protocol: ConnectorProto\",\n              ct.created_at,\n              ct.updated_at,\n              ct.documentation_url,\n              ct.endpoint_spec_schema as \"endpoint_spec_schema: JsonRawValue\",\n              ct.resource_spec_schema as \"resource_spec_schema: JsonRawValue\",\n              ct.disable_backfill,\n              ct.default_capture_interval::text as \"default_capture_interval\"\n            from unnest($1::flowid[]) as input(id)\n            join connector_tags ct on input.id = ct.id\n            ",
   "describe": {
     "columns": [
       {
@@ -52,6 +52,11 @@
         "ordinal": 9,
         "name": "disable_backfill",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "default_capture_interval",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -83,8 +88,9 @@
       true,
       true,
       true,
-      false
+      false,
+      null
     ]
   },
-  "hash": "5aec8b6f908c083fce52094eed5da84ee6a81e0ee43cde842e97c1df505b2b40"
+  "hash": "c7b761e5bc1da5c3fe91c7f3fa89fdc96e50d81d402aed64066095eec98075ef"
 }

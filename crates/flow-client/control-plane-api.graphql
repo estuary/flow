@@ -462,6 +462,11 @@ type ConnectorTag {
 	Whether the UI should hide the backfill button for this connector
 	"""
 	disableBackfill: Boolean!
+	"""
+	The default interval between invocations of a capture using this connector tag.
+	Formatted as HH:MM:SS. Only applicable to non-streaming (polling) capture connectors.
+	"""
+	defaultCaptureInterval: String
 }
 
 type ConnectorTagRef {
@@ -487,7 +492,7 @@ type ConnectorTagRef {
 }
 
 input ConnectorsFilter {
-	protocol: ProtocolFilter!
+	protocol: ProtocolFilter
 }
 
 """
@@ -1259,7 +1264,7 @@ type QueryRoot {
 	successful Spec RPC cannot be used by the Estuary UI, and so are
 	excluded here.
 	"""
-	connectors(filter: ConnectorsFilter!, after: String, before: String, first: Int, last: Int): ConnectorConnection!
+	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 }
 
 """

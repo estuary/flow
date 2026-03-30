@@ -22,7 +22,8 @@ source_tag as (
         endpoint_spec_schema,
         resource_spec_schema,
         resource_path_pointers,
-        job_status
+        job_status,
+        default_capture_interval
     ) values (
         '66:66:66:66:00:00:00:00',
         (select id from source_image),
@@ -32,7 +33,8 @@ source_tag as (
         '{"type": "object"}',
         '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}}}',
         '{/id}',
-        '{"type": "success"}'
+        '{"type": "success"}',
+        '01:02:03'
     )
 ),
 materialize_tag as (
@@ -111,7 +113,8 @@ multi_tag_source_tag as (
        endpoint_spec_schema,
        resource_spec_schema,
        resource_path_pointers,
-       job_status
+       job_status,
+       default_capture_interval
    ) values (
         '66:66:66:66:00:00:00:03',
         (select id from multi_tag_source_image),
@@ -121,7 +124,8 @@ multi_tag_source_tag as (
         '{"type": "object"}',
         '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}}}',
         '{/id}',
-        '{"type": "success"}'
+        '{"type": "success"}',
+        null
     ), (
         '66:66:66:66:00:00:00:04',
         (select id from multi_tag_source_image),
@@ -131,7 +135,8 @@ multi_tag_source_tag as (
         '{"type": "object"}',
         '{"type": "object", "properties": {"id": {"type": "string", "x-collection-name": true}}}',
         '{/id}',
-        '{"type": "success"}'
+        '{"type": "success"}',
+        null
     ), (
         '66:66:66:66:00:00:00:05',
         (select id from multi_tag_source_image),
@@ -141,7 +146,8 @@ multi_tag_source_tag as (
         null,
         null,
         null,
-        '{"type": "specFailed"}'
+        '{"type": "specFailed"}',
+        null
     )
 ),
 multi_tag_materialize_tag as (

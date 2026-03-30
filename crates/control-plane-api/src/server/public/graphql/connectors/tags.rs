@@ -28,6 +28,9 @@ pub struct ConnectorTag {
     resource_spec_schema: Option<JsonObject>,
     /// Whether the UI should hide the backfill button for this connector
     disable_backfill: bool,
+    /// The default interval between invocations of a capture using this connector tag.
+    /// Formatted as HH:MM:SS. Only applicable to non-streaming (polling) capture connectors.
+    default_capture_interval: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -55,7 +58,8 @@ impl async_graphql::dataloader::Loader<ConnectorTagId> for PgDataLoader {
               ct.documentation_url,
               ct.endpoint_spec_schema as "endpoint_spec_schema: JsonRawValue",
               ct.resource_spec_schema as "resource_spec_schema: JsonRawValue",
-              ct.disable_backfill
+              ct.disable_backfill,
+              ct.default_capture_interval::text as "default_capture_interval"
             from unnest($1::flowid[]) as input(id)
             join connector_tags ct on input.id = ct.id
             "#,
@@ -85,6 +89,7 @@ impl async_graphql::dataloader::Loader<ConnectorTagId> for PgDataLoader {
                         .resource_spec_schema
                         .map(|pg| async_graphql::Json(pg.0)),
                     disable_backfill: row.disable_backfill,
+                    default_capture_interval: row.default_capture_interval,
                 };
                 (key, val)
             })
