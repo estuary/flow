@@ -218,8 +218,22 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | **`/address`**                  | Address             | The host or host:port at which the database can be reached.                                                                                 | string  | Required                   |
 | **`/database`**                 | Database            | Logical database name to capture from.                                                                                                      | string  | Required, `"postgres"`     |
 | **`/user`**                     | User                | The database user to authenticate as.                                                                                                       | string  | Required, `"flow_capture"` |
-| **`/password`**                 | Password            | Password for the specified database user.                                                                                                   | string  | Required                   |
 | `/historyMode` | History Mode | Capture each change event, without merging. | boolean | `false` |
+
+##### Authentication
+
+| Property | Title | Description | Type | Required/Default |
+| --- | --- | --- | --- | --- |
+| **`/credentials`** | Authentication | Authentication method and credentials that provide access to the database. | object | Required |
+| `/credentials/auth_type` | Auth Type | The authentication method to use. One of `UserPassword` or `AWSIAM`. | string |  |
+| `/credentials/password` | Password | Password for the specified database user. | string | Required for `UserPassword` auth |
+| `/credentials/aws_region` | AWS Region | AWS region of your resource. | string | Required for `AWSIAM` auth |
+| `/credentials/aws_role_arn` | AWS Role ARN | AWS role for Estuary to use that has access to the resource. | string | Required for `AWSIAM` auth |
+
+##### Advanced options
+
+| Property | Title | Description | Type | Required/Default |
+| --- | --- | --- | --- | --- |
 | `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
 | `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query.                                                    | integer | `4096`                     |
 | `/advanced/publicationName`     | Publication Name    | The name of the PostgreSQL publication to replicate from.                                                                                   | string  | `"flow_publication"`       |
@@ -227,16 +241,22 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/slotName`            | Slot Name           | The name of the PostgreSQL replication slot to replicate from.                                                                              | string  | `"flow_slot"`              |
 | `/advanced/watermarksTable`     | Watermarks Table    | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string  | `"public.flow_watermarks"` |
 | `/advanced/sslmode`             | SSL Mode            | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                       | string  |                            |
+| `/advanced/discover_schemas` | Discovery Schema Selection | If this is specified, only tables in the selected schema(s) will be automatically discovered. | string array |  |
+| `advanced/min_backfill_xid` | Minimum Backfill XID | Only backfill rows with XMIN values greater (in a 32-bit modular comparison) than the specified XID. Helpful for reducing re-backfill data volume in certain edge cases. | string |  |
+| `/advanced_read_only_capture` | Read-Only Capture | When set, the capture will operate in [read-only mode](#read-only-captures) and avoid operations such as watermark writes. | boolean | `false` |
+| `/advanced/capture_as_partitions` | Capture Partitioned Tables As Partitions | When set, the capture will discover and capture partitioned tables as individual partitions rather than as a single root table. This requires the publication to be created without `publish_via_partition_root`. | boolean | `false` |
 | `/advanced/discover_unpublished_tables` | Discover Unpublished Tables | If `true`, the capture discovers all tables, even ones not currently in the publication. | boolean |  |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
+| `/advanced/statement_timeout` | Statement Timeout | Overrides the default statement timeout used by the connector. The default of zero disables statement timeouts entirely. Options include `""`, `30s`, `1m`, `5m`, and `30m`. | string | `""` |
 
 #### Bindings
 
 | Property         | Title     | Description                                                                                | Type   | Required/Default |
 | ---------------- | --------- | ------------------------------------------------------------------------------------------ | ------ | ---------------- |
 | **`/namespace`** | Namespace | The [namespace/schema](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table. | string | Required         |
-| **`/stream`**    | Stream    | Table name.                                                                                | string | Required         |
-| **`/syncMode`**  | Sync mode | Connection method. Always set to `incremental`.                                            | string | Required         |
+| **`/stream`**    | Stream    | Table name.     | string | Required         |
+| `/mode` | [Backfill Mode](/reference/backfilling-data/#resource-configuration-backfill-modes) | How the preexisting contents of the table should be backfilled. This should generally not be changed. | string | `""` |
+| `/priority` | Backfill Priority | Optional priority for this binding. The highest priority binding(s) will be backfilled completely before any others. Negative priorities are allowed and will cause a binding to be backfilled after others. | integer | `0` |
 
 #### SSL Mode
 
@@ -251,17 +271,18 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: "ghcr.io/estuary/source-postgres:v3"
+        image: ghcr.io/estuary/source-postgres:v3
         config:
-          address: "localhost:5432"
-          database: "postgres"
-          user: "flow_capture"
-          password: "secret"
+          address: host:port
+          database: postgres
+          user: flow_capture
+          credentials:
+            auth_type: UserPassword
+            password: <secret>
     bindings:
       - resource:
           stream: ${TABLE_NAME}
           namespace: ${TABLE_NAMESPACE}
-          syncMode: incremental
         target: ${PREFIX}/${COLLECTION_NAME}
 ```
 
