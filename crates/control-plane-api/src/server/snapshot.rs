@@ -496,11 +496,21 @@ pub async fn try_fetch(
             g.object_role AS "object_role: models::Prefix",
             g.capability AS "capability: models::Capability"
         FROM user_grants g
+        WHERE NOT EXISTS (
+            SELECT 1 FROM tenants t
+            WHERE g.object_role ^@ t.tenant
+              AND t.enforce_sso
+              AND NOT EXISTS (
+                SELECT 1 FROM auth.identities ai
+                WHERE ai.user_id = g.user_id
+                  AND ai.provider = 'sso:' || t.sso_provider_id::text
+              )
+        )
         "#,
     )
     .fetch_all(pg_pool)
     .await
-    .context("failed to fetch role_grants")?;
+    .context("failed to fetch user_grants")?;
 
     let tasks = sqlx::query_as!(
         SnapshotTask,
