@@ -178,7 +178,7 @@ For example, Postgres currently deletes or requires users to drop logical replic
 
 5. Resume database writes.
 
-## Resource configuration backfill modes
+## Resource configuration backfill modes for SQL CDC captures
 
 :::note
 Backfill modes apply only to **SQL CDC connectors** (PostgreSQL, MySQL, SQL Server, etc.). Non-SQL connectors and non-CDC connectors do not have this setting.
