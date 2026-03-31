@@ -45,6 +45,7 @@ clap = { workspace = true }
 colored_json = { workspace = true }
 derivative = { workspace = true }
 futures = { workspace = true }
+hex = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
@@ -57,6 +58,7 @@ rustls = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }

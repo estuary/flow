@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 pub mod graphql;
 mod open_metrics;
+pub mod scim;
 pub mod status;
 
 /// Creates a router for the public API that can be merged into an existing router.
@@ -74,6 +75,8 @@ pub(crate) fn api_v1_router(app: Arc<crate::App>) -> axum::Router<Arc<crate::App
                     .axum_handler(),
             ),
         )
+        // SCIM endpoints (not documented in OpenAPI — SCIM has its own spec)
+        .merge(scim::scim_router())
         // Makes the graphql schema available to handlers
         .layer(axum::Extension(graphql_schema))
         .with_state(app.clone());
