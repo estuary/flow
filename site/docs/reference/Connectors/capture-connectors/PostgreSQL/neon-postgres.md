@@ -206,7 +206,7 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 |------------------|-----------|--------------------------------------------------------------------------------------------|--------|------------------|
 | **`/namespace`** | Namespace | The [namespace/schema](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table. | string | Required         |
 | **`/stream`**    | Stream    | Table name.     | string | Required         |
-| `/mode` | [Backfill Mode](/reference/backfilling-data/#resource-configuration-backfill-modes) | How the preexisting contents of the table should be backfilled. This should generally not be changed. | string | `""` |
+| `/mode` | [Backfill Mode](/reference/backfilling-data/#resource-configuration-backfill-modes-for-sql-cdc-captures) | How the preexisting contents of the table should be backfilled. This should generally not be changed. | string | `""` |
 | `/priority` | Backfill Priority | Optional priority for this binding. The highest priority binding(s) will be backfilled completely before any others. Negative priorities are allowed and will cause a binding to be backfilled after others. | integer | `0` |
 
 ### Sample
