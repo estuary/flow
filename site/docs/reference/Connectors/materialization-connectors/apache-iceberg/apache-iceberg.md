@@ -248,7 +248,7 @@ To configure the materialization to connect directly to the S3 Tables Iceberg RE
 - Your **EMR Execution Role** must also have been granted sufficient permissions
   to read and write to the bucket. See below for an example policy with the
   necessary permission for both the AWS IAM user or role and the execution role.
-```
+```json
 {
     "Version": "2012-10-17",
     "Statement": [
@@ -616,6 +616,7 @@ See below for a full list of configuration options.
 |   `/compute/bucket_path`             | Bucket Path            | Optional prefix used to store staged data files.                                                                     | string           |                                 |
 |   `/compute/systems_manager_prefix`  | System Manager Prefix  | Prefix for parameters in Systems Manager as an absolute directory path (must start and end with `/`).                | string           | `/estuary/`                     |
 |   `/advanced/lowercase_column_names` | Lowercase Column Names | Create all columns with lowercase names.                                                                             | boolean          |                                 |
+|   `/glue_optimizers`                 | Glue Table Optimizers  | Configure AWS Glue managed table optimizers for compaction. See [configuration details](#glue-table-optimizers).    | object           |                                 |
 
 #### Credentials
 
@@ -654,12 +655,25 @@ EMR Credentials specify the authentication method for EMR and writing to the sta
 |--------------------------------|------------------------|--------------------------------------------------------------------------------------------------------------------------------------|---------|-----------------------------------------|
 | **`/auth_type`**               | Auth Type              | Authentication method for EMR and writing to the staging bucket.                                                                     | string  | Required: `UseCatalogAuth`              |
 
+#### Glue Table Optimizers
+
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| `/glue_optimizers/execution_role_arn` | Execution Role ARN | IAM role ARN that Glue assumes to perform table optimization. The role must have permissions to read/write table data in S3 and access the Glue catalog. | string |  |
+| `/glue_optimizers/enable_compaction` | Enable Compaction | Enable automatic compaction of small Iceberg data files to improve query performance. | boolean | `false` |
+| `/glue_optimizers/enable_retention` | Enable Snapshot Retention | Enable automatic removal of old Iceberg table snapshots to reduce storage costs. | boolean | `false` |
+| `/glue_optimizers/snapshot_retention_days` | Snapshot Retention Days | Number of days to retain Iceberg snapshots. Uses the Glue default of 5 if unset. | integer | `5` |
+| `/glue_optimizers/number_of_snapshots_to_retain` | Number of Snapshots to Retain | Minimum number of Iceberg snapshots to retain regardless of the retention period. Uses the Glue default of 1 if unset. | integer | `1` |
+| `/glue_optimizers/enable_orphan_file_deletion` | Enable Orphan File Deletion | Enable automatic deletion of files that are no longer referenced by any table snapshot. | boolean | `false` |
+| `/glue_optimizers/orphan_file_retention_days` | Orphan File Retention Days | Number of days to retain orphan files before deletion. Uses the Glue default of 3 if unset. | integer | `3` |
+
 #### Bindings
 
 | Property     | Title                 | Description                          | Type   | Required/Default |
 |--------------|-----------------------|--------------------------------------|--------|------------------|
 | **`/table`** | Table                 | Table name                           | string | Required         |
 | `/namespace` | Alternative Namespace | Alternative namespace for this table | string |                  |
+| `/additional_table_properties` | Additional Table Properties | Additional Iceberg table properties to set when the table is created. These are set only at creation time and cannot be changed afterwards. Example: `{'write.parquet.compression-codec': 'zstd'}` | object |  |
 
 ### Sample
 
@@ -723,10 +737,9 @@ supported.
 
 ## Table Maintenance
 
-To ensure optimal query performance, you should conduct [regular
-maintenance](https://iceberg.apache.org/docs/latest/maintenance/) for your materialized tables since
-the connector will not perform this maintenance automatically (support for automatic table
-maintenance is planned).
+If you're using the AWS Glue catalog, you can configure [Glue Table Optimizers](#glue-table-optimizers)
+to enable automatic maintenance on your tables, including data file compaction, snapshot retention, and orphan file deletion.
 
-If you're using the AWS Glue catalog, you can enable automatic data file compaction by following
-[this guide](https://docs.aws.amazon.com/lake-formation/latest/dg/data-compaction.html).
+If you do not use Glue for your catalog or otherwise do not configure automatic optimization through the connector,
+you should conduct [regular maintenance](https://iceberg.apache.org/docs/latest/maintenance/)
+for your materialized tables to ensure optimal query performance.

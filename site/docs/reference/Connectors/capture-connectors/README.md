@@ -140,6 +140,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Google Sheets
   - [Configuration](./google-sheets.md)
   - Package - ghcr.io/estuary/source-google-sheets-native:v1
+- Greenhouse
+  - [Configuration](./greenhouse-native.md)
+  - Package - ghcr.io/estuary/source-greenhouse-native:v1
 - HTTP file
   - [Configuration](./http-file.md)
   - Package - ghcr.io/estuary/source-http-file:v1
@@ -344,7 +347,7 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - Google Search Console
   - [Configuration](./google-search-console.md)
   - Package - ghcr.io/estuary/source-google-search-console:v2
-- Greenhouse
+- Greenhouse (deprecated)
   - [Configuration](./greenhouse.md)
   - Package - ghcr.io/estuary/source-greenhouse:v1
 - Harvest

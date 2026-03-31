@@ -31,7 +31,8 @@
             "string",
             "null"
           ],
-          "minLength": 16
+          "minLength": 16,
+          "maxLength": 128
         },
         "an_array_of_timestamps": {
           "type": "array",
