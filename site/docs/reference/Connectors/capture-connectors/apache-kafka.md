@@ -9,6 +9,8 @@ This connector supports Kafka messages encoded in **Avro**, **Protobuf**, or **J
 For Avro and Protobuf messages, the connector must be configured to use a [schema
 registry](https://docs.confluent.io/platform/current/schema-registry/index.html). Schema references (`import` for Protobuf) are supported for Protobuf schemas but not for Avro or JSON schemas.
 
+Protobuf field names are serialized using the proto field name (snake_case), not the default camelCase JSON mapping.
+
 JSON messages may be read without a schema registry. If the JSON messages were
 encoded with a JSON schema, configuring a schema registry is recommended to
 enable discovery of collection keys if the message key has an associated schema.
