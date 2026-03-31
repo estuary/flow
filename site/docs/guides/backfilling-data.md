@@ -34,7 +34,7 @@ To perform an incremental backfill:
 1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
 3. In the **Backfill mode** dropdown, select the **Incremental backfill (advanced)** option
-4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
+4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes-for-sql-cdc-captures) for the collection for advanced use cases
 5. Save and publish your changes
 
 This option is ideal when you want to ensure your collections have the most up-to-date data without
@@ -108,7 +108,7 @@ To perform a dataflow reset:
 1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
 3. In the **Backfill mode** dropdown, select the **Dataflow reset** option
-4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
+4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes-for-sql-cdc-captures) for the collection for advanced use cases
 5. Save and publish your changes
 
 This option is ideal when you need a complete refresh of your entire data pipeline, especially when
@@ -173,7 +173,7 @@ For example, Postgres currently deletes or requires users to drop logical replic
 
 3. Perform the database upgrade.
 
-4. Backfill all bindings of the capture using the ["Only Changes" backfill mode](#resource-configuration-backfill-modes) and make sure to select "Incremental Backfill (Advanced)" from the drop down.
+4. Backfill all bindings of the capture using the ["Only Changes" backfill mode](#resource-configuration-backfill-modes-for-sql-cdc-captures) and make sure to select "Incremental Backfill (Advanced)" from the drop down.
    - This will not cause a full backfill. "Backfilling" all bindings at once resets the WAL (Write-Ahead Log) position for the capture, essentially allowing it to "jump ahead" to the current end of the WAL. The "Only Changes" mode will skip re-reading existing table content.  Incremental backfill will append new data to your current collection.
 
 5. Resume database writes.
