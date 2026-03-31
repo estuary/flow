@@ -211,6 +211,10 @@ struct RelaxedSchemaObj {
     _const: String,
     #[serde(rename = "enum", default, skip_serializing)]
     _enum: Vec<serde_json::Value>,
+    #[serde(rename = "minLength", default, skip_serializing)]
+    _min_length: Option<serde_json::Value>,
+    #[serde(rename = "maxLength", default, skip_serializing)]
+    _max_length: Option<serde_json::Value>,
 
     // Other keywords are passed-through.
     #[serde(flatten)]
@@ -382,6 +386,34 @@ mod test {
     fn test_relaxation() {
         let fixture = Schema::new(RawValue::from_str(include_str!("fixture.schema.json")).unwrap());
         insta::assert_json_snapshot!(fixture.to_relaxed_schema().unwrap().to_value())
+    }
+
+    #[test]
+    fn test_relaxation_drops_min_max_length() {
+        let schema = schema!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "description": "A name field"
+                }
+            }
+        });
+
+        let relaxed = schema.to_relaxed_schema().unwrap().to_value();
+
+        assert_eq!(
+            relaxed,
+            json!({
+                "properties": {
+                    "name": {
+                        "description": "A name field"
+                    }
+                }
+            })
+        );
     }
 
     #[test]
