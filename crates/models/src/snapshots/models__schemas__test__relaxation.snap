@@ -11,8 +11,7 @@ expression: fixture.to_relaxed_schema().unwrap().to_value()
           "title": "A constant property"
         },
         "a_string": {
-          "description": "(source type: varchar)",
-          "minLength": 16
+          "description": "(source type: varchar)"
         },
         "an_array_of_timestamps": {
           "items": {},
