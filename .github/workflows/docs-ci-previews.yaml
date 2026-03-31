@@ -23,19 +23,82 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
+        if: github.event.action != 'closed'
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: ./site/package-lock.json
       - name: Install dependencies
+        if: github.event.action != 'closed'
         working-directory: ./site
         run: npm ci
       - name: Build `docs.estuary.dev`
+        if: github.event.action != 'closed'
         working-directory: ./site
         env:
           BASE_URL: /pr-preview/pr-${{ github.event.number }}
         run: npm run build
       - name: Deploy preview
+        id: preview
         uses: rossjrw/pr-preview-action@v1
         with:
           source-dir: ./site/build/
+          comment: false
+      - name: Compute changed pages
+        if: github.event.action != 'closed'
+        id: pages
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const base = `https://docs.estuary.dev/pr-preview/pr-${context.issue.number}`;
+
+            // Shallow checkout won't have master — fetch it for the diff
+            try {
+              execSync('git fetch origin master --depth=1');
+            } catch (e) {
+              core.warning(`Failed to fetch origin/master: ${e.message}`);
+              return '';
+            }
+
+            // Get all changed docs files, filter to md, exclude deleted files
+            const allFiles = execSync('git diff --name-only origin/master -- site/docs/')
+              .toString().trim().split('\n')
+              .filter(f => /\.md$/.test(f))
+              .filter(f => fs.existsSync(f));
+
+            if (allFiles.length === 0) return '';
+
+            const total = allFiles.length;
+            const files = allFiles.slice(0, 5);
+
+            // Resolve each file to its preview URL.
+            // Uses frontmatter slug if present, otherwise derives from file path.
+            const links = files.map(f => {
+              let slug;
+              const content = fs.readFileSync(f, 'utf8');
+              const match = content.match(/^slug:\s*(.+)$/m);
+              if (match) {
+                slug = match[1].trim().replace(/['"]/g, '');
+              }
+              if (!slug) {
+                slug = '/' + f
+                  .replace('site/docs/', '')
+                  .replace(/\/README\.md$/, '/')
+                  .replace(/\.md$/, '/');
+              }
+              if (!slug.startsWith('/')) slug = '/' + slug;
+              return `- [${slug}](${base}${slug})`;
+            });
+
+            const suffix = total > 5 ? `\n- ... and ${total - 5} more` : '';
+            return `\n\n📄 **Changed pages:**\n${links.join('\n')}${suffix}`;
+      - name: Comment on PR
+        if: github.event.action != 'closed'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: |
+            🚀 **Preview deployed** to https://docs.estuary.dev/pr-preview/pr-${{ github.event.number }}/
+            ${{ steps.pages.outputs.result }}
