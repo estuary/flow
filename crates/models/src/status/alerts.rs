@@ -23,48 +23,17 @@ use serde::{Deserialize, Serialize};
 )]
 #[serde(rename_all = "snake_case")]
 pub enum AlertType {
-    /// Triggers when the automated background discovery process fails. If this
-    /// alert is firing, it means that the Capture may be unable to respond to
-    /// schema changes in the source system.
     AutoDiscoverFailed,
-    /// Triggers when there has been no data successfully processed by the task during
-    /// the configured alert interval.
     DataMovementStalled,
-    /// Triggers automatically for every tenant that begins a free
-    /// trial, and resolves when the trial period ends.
     FreeTrial,
-    /// Triggers when the free trial is getting close to expiring.
     FreeTrialEnding,
-    /// Triggers after the free trial period has expired, and still no payment info
-    /// has been added.
     FreeTrialStalled,
-    /// Triggers for any tenants that do not have a payment method, and resolves when
-    /// a payment method is added.
     MissingPaymentMethod,
-    /// Triggers after repeated task failures have been observed. The task may or may not
-    /// continue to make progress in between failures, but at a minimum, performance will
-    /// be degraded. And in many scenarios, the task will be unable to process data at all.
     ShardFailed,
-    /// Warning that a task has been unable to run for an extended period. It will
-    /// be automatically disabled unless the issue is addressed or a new version
-    /// of the spec is published.
     TaskChronicallyFailing,
-    /// The task was automatically disabled because its shards have been
-    /// failing continuously for an extended period without any user intervention.
     TaskAutoDisabledFailing,
-    /// Warning that a task has not processed any data for an extended period
-    /// and has not been modified recently. It will be automatically disabled
-    /// unless a new version of the spec is published.
     TaskIdle,
-    /// The task was automatically disabled because it had not processed any
-    /// data for an extended period and had not been modified recently.
     TaskAutoDisabledIdle,
-    /// Triggers when an automated background process needs to publish a spec,
-    /// but is unable to because of publication errors. Background publications
-    /// are peformed on all specs for a variety of reasons. For example,
-    /// updating inferred schemas, or updating materialization bindings to match
-    /// the source capture. When these publications fail, tasks are likely to
-    /// stop functioning correctly until the issue can be addressed.
     BackgroundPublicationFailed,
 }
 
@@ -128,6 +97,66 @@ impl AlertType {
         }
     }
 
+    /// A short, user-facing alert type name.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            AlertType::AutoDiscoverFailed => "Auto-Discovery Failed",
+            AlertType::DataMovementStalled => "Data Movement Stalled",
+            AlertType::FreeTrial => "Free Trial",
+            AlertType::FreeTrialEnding => "Free Trial Ending",
+            AlertType::FreeTrialStalled => "Free Trial Stalled",
+            AlertType::MissingPaymentMethod => "Missing Payment Method",
+            AlertType::ShardFailed => "Task Failed",
+            AlertType::TaskChronicallyFailing => "Task Chronically Failing",
+            AlertType::TaskAutoDisabledFailing => "Task Auto-Disabled (Failing)",
+            AlertType::TaskIdle => "Task Idle",
+            AlertType::TaskAutoDisabledIdle => "Task Auto-Disabled (Idle)",
+            AlertType::BackgroundPublicationFailed => "Background Publication Failed",
+        }
+    }
+
+    /// A user-facing description of what this alert type means.
+    pub fn description(&self) -> &'static str {
+        match self {
+            AlertType::AutoDiscoverFailed => {
+                "Triggers when a capture's automated schema discovery fails. The capture may be unable to respond to schema changes in the source system."
+            }
+            AlertType::DataMovementStalled => {
+                "Triggers when a task has not processed any data during its configured alert interval."
+            }
+            AlertType::FreeTrial => {
+                "Triggers when a free trial begins, and resolves when the trial period ends."
+            }
+            AlertType::FreeTrialEnding => {
+                "Triggers when a free trial is getting close to expiring."
+            }
+            AlertType::FreeTrialStalled => {
+                "Triggers when a free trial has expired and no payment method has been added."
+            }
+            AlertType::MissingPaymentMethod => {
+                "Triggers when no payment method is on file, and resolves when one is added."
+            }
+            AlertType::ShardFailed => {
+                "Triggers when a task has experienced repeated failures. It may still make progress, but performance is degraded."
+            }
+            AlertType::TaskChronicallyFailing => {
+                "Triggers when a task has been unable to run for an extended period. It will be automatically disabled unless the issue is addressed."
+            }
+            AlertType::TaskAutoDisabledFailing => {
+                "Triggers when a task is automatically disabled after failing continuously for an extended period."
+            }
+            AlertType::TaskIdle => {
+                "Triggers when a task has not processed any data for an extended period and has not been modified recently. It will be automatically disabled unless a new version is published."
+            }
+            AlertType::TaskAutoDisabledIdle => {
+                "Triggers when a task is automatically disabled after being idle for an extended period without any spec changes."
+            }
+            AlertType::BackgroundPublicationFailed => {
+                "Triggers when an automated background publication fails. Affected tasks are unlikely to function until the issue is addressed."
+            }
+        }
+    }
+
     pub fn from_str(name: &str) -> Option<AlertType> {
         for alert_type in AlertType::all() {
             if name.eq_ignore_ascii_case(alert_type.name()) {
@@ -135,6 +164,42 @@ impl AlertType {
             }
         }
         None
+    }
+
+    /// An indication of whether the alert type is subscribed to by default.
+    pub fn is_default(&self) -> bool {
+        match self {
+            AlertType::AutoDiscoverFailed => false,
+            AlertType::BackgroundPublicationFailed => false,
+            AlertType::DataMovementStalled => true,
+            AlertType::FreeTrial => true,
+            AlertType::FreeTrialEnding => true,
+            AlertType::FreeTrialStalled => true,
+            AlertType::MissingPaymentMethod => true,
+            AlertType::ShardFailed => false,
+            AlertType::TaskAutoDisabledFailing => false,
+            AlertType::TaskAutoDisabledIdle => false,
+            AlertType::TaskChronicallyFailing => false,
+            AlertType::TaskIdle => false,
+        }
+    }
+
+    /// An indication of whether the alert type is considered to be a system alert.
+    pub fn is_system(&self) -> bool {
+        match self {
+            AlertType::AutoDiscoverFailed => false,
+            AlertType::BackgroundPublicationFailed => false,
+            AlertType::DataMovementStalled => false,
+            AlertType::FreeTrial => true,
+            AlertType::FreeTrialEnding => true,
+            AlertType::FreeTrialStalled => true,
+            AlertType::MissingPaymentMethod => true,
+            AlertType::ShardFailed => false,
+            AlertType::TaskAutoDisabledFailing => false,
+            AlertType::TaskAutoDisabledIdle => false,
+            AlertType::TaskChronicallyFailing => false,
+            AlertType::TaskIdle => false,
+        }
     }
 }
 
