@@ -34,22 +34,38 @@ pub fn update_materialization_resource_spec(
 
     let (x_collection_name, maybe_x_schema_name) = if let Some(strategy) = target_naming {
         match strategy {
-            TargetNamingStrategy::MatchSourceStructure => {
-                (split[0].to_string(), Some(split[1].to_string()))
-            }
-            TargetNamingStrategy::SingleSchema { schema } => {
-                (split[0].to_string(), Some(schema.clone()))
-            }
+            TargetNamingStrategy::MatchSourceStructure {
+                table_template,
+                schema_template,
+            } => (
+                apply_template(table_template.as_deref(), "{{table}}", split[0]),
+                Some(apply_template(
+                    schema_template.as_deref(),
+                    "{{schema}}",
+                    split[1],
+                )),
+            ),
+            TargetNamingStrategy::SingleSchema {
+                schema,
+                table_template,
+            } => (
+                apply_template(table_template.as_deref(), "{{table}}", split[0]),
+                Some(schema.clone()),
+            ),
             TargetNamingStrategy::PrefixTableNames {
                 schema,
                 skip_common_defaults,
+                table_template,
             } => {
-                let name = if *skip_common_defaults && is_default_schema_name(split[1]) {
+                let base = if *skip_common_defaults && is_default_schema_name(split[1]) {
                     split[0].to_string()
                 } else {
                     format!("{}_{}", split[1], split[0])
                 };
-                (name, Some(schema.clone()))
+                (
+                    apply_template(table_template.as_deref(), "{{table}}", &base),
+                    Some(schema.clone()),
+                )
             }
         }
     } else if let Some(source) = source_capture {
@@ -167,6 +183,13 @@ pub fn pointer_for_schema(schema: &str) -> anyhow::Result<ResourceSpecPointers> 
         Err(anyhow::anyhow!(
             "resource spec schema does not contain any location annotated with x-collection-name"
         ))
+    }
+}
+
+fn apply_template(template: Option<&str>, placeholder: &str, value: &str) -> String {
+    match template {
+        Some(t) => t.replacen(placeholder, value, 1),
+        None => value.to_string(),
     }
 }
 
@@ -353,7 +376,10 @@ mod test {
 
     #[test]
     fn test_target_naming_strategy_match_source_structure() {
-        let strategy = models::TargetNamingStrategy::MatchSourceStructure;
+        let strategy = models::TargetNamingStrategy::MatchSourceStructure {
+            table_template: None,
+            schema_template: None,
+        };
 
         let result = test_update_strategy(
             json!({}),
@@ -373,6 +399,7 @@ mod test {
     fn test_target_naming_strategy_single_schema() {
         let strategy = models::TargetNamingStrategy::SingleSchema {
             schema: "prod".to_string(),
+            table_template: None,
         };
 
         let result = test_update_strategy(
@@ -394,6 +421,7 @@ mod test {
         let strategy = models::TargetNamingStrategy::PrefixTableNames {
             schema: "prod".to_string(),
             skip_common_defaults: false,
+            table_template: None,
         };
 
         let result = test_update_strategy(
@@ -413,6 +441,7 @@ mod test {
         let strategy_skip = models::TargetNamingStrategy::PrefixTableNames {
             schema: "prod".to_string(),
             skip_common_defaults: true,
+            table_template: None,
         };
 
         let result = test_update_strategy(
@@ -449,6 +478,7 @@ mod test {
         // delta_updates defaults to false when source_capture is absent.
         let strategy = models::TargetNamingStrategy::SingleSchema {
             schema: "prod".to_string(),
+            table_template: None,
         };
         let mut existing = json!({});
         update_materialization_resource_spec(
@@ -469,6 +499,7 @@ mod test {
     fn test_target_naming_strategy_with_delta_updates() {
         let strategy = models::TargetNamingStrategy::SingleSchema {
             schema: "prod".to_string(),
+            table_template: None,
         };
 
         // delta_updates from source_capture is honored
@@ -490,13 +521,18 @@ mod test {
     fn test_target_naming_strategy_requires_x_schema_name() {
         // All strategy variants error when x-schema-name is absent.
         for strategy in &[
-            models::TargetNamingStrategy::MatchSourceStructure,
+            models::TargetNamingStrategy::MatchSourceStructure {
+                table_template: None,
+                schema_template: None,
+            },
             models::TargetNamingStrategy::SingleSchema {
                 schema: "prod".to_string(),
+                table_template: None,
             },
             models::TargetNamingStrategy::PrefixTableNames {
                 schema: "prod".to_string(),
                 skip_common_defaults: false,
+                table_template: None,
             },
         ] {
             let mut existing = json!({});
@@ -530,5 +566,115 @@ mod test {
             "no naming strategy available: both targetNaming and sourceCapture are absent",
             err.to_string()
         );
+    }
+
+    #[test]
+    fn test_match_source_structure_with_templates() {
+        let strategy = models::TargetNamingStrategy::MatchSourceStructure {
+            table_template: Some("staging_{{table}}".to_string()),
+            schema_template: Some("analytics_{{schema}}".to_string()),
+        };
+
+        let result = test_update_strategy(
+            json!({}),
+            "test/mySchema/myTable",
+            &strategy,
+            false,
+            &pointers_full(),
+        )
+        .expect("failed to update");
+        assert_eq!(
+            json!({"collectionName": "staging_myTable", "schemaName": "analytics_mySchema"}),
+            result,
+        );
+    }
+
+    #[test]
+    fn test_single_schema_with_table_template() {
+        let strategy = models::TargetNamingStrategy::SingleSchema {
+            schema: "prod".to_string(),
+            table_template: Some("v2_{{table}}".to_string()),
+        };
+
+        let result = test_update_strategy(
+            json!({}),
+            "test/mySchema/myTable",
+            &strategy,
+            false,
+            &pointers_full(),
+        )
+        .expect("failed to update");
+        assert_eq!(
+            json!({"collectionName": "v2_myTable", "schemaName": "prod"}),
+            result,
+        );
+    }
+
+    #[test]
+    fn test_prefix_table_names_with_table_template() {
+        let strategy = models::TargetNamingStrategy::PrefixTableNames {
+            schema: "prod".to_string(),
+            skip_common_defaults: false,
+            table_template: Some("v_{{table}}".to_string()),
+        };
+
+        let result = test_update_strategy(
+            json!({}),
+            "test/mySchema/myTable",
+            &strategy,
+            false,
+            &pointers_full(),
+        )
+        .expect("failed to update");
+        assert_eq!(
+            json!({"collectionName": "v_mySchema_myTable", "schemaName": "prod"}),
+            result,
+        );
+
+        // With skip_common_defaults + template
+        let strategy_skip = models::TargetNamingStrategy::PrefixTableNames {
+            schema: "prod".to_string(),
+            skip_common_defaults: true,
+            table_template: Some("v_{{table}}".to_string()),
+        };
+
+        let result = test_update_strategy(
+            json!({}),
+            "test/public/myTable",
+            &strategy_skip,
+            false,
+            &pointers_full(),
+        )
+        .expect("failed to update");
+        assert_eq!(
+            json!({"collectionName": "v_myTable", "schemaName": "prod"}),
+            result,
+        );
+    }
+
+    #[test]
+    fn test_template_serde_round_trip() {
+        // None templates are omitted from serialization.
+        let strategy = models::TargetNamingStrategy::MatchSourceStructure {
+            table_template: None,
+            schema_template: None,
+        };
+        let json = serde_json::to_value(&strategy).unwrap();
+        assert_eq!(json, json!({"strategy": "matchSourceStructure"}));
+        let round_tripped: models::TargetNamingStrategy = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped, strategy);
+
+        // Present templates are preserved.
+        let strategy = models::TargetNamingStrategy::MatchSourceStructure {
+            table_template: Some("staging_{{table}}".to_string()),
+            schema_template: Some("analytics_{{schema}}".to_string()),
+        };
+        let json = serde_json::to_value(&strategy).unwrap();
+        assert_eq!(
+            json,
+            json!({"strategy": "matchSourceStructure", "tableTemplate": "staging_{{table}}", "schemaTemplate": "analytics_{{schema}}"})
+        );
+        let round_tripped: models::TargetNamingStrategy = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped, strategy);
     }
 }
