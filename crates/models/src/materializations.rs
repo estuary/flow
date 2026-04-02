@@ -14,27 +14,70 @@ use std::collections::BTreeMap;
 /// Controls how collection names are mapped to destination table and schema
 /// names when bindings are added. Only applies to connectors whose
 /// destination system supports schemas.
+///
+/// Given a collection like `acmeCo/marketing/mySchema/myTable`, all
+/// strategies use the last two path segments: `mySchema` and `myTable`.
+///
+/// Template fields use mustache-style substitution to wrap computed names
+/// (e.g. `"staging_{{table}}"` produces `"staging_myTable"`).
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(tag = "strategy", rename_all = "camelCase")]
 pub enum TargetNamingStrategy {
-    /// Mirror the source collection's schema structure in the destination.
-    /// The schema component of the collection name becomes the destination schema,
-    /// and the final component becomes the table name.
-    MatchSourceStructure,
-    /// Place all tables in a single named schema, using only the collection's
-    /// final name component as the table name.
+    /// Use the collection's path segments directly as the destination
+    /// schema and table names.
+    ///
+    /// `acmeCo/mySchema/myTable` -> schema `mySchema`, table `myTable`.
+    #[serde(rename_all = "camelCase")]
+    MatchSourceStructure {
+        /// Template for the table name. `{{table}}` is replaced with
+        /// the last path segment (e.g. `myTable`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "String")]
+        table_template: Option<String>,
+        /// Template for the schema name. `{{schema}}` is replaced with
+        /// the second-to-last path segment (e.g. `mySchema`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "String")]
+        schema_template: Option<String>,
+    },
+    /// Place all tables in a single, explicitly named schema, using only
+    /// the last path segment as the table name.
+    ///
+    /// With `schema: "prod"`: `acmeCo/mySchema/myTable` -> schema `prod`,
+    /// table `myTable`.
+    #[serde(rename_all = "camelCase")]
     SingleSchema {
         /// The destination schema name.
         schema: String,
+        /// Template for the table name. `{{table}}` is replaced with
+        /// the last path segment (e.g. `myTable`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "String")]
+        table_template: Option<String>,
     },
-    /// Prefix table names with the schema component and place them in a named schema.
+    /// Like `singleSchema`, but prefixes each table name with the
+    /// second-to-last path segment and `_` to avoid collisions when
+    /// multiple source schemas contain identically named tables.
+    ///
+    /// With `schema: "prod"`: `acmeCo/mySchema/myTable` -> schema `prod`,
+    /// table `mySchema_myTable`.
+    ///
+    /// With `skipCommonDefaults: true`, the prefix is omitted for common
+    /// defaults (`public`, `dbo`): `acmeCo/public/myTable` -> table
+    /// `myTable` instead of `public_myTable`.
     #[serde(rename_all = "camelCase")]
     PrefixTableNames {
         /// The destination schema name.
         schema: String,
-        /// When true, omit the prefix for common default schema names like "public" or "dbo".
+        /// When true, omit the prefix for common default schema names
+        /// like "public" or "dbo".
         #[serde(default)]
         skip_common_defaults: bool,
+        /// Template for the table name. `{{table}}` is replaced with
+        /// the already-prefixed name (e.g. `mySchema_myTable`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "String")]
+        table_template: Option<String>,
     },
 }
 

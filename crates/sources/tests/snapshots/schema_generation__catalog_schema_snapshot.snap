@@ -1448,15 +1448,23 @@ expression: "&schema"
       ]
     },
     "TargetNamingStrategy": {
-      "description": "Naming strategy for materialization binding resource names.\n\nControls how collection names are mapped to destination table and schema\nnames when bindings are added. Only applies to connectors whose\ndestination system supports schemas.",
+      "description": "Naming strategy for materialization binding resource names.\n\nControls how collection names are mapped to destination table and schema\nnames when bindings are added. Only applies to connectors whose\ndestination system supports schemas.\n\nGiven a collection like `acmeCo/marketing/mySchema/myTable`, all\nstrategies use the last two path segments: `mySchema` and `myTable`.\n\nTemplate fields use mustache-style substitution to wrap computed names\n(e.g. `\"staging_{{table}}\"` produces `\"staging_myTable\"`).",
       "oneOf": [
         {
-          "description": "Mirror the source collection's schema structure in the destination.\nThe schema component of the collection name becomes the destination schema,\nand the final component becomes the table name.",
+          "description": "Use the collection's path segments directly as the destination\nschema and table names.\n\n`acmeCo/mySchema/myTable` -> schema `mySchema`, table `myTable`.",
           "type": "object",
           "properties": {
+            "schemaTemplate": {
+              "description": "Template for the schema name. `{{schema}}` is replaced with\nthe second-to-last path segment (e.g. `mySchema`).",
+              "type": "string"
+            },
             "strategy": {
               "type": "string",
               "const": "matchSourceStructure"
+            },
+            "tableTemplate": {
+              "description": "Template for the table name. `{{table}}` is replaced with\nthe last path segment (e.g. `myTable`).",
+              "type": "string"
             }
           },
           "required": [
@@ -1464,7 +1472,7 @@ expression: "&schema"
           ]
         },
         {
-          "description": "Place all tables in a single named schema, using only the collection's\nfinal name component as the table name.",
+          "description": "Place all tables in a single, explicitly named schema, using only\nthe last path segment as the table name.\n\nWith `schema: \"prod\"`: `acmeCo/mySchema/myTable` -> schema `prod`,\ntable `myTable`.",
           "type": "object",
           "properties": {
             "schema": {
@@ -1474,6 +1482,10 @@ expression: "&schema"
             "strategy": {
               "type": "string",
               "const": "singleSchema"
+            },
+            "tableTemplate": {
+              "description": "Template for the table name. `{{table}}` is replaced with\nthe last path segment (e.g. `myTable`).",
+              "type": "string"
             }
           },
           "required": [
@@ -1482,7 +1494,7 @@ expression: "&schema"
           ]
         },
         {
-          "description": "Prefix table names with the schema component and place them in a named schema.",
+          "description": "Like `singleSchema`, but prefixes each table name with the\nsecond-to-last path segment and `_` to avoid collisions when\nmultiple source schemas contain identically named tables.\n\nWith `schema: \"prod\"`: `acmeCo/mySchema/myTable` -> schema `prod`,\ntable `mySchema_myTable`.\n\nWith `skipCommonDefaults: true`, the prefix is omitted for common\ndefaults (`public`, `dbo`): `acmeCo/public/myTable` -> table\n`myTable` instead of `public_myTable`.",
           "type": "object",
           "properties": {
             "schema": {
@@ -1490,13 +1502,17 @@ expression: "&schema"
               "type": "string"
             },
             "skipCommonDefaults": {
-              "description": "When true, omit the prefix for common default schema names like \"public\" or \"dbo\".",
+              "description": "When true, omit the prefix for common default schema names\nlike \"public\" or \"dbo\".",
               "type": "boolean",
               "default": false
             },
             "strategy": {
               "type": "string",
               "const": "prefixTableNames"
+            },
+            "tableTemplate": {
+              "description": "Template for the table name. `{{table}}` is replaced with\nthe already-prefixed name (e.g. `mySchema_myTable`).",
+              "type": "string"
             }
           },
           "required": [
