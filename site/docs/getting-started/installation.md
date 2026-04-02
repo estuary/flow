@@ -82,8 +82,6 @@ During connection testing, the storage mapping dialog provides step-by-step inst
 the exact values needed to connect your selected data plane to your cloud storage bucket. Below is a summary of what
 Estuary requires from each provider.
 
-You can find service account information in the Data Planes table under [Admin Settings](https://dashboard.estuary.dev/admin/settings).
-
 :::tip
 When configuring your bucket, don't limit access based on a data plane's IPv4 addresses.
 
