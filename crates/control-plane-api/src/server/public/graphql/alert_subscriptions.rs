@@ -280,7 +280,6 @@ mod test {
           "data": {
             "createAlertSubscription": {
               "alertTypes": [
-                "shard_failed",
                 "data_movement_stalled",
                 "free_trial",
                 "free_trial_ending",
@@ -434,7 +433,6 @@ mod test {
           "data": {
             "deleteAlertSubscription": {
               "alertTypes": [
-                "shard_failed",
                 "data_movement_stalled",
                 "free_trial",
                 "free_trial_ending",

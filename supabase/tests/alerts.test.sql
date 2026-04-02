@@ -5,7 +5,10 @@ begin
   delete from alert_data_processing;
   delete from alert_history;
 
-  insert into alert_subscriptions (catalog_prefix, email) values ('aliceCo/', 'alice@example.com'), ('aliceCo/', 'bob@example.com'), ('aliceCo/', null);
+  insert into alert_subscriptions (catalog_prefix, email, include_alert_types) values
+    ('aliceCo/', 'alice@example.com', '{data_movement_stalled}'),
+    ('aliceCo/', 'bob@example.com', '{data_movement_stalled}'),
+    ('aliceCo/', null, '{data_movement_stalled}');
 
   insert into alert_data_processing (catalog_name, evaluation_interval) values
     ('aliceCo/capture/three-hours', '2 hours'),
