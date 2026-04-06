@@ -8,6 +8,101 @@
 use super::ScimContext;
 use axum::Json;
 
+/// POST /Users — provision a new user via GoTrue admin API.
+pub async fn create_user(
+    ctx: ScimContext,
+    Json(body): Json<CreateUserBody>,
+) -> Result<(axum::http::StatusCode, Json<serde_json::Value>), ScimError> {
+    let email = &body.user_name;
+
+    // Call GoTrue admin API to create the user account.
+    let gotrue_response = ctx
+        .app
+        .http_client
+        .post(format!("{}/admin/users", ctx.app.gotrue_url))
+        .header("apikey", &ctx.app.gotrue_service_role_key)
+        .bearer_auth(&ctx.app.gotrue_service_role_key)
+        .json(&serde_json::json!({
+            "email": email,
+            "email_confirm": true,
+        }))
+        .send()
+        .await
+        .map_err(|e| ScimError::Internal(format!("GoTrue request failed: {e}")))?;
+
+    if !gotrue_response.status().is_success() {
+        let status = gotrue_response.status();
+        let body = gotrue_response
+            .text()
+            .await
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        // If the user already exists, look them up and return 409 Conflict per SCIM spec.
+        if status == reqwest::StatusCode::UNPROCESSABLE_ENTITY
+            && body.contains("already been registered")
+        {
+            let existing = sqlx::query!(
+                r#"
+                SELECT
+                    u.id AS "id!: uuid::Uuid",
+                    u.email AS "email!: String",
+                    u.raw_user_meta_data->>'full_name' AS "display_name: String"
+                FROM auth.users u
+                WHERE u.email = $1
+                "#,
+                email.as_str(),
+            )
+            .fetch_optional(&ctx.pg_pool)
+            .await
+            .map_err(ScimError::internal)?
+            .ok_or_else(|| {
+                ScimError::Internal("user exists in GoTrue but not found by email".to_string())
+            })?;
+
+            return Ok((
+                axum::http::StatusCode::CONFLICT,
+                Json(user_resource(
+                    &existing.id,
+                    &existing.email,
+                    existing.display_name.as_deref(),
+                    true,
+                )),
+            ));
+        }
+
+        return Err(ScimError::Internal(format!(
+            "GoTrue returned {status}: {body}"
+        )));
+    }
+
+    let gotrue_user: serde_json::Value = gotrue_response
+        .json()
+        .await
+        .map_err(|e| ScimError::Internal(format!("GoTrue response parse failed: {e}")))?;
+
+    let user_id = gotrue_user["id"]
+        .as_str()
+        .and_then(|s| s.parse::<uuid::Uuid>().ok())
+        .ok_or_else(|| ScimError::Internal("GoTrue response missing user id".to_string()))?;
+
+    tracing::info!(
+        %user_id,
+        %email,
+        tenant = %ctx.tenant,
+        "SCIM provisioned new user via GoTrue"
+    );
+
+    Ok((
+        axum::http::StatusCode::CREATED,
+        Json(user_resource(
+            &user_id,
+            email,
+            body.display_name.as_deref(),
+            true,
+        )),
+    ))
+}
+
 /// GET /Users — list users, optionally filtered by `userName eq "..."`.
 pub async fn list_users(
     ctx: ScimContext,
@@ -176,6 +271,16 @@ pub async fn patch_user(
 // --- Types ---
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateUserBody {
+    pub user_name: String,
+    pub display_name: Option<String>,
+    #[allow(dead_code)]
+    #[serde(default)]
+    pub schemas: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
 pub struct ListUsersParams {
     #[serde(default)]
     filter: String,
@@ -262,7 +367,7 @@ pub enum ScimError {
 }
 
 impl ScimError {
-    fn internal(e: impl std::fmt::Display) -> Self {
+    pub(crate) fn internal(e: impl std::fmt::Display) -> Self {
         ScimError::Internal(e.to_string())
     }
 }

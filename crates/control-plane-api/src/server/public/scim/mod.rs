@@ -1,19 +1,40 @@
-//! SCIM 2.0 API for partial deprovisioning.
+//! SCIM 2.0 API for user provisioning/deprovisioning and group-based access.
 //!
 //! Authenticates via hashed bearer tokens in `internal.scim_tokens`, scoped to
-//! a tenant. Only supports deprovisioning (PATCH active=false) — no user
-//! creation or group management.
+//! a tenant. Supports user provisioning (via GoTrue admin API), deprovisioning,
+//! and group management (groups map to catalog prefix + capability grants).
 
 mod discovery;
-mod users;
+pub(crate) mod groups;
+pub(crate) mod users;
 
 use std::sync::Arc;
+
+/// Middleware that logs the method, URI, and request body for SCIM requests.
+async fn log_scim_request(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+
+    let (parts, body) = request.into_parts();
+    let bytes = axum::body::to_bytes(body, 64 * 1024)
+        .await
+        .unwrap_or_default();
+
+    let body_str = String::from_utf8_lossy(&bytes);
+    tracing::info!(%method, %uri, body = %body_str, "SCIM request");
+
+    let request = axum::extract::Request::from_parts(parts, axum::body::Body::from(bytes));
+    next.run(request).await
+}
 
 /// Build the SCIM v2 router, nested under `/api/v1/scim/v2/`.
 ///
 /// Discovery endpoints (ServiceProviderConfig, Schemas, ResourceTypes) are
 /// unauthenticated per the SCIM spec — IdPs hit these during setup before
-/// a token is configured. User endpoints require a valid SCIM bearer token.
+/// a token is configured. User and Group endpoints require a valid SCIM bearer token.
 pub fn scim_router() -> axum::Router<Arc<crate::App>> {
     axum::Router::new()
         // Discovery endpoints — no authentication required.
@@ -32,12 +53,25 @@ pub fn scim_router() -> axum::Router<Arc<crate::App>> {
         // User endpoints — require SCIM bearer token (ScimContext extractor).
         .route(
             "/api/v1/scim/v2/Users",
-            axum::routing::get(users::list_users),
+            axum::routing::get(users::list_users).post(users::create_user),
         )
         .route(
             "/api/v1/scim/v2/Users/{id}",
             axum::routing::get(users::get_user).patch(users::patch_user),
         )
+        // Group endpoints — require SCIM bearer token (ScimContext extractor).
+        .route(
+            "/api/v1/scim/v2/Groups",
+            axum::routing::get(groups::list_groups).post(groups::create_group),
+        )
+        .route(
+            "/api/v1/scim/v2/Groups/{id}",
+            axum::routing::get(groups::get_group)
+                .patch(groups::patch_group)
+                .put(groups::replace_group)
+                .delete(groups::delete_group),
+        )
+        .layer(axum::middleware::from_fn(log_scim_request))
 }
 
 /// Context extracted from a SCIM bearer token. Authenticates the request and
@@ -49,6 +83,8 @@ pub struct ScimContext {
     pub sso_provider_id: uuid::Uuid,
     /// Database connection pool.
     pub pg_pool: sqlx::PgPool,
+    /// The full application state (for GoTrue API calls, etc.).
+    pub app: Arc<crate::App>,
 }
 
 /// Rejection type for SCIM auth failures.
@@ -137,6 +173,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for ScimContext {
                 tenant: row.tenant,
                 sso_provider_id,
                 pg_pool: state.pg_pool.clone(),
+                app: Arc::clone(state),
             })
         }
     }

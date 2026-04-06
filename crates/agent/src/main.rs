@@ -268,6 +268,10 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         .context("querying for agent user id")?;
     let jwt_secret: String =
         std::env::var("CONTROL_PLANE_JWT_SECRET").context("missing CONTROL_PLANE_JWT_SECRET")?;
+    let gotrue_url: String =
+        std::env::var("GOTRUE_URL").unwrap_or_else(|_| "http://127.0.0.1:5431/auth/v1".to_string());
+    let gotrue_service_role_key: String =
+        std::env::var("GOTRUE_SERVICE_ROLE_KEY").unwrap_or_default();
 
     if args.builds_root.scheme() == "file" {
         std::fs::create_dir_all(args.builds_root.path())
@@ -323,6 +327,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         pg_pool.clone(),
         publisher.clone(),
         snapshot_watch,
+        gotrue_url,
+        gotrue_service_role_key,
     ));
     let api_router = control_plane_api::build_router(api_app.clone(), &args.allow_origin)?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
