@@ -85,6 +85,7 @@ pub async fn create_group(
         let mut txn = ctx.pg_pool.begin().await.map_err(ScimError::internal)?;
         for member in &body.members {
             let user_id = parse_member_id(&member.value)?;
+            validate_member_exists(user_id, &ctx).await?;
             crate::directives::grant::upsert_user_grant(
                 user_id,
                 &prefix,
@@ -186,6 +187,7 @@ pub async fn patch_group(
                 let members = extract_members_from_value(&op.value)?;
                 for member in members {
                     let user_id = parse_member_id(&member.value)?;
+                    validate_member_exists(user_id, &ctx).await?;
                     crate::directives::grant::upsert_user_grant(
                         user_id,
                         &prefix,
@@ -236,6 +238,7 @@ pub async fn patch_group(
                 // Re-create grants for the new member list.
                 for member in members {
                     let user_id = parse_member_id(&member.value)?;
+                    validate_member_exists(user_id, &ctx).await?;
                     crate::directives::grant::upsert_user_grant(
                         user_id,
                         &prefix,
@@ -304,6 +307,7 @@ pub async fn replace_group(
     // Re-create from the PUT body.
     for member in &body.members {
         let user_id = parse_member_id(&member.value)?;
+        validate_member_exists(user_id, &ctx).await?;
         crate::directives::grant::upsert_user_grant(
             user_id,
             &prefix,
@@ -445,6 +449,35 @@ fn parse_member_id(value: &str) -> Result<uuid::Uuid, ScimError> {
     value.parse::<uuid::Uuid>().map_err(|_| {
         ScimError::BadRequest(format!("member value must be a UUID, got: {value}"))
     })
+}
+
+/// Validate that a member user exists and has an SSO identity for this tenant's provider.
+/// Returns the user_id if valid, or a SCIM error with a descriptive message.
+async fn validate_member_exists(
+    user_id: uuid::Uuid,
+    ctx: &ScimContext,
+) -> Result<uuid::Uuid, ScimError> {
+    let exists = sqlx::query!(
+        r#"
+        SELECT u.id AS "id!: uuid::Uuid"
+        FROM auth.users u
+        JOIN auth.identities i
+            ON i.user_id = u.id
+            AND i.provider = 'sso:' || $1::uuid::text
+        WHERE u.id = $2
+        "#,
+        ctx.sso_provider_id,
+        user_id,
+    )
+    .fetch_optional(&ctx.pg_pool)
+    .await
+    .map_err(ScimError::internal)?;
+
+    if exists.is_some() {
+        Ok(user_id)
+    } else {
+        Err(ScimError::NotFound)
+    }
 }
 
 /// Parse SCIM member filter path like `members[value eq "<uuid>"]`.

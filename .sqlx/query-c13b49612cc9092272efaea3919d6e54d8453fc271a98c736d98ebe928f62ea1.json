@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH remove_email_identity AS (\n            DELETE FROM auth.identities\n            WHERE user_id = $1 AND provider = 'email'\n        ),\n        mark_sso AS (\n            UPDATE auth.users SET is_sso_user = true WHERE id = $1\n        )\n        INSERT INTO auth.identities (id, user_id, provider, provider_id, identity_data, last_sign_in_at, created_at, updated_at)\n        VALUES (gen_random_uuid(), $1, $2, $3, '{}'::jsonb, now(), now(), now())\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c13b49612cc9092272efaea3919d6e54d8453fc271a98c736d98ebe928f62ea1"
+}

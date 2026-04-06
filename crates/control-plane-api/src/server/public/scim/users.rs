@@ -38,6 +38,10 @@ pub async fn create_user(
             .unwrap_or_else(|_| "unknown".to_string());
 
         // If the user already exists, look them up and return 409 Conflict per SCIM spec.
+        // We intentionally don't attach an SSO identity here — the existing user may
+        // be a social-auth account, and GoTrue doesn't support multiple provider
+        // identities on one user. The on_sso_identity_insert trigger will handle
+        // merging when the user eventually logs in via SSO.
         if status == reqwest::StatusCode::UNPROCESSABLE_ENTITY
             && body.contains("already been registered")
         {
@@ -85,11 +89,41 @@ pub async fn create_user(
         .and_then(|s| s.parse::<uuid::Uuid>().ok())
         .ok_or_else(|| ScimError::Internal("GoTrue response missing user id".to_string()))?;
 
+    // Convert the GoTrue-created email user into an SSO user:
+    //  1. Delete the auto-created `email` provider identity (GoTrue always creates one).
+    //  2. Insert an SSO identity so subsequent SCIM queries (which JOIN on
+    //     auth.identities) can see this user, and so GoTrue matches this identity
+    //     when the user logs in via SAML — reusing the account instead of creating
+    //     a duplicate.
+    //  3. Mark is_sso_user = true.
+    // The provider_id is the email, which must match the IdP's SAML NameID.
+    let sso_provider = format!("sso:{}", ctx.sso_provider_id);
+
+    sqlx::query!(
+        r#"
+        WITH remove_email_identity AS (
+            DELETE FROM auth.identities
+            WHERE user_id = $1 AND provider = 'email'
+        ),
+        mark_sso AS (
+            UPDATE auth.users SET is_sso_user = true WHERE id = $1
+        )
+        INSERT INTO auth.identities (id, user_id, provider, provider_id, identity_data, last_sign_in_at, created_at, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, '{}'::jsonb, now(), now(), now())
+        "#,
+        user_id,
+        sso_provider,
+        email.as_str(),
+    )
+    .execute(&ctx.pg_pool)
+    .await
+    .map_err(|e| ScimError::Internal(format!("failed to create SSO identity: {e}")))?;
+
     tracing::info!(
         %user_id,
         %email,
         tenant = %ctx.tenant,
-        "SCIM provisioned new user via GoTrue"
+        "SCIM provisioned new SSO user"
     );
 
     Ok((
