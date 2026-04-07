@@ -1,5 +1,45 @@
 use tokio::sync::mpsc;
 
+/// A `BuildHasher` for `Producer`-keyed maps that passes through the
+/// raw bytes as the hash value. Producer IDs are already uniformly
+/// distributed random values, so rehashing them with SipHash is wasted work.
+#[derive(Clone, Default)]
+pub struct ProducerHasher;
+
+impl std::hash::BuildHasher for ProducerHasher {
+    type Hasher = ProducerHasherState;
+
+    #[inline]
+    fn build_hasher(&self) -> Self::Hasher {
+        ProducerHasherState(0)
+    }
+}
+
+/// Hasher state for [`ProducerHasher`]. Packs written bytes into a `u64`.
+pub struct ProducerHasherState(u64);
+
+impl std::hash::Hasher for ProducerHasherState {
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.0 = i;
+    }
+
+    #[inline]
+    fn write(&mut self, _bytes: &[u8]) {
+        unreachable!("ProducerHasherState may only be used with Producer");
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+/// Map keyed by `Producer` using a passthrough hasher. Producer IDs are
+/// already uniformly distributed random values, so we skip rehashing.
+pub type ProducerMap<V> =
+    std::collections::HashMap<proto_gazette::uuid::Producer, V, ProducerHasher>;
+
 /// Re-export of `proto_flow::shuffle` so that dependents can refer to
 /// protocol message types as `shuffle::proto::*`, avoiding the naming
 /// conflict between this crate and the protobuf module.
