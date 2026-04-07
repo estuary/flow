@@ -277,9 +277,8 @@ func (svc *Service) Apply(ctx context.Context, claims pb.Claims, req *pb.ApplyRe
 // * In large deployments, responses would bump against gRPC maximum messages sizes.
 // * Unary responses can't represent a long-lived watch.
 //
-// List was updated to become a server-streaming API which addresses both issues,
-// while remaining compatible with older clients that expect a unary API,
-// so long as the entire response set can be sent as a single message.
-// This value is large to allow older deployments to continue to function,
-// without being SO large that we bump against gRPC message limits.
-var maxJournalsPerListResponse = 1000
+// List was updated to become a server-streaming API which addresses both issues.
+//
+// This value is sized to keep marshaled ListResponse messages within the 32KB
+// gRPC buffer pool tier for typically sized journal specs.
+var maxJournalsPerListResponse = 25
