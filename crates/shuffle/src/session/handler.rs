@@ -125,8 +125,12 @@ where
         bindings,
         resume_checkpoint,
     };
-    let checkpoint =
-        super::state::CheckpointPipeline::new(&topology.resume_checkpoint, shard_count);
+    let binding_cohorts: Vec<u32> = topology.bindings.iter().map(|b| b.cohort).collect();
+    let checkpoint = super::state::CheckpointPipeline::new(
+        &topology.resume_checkpoint,
+        shard_count,
+        binding_cohorts,
+    );
 
     super::actor::SessionActor {
         topology,

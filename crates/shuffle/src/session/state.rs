@@ -1,5 +1,6 @@
 use anyhow::Context;
 use proto_flow::shuffle;
+use proto_gazette::uuid;
 
 /// Immutable session configuration: topology, bindings, and the checkpoint
 /// from which reads resume. Provides journal routing and StartRead construction.
@@ -205,23 +206,43 @@ pub struct CheckpointPipeline {
     /// ensuring the recovery checkpoint in `ready` is not contaminated.
     /// Cleared by `take_ready()`.
     recovery_pending: bool,
+    /// Per-cohort map from Producer to the highest committed Clock observed
+    /// when promoting unresolved → ready. Used to pre-resolve stale causal
+    /// hints from re-enabled bindings whose journals are catching up.
+    completed_clocks: Vec<crate::ProducerMap<uuid::Clock>>,
+    /// Maps binding index → cohort index (from Binding::cohort).
+    binding_cohorts: Vec<u32>,
 }
 
 impl CheckpointPipeline {
     /// Create a new pipeline using the `recovery` Frontier,
     /// which may contain unresolved hints.
-    pub fn new(resume_checkpoint: &crate::Frontier, shard_count: usize) -> Self {
+    pub fn new(
+        resume_checkpoint: &crate::Frontier,
+        shard_count: usize,
+        binding_cohorts: Vec<u32>,
+    ) -> Self {
         // Project read-through state from resume_checkpoint: producers with
         // hinted_commit > last_commit represent transactions that were prepared
         // but not yet committed during the previous session.
         let unresolved = resume_checkpoint.project_unresolved_hints();
         let unresolved_count = unresolved.count_unresolved_hints();
 
+        let num_cohorts = binding_cohorts
+            .iter()
+            .copied()
+            .max()
+            .map_or(0, |m| m as usize + 1);
+
         tracing::debug!(
             unresolved_hints = unresolved_count,
             recovery_pending = unresolved_count > 0,
+            num_cohorts,
             "CheckpointPipeline initialized"
         );
+
+        let mut completed_clocks = vec![crate::ProducerMap::default(); num_cohorts];
+        update_completed_clocks(&mut completed_clocks, &binding_cohorts, resume_checkpoint);
 
         Self {
             partials: vec![Vec::new(); shard_count],
@@ -232,6 +253,8 @@ impl CheckpointPipeline {
             ready: Default::default(),
             requested: false,
             recovery_pending: unresolved_count > 0,
+            completed_clocks,
+            binding_cohorts,
         }
     }
 
@@ -335,6 +358,8 @@ impl CheckpointPipeline {
             );
             self.unresolved_armed = false;
             let resolved = std::mem::take(&mut self.unresolved);
+
+            update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
             self.ready = std::mem::take(&mut self.ready).reduce(resolved);
         } else if resolved_count != 0 {
             tracing::debug!(
@@ -413,6 +438,31 @@ impl CheckpointPipeline {
             return;
         }
 
+        // Remove causal hints of `progressed` that reference a commit the
+        // cohort frontier already completed. This disables stale hints from
+        // re-enabled bindings whose journals are catching up from behind the
+        // cohort's frontier.
+        self.progressed.journals.retain_mut(|jf| {
+            let cohort = self.binding_cohorts[jf.binding as usize];
+            let completed = &self.completed_clocks[cohort as usize];
+
+            jf.producers.retain_mut(|pf| {
+                if pf.hinted_commit <= pf.last_commit {
+                    true // Hint is already resolved.
+                } else if let Some(&completed) = completed.get(&pf.producer)
+                    && pf.hinted_commit <= completed
+                {
+                    // Hint is stale. Retain only if we also saw a commit.
+                    pf.hinted_commit = uuid::Clock::zero();
+                    pf.last_commit != uuid::Clock::zero()
+                } else {
+                    true // Hint is at the frontier
+                }
+            });
+
+            !jf.producers.is_empty()
+        });
+
         self.unresolved = std::mem::take(&mut self.progressed);
         self.unresolved_count = self.unresolved.count_unresolved_hints();
 
@@ -423,6 +473,8 @@ impl CheckpointPipeline {
             );
             self.unresolved_armed = false;
             let resolved = std::mem::take(&mut self.unresolved);
+
+            update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
             self.ready = std::mem::take(&mut self.ready).reduce(resolved);
         } else {
             tracing::debug!(
@@ -430,6 +482,29 @@ impl CheckpointPipeline {
                 unresolved_hints = self.unresolved_count,
                 "promoted progressed to unresolved (awaiting hint resolution)"
             );
+        }
+    }
+}
+
+/// Update per-cohort completed clocks from a frontier that is about to be
+/// promoted to `ready`. For each producer in each journal, record the highest
+/// committed clock the cohort has observed.
+fn update_completed_clocks(
+    completed_clocks: &mut [crate::ProducerMap<uuid::Clock>],
+    binding_cohorts: &[u32],
+    frontier: &crate::Frontier,
+) {
+    for jf in &frontier.journals {
+        let cohort = binding_cohorts[jf.binding as usize];
+        let completed = &mut completed_clocks[cohort as usize];
+
+        for pf in &jf.producers {
+            completed
+                .entry(pf.producer)
+                .and_modify(|c| {
+                    c.update(pf.last_commit);
+                })
+                .or_insert(pf.last_commit);
         }
     }
 }
@@ -578,8 +653,9 @@ mod test {
     }
 
     /// Build a CheckpointPipeline with no recovery state and one test shard.
+    /// Binding indices 0 and 1 both map to cohort 0.
     fn test_pipeline() -> CheckpointPipeline {
-        CheckpointPipeline::new(&Default::default(), 1)
+        CheckpointPipeline::new(&Default::default(), 1, vec![0, 0])
     }
 
     /// Feed a sequence of JournalFrontiers to the pipeline as a chunked
@@ -690,26 +766,12 @@ mod test {
                 expect_progressed_len: 0,
                 expect_unresolved_count: 0,
             },
-            Case {
-                name: "second_batch_while_unresolved_blocked",
-                // Chunk with unresolved hint → parked in unresolved.
-                // Then new progress while unresolved is occupied.
-                progressed: vec![jf("journal/A", 0, vec![pf(0x01, 5, 20, -100)])],
-                // unresolved still occupied (unresolved hint).
-                // New progress sits in `progressed`.
-                // Note: we feed the second batch separately below.
-                expect_ready_len: 2,
-                expect_unresolved_len: 1,
-                expect_progressed_len: 0,
-                expect_unresolved_count: 1,
-            },
         ];
 
         let mut pipeline = test_pipeline();
 
-        // Run cases sequentially, feeding each progressed batch.
         // Cases 0-3 are straightforward single-batch cases.
-        for case in &cases[..4] {
+        for case in &cases {
             ingest_progressed(&mut pipeline, case.progressed.clone(), vec![]);
 
             assert_eq!(
@@ -739,9 +801,10 @@ mod test {
 
         // Case 4: "second_batch_while_unresolved_blocked"
         // First batch creates unresolved hint in unresolved.
+        // (hint=30 must exceed the completed clock of 25 from cases 0-3.)
         ingest_progressed(
             &mut pipeline,
-            vec![jf("journal/A", 0, vec![pf(0x01, 5, 20, -100)])],
+            vec![jf("journal/A", 0, vec![pf(0x01, 5, 30, -100)])],
             vec![],
         );
         // Second batch arrives while unresolved is occupied.
@@ -771,10 +834,10 @@ mod test {
         );
 
         // "unresolved_unblocks_then_progressed_promotes"
-        // Resolving progress: resolves the hint.
+        // Resolving progress: resolves the hint (last_commit=35 >= hinted=30).
         ingest_progressed(
             &mut pipeline,
-            vec![jf("journal/A", 0, vec![pf(0x01, 25, 0, -800)])],
+            vec![jf("journal/A", 0, vec![pf(0x01, 35, 0, -800)])],
             vec![],
         );
         // Hint resolved → unresolved promoted to ready.
@@ -1042,6 +1105,7 @@ mod test {
                 flushed_lsn: vec![],
             },
             1,
+            vec![0],
         );
 
         // Progressed resolves the hint AND contains extra progress (journal/B).
@@ -1411,5 +1475,115 @@ mod test {
         // Inverted r-clock range (r_clock_begin > r_clock_end).
         let err = validate_shard_ranges(&[shard(0, u32::MAX, u32::MAX, 0)]).unwrap_err();
         assert!(format!("{err}").contains("inverted r-clock range"), "{err}");
+    }
+
+    #[test]
+    fn test_stale_hint_filtering() {
+        let mut pipeline = test_pipeline();
+
+        // Establish completed clocks: P1=75, P2=80 in cohort 0.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf(
+                "journal/A",
+                0,
+                vec![pf(0x01, 75, 0, -500), pf(0x02, 80, 0, -100)],
+            )],
+            vec![],
+        );
+
+        // A lagging binding (index 1, same cohort 0) sees stale hints:
+        // P1 hinted at clock 60, P2 hinted at clock 60 — both below cohort's
+        // completed clocks. P1 is hint-only (last_commit=0), P2 has a real
+        // commit (last_commit=40).
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf(
+                "journal/C",
+                1,
+                vec![pf(0x01, 0, 60, -50), pf(0x02, 40, 60, -50)],
+            )],
+            vec![],
+        );
+        // P1's hint-only entry is removed entirely.
+        // P2's hint is cleared but it's retained because last_commit != 0.
+        insta::assert_debug_snapshot!("stale_hint_filtered", pipeline_snapshot(&pipeline));
+        pipeline.on_tick().unwrap();
+
+        // A hint above the completed clock is NOT filtered.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/C", 1, vec![pf(0x01, 0, 100, -50)])],
+            vec![],
+        );
+        insta::assert_debug_snapshot!("frontier_hint_not_filtered", pipeline_snapshot(&pipeline));
+    }
+
+    #[test]
+    fn test_stale_hint_cross_cohort_isolation() {
+        // Binding 0 in cohort 0, binding 1 in cohort 1.
+        let mut pipeline = CheckpointPipeline::new(&Default::default(), 1, vec![0, 1]);
+
+        // Cohort 0 commits producer 0x01 at clock 500.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 500, 0, -100)])],
+            vec![],
+        );
+        pipeline.request().unwrap();
+        pipeline.take_ready();
+
+        // Cohort 1 sees a hint for producer 0x01 at clock 300.
+        // Even though cohort 0 completed past 300, cohort 1 has NOT,
+        // so the hint must remain unresolved.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/B", 1, vec![pf(0x01, 100, 300, -50)])],
+            vec![],
+        );
+        insta::assert_debug_snapshot!("cross_cohort_hint_preserved", pipeline_snapshot(&pipeline));
+    }
+
+    #[test]
+    fn test_recovery_hints_not_filtered_by_completed_clocks() {
+        // Resume checkpoint: P1 committed at 500 on journal/A (binding 0, cohort 0),
+        // and has an unresolved hint at 300 on journal/B (binding 1, cohort 0).
+        // The constructor seeds completed_clocks[cohort 0][P1] = 500 from the
+        // resume checkpoint, which exceeds the hint at 300. The hint must NOT be
+        // filtered — recovery hints bypass try_promote() and must be resolved by
+        // real incoming progress.
+        let resume = crate::Frontier {
+            journals: vec![
+                jf("journal/A", 0, vec![pf(0x01, 500, 0, -100)]),
+                jf("journal/B", 1, vec![pf(0x01, 100, 300, -50)]),
+            ],
+            flushed_lsn: vec![],
+        };
+        let mut pipeline = CheckpointPipeline::new(&resume, 1, vec![0, 0]);
+
+        // The recovery hint must be in unresolved, not silently filtered.
+        assert_eq!(pipeline.unresolved_count, 1);
+        assert!(pipeline.recovery_pending);
+        insta::assert_debug_snapshot!(
+            "recovery_hint_survives_completed_clocks",
+            pipeline_snapshot(&pipeline)
+        );
+
+        // Progress that does NOT resolve the hint (P1 commits at 250 < hinted 300).
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/B", 1, vec![pf(0x01, 250, 0, -200)])],
+            vec![],
+        );
+        assert_eq!(pipeline.unresolved_count, 1, "hint not yet resolved");
+
+        // Progress that resolves the hint (P1 commits at 300 >= hinted 300).
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/B", 1, vec![pf(0x01, 300, 0, -400)])],
+            vec![],
+        );
+        assert_eq!(pipeline.unresolved_count, 0, "hint resolved");
+        assert!(!pipeline.ready.journals.is_empty(), "promoted to ready");
     }
 }

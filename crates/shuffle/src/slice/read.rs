@@ -1,4 +1,5 @@
-use super::producer::{ProducerMap, ProducerState};
+use super::producer::ProducerState;
+use crate::ProducerMap;
 use proto_gazette::{broker, uuid};
 
 /// State about an active read, indexed by its `read.id()`.

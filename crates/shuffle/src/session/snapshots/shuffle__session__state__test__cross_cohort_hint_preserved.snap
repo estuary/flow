@@ -1,0 +1,35 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: pipeline_snapshot(&pipeline)
+---
+PipelineSnapshot {
+    recovery_pending: false,
+    ready: Frontier {
+        journals: [],
+        flushed_lsn: [],
+    },
+    unresolved: Frontier {
+        journals: [
+            JournalFrontier {
+                journal: "journal/B",
+                binding: 1,
+                producers: [
+                    ProducerFrontier {
+                        producer: Producer(01:00:00:00:00:00),
+                        last_commit: Clock(100s 0ns),
+                        hinted_commit: Clock(300s 0ns),
+                        offset: -50,
+                    },
+                ],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            },
+        ],
+        flushed_lsn: [],
+    },
+    unresolved_count: 1,
+    progressed: Frontier {
+        journals: [],
+        flushed_lsn: [],
+    },
+}

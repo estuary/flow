@@ -1,0 +1,70 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: pipeline_snapshot(&pipeline)
+---
+PipelineSnapshot {
+    recovery_pending: false,
+    ready: Frontier {
+        journals: [
+            JournalFrontier {
+                journal: "journal/A",
+                binding: 0,
+                producers: [
+                    ProducerFrontier {
+                        producer: Producer(01:00:00:00:00:00),
+                        last_commit: Clock(75s 0ns),
+                        hinted_commit: Clock(0s 0ns),
+                        offset: -500,
+                    },
+                    ProducerFrontier {
+                        producer: Producer(03:00:00:00:00:00),
+                        last_commit: Clock(80s 0ns),
+                        hinted_commit: Clock(0s 0ns),
+                        offset: -100,
+                    },
+                ],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            },
+            JournalFrontier {
+                journal: "journal/C",
+                binding: 1,
+                producers: [
+                    ProducerFrontier {
+                        producer: Producer(03:00:00:00:00:00),
+                        last_commit: Clock(40s 0ns),
+                        hinted_commit: Clock(0s 0ns),
+                        offset: -50,
+                    },
+                ],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            },
+        ],
+        flushed_lsn: [],
+    },
+    unresolved: Frontier {
+        journals: [
+            JournalFrontier {
+                journal: "journal/C",
+                binding: 1,
+                producers: [
+                    ProducerFrontier {
+                        producer: Producer(01:00:00:00:00:00),
+                        last_commit: Clock(0s 0ns),
+                        hinted_commit: Clock(100s 0ns),
+                        offset: -50,
+                    },
+                ],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            },
+        ],
+        flushed_lsn: [],
+    },
+    unresolved_count: 1,
+    progressed: Frontier {
+        journals: [],
+        flushed_lsn: [],
+    },
+}

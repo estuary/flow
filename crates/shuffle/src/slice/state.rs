@@ -1,5 +1,6 @@
-use super::producer::{ProducerMap, ProducerState};
+use super::producer::ProducerState;
 use super::read::ReadState;
+use crate::ProducerMap;
 use crate::binding::PartitionFilter;
 use crate::log;
 use anyhow::Context;
