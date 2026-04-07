@@ -11,9 +11,9 @@ pub struct Shuffle {
     /// Port to run the shuffle server on.
     #[clap(long, default_value = "9876")]
     port: u16,
-    /// Number of members in the shuffle topology.
+    /// Number of shards in the shuffle topology.
     #[clap(long, default_value = "1")]
-    members: u32,
+    shards: u32,
     /// Directory for log segment files. If omitted, a temporary directory is used.
     #[clap(long)]
     directory: Option<std::path::PathBuf>,
@@ -33,7 +33,7 @@ impl Shuffle {
         let Self {
             name,
             port,
-            members: member_count,
+            shards: shard_count,
             directory,
             interval,
             checkpoints,
@@ -44,7 +44,7 @@ impl Shuffle {
         let task = fetch_task_spec(ctx, name, *disk_backlog_mib * (1024 * 1024)).await?;
 
         // Start two shuffle servers on adjacent ports.
-        // Even-indexed members use the first server, odd-indexed use the second.
+        // Even-indexed shards use the first server, odd-indexed use the second.
         let bind_addr_even = format!("127.0.0.1:{port}");
         let bind_addr_odd = format!("127.0.0.1:{}", port + 1);
         let peer_addr_even = format!("http://{bind_addr_even}");
@@ -91,7 +91,7 @@ impl Shuffle {
         tracing::info!(
             bind_addr_even,
             bind_addr_odd,
-            member_count,
+            shard_count,
             "starting shuffle servers"
         );
 
@@ -128,31 +128,27 @@ impl Shuffle {
         tracing::info!(log_dir = %log_dir_str, "using log directory");
         let combine_spec = build_combine_spec(&task).context("building combine spec")?;
 
-        // Create member topology: even-indexed members use even server, odd use odd.
-        let members =
-            build_member_topology(*member_count, &peer_addr_even, &peer_addr_odd, &log_dir_str);
+        // Create shard topology: even-indexed shards use even server, odd use odd.
+        let shards =
+            build_shard_topology(*shard_count, &peer_addr_even, &peer_addr_odd, &log_dir_str);
 
         tracing::info!(
             addr_even = %peer_addr_even,
             addr_odd = %peer_addr_odd,
-            member_count,
+            shard_count,
             "opening session"
         );
 
-        let mut client = shuffle::SessionClient::open(
-            &service_even,
-            task,
-            members,
-            shuffle::Frontier::default(),
-        )
-        .await
-        .context("opening session")?;
+        let mut client =
+            shuffle::SessionClient::open(&service_even, task, shards, shuffle::Frontier::default())
+                .await
+                .context("opening session")?;
 
         tracing::info!("session opened, requesting checkpoints");
 
-        // Per-member reader state, taken during each scan and returned after.
+        // Per-shard reader state, taken during each scan and returned after.
         let log_dir = std::path::Path::new(&log_dir_str);
-        let mut member_state: Vec<Option<MemberState>> = (0..*member_count)
+        let mut shard_state: Vec<Option<ShardState>> = (0..*shard_count)
             .map(|i| {
                 Some((
                     shuffle::log::reader::Reader::new(log_dir, i),
@@ -187,17 +183,17 @@ impl Shuffle {
                 .await
                 .context("requesting next checkpoint")?;
 
-            // Scan committed entries from each member's log,
+            // Scan committed entries from each shard's log,
             // pushing documents into the combiner.
             let scan_frontier = frontier.clone();
-            let (next_member_state, next_accumulator, read_docs, read_bytes) =
+            let (next_shard_state, next_accumulator, read_docs, read_bytes) =
                 tokio::task::spawn_blocking(move || {
-                    scan_frontier_members(scan_frontier, member_state, accumulator)
+                    scan_frontier_shards(scan_frontier, shard_state, accumulator)
                 })
                 .await
                 .context("joining scan task")??;
 
-            member_state = next_member_state;
+            shard_state = next_shard_state;
             accumulator = next_accumulator;
 
             bytes_behind += frontier
@@ -253,29 +249,29 @@ impl Shuffle {
     }
 }
 
-type MemberState = (
+type ShardState = (
     shuffle::log::reader::Reader,
     std::collections::VecDeque<shuffle::log::reader::Remainder>,
 );
 
-fn scan_frontier_members(
+fn scan_frontier_shards(
     frontier: shuffle::Frontier,
-    mut member_state: Vec<Option<MemberState>>,
+    mut shard_state: Vec<Option<ShardState>>,
     mut accumulator: combine::Accumulator,
-) -> anyhow::Result<(Vec<Option<MemberState>>, combine::Accumulator, usize, u64)> {
+) -> anyhow::Result<(Vec<Option<ShardState>>, combine::Accumulator, usize, u64)> {
     let mut read_docs: usize = 0;
     let mut read_bytes: u64 = 0;
 
-    for (member_index, state_slot) in member_state.iter_mut().enumerate() {
-        let (reader, remainders) = state_slot.take().expect("member state must be present");
+    for (shard_index, state_slot) in shard_state.iter_mut().enumerate() {
+        let (reader, remainders) = state_slot.take().expect("shard state must be present");
 
         let mut scan =
             shuffle::log::reader::FrontierScan::new(frontier.clone(), reader, remainders)
-                .with_context(|| format!("creating FrontierScan for member {member_index}"))?;
+                .with_context(|| format!("creating FrontierScan for shard {shard_index}"))?;
 
         while scan
             .advance_block()
-            .with_context(|| format!("advancing block for member {member_index}"))?
+            .with_context(|| format!("advancing block for shard {shard_index}"))?
         {
             let memtable = accumulator.memtable()?;
 
@@ -296,7 +292,7 @@ fn scan_frontier_members(
         *state_slot = Some((reader, remainders));
     }
 
-    Ok((member_state, accumulator, read_docs, read_bytes))
+    Ok((shard_state, accumulator, read_docs, read_bytes))
 }
 
 fn drain_accumulator_to_stdout(
@@ -429,18 +425,18 @@ fn build_combine_spec(task: &shuffle::proto::Task) -> anyhow::Result<combine::Sp
     Ok(combine::Spec::with_bindings(bindings, Vec::new()))
 }
 
-/// Build a member topology with `count` members, splitting the key space evenly.
-/// Even-indexed members use `addr_even`, odd-indexed members use `addr_odd`.
-fn build_member_topology(
+/// Build a shard topology with `count` shards, splitting the key space evenly.
+/// Even-indexed shards use `addr_even`, odd-indexed shards use `addr_odd`.
+fn build_shard_topology(
     count: u32,
     addr_even: &str,
     addr_odd: &str,
     directory: &str,
-) -> Vec<shuffle::proto::Member> {
-    let mut members = Vec::with_capacity(count as usize);
+) -> Vec<shuffle::proto::Shard> {
+    let mut shards = Vec::with_capacity(count as usize);
 
     for i in 0..count {
-        // Split key space evenly across members.
+        // Split key space evenly across shards.
         let key_begin = if i == 0 {
             0
         } else {
@@ -454,7 +450,7 @@ fn build_member_topology(
 
         let endpoint = if i % 2 == 0 { addr_even } else { addr_odd };
 
-        members.push(shuffle::proto::Member {
+        shards.push(shuffle::proto::Shard {
             range: Some(flow::RangeSpec {
                 key_begin,
                 key_end,
@@ -468,8 +464,8 @@ fn build_member_topology(
 
     tracing::info!(
         count,
-        "built member topology: {:?}",
-        members
+        "built shard topology: {:?}",
+        shards
             .iter()
             .enumerate()
             .map(|(i, m)| {
@@ -485,5 +481,5 @@ fn build_member_topology(
             .collect::<Vec<_>>()
     );
 
-    members
+    shards
 }

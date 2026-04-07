@@ -33,7 +33,7 @@ type PartitionId = u8;
 
 #[derive(Clone, Debug)]
 struct TestCase {
-    num_members: usize,
+    num_shards: usize,
     num_producers: usize,
     rounds: Vec<Round>,
 }
@@ -60,7 +60,7 @@ enum Action {
 
 impl Arbitrary for TestCase {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        let num_members = 1 + usize::arbitrary(g) % 3;
+        let num_shards = 1 + usize::arbitrary(g) % 3;
         let num_producers = 1 + usize::arbitrary(g) % MAX_PRODUCERS;
         let num_rounds = 1 + usize::arbitrary(g) % MAX_ROUNDS;
         let mut retired: HashSet<ProducerId> = HashSet::new();
@@ -113,7 +113,7 @@ impl Arbitrary for TestCase {
         }
 
         TestCase {
-            num_members,
+            num_shards,
             num_producers,
             rounds,
         }
@@ -273,11 +273,11 @@ fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
     }
 }
 
-fn build_members(
+fn build_shards(
     count: u32,
     endpoint: &str,
     directory: &std::path::Path,
-) -> Vec<shuffle::proto::Member> {
+) -> Vec<shuffle::proto::Shard> {
     (0..count)
         .map(|i| {
             let key_begin = if i == 0 {
@@ -291,7 +291,7 @@ fn build_members(
                 (((i + 1) as u64 * (u32::MAX as u64 + 1)) / count as u64 - 1) as u32
             };
 
-            shuffle::proto::Member {
+            shuffle::proto::Shard {
                 range: Some(flow::RangeSpec {
                     key_begin,
                     key_end,
@@ -691,21 +691,21 @@ fn parse_entry(entry: &shuffle::log::reader::Entry) -> (ProducerId, u64, Partiti
 fn collect_scanned_entries(
     frontier: &shuffle::Frontier,
     log_dir: &std::path::Path,
-    member_state: &mut Vec<Option<(Reader, VecDeque<Remainder>)>>,
+    shard_state: &mut Vec<Option<(Reader, VecDeque<Remainder>)>>,
 ) -> Vec<(ProducerId, u64, PartitionId)> {
     let mut entries = Vec::new();
 
-    for (member_index, state_slot) in member_state.iter_mut().enumerate() {
+    for (shard_index, state_slot) in shard_state.iter_mut().enumerate() {
         let (reader, remainders) = state_slot
             .take()
-            .unwrap_or_else(|| (Reader::new(log_dir, member_index as u32), VecDeque::new()));
+            .unwrap_or_else(|| (Reader::new(log_dir, shard_index as u32), VecDeque::new()));
 
         let mut scan = FrontierScan::new(frontier.clone(), reader, remainders)
-            .unwrap_or_else(|e| panic!("FrontierScan::new for member {member_index}: {e}"));
+            .unwrap_or_else(|e| panic!("FrontierScan::new for shard {shard_index}: {e}"));
 
         while scan
             .advance_block()
-            .unwrap_or_else(|e| panic!("advance_block for member {member_index}: {e}"))
+            .unwrap_or_else(|e| panic!("advance_block for shard {shard_index}: {e}"))
         {
             for entry in scan.block_iter() {
                 entries.push(parse_entry(&entry));
@@ -766,8 +766,8 @@ async fn run_test_case_inner(
 
     let mut oracle = Oracle::new();
     let task = build_task(&harness.materialization_spec);
-    let members = build_members(
-        test_case.num_members as u32,
+    let shards = build_shards(
+        test_case.num_shards as u32,
         harness.service.peer_endpoint(),
         log_dir,
     );
@@ -777,15 +777,15 @@ async fn run_test_case_inner(
     let mut session = shuffle::SessionClient::open(
         &harness.service,
         task.clone(),
-        members.clone(),
+        shards.clone(),
         recovery.clone(),
     )
     .await
     .map_err(|e| format!("SessionClient::open: {e}"))?;
     tracing::debug!("  session opened");
 
-    let mut member_state: Vec<Option<(Reader, VecDeque<Remainder>)>> =
-        (0..test_case.num_members).map(|_| None).collect();
+    let mut shard_state: Vec<Option<(Reader, VecDeque<Remainder>)>> =
+        (0..test_case.num_shards).map(|_| None).collect();
     let mut next_round_pre_written = false;
 
     for (round_idx, round) in test_case.rounds.iter().enumerate() {
@@ -893,12 +893,12 @@ async fn run_test_case_inner(
                 jf.bytes_behind_delta = 0;
             });
 
-            member_state = (0..test_case.num_members).map(|_| None).collect();
+            shard_state = (0..test_case.num_shards).map(|_| None).collect();
 
             session = shuffle::SessionClient::open(
                 &harness.service,
                 task.clone(),
-                members.clone(),
+                shards.clone(),
                 recovery.clone(),
             )
             .await
@@ -921,11 +921,11 @@ async fn run_test_case_inner(
         // STEP 7: SCAN.
         // Skip scanning when there's no log data yet (flushed_lsn is empty before
         // any checkpoint has been received). FrontierScan::new requires flushed_lsn
-        // to contain an entry for our member_index.
+        // to contain an entry for our shard_index.
         let scanned = if round_frontier.flushed_lsn.is_empty() {
             vec![]
         } else {
-            collect_scanned_entries(&round_frontier, log_dir, &mut member_state)
+            collect_scanned_entries(&round_frontier, log_dir, &mut shard_state)
         };
         oracle.verify_round(&scanned).map_err(|e| {
             format!("Round {round_idx} verification failed: {e}\n  Test case: {test_case:?}")

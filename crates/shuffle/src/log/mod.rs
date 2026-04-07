@@ -88,13 +88,13 @@ pub use writer::Writer;
 
 pub(crate) use handler::serve_log;
 
-/// Build the path of a segment file from its directory, member index, and segment number.
+/// Build the path of a segment file from its directory, shard index, and segment number.
 pub(crate) fn segment_path(
     directory: &std::path::Path,
-    member_index: u32,
+    shard_index: u32,
     segment: u64,
 ) -> std::path::PathBuf {
-    let filename = format!("mem-{member_index:03}-seg-{segment:012x}.flog");
+    let filename = format!("mem-{shard_index:03}-seg-{segment:012x}.flog");
     directory.join(filename)
 }
 
@@ -118,9 +118,9 @@ pub(crate) fn lz4_compress(raw: &[u8]) -> anyhow::Result<Vec<u8>> {
 pub const BLOCK_HEADER_LEN: usize = 8;
 
 /// LogJoin coordinates multiple Slice streams connecting to the same Log.
-/// Each Log member receives connections from all Slices (M connections total).
+/// Each Log shard receives connections from all Slices (M connections total).
 pub(crate) struct LogJoin {
-    members: Vec<
+    shards: Vec<
         Option<(
             BoxStream<'static, tonic::Result<shuffle::LogRequest>>,
             mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
