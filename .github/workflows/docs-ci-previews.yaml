@@ -82,6 +82,15 @@ jobs:
               const match = content.match(/^slug:\s*(.+)$/m);
               if (match) {
                 slug = match[1].trim().replace(/['"]/g, '');
+                // Relative slugs (no leading /) are resolved from the file's directory,
+                // matching Docusaurus behaviour. e.g. slug: installation in
+                // getting-started/installation.md → /getting-started/installation
+                if (!slug.startsWith('/')) {
+                  const parts = f.replace('site/docs/', '').split('/');
+                  parts.pop();
+                  const dir = parts.join('/');
+                  slug = dir ? `/${dir}/${slug}` : `/${slug}`;
+                }
               }
               if (!slug) {
                 slug = '/' + f
@@ -89,7 +98,6 @@ jobs:
                   .replace(/\/README\.md$/, '/')
                   .replace(/\.md$/, '/');
               }
-              if (!slug.startsWith('/')) slug = '/' + slug;
               return `- [${slug}](${base}${slug})`;
             });
 
