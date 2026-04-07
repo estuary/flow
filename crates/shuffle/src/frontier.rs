@@ -229,13 +229,13 @@ pub struct Frontier {
     /// Journals which constitute the frontier.
     /// Entries are sorted and unique on `(journal, binding)`.
     pub journals: Vec<JournalFrontier>,
-    /// Per-member flushed LSN (log read-through barrier), indexed by member_index.
+    /// Per-shard flushed LSN (log read-through barrier), indexed by shard_index.
     /// Empty when not applicable (e.g. resume checkpoints).
     pub flushed_lsn: Vec<log::Lsn>,
 }
 
 impl Frontier {
-    /// Construct a `Frontier` from journal entries and per-member flushed LSNs,
+    /// Construct a `Frontier` from journal entries and per-shard flushed LSNs,
     /// validating that entries are sorted and unique on `(journal, binding)` and
     /// that producers within each entry are sorted and unique on `producer`.
     pub fn new(journals: Vec<JournalFrontier>, flushed_lsn: Vec<u64>) -> anyhow::Result<Self> {
@@ -292,7 +292,7 @@ impl Frontier {
         })
     }
 
-    /// Element-wise max of two per-member `flushed_lsn` vectors.
+    /// Element-wise max of two per-shard `flushed_lsn` vectors.
     /// Extends the shorter vector with zeros.
     pub fn merge_flushed_lsn(a: Vec<log::Lsn>, b: Vec<log::Lsn>) -> Vec<log::Lsn> {
         if a.is_empty() {

@@ -63,13 +63,13 @@ pub fn pf_tuple(pf: &crate::ProducerFrontier) -> (u64, u64, i64) {
     )
 }
 
-/// Build a 3-member topology:
-///   member 0: 0x00000000-0x55555554
-///   member 1: 0x55555555-0xaaaaaaa9
-///   member 2: 0xaaaaaaaa-0xffffffff
-pub fn test_members_3() -> Vec<shuffle::Member> {
+/// Build a 3-shard topology:
+///   shard 0: 0x00000000-0x55555554
+///   shard 1: 0x55555555-0xaaaaaaa9
+///   shard 2: 0xaaaaaaaa-0xffffffff
+pub fn test_shards_3() -> Vec<shuffle::Shard> {
     vec![
-        shuffle::Member {
+        shuffle::Shard {
             range: Some(flow::RangeSpec {
                 key_begin: 0x00000000,
                 key_end: 0x55555554,
@@ -77,9 +77,9 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
                 r_clock_end: 0xffffffff,
             }),
             endpoint: String::new(),
-            directory: "/test/log/member-0".to_string(),
+            directory: "/test/log/shard-0".to_string(),
         },
-        shuffle::Member {
+        shuffle::Shard {
             range: Some(flow::RangeSpec {
                 key_begin: 0x55555555,
                 key_end: 0xaaaaaaa9,
@@ -87,9 +87,9 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
                 r_clock_end: 0xffffffff,
             }),
             endpoint: String::new(),
-            directory: "/test/log/member-1".to_string(),
+            directory: "/test/log/shard-1".to_string(),
         },
-        shuffle::Member {
+        shuffle::Shard {
             range: Some(flow::RangeSpec {
                 key_begin: 0xaaaaaaaa,
                 key_end: 0xffffffff,
@@ -97,7 +97,7 @@ pub fn test_members_3() -> Vec<shuffle::Member> {
                 r_clock_end: 0xffffffff,
             }),
             endpoint: String::new(),
-            directory: "/test/log/member-2".to_string(),
+            directory: "/test/log/shard-2".to_string(),
         },
     ]
 }

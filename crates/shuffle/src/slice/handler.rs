@@ -22,17 +22,13 @@ where
     let shuffle::slice_request::Open {
         session_id,
         task,
-        members,
-        member_index: slice_member_index,
+        shards,
+        shard_index: slice_shard_index,
     } = open.open.context("first message must be Open")?;
 
-    if members
-        .get(slice_member_index as usize)
-        .map(|m| &m.endpoint)
-        != Some(&service.peer_endpoint)
-    {
+    if shards.get(slice_shard_index as usize).map(|m| &m.endpoint) != Some(&service.peer_endpoint) {
         anyhow::bail!(
-            "this endpoint ({}) is not member_index {slice_member_index} of the session: {members:?}",
+            "this endpoint ({}) is not shard_index {slice_shard_index} of the session: {shards:?}",
             service.peer_endpoint,
         );
     }
@@ -42,28 +38,28 @@ where
 
     tracing::info!(
         session_id,
-        slice_member_index,
-        members = members.len(),
+        slice_shard_index,
+        shards = shards.len(),
         "Slice received Open"
     );
 
-    // Concurrently Open a Log RPC with every member.
+    // Concurrently Open a Log RPC with every shard.
     let open_results =
-        futures::future::join_all((0..members.len()).into_iter().map(|log_member_index| {
+        futures::future::join_all((0..shards.len()).into_iter().map(|log_shard_index| {
             open_log_rpc(
                 &service,
                 session_id,
-                slice_member_index as u32,
-                &members,
-                log_member_index as u32,
+                slice_shard_index as u32,
+                &shards,
+                log_shard_index as u32,
                 disk_backlog_threshold,
             )
         }))
         .await;
 
     // Walk results and partition into Senders and receiver Streams.
-    let mut log_request_tx = Vec::with_capacity(members.len());
-    let mut log_response_rx = Vec::with_capacity(members.len());
+    let mut log_request_tx = Vec::with_capacity(shards.len());
+    let mut log_response_rx = Vec::with_capacity(shards.len());
 
     for result in open_results {
         let (tx, rx) = result?;
@@ -104,8 +100,8 @@ where
 
     let topology = state::Topology {
         session_id,
-        members,
-        slice_member_index,
+        shards,
+        slice_shard_index,
         task_name,
         bindings,
         journal_clients,
@@ -133,14 +129,14 @@ where
     .await
 }
 
-/// Open Log RPCs to all members and wait for Opened responses.
-#[tracing::instrument(level = "debug", skip(service, members), err(Debug, level = "warn"))]
+/// Open Log RPCs to all shards and wait for Opened responses.
+#[tracing::instrument(level = "debug", skip(service, shards), err(Debug, level = "warn"))]
 async fn open_log_rpc(
     service: &crate::Service,
     session_id: u32,
-    slice_member_index: u32,
-    members: &[shuffle::Member],
-    log_member_index: u32,
+    slice_shard_index: u32,
+    shards: &[shuffle::Shard],
+    log_shard_index: u32,
     disk_backlog_threshold: u64,
 ) -> anyhow::Result<(
     mpsc::Sender<shuffle::LogRequest>,
@@ -149,20 +145,20 @@ async fn open_log_rpc(
     let verify = crate::verify(
         "LogResponse",
         "Opened",
-        &members[log_member_index as usize].endpoint,
-        log_member_index as usize,
+        &shards[log_shard_index as usize].endpoint,
+        log_shard_index as usize,
     );
     let (request_tx, request_rx) = crate::new_channel::<shuffle::LogRequest>();
 
     // Spawn or dial RPC, yielding a boxed response stream.
     let request_rx = tokio_stream::wrappers::ReceiverStream::new(request_rx);
 
-    let mut response_rx = if log_member_index == slice_member_index {
+    let mut response_rx = if log_shard_index == slice_shard_index {
         tracing::debug!("spawning in-process Log RPC");
         tokio_stream::wrappers::ReceiverStream::new(service.spawn_log(request_rx.map(Ok))).boxed()
     } else {
-        let endpoint = &members[log_member_index as usize].endpoint;
-        tracing::debug!(log_member_index, endpoint=%endpoint, "dialing remote Log RPC");
+        let endpoint = &shards[log_shard_index as usize].endpoint;
+        tracing::debug!(log_shard_index, endpoint=%endpoint, "dialing remote Log RPC");
         let channel = verify.ok(service.dial_channel(&endpoint))?;
         let mut client = proto_grpc::shuffle::shuffle_client::ShuffleClient::new(channel);
 
@@ -179,9 +175,9 @@ async fn open_log_rpc(
         shuffle::LogRequest {
             open: Some(shuffle::log_request::Open {
                 session_id,
-                members: members.to_vec(),
-                slice_member_index,
-                log_member_index,
+                shards: shards.to_vec(),
+                slice_shard_index,
+                log_shard_index,
                 disk_backlog_threshold,
             }),
             append: None,

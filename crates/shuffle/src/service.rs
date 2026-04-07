@@ -17,7 +17,7 @@ pub struct ServiceImpl {
     /// Transport channels to dialed peers.
     pub(crate) channels: std::sync::Mutex<HashMap<String, tonic::transport::Channel>>,
     /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
-    /// Keyed by (directory, log_member_index).
+    /// Keyed by (directory, log_shard_index).
     pub(crate) log_joins: std::sync::Mutex<HashMap<(String, u32), log::LogJoin>>,
 }
 

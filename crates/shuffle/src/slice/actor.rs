@@ -22,15 +22,15 @@ pub struct SliceActor {
     pub reads: Vec<ReadState>,
     /// Causal hints accumulated from consumed ACK documents. Drained during flush.
     pub causal_hints: super::CausalHints,
-    /// State machine for tracking flush cycles with Log members.
+    /// State machine for tracking flush cycles with Log shards.
     pub flush: FlushState,
     /// State machine for tracking progress reporting with the Session.
     pub progress: ProgressState,
     /// Channel for sends to parent Session.
     pub slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
-    /// Channels for sends to member Log RPCs, indexed by member index.
+    /// Channels for sends to shard Log RPCs, indexed by shard index.
     pub log_request_tx: Vec<mpsc::Sender<shuffle::LogRequest>>,
-    /// Previous journal name sent to each Log member, for delta encoding.
+    /// Previous journal name sent to each Log shard, for delta encoding.
     pub log_prev_journal: Vec<String>,
     /// Pending Journal write-head probes for newly started reads.
     pub pending_probes:
@@ -63,7 +63,7 @@ impl SliceActor {
         skip_all,
         fields(
             session = self.topology.session_id,
-            member = self.topology.slice_member_index,
+            shard = self.topology.slice_shard_index,
         )
     )]
     pub async fn serve<R>(
@@ -88,7 +88,7 @@ impl SliceActor {
         let verify = crate::verify(
             "SliceRequest",
             "Start",
-            &self.topology.members[0].endpoint,
+            &self.topology.shards[0].endpoint,
             0,
         );
         match verify.not_eof(slice_request_rx.next().await)? {
@@ -147,9 +147,9 @@ impl SliceActor {
                         None => break,
                     }
                 }
-                Some((member_index, log_response, rx)) = log_response_rx.next() => {
-                    self.on_log_response(member_index, log_response)?;
-                    log_response_rx.push(next_log_rx((member_index, rx)));
+                Some((shard_index, log_response, rx)) = log_response_rx.next() => {
+                    self.on_log_response(shard_index, log_response)?;
+                    log_response_rx.push(next_log_rx((shard_index, rx)));
                 }
 
                 // Next priority is draining ready-to-send messages.
@@ -181,16 +181,16 @@ impl SliceActor {
         self.log_request_tx.clear(); // Drop all tx handles to close.
 
         // Read clean EOF from all Log RPCs.
-        while let Some((member_index, slice_response, rx)) = log_response_rx.next().await {
+        while let Some((shard_index, slice_response, rx)) = log_response_rx.next().await {
             let verify = crate::verify(
                 "LogResponse",
                 "EOF",
-                &self.topology.members[member_index].endpoint,
-                member_index,
+                &self.topology.shards[shard_index].endpoint,
+                shard_index,
             );
             match slice_response {
                 None => (), // Clean EOF.
-                Some(Ok(_ignored)) => log_response_rx.push(next_log_rx((member_index, rx))),
+                Some(Ok(_ignored)) => log_response_rx.push(next_log_rx((shard_index, rx))),
                 Some(Err(status)) => return Err(verify.fail_status(status)),
             }
         }
@@ -206,9 +206,9 @@ impl SliceActor {
         let out = stream::FuturesUnordered::new();
 
         for binding in &self.topology.bindings {
-            // Use modulo round-robin to assign bindings to slice members.
-            if binding.index % self.topology.members.len() as u16
-                != self.topology.slice_member_index as u16
+            // Use modulo round-robin to assign bindings to slice shards.
+            if binding.index % self.topology.shards.len() as u16
+                != self.topology.slice_shard_index as u16
             {
                 continue;
             }
@@ -241,7 +241,7 @@ impl SliceActor {
         let verify = crate::verify(
             "SliceRequest",
             "Progress or StartRead",
-            &self.topology.members[0].endpoint,
+            &self.topology.shards[0].endpoint,
             0,
         );
 
@@ -507,14 +507,14 @@ impl SliceActor {
 
     fn on_log_response(
         &mut self,
-        member_index: usize,
+        shard_index: usize,
         log_response: Option<tonic::Result<shuffle::LogResponse>>,
     ) -> anyhow::Result<()> {
         let verify = crate::verify(
             "LogResponse",
             "Flushed",
-            &self.topology.members[member_index].endpoint,
-            member_index,
+            &self.topology.shards[shard_index].endpoint,
+            shard_index,
         );
         let log_response = verify.not_eof(log_response)?;
 
@@ -525,7 +525,7 @@ impl SliceActor {
             } if cycle == self.flush.cycle => {
                 let flushed_lsn = log::Lsn::from_u64(flushed_lsn);
 
-                if let Some(completed) = self.flush.on_flushed(member_index, flushed_lsn)? {
+                if let Some(completed) = self.flush.on_flushed(shard_index, flushed_lsn)? {
                     self.progress.on_flush_completed(completed);
                 }
                 Ok(())
@@ -548,7 +548,7 @@ impl SliceActor {
 
         loop {
             // A flush cycle takes priority over sending Append requests.
-            // We'll await capacity for Flushes even if the next Append member has capacity.
+            // We'll await capacity for Flushes even if the next Append shard has capacity.
             if self.flush.should_flush() {
                 if let Err(tx) = self.try_log_request_flush_tx(buffers) {
                     return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
@@ -589,13 +589,13 @@ impl SliceActor {
 
             let sequenced = state::sequence_document(read_state, binding, meta)?;
 
-            // If this is an Append, attempt to send it to the appropriate member(s).
+            // If this is an Append, attempt to send it to the appropriate shard(s).
             if sequenced.is_append {
                 if let Err(tx) = Self::try_log_request_append_tx(
                     binding,
                     buffers,
                     &read_state.journal,
-                    &self.topology.members,
+                    &self.topology.shards,
                     &mut self.log_prev_journal,
                     &self.log_request_tx,
                     ready_read,
@@ -711,7 +711,7 @@ impl SliceActor {
         let frontier = super::producer::build_flush_frontier(
             &mut self.reads,
             self.causal_hints.drain(),
-            self.topology.members.len(),
+            self.topology.shards.len(),
         );
         let flush_cycle = self.flush.start(self.log_request_tx.len(), frontier);
 
@@ -723,7 +723,7 @@ impl SliceActor {
         }
 
         tracing::debug!(
-            members = self.log_request_tx.len(),
+            shards = self.log_request_tx.len(),
             cycle = flush_cycle,
             "sent Flush to all logs"
         );
@@ -737,7 +737,7 @@ impl SliceActor {
         binding: &crate::Binding,
         buffers: &mut Buffers,
         journal: &str,
-        members: &[shuffle::Member],
+        shards: &[shuffle::Shard],
         log_prev_journal: &mut [String],
         log_request_tx: &[mpsc::Sender<shuffle::LogRequest>],
         ready_read: &ReadyRead,
@@ -762,7 +762,7 @@ impl SliceActor {
         } = ready_read;
 
         // Extract into `packed_key` and hash to route the document.
-        // Compute member index `targets` to receive an Append of this document.
+        // Compute shard index `targets` to receive an Append of this document.
         packed_key.clear();
         doc::Extractor::extract_all(doc.get(), &binding.key_extractors, packed_key);
 
@@ -770,11 +770,11 @@ impl SliceActor {
         let r_clock = routing::rotate_clock(*clock);
 
         targets.clear();
-        targets.extend(routing::route_to_members(
+        targets.extend(routing::route_to_shards(
             key_hash,
             r_clock,
             binding.filter_r_clocks,
-            members,
+            shards,
         ));
 
         tracing::trace!(
@@ -787,7 +787,7 @@ impl SliceActor {
             flags = ready_read.meta.flags.0,
             r_clock,
             ?targets,
-            "routed document Append to Log RPC members"
+            "routed document Append to Log RPC shards"
         );
 
         // Safety: `permits` is always cleared prior to return (retaining only capacity).
@@ -874,16 +874,16 @@ impl SliceActor {
     }
 }
 
-// Helper which builds a future that yields the next response from a member's Log RPC.
+// Helper which builds a future that yields the next response from a shard's Log RPC.
 async fn next_log_rx(
-    (member_index, mut rx): (
+    (shard_index, mut rx): (
         usize,
         stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>,
     ),
 ) -> (
-    usize,                                                           // Member index.
+    usize,                                                           // Shard index.
     Option<tonic::Result<shuffle::LogResponse>>,                     // Response.
     stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>, // Stream.
 ) {
-    (member_index, rx.next().await, rx)
+    (shard_index, rx.next().await, rx)
 }

@@ -97,13 +97,13 @@ impl FrontierScan {
 
         let flushed_lsn = frontier
             .flushed_lsn
-            .get(reader.member_index() as usize)
+            .get(reader.shard_index() as usize)
             .copied()
             .with_context(|| {
                 format!(
-                    "flushed_lsn has {} entries but member_index is {}",
+                    "flushed_lsn has {} entries but shard_index is {}",
                     frontier.flushed_lsn.len(),
-                    reader.member_index(),
+                    reader.shard_index(),
                 )
             })?;
 
@@ -431,12 +431,12 @@ mod test {
     use std::collections::VecDeque;
 
     #[test]
-    fn test_new_validates_member_index() {
+    fn test_new_validates_shard_index() {
         let dir = tempfile::tempdir().unwrap();
         let mut writer = log::Writer::new(dir.path(), 0).unwrap();
         write_block(&mut writer, &[("j/one", 1, 0, 10)]);
 
-        // member_index=0 with 1-entry flushed_lsn: ok.
+        // shard_index=0 with 1-entry flushed_lsn: ok.
         let frontier = make_frontier(
             &[log::Lsn::new(1, 0)],
             vec![jf("j/one", 0, vec![pf_raw(1, 10)])],
@@ -444,7 +444,7 @@ mod test {
         let reader = Reader::new(dir.path(), 0);
         FrontierScan::new(frontier, reader, VecDeque::new()).unwrap();
 
-        // member_index=1 with 1-entry flushed_lsn: fails.
+        // shard_index=1 with 1-entry flushed_lsn: fails.
         let frontier = make_frontier(
             &[log::Lsn::new(1, 0)],
             vec![jf("j/one", 0, vec![pf_raw(1, 10)])],
