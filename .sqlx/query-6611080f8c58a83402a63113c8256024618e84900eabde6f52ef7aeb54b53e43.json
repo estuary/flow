@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id AS \"id!: uuid::Uuid\"\n        FROM auth.users u\n        JOIN auth.identities i\n            ON i.user_id = u.id\n            AND i.provider = 'sso:' || $1::uuid::text\n        WHERE u.id = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: uuid::Uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6611080f8c58a83402a63113c8256024618e84900eabde6f52ef7aeb54b53e43"
+}

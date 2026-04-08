@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    t.tenant AS \"tenant!: String\",\n                    t.sso_provider_id AS \"sso_provider_id: uuid::Uuid\"\n                FROM internal.scim_tokens st\n                JOIN tenants t ON t.id = st.tenant_id\n                WHERE st.token_hash = $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "sso_provider_id: uuid::Uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "1b30ac4809c98a811126f32e259a88b400c59e785272a1a0866d74d5f6336418"
+}

@@ -46,10 +46,14 @@ BEGIN
             domain text not null
         );
         create table auth.identities (
+            id uuid primary key default gen_random_uuid(),
             user_id uuid references auth.users(id),
             provider text,
             provider_id text,
-            identity_data jsonb
+            identity_data jsonb,
+            last_sign_in_at timestamptz,
+            created_at timestamptz default now(),
+            updated_at timestamptz default now()
         );
         create table auth.sessions (
             id uuid primary key default gen_random_uuid(),

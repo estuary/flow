@@ -39,6 +39,12 @@ pub struct App {
     pub pg_pool: sqlx::PgPool,
     pub publisher: crate::publications::Publisher,
     pub snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+    /// HTTP client for calling GoTrue admin API.
+    pub http_client: reqwest::Client,
+    /// Base URL for GoTrue (e.g. "http://127.0.0.1:5431/auth/v1").
+    pub gotrue_url: String,
+    /// Supabase service role key for GoTrue admin API authentication.
+    pub gotrue_service_role_key: String,
 }
 
 impl App {
@@ -48,6 +54,8 @@ impl App {
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        gotrue_url: String,
+        gotrue_service_role_key: String,
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
@@ -56,6 +64,9 @@ impl App {
             pg_pool,
             publisher,
             snapshot,
+            http_client: reqwest::Client::new(),
+            gotrue_url,
+            gotrue_service_role_key,
         }
     }
 }

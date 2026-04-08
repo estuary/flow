@@ -91,6 +91,8 @@ impl TestServer {
             pg_pool.clone(),
             publisher,
             snapshot,
+            "http://invalid-gotrue-url".to_string(),
+            String::new(),
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();
 

@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Enable SAML/SSO on a running local stack"
+#USAGE flag "--mocksaml" help="Use MockSAML (mocksaml.com) as the identity provider"
+#USAGE flag "--okta" help="Use Okta as the identity provider"
+#USAGE flag "--okta-metadata-url <url>" help="Okta app metadata URL (required with --okta)"
+#USAGE flag "--saml-domain <domain>" help="Email domain for SSO provider" default="example.com"
+#USAGE flag "--saml-tenant <tenant>" help="Tenant to link to SSO provider (defaults to first non-ops tenant)"
+
+MOCKSAML="${usage_mocksaml:-false}"
+OKTA="${usage_okta:-false}"
+OKTA_METADATA_URL="${usage_okta_metadata_url:-}"
+SAML_DOMAIN="${usage_saml_domain:-example.com}"
+SAML_TENANT="${usage_saml_tenant:-}"
+
+if [[ "$MOCKSAML" == "true" && "$OKTA" == "true" ]]; then
+  echo "Error: --mocksaml and --okta are mutually exclusive." >&2
+  exit 1
+fi
+
+if [[ "$MOCKSAML" != "true" && "$OKTA" != "true" ]]; then
+  echo "Error: specify --mocksaml or --okta." >&2
+  exit 1
+fi
+
+if [[ "$OKTA" == "true" && -z "$OKTA_METADATA_URL" ]]; then
+  echo "Error: --okta requires --okta-metadata-url." >&2
+  exit 1
+fi
+
+echo "--- Enabling SAML/SSO ---"
+
+PSQL="psql postgresql://postgres:postgres@localhost:5432/postgres"
+
+# Generate a SAML signing key (PKCS#1).
+# GoTrue needs this to sign outgoing SAMLRequests.
+SAML_KEY=$(openssl genrsa -traditional 2048 2>/dev/null \
+  | grep -v "^-----" \
+  | tr -d '\n')
+
+# Detect docker prefix (direct or via Lima VM)
+if docker ps &>/dev/null; then
+  DOCKER="docker"
+elif limactl shell tiger docker ps &>/dev/null 2>&1; then
+  DOCKER="limactl shell tiger docker"
+else
+  echo "Error: cannot reach Docker daemon. Start Docker or your Lima VM first." >&2
+  exit 1
+fi
+
+# Inject SAML env vars into auth container (skipped if already present)
+if $DOCKER exec supabase_auth_flow env 2>/dev/null | grep -q "GOTRUE_SAML_ENABLED=true"; then
+  echo "SAML env vars already present — skipping container recreation."
+else
+  echo "--- Injecting SAML env vars into auth container ---"
+
+  IMAGE=$($DOCKER inspect supabase_auth_flow --format '{{.Config.Image}}')
+  NETWORK=$($DOCKER inspect supabase_auth_flow --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')
+
+  $DOCKER inspect supabase_auth_flow --format '{{range .Config.Env}}{{println .}}{{end}}' \
+    | grep -v -E '^(PATH=|API_EXTERNAL_URL=)' \
+    > /tmp/auth_env.txt
+  echo "GOTRUE_SAML_ENABLED=true" >> /tmp/auth_env.txt
+  echo "GOTRUE_SAML_PRIVATE_KEY=$SAML_KEY" >> /tmp/auth_env.txt
+  echo "API_EXTERNAL_URL=http://127.0.0.1:5431/auth/v1" >> /tmp/auth_env.txt
+  echo "GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_ENABLED=true" >> /tmp/auth_env.txt
+  echo "GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_URI=pg-functions://postgres/public/check_sso_requirement" >> /tmp/auth_env.txt
+
+  if [[ "$DOCKER" == limactl* ]]; then
+    limactl copy /tmp/auth_env.txt tiger:/tmp/auth_env.txt
+  fi
+
+  $DOCKER stop supabase_auth_flow && $DOCKER rm supabase_auth_flow
+  $DOCKER run -d \
+    --name supabase_auth_flow \
+    --network "$NETWORK" \
+    --restart always \
+    --env-file /tmp/auth_env.txt \
+    "$IMAGE" auth
+
+  sleep 3
+  if $DOCKER logs supabase_auth_flow --tail 5 2>&1 | grep -q "GoTrue API started"; then
+    echo "GoTrue is running with SAML enabled."
+  else
+    echo "Warning: GoTrue may not have started cleanly. Check logs:"
+    $DOCKER logs supabase_auth_flow --tail 20
+    exit 1
+  fi
+fi
+
+if [[ "$MOCKSAML" == "true" ]]; then
+  PROVIDER_LABEL="MockSAML"
+  METADATA_URL="https://mocksaml.com/api/saml/metadata"
+else
+  PROVIDER_LABEL="Okta"
+  METADATA_URL="$OKTA_METADATA_URL"
+fi
+
+SERVICE_ROLE_KEY=$($DOCKER exec supabase_kong_flow cat /home/kong/kong.yml \
+  | grep -o "sb_secret_[A-Za-z0-9_-]*" | head -1 || true)
+
+if [[ -z "$SERVICE_ROLE_KEY" ]]; then
+  echo "Error: could not determine service role key from Kong config." >&2
+  exit 1
+fi
+
+AUTH_HEADERS=(-H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY")
+
+# Look for an existing provider that already owns this domain.
+EXISTING=$(curl -s 'http://127.0.0.1:5431/auth/v1/admin/sso/providers' "${AUTH_HEADERS[@]}")
+read -r EXISTING_ID EXISTING_METADATA < <(echo "$EXISTING" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for item in (data.get('items') or []):
+    domains = [d.get('domain','') for d in (item.get('domains') or [])]
+    if '$SAML_DOMAIN' in domains:
+        url = (item.get('saml') or {}).get('metadata_url', '')
+        print(item['id'], url)
+        sys.exit()
+print('', '')
+" 2>/dev/null || echo "" "")
+
+if [[ -n "$EXISTING_ID" && "$EXISTING_METADATA" == "$METADATA_URL" ]]; then
+  PROVIDER_ID="$EXISTING_ID"
+  echo "$PROVIDER_LABEL provider already registered for $SAML_DOMAIN (id: $PROVIDER_ID)."
+else
+  # Remove the old provider for this domain if the metadata URL changed.
+  if [[ -n "$EXISTING_ID" ]]; then
+    echo "Replacing existing provider for $SAML_DOMAIN ($EXISTING_ID) with $PROVIDER_LABEL..."
+    $PSQL -c "UPDATE public.tenants SET sso_provider_id = NULL WHERE sso_provider_id = '$EXISTING_ID';" 2>/dev/null
+    curl -s -X DELETE "http://127.0.0.1:5431/auth/v1/admin/sso/providers/$EXISTING_ID" "${AUTH_HEADERS[@]}" > /dev/null
+  fi
+
+  echo "--- Registering $PROVIDER_LABEL provider (domain: $SAML_DOMAIN) ---"
+
+  RESPONSE=$(curl -s -X POST 'http://127.0.0.1:5431/auth/v1/admin/sso/providers' \
+    "${AUTH_HEADERS[@]}" \
+    -H 'Content-Type: application/json' \
+    -d "{\"type\":\"saml\",\"metadata_url\":\"$METADATA_URL\",\"domains\":[\"$SAML_DOMAIN\"]}")
+
+  PROVIDER_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])" 2>/dev/null || true)
+
+  if [[ -z "$PROVIDER_ID" ]]; then
+    echo "Error: failed to register provider. Response: $RESPONSE" >&2
+    exit 1
+  fi
+
+  echo "$PROVIDER_LABEL provider registered (id: $PROVIDER_ID, domain: $SAML_DOMAIN)."
+fi
+
+# Link provider to a tenant
+LINKED_TENANT=$($PSQL -t -c "SELECT tenant FROM public.tenants WHERE sso_provider_id = '$PROVIDER_ID' LIMIT 1;" 2>/dev/null | tr -d ' \n')
+
+if [[ -n "$LINKED_TENANT" ]]; then
+  echo "Provider already linked to tenant: $LINKED_TENANT"
+else
+  if [[ -n "$SAML_TENANT" ]]; then
+    TENANT="$SAML_TENANT"
+  else
+    TENANT=$($PSQL -t -c "SELECT tenant FROM public.tenants WHERE tenant NOT LIKE 'ops.%' ORDER BY tenant LIMIT 1;" 2>/dev/null | tr -d ' \n')
+    if [[ -z "$TENANT" ]]; then
+      echo "Error: no tenants found. Create a tenant first or pass --saml-tenant." >&2
+      exit 1
+    fi
+    echo "No --saml-tenant specified, using first available: $TENANT"
+  fi
+
+  # Normalise: ensure trailing slash
+  TENANT="${TENANT%/}/"
+
+  # Create the tenant if it doesn't exist yet.
+  $PSQL -c "INSERT INTO public.tenants (tenant) VALUES ('$TENANT') ON CONFLICT (tenant) DO NOTHING;"
+
+  $PSQL -c "UPDATE public.tenants SET sso_provider_id = '$PROVIDER_ID' WHERE tenant = '$TENANT';"
+  echo "Linked provider to tenant: $TENANT"
+fi
+
+echo ""
+echo "--- SAML setup complete ---"
+echo "  Provider     : $PROVIDER_LABEL"
+echo "  Provider ID  : $PROVIDER_ID"
+echo "  SSO login    : curl -s -X POST 'http://127.0.0.1:5431/auth/v1/sso' -H 'Content-Type: application/json' -d '{\"provider_id\":\"$PROVIDER_ID\"}'"

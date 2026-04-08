@@ -1683,6 +1683,8 @@ impl TestHarness {
             self.pool.clone(),
             self.publisher.clone(),
             snapshot_watch.clone(),
+            "http://invalid-gotrue-url".to_string(),
+            String::new(),
         ));
 
         self.control_plane_app = Some(app);

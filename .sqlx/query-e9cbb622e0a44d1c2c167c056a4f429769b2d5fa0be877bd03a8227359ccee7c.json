@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    u.id AS \"id!: uuid::Uuid\",\n                    u.email AS \"email!: String\",\n                    u.raw_user_meta_data->>'full_name' AS \"display_name: String\"\n                FROM auth.users u\n                WHERE u.email = $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: uuid::Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "email!: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "e9cbb622e0a44d1c2c167c056a4f429769b2d5fa0be877bd03a8227359ccee7c"
+}
