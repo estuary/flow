@@ -114,6 +114,17 @@ Estuary's data plane IAM user will need the following actions:
 You can apply the policy through the [AWS Console](https://console.aws.amazon.com/s3/) or the `aws` CLI.
 The storage mapping dialog provides a ready-to-use policy JSON during connection testing.
 
+#### S3 Bucket Encryption
+
+Estuary supports **SSE-S3** (Amazon S3 managed keys) for default bucket encryption. **SSE-KMS** (AWS Key Management Service) is **not supported** for storage mapping buckets because Estuary's data plane IAM user does not have access to your KMS keys.
+
+If your bucket uses SSE-KMS as the default encryption, change it to SSE-S3:
+
+1. In the [AWS Console](https://console.aws.amazon.com/s3/), navigate to your bucket.
+2. Go to **Properties** > **Default encryption**.
+3. Click **Edit** and change from **AWS Key Management Service key (SSE-KMS)** to **Amazon S3 managed key (SSE-S3)**.
+4. Save the change, then retry the connection test in Estuary.
+
 ### Azure Blob Storage
 
 For an [Azure storage account](https://learn.microsoft.com/en-us/azure/storage/common/storage-account-create)
