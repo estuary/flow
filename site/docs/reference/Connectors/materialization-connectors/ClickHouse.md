@@ -5,7 +5,9 @@
 This connector materializes Estuary collections into tables in a ClickHouse database.
 
 [ClickHouse](https://clickhouse.com/) is a column-oriented OLAP database designed for real-time analytics.
-This connector writes directly to ClickHouse using the native protocol.
+This connector writes batches directly to ClickHouse using the
+[Native protocol](https://clickhouse.com/docs/interfaces/tcp) and
+[Native format](https://clickhouse.com/docs/interfaces/formats/Native).
 
 Estuary also provides a [Dekaf-based integration](./Dekaf/clickhouse.md) for users who prefer to ingest via ClickPipes.
 
@@ -14,7 +16,7 @@ Estuary also provides a [Dekaf-based integration](./Dekaf/clickhouse.md) for use
 To use this connector, you'll need:
 
 * A ClickHouse database (self-hosted or ClickHouse Cloud) with a user that has permissions to create tables and write data.
-* The connector uses the ClickHouse native protocol (port 9000 by default, not the HTTP interface on port 8123).
+* The connector uses the ClickHouse native protocol. The default port is **9440** (TLS enabled, the default) or **9000** (TLS disabled). It does not use the HTTP interface on port 8123.
 * At least one Estuary collection.
 
 :::tip
@@ -32,19 +34,22 @@ Use the below properties to configure a ClickHouse materialization, which will d
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/address`** | Address | Host and port of the database, in the form of `host[:port]`. Port 9000 is used as the default if no specific port is provided. | string | Required |
+| **`/address`** | Address | Host and port of the database, in the form of `host[:port]`. Port 9440 is used as the default when SSL is enabled (the default), or 9000 when SSL is disabled. | string | Required |
 | **`/credentials`** | Authentication | | object | Required |
 | **`/credentials/auth_type`** | Auth Type | Authentication type. Must be `user_password`. | string | Required |
 | **`/credentials/username`** | Username | Database username. | string | Required |
 | **`/credentials/password`** | Password | Database password. | string | Required |
 | **`/database`** | Database | Name of the ClickHouse database to materialize to. | string | Required |
-| `/hardDelete` | Hard Delete | If enabled, the connector inserts tombstone rows with `_is_deleted = 1` when source documents are deleted, causing them to be excluded from `FINAL` queries. By default, source deletions are ignored at the destination. | boolean | `false` |
+| `/hardDelete` | Hard Delete | If enabled, items deleted in the source will also be deleted from the destination. By default, deletions are tracked via `_meta/op` (soft-delete). | boolean | `false` |
+| `/advanced/sslmode` | SSL Mode | Controls the TLS connection behavior. Options: `disable`, `require`, `verify-full`. | string | `verify-full` |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document column will not be required for standard updates. | boolean | `false` |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/table`** | Table | Name of the database table to materialize to. The connector will create the table if it doesn't already exist. | string | Required |
+| `/delta_updates` | Delta Update | Should updates to this table be done via delta updates. | boolean | `false` |
 
 ### Sample
 
@@ -54,7 +59,7 @@ materializations:
     endpoint:
       connector:
         config:
-          address: clickhouse.example.com:9000
+          address: clickhouse.example.com:9440
           credentials:
             auth_type: user_password
             username: flow_user
@@ -69,24 +74,27 @@ materializations:
 
 ## ReplacingMergeTree and FINAL
 
-The connector creates tables using the [ReplacingMergeTree engine](https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree). Updated records are actually inserted as duplicates; ClickHouse later deduplicates these as a background process.
+In standard (non-delta) mode, the connector creates tables using the [ReplacingMergeTree engine](https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree) with `flow_published_at` as the version column.
+Updated records are inserted as new rows; ClickHouse deduplicates them in a background process, keeping the row with the highest `flow_published_at` value for each key.
 
-Your queries should use the `FINAL` directive to get deduplicated results, and include the predicate `_is_deleted = 0` to ignore deleted records.
+The connector also configures automatic background cleanup merges so that superseded rows and tombstones are eventually removed from disk.
+
+Your queries should use the `FINAL` directive to get results with duplicate and tombstone rows removed:
 
 ```sql
-SELECT * FROM my_table FINAL WHERE _is_deleted = 0;
+SELECT * FROM my_table FINAL;
 ```
 
 ## Hard deletes
 
-All tables are created with `_version` (UInt64) and `_is_deleted` (UInt8) columns used internally by the `ReplacingMergeTree` engine.
+When `hardDelete: true` is set in the endpoint configuration, the connector adds an `_is_deleted` (UInt8) column to each table.
+When a source document is deleted, the connector inserts a **tombstone row** with `_is_deleted = 1` and the same key columns as the original row.
+The `ReplacingMergeTree` engine uses `_is_deleted` to exclude these rows from `FINAL` queries, and automatic cleanup merges eventually remove the tombstoned records from disk.
 
-If you set `hardDelete: true` in the endpoint configuration, the connector inserts a **tombstone row** when a source document is deleted. The tombstone has `_is_deleted = 1`, the same key columns as the original row, and zero values for all other columns. The `ReplacingMergeTree` engine then uses `_is_deleted` to hide these rows from `FINAL` queries, and eventually removes the tombstoned records from the table.
+## Soft deletes
 
-## Soft deletes not supported
+By default (when `hardDelete` is not enabled), source deletions are tracked in the destination via the `_meta/op` column, which indicates whether a row was created, updated, or deleted. The row itself remains in the table.
 
-Source deletions are effectively ignored at the destination.
+## Delta updates
 
-## Delta updates not supported
-
-This connector does not support [delta updates](/concepts/materialization/#delta-updates). Only standard (merge) mode is supported.
+This connector supports [delta updates](/concepts/materialization/#delta-updates) on a per-binding basis. When `delta_updates` is enabled for a binding, the table uses the `MergeTree` engine instead of `ReplacingMergeTree`. Every store operation is appended as-is with no deduplication — rows accumulate and are never removed.
