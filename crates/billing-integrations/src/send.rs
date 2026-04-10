@@ -167,13 +167,15 @@ async fn update_draft_collection_methods(
     stripe_client: &Client,
     mut to_update: Vec<Invoice>,
 ) -> anyhow::Result<Vec<Invoice>> {
-    // Identify invoices that are `charge_automatically` but don't have a default payment method
+    // Identify invoices that need to be switched to `send_invoice`:
+    // - Manual invoices should always be sent as invoices, never auto-charged
+    // - Auto-charge invoices without a payment method on file must be sent as invoices
     let needs_update: HashSet<InvoiceId> = to_update
         .iter()
         .filter(|inv| {
             inv.collection_method().map_or(false, |cm| {
                 cm == stripe::CollectionMethod::ChargeAutomatically
-            }) && !inv.has_cc()
+            }) && (inv.is_manual() || !inv.has_cc())
         })
         .map(|inv| inv.id().clone())
         .collect::<HashSet<_>>();

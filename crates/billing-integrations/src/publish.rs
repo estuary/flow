@@ -500,6 +500,14 @@ impl Invoice {
         }
 
         // Create or reuse the invoice
+        // Manual invoices should always be sent as invoices rather than
+        // charged to the customer's payment method.
+        let mode = if self.invoice_type == InvoiceType::Manual {
+            ChargeType::SendInvoice
+        } else {
+            mode
+        };
+
         let invoice = if let Some(existing_id) = existing_invoice_id {
             tracing::debug!(
                 "Updating existing invoice {id}",
