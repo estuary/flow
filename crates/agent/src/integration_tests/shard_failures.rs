@@ -822,6 +822,117 @@ async fn assert_status_shards_pending(harness: &mut TestHarness, task: &str) {
     .await;
 }
 
+#[tokio::test]
+async fn test_spec_deletion_cleans_up_alerts() {
+    let mut harness = TestHarness::init("test_spec_deletion_cleans_up_alerts").await;
+    let user_id = harness.setup_tenant("foxes").await;
+
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "foxes/den": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    }
+                },
+                "key": ["/id"]
+            }
+        },
+        "captures": {
+            "foxes/capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": { "table": "den" },
+                        "target": "foxes/den"
+                    }
+                ]
+            }
+        }
+    }));
+
+    let result = harness
+        .control_plane()
+        .publish(
+            Some("initial publication".to_string()),
+            Uuid::new_v4(),
+            draft,
+            Some("ops/dp/public/test".to_string()),
+        )
+        .await
+        .expect("initial publish failed");
+    assert!(result.status.is_success());
+
+    harness.run_pending_controllers(None).await;
+    harness.control_plane().reset_activations();
+
+    // Trigger enough shard failures to fire a ShardFailed alert (threshold is 3).
+    let state = harness.get_controller_state("foxes/capture").await;
+    let shard = shard_ref(state.last_build_id, "foxes/capture");
+    for _ in 0..3 {
+        harness.fail_shard(&shard).await;
+        harness.run_pending_controller("foxes/capture").await;
+    }
+
+    harness
+        .assert_alert_firing("foxes/capture", AlertType::ShardFailed)
+        .await;
+
+    // Delete the capture.
+    let mut draft = tables::DraftCatalog::default();
+    draft.delete("foxes/capture", CatalogType::Capture, None);
+    let del_result = harness
+        .user_publication(user_id, "delete capture", draft)
+        .await;
+    assert!(del_result.status.is_success());
+
+    harness.run_pending_controllers(None).await;
+    harness.assert_live_spec_hard_deleted("foxes/capture").await;
+
+    // The GQL active alerts query should no longer include the shard_failed alert.
+    let active_after: serde_json::Value = harness
+        .execute_graphql_query(
+            user_id,
+            r#"query($by: AlertsBy!, $first: Int) {
+                alerts(by: $by, first: $first) {
+                    edges { node { catalogName alertType resolvedAt } }
+                }
+            }"#,
+            &serde_json::json!({"by": {"prefix": "foxes/", "active": true}, "first": 10}),
+        )
+        .await
+        .expect("graphql query failed");
+    let edges = active_after["alerts"]["edges"].as_array().unwrap();
+    assert!(
+        !edges
+            .iter()
+            .any(|e| e["node"]["catalogName"] == "foxes/capture"
+                && e["node"]["alertType"] == "shard_failed"),
+        "shard_failed alert for foxes/capture should not be active after deletion, got: {edges:?}"
+    );
+
+    // The notification tasks for foxes/capture alerts should have been deleted.
+    let orphaned_tasks = sqlx::query!(
+        r#"select t.task_id as "task_id: models::Id"
+        from internal.tasks t
+        join alert_history ah on ah.id = t.task_id
+        where ah.catalog_name = 'foxes/capture'"#,
+    )
+    .fetch_all(&harness.pool)
+    .await
+    .unwrap();
+    assert!(
+        orphaned_tasks.is_empty(),
+        "notification tasks should have been deleted on spec deletion"
+    );
+}
+
 /// Simulates the passage of time after a series of shard failures. The
 /// `shard_status` must already be `Ok`, or this will panic. The timestamps of
 /// all failure events will have `by_duration` subtracted from them. Also pushes
