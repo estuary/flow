@@ -15,9 +15,32 @@ Estuary also provides a [Dekaf-based integration](./Dekaf/clickhouse.md) for use
 
 To use this connector, you'll need:
 
-* A ClickHouse database (self-hosted or ClickHouse Cloud) with a user that has permissions to create tables and write data.
+* A ClickHouse database (self-hosted or ClickHouse Cloud) and user.
 * The connector uses the ClickHouse native protocol. The default port is **9440** (TLS enabled, the default) or **9000** (TLS disabled). It does not use the HTTP interface on port 8123.
 * At least one Estuary collection.
+
+### Required Permissions
+
+```sql
+-- Target database access: CREATE TABLE, DROP TABLE, SELECT, INSERT, TRUNCATE, etc.
+GRANT ALL ON <database>.* TO <user>;
+
+-- System table access for metadata discovery and partition management.
+-- These are NOT covered by the database grant above.
+GRANT SELECT ON system.columns TO <user>;
+GRANT SELECT ON system.parts TO <user>;
+GRANT SELECT ON system.tables TO <user>;
+```
+
+Replace `<user>` and `<database>` with your actual user and database names.
+
+Optionally, you can use row-level policies to restrict the user's system table access to only the target database:
+
+```sql
+CREATE ROW POLICY estuary_tables ON system.tables FOR SELECT USING database = '<database>' TO <user>;
+CREATE ROW POLICY estuary_columns ON system.columns FOR SELECT USING database = '<database>' TO <user>;
+CREATE ROW POLICY estuary_parts ON system.parts FOR SELECT USING database = '<database>' TO <user>;
+```
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
