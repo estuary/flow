@@ -57,6 +57,8 @@ pub struct State {
 #[derive(Debug)]
 pub struct Outcome {
     live_spec_id: models::Id,
+    /// The catalog name of the live spec, used for alert cleanup on deletion.
+    catalog_name: String,
     /// The next status of the controller.
     next_status: ControllerStatus,
     /// When to run the controller next. This will account for any backoff after errors.
@@ -78,6 +80,7 @@ impl automations::Outcome for Outcome {
     async fn apply(self, txn: &mut sqlx::PgConnection) -> anyhow::Result<Action> {
         let Outcome {
             live_spec_id,
+            catalog_name,
             next_status: status,
             next_run,
             failures,
@@ -87,6 +90,12 @@ impl automations::Outcome for Outcome {
         } = self;
 
         if live_spec_deleted && error.is_none() {
+            // Clean up any open alerts without sending resolution
+            // notifications, since the task is being deleted.
+            control_plane_api::alerts::cleanup_open_alerts(&catalog_name, txn)
+                .await
+                .context("resolving alerts for deleted spec")?;
+
             // Do we need to delete the live spec? If `live_spec_id.is_zero()`,
             // it means that the `live_specs` row had _already_ been deleted
             // before this controller run began. That can happen due an edge
@@ -162,6 +171,7 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
             inbox.clear();
             return Ok(Outcome {
                 live_spec_id: models::Id::zero(),
+                catalog_name: String::new(),
                 live_spec_deleted: true,
                 failures: 0,
                 next_run: None,
@@ -198,6 +208,7 @@ impl<C: ControlPlane + Send + Sync + 'static> Executor for LiveSpecControllerExe
 
         Ok(Outcome {
             live_spec_id: controller_state.live_spec_id,
+            catalog_name: controller_state.catalog_name.to_string(),
             next_status,
             failures,
             error,
