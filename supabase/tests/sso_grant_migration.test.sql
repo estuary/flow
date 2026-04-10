@@ -4,6 +4,7 @@
 create or replace function tests._clean_sso_migration()
 returns void as $$
 begin
+  delete from public.refresh_tokens;
   delete from public.user_grants;
   delete from auth.identities where user_id in (
     select id from auth.users where email like '%@sso-migration-test.example'
@@ -239,6 +240,58 @@ begin
         where user_id = 'a9999999-9999-9999-9999-999999999999'
           and object_role = 'bigcorpCo/eng/' $i$,
     'sub-prefix grant under different SSO tenant not transferred'
+  );
+
+  return;
+end
+$$ language plpgsql;
+
+-- Refresh tokens are transferred from old social user to new SSO user.
+create function tests.test_sso_grant_migration_refresh_tokens()
+returns setof text as $$
+declare
+  provider_acme uuid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  old_alice uuid = 'a1111111-1111-1111-1111-111111111111';
+  new_alice uuid = 'a5555555-5555-5555-5555-555555555555';
+begin
+  perform tests._clean_sso_migration();
+
+  insert into auth.sso_providers (id) values (provider_acme);
+  insert into tenants (tenant, sso_provider_id) values ('acmeCo/', provider_acme);
+
+  -- Old Alice: social user with a refresh token.
+  insert into auth.users (id, email, is_sso_user) values
+    (old_alice, 'alice@sso-migration-test.example', false);
+
+  insert into user_grants (user_id, object_role, capability) values
+    (old_alice, 'acmeCo/', 'admin');
+
+  -- Create refresh tokens for old Alice directly.
+  insert into refresh_tokens (user_id, detail, multi_use, valid_for, hash) values
+    (old_alice, 'cli token', true, '30 days', crypt('secret1', gen_salt('bf'))),
+    (old_alice, 'ci token', false, '7 days', crypt('secret2', gen_salt('bf')));
+
+  -- New Alice: SSO user with same email.
+  insert into auth.users (id, email, is_sso_user) values
+    (new_alice, 'alice@sso-migration-test.example', true);
+
+  -- This INSERT fires the trigger.
+  insert into auth.identities (user_id, provider, provider_id, identity_data) values
+    (new_alice, 'sso:' || provider_acme::text, provider_acme::text, '{}'::jsonb);
+
+  -- Both refresh tokens should now belong to the new SSO user.
+  return next results_eq(
+    $i$ select count(*)::int from refresh_tokens
+        where user_id = 'a5555555-5555-5555-5555-555555555555' $i$,
+    $i$ values (2) $i$,
+    'refresh tokens transferred to new SSO user'
+  );
+
+  -- Old user should have no refresh tokens.
+  return next is_empty(
+    $i$ select 1 from refresh_tokens
+        where user_id = 'a1111111-1111-1111-1111-111111111111' $i$,
+    'old user has no refresh tokens after migration'
   );
 
   return;

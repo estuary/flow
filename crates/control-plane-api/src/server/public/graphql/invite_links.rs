@@ -271,8 +271,8 @@ impl InviteLinksMutation {
             }
         };
 
-        // If the invite's tenant has an SSO provider configured, verify the
-        // redeeming user has an identity linked to that tenant's SSO provider.
+        // If the invite's tenant enforces SSO, verify the redeeming user has
+        // an identity linked to that tenant's SSO provider.
         //
         // We check auth.identities rather than session-level claims (e.g. amr)
         // because Supabase Auth excludes SAML SSO from identity linking — a user
@@ -286,7 +286,7 @@ impl InviteLinksMutation {
             SELECT true AS "exists!"
             FROM tenants t
             WHERE t.tenant = $1
-              AND t.sso_provider_id IS NOT NULL
+              AND t.enforce_sso IS TRUE
               AND NOT EXISTS (
                 SELECT 1 FROM auth.identities ai
                 WHERE ai.user_id = $2
