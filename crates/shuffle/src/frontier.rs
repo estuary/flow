@@ -234,11 +234,52 @@ pub struct Frontier {
     pub flushed_lsn: Vec<log::Lsn>,
 }
 
+/// Error returned by `Frontier::new` when its validation invariants fail.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(
+        "JournalFrontier is not ordered on (journal, binding) at index {index}: \
+         ({curr_journal}, {curr_binding}) follows ({prev_journal}, {prev_binding})"
+    )]
+    JournalOutOfOrder {
+        index: usize,
+        prev_journal: String,
+        prev_binding: u16,
+        curr_journal: String,
+        curr_binding: u16,
+    },
+    #[error(
+        "JournalFrontier is not unique on (journal, binding) at index {index}: \
+         ({journal}, {binding})"
+    )]
+    JournalDuplicate {
+        index: usize,
+        journal: String,
+        binding: u16,
+    },
+    #[error(
+        "ProducerFrontier is not ordered on producer at index {index} in ({binding}, {journal})"
+    )]
+    ProducerOutOfOrder {
+        index: usize,
+        journal: String,
+        binding: u16,
+    },
+    #[error(
+        "ProducerFrontier is not unique on producer at index {index} in ({binding}, {journal})"
+    )]
+    ProducerDuplicate {
+        index: usize,
+        journal: String,
+        binding: u16,
+    },
+}
+
 impl Frontier {
     /// Construct a `Frontier` from journal entries and per-shard flushed LSNs,
     /// validating that entries are sorted and unique on `(journal, binding)` and
     /// that producers within each entry are sorted and unique on `producer`.
-    pub fn new(journals: Vec<JournalFrontier>, flushed_lsn: Vec<u64>) -> anyhow::Result<Self> {
+    pub fn new(journals: Vec<JournalFrontier>, flushed_lsn: Vec<u64>) -> Result<Self, Error> {
         let flushed_lsn = flushed_lsn.into_iter().map(log::Lsn::from_u64).collect();
 
         for (index, window) in journals.windows(2).enumerate() {
@@ -250,20 +291,22 @@ impl Frontier {
                 .then(prev.binding.cmp(&curr.binding))
             {
                 std::cmp::Ordering::Less => {}
-                std::cmp::Ordering::Equal => anyhow::bail!(
-                    "JournalFrontier is not unique on (journal, binding) at index {}: ({}, {})",
-                    index + 1,
-                    curr.journal,
-                    curr.binding,
-                ),
-                std::cmp::Ordering::Greater => anyhow::bail!(
-                    "JournalFrontier is not ordered on (journal, binding) at index {}: ({}, {}) follows ({}, {})",
-                    index + 1,
-                    curr.journal,
-                    curr.binding,
-                    prev.journal,
-                    prev.binding,
-                ),
+                std::cmp::Ordering::Equal => {
+                    return Err(Error::JournalDuplicate {
+                        index: index + 1,
+                        journal: curr.journal.to_string(),
+                        binding: curr.binding,
+                    });
+                }
+                std::cmp::Ordering::Greater => {
+                    return Err(Error::JournalOutOfOrder {
+                        index: index + 1,
+                        prev_journal: prev.journal.to_string(),
+                        prev_binding: prev.binding,
+                        curr_journal: curr.journal.to_string(),
+                        curr_binding: curr.binding,
+                    });
+                }
             }
         }
         for jf in &journals {
@@ -271,18 +314,20 @@ impl Frontier {
                 let (prev, curr) = (&window[0], &window[1]);
                 match prev.producer.cmp(&curr.producer) {
                     std::cmp::Ordering::Less => {}
-                    std::cmp::Ordering::Equal => anyhow::bail!(
-                        "ProducerFrontier is not unique on producer at index {} in ({}, {})",
-                        index + 1,
-                        jf.binding,
-                        jf.journal,
-                    ),
-                    std::cmp::Ordering::Greater => anyhow::bail!(
-                        "ProducerFrontier is not ordered on producer at index {} in ({}, {})",
-                        index + 1,
-                        jf.binding,
-                        jf.journal,
-                    ),
+                    std::cmp::Ordering::Equal => {
+                        return Err(Error::ProducerDuplicate {
+                            index: index + 1,
+                            journal: jf.journal.to_string(),
+                            binding: jf.binding,
+                        });
+                    }
+                    std::cmp::Ordering::Greater => {
+                        return Err(Error::ProducerOutOfOrder {
+                            index: index + 1,
+                            journal: jf.journal.to_string(),
+                            binding: jf.binding,
+                        });
+                    }
                 }
             }
         }
