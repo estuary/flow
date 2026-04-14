@@ -5,11 +5,9 @@ expression: response
 {
   "data": {
     "byFullName": {
-      "connectorId": "5555555500000005",
       "endpointSpecSchema": {
         "type": "object"
       },
-      "id": "6666666600000006",
       "imageTag": ":dev",
       "protocol": "materialization",
       "resourceSpecSchema": {
@@ -30,30 +28,10 @@ expression: response
         "type": "object"
       }
     },
-    "byId": {
-      "connectorId": "5555555500000004",
-      "endpointSpecSchema": {
-        "type": "object"
-      },
-      "id": "6666666600000003",
-      "imageTag": ":dev",
-      "protocol": "capture",
-      "resourceSpecSchema": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "x-collection-name": true
-          }
-        },
-        "type": "object"
-      }
-    },
     "fallbackToDefault": {
-      "connectorId": "5555555500000005",
       "endpointSpecSchema": {
         "type": "object"
       },
-      "id": "6666666600000008",
       "imageTag": ":v3",
       "protocol": "materialization",
       "resourceSpecSchema": {
@@ -73,6 +51,7 @@ expression: response
         },
         "type": "object"
       }
-    }
+    },
+    "unknownImage": null
   }
 }

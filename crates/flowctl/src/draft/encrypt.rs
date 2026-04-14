@@ -15,15 +15,13 @@ struct FetchConnectorEndpointSchema;
 
 /// Encrypts any task endpoint configurations that are not already encrypted.
 /// The encryption is performed by calling the config encryption service endpoint,
-/// passing the `connector_tags.endpoint_spec_schema` for the connector image. If
-/// no `connector_tags` row is found, then encryption will be skipped.
+/// passing the connector's `endpointSpecSchema` to identify secret fields.
 pub async fn encrypt_configs(
     draft: &mut tables::DraftCatalog,
     client: &Client,
 ) -> anyhow::Result<()> {
-    // Simple cache of `connector_tags.endpoint_spec_schema` values, keyed on
-    // the full image + tag. This is just to avoid repeated calls to fetch the
-    // schemas for catalogs with many tasks.
+    // Simple cache of endpoint spec schemas, keyed on the full image + tag.
+    // Avoids repeated GraphQL calls for catalogs with many tasks.
     let mut schema_cache: HashMap<String, Option<RawValue>> = HashMap::new();
 
     for capture in draft.captures.iter_mut() {
@@ -167,30 +165,29 @@ async fn fetch_or_cache_schema(
         return Ok(cached.clone());
     }
 
-    let (image_name, image_tag) = models::split_image_tag(image);
+    let (_image_name, image_tag) = models::split_image_tag(image);
     anyhow::ensure!(
         !image_tag.is_empty(),
-        "invalid connector image name '{image}', must be in the form of 'registry/name:version' or 'registry/name@sha265:hash'"
+        "invalid connector image name '{image}', must be in the form of 'registry/name:version' or 'registry/name@sha256:hash'"
     );
 
     let vars = fetch_connector_endpoint_schema::Variables {
-        image_name,
-        image_tag: image_tag.clone(),
+        full_image_name: image.to_string(),
     };
     let resp = post_graphql::<FetchConnectorEndpointSchema>(client, vars)
         .await
         .context("failed to fetch connector endpoint schema")?;
-    let Some(tag) = resp.connector.and_then(|c| c.connector_tag) else {
+    let Some(spec) = resp.connector_spec else {
         anyhow::bail!(
             "connector image '{image}' is unknown to Estuary, so the endpoint configuration cannot be encrypted. Use a different connector or reach out to Estuary support for help"
         );
     };
 
-    // This commonly happens when users use a `:dev` tag, but
-    if tag.endpoint_spec_schema.is_some() && tag.image_tag != image_tag {
-        tracing::warn!(connector_image = %image, default_image_tag = %tag.image_tag, "connector image tag is unknown to Estuary, so the default image tag will be used to provide the schema for endpoint config encryption");
+    // This commonly happens when users use a `:dev` tag or a custom PR tag.
+    if spec.endpoint_spec_schema.is_some() && spec.image_tag != image_tag {
+        tracing::warn!(connector_image = %image, default_image_tag = %spec.image_tag, "connector image tag is unknown to Estuary, so the default image tag will be used to provide the schema for endpoint config encryption");
     }
-    cache.insert(image.to_string(), tag.endpoint_spec_schema.clone());
+    cache.insert(image.to_string(), spec.endpoint_spec_schema.clone());
 
-    Ok(tag.endpoint_spec_schema)
+    Ok(spec.endpoint_spec_schema)
 }

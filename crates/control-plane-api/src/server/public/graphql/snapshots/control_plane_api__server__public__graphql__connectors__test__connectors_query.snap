@@ -8,12 +8,14 @@ expression: response
       "edges": [
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":test",
+            "defaultSpec": {
+              "defaultCaptureInterval": "01:02:03",
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000000",
               "imageTag": ":test",
               "protocol": "capture",
               "resourceSpecSchema": {
@@ -26,46 +28,26 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": null,
             "id": "5555555500000000",
             "imageName": "source/test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "capture",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":test",
-                "protocol": "capture",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000000",
-              "imageTag": ":test",
-              "protocol": "capture",
-              "resourceSpecSchema": {
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         },
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":test-no-annotation",
+            "defaultSpec": {
+              "defaultCaptureInterval": null,
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000002",
               "imageTag": ":test-no-annotation",
               "protocol": "materialization",
               "resourceSpecSchema": {
@@ -84,57 +66,26 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": null,
             "id": "5555555500000001",
             "imageName": "materialize/test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "materialization",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":test",
-                "protocol": "materialization",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":test-no-annotation",
-                "protocol": "materialization",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000002",
-              "imageTag": ":test-no-annotation",
-              "protocol": "materialization",
-              "resourceSpecSchema": {
-                "properties": {
-                  "delta": {
-                    "type": "boolean"
-                  },
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  },
-                  "schema": {
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         },
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":v1",
+            "defaultSpec": {
+              "defaultCaptureInterval": null,
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000004",
               "imageTag": ":v1",
               "protocol": "capture",
               "resourceSpecSchema": {
@@ -146,57 +97,30 @@ expression: response
                 },
                 "type": "object"
               }
+            },
+            "devSpec": {
+              "imageTag": ":dev",
+              "protocol": "capture"
             },
             "id": "5555555500000004",
             "imageName": "source/multi-tag-test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "capture",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":dev",
-                "protocol": "capture",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":v1",
-                "protocol": "capture",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":v2",
-                "protocol": null,
-                "specSucceeded": false
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000004",
-              "imageTag": ":v1",
-              "protocol": "capture",
-              "resourceSpecSchema": {
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         },
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":v3",
+            "defaultSpec": {
+              "defaultCaptureInterval": null,
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000008",
               "imageTag": ":v3",
               "protocol": "materialization",
               "resourceSpecSchema": {
@@ -217,54 +141,17 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": {
+              "imageTag": ":dev",
+              "protocol": "materialization"
+            },
             "id": "5555555500000005",
             "imageName": "materialize/multi-tag-test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "materialization",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":dev",
-                "protocol": "materialization",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":v2",
-                "protocol": "materialization",
-                "specSucceeded": false
-              },
-              {
-                "imageTag": ":v3",
-                "protocol": "materialization",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000008",
-              "imageTag": ":v3",
-              "protocol": "materialization",
-              "resourceSpecSchema": {
-                "properties": {
-                  "delta": {
-                    "type": "boolean",
-                    "x-delta-updates": true
-                  },
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  },
-                  "schema": {
-                    "type": "string",
-                    "x-schema-name": true
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         }
       ]
@@ -273,12 +160,14 @@ expression: response
       "edges": [
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":test",
+            "defaultSpec": {
+              "defaultCaptureInterval": "01:02:03",
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000000",
               "imageTag": ":test",
               "protocol": "capture",
               "resourceSpecSchema": {
@@ -291,46 +180,26 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": null,
             "id": "5555555500000000",
             "imageName": "source/test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "capture",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":test",
-                "protocol": "capture",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000000",
-              "imageTag": ":test",
-              "protocol": "capture",
-              "resourceSpecSchema": {
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         },
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":test-no-annotation",
+            "defaultSpec": {
+              "defaultCaptureInterval": null,
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000002",
               "imageTag": ":test-no-annotation",
               "protocol": "materialization",
               "resourceSpecSchema": {
@@ -349,57 +218,26 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": null,
             "id": "5555555500000001",
             "imageName": "materialize/test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "materialization",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":test",
-                "protocol": "materialization",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":test-no-annotation",
-                "protocol": "materialization",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000002",
-              "imageTag": ":test-no-annotation",
-              "protocol": "materialization",
-              "resourceSpecSchema": {
-                "properties": {
-                  "delta": {
-                    "type": "boolean"
-                  },
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  },
-                  "schema": {
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         },
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":v1",
+            "defaultSpec": {
+              "defaultCaptureInterval": null,
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000004",
               "imageTag": ":v1",
               "protocol": "capture",
               "resourceSpecSchema": {
@@ -411,57 +249,30 @@ expression: response
                 },
                 "type": "object"
               }
+            },
+            "devSpec": {
+              "imageTag": ":dev",
+              "protocol": "capture"
             },
             "id": "5555555500000004",
             "imageName": "source/multi-tag-test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "capture",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":dev",
-                "protocol": "capture",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":v1",
-                "protocol": "capture",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":v2",
-                "protocol": null,
-                "specSucceeded": false
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000004",
-              "imageTag": ":v1",
-              "protocol": "capture",
-              "resourceSpecSchema": {
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         },
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":v3",
+            "defaultSpec": {
+              "defaultCaptureInterval": null,
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000008",
               "imageTag": ":v3",
               "protocol": "materialization",
               "resourceSpecSchema": {
@@ -482,54 +293,17 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": {
+              "imageTag": ":dev",
+              "protocol": "materialization"
+            },
             "id": "5555555500000005",
             "imageName": "materialize/multi-tag-test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "materialization",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":dev",
-                "protocol": "materialization",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":v2",
-                "protocol": "materialization",
-                "specSucceeded": false
-              },
-              {
-                "imageTag": ":v3",
-                "protocol": "materialization",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000008",
-              "imageTag": ":v3",
-              "protocol": "materialization",
-              "resourceSpecSchema": {
-                "properties": {
-                  "delta": {
-                    "type": "boolean",
-                    "x-delta-updates": true
-                  },
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  },
-                  "schema": {
-                    "type": "string",
-                    "x-schema-name": true
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         }
       ]
@@ -538,12 +312,14 @@ expression: response
       "edges": [
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":test",
+            "defaultSpec": {
+              "defaultCaptureInterval": "01:02:03",
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000000",
               "imageTag": ":test",
               "protocol": "capture",
               "resourceSpecSchema": {
@@ -556,46 +332,26 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": null,
             "id": "5555555500000000",
             "imageName": "source/test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "capture",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":test",
-                "protocol": "capture",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000000",
-              "imageTag": ":test",
-              "protocol": "capture",
-              "resourceSpecSchema": {
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         },
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":v1",
+            "defaultSpec": {
+              "defaultCaptureInterval": null,
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000004",
               "imageTag": ":v1",
               "protocol": "capture",
               "resourceSpecSchema": {
@@ -608,41 +364,17 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": {
+              "imageTag": ":dev",
+              "protocol": "capture"
+            },
             "id": "5555555500000004",
             "imageName": "source/multi-tag-test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "capture",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":dev",
-                "protocol": "capture",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":v1",
-                "protocol": "capture",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000004",
-              "imageTag": ":v1",
-              "protocol": "capture",
-              "resourceSpecSchema": {
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         }
       ]
@@ -651,12 +383,14 @@ expression: response
       "edges": [
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":test-no-annotation",
+            "defaultSpec": {
+              "defaultCaptureInterval": null,
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000002",
               "imageTag": ":test-no-annotation",
               "protocol": "materialization",
               "resourceSpecSchema": {
@@ -675,57 +409,26 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": null,
             "id": "5555555500000001",
             "imageName": "materialize/test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "materialization",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":test-no-annotation",
-                "protocol": "materialization",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":test",
-                "protocol": "materialization",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000002",
-              "imageTag": ":test-no-annotation",
-              "protocol": "materialization",
-              "resourceSpecSchema": {
-                "properties": {
-                  "delta": {
-                    "type": "boolean"
-                  },
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  },
-                  "schema": {
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         },
         {
           "node": {
-            "defaultTag": {
+            "defaultImageTag": ":v3",
+            "defaultSpec": {
+              "defaultCaptureInterval": null,
               "disableBackfill": false,
+              "documentationUrl": "http://test.test/",
               "endpointSpecSchema": {
                 "type": "object"
               },
-              "id": "6666666600000008",
               "imageTag": ":v3",
               "protocol": "materialization",
               "resourceSpecSchema": {
@@ -746,54 +449,17 @@ expression: response
                 "type": "object"
               }
             },
+            "devSpec": {
+              "imageTag": ":dev",
+              "protocol": "materialization"
+            },
             "id": "5555555500000005",
             "imageName": "materialize/multi-tag-test",
-            "missingTag": null,
+            "missingSpec": null,
+            "protocol": "materialization",
             "recommended": false,
-            "tags": [
-              {
-                "imageTag": ":dev",
-                "protocol": "materialization",
-                "specSucceeded": true
-              },
-              {
-                "imageTag": ":v2",
-                "protocol": "materialization",
-                "specSucceeded": false
-              },
-              {
-                "imageTag": ":v3",
-                "protocol": "materialization",
-                "specSucceeded": true
-              }
-            ],
             "title": "test",
-            "vTwoTagResult": {
-              "disableBackfill": false,
-              "endpointSpecSchema": {
-                "type": "object"
-              },
-              "id": "6666666600000008",
-              "imageTag": ":v3",
-              "protocol": "materialization",
-              "resourceSpecSchema": {
-                "properties": {
-                  "delta": {
-                    "type": "boolean",
-                    "x-delta-updates": true
-                  },
-                  "id": {
-                    "type": "string",
-                    "x-collection-name": true
-                  },
-                  "schema": {
-                    "type": "string",
-                    "x-schema-name": true
-                  }
-                },
-                "type": "object"
-              }
-            }
+            "vTwoSpec": null
           }
         }
       ]

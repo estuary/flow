@@ -1,8 +1,6 @@
-query FetchConnectorEndpointSchema($imageName: String!, $imageTag: String!) {
-    connector(imageName: $imageName) {
-        connectorTag(imageTag: $imageTag, orDefault: true) {
-            imageTag
-            endpointSpecSchema
-        }
+query FetchConnectorEndpointSchema($fullImageName: String!) {
+    connectorSpec(fullImageName: $fullImageName) {
+        imageTag
+        endpointSpecSchema
     }
 }

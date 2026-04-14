@@ -301,6 +301,12 @@ type ConnectionHealthTestResult {
 	allPassed: Boolean!
 }
 
+"""
+A connector from the Estuary connector catalog, identified by its OCI image
+name (e.g. "ghcr.io/estuary/source-postgres"). Use `defaultSpec` to get the
+configuration schemas for the blessed image tag, or `spec(imageTag)` for a
+specific version.
+"""
 type Connector {
 	"""
 	Unique id of the connector
@@ -315,11 +321,11 @@ type Connector {
 	"""
 	externalUrl: String!
 	"""
-	Name of the conector's OCI (Docker) Container image, for example "ghcr.io/estuary/source-postgres"
+	Name of the connector's OCI (Docker) container image, for example "ghcr.io/estuary/source-postgres"
 	"""
 	imageName: String!
 	"""
-	Does Estuary's marketing team want this one to appear at the top of the results?
+	Whether this connector should appear in a promoted position in connector listings
 	"""
 	recommended: Boolean!
 	"""
@@ -339,27 +345,27 @@ type Connector {
 	"""
 	logoUrl: String
 	"""
-	All the tags that are available for this connector.
+	The protocol of this connector (capture or materialization).
 	"""
-	tags: [ConnectorTagRef!]!
+	protocol: ConnectorProto
 	"""
-	Returns the ConnectorTag object for the given image tag, which must begin with a `:`.
+	Look up the spec for a specific image tag of this connector.
 	"""
-	connectorTag(
+	spec(
 		"""
 		the OCI Image tag, including the leading ':', e.g. ':v1'
 		"""
-		imageTag: String,
-		"""
-		Whether to return the default connector tag instead when the requested tag is not present or has not had a successful Spec RPC
-		"""
-		orDefault: Boolean!
-	): ConnectorTag
+		imageTag: String!
+	): ConnectorSpec
 	"""
-	Returns the default `ConnectorTag` for this connector. This is the one
-	that should be used by default when publishing new tasks for this
-	connector. There will only be a default image tag if at least one tag
-	has successfully completed the connector Spec RPC.
+	The spec for this connector's default (blessed) image tag. This is the
+	spec that should be used when configuring newly created tasks.
+	"""
+	defaultSpec: ConnectorSpec
+	"""
+	The blessed image tag for newly created tasks using this connector.
+	Resolved as the lexicographically highest image tag (e.g. `:v2` wins
+	over `:v1`, `:v1` wins over `:dev`).
 	"""
 	defaultImageTag: String
 }
@@ -390,12 +396,49 @@ type ConnectorEdge {
 }
 
 """
-The type of task that the connector is used for. Note that derivation
-connectors do exist, but aren't yet represented in `connector_tags`.
+The type of task that the connector is used for. Derivation connectors
+exist but are not yet represented in this API.
 """
 enum ConnectorProto {
 	capture
 	materialization
+}
+
+"""
+The resolved specification for a connector at a particular image tag.
+Includes the JSON schemas needed to configure the connector's endpoint
+and resources.
+"""
+type ConnectorSpec {
+	"""
+	The OCI Image tag this spec was resolved from, including the leading `:`. For example `:v1`.
+	This may differ from the requested tag if the request fell back to the default.
+	"""
+	imageTag: String!
+	"""
+	The protocol of the connector (capture or materialization)
+	"""
+	protocol: ConnectorProto
+	"""
+	URL pointing to the documentation page for this connector
+	"""
+	documentationUrl: String
+	"""
+	Endpoint configuration JSON Schema. Returned as raw JSON because JSON Schema is a recursive format that cannot be meaningfully decomposed into GraphQL fields.
+	"""
+	endpointSpecSchema: JSON
+	"""
+	Resource configuration JSON Schema. Returned as raw JSON because JSON Schema is a recursive format that cannot be meaningfully decomposed into GraphQL fields.
+	"""
+	resourceSpecSchema: JSON
+	"""
+	Whether backfill should be disabled for this connector
+	"""
+	disableBackfill: Boolean!
+	"""
+	The default interval between invocations of a capture using this connector. Formatted as HH:MM:SS. Only applicable to non-streaming (polling) capture connectors.
+	"""
+	defaultCaptureInterval: String
 }
 
 """
@@ -421,77 +464,13 @@ type ConnectorStatus {
 	fields: JSONObject!
 }
 
-type ConnectorTag {
-	"""
-	Unique id of the connector tag
-	"""
-	id: Id!
-	"""
-	The id of the connector this tag relates to.
-	"""
-	connectorId: Id!
-	"""
-	The OCI Image tag value, including the leading `:`. For example `:v1`
-	"""
-	imageTag: String!
-	"""
-	The protocol of the connector with this tag value
-	"""
-	protocol: ConnectorProto
-	"""
-	Time at which the ConnectorTag was created
-	"""
-	createdAt: DateTime!
-	"""
-	Time at which the ConnectorTag was last updated
-	"""
-	updatedAt: DateTime!
-	"""
-	URL pointing to the documentation page for this connector
-	"""
-	documentationUrl: String
-	"""
-	Endpoint specification JSON-Schema of the tagged connector
-	"""
-	endpointSpecSchema: JSON
-	"""
-	Resource specification JSON-Schema of the tagged connector
-	"""
-	resourceSpecSchema: JSON
-	"""
-	Whether the UI should hide the backfill button for this connector
-	"""
-	disableBackfill: Boolean!
-	"""
-	The default interval between invocations of a capture using this connector tag.
-	Formatted as HH:MM:SS. Only applicable to non-streaming (polling) capture connectors.
-	"""
-	defaultCaptureInterval: String
-}
-
-type ConnectorTagRef {
-	"""
-	The OCI image tag, includeing the leading `:`, for example `:v2`
-	"""
-	imageTag: String!
-	"""
-	The protocol of this connector tag, if known
-	"""
-	protocol: ConnectorProto
-	"""
-	Returns whether a connector Spec RPC has ever been successful for this tag.
-	Concretely, this is used to determine whether the tag could be used by the
-	UI or flowctl for publishing tasks, because the Spec RPC populates the
-	`endpointSpecSchema`, `resourceSpecSchema`, `protocol`, etc.
-	"""
-	specSucceeded: Boolean!
-	"""
-	The canonical id of this connector tag
-	"""
-	id: Id!
-}
-
+"""
+Filters for the paginated `connectors` query.
+"""
 input ConnectorsFilter {
+	"""
+	Filter by connector protocol. Only connectors with at least one version matching this protocol will be returned.
+	"""
 	protocol: ProtocolFilter
 }
 
@@ -1099,7 +1078,13 @@ input PrefixesBy {
 	minCapability: Capability!
 }
 
+"""
+Filter connectors by their protocol (capture or materialization).
+"""
 input ProtocolFilter {
+	"""
+	Match connectors that have at least one version with this protocol.
+	"""
 	eq: ConnectorProto!
 }
 
@@ -1223,29 +1208,21 @@ type QueryRoot {
 	"""
 	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
 	"""
-	Returns the ConnectorTag for a given full (including the version) OCI
-	image name. The returned tag may be different from the version in the
-	image name. This would happen if there is no connector spec for the
-	given tag, but one exists for a different tag. The return value will be
-	null if either the connector image is unkown, or if there has not been a
-	successful Spec for any version of that image.
+	Resolve the spec for a full OCI image name (e.g.
+	"ghcr.io/estuary/source-postgres:v1"). If the requested tag is not
+	available, falls back to the default tag. Check the returned `imageTag`
+	field to see which tag was actually resolved.
 	"""
-	connectorTag(
+	connectorSpec(
 		"""
 		the full OCI image name, including the version tag, e.g. 'ghcr.io/estuary/source-foo:v1'
 		"""
-		fullImageName: String,
-		"""
-		the id of the connectorTag, with or without ':' separators, e.g. '1122334455aabbcc'
-		"""
-		id: Id
-	): ConnectorTag
+		fullImageName: String!
+	): ConnectorSpec
 	"""
-	Returns information about a single connector, which may or may not have
-	had a successful Spec RPC, and thus may or may not be usable in the
-	Estuary UI. At least one parameter must be provided. If multiple
-	parameters are provided, then the connector must match _both_ the image
-	name and id parameters in order to be returned.
+	Returns information about a single connector. At least one parameter
+	must be provided. If both are provided, the connector must match both
+	the image name and id in order to be returned.
 	"""
 	connector(
 		"""
@@ -1258,11 +1235,7 @@ type QueryRoot {
 		id: Id
 	): Connector
 	"""
-	Returns a paginated list of connectors. This query only returns
-	connectors that have at least one `ConnectorTag` that has had a
-	successful Spec RPC. Connectors that have not had at least one
-	successful Spec RPC cannot be used by the Estuary UI, and so are
-	excluded here.
+	Returns a paginated list of connectors, optionally filtered by protocol.
 	"""
 	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 }
