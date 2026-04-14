@@ -5,12 +5,12 @@ expression: response
 {
   "data": {
     "dest": {
-      "defaultTag": {
+      "defaultImageTag": ":v3",
+      "defaultSpec": {
         "disableBackfill": false,
         "endpointSpecSchema": {
           "type": "object"
         },
-        "id": "6666666600000008",
         "imageTag": ":v3",
         "protocol": "materialization",
         "resourceSpecSchema": {
@@ -33,53 +33,36 @@ expression: response
       },
       "id": "5555555500000005",
       "imageName": "materialize/multi-tag-test",
+      "protocol": "materialization",
       "recommended": false,
-      "tags": [
-        {
-          "id": "6666666600000006",
-          "imageTag": ":dev",
-          "protocol": "materialization",
-          "specSucceeded": true
-        },
-        {
-          "id": "6666666600000007",
-          "imageTag": ":v2",
-          "protocol": "materialization",
-          "specSucceeded": false
-        },
-        {
-          "id": "6666666600000008",
-          "imageTag": ":v3",
-          "protocol": "materialization",
-          "specSucceeded": true
-        }
-      ],
       "title": "test"
     },
     "missing": null,
     "noTagsDest": {
-      "defaultTag": null,
+      "defaultImageTag": null,
+      "defaultSpec": null,
       "id": "5555555500000003",
       "imageName": "materialize/no-tags-test",
+      "protocol": null,
       "recommended": false,
-      "tags": [],
       "title": "test"
     },
     "noTagsSource": {
-      "defaultTag": null,
+      "defaultImageTag": null,
+      "defaultSpec": null,
       "id": "5555555500000002",
       "imageName": "source/no-tags-test",
+      "protocol": null,
       "recommended": false,
-      "tags": [],
       "title": "test"
     },
     "source": {
-      "defaultTag": {
+      "defaultImageTag": ":v1",
+      "defaultSpec": {
         "disableBackfill": false,
         "endpointSpecSchema": {
           "type": "object"
         },
-        "id": "6666666600000004",
         "imageTag": ":v1",
         "protocol": "capture",
         "resourceSpecSchema": {
@@ -94,27 +77,8 @@ expression: response
       },
       "id": "5555555500000004",
       "imageName": "source/multi-tag-test",
+      "protocol": "capture",
       "recommended": false,
-      "tags": [
-        {
-          "id": "6666666600000003",
-          "imageTag": ":dev",
-          "protocol": "capture",
-          "specSucceeded": true
-        },
-        {
-          "id": "6666666600000004",
-          "imageTag": ":v1",
-          "protocol": "capture",
-          "specSucceeded": true
-        },
-        {
-          "id": "6666666600000005",
-          "imageTag": ":v2",
-          "protocol": null,
-          "specSucceeded": false
-        }
-      ],
       "title": "test"
     }
   }

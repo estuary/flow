@@ -14,52 +14,34 @@ use chrono::{DateTime, Utc};
 use models::Id;
 
 pub use self::protocol::ConnectorProto;
-pub use tags::{ConnectorTag, ConnectorTagId};
+pub use tags::ConnectorSpec;
+use tags::ConnectorSpecKey;
 
-#[derive(Debug, Clone, sqlx::Type, async_graphql::SimpleObject)]
-#[graphql(complex)]
+/// Lightweight summary of a connector tag, used internally to drive default-tag
+/// resolution. Not exposed in the GraphQL schema.
+#[derive(Debug, Clone, sqlx::Type)]
 struct ConnectorTagRef {
-    /// The primary key of the connector_tags row, as a string instead of an Id.
+    /// The primary key of the connector_tags row, as a string instead of an Id
     /// because sqlx currently lacks support for using this custom type when mapping
     /// the `array_agg(...)` column value to a `Vec<ConnectorTagRef>`. So we work
-    /// around that by casting the id to text and then use the `id` resolver function
-    /// to expose it as a typed `Id`.
-    #[graphql(skip)]
+    /// around that by casting the id to text and then use `Id::from_hex` to convert.
     id: String,
-    /// The OCI image tag, includeing the leading `:`, for example `:v2`
     image_tag: String,
-    /// The protocol of this connector tag, if known
     protocol: Option<ConnectorProto>,
-    /// Whether the `endpoint_spec_schema` and `resource_spec_schema` values are both present in the database.
-    #[graphql(skip)]
+    /// Whether both `endpoint_spec_schema` and `resource_spec_schema` are present.
     has_schemas: bool,
 }
 
 impl ConnectorTagRef {
-    /// A synchronous version of `spec_successful` so we can call it in iterator
-    /// filters. Needed because `async_graphql` requires that resolver functions
-    /// are async.
     fn spec_succeeded_sync(&self) -> bool {
         self.protocol.is_some() && self.has_schemas
     }
 }
 
-#[async_graphql::ComplexObject]
-impl ConnectorTagRef {
-    /// Returns whether a connector Spec RPC has ever been successful for this tag.
-    /// Concretely, this is used to determine whether the tag could be used by the
-    /// UI or flowctl for publishing tasks, because the Spec RPC populates the
-    /// `endpointSpecSchema`, `resourceSpecSchema`, `protocol`, etc.
-    pub async fn spec_succeeded(&self) -> bool {
-        self.spec_succeeded_sync()
-    }
-
-    /// The canonical id of this connector tag
-    pub async fn id(&self) -> Id {
-        Id::from_hex(&self.id).expect("connector_tags id must be a valid models::Id")
-    }
-}
-
+/// A connector from the Estuary connector catalog, identified by its OCI image
+/// name (e.g. "ghcr.io/estuary/source-postgres"). Use `defaultSpec` to get the
+/// configuration schemas for the blessed image tag, or `spec(imageTag)` for a
+/// specific version.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 #[graphql(complex)]
 pub struct Connector {
@@ -69,9 +51,9 @@ pub struct Connector {
     created_at: DateTime<Utc>,
     /// Link to an external site with more information about the endpoint
     external_url: String,
-    /// Name of the conector's OCI (Docker) Container image, for example "ghcr.io/estuary/source-postgres"
+    /// Name of the connector's OCI (Docker) container image, for example "ghcr.io/estuary/source-postgres"
     image_name: String,
-    /// Does Estuary's marketing team want this one to appear at the top of the results?
+    /// Whether this connector should appear in a promoted position in connector listings
     recommended: bool,
     /// Brief human readable description, at most a few sentences
     short_description: Option<String>,
@@ -81,7 +63,8 @@ pub struct Connector {
     title: Option<String>,
     /// The connector's logo image, represented as a URL per locale
     logo_url: Option<String>,
-    /// All the tags that are available for this connector.
+    /// Internal: all tags for this connector, used to drive default-tag resolution.
+    #[graphql(skip)]
     tags: Vec<ConnectorTagRef>,
 }
 
@@ -92,57 +75,57 @@ impl Connector {
             .filter(|t| t.spec_succeeded_sync())
             .max_by_key(|t| &t.image_tag)
     }
+
+    async fn load_spec(
+        &self,
+        ctx: &Context<'_>,
+        tag_ref: Option<&ConnectorTagRef>,
+    ) -> async_graphql::Result<Option<ConnectorSpec>> {
+        let Some(tag_ref) = tag_ref else {
+            return Ok(None);
+        };
+        let loader = ctx.data::<DataLoader<PgDataLoader>>()?;
+        let key = ConnectorSpecKey(
+            Id::from_hex(&tag_ref.id).expect("connector_tags id must be a valid Id"),
+        );
+        loader.load_one(key).await
+    }
 }
 
 #[async_graphql::ComplexObject]
 impl Connector {
-    /// Returns the ConnectorTag object for the given image tag, which must begin with a `:`.
-    pub async fn connector_tag(
+    /// The protocol of this connector (capture or materialization).
+    pub async fn protocol(&self) -> Option<ConnectorProto> {
+        self.default_image_tag_ref().and_then(|t| t.protocol)
+    }
+
+    /// Look up the spec for a specific image tag of this connector.
+    pub async fn spec(
         &self,
         ctx: &Context<'_>,
         #[graphql(desc = "the OCI Image tag, including the leading ':', e.g. ':v1'")]
-        image_tag: Option<String>,
-        #[graphql(
-            desc = "Whether to return the default connector tag instead when the requested tag is not present or has not had a successful Spec RPC"
-        )]
-        or_default: bool,
-    ) -> async_graphql::Result<Option<ConnectorTag>> {
-        let loader = ctx.data::<DataLoader<PgDataLoader>>()?;
-        // Any authZ checks have been done already when resolving the Connector.
-        // If you can access the connector, then you can access the tags.
-        if image_tag.is_none() && !or_default {
-            return Err(async_graphql::Error::new(
-                "must supply at least one of 'imageTag' or 'orDefault' parameters",
-            ));
-        }
+        image_tag: String,
+    ) -> async_graphql::Result<Option<ConnectorSpec>> {
+        let extant_tag = self
+            .tags
+            .iter()
+            .find(|t| t.image_tag == image_tag && t.spec_succeeded_sync());
 
-        let Some(extant_tag) = image_tag
-            .and_then(|tag_arg| {
-                self.tags
-                    .iter()
-                    .find(|t| t.image_tag == tag_arg && (t.spec_succeeded_sync() || !or_default))
-            })
-            .or_else(|| {
-                if or_default {
-                    self.default_image_tag_ref()
-                } else {
-                    None
-                }
-            })
-        else {
-            return Ok(None);
-        };
-
-        let key = ConnectorTagId(
-            Id::from_hex(&extant_tag.id).expect("connector_tag id must be a valid Id"),
-        );
-        loader.load_one(key).await
+        self.load_spec(ctx, extant_tag).await
     }
 
-    /// Returns the default `ConnectorTag` for this connector. This is the one
-    /// that should be used by default when publishing new tasks for this
-    /// connector. There will only be a default image tag if at least one tag
-    /// has successfully completed the connector Spec RPC.
+    /// The spec for this connector's default (blessed) image tag. This is the
+    /// spec that should be used when configuring newly created tasks.
+    pub async fn default_spec(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Option<ConnectorSpec>> {
+        self.load_spec(ctx, self.default_image_tag_ref()).await
+    }
+
+    /// The blessed image tag for newly created tasks using this connector.
+    /// Resolved as the lexicographically highest image tag (e.g. `:v2` wins
+    /// over `:v1`, `:v1` wins over `:dev`).
     pub async fn default_image_tag(&self) -> Option<String> {
         self.default_image_tag_ref().map(|t| t.image_tag.clone())
     }
@@ -161,13 +144,17 @@ type PaginatedConnectors = Connection<
 #[derive(Debug, Default)]
 pub struct ConnectorsQuery;
 
+/// Filter connectors by their protocol (capture or materialization).
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct ProtocolFilter {
+    /// Match connectors that have at least one version with this protocol.
     eq: ConnectorProto,
 }
 
+/// Filters for the paginated `connectors` query.
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct ConnectorsFilter {
+    /// Filter by connector protocol. Only connectors with at least one version matching this protocol will be returned.
     protocol: Option<ProtocolFilter>,
 }
 
@@ -175,38 +162,20 @@ const DEFAULT_PAGE_SIZE: usize = 20;
 
 #[async_graphql::Object]
 impl ConnectorsQuery {
-    /// Returns the ConnectorTag for a given full (including the version) OCI
-    /// image name. The returned tag may be different from the version in the
-    /// image name. This would happen if there is no connector spec for the
-    /// given tag, but one exists for a different tag. The return value will be
-    /// null if either the connector image is unkown, or if there has not been a
-    /// successful Spec for any version of that image.
-    pub async fn connector_tag(
+    /// Resolve the spec for a full OCI image name (e.g.
+    /// "ghcr.io/estuary/source-postgres:v1"). If the requested tag is not
+    /// available, falls back to the default tag. Check the returned `imageTag`
+    /// field to see which tag was actually resolved.
+    pub async fn connector_spec(
         &self,
         ctx: &Context<'_>,
         #[graphql(
             desc = "the full OCI image name, including the version tag, e.g. 'ghcr.io/estuary/source-foo:v1'"
         )]
-        full_image_name: Option<String>,
-        #[graphql(
-            desc = "the id of the connectorTag, with or without ':' separators, e.g. '1122334455aabbcc'"
-        )]
-        id: Option<Id>,
-    ) -> async_graphql::Result<Option<ConnectorTag>> {
+        full_image_name: String,
+    ) -> async_graphql::Result<Option<ConnectorSpec>> {
         let env = ctx.data::<Envelope>()?;
         let _claims = env.claims()?;
-
-        if let Some(tag_id) = id {
-            let loader = ctx.data::<DataLoader<PgDataLoader>>()?;
-            let key = ConnectorTagId(tag_id);
-            return loader.load_one(key).await;
-        }
-
-        let Some(full_image_name) = full_image_name else {
-            return Err(async_graphql::Error::new(
-                "must provide at least one of 'fullImageName' or 'id' parameters",
-            ));
-        };
 
         let (image, tag) = models::split_image_tag(&full_image_name);
         if tag.is_empty() {
@@ -218,14 +187,16 @@ impl ConnectorsQuery {
         let Some(connector) = self.connector(ctx, Some(image), None).await? else {
             return Ok(None);
         };
-        connector.connector_tag(ctx, Some(tag), true).await
+        // Try the specific tag first, then fall back to the default.
+        if let Some(spec) = connector.spec(ctx, tag).await? {
+            return Ok(Some(spec));
+        }
+        connector.default_spec(ctx).await
     }
 
-    /// Returns information about a single connector, which may or may not have
-    /// had a successful Spec RPC, and thus may or may not be usable in the
-    /// Estuary UI. At least one parameter must be provided. If multiple
-    /// parameters are provided, then the connector must match _both_ the image
-    /// name and id parameters in order to be returned.
+    /// Returns information about a single connector. At least one parameter
+    /// must be provided. If both are provided, the connector must match both
+    /// the image name and id in order to be returned.
     pub async fn connector(
         &self,
         ctx: &Context<'_>,
@@ -292,11 +263,7 @@ impl ConnectorsQuery {
         .map_err(async_graphql::Error::from)
     }
 
-    /// Returns a paginated list of connectors. This query only returns
-    /// connectors that have at least one `ConnectorTag` that has had a
-    /// successful Spec RPC. Connectors that have not had at least one
-    /// successful Spec RPC cannot be used by the Estuary UI, and so are
-    /// excluded here.
+    /// Returns a paginated list of connectors, optionally filtered by protocol.
     pub async fn connectors(
         &self,
         ctx: &Context<'_>,
@@ -321,7 +288,7 @@ impl ConnectorsQuery {
             |after, before, first, last| async move {
                 let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
                 if limit == 0 {
-                    return Ok(PaginatedConnectors::new(first.is_some(), last.is_some()));
+                    return Ok(PaginatedConnectors::new(false, false));
                 }
 
                 let (page, has_next, has_prev) = if before.is_some() || last.is_some() {
@@ -347,7 +314,7 @@ impl ConnectorsQuery {
                     (rows, has_next, has_prev)
                 };
 
-                let mut conn = PaginatedConnectors::new(has_next, has_prev);
+                let mut conn = PaginatedConnectors::new(has_prev, has_next);
                 conn.edges.extend(
                     page.into_iter()
                         .map(|connector| Edge::new(connector.id, connector)),
@@ -396,7 +363,11 @@ async fn fetch_connectors_after(
           ) as "tags!: Vec<ConnectorTagRef>"
         from connectors c
         join connector_tags ct on c.id = ct.connector_id
-        where ($1::text is null or ct.protocol = $1::text)
+        where ($1::text is null or exists (
+          select 1 from connector_tags ct_filter
+          where ct_filter.connector_id = c.id
+          and ct_filter.protocol = $1::text
+        ))
         and ($2::flowid is null or c.id > $2::flowid)
         group by c.id
         order by c.id asc
@@ -441,12 +412,18 @@ async fn fetch_connectors_before(
               ct.protocol,
               (ct.endpoint_spec_schema is not null and ct.resource_spec_schema is not null)
             )
+          ) filter (
+              where ct.image_tag is not null and ct.id is not null
           ),
           '{}'
         ) as "tags!: Vec<ConnectorTagRef>"
         from connectors c
         join connector_tags ct on c.id = ct.connector_id
-        where ($1::text is null or ct.protocol = $1::text)
+        where ($1::text is null or exists (
+          select 1 from connector_tags ct_filter
+          where ct_filter.connector_id = c.id
+          and ct_filter.protocol = $1::text
+        ))
         and ($2::flowid is null or c.id < $2::flowid)
         group by c.id
         order by c.id desc
@@ -468,7 +445,6 @@ async fn fetch_connectors_before(
 mod test {
 
     use crate::test_server;
-    //use flow_client_next as flow_client;
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",
@@ -493,33 +469,28 @@ mod test {
                           imageName
                           recommended
                           title
-                          tags {
+                          protocol
+                          defaultImageTag
+                          devSpec: spec(imageTag: ":dev") {
                             imageTag
                             protocol
-                            specSucceeded
                           }
-                          vTwoTagResult: connectorTag(imageTag: ":v2", orDefault: true) {
-                            id
+                          vTwoSpec: spec(imageTag: ":v2") {
+                            imageTag
+                            protocol
+                          }
+                          defaultSpec {
                             imageTag
                             protocol
                             endpointSpecSchema
                             resourceSpecSchema
                             disableBackfill
+                            documentationUrl
+                            defaultCaptureInterval
                           }
-                          defaultTag: connectorTag(orDefault: true) {
-                            id
+                          missingSpec: spec(imageTag: ":vMissing") {
                             imageTag
                             protocol
-                            endpointSpecSchema
-                            resourceSpecSchema
-                            disableBackfill
-                          }
-                          missingTag: connectorTag(imageTag: ":vMissing", orDefault: false) {
-                            imageTag
-                            protocol
-                            endpointSpecSchema
-                            resourceSpecSchema
-                            disableBackfill
                           }
                         }
                       }
@@ -572,14 +543,9 @@ mod test {
                         imageName
                         recommended
                         title
-                        tags {
-                            id
-                            imageTag
-                            protocol
-                            specSucceeded
-                        }
-                        defaultTag: connectorTag(orDefault: true) {
-                            id
+                        protocol
+                        defaultImageTag
+                        defaultSpec {
                             imageTag
                             protocol
                             endpointSpecSchema
@@ -619,7 +585,7 @@ mod test {
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("connectors"))
     )]
-    async fn test_single_connector_tag(pool: sqlx::PgPool) {
+    async fn test_single_connector_spec(pool: sqlx::PgPool) {
         let server = test_server::TestServer::start(
             pool.clone(),
             test_server::snapshot(pool.clone(), true).await,
@@ -631,23 +597,21 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    fragment Select on ConnectorTag {
-                        id
-                        connectorId
+                    fragment Select on ConnectorSpec {
                         imageTag
                         protocol
                         endpointSpecSchema
                         resourceSpecSchema
                     }
 
-                    query TestConnectorTags {
-                      byId: connectorTag(id: "66:66:66:66:00:00:00:03") {
+                    query TestConnectorSpecs {
+                      byFullName: connectorSpec(fullImageName: "materialize/multi-tag-test:dev") {
                         ...Select
                       }
-                      byFullName: connectorTag(fullImageName: "materialize/multi-tag-test:dev") {
+                      fallbackToDefault: connectorSpec(fullImageName: "materialize/multi-tag-test:v2") {
                         ...Select
                       }
-                      fallbackToDefault: connectorTag(fullImageName: "materialize/multi-tag-test:v2") {
+                      unknownImage: connectorSpec(fullImageName: "does/not/exist:v1") {
                         ...Select
                       }
                     }
@@ -658,5 +622,55 @@ mod test {
             .await;
 
         insta::assert_json_snapshot!(response);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("connectors"))
+    )]
+    async fn test_error_cases(pool: sqlx::PgPool) {
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let access_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        // connectorSpec with no tag delimiter should return an error.
+        let no_tag: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"{ connectorSpec(fullImageName: "source/test") { imageTag } }"#
+                }),
+                Some(&access_token),
+            )
+            .await;
+
+        // connector with no parameters should return an error.
+        let no_params: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"{ connector { id } }"#
+                }),
+                Some(&access_token),
+            )
+            .await;
+
+        // Unauthenticated request should return an error.
+        let unauthed: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"{ connectors { edges { node { id } } } }"#
+                }),
+                None,
+            )
+            .await;
+
+        insta::assert_json_snapshot!(serde_json::json!({
+            "noTagDelimiter": no_tag,
+            "noConnectorParams": no_params,
+            "unauthenticated": unauthed,
+        }));
     }
 }

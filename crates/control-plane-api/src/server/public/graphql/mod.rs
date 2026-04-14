@@ -38,14 +38,7 @@ mod publication_history;
 pub mod status;
 mod storage_mappings;
 
-/// Locale is a placeholder, since we only support a single locale today. Once
-/// we support more than one locale, we should try to determine this
-/// automatically based on the request headers. For now, we just hard code it.
-pub enum Locale {
-    EnUS, // English, US, the only locale we currently have translations for
-}
-
-/// An JSON object, the shape of which is opaque to the graphql schema
+/// A JSON object, the shape of which is opaque to the graphql schema
 pub type JsonObject = async_graphql::Json<Box<serde_json::value::RawValue>>;
 
 // This type represents the complete graphql schema.

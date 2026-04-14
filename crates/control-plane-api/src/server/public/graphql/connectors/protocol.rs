@@ -1,5 +1,5 @@
-/// The type of task that the connector is used for. Note that derivation
-/// connectors do exist, but aren't yet represented in `connector_tags`.
+/// The type of task that the connector is used for. Derivation connectors
+/// exist but are not yet represented in this API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
 #[graphql(rename_items = "lowercase")]
 pub enum ConnectorProto {
