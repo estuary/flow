@@ -21,6 +21,7 @@ To use this connector, you'll need:
     * A virtual warehouse
     * A user with a role assigned that grants the appropriate access levels to these resources.
     * The correct timezone setting (see [Timestamp Data Type Mapping](#timestamp-data-type-mapping))
+    * The `QUOTED_IDENTIFIERS_IGNORE_CASE` parameter must not be enabled for the Estuary user.
 
     See the [script below](#setup) for details.
 * Know your Snowflake account's host URL. This is formatted using your [Snowflake account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used),
