@@ -9,7 +9,16 @@ This connector writes batches directly to ClickHouse using the
 [Native protocol](https://clickhouse.com/docs/interfaces/tcp) and
 [Native format](https://clickhouse.com/docs/interfaces/formats/Native).
 
-Estuary also provides a [Dekaf-based integration](./Dekaf/clickhouse.md) for users who prefer to ingest via ClickPipes.
+## When to use this connector
+
+We recommend this direct materialization for most ClickHouse use cases.
+It writes to ClickHouse natively, supports hard and soft deletes, and works with both self-hosted and ClickHouse Cloud deployments.
+
+Estuary also offers a [Dekaf-based integration](./Dekaf/clickhouse.md) that ingests via ClickPipes.
+Choose Dekaf when:
+
+- You are required to use ClickPipes for data ingestion (e.g., organizational policy)
+- You want ClickHouse Cloud to manage the ingestion infrastructure via ClickPipes
 
 ## Prerequisites
 
@@ -100,7 +109,7 @@ materializations:
 In standard (non-delta) mode, the connector creates tables using the [ReplacingMergeTree engine](https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree) with `flow_published_at` as the version column.
 Updated records are inserted as new rows; ClickHouse deduplicates them in a background process, keeping the row with the highest `flow_published_at` value for each key.
 
-The connector also configures automatic background cleanup merges so that superseded rows and tombstones are eventually removed from disk.
+The connector also configures automatic background cleanup merges so that superseded rows and tombstones are eventually removed from persistent storage.
 
 Your queries should use the `FINAL` directive to get results with duplicate and tombstone rows removed:
 
@@ -108,15 +117,21 @@ Your queries should use the `FINAL` directive to get results with duplicate and 
 SELECT * FROM my_table FINAL;
 ```
 
-## Hard deletes
+## Handling deletions
 
-When `hardDelete: true` is set in the endpoint configuration, the connector adds an `_is_deleted` (UInt8) column to each table.
-When a source document is deleted, the connector inserts a **tombstone row** with `_is_deleted = 1` and the same key columns as the original row.
-The `ReplacingMergeTree` engine uses `_is_deleted` to exclude these rows from `FINAL` queries, and automatic cleanup merges eventually remove the tombstoned records from disk.
+By default, the connector materializes deletions as soft deletes.
+This can be explicitly set by setting the `hardDelete` endpoint configuration parameter to `true` or `false`.
 
-## Soft deletes
+In [soft delete](https://docs.estuary.dev/reference/deletions/#soft-deletes) mode, source deletions are tracked in the
+destination ClickHouse table via the `_meta/op` column, which indicates whether a row was created, updated, or deleted.
+The row itself remains in the table.
 
-By default (when `hardDelete` is not enabled), source deletions are tracked in the destination via the `_meta/op` column, which indicates whether a row was created, updated, or deleted. The row itself remains in the table.
+In [hard delete](https://docs.estuary.dev/reference/deletions/#hard-deletes) mode, the connector marks rows for deletion
+by inserting a new row with the original primary key, plus `_is_deleted = 1`.
+This is often called a "tombstone".
+The `ReplacingMergeTree` ClickHouse engine uses `_is_deleted` to exclude these rows from `FINAL` queries, and to
+automatically remove the tombstoned rows from persistent storage.
+Removing tombstoned rows is a background task in the ClickHouse server, configured by this connector.
 
 ## Delta updates
 
