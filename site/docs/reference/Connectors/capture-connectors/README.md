@@ -77,6 +77,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Brevo
   - [Configuration](./brevo.md)
   - Package - ghcr.io/estuary/source-brevo:v1
+- Calendly
+  - [Configuration](./calendly.md)
+  - Package - ghcr.io/estuary/source-calendly:v1
 - Chargebee
   - [Configuration](./chargebee-native.md)
   - Package - ghcr.io/estuary/source-chargebee-native:v1
