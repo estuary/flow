@@ -322,6 +322,13 @@ impl InviteLinksMutation {
         )
         .await?;
 
+        // When the invite grants Admin, ensure the prefix has explicit read
+        // grants to its tenant's private data plane and ops-tasks prefixes.
+        // See `ensure_private_data_plane_grants` for why this workaround exists.
+        if invite.capability == models::Capability::Admin {
+            ensure_private_data_plane_grants(&mut *txn, &invite.catalog_prefix).await?;
+        }
+
         txn.commit().await?;
 
         tracing::info!(
@@ -385,6 +392,73 @@ impl InviteLinksMutation {
 
         Ok(true)
     }
+}
+
+/// Ensure that `catalog_prefix` has read role_grants to its tenant's
+/// private-data-plane and private-ops-tasks prefixes. Workaround for #2848.
+///
+/// # Why this is needed
+///
+/// The intended behavior of role_grants is that a grant on subject `acmeCo/`
+/// propogates to *every* child of `acmeCo/`. Snapshot-based authorization
+/// (`tables::RoleGrant::is_authorized`) implements this faithfully — it
+/// walks both descendants and ancestors of the subject role.
+///
+/// `internal.user_roles()` (used by RLS, and therefore by every PostgREST
+/// caller) only implements half: it walks *downward* from roles the user
+/// holds, picking up grants whose `subject_role` is at-or-below one of those
+/// roles. It does NOT walk upward to ancestor subjects.
+///
+/// So an admin of `acmeCo/qa/staffing-solutions/` cannot reach the grant
+/// created with the private data plane `(acmeCo/, ops/dp/private/acmeCo/, read)`
+/// via `user_roles()`, even though the snapshot would correctly resolve it. Every
+/// RLS check against `ops/dp/private/acmeCo/...` or
+/// `ops/tasks/private/acmeCo/...` therefore rejects the admin of the sub-prefix.
+///
+/// The workaround is to insert technically redundant grants whose
+/// `subject_role` IS the sub-prefix, so `user_roles()`'s downward walk finds
+/// them. We insert both the data plane prefix (direct cause of #2848) and
+/// the ops-tasks prefix — the same gap applies to any RLS-gated
+/// access to the data plane's logs/stats collections.
+///
+/// TODO(#2848): Remove this entire function and its call site once those
+/// remaining `user_roles()`-based checks are migrated to snapshot-based
+/// authorization. At that point sub-prefix admins will be authorized
+/// correctly without the duplicate grants.
+async fn ensure_private_data_plane_grants(
+    txn: &mut sqlx::PgConnection,
+    catalog_prefix: &str,
+) -> Result<(), sqlx::Error> {
+    let Some((tenant, _)) = catalog_prefix.split_once('/') else {
+        return Ok(());
+    };
+    if tenant.is_empty() {
+        return Ok(());
+    }
+    let grant_objects = vec![
+        format!("ops/dp/private/{tenant}/"),
+        format!("ops/tasks/private/{tenant}/"),
+    ];
+
+    // The object_roles here are the same two prefixes that
+    // create_data_plane.rs installs at provisioning time with the tenant as
+    // subject; here we install them with the (possibly sub-prefix) invite
+    // prefix as subject. ON CONFLICT makes this a no-op when catalog_prefix
+    // is the tenant itself (grants already exist) or when re-running.
+    sqlx::query!(
+        r#"
+        INSERT INTO role_grants (subject_role, object_role, capability, detail)
+        SELECT $1::text, object, 'read', 'sub-prefix access to private data plane'
+        FROM UNNEST($2::text[]) AS t(object)
+        ON CONFLICT DO NOTHING
+        "#,
+        catalog_prefix,
+        &grant_objects,
+    )
+    .execute(&mut *txn)
+    .await?;
+
+    Ok(())
 }
 
 /// Ensures the user has admin capability on the catalog prefix.
@@ -623,6 +697,171 @@ mod test {
             bob_capability, "admin",
             "redeeming an admin invite must upgrade an existing write grant"
         );
+    }
+
+    // Regression test for #2848. Redeeming an admin invite for a sub-prefix
+    // must install explicit read grants with the sub-prefix as the subject —
+    // both to the tenant's private data plane prefix (for the publish-time
+    // filter in publications/specs.rs) and to the ops-tasks prefix (for any
+    // RLS-gated log/stats reads). Non-admin invites must not install grants.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_redeem_admin_invite_inserts_private_dp_grants(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice_token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ('22222222-2222-2222-2222-222222222222', 'bob@example.test')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let bob_token =
+            server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), Some("bob@example.test"));
+
+        // A write invite for aliceCo/sub/ should NOT install private DP grants.
+        let write_invite: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($prefix: Prefix!, $capability: Capability!) {
+                        createInviteLink(
+                            catalogPrefix: $prefix
+                            capability: $capability
+                            singleUse: true
+                        ) { token }
+                    }"#,
+                    "variables": {
+                        "prefix": "aliceCo/sub/",
+                        "capability": "write"
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+
+        let write_token = write_invite["data"]["createInviteLink"]["token"]
+            .as_str()
+            .unwrap();
+
+        let _: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": write_token }
+                }),
+                Some(&bob_token),
+            )
+            .await;
+
+        let count_after_write: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM role_grants
+            WHERE subject_role = 'aliceCo/sub/' AND capability = 'read'
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            count_after_write, 0,
+            "non-admin invite must not install private DP grants"
+        );
+
+        // An admin invite for aliceCo/sub/ SHOULD install both grants.
+        let admin_invite: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($prefix: Prefix!, $capability: Capability!) {
+                        createInviteLink(
+                            catalogPrefix: $prefix
+                            capability: $capability
+                            singleUse: false
+                        ) { token }
+                    }"#,
+                    "variables": {
+                        "prefix": "aliceCo/sub/",
+                        "capability": "admin"
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+
+        let admin_token = admin_invite["data"]["createInviteLink"]["token"]
+            .as_str()
+            .unwrap();
+
+        let _: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": admin_token }
+                }),
+                Some(&bob_token),
+            )
+            .await;
+
+        let granted: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT object_role::text FROM role_grants
+            WHERE subject_role = 'aliceCo/sub/' AND capability = 'read'
+            ORDER BY object_role
+            "#,
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            granted,
+            vec![
+                "ops/dp/private/aliceCo/".to_string(),
+                "ops/tasks/private/aliceCo/".to_string(),
+            ],
+        );
+
+        // Redeeming the admin invite again is idempotent: no duplicates.
+        let _: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": admin_token }
+                }),
+                Some(&bob_token),
+            )
+            .await;
+
+        let count_after_second: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM role_grants
+            WHERE subject_role = 'aliceCo/sub/' AND capability = 'read'
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count_after_second, 2);
     }
 
     #[sqlx::test(

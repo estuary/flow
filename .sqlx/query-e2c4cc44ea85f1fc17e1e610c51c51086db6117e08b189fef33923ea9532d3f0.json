@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO role_grants (subject_role, object_role, capability, detail)\n        SELECT $1::text, object, 'read', 'sub-prefix access to private data plane'\n        FROM UNNEST($2::text[]) AS t(object)\n        ON CONFLICT DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e2c4cc44ea85f1fc17e1e610c51c51086db6117e08b189fef33923ea9532d3f0"
+}
