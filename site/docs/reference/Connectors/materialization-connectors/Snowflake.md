@@ -138,12 +138,13 @@ Use the below properties to configure a Snowflake materialization, which will di
 | **`/schema`**                | Schema              | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | Required         |
 | `/warehouse`                 | Warehouse           | Name of the data warehouse that contains the database                                                                                                           | string |                  |
 | `/role`                      | Role                | Role assigned to the user                                                                                                                                       | string |                  |
-| `/account`                   | Account             | The Snowflake account identifier                                                                                                                                | string |                  |
+| **`/timestamp_type`** | Snowflake Timestamp Type | Controls how timestamp columns are stored in Snowflake. See [Timestamp Data Type Mapping](#timestamp-data-type-mapping) for usage. | string | Required |
+| `/hardDelete` | Hard Delete | If this option is enabled, items deleted in the source will also be deleted from the destination. Otherwise, `_meta/op` in the destination will signify whether rows have been deleted (soft-delete). | boolean | `false` |
 | **`/credentials`**           | Credentials         | Credentials for authentication                                                                                                                                  | object | Required         |
 | **`/credentials/auth_type`** | Authentication type | `jwt` is the only supported authentication method currently                                                                                                     | string | Required         |
 | **`/credentials/user`**      | User                | Snowflake username                                                                                                                                              | string | Required         |
 | `/credentials/password`      | Password            | Deprecated                                                                                                                                                      | string | Deprecated       |
-| `/credentials/privateKey`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
+| `/credentials/private_key`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
 | `/advanced/disableFieldTruncation` | Disable Field Truncation | Disables truncation of large materialized fields | boolean | |
 
 #### Bindings
@@ -168,10 +169,11 @@ materializations:
               host: orgname-accountname.snowflakecomputing.com
               schema: acmeCo_flow_schema
               warehouse: acmeCo_warehouse
+              timestamp_type: TIMESTAMP_LTZ
               credentials:
                 auth_type: jwt
                 user: snowflake_user
-                privateKey: |
+                private_key: |
                   -----BEGIN PRIVATE KEY-----
                   MIIEv....
                   ...
@@ -201,6 +203,7 @@ materializations:
               host: orgname-accountname.snowflakecomputing.com
               schema: acmeCo_flow_schema
               warehouse: acmeCo_warehouse
+              timestamp_type: TIMESTAMP_LTZ
               credentials:
                 auth_type: user_pasword
                 user: snowflake_user
