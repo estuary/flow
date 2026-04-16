@@ -1179,6 +1179,12 @@ impl serde::Serialize for Response {
         if self.checkpoint.is_some() {
             len += 1;
         }
+        if self.backfill_begin.is_some() {
+            len += 1;
+        }
+        if self.backfill_complete.is_some() {
+            len += 1;
+        }
         if !self.internal.is_empty() {
             len += 1;
         }
@@ -1207,6 +1213,12 @@ impl serde::Serialize for Response {
         if let Some(v) = self.checkpoint.as_ref() {
             struct_ser.serialize_field("checkpoint", v)?;
         }
+        if let Some(v) = self.backfill_begin.as_ref() {
+            struct_ser.serialize_field("backfillBegin", v)?;
+        }
+        if let Some(v) = self.backfill_complete.as_ref() {
+            struct_ser.serialize_field("backfillComplete", v)?;
+        }
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
@@ -1231,6 +1243,10 @@ impl<'de> serde::Deserialize<'de> for Response {
             "sourced_schema",
             "sourcedSchema",
             "checkpoint",
+            "backfill_begin",
+            "backfillBegin",
+            "backfill_complete",
+            "backfillComplete",
             "internal",
             "$internal",
         ];
@@ -1245,6 +1261,8 @@ impl<'de> serde::Deserialize<'de> for Response {
             Captured,
             SourcedSchema,
             Checkpoint,
+            BackfillBegin,
+            BackfillComplete,
             Internal,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1275,6 +1293,8 @@ impl<'de> serde::Deserialize<'de> for Response {
                             "captured" => Ok(GeneratedField::Captured),
                             "sourcedSchema" | "sourced_schema" => Ok(GeneratedField::SourcedSchema),
                             "checkpoint" => Ok(GeneratedField::Checkpoint),
+                            "backfillBegin" | "backfill_begin" => Ok(GeneratedField::BackfillBegin),
+                            "backfillComplete" | "backfill_complete" => Ok(GeneratedField::BackfillComplete),
                             "$internal" | "internal" => Ok(GeneratedField::Internal),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -1303,6 +1323,8 @@ impl<'de> serde::Deserialize<'de> for Response {
                 let mut captured__ = None;
                 let mut sourced_schema__ = None;
                 let mut checkpoint__ = None;
+                let mut backfill_begin__ = None;
+                let mut backfill_complete__ = None;
                 let mut internal__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -1354,6 +1376,18 @@ impl<'de> serde::Deserialize<'de> for Response {
                             }
                             checkpoint__ = map_.next_value()?;
                         }
+                        GeneratedField::BackfillBegin => {
+                            if backfill_begin__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("backfillBegin"));
+                            }
+                            backfill_begin__ = map_.next_value()?;
+                        }
+                        GeneratedField::BackfillComplete => {
+                            if backfill_complete__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("backfillComplete"));
+                            }
+                            backfill_complete__ = map_.next_value()?;
+                        }
                         GeneratedField::Internal => {
                             if internal__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("$internal"));
@@ -1373,6 +1407,8 @@ impl<'de> serde::Deserialize<'de> for Response {
                     captured: captured__,
                     sourced_schema: sourced_schema__,
                     checkpoint: checkpoint__,
+                    backfill_begin: backfill_begin__,
+                    backfill_complete: backfill_complete__,
                     internal: internal__.unwrap_or_default(),
                 })
             }
@@ -1470,6 +1506,192 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
             }
         }
         deserializer.deserialize_struct("capture.Response.Applied", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for response::BackfillBegin {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.binding != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("capture.Response.BackfillBegin", len)?;
+        if self.binding != 0 {
+            struct_ser.serialize_field("binding", &self.binding)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for response::BackfillBegin {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "binding",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Binding,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "binding" => Ok(GeneratedField::Binding),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = response::BackfillBegin;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct capture.Response.BackfillBegin")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::BackfillBegin, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut binding__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Binding => {
+                            if binding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("binding"));
+                            }
+                            binding__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(response::BackfillBegin {
+                    binding: binding__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("capture.Response.BackfillBegin", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for response::BackfillComplete {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.binding != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("capture.Response.BackfillComplete", len)?;
+        if self.binding != 0 {
+            struct_ser.serialize_field("binding", &self.binding)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for response::BackfillComplete {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "binding",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Binding,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "binding" => Ok(GeneratedField::Binding),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = response::BackfillComplete;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct capture.Response.BackfillComplete")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::BackfillComplete, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut binding__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Binding => {
+                            if binding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("binding"));
+                            }
+                            binding__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(response::BackfillComplete {
+                    binding: binding__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("capture.Response.BackfillComplete", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for response::Captured {

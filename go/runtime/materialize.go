@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -114,8 +115,12 @@ func (m *materializeApp) ConsumeMessage(shard consumer.Shard, envelope message.E
 	var keyPacked = isr.Arena.Bytes(isr.PackedKey[isr.Index])
 	var docJson = isr.Arena.Bytes(isr.Docs[isr.Index])
 
-	if message.GetFlags(isr.GetUUID()) == message.Flag_ACK_TXN {
-		return nil // We just ignore the ACK documents.
+	var flags = message.GetFlags(isr.GetUUID())
+	if flags&0x3 == message.Flag_ACK_TXN {
+		return nil // Ignore ACK documents.
+	}
+	if uint16(flags)&labels.FlagControl != 0 {
+		return nil // Drop control docs before key extraction.
 	}
 
 	var request = &pm.Request{

@@ -303,6 +303,8 @@ async fn preview_capture<L: runtime::LogHandler>(
             let proto_flow::runtime::capture_response_ext::Captured {
                 key_packed,
                 partitions_packed,
+                uuid_flags: _,
+                report_uuid_clock: _,
             } = internal.captured.unwrap_or_default();
 
             tracing::trace!(?key_packed, ?partitions_packed, "captured");

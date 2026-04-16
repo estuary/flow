@@ -632,7 +632,7 @@ impl SliceActor {
             read_state.read_offset = end_offset;
 
             if sequenced.is_commit {
-                if flags == uuid::Flags::ACK_TXN {
+                if flags.is_ack() {
                     // This ACK is (binding, journal)-scoped: it commits only
                     // this producer's documents in this binding's read of this journal.
                     // But, it may contain causal hints of *other* journals which
@@ -710,6 +710,7 @@ impl SliceActor {
         // draining pending→settled and resetting byte accumulators.
         let frontier = super::producer::build_flush_frontier(
             &mut self.reads,
+            &self.topology.bindings,
             self.causal_hints.drain(),
             self.topology.members.len(),
         );

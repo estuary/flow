@@ -175,6 +175,10 @@ pub struct Response {
     pub sourced_schema: ::core::option::Option<response::SourcedSchema>,
     #[prost(message, optional, tag = "7")]
     pub checkpoint: ::core::option::Option<response::Checkpoint>,
+    #[prost(message, optional, tag = "9")]
+    pub backfill_begin: ::core::option::Option<response::BackfillBegin>,
+    #[prost(message, optional, tag = "10")]
+    pub backfill_complete: ::core::option::Option<response::BackfillComplete>,
     /// Reserved for internal use.
     #[prost(bytes = "bytes", tag = "100")]
     pub internal: ::prost::bytes::Bytes,
@@ -359,5 +363,25 @@ pub mod response {
     pub struct Checkpoint {
         #[prost(message, optional, tag = "1")]
         pub state: ::core::option::Option<super::super::flow::ConnectorState>,
+    }
+    /// Signals the start of a backfill for a binding.
+    ///
+    /// A control message (BackfillBegin or BackfillComplete) must stand alone
+    /// in its connector checkpoint: the checkpoint must contain only the
+    /// control message followed by the terminating Checkpoint response, with
+    /// no Captured, SourcedSchema, or other control messages. The runtime
+    /// enforces this rule and will fail the session on violation.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct BackfillBegin {
+        #[prost(uint32, tag = "1")]
+        pub binding: u32,
+    }
+    /// Signals the end of a backfill for a binding.
+    ///
+    /// See BackfillBegin for the "stands alone in its checkpoint" rule.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct BackfillComplete {
+        #[prost(uint32, tag = "1")]
+        pub binding: u32,
     }
 }

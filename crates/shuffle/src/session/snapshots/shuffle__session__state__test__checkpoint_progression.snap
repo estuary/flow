@@ -34,4 +34,6 @@ Frontier {
         },
     ],
     flushed_lsn: [],
+    latest_backfill_begin: {},
+    latest_backfill_complete: {},
 }

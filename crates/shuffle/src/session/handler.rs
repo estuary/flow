@@ -85,6 +85,7 @@ where
         "coordinator",
         0,
     );
+    let terminal_chunk;
     loop {
         match verify.not_eof(request_rx.next().await)? {
             shuffle::SessionRequest {
@@ -92,6 +93,7 @@ where
                 ..
             } => {
                 if chunk.journals.is_empty() {
+                    terminal_chunk = chunk;
                     break;
                 }
                 resume_checkpoint.extend(crate::JournalFrontier::decode(chunk));
@@ -99,7 +101,7 @@ where
             request => return Err(verify.fail(request)),
         };
     }
-    let resume_checkpoint = crate::Frontier::new(resume_checkpoint, Vec::new())
+    let resume_checkpoint = crate::Frontier::new(resume_checkpoint, terminal_chunk)
         .context("validating resume_checkpoint frontier")?;
 
     tracing::debug!(session_id, ?resume_checkpoint, "Session resume checkpoint");

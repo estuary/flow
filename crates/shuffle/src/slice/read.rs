@@ -1,6 +1,13 @@
 use super::producer::{ProducerMap, ProducerState};
 use proto_gazette::{broker, uuid};
 
+/// A control event parsed from a control document body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlEvent {
+    BackfillBegin,
+    BackfillComplete,
+}
+
 /// State about an active read, indexed by its `read.id()`.
 ///
 /// Each ReadState represents one (journal, binding) pair and is the
@@ -44,6 +51,8 @@ pub struct Meta {
     pub flags: uuid::Flags,
     /// Publication Producer of `doc` (extracted from its UUID).
     pub producer: uuid::Producer,
+    /// Parsed control event, when this document has the CONTROL flag set.
+    pub control: Option<ControlEvent>,
 }
 
 /// ReadyRead is a ReadLines which has one or more parsed documents.
@@ -87,7 +96,41 @@ pub fn extract_metas(
                 )
             })?;
 
-        let flags = if flags != uuid::Flags::ACK_TXN && validator.is_valid(archived) {
+        let control = if flags.is_control() {
+            // A `CONTROL` document is always `OUTSIDE_TXN`; the low two
+            // transaction-semantics bits must be zero. Any other combination
+            // is a protocol error from the publisher and would otherwise be
+            // silently mishandled downstream (treated as a CONTINUE_TXN /
+            // ACK_TXN doc with a control body).
+            anyhow::ensure!(
+                flags.is_outside(),
+                "journal {journal} offset {begin_offset}: \
+                 CONTROL document must use OUTSIDE_TXN sequencing \
+                 (flags = {flags:?})"
+            );
+
+            let is_true = |path: &str| {
+                let ptr = json::Pointer::from_str(path);
+                matches!(ptr.query(archived), Some(doc::ArchivedNode::Bool(true)))
+            };
+
+            // TODO(whb) Relocate these strings as constants somewhere that
+            // makese sense.
+            if is_true("/_meta/backfillBegin") {
+                Some(ControlEvent::BackfillBegin)
+            } else if is_true("/_meta/backfillComplete") {
+                Some(ControlEvent::BackfillComplete)
+            } else {
+                anyhow::bail!(
+                    "journal {journal} offset {begin_offset}: \
+                     control document not recognized"
+                )
+            }
+        } else {
+            None
+        };
+
+        let flags = if !flags.is_ack() && control.is_none() && validator.is_valid(archived) {
             uuid::Flags(flags.0 | crate::FLAGS_SCHEMA_VALID)
         } else {
             flags
@@ -99,6 +142,7 @@ pub fn extract_metas(
             clock,
             flags,
             producer,
+            control,
         };
         begin_offset = end_offset;
 
@@ -205,7 +249,8 @@ mod test {
 
     #[test]
     fn test_extract_metas() {
-        // Schema requires "required_field", exercising both valid and invalid paths.
+        // Schema requires "required_field", exercising valid, invalid, ACK bypass,
+        // and control doc paths.
         let schema = br#"{"type":"object","required":["required_field"]}"#;
         let bundle = doc::validation::build_bundle(schema).unwrap();
         let mut validator = doc::Validator::new(bundle).unwrap();
@@ -215,21 +260,38 @@ mod test {
         let c1 = clock.tick();
         let c2 = clock.tick();
         let c3 = clock.tick();
+        let c4 = clock.tick();
+        let c5 = clock.tick();
 
-        // Three docs exercise: non-zero base offset, offset chaining,
-        // OUTSIDE_TXN/CONTINUE_TXN/ACK_TXN flags, valid + invalid schema, ACK bypass.
         let json = [
+            // Valid schema, OUTSIDE_TXN.
             format!(
                 r#"{{"_meta":{{"uuid":"{}"}},"required_field":"present"}}"#,
                 make_uuid_str(p1, c1, uuid::Flags::OUTSIDE_TXN),
             ),
+            // Invalid schema, CONTINUE_TXN.
             format!(
                 r#"{{"_meta":{{"uuid":"{}"}},"other":"value"}}"#,
                 make_uuid_str(p1, c2, uuid::Flags::CONTINUE_TXN),
             ),
+            // ACK_TXN (skips validation).
             format!(
                 r#"{{"_meta":{{"uuid":"{}"}}}}"#,
                 make_uuid_str(p1, c3, uuid::Flags::ACK_TXN),
+            ),
+            // Control: backfillBegin (skips validation, parsed as control event).
+            // Control docs always carry `Flag_CONTROL` alone (0x4); the low
+            // transaction-semantics bits are implicitly OUTSIDE_TXN, so these
+            // documents are immediately committed and never participate in
+            // a CONTINUE_TXN / ACK_TXN span.
+            format!(
+                r#"{{"_meta":{{"uuid":"{}","backfillBegin":true}}}}"#,
+                make_uuid_str(p1, c4, uuid::Flags::CONTROL),
+            ),
+            // Control: backfillComplete.
+            format!(
+                r#"{{"_meta":{{"uuid":"{}","backfillComplete":true}}}}"#,
+                make_uuid_str(p1, c5, uuid::Flags::CONTROL),
             ),
         ]
         .join("\n")

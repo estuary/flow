@@ -162,6 +162,18 @@ message CaptureRequestExt {
   message StartCommit {
     // Flow runtime checkpoint associated with this transaction.
     consumer.Checkpoint runtime_checkpoint = 1;
+
+    // UUID clocks assigned by the Go publisher to control documents that
+    // requested clock reporting (via `Captured.report_uuid_clock`) during
+    // this transaction's drain. Used by the capture runtime to record the
+    // authoritative `truncated_at` for each binding's active backfill —
+    // replacing the placeholder written during drain — in the same WriteBatch
+    // that commits the rest of the transaction state.
+    message PublishedControlClock {
+      uint32 binding = 1;
+      fixed64 clock = 2;
+    }
+    repeated PublishedControlClock published_control_clocks = 2;
   }
   StartCommit start_commit = 3;
 }
@@ -170,8 +182,21 @@ message CaptureRequestExt {
 message CaptureResponseExt {
   Container container = 1;
 
+  // Describes active backfill state for capture bindings.
+  // Communicated from Rust to Go so the Go app can apply journal labels.
+  message BackfillState {
+    message ActiveBackfill {
+      uint32 binding = 1;
+      fixed64 truncated_at_clock = 2;
+    }
+    repeated ActiveBackfill active_backfills = 1;
+  }
+
   message Opened {
     consumer.Checkpoint runtime_checkpoint = 1;
+    // Active backfill state restored from RocksDB, so Go can reapply
+    // truncated-at journal labels on startup.
+    BackfillState backfill_state = 2;
   }
   Opened opened = 2;
 
@@ -180,6 +205,18 @@ message CaptureResponseExt {
       bytes key_packed = 1;
       // Packed partition values extracted from the captured document.
       bytes partitions_packed = 2;
+      // Non-zero value overrides the default CONTINUE_TXN flags on the
+      // published UUID. Used for control documents: set to Flag_CONTROL
+      // alone (0x4) — the low transaction-semantics bits are implicitly
+      // OUTSIDE_TXN, making the doc immediately committed rather than
+      // staged within a transaction.
+      uint32 uuid_flags = 3;
+      // When true, the Go publisher must report the UUID clock it assigned
+      // to this document back to Rust via
+      // `CaptureRequestExt.StartCommit.published_control_clocks`. Set by the
+      // capture runtime for `BackfillBegin` control docs, so the authoritative
+      // `truncated_at` (the UUID clock) is captured in RocksDB on commit.
+      bool report_uuid_clock = 4;
   }
   Captured captured = 3;
 
@@ -200,6 +237,10 @@ message CaptureResponseExt {
     PollResult poll_result = 2;
   }
   Checkpoint checkpoint = 4;
+
+  // Active backfill state after this transaction committed.
+  // Go uses this to apply truncated-at journal labels.
+  BackfillState backfill_state = 5;
 }
 
 message DeriveRequestExt {

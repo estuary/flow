@@ -89,7 +89,7 @@ impl SessionClient {
             .await;
 
         let mut journals = Vec::new();
-        let flushed_lsn;
+        let terminal_chunk;
         loop {
             let chunk = match verify.not_eof(self.response_rx.recv().await)? {
                 shuffle::SessionResponse {
@@ -100,14 +100,14 @@ impl SessionClient {
             };
 
             if chunk.journals.is_empty() {
-                flushed_lsn = chunk.flushed_lsn;
+                terminal_chunk = chunk;
                 break;
             }
             journals.extend(crate::JournalFrontier::decode(chunk));
         }
 
         tracing::debug!(journals = journals.len(), "received NextCheckpoint");
-        crate::Frontier::new(journals, flushed_lsn).context("validating checkpoint frontier")
+        crate::Frontier::new(journals, terminal_chunk).context("validating checkpoint frontier")
     }
 
     /// Cleanly close the session by dropping the request sender and reading server EOF.

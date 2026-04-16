@@ -9,6 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/labels"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
@@ -16,6 +17,7 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -32,6 +34,13 @@ type captureApp struct {
 	transactions message.Clock         // Increments for each transaction.
 	watches      []*client.WatchedList // Watches of binding journals.
 	watchCancel  context.CancelFunc    // Canceler of watches.
+	// publishedControlClocks accumulates the UUID clocks assigned by the
+	// publisher to control documents (e.g. BackfillBegin) during the current
+	// consumer transaction. It is sent back to the Rust capture runtime via
+	// CaptureRequestExt.StartCommit.published_control_clocks, where the
+	// authoritative truncated_at for each binding's active backfill is
+	// persisted, and cleared after each transaction.
+	publishedControlClocks []*pr.CaptureRequestExt_StartCommit_PublishedControlClock
 }
 
 var _ application = (*captureApp)(nil)
@@ -139,6 +148,27 @@ func (c *captureApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _
 	}
 	var openedExt = pr.FromInternal[pr.CaptureResponseExt](opened.Internal)
 	c.container.Store(openedExt.Container)
+
+	// Re-apply `truncated-at` journal labels for any durably committed active
+	// backfills. Covers the crash window between a successful recovery-log
+	// commit and a successful broker ApplyRequest: on restart, Rust includes
+	// the active backfill state in Opened, and we retry the idempotent label
+	// update. Failures here are non-fatal and logged — they'll be retried on
+	// the next commit or restart.
+	if openedExt.Opened != nil && openedExt.Opened.BackfillState != nil {
+		if err := applyTruncatedAtLabels(
+			shard.Context(),
+			shard.JournalClient(),
+			openedExt.Opened.BackfillState,
+			c.watches,
+			c.term.taskSpec,
+		); err != nil {
+			ops.PublishLog(c.opsPublisher, ops.Log_warn,
+				"failed to apply truncated-at journal labels on restore",
+				"error", err,
+			)
+		}
+	}
 
 	return *openedExt.Opened.RuntimeCheckpoint, nil
 }
@@ -321,13 +351,40 @@ func (c *captureApp) ConsumeMessage(shard consumer.Shard, env message.Envelope, 
 			if err != nil {
 				return fmt.Errorf("unpacking partitions: %w", err)
 			}
-			if _, err = pub.PublishUncommitted(mapper.Map, flow.Mappable{
+
+			var mappable flow.Mappable = flow.Mappable{
 				Spec:       &c.term.taskSpec.Bindings[captured.Binding].Collection,
 				Doc:        captured.DocJson,
 				PackedKey:  capturedExt.KeyPacked,
 				Partitions: partitions,
 				List:       c.watches[captured.Binding],
-			}); err != nil {
+			}
+
+			if capturedExt.UuidFlags != 0 {
+				// Control document: override UUID flags and, when the
+				// runtime asked for it, capture the publisher-assigned
+				// clock so we can report it back with StartCommit.
+				var onSetUUID func(message.UUID)
+				if capturedExt.ReportUuidClock {
+					var binding = captured.Binding
+					onSetUUID = func(uuid message.UUID) {
+						c.publishedControlClocks = append(
+							c.publishedControlClocks,
+							&pr.CaptureRequestExt_StartCommit_PublishedControlClock{
+								Binding: binding,
+								Clock:   uint64(message.GetClock(uuid)),
+							},
+						)
+					}
+				}
+				if _, err = pub.PublishUncommitted(mapper.Map, controlMappable{
+					Mappable:  mappable,
+					flags:     message.Flags(capturedExt.UuidFlags),
+					onSetUUID: onSetUUID,
+				}); err != nil {
+					return fmt.Errorf("publishing control document: %w", err)
+				}
+			} else if _, err = pub.PublishUncommitted(mapper.Map, mappable); err != nil {
 				return fmt.Errorf("publishing document: %w", err)
 			}
 		} else if response.Checkpoint != nil {
@@ -367,19 +424,47 @@ func (c *captureApp) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor
 	// Install a barrier such that we don't begin writing until `waitFor` has resolved.
 	_ = c.recorder.Barrier(waitFor)
 
+	// Hand off any control-doc clocks collected during ConsumeMessage to Rust
+	// as part of the StartCommit request, then reset for the next transaction.
+	// The Rust runtime uses these as authoritative `truncated_at` clocks for
+	// active backfills persisted in the same atomic WriteBatch.
+	var publishedClocks = c.publishedControlClocks
+	c.publishedControlClocks = nil
+
 	// Tell capture runtime we're starting to commit.
 	if err := doSend[pc.Response](c.client, &pc.Request{
 		Internal: pr.ToInternal(&pr.CaptureRequestExt{
-			StartCommit: &pr.CaptureRequestExt_StartCommit{RuntimeCheckpoint: &cp},
+			StartCommit: &pr.CaptureRequestExt_StartCommit{
+				RuntimeCheckpoint:      &cp,
+				PublishedControlClocks: publishedClocks,
+			},
 		}),
 	}); err != nil {
 		return client.FinishedOperation(err)
 	}
-	// Await it's StartedCommit, which tells us that all recovery log writes have been sequenced.
-	if started, err := doRecv[pc.Response](c.client); err != nil {
+	// Await its StartedCommit, which tells us that all recovery log writes have been sequenced.
+	var started, err = doRecv[pc.Response](c.client)
+	if err != nil {
 		return client.FinishedOperation(err)
 	} else if started.Checkpoint == nil { // Checkpoint is used for StartedCommit.
 		return client.FinishedOperation(fmt.Errorf("expected StartedCommit, but got %#v", started))
+	}
+
+	// Apply truncated-at journal labels for active backfills.
+	var startedExt = pr.FromInternal[pr.CaptureResponseExt](started.Internal)
+	if startedExt.BackfillState != nil {
+		if err := applyTruncatedAtLabels(
+			shard.Context(),
+			shard.JournalClient(),
+			startedExt.BackfillState,
+			c.watches,
+			c.term.taskSpec,
+		); err != nil {
+			ops.PublishLog(c.opsPublisher, ops.Log_warn,
+				"failed to apply truncated-at journal labels",
+				"error", err,
+			)
+		}
 	}
 
 	// Another barrier which notifies when the WriteBatch
@@ -420,6 +505,67 @@ func (m *captureMessage) SetUUID(message.UUID) {
 }
 func (m *captureMessage) NewAcknowledgement(pf.Journal) message.Message {
 	panic("must not be called")
+}
+
+// applyTruncatedAtLabels sets the truncated-at journal label on all partition
+// journals of bindings with active backfills. This is idempotent — labels are
+// only updated when the value differs from current.
+func applyTruncatedAtLabels(
+	ctx context.Context,
+	jc pb.JournalClient,
+	state *pr.CaptureResponseExt_BackfillState,
+	watches []*client.WatchedList,
+	spec *pf.CaptureSpec,
+) error {
+	for _, ab := range state.ActiveBackfills {
+		var idx = int(ab.Binding)
+		if idx >= len(watches) || idx >= len(spec.Bindings) {
+			continue
+		}
+		var clockStr = fmt.Sprintf("%d", ab.TruncatedAtClock)
+		var listing = watches[idx].List()
+
+		for _, journal := range listing.Journals {
+			var current = journal.Spec.LabelSet.ValueOf(labels.TruncatedAt)
+			if current == clockStr {
+				continue // Already up to date.
+			}
+			var updated = journal.Spec
+			updated.LabelSet.SetValue(labels.TruncatedAt, clockStr)
+
+			var _, err = jc.Apply(ctx, &pb.ApplyRequest{
+				Changes: []pb.ApplyRequest_Change{{
+					Upsert:            &updated,
+					ExpectModRevision: journal.ModRevision,
+				}},
+			})
+			if err != nil {
+				return fmt.Errorf("applying truncated-at label for %s: %w", journal.Spec.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// controlMappable wraps a flow.Mappable and overrides SetUUID to rebuild the
+// UUID with custom flags (e.g. Flag_CONTROL, which by design implies
+// Flag_OUTSIDE_TXN). The optional onSetUUID callback is invoked with the
+// final UUID after the override is applied, allowing callers to observe the
+// publisher-assigned clock.
+type controlMappable struct {
+	flow.Mappable
+	flags     message.Flags
+	onSetUUID func(message.UUID)
+}
+
+func (m controlMappable) SetUUID(uuid message.UUID) {
+	var producer = message.GetProducerID(uuid)
+	var clock = message.GetClock(uuid)
+	var assigned = message.BuildUUID(producer, clock, m.flags)
+	m.Mappable.SetUUID(assigned)
+	if m.onSetUUID != nil {
+		m.onSetUUID(assigned)
+	}
 }
 
 func extractCaptureSpec(db *sql.DB, taskName string) (*pf.CaptureSpec, error) {

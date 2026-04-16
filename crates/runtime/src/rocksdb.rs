@@ -2,6 +2,7 @@ use anyhow::Context;
 use prost::Message;
 use proto_flow::{flow, runtime::RocksDbDescriptor};
 use proto_gazette::consumer;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::runtime::Handle;
 
@@ -178,6 +179,24 @@ impl RocksDB {
         Ok(initial)
     }
 
+    /// Load the persisted active-backfill state: a map from binding
+    /// `state_key` to the UUID clock of the corresponding BackfillBegin's
+    /// control document. Used by the capture runtime to surface `truncated-at`
+    /// journal labels to the Go runtime on session open. An empty map is
+    /// returned if the key is absent.
+    pub async fn load_backfill_state(&self) -> anyhow::Result<BTreeMap<String, u64>> {
+        match self
+            .get_opt(Self::BACKFILL_STATE_KEY, rocksdb::ReadOptions::default())
+            .await
+            .context("failed to load backfill state")?
+        {
+            Some(v) => {
+                serde_json::from_slice(&v).context("failed to decode backfill state as JSON")
+            }
+            None => Ok(BTreeMap::new()),
+        }
+    }
+
     /// Load persisted trigger template variables, if any.
     /// Returns `None` if the key does not exist (no pending trigger delivery).
     pub async fn load_trigger_params<T>(&self) -> anyhow::Result<Option<T>>
@@ -204,6 +223,11 @@ impl RocksDB {
     pub const CONNECTOR_STATE_KEY: &'static str = "connector-state";
     // Key encoding under which trigger template variables are stored.
     pub const TRIGGER_PARAMS: &'static str = "trigger-params";
+    // Key encoding under which active backfill state is stored.
+    // Value is a JSON-encoded BTreeMap<String, u64> mapping a binding's
+    // stable `state_key` to the UUID clock of the most recently committed
+    // BackfillBegin control document for that binding.
+    pub const BACKFILL_STATE_KEY: &'static str = "backfill-state";
 }
 
 // Enqueues a MERGE or PUT to the WriteBatch for this `state` update.

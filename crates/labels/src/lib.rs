@@ -15,6 +15,7 @@ pub const KEY_BEGIN_MIN: &str = "00000000";
 pub const KEY_END: &str = "estuary.dev/key-end";
 pub const KEY_END_MAX: &str = "ffffffff";
 pub const MANAGED_BY_FLOW: &str = "estuary.dev/flow";
+pub const TRUNCATED_AT: &str = "estuary.dev/truncated-at";
 
 // ShardSpec labels.
 pub const TASK_NAME: &str = "estuary.dev/task-name";

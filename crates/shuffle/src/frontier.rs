@@ -1,6 +1,7 @@
 use crate::log;
 use proto_flow::shuffle;
 use proto_gazette::uuid::{Clock, Producer};
+use std::collections::BTreeMap;
 
 /// Frontier state of a single producer within a journal.
 #[derive(Debug, Clone)]
@@ -210,6 +211,8 @@ impl JournalFrontier {
         shuffle::FrontierChunk {
             journals,
             flushed_lsn: vec![],
+            latest_backfill_begin: vec![],
+            latest_backfill_complete: vec![],
         }
     }
 }
@@ -232,15 +235,21 @@ pub struct Frontier {
     /// Per-member flushed LSN (log read-through barrier), indexed by member_index.
     /// Empty when not applicable (e.g. resume checkpoints).
     pub flushed_lsn: Vec<log::Lsn>,
+    /// Latest committed backfill-begin clock of the checkpoint delta, keyed by journal_read_suffix.
+    pub latest_backfill_begin: BTreeMap<String, Clock>,
+    /// Latest committed backfill-complete clock of the checkpoint delta, keyed by journal_read_suffix.
+    pub latest_backfill_complete: BTreeMap<String, Clock>,
 }
 
 impl Frontier {
-    /// Construct a `Frontier` from journal entries and per-member flushed LSNs,
-    /// validating that entries are sorted and unique on `(journal, binding)` and
+    /// Construct a `Frontier` from decoded journal entries and a terminal
+    /// `FrontierChunk` carrying flushed LSNs and backfill metadata.
+    /// Validates that entries are sorted and unique on `(journal, binding)` and
     /// that producers within each entry are sorted and unique on `producer`.
-    pub fn new(journals: Vec<JournalFrontier>, flushed_lsn: Vec<u64>) -> anyhow::Result<Self> {
-        let flushed_lsn = flushed_lsn.into_iter().map(log::Lsn::from_u64).collect();
-
+    pub fn new(
+        journals: Vec<JournalFrontier>,
+        terminal: shuffle::FrontierChunk,
+    ) -> anyhow::Result<Self> {
         for (index, window) in journals.windows(2).enumerate() {
             let (prev, curr) = (&window[0], &window[1]);
             match prev
@@ -288,7 +297,21 @@ impl Frontier {
         }
         Ok(Self {
             journals,
-            flushed_lsn,
+            flushed_lsn: terminal
+                .flushed_lsn
+                .into_iter()
+                .map(log::Lsn::from_u64)
+                .collect(),
+            latest_backfill_begin: terminal
+                .latest_backfill_begin
+                .into_iter()
+                .map(|e| (e.journal_read_suffix, Clock::from_u64(e.clock)))
+                .collect(),
+            latest_backfill_complete: terminal
+                .latest_backfill_complete
+                .into_iter()
+                .map(|e| (e.journal_read_suffix, Clock::from_u64(e.clock)))
+                .collect(),
         })
     }
 
@@ -310,6 +333,19 @@ impl Frontier {
             .collect()
     }
 
+    /// Per-suffix max of two backfill clock maps.
+    fn merge_backfill_clocks(
+        mut a: BTreeMap<String, Clock>,
+        b: BTreeMap<String, Clock>,
+    ) -> BTreeMap<String, Clock> {
+        for (suffix, clock) in b {
+            a.entry(suffix)
+                .and_modify(|current: &mut Clock| *current = (*current).max(clock))
+                .or_insert(clock);
+        }
+        a
+    }
+
     /// Merge two Frontiers by sorted-merging their journal lists.
     /// Typically used to merge a checkpoint delta into a cumulative base:
     /// new journals from the delta are added, base journals absent from the
@@ -318,15 +354,25 @@ impl Frontier {
     /// Both inputs may contain non-unique keys, which are reduced to single entries.
     pub fn reduce(self, other: Self) -> Self {
         let flushed_lsn = Self::merge_flushed_lsn(self.flushed_lsn, other.flushed_lsn);
+        let latest_backfill_begin =
+            Self::merge_backfill_clocks(self.latest_backfill_begin, other.latest_backfill_begin);
+        let latest_backfill_complete = Self::merge_backfill_clocks(
+            self.latest_backfill_complete,
+            other.latest_backfill_complete,
+        );
 
         if self.journals.is_empty() {
             return Self {
                 flushed_lsn,
+                latest_backfill_begin,
+                latest_backfill_complete,
                 ..other
             };
         } else if other.journals.is_empty() {
             return Self {
                 flushed_lsn,
+                latest_backfill_begin,
+                latest_backfill_complete,
                 ..self
             };
         }
@@ -367,6 +413,8 @@ impl Frontier {
         Self {
             journals: merged,
             flushed_lsn,
+            latest_backfill_begin,
+            latest_backfill_complete,
         }
     }
 
@@ -473,6 +521,8 @@ impl Frontier {
         Frontier {
             journals,
             flushed_lsn: vec![],
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
         }
     }
 }
@@ -545,6 +595,23 @@ impl Drain {
                 .into_iter()
                 .map(|lsn| lsn.as_u64())
                 .collect();
+            chunk.latest_backfill_begin = std::mem::take(&mut self.frontier.latest_backfill_begin)
+                .into_iter()
+                .map(|(suffix, clock)| shuffle::frontier_chunk::BackfillBegin {
+                    journal_read_suffix: suffix,
+                    clock: clock.as_u64(),
+                })
+                .collect();
+            chunk.latest_backfill_complete =
+                std::mem::take(&mut self.frontier.latest_backfill_complete)
+                    .into_iter()
+                    .map(
+                        |(suffix, clock)| shuffle::frontier_chunk::BackfillComplete {
+                            journal_read_suffix: suffix,
+                            clock: clock.as_u64(),
+                        },
+                    )
+                    .collect();
             self.frontier = Default::default(); // Release memory.
             self.offset = usize::MAX;
         } else {
@@ -571,8 +638,9 @@ impl std::fmt::Debug for Drain {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::testing::{jf, jf_with_bytes, pf, pf_tuple};
+    use crate::testing::{jf, jf_with_bytes, pf, pf_tuple, terminal_chunk};
     use log::Lsn;
+    use std::collections::BTreeMap;
 
     #[test]
     fn test_producer_frontier_reduce() {
@@ -614,6 +682,8 @@ mod test {
                 ),
             ],
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(3)],
+            latest_backfill_begin: BTreeMap::from([("suffix/0".into(), Clock::from_u64(100))]),
+            latest_backfill_complete: BTreeMap::from([("suffix/1".into(), Clock::from_u64(140))]),
         };
         let hints = Frontier {
             journals: vec![
@@ -621,6 +691,8 @@ mod test {
                 jf("journal/C", 1, vec![pf(0x03, 0, 300, 0)]),
             ],
             flushed_lsn: vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(30)],
+            latest_backfill_begin: BTreeMap::from([("suffix/0".into(), Clock::from_u64(120))]),
+            latest_backfill_complete: BTreeMap::from([("suffix/0".into(), Clock::from_u64(130))]),
         };
         let r = reads.reduce(hints);
 
@@ -685,18 +757,42 @@ mod test {
             vec![Lsn::from_u64(40), Lsn::from_u64(50), Lsn::from_u64(30)],
             "element-wise max of flushed_lsn"
         );
+        assert_eq!(
+            r.latest_backfill_begin.get("suffix/0"),
+            Some(&Clock::from_u64(120))
+        );
+        assert_eq!(
+            r.latest_backfill_complete.get("suffix/0"),
+            Some(&Clock::from_u64(130))
+        );
+        assert_eq!(
+            r.latest_backfill_complete.get("suffix/1"),
+            Some(&Clock::from_u64(140))
+        );
 
-        // Identity: empty reduces are no-ops and preserve flushed_lsn.
+        // Identity: reducing with an empty frontier preserves all fields.
         let f = Frontier {
             journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(20)],
+            latest_backfill_begin: BTreeMap::from([("suffix/0".into(), Clock::from_u64(100))]),
+            latest_backfill_complete: BTreeMap::from([("suffix/0".into(), Clock::from_u64(200))]),
         };
         let r = f.clone().reduce(Frontier::default());
         assert_eq!(r.journals.len(), 1);
         assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
+        assert_eq!(r.latest_backfill_begin, f.latest_backfill_begin);
+        assert_eq!(r.latest_backfill_complete, f.latest_backfill_complete);
         let r = Frontier::default().reduce(f);
         assert_eq!(r.journals.len(), 1);
         assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
+        assert_eq!(
+            r.latest_backfill_begin.get("suffix/0"),
+            Some(&Clock::from_u64(100))
+        );
+        assert_eq!(
+            r.latest_backfill_complete.get("suffix/0"),
+            Some(&Clock::from_u64(200))
+        );
         assert!(
             Frontier::default()
                 .reduce(Frontier::default())
@@ -780,7 +876,7 @@ mod test {
                     vec![pf(0x07, 10, 0, -100)],
                 ),
             ],
-            vec![],
+            terminal_chunk(vec![]),
         )
         .unwrap();
 
@@ -823,7 +919,7 @@ mod test {
             }
 
             // Reassembled frontier matches the original.
-            let reassembled = Frontier::new(reassembled, vec![]).unwrap();
+            let reassembled = Frontier::new(reassembled, terminal_chunk(vec![])).unwrap();
             assert_eq!(reassembled.journals.len(), frontier.journals.len());
             for (a, b) in reassembled.journals.iter().zip(frontier.journals.iter()) {
                 assert_eq!(&*a.journal, &*b.journal, "chunk_size={chunk_size}");
@@ -851,7 +947,7 @@ mod test {
         // Out-of-order journals within the same binding.
         let err = Frontier::new(
             vec![jf("journal/B", 0, vec![]), jf("journal/A", 0, vec![])],
-            vec![],
+            terminal_chunk(vec![]),
         )
         .unwrap_err();
         assert!(
@@ -862,7 +958,7 @@ mod test {
         // Out-of-order bindings.
         let err = Frontier::new(
             vec![jf("journal/A", 1, vec![]), jf("journal/A", 0, vec![])],
-            vec![],
+            terminal_chunk(vec![]),
         )
         .unwrap_err();
         assert!(
@@ -873,7 +969,7 @@ mod test {
         // Duplicate (journal, binding).
         let err = Frontier::new(
             vec![jf("journal/A", 0, vec![]), jf("journal/A", 0, vec![])],
-            vec![],
+            terminal_chunk(vec![]),
         )
         .unwrap_err();
         assert!(
@@ -891,7 +987,7 @@ mod test {
                 0,
                 vec![pf(0x05, 100, 0, -1), pf(0x01, 200, 0, -2)],
             )],
-            vec![],
+            terminal_chunk(vec![]),
         )
         .unwrap_err();
         assert!(
@@ -906,7 +1002,7 @@ mod test {
                 0,
                 vec![pf(0x01, 100, 0, -1), pf(0x01, 200, 0, -2)],
             )],
-            vec![],
+            terminal_chunk(vec![]),
         )
         .unwrap_err();
         assert!(
@@ -928,7 +1024,7 @@ mod test {
                     vec![pf(0x03, 0, 300, 0), pf(0x05, 100, 0, -500)],
                 ),
             ],
-            flushed_lsn: vec![],
+            ..Default::default()
         };
 
         // Progressed: journal/A has P1 with last_commit=250 (matches hint @200),
@@ -938,7 +1034,7 @@ mod test {
                 jf("journal/A", 0, vec![pf(0x01, 250, 0, -800)]),
                 jf("journal/B", 0, vec![pf(0x03, 250, 0, -600)]),
             ],
-            flushed_lsn: vec![],
+            ..Default::default()
         };
 
         let resolved = pending.resolve_hints(&progressed);
@@ -957,7 +1053,7 @@ mod test {
         // Second round: P3 now has enough progress.
         let progressed2 = Frontier {
             journals: vec![jf("journal/B", 0, vec![pf(0x03, 400, 0, -900)])],
-            flushed_lsn: vec![],
+            ..Default::default()
         };
         let resolved2 = pending.resolve_hints(&progressed2);
         assert_eq!(resolved2, 1);
@@ -979,11 +1075,11 @@ mod test {
         // Should NOT match (different bindings).
         let mut pending = Frontier {
             journals: vec![jf("journal/X", 1, vec![pf(0x01, 0, 100, 0)])],
-            flushed_lsn: vec![],
+            ..Default::default()
         };
         let progressed = Frontier {
             journals: vec![jf("journal/X", 0, vec![pf(0x01, 200, 0, -500)])],
-            flushed_lsn: vec![],
+            ..Default::default()
         };
         assert_eq!(pending.resolve_hints(&progressed), 0);
     }
@@ -1009,7 +1105,7 @@ mod test {
                 ),
                 jf("journal/C", 1, vec![pf(0x07, 100, 0, -200)]), // no hint
             ],
-            flushed_lsn: vec![],
+            ..Default::default()
         };
         assert_eq!(f.count_unresolved_hints(), 2);
         assert_eq!(Frontier::default().count_unresolved_hints(), 0);
@@ -1030,7 +1126,7 @@ mod test {
                 jf("journal/B", 0, vec![pf(0x05, 100, 0, -200)]), // no hint
                 jf("journal/C", 1, vec![pf(0x07, 0, 300, 0)]),    // unresolved
             ],
-            flushed_lsn: vec![],
+            ..Default::default()
         };
 
         let projected = f.project_unresolved_hints();
@@ -1070,7 +1166,7 @@ mod test {
         // No hints: empty projection.
         let no_hints = Frontier {
             journals: vec![jf("journal/A", 0, vec![pf(0x01, 100, 0, -200)])],
-            flushed_lsn: vec![],
+            ..Default::default()
         };
         assert!(no_hints.project_unresolved_hints().journals.is_empty());
 
@@ -1110,7 +1206,7 @@ mod test {
             let mut drain = Drain::with_journals_per_chunk(chunk_size);
             drain.start(Frontier {
                 journals: all_journals[..n].to_vec(),
-                flushed_lsn: vec![],
+                ..Default::default()
             });
             assert_eq!(
                 drain_all(&mut drain),
@@ -1134,7 +1230,7 @@ mod test {
         for _ in 0..3 {
             drain.start(Frontier {
                 journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
-                flushed_lsn: vec![],
+                ..Default::default()
             });
             assert_eq!(drain_all(&mut drain), [1, 0]);
         }
@@ -1146,37 +1242,38 @@ mod test {
         let mut drain = Drain::with_journals_per_chunk(1);
         drain.start(Frontier {
             journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
-            flushed_lsn: vec![],
+            ..Default::default()
         });
         drain.start(Frontier::default());
     }
 
     #[test]
     fn test_drain_round_trip() {
-        let original = Frontier::new(
-            vec![
+        let original = Frontier {
+            journals: vec![
                 jf("journal/A", 0, vec![pf(0x01, 100, 0, -500)]),
                 jf("journal/A", 1, vec![pf(0x03, 200, 0, -800)]),
                 jf("journal/B", 0, vec![pf(0x05, 300, 400, 42)]),
             ],
-            vec![100, 200, 300],
-        )
-        .unwrap();
+            flushed_lsn: vec![Lsn::from_u64(100), Lsn::from_u64(200), Lsn::from_u64(300)],
+            latest_backfill_begin: BTreeMap::from([("suffix/0".into(), Clock::from_u64(111))]),
+            latest_backfill_complete: BTreeMap::from([("suffix/1".into(), Clock::from_u64(222))]),
+        };
 
         for chunk_size in [1, 2, 3] {
             let mut drain = Drain::with_journals_per_chunk(chunk_size);
             drain.start(original.clone());
 
             let mut reassembled_journals = Vec::new();
-            let mut terminal_flushed_lsn = Vec::new();
+            let mut terminal_chunk = None;
             for chunk in std::iter::from_fn(|| drain.next_chunk()) {
                 if chunk.journals.is_empty() {
-                    terminal_flushed_lsn = chunk.flushed_lsn;
+                    terminal_chunk = Some(chunk);
                 } else {
                     reassembled_journals.extend(JournalFrontier::decode(chunk));
                 }
             }
-            let reassembled = Frontier::new(reassembled_journals, terminal_flushed_lsn).unwrap();
+            let reassembled = Frontier::new(reassembled_journals, terminal_chunk.unwrap()).unwrap();
 
             assert_eq!(reassembled.journals.len(), original.journals.len());
             for (a, b) in reassembled.journals.iter().zip(original.journals.iter()) {
@@ -1187,6 +1284,14 @@ mod test {
             assert_eq!(
                 reassembled.flushed_lsn, original.flushed_lsn,
                 "flushed_lsn round-trips through drain (chunk_size={chunk_size})"
+            );
+            assert_eq!(
+                reassembled.latest_backfill_begin,
+                original.latest_backfill_begin
+            );
+            assert_eq!(
+                reassembled.latest_backfill_complete,
+                original.latest_backfill_complete
             );
         }
     }

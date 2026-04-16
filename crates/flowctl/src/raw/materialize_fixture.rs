@@ -147,7 +147,9 @@ pub async fn do_materialize_fixture(
             emit(load)
         }
         emit(Request {
-            flush: Some(request::Flush {}),
+            flush: Some(request::Flush {
+                ..Default::default()
+            }),
             ..Default::default()
         });
         for store in stores {

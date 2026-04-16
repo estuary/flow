@@ -32,6 +32,7 @@ go build -tags libsqlite3 ./go/bindings
 # Regenerate checked-in protobuf (required after .proto changes)
 mise run build:go-protobufs
 mise run build:rust-protobufs
+cargo fmt --all  # remove format-only churn from codegen
 
 # Run pgTAP SQL Tests
 mise run ci:sql-tap

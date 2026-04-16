@@ -143,12 +143,24 @@ impl serde::Serialize for FrontierChunk {
         if !self.flushed_lsn.is_empty() {
             len += 1;
         }
+        if !self.latest_backfill_begin.is_empty() {
+            len += 1;
+        }
+        if !self.latest_backfill_complete.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.FrontierChunk", len)?;
         if !self.journals.is_empty() {
             struct_ser.serialize_field("journals", &self.journals)?;
         }
         if !self.flushed_lsn.is_empty() {
             struct_ser.serialize_field("flushedLsn", &self.flushed_lsn.iter().map(ToString::to_string).collect::<Vec<_>>())?;
+        }
+        if !self.latest_backfill_begin.is_empty() {
+            struct_ser.serialize_field("latestBackfillBegin", &self.latest_backfill_begin)?;
+        }
+        if !self.latest_backfill_complete.is_empty() {
+            struct_ser.serialize_field("latestBackfillComplete", &self.latest_backfill_complete)?;
         }
         struct_ser.end()
     }
@@ -163,12 +175,18 @@ impl<'de> serde::Deserialize<'de> for FrontierChunk {
             "journals",
             "flushed_lsn",
             "flushedLsn",
+            "latest_backfill_begin",
+            "latestBackfillBegin",
+            "latest_backfill_complete",
+            "latestBackfillComplete",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Journals,
             FlushedLsn,
+            LatestBackfillBegin,
+            LatestBackfillComplete,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -192,6 +210,8 @@ impl<'de> serde::Deserialize<'de> for FrontierChunk {
                         match value {
                             "journals" => Ok(GeneratedField::Journals),
                             "flushedLsn" | "flushed_lsn" => Ok(GeneratedField::FlushedLsn),
+                            "latestBackfillBegin" | "latest_backfill_begin" => Ok(GeneratedField::LatestBackfillBegin),
+                            "latestBackfillComplete" | "latest_backfill_complete" => Ok(GeneratedField::LatestBackfillComplete),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -213,6 +233,8 @@ impl<'de> serde::Deserialize<'de> for FrontierChunk {
             {
                 let mut journals__ = None;
                 let mut flushed_lsn__ = None;
+                let mut latest_backfill_begin__ = None;
+                let mut latest_backfill_complete__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Journals => {
@@ -230,15 +252,255 @@ impl<'de> serde::Deserialize<'de> for FrontierChunk {
                                     .into_iter().map(|x| x.0).collect())
                             ;
                         }
+                        GeneratedField::LatestBackfillBegin => {
+                            if latest_backfill_begin__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("latestBackfillBegin"));
+                            }
+                            latest_backfill_begin__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::LatestBackfillComplete => {
+                            if latest_backfill_complete__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("latestBackfillComplete"));
+                            }
+                            latest_backfill_complete__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(FrontierChunk {
                     journals: journals__.unwrap_or_default(),
                     flushed_lsn: flushed_lsn__.unwrap_or_default(),
+                    latest_backfill_begin: latest_backfill_begin__.unwrap_or_default(),
+                    latest_backfill_complete: latest_backfill_complete__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("shuffle.FrontierChunk", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for frontier_chunk::BackfillBegin {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.journal_read_suffix.is_empty() {
+            len += 1;
+        }
+        if self.clock != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("shuffle.FrontierChunk.BackfillBegin", len)?;
+        if !self.journal_read_suffix.is_empty() {
+            struct_ser.serialize_field("journalReadSuffix", &self.journal_read_suffix)?;
+        }
+        if self.clock != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("clock", ToString::to_string(&self.clock).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for frontier_chunk::BackfillBegin {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "journal_read_suffix",
+            "journalReadSuffix",
+            "clock",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            JournalReadSuffix,
+            Clock,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "journalReadSuffix" | "journal_read_suffix" => Ok(GeneratedField::JournalReadSuffix),
+                            "clock" => Ok(GeneratedField::Clock),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = frontier_chunk::BackfillBegin;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct shuffle.FrontierChunk.BackfillBegin")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<frontier_chunk::BackfillBegin, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut journal_read_suffix__ = None;
+                let mut clock__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::JournalReadSuffix => {
+                            if journal_read_suffix__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("journalReadSuffix"));
+                            }
+                            journal_read_suffix__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Clock => {
+                            if clock__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clock"));
+                            }
+                            clock__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(frontier_chunk::BackfillBegin {
+                    journal_read_suffix: journal_read_suffix__.unwrap_or_default(),
+                    clock: clock__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("shuffle.FrontierChunk.BackfillBegin", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for frontier_chunk::BackfillComplete {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.journal_read_suffix.is_empty() {
+            len += 1;
+        }
+        if self.clock != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("shuffle.FrontierChunk.BackfillComplete", len)?;
+        if !self.journal_read_suffix.is_empty() {
+            struct_ser.serialize_field("journalReadSuffix", &self.journal_read_suffix)?;
+        }
+        if self.clock != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("clock", ToString::to_string(&self.clock).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for frontier_chunk::BackfillComplete {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "journal_read_suffix",
+            "journalReadSuffix",
+            "clock",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            JournalReadSuffix,
+            Clock,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "journalReadSuffix" | "journal_read_suffix" => Ok(GeneratedField::JournalReadSuffix),
+                            "clock" => Ok(GeneratedField::Clock),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = frontier_chunk::BackfillComplete;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct shuffle.FrontierChunk.BackfillComplete")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<frontier_chunk::BackfillComplete, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut journal_read_suffix__ = None;
+                let mut clock__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::JournalReadSuffix => {
+                            if journal_read_suffix__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("journalReadSuffix"));
+                            }
+                            journal_read_suffix__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Clock => {
+                            if clock__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clock"));
+                            }
+                            clock__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(frontier_chunk::BackfillComplete {
+                    journal_read_suffix: journal_read_suffix__.unwrap_or_default(),
+                    clock: clock__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("shuffle.FrontierChunk.BackfillComplete", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for JournalFrontier {

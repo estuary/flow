@@ -248,6 +248,7 @@ async fn run_session(
                         .into(),
                         ack_intents: Default::default(),
                     }),
+                    published_control_clocks: Vec::new(),
                 });
             })))
             .expect("sender is empty");

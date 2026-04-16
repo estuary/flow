@@ -22,4 +22,10 @@ Frontier {
     flushed_lsn: [
         0/1000,
     ],
+    latest_backfill_begin: {
+        "suffix/0": Clock(111s 0ns),
+    },
+    latest_backfill_complete: {
+        "suffix/1": Clock(222s 0ns),
+    },
 }

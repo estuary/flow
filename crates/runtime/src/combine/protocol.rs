@@ -81,7 +81,8 @@ pub fn recv_client_add(
 
     if let Some(uuid_ptr) = &binding.uuid_ptr {
         if let Some(uuid) = uuid_ptr.query(&doc) {
-            // Skip this document if its UUID is marked as an ACK.
+            // Skip this document if its UUID is marked as an ACK or an
+            // application control message (e.g. backfill begin/complete).
             // TODO(johnny): Reconsider whether we need this after shuffle refactors.
             let skip = (|| {
                 let HeapNode::String(uuid) = uuid else {
@@ -91,7 +92,7 @@ pub fn recv_client_add(
 
                 let (_producer, _clock, flags) = crate::uuid::parse(uuid)?;
 
-                Ok(flags.is_ack())
+                Ok(flags.is_ack() || flags.is_control())
             })()
             .with_context(|| {
                 format!(

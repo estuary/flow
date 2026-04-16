@@ -25,6 +25,8 @@ Checkpoint {
             1/0,
             0/0,
         ],
+        latest_backfill_begin: {},
+        latest_backfill_complete: {},
     },
     read: [
         ReadEntry {

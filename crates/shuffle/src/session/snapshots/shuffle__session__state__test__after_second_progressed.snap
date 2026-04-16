@@ -24,10 +24,18 @@ PipelineSnapshot {
         flushed_lsn: [
             0/1000,
         ],
+        latest_backfill_begin: {
+            "suffix/0": Clock(111s 0ns),
+        },
+        latest_backfill_complete: {
+            "suffix/1": Clock(222s 0ns),
+        },
     },
     unresolved: Frontier {
         journals: [],
         flushed_lsn: [],
+        latest_backfill_begin: {},
+        latest_backfill_complete: {},
     },
     unresolved_count: 0,
     progressed: Frontier {
@@ -78,5 +86,12 @@ PipelineSnapshot {
         flushed_lsn: [
             0/2000,
         ],
+        latest_backfill_begin: {
+            "suffix/0": Clock(333s 0ns),
+        },
+        latest_backfill_complete: {
+            "suffix/0": Clock(444s 0ns),
+            "suffix/1": Clock(222s 0ns),
+        },
     },
 }

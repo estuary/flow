@@ -50,17 +50,18 @@ control-plane initiated backfills).
 **Control messages** bracket a full refresh of a capture binding. These are
 written to collection journals alongside regular documents, but are detected and
 handled separately by the runtime using a new UUID `CONTROL` flag (see UUID Flag
-Extension below).
+Extension below). Control messages are always immediately-committed
+(`OUTSIDE_TXN` sequencing); they never participate in a `CONTINUE_TXN` span.
 
 A `BackfillBegin` control message's **`truncatedAt`** timestamp divides journal
 data into "before" (stale, to be superseded) and "after" (current).
 Materialization connectors use `truncatedAt` to delete stale destination rows.
 
-When a `BackfillBegin` is written, the collection's **journal labels** are also
-updated with `truncatedAt` as a truncation timestamp. This allows new readers
-(e.g., a newly-created materialization) to skip past stale pre-`truncatedAt`
-data entirely. `truncatedAt` reuses the existing `begin_mod_time` mechanism,
-analogous to how `not_before` is used.
+When a `BackfillBegin` is durably committed in capture state, the collection's
+**journal labels** are also updated with `truncatedAt` as a truncation
+timestamp. This allows new readers (e.g., a newly-created materialization) to
+skip past stale pre-`truncatedAt` data entirely. `truncatedAt` reuses the
+existing `begin_mod_time` mechanism, analogous to how `not_before` is used.
 
 This initial design primarily covers support for captures & materializations.
 Some changes to Dekaf will be necessary to handle these new control messages as
@@ -79,33 +80,41 @@ path.
   `BackfillBegin` received after documents for the same binding in a transaction
   is an error.
 - **Capture Runtime**:
-  - Writes a `{"_meta": {"backfillBegin": true, ...}}` document to all journals of the
-    collection as part of the capture transaction. The clock of this document is
-    the `truncatedAt` timestamp.
-  - Sets the `CONTROL` flag on the UUID for all of these documents.
+  - Treats any connector checkpoint containing a `BackfillBegin` or
+    `BackfillComplete` as a hard batching boundary. Connector checkpoints are
+    never combined across a control-bearing checkpoint.
+  - Publishes a `{"_meta": {"backfillBegin": true, ...}}` document to all
+    journals of the collection before any ordinary documents of that isolated
+    checkpoint. These are `CONTROL` documents (implicitly `OUTSIDE_TXN`) and
+    are immediately committed.
+  - Captures the actual UUID clock assigned to those published control
+    documents. That clock is the authoritative `truncatedAt` timestamp.
   - Includes in the recovery log write:
-    - The `truncatedAt` value for each journal that received a `BackfillBegin`,
-      keyed by journal name. This also serves as the list of journals needing
-      label updates, ensuring labels are applied in the event of a crash that
-      occurs after the recovery log write but before the label update succeeds.
-  - Updates journal labels with their new `truncatedAt` values. Compares the
-    current label vs. expected and only applies if they differ, to minimize
-    churn from task restarts.
+    - The committed `truncatedAt` value for each binding / journal that
+      received a `BackfillBegin`.
+    - Pending label-update intents, so labels can still be applied if a crash
+      happens after the recovery log write but before the broker `Apply`
+      succeeds.
+  - After the recovery log write is durable, updates journal labels with their
+    new `truncatedAt` values. Compares the current label vs. expected and only
+    applies if they differ, to minimize churn from task restarts.
 
 ### When a capture finishes a backfill:
 - **Capture Connector**: Emits `BackfillComplete` message for one or more
   bindings, typically as the last message for those bindings before the
-  checkpoint. This ordering is not enforced by the runtime, but note that
-  `BackfillComplete` control messages are always written to collection journals
-  *after* any captured documents for the transaction (see Ordering Guarantees
-  below).
+  checkpoint. This ordering is not enforced by the runtime.
 - **Capture Runtime**:
   - References the persisted `truncatedAt` timestamp for the applicable journals
-    and constructs a `{"_meta": {"backfillComplete": true, "truncatedAt":
-    "<truncatedAt>", ...}}` document, which is written to the journals.
-  - Sets the `CONTROL` flag on the UUID for all of these documents.
-  - Clears the `truncatedAt` (and by association, the label update
-    hint) for every applicable journal from the recovery log.
+    and constructs a pending `{"_meta": {"backfillComplete": true,
+    "truncatedAt": "<truncatedAt>", ...}}` control document publication.
+  - Does **not** publish the `BackfillComplete` during ordinary checkpoint
+    drain. Instead, it persists a pending post-commit complete-publication
+    record alongside the connector checkpoint.
+  - After the corresponding checkpoint commit is durable, publishes the
+    `BackfillComplete` document(s) as `CONTROL`.
+  - On success, clears the active backfill state and the pending complete
+    publication record. On restart, any pending complete publications are
+    retried until they succeed.
 
 ### When a materialization reads a `backfillBegin` document:
 - **Materialize Runtime**:
@@ -141,16 +150,21 @@ path.
 **Ordering Guarantees**: The capture runtime uses combiners to combine and sort
 by key all documents for a binding within a transaction. Control messages cannot
 participate in this combining — they must be sequenced precisely relative to the
-combined documents. The only practical way to achieve this is:
+combined documents. Because the runtime may combine multiple connector
+checkpoints into one runtime transaction, any connector checkpoint containing a
+`BackfillBegin` or `BackfillComplete` is a hard boundary. The practical
+consequences are:
 
-- `BackfillBegin` is written to collection journals *before* the combined
-  documents. This is why the runtime enforces that `BackfillBegin` is the first
-  message for a binding in a transaction — it can be written to the journal
-  before the combiner's output.
-- `BackfillComplete` is written to collection journals *after* the combined
-  documents. The combiner output is written first, then the `BackfillComplete`
-  control message follows. This holds regardless of when the connector emits the
-  `BackfillComplete` response within the transaction.
+- If a control-bearing connector checkpoint is encountered after ordinary
+  checkpoints have already been buffered, the runtime drains the buffered work
+  first and isolates the control-bearing checkpoint in the next Gazette
+  transaction.
+- `BackfillBegin` is written to collection journals *before* the ordinary
+  documents of its isolated checkpoint. This is why the runtime enforces that
+  `BackfillBegin` is the first message for a binding in a transaction.
+- `BackfillComplete` is written to collection journals only *after* the
+  isolated checkpoint has committed. It is never emitted inline after ordinary
+  `CONTINUE_TXN` documents for the same producer.
 
 **Capture emits `backfillComplete` without a corresponding `backfillBegin` (no
 `truncatedAt` available)**: Generally this would be a connector logic error.
@@ -201,16 +215,32 @@ journal inherits the `truncatedAt` label, so the materialization never reads
 pre-truncation data from it. Truncation actions taken by the materialization
 will be redundant.
 
-**Transactions Spanning Backfills**: A single capture transaction could include
-multiple `backfillBegin` / `backfillComplete` signals. On the capture side, all
-signals are written to the collection's journal(s) as control messages in order.
+**Combined Capture Checkpoints**: Ordinary connector checkpoints continue to be
+combined for efficiency. However, any checkpoint containing
+`backfillBegin` or `backfillComplete` is isolated as its own capture-side
+boundary. This prevents a `BackfillBegin` from being reordered ahead of older
+buffered documents, and ensures a `BackfillComplete` is never published while
+there are still pending `CONTINUE_TXN` documents for the same producer.
 
-On the materialization side, signals are processed in journal order during the
-transaction. All resolved signals are sent to the connector on Flush.
+For example, if the connector emits:
+- checkpoint C1: ordinary documents
+- checkpoint C2: `backfillBegin`, documents
+- checkpoint C3: ordinary documents
+- checkpoint C4: `backfillComplete`
 
-For example, a transaction that reads `backfillBegin@T1`, documents,
-`backfillComplete(T1)`, `backfillBegin@T2` would send the connector
-`BackfillComplete{binding, T1}` and `BackfillBegin{binding, T2}` on Flush.
+Then the runtime may still combine ordinary work around C1 and C3, but C2 and
+C4 are isolated boundaries. Materialization still observes begin and complete in
+journal order, and `backfillComplete` carries the persisted `truncatedAt` of the
+most recent committed begin.
+
+**Orphaned `backfillBegin` after crash**: Because `BackfillBegin` is a
+`CONTROL` (immediately-committed) document published before the ordinary
+documents of its isolated checkpoint commit, a crash can leave a visible begin
+control document without
+the corresponding ordinary documents ever committing. This is tolerated. Journal
+labels are not updated until the begin state is durably committed in capture
+state, and destination truncation does not happen until a later
+`BackfillComplete` carrying the same persisted `truncatedAt` is published.
 
 **Materialization Trickery with `notBefore`**: Say a collection has these control messages:
 - `backfillBegin @ T00:00`
@@ -297,24 +327,28 @@ Gazette message UUIDs have 10 bits reserved for flags. Currently only the lower
   message. Gazette does not interpret control messages; it only ensures the flag
   does not affect sequencing.
 
-The `CONTROL` flag is orthogonal to the transaction flags. A control message can
-be transactional or standalone:
+**Invariant:** A `CONTROL` document is always `OUTSIDE_TXN` (the low 2 bits
+are zero). The bit layout is:
 
 ```go
 Flag_CONTROL = 0x4
 
-// Control message within a transaction (the common case for backfill signals):
-flags = Flag_CONTROL | Flag_CONTINUE_TXN  // 0x05
-
-// Standalone self-committing control message (e.g., an administrative signal):
-flags = Flag_CONTROL | Flag_OUTSIDE_TXN   // 0x04
+// A control document's flags value is always exactly Flag_CONTROL (0x04):
+//   bit 2      = 1 (CONTROL)
+//   bits 0..1  = 0 (OUTSIDE_TXN, i.e., immediately committed)
 ```
 
+Readers enforce this at parse time — a document with `Flag_CONTROL` set whose
+transaction bits are not `OUTSIDE_TXN` is a protocol error. `BackfillBegin`
+is published before the ordinary documents of its isolated connector
+checkpoint; `BackfillComplete` is published only after that checkpoint has
+committed.
+
 Gazette's Sequencer must switch on `flags & 0x3` instead of the full flags
-value. Existing code that checks flags with exact equality (e.g.,
-`GetFlags(uuid) == Flag_ACK_TXN`) must be updated to mask: `GetFlags(uuid) &
-0x3 == Flag_ACK_TXN`. Code already using bitwise checks (e.g., Rust derive
-runtime) works as-is.
+value. Existing code that interprets transaction semantics via exact equality
+or switching on the full flag value must be updated to mask: for example,
+`GetFlags(uuid) & 0x3 == Flag_ACK_TXN`. Code already using bitwise checks
+(e.g., Rust derive runtime) works as-is.
 
 The specific type of control message (backfill begin, backfill complete, or
 future types) is determined by parsing the document body — Gazette is not
@@ -369,11 +403,11 @@ full range.
 
 ## Journal Labels and New Readers
 
-When `BackfillBegin` is committed, journal labels are updated with a truncation
-timestamp (e.g., `estuary.dev/truncated-at`). The shuffle layer reads this
-label from each journal's `LabelSet` (alongside existing labels like
-`KeyBegin`/`KeyEnd`) and computes an effective `notBefore` as
-`max(spec.notBefore, journal.truncatedAt)`. 
+When committed `BackfillBegin` state is durably recorded, journal labels are
+updated with a truncation timestamp (e.g., `estuary.dev/truncated-at`). The
+shuffle layer reads this label from each journal's `LabelSet` (alongside
+existing labels like `KeyBegin`/`KeyEnd`) and computes an effective
+`notBefore` as `max(spec.notBefore, journal.truncatedAt)`.
 
 ### Label Update Intents
 
@@ -381,15 +415,19 @@ Journal label updates are not atomic with recovery log commits. To ensure labels
 are always applied, "label update intents" are stored in RocksDB, alongside the
 connector checkpoint.
 
-Both paths share the same data structure and apply-then-clear logic:
+Both paths share the same intent structure:
 
 1. **During commit** (`recv_client_start_commit`): Label update intents are
-   written to the RocksDB `WriteBatch` alongside the checkpoint and connector
-   state. After the recovery log write is durable, the Go runtime in
-   `StartCommit` applies the labels via broker `ApplyRequest`.
+   written to the RocksDB `WriteBatch` alongside the checkpoint and committed
+   begin state. After the recovery log write is durable, the Go runtime in
+   `StartCommit` applies the labels via broker `ApplyRequest`. Successful
+   application clears only the pending label-update intent.
 2. **During startup** (`RestoreCheckpoint`): The Go runtime receives the
    checkpoint from the Rust side via `Opened.runtime_checkpoint`. If pending
    label update intents are present, they are applied.
+
+`BackfillComplete` does not clear or roll back the journal label. A later
+`BackfillBegin` overwrites it with a newer `truncatedAt`.
 
 This is a relatively heavy operation (etcd write via broker), but backfill
 signals are infrequent.

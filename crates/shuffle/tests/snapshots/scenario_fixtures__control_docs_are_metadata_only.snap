@@ -1,6 +1,6 @@
 ---
 source: crates/shuffle/tests/scenario_fixtures.rs
-expression: "Checkpoint { frontier: &frontier3, read: read3, }"
+expression: "Checkpoint { frontier: &frontier, read, }"
 ---
 Checkpoint {
     frontier: Frontier {
@@ -10,27 +10,25 @@ Checkpoint {
                 binding: 0,
                 producers: [
                     ProducerFrontier {
-                        producer: Producer(01:00:00:00:00:01),
-                        last_commit: Clock(0s 4ns),
+                        producer: Producer(01:00:00:00:00:11),
+                        last_commit: Clock(0s 16ns),
                         hinted_commit: Clock(0s 0ns),
-                        offset: -204,
-                    },
-                    ProducerFrontier {
-                        producer: Producer(03:00:00:00:00:02),
-                        last_commit: Clock(0s 8ns),
-                        hinted_commit: Clock(0s 0ns),
-                        offset: -287,
+                        offset: -431,
                     },
                 ],
-                bytes_read_delta: 287,
+                bytes_read_delta: 431,
                 bytes_behind_delta: 0,
             },
         ],
         flushed_lsn: [
             1/0,
         ],
-        latest_backfill_begin: {},
-        latest_backfill_complete: {},
+        latest_backfill_begin: {
+            "materialize/testing/materialization/binding-0": Clock(0s 4ns),
+        },
+        latest_backfill_complete: {
+            "materialize/testing/materialization/binding-0": Clock(0s 16ns),
+        },
     },
     read: [
         ReadEntry {
@@ -38,11 +36,11 @@ Checkpoint {
             journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
             doc: Object {
                 "_meta": Object {
-                    "uuid": String("13814000-1dd2-11b2-8401-030000000002"),
+                    "uuid": String("13814000-1dd2-11b2-8801-010000000011"),
                 },
                 "category": String("alpha"),
-                "id": String("p2-doc"),
-                "value": Number(20),
+                "id": String("data"),
+                "value": Number(7),
             },
         },
     ],

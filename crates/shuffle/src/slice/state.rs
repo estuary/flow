@@ -255,6 +255,8 @@ pub fn resolve_checkpoint(
                 last_commit,
                 max_continue: uuid::Clock::zero(),
                 offset,
+                backfill_begin: None,
+                backfill_complete: None,
             },
         );
     }
@@ -283,6 +285,7 @@ pub fn sequence_document(
         producer,
         clock,
         flags,
+        control,
         begin_offset,
         end_offset,
     } = meta;
@@ -312,18 +315,51 @@ pub fn sequence_document(
         )
     })?;
 
+    // Backfill control documents carry `Flag_CONTROL` (which implies
+    // `OUTSIDE_TXN`) and are immediately committed. They do not participate
+    // in CONTINUE_TXN / ACK_TXN sequencing, so there is no staging step.
+    // The `OUTSIDE_TXN` invariant is enforced upstream in
+    // `extract_metas`, so here we only need to route an observed clock into
+    // the appropriate `backfill_*` field on `OutsideCommit`.
+    let commit_control = |producer_state: &mut ProducerState| match control {
+        Some(super::read::ControlEvent::BackfillBegin) => {
+            producer_state.backfill_begin = Some(
+                producer_state
+                    .backfill_begin
+                    .map_or(*clock, |c| c.max(*clock)),
+            );
+        }
+        Some(super::read::ControlEvent::BackfillComplete) => {
+            producer_state.backfill_complete = Some(
+                producer_state
+                    .backfill_complete
+                    .map_or(*clock, |c| c.max(*clock)),
+            );
+        }
+        None => {}
+    };
+
     // Match over `outcome` to update `producer_state` and determine append/commit.
     let (is_append, is_commit) = match outcome {
         uuid::SequenceOutcome::OutsideCommit => {
             producer_state.offset = -*end_offset;
-            (true, true)
+            commit_control(&mut producer_state);
+            (control.is_none(), true)
         }
-        uuid::SequenceOutcome::OutsideDuplicate => (false, false),
+        uuid::SequenceOutcome::OutsideDuplicate => {
+            // A duplicate OUTSIDE_TXN message (possibly a control doc that was
+            // previously committed) — no state mutation beyond what `sequence`
+            // already performed; don't append.
+            (false, false)
+        }
         uuid::SequenceOutcome::ContinueBeginSpan => {
             producer_state.offset = *begin_offset;
-            (true, false)
+            // Control docs should not carry CONTINUE_TXN semantics; treat as a
+            // best-effort no-op for state purposes while still letting the
+            // caller decide whether to append.
+            (control.is_none(), false)
         }
-        uuid::SequenceOutcome::ContinueExtendSpan => (true, false),
+        uuid::SequenceOutcome::ContinueExtendSpan => (control.is_none(), false),
         uuid::SequenceOutcome::ContinueDuplicate => (false, false),
         uuid::SequenceOutcome::AckDeepRollback => {
             tracing::warn!(
@@ -337,13 +373,18 @@ pub fn sequence_document(
             producer_state.offset = -*end_offset;
             (false, true)
         }
-        uuid::SequenceOutcome::AckCommit
-        | uuid::SequenceOutcome::AckEmpty
-        | uuid::SequenceOutcome::AckCleanRollback => {
-            // This ACK commits (or rolls back) the producer's preceding
-            // CONTINUE_TXN documents in this journal only. Cross-journal
-            // visibility for the same producer transaction is handled separately
-            // via `extract_causal_hints`.
+        uuid::SequenceOutcome::AckCommit | uuid::SequenceOutcome::AckEmpty => {
+            // This ACK commits the producer's preceding CONTINUE_TXN documents
+            // in this journal only. Cross-journal visibility for the same
+            // producer transaction is handled separately via
+            // `extract_causal_hints`.
+            producer_state.offset = -*end_offset;
+            (false, true)
+        }
+        uuid::SequenceOutcome::AckCleanRollback => {
+            // Similarly, this ACK rolls back the producer preceding documents
+            // in this journal only. Committed control clocks observed earlier
+            // (as OUTSIDE_TXN) are unaffected.
             producer_state.offset = -*end_offset;
             (false, true)
         }
@@ -522,6 +563,7 @@ mod test {
             flags,
             begin_offset,
             end_offset,
+            control: None,
         }
     }
 
@@ -740,8 +782,12 @@ mod test {
         s.commit(0, p3, seq);
 
         // Build frontier and start flush with 3 members.
-        let frontier =
-            super::super::producer::build_flush_frontier(&mut s.reads, std::iter::empty(), 3);
+        let frontier = super::super::producer::build_flush_frontier(
+            &mut s.reads,
+            &s.bindings,
+            std::iter::empty(),
+            3,
+        );
         assert!(!frontier.journals.is_empty(), "flushing frontier built");
 
         let flush_cycle = s.flush.start(3, frontier);
@@ -810,6 +856,7 @@ mod test {
                 bytes_behind_delta: 0,
             }],
             flushed_lsn: vec![],
+            ..Default::default()
         };
 
         // Request + flushed → Some(frontier), both cleared.
@@ -957,6 +1004,127 @@ mod test {
         assert_eq!(
             seq.producer_state.offset, -450,
             "rollback yields committed offset"
+        );
+    }
+
+    #[test]
+    fn test_sequence_outside_txn_control_docs_commit_immediately() {
+        let bindings = vec![test_binding(0, true, None, "/suffix")];
+        let mut s = test_state(bindings);
+
+        let p1 = producer(0x01);
+
+        let (_offset, producers) = resolve_checkpoint(vec![checkpoint_entry(&p1, 0)]);
+        s.reads.push(ReadState {
+            binding_index: 0,
+            journal: "test/journal/A".into(),
+            settled: producers,
+            pending: Default::default(),
+            read_offset: 0,
+            prev_read_offset: 0,
+            write_head: 0,
+            prev_write_head: 0,
+        });
+
+        // BackfillBegin as a `Flag_CONTROL` (implicitly OUTSIDE_TXN) doc
+        // commits the control clock immediately into backfill_begin; the doc
+        // itself is not appended (control docs never append).
+        let seq = sequence_document(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(10, 0),
+                flags: OUTSIDE,
+                begin_offset: 100,
+                end_offset: 150,
+                control: Some(super::super::read::ControlEvent::BackfillBegin),
+            },
+        )
+        .unwrap();
+        assert!(!seq.is_append, "control docs never append");
+        assert!(seq.is_commit, "OUTSIDE_TXN drives an immediate commit");
+        assert_eq!(
+            seq.producer_state.backfill_begin,
+            Some(Clock::from_unix(10, 0))
+        );
+        assert_eq!(seq.producer_state.backfill_complete, None);
+        s.commit(0, p1, seq);
+
+        // BackfillComplete as a `Flag_CONTROL` (implicitly OUTSIDE_TXN) doc
+        // commits its clock into backfill_complete; the earlier begin clock
+        // is preserved (different fields).
+        let seq = sequence_document(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(20, 0),
+                flags: OUTSIDE,
+                begin_offset: 150,
+                end_offset: 200,
+                control: Some(super::super::read::ControlEvent::BackfillComplete),
+            },
+        )
+        .unwrap();
+        assert!(!seq.is_append);
+        assert!(seq.is_commit);
+        assert_eq!(
+            seq.producer_state.backfill_begin,
+            Some(Clock::from_unix(10, 0))
+        );
+        assert_eq!(
+            seq.producer_state.backfill_complete,
+            Some(Clock::from_unix(20, 0))
+        );
+        s.commit(0, p1, seq);
+
+        // A duplicate OUTSIDE_TXN control doc (same clock as already committed)
+        // is a no-op: no append, no commit, and no state mutation.
+        let seq = sequence_document(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(20, 0),
+                flags: OUTSIDE,
+                begin_offset: 200,
+                end_offset: 250,
+                control: Some(super::super::read::ControlEvent::BackfillComplete),
+            },
+        )
+        .unwrap();
+        assert!(!seq.is_append);
+        assert!(!seq.is_commit, "OutsideDuplicate suppresses flush");
+        assert_eq!(
+            seq.producer_state.backfill_complete,
+            Some(Clock::from_unix(20, 0)),
+            "committed clock unchanged on duplicate"
+        );
+
+        // A fresh BackfillBegin with a later clock supersedes the prior
+        // backfill_begin via max().
+        let seq = sequence_document(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(30, 0),
+                flags: OUTSIDE,
+                begin_offset: 250,
+                end_offset: 300,
+                control: Some(super::super::read::ControlEvent::BackfillBegin),
+            },
+        )
+        .unwrap();
+        assert!(seq.is_commit);
+        assert_eq!(
+            seq.producer_state.backfill_begin,
+            Some(Clock::from_unix(30, 0))
+        );
+        assert_eq!(
+            seq.producer_state.backfill_complete,
+            Some(Clock::from_unix(20, 0))
         );
     }
 

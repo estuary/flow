@@ -367,6 +367,26 @@ message Response {
   }
   Checkpoint checkpoint = 7;
 
+  // Signals the start of a backfill for a binding.
+  //
+  // A control message (BackfillBegin or BackfillComplete) must stand alone
+  // in its connector checkpoint: the checkpoint must contain only the
+  // control message followed by the terminating Checkpoint response, with
+  // no Captured, SourcedSchema, or other control messages. The runtime
+  // enforces this rule and will fail the session on violation.
+  message BackfillBegin {
+    uint32 binding = 1;
+  }
+  BackfillBegin backfill_begin = 9;
+
+  // Signals the end of a backfill for a binding.
+  //
+  // See BackfillBegin for the "stands alone in its checkpoint" rule.
+  message BackfillComplete {
+    uint32 binding = 1;
+  }
+  BackfillComplete backfill_complete = 10;
+
   // Reserved for internal use.
   bytes internal = 100 [ json_name = "$internal" ];
 }

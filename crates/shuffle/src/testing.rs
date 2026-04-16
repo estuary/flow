@@ -54,6 +54,14 @@ pub fn jf_with_bytes(
     }
 }
 
+/// Build a terminal FrontierChunk with the given flushed LSNs and no backfill metadata.
+pub fn terminal_chunk(flushed_lsn: Vec<u64>) -> shuffle::FrontierChunk {
+    shuffle::FrontierChunk {
+        flushed_lsn,
+        ..Default::default()
+    }
+}
+
 /// Compact representation for assertion: (last_commit_seconds, hinted_commit_seconds, offset).
 pub fn pf_tuple(pf: &crate::ProducerFrontier) -> (u64, u64, i64) {
     (

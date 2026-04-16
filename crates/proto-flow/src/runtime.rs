@@ -164,6 +164,24 @@ pub mod capture_request_ext {
         /// Flow runtime checkpoint associated with this transaction.
         #[prost(message, optional, tag = "1")]
         pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
+        #[prost(message, repeated, tag = "2")]
+        pub published_control_clocks: ::prost::alloc::vec::Vec<start_commit::PublishedControlClock>,
+    }
+    /// Nested message and enum types in `StartCommit`.
+    pub mod start_commit {
+        /// UUID clocks assigned by the Go publisher to control documents that
+        /// requested clock reporting (via `Captured.report_uuid_clock`) during
+        /// this transaction's drain. Used by the capture runtime to record the
+        /// authoritative `truncated_at` for each binding's active backfill —
+        /// replacing the placeholder written during drain — in the same WriteBatch
+        /// that commits the rest of the transaction state.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct PublishedControlClock {
+            #[prost(uint32, tag = "1")]
+            pub binding: u32,
+            #[prost(fixed64, tag = "2")]
+            pub clock: u64,
+        }
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -176,13 +194,38 @@ pub struct CaptureResponseExt {
     pub captured: ::core::option::Option<capture_response_ext::Captured>,
     #[prost(message, optional, tag = "4")]
     pub checkpoint: ::core::option::Option<capture_response_ext::Checkpoint>,
+    /// Active backfill state after this transaction committed.
+    /// Go uses this to apply truncated-at journal labels.
+    #[prost(message, optional, tag = "5")]
+    pub backfill_state: ::core::option::Option<capture_response_ext::BackfillState>,
 }
 /// Nested message and enum types in `CaptureResponseExt`.
 pub mod capture_response_ext {
+    /// Describes active backfill state for capture bindings.
+    /// Communicated from Rust to Go so the Go app can apply journal labels.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct BackfillState {
+        #[prost(message, repeated, tag = "1")]
+        pub active_backfills: ::prost::alloc::vec::Vec<backfill_state::ActiveBackfill>,
+    }
+    /// Nested message and enum types in `BackfillState`.
+    pub mod backfill_state {
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct ActiveBackfill {
+            #[prost(uint32, tag = "1")]
+            pub binding: u32,
+            #[prost(fixed64, tag = "2")]
+            pub truncated_at_clock: u64,
+        }
+    }
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Opened {
         #[prost(message, optional, tag = "1")]
         pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
+        /// Active backfill state restored from RocksDB, so Go can reapply
+        /// truncated-at journal labels on startup.
+        #[prost(message, optional, tag = "2")]
+        pub backfill_state: ::core::option::Option<BackfillState>,
     }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Captured {
@@ -192,6 +235,20 @@ pub mod capture_response_ext {
         /// Packed partition values extracted from the captured document.
         #[prost(bytes = "bytes", tag = "2")]
         pub partitions_packed: ::prost::bytes::Bytes,
+        /// Non-zero value overrides the default CONTINUE_TXN flags on the
+        /// published UUID. Used for control documents: set to Flag_CONTROL
+        /// alone (0x4) — the low transaction-semantics bits are implicitly
+        /// OUTSIDE_TXN, making the doc immediately committed rather than
+        /// staged within a transaction.
+        #[prost(uint32, tag = "3")]
+        pub uuid_flags: u32,
+        /// When true, the Go publisher must report the UUID clock it assigned
+        /// to this document back to Rust via
+        /// `CaptureRequestExt.StartCommit.published_control_clocks`. Set by the
+        /// capture runtime for `BackfillBegin` control docs, so the authoritative
+        /// `truncated_at` (the UUID clock) is captured in RocksDB on commit.
+        #[prost(bool, tag = "4")]
+        pub report_uuid_clock: bool,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Checkpoint {

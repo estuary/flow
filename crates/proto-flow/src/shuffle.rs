@@ -118,6 +118,33 @@ pub struct FrontierChunk {
     /// Progressed or NextCheckpoint sequence. Empty otherwise.
     #[prost(uint64, repeated, tag = "2")]
     pub flushed_lsn: ::prost::alloc::vec::Vec<u64>,
+    /// Latest backfill-begin clock for each binding in the checkpoint delta.
+    /// Populated only on the terminal (empty-journals) chunk of a
+    /// Progressed or NextCheckpoint sequence. Empty otherwise.
+    #[prost(message, repeated, tag = "3")]
+    pub latest_backfill_begin: ::prost::alloc::vec::Vec<frontier_chunk::BackfillBegin>,
+    /// Latest backfill-complete clock for each binding in the checkpoint delta.
+    /// Populated only on the terminal (empty-journals) chunk of a
+    /// Progressed or NextCheckpoint sequence. Empty otherwise.
+    #[prost(message, repeated, tag = "4")]
+    pub latest_backfill_complete: ::prost::alloc::vec::Vec<frontier_chunk::BackfillComplete>,
+}
+/// Nested message and enum types in `FrontierChunk`.
+pub mod frontier_chunk {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct BackfillBegin {
+        #[prost(string, tag = "1")]
+        pub journal_read_suffix: ::prost::alloc::string::String,
+        #[prost(fixed64, tag = "2")]
+        pub clock: u64,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct BackfillComplete {
+        #[prost(string, tag = "1")]
+        pub journal_read_suffix: ::prost::alloc::string::String,
+        #[prost(fixed64, tag = "2")]
+        pub clock: u64,
+    }
 }
 /// SessionRequest is sent by the Coordinator to manage the shuffle session.
 #[derive(Clone, PartialEq, ::prost::Message)]

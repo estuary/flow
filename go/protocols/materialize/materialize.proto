@@ -161,7 +161,21 @@ message Request {
   // Flush loads. No further Loads will be sent in this transaction,
   // and the runtime will await the connectors's remaining Loaded
   // responses followed by one Flushed response.
-  message Flush {}
+  message Flush {
+    // Backfill-begin signals observed during this transaction.
+    message BackfillBegin {
+      uint32 binding = 1;
+      fixed64 truncated_at_clock = 2;
+    }
+    repeated BackfillBegin backfill_begins = 1;
+
+    // Backfill-complete signals observed during this transaction.
+    message BackfillComplete {
+      uint32 binding = 1;
+      fixed64 truncated_at_clock = 2;
+    }
+    repeated BackfillComplete backfill_completes = 2;
+  }
   Flush flush = 6;
 
   // Store documents updated by the current transaction.

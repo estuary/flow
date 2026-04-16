@@ -233,7 +233,9 @@ async fn run_session(
 
         // Send Flush.
         let flush = Request {
-            flush: Some(request::Flush {}),
+            flush: Some(request::Flush {
+                ..Default::default()
+            }),
             ..Default::default()
         };
         () = crate::exchange(Ok(flush), request_tx, response_rx)

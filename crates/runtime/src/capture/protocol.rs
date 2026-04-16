@@ -1,8 +1,9 @@
-use super::{Task, Transaction};
+use super::{ControlSignal, Task, Transaction};
 use crate::{Accumulator, rocksdb::RocksDB, verify};
 use anyhow::Context;
 use bytes::BufMut;
 use doc::shape::X_COMPLEXITY_LIMIT;
+use futures::TryStreamExt;
 use prost::Message;
 use proto_flow::capture::{Request, Response, request, response};
 use proto_flow::flow;
@@ -138,6 +139,7 @@ pub async fn recv_connector_opened(
     Accumulator,
     Accumulator,
     Response,
+    BTreeMap<String, u64>,
 )> {
     let mut opened = verify("connecter", "Opened").not_eof(opened)?;
 
@@ -150,14 +152,34 @@ pub async fn recv_connector_opened(
     let a2 = Accumulator::new(task.combine_spec()?)?;
 
     let checkpoint = db.load_checkpoint().await?;
+    let active_backfills = db.load_backfill_state().await?;
+
+    // Surface the durable set of active backfills so the Go app can reapply
+    // `truncated-at` journal labels on startup. This recovers from any crash
+    // window between a committed RocksDB WriteBatch and a successful broker
+    // ApplyRequest; the Go app's label-application path is idempotent
+    // (it compares current vs. expected before issuing the broker call).
+    //
+    // The map is keyed by stable `state_key`; stale entries (whose binding
+    // has been removed from the task spec) are silently skipped on the way
+    // to the wire — they remain on disk in case the binding reappears.
+    let active = active_backfills_to_wire(&task, &active_backfills);
+    let backfill_state = if active.is_empty() {
+        None
+    } else {
+        Some(capture_response_ext::BackfillState {
+            active_backfills: active,
+        })
+    };
 
     opened.set_internal(|internal| {
         internal.opened = Some(capture_response_ext::Opened {
             runtime_checkpoint: Some(checkpoint),
+            backfill_state,
         })
     });
 
-    Ok((task.clone(), task, shapes, a1, a2, opened))
+    Ok((task.clone(), task, shapes, a1, a2, opened, active_backfills))
 }
 
 pub fn send_client_poll_result(
@@ -275,6 +297,82 @@ pub fn send_client_captured_or_checkpoint(
         internal.captured = Some(capture_response_ext::Captured {
             key_packed,
             partitions_packed,
+            uuid_flags: 0,
+            report_uuid_clock: false,
+        });
+    })
+}
+
+/// Synthesize a control document response for a backfill begin or complete signal.
+///
+/// The resulting Response looks like a regular Captured response to the Go
+/// side, but the internal extension carries `uuid_flags` = `Flag_CONTROL`
+/// (0x4) so the Go publisher uses the correct UUID flags. Control documents
+/// always have `OUTSIDE_TXN` transaction semantics (the low two flag bits are
+/// zero) and are immediately committed — they never participate in a
+/// `CONTINUE_TXN` / `ACK_TXN` span.
+pub fn send_client_control_doc(
+    buf: &mut bytes::BytesMut,
+    binding_index: u32,
+    task: &Task,
+    is_begin: bool,
+    truncated_at: Option<&str>,
+) -> Response {
+    assert!(
+        (binding_index as usize) < task.bindings.len(),
+        "invalid control doc binding {binding_index}"
+    );
+
+    // Build a minimal JSON body. The UUID placeholder will be replaced by the
+    // Go publisher with a real UUID that encodes the CONTROL flag.
+    let body = if is_begin {
+        serde_json::json!({
+            "_meta": {
+                "uuid": crate::UUID_PLACEHOLDER,
+                "backfillBegin": true,
+                "keyBegin": "00000000",
+                "keyEnd": "ffffffff"
+            }
+        })
+    } else {
+        serde_json::json!({
+            "_meta": {
+                "uuid": crate::UUID_PLACEHOLDER,
+                "backfillComplete": true,
+                "truncatedAt": truncated_at.unwrap_or(""),
+                "keyBegin": "00000000",
+                "keyEnd": "ffffffff"
+            }
+        })
+    };
+
+    serde_json::to_writer(buf.writer(), &body).expect("control doc serialization cannot fail");
+    let doc_json = buf.split().freeze();
+
+    // Use empty key/partitions — the Go mapper will route to a default partition.
+    // Control docs are written to all journals of the binding's collection, but
+    // for single-shard captures a default partition is sufficient.
+    let key_packed = bytes::Bytes::new();
+    let partitions_packed = bytes::Bytes::new();
+
+    Response {
+        captured: Some(response::Captured {
+            binding: binding_index,
+            doc_json,
+        }),
+        ..Default::default()
+    }
+    .with_internal_buf(buf, |internal| {
+        internal.captured = Some(capture_response_ext::Captured {
+            key_packed,
+            partitions_packed,
+            // `Flag_CONTROL` alone; transaction bits stay zero (OUTSIDE_TXN).
+            uuid_flags: proto_gazette::message_flags::CONTROL as u32,
+            // Only `BackfillBegin` needs the Go publisher to report its
+            // assigned UUID clock back to us: that clock is the authoritative
+            // `truncated_at`. For `BackfillComplete` we already know the
+            // clock (from the persisted begin state), so no report is needed.
+            report_uuid_clock: is_begin,
         });
     })
 }
@@ -330,6 +428,7 @@ pub async fn recv_client_start_commit(
     txn: &Transaction,
     mut wb: rocksdb::WriteBatch,
     bindings_with_sourced_schema: &HashSet<usize>,
+    active_backfills: &mut BTreeMap<String, u64>,
 ) -> anyhow::Result<()> {
     let verify = verify("client", "StartCommit with runtime_checkpoint");
     let request = verify.not_eof(request)?;
@@ -338,7 +437,7 @@ pub async fn recv_client_start_commit(
         start_commit:
             Some(capture_request_ext::StartCommit {
                 runtime_checkpoint: Some(runtime_checkpoint),
-                ..
+                published_control_clocks,
             }),
         ..
     } = request.get_internal()?
@@ -352,6 +451,41 @@ pub async fn recv_client_start_commit(
         "persisting StartCommit.runtime_checkpoint",
     );
     wb.put(RocksDB::CHECKPOINT_KEY, &runtime_checkpoint.encode_to_vec());
+
+    // Stage backfill state transitions using the authoritative UUID clocks
+    // reported by the Go publisher. Wire-level identifiers are binding
+    // indices (ephemeral within a task term); `active_backfills` is keyed by
+    // stable `state_key` (survives task-spec changes), so translate on the
+    // boundary. Apply begin clocks first, then validate this transaction's
+    // control signal against the resulting state.
+    //
+    // A `BackfillComplete` signal has already removed its binding's entry
+    // from the in-memory `active_backfills` during post-drain emission in
+    // `serve_session`; we only need to persist the resulting map here.
+    for clock in &published_control_clocks {
+        let idx = clock.binding as usize;
+        anyhow::ensure!(
+            idx < task.bindings.len(),
+            "Go reported a UUID clock for invalid binding {idx}",
+        );
+        active_backfills.insert(task.bindings[idx].state_key.clone(), clock.clock);
+    }
+    if let Some(ControlSignal::BackfillBegin(b)) = txn.control {
+        // A BackfillBegin emitted in this transaction must have had its UUID
+        // clock reported by the Go publisher. A missing clock would leave
+        // `active_backfills` without an authoritative value, so surface it
+        // as a protocol error rather than silently carrying a stale or
+        // placeholder entry.
+        let state_key = &task.bindings[b as usize].state_key;
+        anyhow::ensure!(
+            active_backfills.contains_key(state_key),
+            "Go publisher did not report a UUID clock for BackfillBegin on \
+             binding {b}; cannot persist authoritative truncated_at",
+        );
+    }
+
+    let backfill_json = serde_json::to_vec(active_backfills).expect("backfill state serialization");
+    wb.put(RocksDB::BACKFILL_STATE_KEY, &backfill_json);
 
     // We're about to write out our write batch which, when written to the
     // recovery log, irrevocably commits our transaction. Before doing so,
@@ -383,11 +517,57 @@ pub async fn recv_client_start_commit(
     Ok(())
 }
 
-pub fn send_client_started_commit() -> Response {
+pub fn send_client_started_commit(
+    buf: &mut bytes::BytesMut,
+    task: &Task,
+    active_backfills: &BTreeMap<String, u64>,
+) -> Response {
+    // After committing the WriteBatch, surface the up-to-date active backfill
+    // state so the Go app can apply `truncated-at` journal labels via the
+    // broker ApplyRequest. `active_backfills` is keyed by stable `state_key`;
+    // we translate to current binding indices for the wire. Stale entries
+    // (whose `state_key` is not in the current task spec) are silently
+    // skipped — the binding has been removed, so there are no journals to
+    // label. Passing `None` when empty avoids churn when no backfills are
+    // active; Go's label-application is idempotent.
+    let active = active_backfills_to_wire(task, active_backfills);
+    let backfill_state = if active.is_empty() {
+        None
+    } else {
+        Some(capture_response_ext::BackfillState {
+            active_backfills: active,
+        })
+    };
+
     Response {
         checkpoint: Some(response::Checkpoint { state: None }),
         ..Default::default()
     }
+    .with_internal_buf(buf, |internal| {
+        internal.backfill_state = backfill_state;
+    })
+}
+
+/// Translate a state_key-keyed active-backfill map into the wire form, which
+/// uses binding indices against the current task spec. Entries whose
+/// state_key is not present in the task are dropped; those are stale
+/// references to bindings that have since been removed.
+fn active_backfills_to_wire(
+    task: &Task,
+    active_backfills: &BTreeMap<String, u64>,
+) -> Vec<capture_response_ext::backfill_state::ActiveBackfill> {
+    task.bindings
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, b)| {
+            active_backfills.get(&b.state_key).map(|&clock| {
+                capture_response_ext::backfill_state::ActiveBackfill {
+                    binding: idx as u32,
+                    truncated_at_clock: clock,
+                }
+            })
+        })
+        .collect()
 }
 
 pub fn recv_connector_captured(
@@ -483,6 +663,27 @@ pub fn recv_connector_sourced_schema(
     Ok(())
 }
 
+pub async fn recv_connector_control_message(
+    connector_rx: &mut (impl super::ResponseStream + Unpin),
+    response: &Response,
+) -> anyhow::Result<(ControlSignal, response::Checkpoint)> {
+    let signal = if let Some(begin) = &response.backfill_begin {
+        ControlSignal::BackfillBegin(begin.binding)
+    } else if let Some(complete) = &response.backfill_complete {
+        ControlSignal::BackfillComplete(complete.binding)
+    } else {
+        anyhow::bail!("expected BackfillBegin or BackfillComplete in control message response");
+    };
+
+    let verify = verify("connector", "Checkpoint after control message");
+    let checkpoint_response = verify.not_eof(connector_rx.try_next().await?)?;
+    let Some(checkpoint) = checkpoint_response.checkpoint else {
+        return verify.fail(checkpoint_response);
+    };
+
+    Ok((signal, checkpoint))
+}
+
 pub fn apply_sourced_schemas(
     shapes: &mut [doc::Shape],
     task: &Task,
@@ -533,21 +734,48 @@ pub fn recv_connector_checkpoint(
     let Some(response::Checkpoint { state: Some(state) }) = response.checkpoint else {
         return verify.fail(response);
     };
-    let flow::ConnectorState {
-        updated_json,
-        merge_patch,
-    } = state;
 
+    combine_connector_state(accumulator, task, &state)?;
+    txn.checkpoints += 1;
+    Ok(())
+}
+
+pub fn apply_prior_control(
+    accumulator: &mut Accumulator,
+    task: &Task,
+    txn: &mut Transaction,
+    signal: ControlSignal,
+    checkpoint: response::Checkpoint,
+) -> anyhow::Result<()> {
+    let verify = verify(
+        "connector",
+        "deferred control-bearing Checkpoint with state",
+    );
+    let Some(state) = checkpoint.state.as_ref() else {
+        return verify.fail(Response {
+            checkpoint: Some(checkpoint),
+            ..Default::default()
+        });
+    };
+    txn.checkpoints = 1;
+    combine_connector_state(accumulator, task, state)?;
+    txn.control = Some(signal);
+    Ok(())
+}
+
+pub fn combine_connector_state(
+    accumulator: &mut Accumulator,
+    task: &Task,
+    state: &flow::ConnectorState,
+) -> anyhow::Result<()> {
     let (memtable, _alloc, doc) = accumulator
-        .doc_bytes_to_heap_node(&updated_json)
+        .doc_bytes_to_heap_node(&state.updated_json)
         .context("couldn't parse connector state as JSON")?;
 
-    // Combine over the checkpoint state.
-    if !merge_patch {
+    if !state.merge_patch {
         memtable.add(task.bindings.len() as u16, doc::HeapNode::Null, false)?;
     }
     memtable.add(task.bindings.len() as u16, doc, false)?;
 
-    txn.checkpoints += 1;
     Ok(())
 }

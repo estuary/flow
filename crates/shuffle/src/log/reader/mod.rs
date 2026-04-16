@@ -71,7 +71,7 @@ pub(crate) mod test_support {
         journals: Vec<crate::JournalFrontier>,
     ) -> crate::Frontier {
         let raw: Vec<u64> = flushed_lsns.iter().map(|l| l.as_u64()).collect();
-        crate::Frontier::new(journals, raw).unwrap()
+        crate::Frontier::new(journals, crate::testing::terminal_chunk(raw)).unwrap()
     }
 
     /// Build a ProducerFrontier with a raw Clock value (not seconds).

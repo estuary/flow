@@ -294,7 +294,7 @@ impl CheckpointPipeline {
         }
 
         let journals = std::mem::take(&mut self.partials[member_index]);
-        let mut progressed = crate::Frontier::new(journals, chunk.flushed_lsn)
+        let mut progressed = crate::Frontier::new(journals, chunk)
             .context("validating Progressed frontier delta")?;
 
         tracing::debug!(member_index, ?progressed, "received Progressed response");
@@ -318,15 +318,17 @@ impl CheckpointPipeline {
             );
         }
 
-        // When progress resolves causal hints, fold its flushed_lsn into
+        // When progress resolves causal hints, fold its terminal metadata into
         // unresolved. Even though progressed is held back to a later checkpoint,
         // the fact that it resolved a hint means `unresolved`'s consumer must
         // read through these LSNs to observe the resolving documents.
         if resolved_count != 0 {
-            self.unresolved.flushed_lsn = crate::Frontier::merge_flushed_lsn(
-                std::mem::take(&mut self.unresolved.flushed_lsn),
-                progressed.flushed_lsn.clone(),
-            );
+            self.unresolved = std::mem::take(&mut self.unresolved).reduce(crate::Frontier {
+                journals: vec![],
+                flushed_lsn: progressed.flushed_lsn.clone(),
+                latest_backfill_begin: progressed.latest_backfill_begin.clone(),
+                latest_backfill_complete: progressed.latest_backfill_complete.clone(),
+            });
         }
 
         // Promote unresolved → ready if all its hints were just resolved.
@@ -568,6 +570,7 @@ mod test {
         jf, jf_with_bytes, pf, test_binding, test_journal_spec, test_listing_added, test_members_3,
     };
     use proto_flow::flow;
+    use proto_gazette::uuid::Clock;
 
     /// Build a Topology with sensible defaults for testing.
     fn test_topology(members: Vec<shuffle::Member>, bindings: Vec<crate::Binding>) -> Topology {
@@ -585,6 +588,35 @@ mod test {
         CheckpointPipeline::new(&Default::default(), 1)
     }
 
+    fn test_terminal_chunk(
+        flushed_lsn: Vec<u64>,
+        latest_backfill_begin: &[(&str, u64)],
+        latest_backfill_complete: &[(&str, u64)],
+    ) -> proto_flow::shuffle::FrontierChunk {
+        proto_flow::shuffle::FrontierChunk {
+            journals: vec![],
+            flushed_lsn,
+            latest_backfill_begin: latest_backfill_begin
+                .iter()
+                .map(
+                    |(suffix, clock)| proto_flow::shuffle::frontier_chunk::BackfillBegin {
+                        journal_read_suffix: (*suffix).to_string(),
+                        clock: *clock,
+                    },
+                )
+                .collect(),
+            latest_backfill_complete: latest_backfill_complete
+                .iter()
+                .map(
+                    |(suffix, clock)| proto_flow::shuffle::frontier_chunk::BackfillComplete {
+                        journal_read_suffix: (*suffix).to_string(),
+                        clock: *clock,
+                    },
+                )
+                .collect(),
+        }
+    }
+
     /// Feed a sequence of JournalFrontiers to the pipeline as a chunked
     /// Progressed sequence (data chunk + empty terminator) via member 0.
     fn ingest_progressed(
@@ -596,13 +628,7 @@ mod test {
         assert!(!pipeline.on_progressed_chunk(0, chunk).unwrap());
         assert!(
             pipeline
-                .on_progressed_chunk(
-                    0,
-                    proto_flow::shuffle::FrontierChunk {
-                        journals: vec![],
-                        flushed_lsn,
-                    }
-                )
+                .on_progressed_chunk(0, test_terminal_chunk(flushed_lsn, &[], &[]))
                 .unwrap()
         );
     }
@@ -1043,6 +1069,7 @@ mod test {
             &crate::Frontier {
                 journals: vec![jf("journal/A", 0, vec![pf(0x01, 50, 200, -100)])],
                 flushed_lsn: vec![],
+                ..Default::default()
             },
             1,
         );
@@ -1050,28 +1077,46 @@ mod test {
         // Progressed resolves the hint AND contains extra progress (journal/B).
         // Carries flushed_lsn which should be folded into `unresolved` because
         // this progress resolved a causal hint.
-        ingest_progressed(
-            &mut pipeline,
-            vec![
-                jf_with_bytes("journal/A", 0, vec![pf(0x01, 250, 0, -800)], 500, 2000),
-                jf_with_bytes("journal/B", 0, vec![pf(0x03, 100, 0, -300)], 300, -100),
-            ],
-            vec![1000],
+        let chunk = crate::JournalFrontier::encode(&[
+            jf_with_bytes("journal/A", 0, vec![pf(0x01, 250, 0, -800)], 500, 2000),
+            jf_with_bytes("journal/B", 0, vec![pf(0x03, 100, 0, -300)], 300, -100),
+        ]);
+        assert!(!pipeline.on_progressed_chunk(0, chunk).unwrap());
+        assert!(
+            pipeline
+                .on_progressed_chunk(
+                    0,
+                    test_terminal_chunk(
+                        vec![1000],
+                        &[("suffix/0", Clock::from_unix(111, 0).as_u64())],
+                        &[("suffix/1", Clock::from_unix(222, 0).as_u64())],
+                    ),
+                )
+                .unwrap()
         );
         insta::assert_debug_snapshot!("after_hint_resolved", pipeline_snapshot(&pipeline));
 
         // Second Progressed arrives before client polls — must not contaminate
         // the recovery checkpoint sitting in ready.
-        ingest_progressed(
-            &mut pipeline,
-            vec![jf_with_bytes(
-                "journal/C",
-                0,
-                vec![pf(0x05, 50, 0, -200)],
-                150,
-                800,
-            )],
-            vec![2000],
+        let chunk = crate::JournalFrontier::encode(&[jf_with_bytes(
+            "journal/C",
+            0,
+            vec![pf(0x05, 50, 0, -200)],
+            150,
+            800,
+        )]);
+        assert!(!pipeline.on_progressed_chunk(0, chunk).unwrap());
+        assert!(
+            pipeline
+                .on_progressed_chunk(
+                    0,
+                    test_terminal_chunk(
+                        vec![2000],
+                        &[("suffix/0", Clock::from_unix(333, 0).as_u64())],
+                        &[("suffix/0", Clock::from_unix(444, 0).as_u64())],
+                    ),
+                )
+                .unwrap()
         );
         insta::assert_debug_snapshot!("after_second_progressed", pipeline_snapshot(&pipeline));
 
@@ -1246,6 +1291,7 @@ mod test {
         topology.resume_checkpoint = crate::Frontier {
             journals: vec![jf("test/journal/F", 0, vec![pf(0x01, 100, 200, -500)])],
             flushed_lsn: vec![],
+            ..Default::default()
         };
 
         // Checkpoint found in resume_checkpoint.

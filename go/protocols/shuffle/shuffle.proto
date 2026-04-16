@@ -98,6 +98,24 @@ message FrontierChunk {
   // Populated only on the terminal (empty-journals) chunk of a
   // Progressed or NextCheckpoint sequence. Empty otherwise.
   repeated uint64 flushed_lsn = 2;
+
+  message BackfillBegin {
+    string journal_read_suffix = 1;
+    fixed64 clock = 2;
+  }
+  // Latest backfill-begin clock for each binding in the checkpoint delta.
+  // Populated only on the terminal (empty-journals) chunk of a
+  // Progressed or NextCheckpoint sequence. Empty otherwise.
+  repeated BackfillBegin latest_backfill_begin = 3;
+
+  message BackfillComplete {
+    string journal_read_suffix = 1;
+    fixed64 clock = 2;
+  }
+  // Latest backfill-complete clock for each binding in the checkpoint delta.
+  // Populated only on the terminal (empty-journals) chunk of a
+  // Progressed or NextCheckpoint sequence. Empty otherwise.
+  repeated BackfillComplete latest_backfill_complete = 4;
 }
 
 // SessionRequest is sent by the Coordinator to manage the shuffle session.

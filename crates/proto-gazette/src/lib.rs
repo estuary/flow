@@ -38,6 +38,9 @@ pub mod message_flags {
     /// On reading a ACK, the reader may process previous CONTINUE_TXN messages
     /// which are now considered to have committed.
     pub const ACK_TXN: u64 = 0x2;
+    /// CONTROL marks the message as an application control message.
+    /// It is orthogonal to transaction semantics in the low two bits.
+    pub const CONTROL: u64 = 0x4;
 }
 
 /// Capability bit-mask values defined by Gazette, which scope broker operations.

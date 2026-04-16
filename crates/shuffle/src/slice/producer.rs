@@ -1,4 +1,5 @@
 use proto_gazette::uuid::{Clock, Producer};
+use std::collections::BTreeMap;
 
 /// A `BuildHasher` for `Producer`-keyed maps that passes through the
 /// raw bytes as the hash value. Producer IDs are already uniformly
@@ -57,6 +58,12 @@ pub type ProducerMap<V> = std::collections::HashMap<Producer, V, ProducerHasher>
 ///   - Non-negative: Begin offset of first pending CONTINUE_TXN
 ///   - Negative: Negation of end offset of last committing ACK_TXN / OUTSIDE_TXN
 /// Internal default state uses zero before any document has been observed.
+///
+/// Backfill begin/complete control documents carry `Flag_CONTROL` (which
+/// implies `OUTSIDE_TXN`) and are immediately committed on first observation;
+/// there is no CONTINUE_TXN / ACK_TXN staging step. Observed clocks are placed
+/// directly into the `backfill_begin` / `backfill_complete` fields, which are
+/// drained into the checkpoint frontier at the next flush cycle.
 #[derive(Debug, Clone)]
 pub struct ProducerState {
     /// Clock of the last committing ACK_TXN or OUTSIDE_TXN.
@@ -65,6 +72,10 @@ pub struct ProducerState {
     pub max_continue: Clock,
     /// Journal byte offset, sign-encoded (see struct docs).
     pub offset: i64,
+    /// Latest observed `BackfillBegin` clock awaiting flush drain.
+    pub backfill_begin: Option<Clock>,
+    /// Latest observed `BackfillComplete` clock awaiting flush drain.
+    pub backfill_complete: Option<Clock>,
 }
 
 impl Default for ProducerState {
@@ -73,26 +84,32 @@ impl Default for ProducerState {
             last_commit: Clock::zero(),
             max_continue: Clock::zero(),
             offset: 0,
+            backfill_begin: None,
+            backfill_complete: None,
         }
     }
 }
-const _: () = assert!(std::mem::size_of::<ProducerState>() == 24);
 
 /// Build a [`crate::Frontier`] by reducing read-derived producer state with
 /// causal hints.
 ///
 /// `reads` provides the journal name, binding index, and pending producers
-/// for each active read. `hints` yields owned `((journal, binding),
+/// for each active read. `bindings` maps binding indices to `journal_read_suffix`
+/// for keying backfill metadata. `hints` yields owned `((journal, binding),
 /// Vec<(producer, hinted_clock)>)` entries, typically from a HashMap drain.
 ///
-/// Both inputs may arrive in arbitrary order; outputs are sorted.
+/// `reads` and `hints` may arrive in arbitrary order; outputs are sorted.
+/// Observed backfill clocks are drained directly from pending producer state.
 pub fn build_flush_frontier(
     reads: &mut [super::read::ReadState],
+    bindings: &[crate::Binding],
     hints: impl Iterator<Item = ((Box<str>, u16), Vec<(Producer, Clock)>)>,
     member_count: usize,
 ) -> crate::Frontier {
     // Walk all journal reads to build their JournalFrontier.
     let mut journals: Vec<crate::JournalFrontier> = Vec::new();
+    let mut latest_backfill_begin = BTreeMap::<String, Clock>::new();
+    let mut latest_backfill_complete = BTreeMap::<String, Clock>::new();
 
     for read_state in reads.iter_mut() {
         if read_state.pending.is_empty() {
@@ -103,16 +120,30 @@ pub fn build_flush_frontier(
             // even if offsets advanced meanwhile.
             continue;
         }
-        let mut producers: Vec<_> = read_state
-            .pending
-            .iter()
-            .map(|(producer, ps)| crate::ProducerFrontier {
-                producer: *producer,
+
+        let suffix = &bindings[read_state.binding_index as usize].journal_read_suffix;
+        let mut producers = Vec::with_capacity(read_state.pending.len());
+        for (&producer, ps) in read_state.pending.iter_mut() {
+            if let Some(clock) = ps.backfill_begin.take() {
+                latest_backfill_begin
+                    .entry(suffix.clone())
+                    .and_modify(|c| *c = (*c).max(clock))
+                    .or_insert(clock);
+            }
+            if let Some(clock) = ps.backfill_complete.take() {
+                latest_backfill_complete
+                    .entry(suffix.clone())
+                    .and_modify(|c| *c = (*c).max(clock))
+                    .or_insert(clock);
+            }
+
+            producers.push(crate::ProducerFrontier {
+                producer,
                 last_commit: ps.last_commit,
                 hinted_commit: Clock::from_u64(0),
                 offset: ps.offset,
-            })
-            .collect();
+            });
+        }
         producers.sort_by(|a, b| a.producer.cmp(&b.producer));
 
         let bytes_read_delta = read_state.read_offset - read_state.prev_read_offset;
@@ -138,6 +169,8 @@ pub fn build_flush_frontier(
     let reads_frontier = crate::Frontier {
         journals,
         flushed_lsn: vec![crate::log::Lsn::ZERO; member_count],
+        latest_backfill_begin,
+        latest_backfill_complete,
     };
 
     // Build a Frontier from causal hints via single-pass iteration.
@@ -178,6 +211,8 @@ pub fn build_flush_frontier(
     reads_frontier.reduce(crate::Frontier {
         journals: hint_journals,
         flushed_lsn: vec![],
+        latest_backfill_begin: Default::default(),
+        latest_backfill_complete: Default::default(),
     })
 }
 
@@ -214,6 +249,8 @@ mod test {
                     last_commit: Clock::from_u64(last_commit),
                     max_continue: Clock::zero(),
                     offset,
+                    backfill_begin: None,
+                    backfill_complete: None,
                 },
             );
         }
@@ -360,14 +397,90 @@ mod test {
             ),
         ];
 
+        let bindings = vec![
+            crate::testing::test_binding(0, true, None, "suffix/0"),
+            crate::testing::test_binding(1, true, None, "suffix/1"),
+            crate::testing::test_binding(2, true, None, "suffix/2"),
+        ];
+
         let snap = cases
             .into_iter()
             .map(|(name, mut reads, hints)| {
-                let f = build_flush_frontier(&mut reads, hints.into_iter(), 3);
+                let f = build_flush_frontier(&mut reads, &bindings, hints.into_iter(), 3);
                 (name, f, reads)
             })
             .collect::<Vec<_>>();
 
         insta::assert_debug_snapshot!(snap);
+    }
+
+    #[test]
+    fn test_build_flush_frontier_drains_backfill_clocks_from_pending_producers() {
+        let mut has_both = read_state("journal/A", 0, &[(0x01, 100, -500)]);
+        let both_producer = producer(0x01);
+        has_both
+            .pending
+            .get_mut(&both_producer)
+            .unwrap()
+            .backfill_begin = Some(Clock::from_u64(90));
+        has_both
+            .pending
+            .get_mut(&both_producer)
+            .unwrap()
+            .backfill_complete = Some(Clock::from_u64(100));
+
+        // A producer that observed only a begin (without matching complete yet).
+        let mut begin_only = read_state("journal/B", 0, &[(0x03, 0, 700)]);
+        let begin_only_producer = producer(0x03);
+        begin_only
+            .pending
+            .get_mut(&begin_only_producer)
+            .unwrap()
+            .backfill_begin = Some(Clock::from_u64(80));
+
+        let bindings = vec![crate::testing::test_binding(0, true, None, "suffix/0")];
+        let mut reads = vec![has_both, begin_only];
+
+        let frontier = build_flush_frontier(&mut reads, &bindings, std::iter::empty(), 2);
+
+        assert_eq!(
+            frontier.latest_backfill_begin.get("suffix/0"),
+            Some(&Clock::from_u64(90))
+        );
+        assert_eq!(
+            frontier.latest_backfill_complete.get("suffix/0"),
+            Some(&Clock::from_u64(100))
+        );
+
+        assert!(reads[0].pending.is_empty());
+        assert!(reads[1].pending.is_empty());
+        assert_eq!(
+            reads[0].settled.get(&both_producer).unwrap().backfill_begin,
+            None
+        );
+        assert_eq!(
+            reads[0]
+                .settled
+                .get(&both_producer)
+                .unwrap()
+                .backfill_complete,
+            None
+        );
+        assert_eq!(
+            reads[1]
+                .settled
+                .get(&begin_only_producer)
+                .unwrap()
+                .backfill_begin,
+            None
+        );
+        assert_eq!(
+            reads[1]
+                .settled
+                .get(&begin_only_producer)
+                .unwrap()
+                .backfill_complete,
+            None
+        );
     }
 }

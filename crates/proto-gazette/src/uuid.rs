@@ -181,6 +181,7 @@ impl Flags {
     pub const ACK_TXN: Self = Self(crate::message_flags::ACK_TXN as u16);
     pub const CONTINUE_TXN: Self = Self(crate::message_flags::CONTINUE_TXN as u16);
     pub const OUTSIDE_TXN: Self = Self(crate::message_flags::OUTSIDE_TXN as u16);
+    pub const CONTROL: Self = Self(crate::message_flags::CONTROL as u16);
 
     #[inline]
     pub fn is_ack(&self) -> bool {
@@ -197,6 +198,11 @@ impl Flags {
         // OUTSIDE_TXN is zero, so detect absence of CONTINUE_TXN (0x1) or ACK_TXN (0x2).
         self.0 & 0x3 == crate::message_flags::OUTSIDE_TXN as u16
     }
+
+    #[inline]
+    pub fn is_control(&self) -> bool {
+        self.0 & (crate::message_flags::CONTROL as u16) != 0
+    }
 }
 
 impl std::fmt::Debug for Flags {
@@ -210,6 +216,9 @@ impl std::fmt::Debug for Flags {
         }
         if self.is_ack() {
             flags.push("ACK_TXN");
+        }
+        if self.is_control() {
+            flags.push("CONTROL");
         }
         write!(f, "Flags({:x} ({}))", self.0, flags.join("|"))
     }

@@ -1,11 +1,13 @@
-use super::{RequestStream, ResponseStream, Task, Transaction, connector, protocol::*};
+use super::{
+    ControlSignal, RequestStream, ResponseStream, Task, Transaction, connector, protocol::*,
+};
 use crate::{Accumulator, LogHandler, Runtime, rocksdb::RocksDB, verify};
 use anyhow::Context;
 use futures::channel::oneshot;
 use futures::future::FusedFuture;
 use futures::stream::FusedStream;
 use futures::{FutureExt, SinkExt, StreamExt, TryStreamExt};
-use proto_flow::capture::{Request, Response, request};
+use proto_flow::capture::{Request, Response, request, response};
 use std::collections::{BTreeMap, HashSet};
 
 #[tonic::async_trait]
@@ -95,7 +97,7 @@ async fn serve_session<L: LogHandler>(
     let (mut connector_tx, mut connector_rx) = connector::start(runtime, open.clone()).await?;
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
-    let (task, task_clone, mut shapes, accumulator, mut next_accumulator, opened) =
+    let (task, task_clone, mut shapes, accumulator, mut next_accumulator, opened, mut active_backfills) =
         recv_connector_opened(db, open, opened, shapes_by_key).await?;
 
     () = co.yield_(opened).await;
@@ -108,11 +110,13 @@ async fn serve_session<L: LogHandler>(
         task_clone,
         super::LONG_POLL_TIMEOUT,
         yield_rx,
+        None,
     ));
 
     let mut bindings_with_sourced_schema = HashSet::new();
     let mut last_checkpoints: u32 = 0; // Checkpoints in the last transaction.
     let mut buf = bytes::BytesMut::new();
+
     loop {
         // Receive initial request of a transaction: Acknowledge, Open, or EOF.
         let _: request::Acknowledge = match request_rx.try_next().await? {
@@ -150,7 +154,7 @@ async fn serve_session<L: LogHandler>(
 
         // Signal that we're ready for a transaction to yield, and then wait for it.
         std::mem::drop(yield_tx);
-        let (accumulator, connector_rx, task_clone, mut txn) =
+        let (accumulator, connector_rx, task_clone, mut txn, pending_ctrl) =
             next_txn.await.expect("read_transaction doesn't panic")?;
 
         // Immediately start a concurrent read of the next transaction.
@@ -161,6 +165,7 @@ async fn serve_session<L: LogHandler>(
             task_clone,
             super::LONG_POLL_TIMEOUT,
             yield_rx,
+            pending_ctrl,
         ));
         yield_tx = next_yield_tx;
 
@@ -192,6 +197,32 @@ async fn serve_session<L: LogHandler>(
         // widening (consider a schema with tight minItems / maxItems bounds).
         apply_sourced_schemas(&mut shapes, &task, &mut txn)?;
 
+        if let Some(signal) = txn.control {
+            let (binding_index, is_begin) = match signal {
+                ControlSignal::BackfillBegin(b) => (b, true),
+                ControlSignal::BackfillComplete(b) => (b, false),
+            };
+            let truncated_at = if is_begin {
+                None
+            } else {
+                let state_key = &task.bindings[binding_index as usize].state_key;
+                active_backfills.get(state_key).map(|c| c.to_string())
+            };
+            let ctrl_response = send_client_control_doc(
+                &mut buf,
+                binding_index,
+                &task,
+                is_begin,
+                truncated_at.as_deref(),
+            );
+            () = co.yield_(ctrl_response).await;
+
+            if !is_begin {
+                let state_key = task.bindings[binding_index as usize].state_key.clone();
+                active_backfills.remove(&state_key);
+            }
+        }
+
         while let Some(drained) = drainer.drain_next()? {
             let response = send_client_captured_or_checkpoint(
                 &mut buf,
@@ -217,10 +248,17 @@ async fn serve_session<L: LogHandler>(
             &txn,
             wb,
             &bindings_with_sourced_schema,
+            &mut active_backfills,
         )
         .await?;
 
-        () = co.yield_(send_client_started_commit()).await;
+        () = co
+            .yield_(send_client_started_commit(
+                &mut buf,
+                &task,
+                &active_backfills,
+            ))
+            .await;
 
         last_checkpoints = txn.checkpoints;
         next_accumulator = Accumulator::from_drainer(drainer, parser)?;
@@ -233,9 +271,23 @@ pub async fn read_transaction<R: ResponseStream + FusedStream + Unpin>(
     task: Task,
     timeout: std::time::Duration, // How long we'll wait for a first checkpoint.
     yield_rx: oneshot::Receiver<()>, // Signaled when we should return.
-) -> anyhow::Result<(Accumulator, R, Task, Transaction)> {
-    let timeout = tokio::time::sleep(timeout).fuse();
+    prior_control: Option<(ControlSignal, response::Checkpoint)>,
+) -> anyhow::Result<(
+    Accumulator,
+    R,
+    Task,
+    Transaction,
+    Option<(ControlSignal, response::Checkpoint)>,
+)> {
     let mut txn = Transaction::new();
+
+    if let Some((signal, checkpoint)) = prior_control {
+        txn.started_at = std::time::SystemTime::now();
+        apply_prior_control(&mut accumulator, &task, &mut txn, signal, checkpoint)?;
+        return Ok((accumulator, connector_rx, task, txn, None));
+    }
+
+    let timeout = tokio::time::sleep(timeout).fuse();
     let mut yield_rx = yield_rx.fuse();
     tokio::pin!(timeout);
 
@@ -252,18 +304,21 @@ pub async fn read_transaction<R: ResponseStream + FusedStream + Unpin>(
                     txn.started_at = std::time::SystemTime::now();
                 }
 
-                () = read_checkpoint(
+                if let Some(pending) = read_checkpoint(
                     &mut accumulator,
                     &mut connector_rx,
                     initial,
                     &task,
                     &mut txn,
                 )
-                .await?;
+                .await?
+                {
+                    return Ok((accumulator, connector_rx, task, txn, Some(pending)));
+                }
 
                 // Were we previously asked to yield, and only now have a checkpoint to return?
                 if yield_rx.is_terminated() {
-                    return Ok((accumulator, connector_rx, task, txn));
+                    return Ok((accumulator, connector_rx, task, txn, None));
                 }
             }
             (false, None) => {
@@ -272,7 +327,7 @@ pub async fn read_transaction<R: ResponseStream + FusedStream + Unpin>(
             (true, _none) => {
                 // Have we been asked to yield, and either have a non-empty transaction or reached our timeout?
                 if yield_rx.is_terminated() && (txn.checkpoints != 0 || timeout.is_terminated()) {
-                    return Ok((accumulator, connector_rx, task, txn));
+                    return Ok((accumulator, connector_rx, task, txn, None));
                 }
             }
         };
@@ -285,7 +340,14 @@ async fn read_checkpoint(
     mut response: Response,
     task: &Task,
     txn: &mut Transaction,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<(ControlSignal, response::Checkpoint)>> {
+    // Read a control-bearing checkpoint, if present.
+    if response.backfill_begin.is_some() || response.backfill_complete.is_some() {
+        return Ok(Some(
+            recv_connector_control_message(connector_rx, &response).await?,
+        ));
+    }
+
     // Read all Captured and SourcedSchema responses of the checkpoint.
     loop {
         if let Some(captured) = response.captured {
@@ -303,5 +365,6 @@ async fn read_checkpoint(
         };
     }
 
-    recv_connector_checkpoint(accumulator, response, task, txn)
+    recv_connector_checkpoint(accumulator, response, task, txn)?;
+    Ok(None)
 }

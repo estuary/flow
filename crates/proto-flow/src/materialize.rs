@@ -179,8 +179,32 @@ pub mod request {
     /// Flush loads. No further Loads will be sent in this transaction,
     /// and the runtime will await the connectors's remaining Loaded
     /// responses followed by one Flushed response.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Flush {}
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Flush {
+        #[prost(message, repeated, tag = "1")]
+        pub backfill_begins: ::prost::alloc::vec::Vec<flush::BackfillBegin>,
+        #[prost(message, repeated, tag = "2")]
+        pub backfill_completes: ::prost::alloc::vec::Vec<flush::BackfillComplete>,
+    }
+    /// Nested message and enum types in `Flush`.
+    pub mod flush {
+        /// Backfill-begin signals observed during this transaction.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct BackfillBegin {
+            #[prost(uint32, tag = "1")]
+            pub binding: u32,
+            #[prost(fixed64, tag = "2")]
+            pub truncated_at_clock: u64,
+        }
+        /// Backfill-complete signals observed during this transaction.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct BackfillComplete {
+            #[prost(uint32, tag = "1")]
+            pub binding: u32,
+            #[prost(fixed64, tag = "2")]
+            pub truncated_at_clock: u64,
+        }
+    }
     /// Store documents updated by the current transaction.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Store {

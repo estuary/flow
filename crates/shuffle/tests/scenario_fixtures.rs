@@ -224,6 +224,16 @@ async fn shuffle_scenarios() {
     .await;
     data_plane.reset().await.expect("reset");
 
+    control_docs_are_metadata_only(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
     multi_member_routing(
         &materialization_spec,
         &capture_spec,
@@ -285,6 +295,16 @@ async fn shuffle_scenarios() {
     data_plane.reset().await.expect("reset");
 
     rollback(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    resume_with_backfill_metadata(
         &materialization_spec,
         &capture_spec,
         &data_plane.journal_client,
@@ -419,6 +439,143 @@ async fn continue_then_ack(
     let read = collect_read_entries(&frontier, &scenario_dir, &mut member_state);
     insta::assert_debug_snapshot!(
         "continue_then_ack",
+        Checkpoint {
+            frontier: &frontier,
+            read,
+        }
+    );
+
+    session.close().await.expect("close");
+}
+
+/// Publish control docs and regular documents in one transaction. Verify
+/// control docs update checkpoint metadata but do not appear in shuffle logs.
+///
+/// Control documents carry `Flag_CONTROL` alone (which implies OUTSIDE_TXN)
+/// — they are self-committing metadata events, not participants in the
+/// transactional data span. Ordinary data documents are still published as
+/// `CONTINUE_TXN` and committed by an `ACK_TXN` issued via `commit_intents()`.
+async fn control_docs_are_metadata_only(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join("control_docs_are_metadata_only");
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x11]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+    let mut expected_clock = uuid::Clock::default();
+
+    // BackfillBegin (OUTSIDE_TXN) is published before any ordinary data of the
+    // isolated checkpoint, while no CONTINUE_TXN span is open.
+    let begin_clock = expected_clock.tick();
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string(), "backfillBegin": true},
+                    "id": "control",
+                    "category": "alpha",
+                    "value": 0,
+                }),
+            )
+        },
+        uuid::Flags::CONTROL,
+    )
+    .await
+    .unwrap();
+
+    _ = expected_clock.tick();
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "data",
+                    "category": "alpha",
+                    "value": 7,
+                }),
+            )
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+
+    // Commit the CONTINUE_TXN span first — BackfillComplete cannot be written
+    // while a CONTINUE_TXN span is still open, because OUTSIDE_TXN sequencing
+    // disallows a non-zero `max_continue`.
+    let (producer, commit_clock, journals) = pub_.commit_intents();
+    assert_eq!(commit_clock, expected_clock.tick());
+    let journal_acks =
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+    pub_.write_intents(&journal_acks).await.unwrap();
+
+    // Now that the ACK has committed the data span, BackfillComplete can be
+    // published as OUTSIDE_TXN and is self-committing.
+    let complete_clock = expected_clock.tick();
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string(), "backfillComplete": true},
+                    "id": "control",
+                    "category": "alpha",
+                    "value": 0,
+                }),
+            )
+        },
+        uuid::Flags::CONTROL,
+    )
+    .await
+    .unwrap();
+    pub_.flush().await.unwrap();
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_members(1, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    // Because BackfillBegin is `OUTSIDE_TXN` and self-committing while the
+    // intervening CONTINUE_TXN span is only committed by its ACK, the begin
+    // and complete clocks may land in separate checkpoint flushes. Aggregate
+    // across checkpoints until both clocks are visible.
+    let suffix_0: &str = &materialization_spec.bindings[0].journal_read_suffix;
+    let mut frontier = session.next_checkpoint().await.expect("next_checkpoint");
+    let mut member_state: MemberState = (0..1).map(|_| None).collect();
+    let mut read = collect_read_entries(&frontier, &scenario_dir, &mut member_state);
+    while frontier.latest_backfill_begin.get(suffix_0) != Some(&begin_clock)
+        || frontier.latest_backfill_complete.get(suffix_0) != Some(&complete_clock)
+    {
+        let next = session.next_checkpoint().await.expect("next_checkpoint");
+        read.extend(collect_read_entries(
+            &next,
+            &scenario_dir,
+            &mut member_state,
+        ));
+        frontier = frontier.reduce(next);
+    }
+    assert_eq!(
+        frontier.latest_backfill_begin.get(suffix_0),
+        Some(&begin_clock)
+    );
+    assert_eq!(
+        frontier.latest_backfill_complete.get(suffix_0),
+        Some(&complete_clock)
+    );
+
+    insta::assert_debug_snapshot!(
+        "control_docs_are_metadata_only",
         Checkpoint {
             frontier: &frontier,
             read,
@@ -1325,3 +1482,189 @@ async fn rollback(
 
     session.close().await.expect("close");
 }
+
+/// Verify that `latest_backfill_begin` and `latest_backfill_complete` survive
+/// the Drain→wire→Frontier::new() resume round-trip through the Session
+/// handler.
+///
+/// Phase 1: Publish control docs + data in a committed transaction. Capture
+///   a checkpoint whose frontier carries non-empty backfill maps.
+/// Phase 2: Reopen a new session using that frontier as the resume
+///   checkpoint. Write additional data and poll a checkpoint. The resumed
+///   session must have accepted the backfill metadata from the resume
+///   frontier — we verify indirectly because the session would error if
+///   the terminal chunk were malformed, and because new progress comes back
+///   correctly layered on top of the resumed state.
+async fn resume_with_backfill_metadata(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let phase1_dir = log_dir.join("resume_backfill_p1");
+    let phase2_dir = log_dir.join("resume_backfill_p2");
+    std::fs::create_dir_all(&phase1_dir).unwrap();
+    std::fs::create_dir_all(&phase2_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x21]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+    let mut expected_clock = uuid::Clock::default();
+
+    // ---- Phase 1: Commit control docs + data, capture a checkpoint. ----
+
+    // BackfillBegin (OUTSIDE_TXN) is published before the ordinary data span.
+    let begin_clock = expected_clock.tick();
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string(), "backfillBegin": true},
+                    "id": "rb-ctrl",
+                    "category": "alpha",
+                    "value": 0,
+                }),
+            )
+        },
+        uuid::Flags::CONTROL,
+    )
+    .await
+    .unwrap();
+
+    _ = expected_clock.tick();
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "rb-data",
+                    "category": "alpha",
+                    "value": 42,
+                }),
+            )
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+
+    // Commit the CONTINUE_TXN span before publishing BackfillComplete.
+    let (producer_id, commit_clock, journals) = pub_.commit_intents();
+    assert_eq!(commit_clock, expected_clock.tick());
+    let journal_acks =
+        publisher::intents::build_transaction_intents(&[(producer_id, commit_clock, journals)]);
+    pub_.write_intents(&journal_acks).await.unwrap();
+
+    // BackfillComplete as OUTSIDE_TXN is self-committing and published after
+    // the data-span's ACK.
+    let complete_clock = expected_clock.tick();
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string(), "backfillComplete": true},
+                    "id": "rb-ctrl",
+                    "category": "alpha",
+                    "value": 0,
+                }),
+            )
+        },
+        uuid::Flags::CONTROL,
+    )
+    .await
+    .unwrap();
+    pub_.flush().await.unwrap();
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_members(1, service.peer_endpoint(), &phase1_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open phase 1");
+
+    // Aggregate checkpoint deltas until both the backfill begin clock (from
+    // the OUTSIDE_TXN BackfillBegin commit) and the backfill complete clock
+    // (from the OUTSIDE_TXN BackfillComplete commit after the span's ACK) are
+    // visible. The two control docs commit in separate flush cycles.
+    let suffix_0: &str = &materialization_spec.bindings[0].journal_read_suffix;
+    let mut phase1_frontier = session.next_checkpoint().await.expect("phase 1 checkpoint");
+    while phase1_frontier.latest_backfill_begin.get(suffix_0) != Some(&begin_clock)
+        || phase1_frontier.latest_backfill_complete.get(suffix_0) != Some(&complete_clock)
+    {
+        let next = session
+            .next_checkpoint()
+            .await
+            .expect("phase 1 next checkpoint");
+        phase1_frontier = phase1_frontier.reduce(next);
+    }
+    assert_eq!(
+        phase1_frontier.latest_backfill_begin.get(suffix_0),
+        Some(&begin_clock),
+        "phase 1 frontier should carry backfill begin"
+    );
+    assert_eq!(
+        phase1_frontier.latest_backfill_complete.get(suffix_0),
+        Some(&complete_clock),
+        "phase 1 frontier should carry backfill complete"
+    );
+    session.close().await.expect("close phase 1");
+
+    // ---- Phase 2: Resume from phase1_frontier, write more data. ----
+
+    pub_.enqueue(
+        |uuid| {
+            (
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "rb-new",
+                    "category": "alpha",
+                    "value": 99,
+                }),
+            )
+        },
+        uuid::Flags::OUTSIDE_TXN,
+    )
+    .await
+    .unwrap();
+    pub_.flush().await.unwrap();
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_members(1, service.peer_endpoint(), &phase2_dir),
+        phase1_frontier.clone(),
+    )
+    .await
+    .expect("SessionClient::open phase 2 (resume with backfill metadata)");
+
+    let phase2_frontier = session.next_checkpoint().await.expect("phase 2 checkpoint");
+
+    let mut phase2_member_state: MemberState = (0..1).map(|_| None).collect();
+    let phase2_read = collect_read_entries(&phase2_frontier, &phase2_dir, &mut phase2_member_state);
+    insta::assert_debug_snapshot!(
+        "resume_with_backfill_metadata",
+        Checkpoint {
+            frontier: &phase2_frontier,
+            read: phase2_read,
+        }
+    );
+
+    session.close().await.expect("close phase 2");
+}
+
+// NOTE: The former `rollback_control_docs` scenario tested that CONTINUE_TXN
+// control docs were correctly discarded on rollback via staged-then-committed
+// sequencing. Under the new design, control docs carry `Flag_CONTROL` alone
+// (implying OUTSIDE_TXN) and are immediately committed, so transactional
+// rollback does not apply to them; interleaving `OUTSIDE_TXN` with a still-
+// open CONTINUE_TXN span is a protocol violation
+// (`OutsideWithPrecedingContinue`). Duplicate handling of
+// immediately-committed control docs is covered by the unit test
+// `test_sequence_outside_txn_control_docs_commit_immediately` in
+// `crates/shuffle/src/slice/state.rs`.

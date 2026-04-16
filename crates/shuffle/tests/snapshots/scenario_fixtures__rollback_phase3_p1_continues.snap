@@ -23,6 +23,8 @@ Checkpoint {
         flushed_lsn: [
             1/2,
         ],
+        latest_backfill_begin: {},
+        latest_backfill_complete: {},
     },
     read: [
         ReadEntry {

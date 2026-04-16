@@ -52,6 +52,12 @@ struct Binding {
     write_shape: doc::Shape,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ControlSignal {
+    BackfillBegin(u32),
+    BackfillComplete(u32),
+}
+
 #[derive(Debug)]
 pub struct Transaction {
     // Number of captured document bytes rolled up in this transaction.
@@ -68,6 +74,8 @@ pub struct Transaction {
     sourced_schemas: BTreeMap<usize, doc::Shape>,
     // Set of bindings which updated their inferred Shape this transaction.
     updated_inferences: BTreeSet<usize>,
+    // The control signal for this transaction, if any.
+    control: Option<ControlSignal>,
 }
 
 // LONG_POLL_TIMEOUT is the amount of time we'll long-poll for a ready transaction.
@@ -95,6 +103,7 @@ impl Transaction {
             stats: Default::default(),
             sourced_schemas: Default::default(),
             updated_inferences: Default::default(),
+            control: None,
         }
     }
 }

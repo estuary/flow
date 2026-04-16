@@ -177,7 +177,9 @@ async fn run_session(
                 // Forward a Flush to the runtime, then go on to commit a checkpoint.
                 Some(Read::Checkpoint(checkpoint)) => (
                     Request {
-                        flush: Some(request::Flush {}),
+                        flush: Some(request::Flush {
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     },
                     Some(checkpoint),

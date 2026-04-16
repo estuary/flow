@@ -1,7 +1,6 @@
 use anyhow::Context;
 use doc::combine;
 use proto_flow::flow;
-
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Shuffle {
@@ -127,6 +126,7 @@ impl Shuffle {
 
         tracing::info!(log_dir = %log_dir_str, "using log directory");
         let combine_spec = build_combine_spec(&task).context("building combine spec")?;
+        let suffix_to_index = build_suffix_to_index(&task);
 
         // Create member topology: even-indexed members use even server, odd use odd.
         let members =
@@ -169,6 +169,9 @@ impl Shuffle {
         let mut total_read_docs: usize = 0;
         let mut total_read_bytes: u64 = 0;
         let mut bytes_behind: i64 = 0;
+        // Per-binding last backfill-begin clocks for source filtering, indexed by binding.
+        // A non-zero value means documents with clock < last_backfill_begin[binding] are stale.
+        let mut last_backfill_begin = vec![0u64; suffix_to_index.len()];
 
         let interval = std::time::Duration::from_millis(*interval);
         let start = std::time::Instant::now();
@@ -187,12 +190,25 @@ impl Shuffle {
                 .await
                 .context("requesting next checkpoint")?;
 
+            // Merge this checkpoint's backfill-begin clocks into persisted state.
+            for (suffix, &clock) in &frontier.latest_backfill_begin {
+                if let Some(&index) = suffix_to_index.get(suffix.as_str()) {
+                    last_backfill_begin[index] = last_backfill_begin[index].max(clock.as_u64());
+                }
+            }
+
             // Scan committed entries from each member's log,
             // pushing documents into the combiner.
+            let scan_backfill_begin = last_backfill_begin.clone();
             let scan_frontier = frontier.clone();
             let (next_member_state, next_accumulator, read_docs, read_bytes) =
                 tokio::task::spawn_blocking(move || {
-                    scan_frontier_members(scan_frontier, member_state, accumulator)
+                    scan_frontier_members(
+                        scan_frontier,
+                        scan_backfill_begin,
+                        member_state,
+                        accumulator,
+                    )
                 })
                 .await
                 .context("joining scan task")??;
@@ -225,6 +241,8 @@ impl Shuffle {
                     .map(|j| j.producers.len())
                     .sum::<usize>(),
                 flushed_lsn = ?frontier.flushed_lsn,
+                latest_backfill_begin = ?frontier.latest_backfill_begin,
+                latest_backfill_complete = ?frontier.latest_backfill_complete,
                 read_docs,
                 read_mib = read_bytes / (1024 * 1024),
                 combined_docs,
@@ -260,6 +278,7 @@ type MemberState = (
 
 fn scan_frontier_members(
     frontier: shuffle::Frontier,
+    last_backfill_begin: Vec<u64>,
     mut member_state: Vec<Option<MemberState>>,
     mut accumulator: combine::Accumulator,
 ) -> anyhow::Result<(Vec<Option<MemberState>>, combine::Accumulator, usize, u64)> {
@@ -280,8 +299,13 @@ fn scan_frontier_members(
             let memtable = accumulator.memtable()?;
 
             for entry in scan.block_iter() {
+                let binding = entry.meta.binding.to_native();
+                if entry.meta.clock < last_backfill_begin[binding as usize] {
+                    continue;
+                }
+
                 memtable.add_embedded(
-                    entry.meta.binding.to_native(),
+                    binding,
                     &entry.doc.packed_key_prefix,
                     entry.doc.doc.to_heap(memtable.alloc()),
                     false,
@@ -387,6 +411,34 @@ async fn fetch_task_spec(
     };
 
     Ok(task)
+}
+
+/// Build a mapping from journal_read_suffix to binding index.
+fn build_suffix_to_index(task: &shuffle::proto::Task) -> std::collections::HashMap<String, usize> {
+    let suffixes: Vec<&str> = match &task.task {
+        Some(shuffle::proto::task::Task::CollectionPartitions(_)) => vec!["ad-hoc"],
+        Some(shuffle::proto::task::Task::Materialization(m)) => m
+            .bindings
+            .iter()
+            .map(|b| b.journal_read_suffix.as_str())
+            .collect(),
+        Some(shuffle::proto::task::Task::Derivation(c)) => c
+            .derivation
+            .as_ref()
+            .map(|d| {
+                d.transforms
+                    .iter()
+                    .map(|t| t.journal_read_suffix.as_str())
+                    .collect()
+            })
+            .unwrap(),
+        None => vec![],
+    };
+    suffixes
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| (s.to_string(), i))
+        .collect()
 }
 
 /// Build a `combine::Spec` from the task's collection specs.

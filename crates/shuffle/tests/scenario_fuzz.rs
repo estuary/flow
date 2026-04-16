@@ -656,6 +656,7 @@ fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
     shuffle::Frontier {
         journals,
         flushed_lsn: vec![],
+        ..Default::default()
     }
 }
 
@@ -841,6 +842,7 @@ async fn run_test_case_inner(
         let mut round_frontier = shuffle::Frontier {
             journals: vec![],
             flushed_lsn: recovery.flushed_lsn.clone(),
+            ..Default::default()
         };
 
         // STEP 3: POLL CHECKPOINTS.
@@ -907,6 +909,7 @@ async fn run_test_case_inner(
             round_frontier = shuffle::Frontier {
                 journals: vec![],
                 flushed_lsn: recovery.flushed_lsn.clone(),
+                ..Default::default()
             };
 
             if recovery.count_unresolved_hints() > 0 {

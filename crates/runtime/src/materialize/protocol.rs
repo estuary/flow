@@ -299,7 +299,7 @@ pub fn recv_client_load_or_flush(
             }
         }
         Some(Request {
-            flush: Some(request::Flush {}),
+            flush: Some(request::Flush { .. }),
             ..
         }) => {
             if !*saw_acknowledged {
@@ -311,7 +311,9 @@ pub fn recv_client_load_or_flush(
             _ = std::mem::take(load_keys);
 
             Ok(Some(Request {
-                flush: Some(request::Flush {}),
+                flush: Some(request::Flush {
+                    ..Default::default()
+                }),
                 ..Default::default()
             }))
         }
