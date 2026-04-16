@@ -9,6 +9,11 @@ use crate::server::public::graphql::{JsonObject, PgDataLoader, connectors::Conne
 /// and resources.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct ConnectorSpec {
+    /// The database ID of the connector_tags row backing this spec.
+    #[graphql(
+        deprecation = "Not intended to be part of the public API. To be removed once downstream components no longer depend on this field."
+    )]
+    id: Id,
     /// The OCI Image tag this spec was resolved from, including the leading `:`. For example `:v1`.
     /// This may differ from the requested tag if the request fell back to the default.
     image_tag: String,
@@ -66,6 +71,7 @@ impl async_graphql::dataloader::Loader<ConnectorSpecKey> for PgDataLoader {
                 let key = ConnectorSpecKey(row.id);
 
                 let val = ConnectorSpec {
+                    id: row.id,
                     image_tag: row.image_tag,
                     protocol: row.protocol,
                     documentation_url: row.documentation_url,
