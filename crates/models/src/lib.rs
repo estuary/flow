@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+mod alert_config;
 pub mod authorizations;
 mod captures;
 mod catalogs;
@@ -29,6 +30,10 @@ pub mod status;
 mod tests;
 pub mod triggers;
 
+pub use crate::alert_config::{
+    AlertConfig, DataMovementStalledConfig, ShardFailedConfig, TaskChronicallyFailingConfig,
+    TaskIdleConfig,
+};
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};

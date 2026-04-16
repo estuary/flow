@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        id as \"id!: models::Id\",\n                        catalog_prefix_or_name::text as \"catalog_prefix_or_name!: String\",\n                        config as \"config!: crate::TextJson<models::AlertConfig>\",\n                        detail,\n                        created_at,\n                        updated_at,\n                        last_modified_by\n                    FROM alert_configs\n                    WHERE catalog_prefix_or_name::text ^@ ANY($1)\n                      AND ($2::text IS NULL OR catalog_prefix_or_name::text > $2)\n                      AND ($3::text IS NULL OR catalog_prefix_or_name::text ^@ $3)\n                    ORDER BY catalog_prefix_or_name ASC\n                    LIMIT $4 + 1\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_prefix_or_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "config!: crate::TextJson<models::AlertConfig>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "detail",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_modified_by",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "ae6e575019bed8166d1c586a666a4bcece2d493a0b579e9da04d58fe62ef764a"
+}

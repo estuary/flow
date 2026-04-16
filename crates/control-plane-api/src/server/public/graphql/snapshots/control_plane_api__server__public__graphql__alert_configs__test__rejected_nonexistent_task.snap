@@ -1,0 +1,22 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_configs.rs
+assertion_line: 466
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 25,
+          "line": 3
+        }
+      ],
+      "message": "catalog task 'aliceCo/no-such-task' does not exist; use a trailing '/' to create a prefix-scoped config",
+      "path": [
+        "updateAlertConfig"
+      ]
+    }
+  ]
+}

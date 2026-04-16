@@ -826,6 +826,12 @@ async fn assert_status_shards_pending(harness: &mut TestHarness, task: &str) {
 async fn test_spec_deletion_cleans_up_alerts() {
     let mut harness = TestHarness::init("test_spec_deletion_cleans_up_alerts").await;
     let user_id = harness.setup_tenant("foxes").await;
+    harness
+        .upsert_alert_config(
+            "foxes/",
+            serde_json::json!({ "shardFailed": { "enabled": true } }),
+        )
+        .await;
 
     let draft = draft_catalog(serde_json::json!({
         "collections": {

@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_configs.rs
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 25,
+          "line": 3
+        }
+      ],
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/' with required capability admin",
+      "path": [
+        "updateAlertConfig"
+      ]
+    }
+  ]
+}

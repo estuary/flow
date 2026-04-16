@@ -1,6 +1,5 @@
 use std::usize;
 
-use crate::alerts::EvaluatorState;
 use crate::integration_tests::harness::TestHarness;
 use chrono::{DateTime, Utc};
 use control_plane_api::alerts::{AlertAction, ResolveAlert, apply_alert_actions};
@@ -291,318 +290,759 @@ async fn resolve_alert(resolve: ResolveAlert, pool: &sqlx::PgPool) {
     txn.commit().await.unwrap();
 }
 
+/// Inserts a minimal `live_specs` + `controller_jobs` + `internal.tasks`
+/// trio for a capture with the given age and initial status JSON. Skips
+/// publication machinery so that tests control exactly which controller
+/// phases run and what state they observe.
+async fn insert_capture_for_controller(
+    pool: &sqlx::PgPool,
+    catalog_name: &str,
+    age: chrono::Duration,
+) {
+    insert_task(
+        pool,
+        catalog_name,
+        "capture",
+        r#"{"endpoint": {"connector": {"image": "src/test:test", "config": {}}}, "bindings": []}"#,
+        age,
+        0,
+        serde_json::json!({"type": "Uninitialized"}),
+    )
+    .await;
+}
+
+async fn insert_materialization_for_controller(
+    pool: &sqlx::PgPool,
+    catalog_name: &str,
+    age: chrono::Duration,
+) {
+    insert_task(
+        pool,
+        catalog_name,
+        "materialization",
+        r#"{"endpoint": {"connector": {"image": "src/test:test", "config": {}}}, "bindings": []}"#,
+        age,
+        0,
+        serde_json::json!({"type": "Uninitialized"}),
+    )
+    .await;
+}
+
+async fn insert_disabled_capture_for_controller(
+    pool: &sqlx::PgPool,
+    catalog_name: &str,
+    age: chrono::Duration,
+) {
+    insert_task(
+        pool,
+        catalog_name,
+        "capture",
+        r#"{"endpoint": {"connector": {"image": "src/test:test", "config": {}}}, "bindings": [], "shards": {"disable": true}}"#,
+        age,
+        0,
+        serde_json::json!({"type": "Uninitialized"}),
+    )
+    .await;
+}
+
+/// Same as `insert_capture_for_controller` but seeds a specific
+/// `controller_jobs.status` blob at the current schema version. Used to
+/// pre-populate alert state that the test wants the controller to observe.
+async fn insert_capture_with_status(
+    pool: &sqlx::PgPool,
+    catalog_name: &str,
+    age: chrono::Duration,
+    status: serde_json::Value,
+) {
+    insert_task(
+        pool,
+        catalog_name,
+        "capture",
+        r#"{"endpoint": {"connector": {"image": "src/test:test", "config": {}}}, "bindings": []}"#,
+        age,
+        crate::controllers::CONTROLLER_VERSION,
+        status,
+    )
+    .await;
+}
+
+async fn insert_task(
+    pool: &sqlx::PgPool,
+    catalog_name: &str,
+    spec_type: &str,
+    spec_json: &str,
+    age: chrono::Duration,
+    controller_version: i32,
+    status: serde_json::Value,
+) {
+    sqlx::query(
+        r#"
+        with new_spec as (
+            insert into live_specs (catalog_name, spec_type, spec, built_spec, created_at, last_pub_id, last_build_id)
+            values (
+                ($1::text)::catalog_name,
+                $5::catalog_spec_type,
+                $6::json,
+                '{}'::json,
+                now() - make_interval(secs => $2::float8),
+                '1111111111111111'::flowid,
+                '1111111111111111'::flowid
+            )
+            returning id, controller_task_id
+        ),
+        new_cj as (
+            insert into controller_jobs (live_spec_id, controller_version, status)
+            select id, $3::int4, $4::jsonb from new_spec
+        )
+        insert into internal.tasks (task_id, task_type, wake_at)
+        select controller_task_id, 2, now() - '1 minute'::interval from new_spec
+        "#,
+    )
+    .bind(catalog_name)
+    .bind(age.num_seconds() as f64)
+    .bind(controller_version)
+    .bind(sqlx::types::Json(&status))
+    .bind(spec_type)
+    .bind(spec_json)
+    .execute(pool)
+    .await
+    .expect("failed to insert task for controller test");
+}
+
 #[tokio::test]
-async fn test_data_movement_stalled() {
-    let mut harness = TestHarness::init("test_data_movement_stalled").await;
+async fn test_data_movement_stalled_end_to_end() {
+    let mut harness = TestHarness::init("test_data_movement_stalled_end_to_end").await;
+    harness.setup_tenant("acme").await;
     let pool = harness.pool.clone();
 
-    sqlx::raw_sql(r#"
+    insert_capture_for_controller(&pool, "acme/team-a/stalled", chrono::Duration::hours(3)).await;
+    insert_capture_for_controller(&pool, "acme/team-a/special", chrono::Duration::hours(3)).await;
+    insert_capture_for_controller(&pool, "acme/legacy", chrono::Duration::hours(3)).await;
+    insert_capture_for_controller(&pool, "acme/no-config", chrono::Duration::hours(3)).await;
+    insert_capture_for_controller(&pool, "acme/team-a/young", chrono::Duration::minutes(30)).await;
+    insert_materialization_for_controller(
+        &pool,
+        "acme/team-a/mat-stalled",
+        chrono::Duration::hours(3),
+    )
+    .await;
+    insert_disabled_capture_for_controller(
+        &pool,
+        "acme/team-a/disabled-cap",
+        chrono::Duration::hours(3),
+    )
+    .await;
+
+    // A subscriber so that the fired alert produces recipient rows in the
+    // `arguments` JSON (needed for the parity snapshot).
+    sqlx::raw_sql(
+        r#"
         insert into alert_subscriptions (catalog_prefix, email, include_alert_types)
-        values ('aliceCo/', 'alice@example.com', array['data_movement_stalled'::alert_type]),
-        ('aliceCo/', 'bob@example.com', array['data_movement_stalled'::alert_type]),
-        ('aliceCo/', 'carol@example.com', array['shard_failed'::alert_type]);
+        values ('acme/', 'ops@acme.test', array['data_movement_stalled'::alert_type]);
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("failed to insert alert subscription");
 
-        insert into alert_data_processing (catalog_name, evaluation_interval) values
-          ('aliceCo/capture/three-hours', '2 hours'),
-          ('aliceCo/capture/two-hours', '2 hours'),
-          ('aliceCo/capture/deleted', '2 hours'),
-          ('aliceCo/materialization/four-hours', '4 hours'),
-          ('aliceCo/materialization/legacy', '2 hours'),
-          ('aliceCo/materialization/disabled', '2 hours');
-
-          with insert_live as (
-          insert into live_specs (catalog_name, spec_type, spec, created_at) values
-              ('aliceCo/capture/three-hours', 'capture', '{
-                  "endpoint": {
-                  "connector": {
-                      "image": "some image",
-                      "config": {"some": "config"}
-                      }
-                  },
-                  "bindings": []
-              }', now() - '3h'::interval),
-              ('aliceCo/capture/two-hours', 'capture', '{
-                  "endpoint": {
-                  "connector": {
-                      "image": "some image",
-                      "config": {"some": "config"}
-                      }
-                  },
-                  "bindings": []
-              }', now() - '2h'::interval),
-              ('aliceCo/capture/deleted', 'capture', null, now() - '3h'::interval),
-              ('aliceCo/materialization/legacy', 'materialization', '{
-                  "endpoint": {
-                  "connector": {
-                      "image": "some image",
-                      "config": {"some": "config"}
-                      }
-                  },
-                  "bindings": []
-              }', now() - '4h'::interval),
-              ('aliceCo/materialization/four-hours', 'materialization', '{
-                  "endpoint": {
-                  "connector": {
-                      "image": "some image",
-                      "config": {"some": "config"}
-                      }
-                  },
-                  "bindings": []
-              }', now() - '4h'::interval),
-              ('aliceCo/materialization/disabled', 'materialization', '{
-                  "endpoint": {
-                  "connector": {
-                      "image": "some image",
-                      "config": {"some": "config"}
-                      }
-                  },
-                  "bindings": [],
-                  "shards": { "disable": true }
-              }', now() - '3h'::interval)
-          returning controller_task_id
-          )
-          insert into internal.tasks (task_id, task_type)
-          select controller_task_id, 2 from insert_live;
-
-        insert into catalog_stats_hourly (catalog_name, grain, ts, flow_document, bytes_written_by_me, bytes_written_to_me, bytes_read_by_me) values
-          ('aliceCo/capture/three-hours', 'hourly', date_trunc('hour', now()), '{}', 0, 0, 0),
-          ('aliceCo/capture/three-hours', 'hourly', date_trunc('hour', now() - '1h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/capture/three-hours', 'hourly', date_trunc('hour', now() - '2h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/capture/three-hours', 'hourly', date_trunc('hour', now() - '3h'::interval), '{}', 1024, 0, 0),
-          ('aliceCo/capture/two-hours', 'hourly', date_trunc('hour', now()), '{}', 0, 0, 0),
-          ('aliceCo/capture/two-hours', 'hourly', date_trunc('hour', now() - '1h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/capture/two-hours', 'hourly', date_trunc('hour', now() - '2h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/capture/deleted', 'hourly', date_trunc('hour', now()), '{}', 0, 0, 0),
-          ('aliceCo/capture/deleted', 'hourly', date_trunc('hour', now() - '1h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/capture/deleted', 'hourly', date_trunc('hour', now() - '2h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/capture/deleted', 'hourly', date_trunc('hour', now() - '3h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/materialization/four-hours', 'hourly', date_trunc('hour', now() - '1h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/materialization/four-hours', 'hourly', date_trunc('hour', now() - '2h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/materialization/four-hours', 'hourly', date_trunc('hour', now() - '3h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/materialization/four-hours', 'hourly', date_trunc('hour', now() - '4h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/materialization/disabled', 'hourly', date_trunc('hour', now()), '{}', 0, 0, 0),
-          ('aliceCo/materialization/disabled', 'hourly', date_trunc('hour', now() - '1h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/materialization/disabled', 'hourly', date_trunc('hour', now() - '2h'::interval), '{}', 0, 0, 0),
-          ('aliceCo/materialization/disabled', 'hourly', date_trunc('hour', now() - '3h'::interval), '{}', 0, 0, 0);
-
-          -- Simulate an alert that was already firing prior to the evaluation
-          with existing as (
-            insert into alert_history (id, catalog_name, alert_type, fired_at, arguments)
-            values
-                ('0000000000000001', 'aliceCo/materialization/legacy', 'data_movement_stalled'::alert_type, '2025-01-01T01:02:03Z', '{
-                    "bytes_processed": 0,
-                    "evaluation_interval": "02:00:00",
-                    "recipients": [
-                    {
-                        "email": "legacy@example.com",
-                        "full_name": "Ted Dancin"
-                    }
-                    ],
-                    "spec_type": "materialization"
-                }'),
-                ('0000000000000002', 'aliceCo/capture/deleted', 'data_movement_stalled'::alert_type, '2025-01-01T01:02:03Z', '{
-                    "bytes_processed": 0,
-                    "evaluation_interval": "02:00:00",
-                    "recipients": [
-                    {
-                        "email": "old.email@example.com",
-                        "full_name": "Robert Frowny Jr :("
-                    }
-                    ],
-                    "spec_type": "capture"
-                }')
-            returning id
-          )
-          insert into internal.tasks(task_id, task_type, inner_state)
-          select id, 9, '{"fired_completed": "2025-12-31T12:59:59Z"}'::json
-          from existing;
-        "#)
-    .execute(&pool).await.expect("setup sql failed");
-
-    let data_movement_task_id = harness
-        .run_automation_task(automations::task_types::DATA_MOVEMENT_ALERT_EVALS)
-        .await
-        .expect("alert task must have run");
-
-    let fired = harness
-        .assert_alert_firing(
-            "aliceCo/capture/three-hours",
-            AlertType::DataMovementStalled,
+    // Prefix config applies to team-a/stalled and team-a/young; exact-name
+    // config overrides for team-a/special.
+    harness
+        .upsert_alert_config(
+            "acme/team-a/",
+            serde_json::json!({ "dataMovementStalled": { "threshold": "1h" } }),
         )
         .await;
-    let fired_notification_task_id = fired.alert.id;
+    harness
+        .upsert_alert_config(
+            "acme/team-a/special",
+            serde_json::json!({ "dataMovementStalled": { "threshold": "4h" } }),
+        )
+        .await;
 
-    let fired_emails = fired
-        .notifications
-        .iter()
-        .map(|n| n.recipient.email.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(vec!["alice@example.com", "bob@example.com"], fired_emails);
+    // Fallback threshold from `alert_data_processing` for `acme/legacy`.
+    sqlx::query!(
+        r#"insert into alert_data_processing (catalog_name, evaluation_interval)
+           values ('acme/legacy', '2 hours'::interval)"#,
+    )
+    .execute(&pool)
+    .await
+    .expect("failed to insert alert_data_processing row");
 
-    let open_alerts =
-        control_plane_api::alerts::fetch_open_alerts_by_type(AlertType::all(), &harness.pool)
-            .await
-            .unwrap();
-    assert_eq!(2, open_alerts.len(), "expected 2 alerts, got: {fired:?}");
-    let new_alert = open_alerts
-        .iter()
-        .find(|a| a.catalog_name == "aliceCo/capture/three-hours")
-        .expect("expected alert for three-hours");
+    for name in [
+        "acme/team-a/stalled",
+        "acme/team-a/special",
+        "acme/legacy",
+        "acme/no-config",
+        "acme/team-a/young",
+        "acme/team-a/mat-stalled",
+        "acme/team-a/disabled-cap",
+    ] {
+        harness.run_pending_controller(name).await;
+    }
 
-    assert_eq!(AlertType::DataMovementStalled, new_alert.alert_type);
-    assert!(new_alert.resolved_at.is_none());
-    assert!(new_alert.resolved_arguments.is_none());
-    insta::assert_json_snapshot!(new_alert.arguments, @r#"
+    // Prefix-matched task fires.
+    let stalled = harness.get_controller_state("acme/team-a/stalled").await;
+    let alerts = current_alerts(&stalled);
+    let stalled_alert = alerts
+        .get(&AlertType::DataMovementStalled)
+        .expect("DataMovementStalled should be firing for team-a/stalled");
+    assert_eq!(
+        stalled_alert.extra.get("evaluation_interval").unwrap(),
+        "1h",
+        "prefix threshold is 1h"
+    );
+
+    // Exact-name override pushes threshold above the task's age, so it
+    // does not fire despite matching the broader prefix.
+    let special = harness.get_controller_state("acme/team-a/special").await;
+    assert!(
+        !current_alerts(&special).contains_key(&AlertType::DataMovementStalled),
+        "exact-name override (4h) should suppress firing on a 3h-old spec"
+    );
+
+    // No `alert_configs` row, but `alert_data_processing` supplies the
+    // threshold.
+    let legacy = harness.get_controller_state("acme/legacy").await;
+    let legacy_alert = current_alerts(&legacy)
+        .get(&AlertType::DataMovementStalled)
+        .expect("DataMovementStalled should fire via legacy fallback");
+    assert_eq!(
+        legacy_alert.extra.get("evaluation_interval").unwrap(),
+        "2h",
+        "legacy threshold is 2h"
+    );
+
+    // No configured threshold and no fallback row means no alert.
+    let no_config = harness.get_controller_state("acme/no-config").await;
+    assert!(
+        !current_alerts(&no_config).contains_key(&AlertType::DataMovementStalled),
+        "no threshold source must not fire an alert"
+    );
+
+    // Age gate: a spec younger than its configured threshold must not
+    // fire, regardless of byte activity.
+    let young = harness.get_controller_state("acme/team-a/young").await;
+    assert!(
+        !current_alerts(&young).contains_key(&AlertType::DataMovementStalled),
+        "age gate should suppress a spec younger than its threshold"
+    );
+
+    // Materialization fires just like a capture under the same prefix.
+    let mat = harness
+        .get_controller_state("acme/team-a/mat-stalled")
+        .await;
+    assert!(
+        current_alerts(&mat).contains_key(&AlertType::DataMovementStalled),
+        "materialization must also fire DataMovementStalled; got: {:?}",
+        current_alerts(&mat).keys().collect::<Vec<_>>(),
+    );
+
+    // A capture with `shards.disable=true` must not fire despite matching
+    // the prefix threshold.
+    let disabled = harness
+        .get_controller_state("acme/team-a/disabled-cap")
+        .await;
+    assert!(
+        !current_alerts(&disabled).contains_key(&AlertType::DataMovementStalled),
+        "shards.disable=true must suppress DataMovementStalled"
+    );
+
+    // Re-running the controller when the alert is already firing must
+    // not duplicate or spuriously resolve it.
+    let stalled_first_ts = stalled_alert.first_ts;
+    harness.run_pending_controller("acme/team-a/stalled").await;
+    let stalled_rerun = harness.get_controller_state("acme/team-a/stalled").await;
+    let rerun_alert = current_alerts(&stalled_rerun)
+        .get(&AlertType::DataMovementStalled)
+        .expect("DataMovementStalled must still be firing after re-run");
+    assert_eq!(
+        rerun_alert.first_ts, stalled_first_ts,
+        "first_ts must not change on re-evaluation"
+    );
+
+    // `arguments` JSON in `alert_history` must expose `spec_type`,
+    // `bytes_processed`, and `evaluation_interval` at the top level so the
+    // notification templates can render them.
+    let args: serde_json::Value = sqlx::query_scalar!(
+        r#"select arguments as "args!: sqlx::types::Json<serde_json::Value>"
+           from alert_history
+           where catalog_name = 'acme/team-a/stalled'
+             and alert_type = 'data_movement_stalled'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("failed to fetch alert_history row")
+    .0;
+    insta::assert_json_snapshot!(args, {
+        ".first_ts" => "[ts]",
+        ".last_ts" => "[ts]",
+        ".resolved_at" => "[ts]",
+    }, @r#"
     {
       "bytes_processed": 0,
-      "evaluation_interval": "02:00:00",
+      "count": 1,
+      "error": "task has not moved data in the last 1h",
+      "evaluation_interval": "1h",
+      "first_ts": "[ts]",
+      "last_ts": "[ts]",
       "recipients": [
         {
-          "email": "alice@example.com",
-          "full_name": null
+          "email": "acme@test_data_movement_stalled_end_to_end.test",
+          "full_name": "Full (acme) Name"
         },
         {
-          "email": "bob@example.com",
+          "email": "ops@acme.test",
           "full_name": null
         }
       ],
-      "spec_type": "capture"
+      "resolved_at": "[ts]",
+      "spec_type": "capture",
+      "state": "firing"
     }
     "#);
 
-    // Assert that the legacy alert for the materialization is still firing
-    let legacy_alert = open_alerts
-        .iter()
-        .find(|a| a.catalog_name == "aliceCo/materialization/legacy")
-        .expect("expected a legacy alert to still be firing");
-    assert!(legacy_alert.resolved_at.is_none());
-
-    // Assert that the legacy alert for the deleted spec got resolved
-    let emails = harness
-        .assert_alert_resolved(models::Id::new([0, 0, 0, 0, 0, 0, 0, 2]))
-        .await;
-    // The notifications should be sent only to the recipients that had
-    // previously been determined and already exist in the `arguments`.
-    emails.assert_emails_sent(&["old.email@example.com"]);
-
-    let task_state: serde_json::Value = harness.get_task_state(data_movement_task_id).await;
-    insta::assert_json_snapshot!(task_state, { ".last_evaluation_time" => "[redacted]" }, @r#"
-    {
-      "failures": 0,
-      "last_evaluation_time": "[redacted]",
-      "last_result": {
-        "fired": {
-          "data_movement_stalled": 1
-        },
-        "resolved": {
-          "data_movement_stalled": 1
-        },
-        "starting_open": {
-          "data_movement_stalled": 2
-        },
-        "view_evaluated": {
-          "data_movement_stalled": 2
-        }
-      },
-      "open_alerts": {
-        "data_movement_stalled": 2
-      },
-      "paused_at": null
-    }
-    "#);
-    let alerts_state: EvaluatorState = serde_json::from_value(task_state).unwrap();
-
-    // Now add stats, so the alerts will eventually resolve. But not before we test pausing evaluation.
-    sqlx::raw_sql(
+    // Now simulate data movement and re-run to assert resolution.
+    sqlx::query!(
         r#"insert into catalog_stats_hourly
-        (catalog_name, grain, ts, bytes_read_by_me, flow_document)
-        values
-            ('aliceCo/capture/three-hours', 'hourly', date_trunc('hour', now()), 5, '{}'),
-            ('aliceCo/materialization/legacy', 'hourly', date_trunc('hour', now()), 5, '{}')
-        on conflict(catalog_name, grain, ts) do update set bytes_read_by_me = 5;"#,
+             (catalog_name, grain, ts, flow_document,
+              bytes_written_by_me, bytes_written_to_me, bytes_read_by_me)
+           values
+             ('acme/team-a/stalled', 'hourly', date_trunc('hour', now()),
+              '{}', 1024, 0, 0)"#,
+    )
+    .execute(&pool)
+    .await
+    .expect("failed to insert catalog_stats_hourly row");
+
+    harness.run_pending_controller("acme/team-a/stalled").await;
+    let resolved = harness.get_controller_state("acme/team-a/stalled").await;
+    assert!(
+        !current_alerts(&resolved).contains_key(&AlertType::DataMovementStalled),
+        "alert should resolve after bytes start flowing"
+    );
+    let resolved_at: Option<DateTime<Utc>> = sqlx::query_scalar!(
+        r#"select resolved_at from alert_history
+           where catalog_name = 'acme/team-a/stalled'
+             and alert_type = 'data_movement_stalled'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("failed to fetch alert_history row");
+    assert!(
+        resolved_at.is_some(),
+        "alert_history.resolved_at should be set"
+    );
+}
+
+/// Extracts the `alerts` map from the controller status regardless of
+/// spec type variant.
+fn current_alerts(state: &crate::controllers::ControllerState) -> &models::status::Alerts {
+    use models::status::ControllerStatus;
+    match &state.current_status {
+        ControllerStatus::Capture(s) => &s.alerts,
+        ControllerStatus::Collection(s) => &s.alerts,
+        ControllerStatus::Materialization(s) => &s.alerts,
+        ControllerStatus::Test(s) => &s.alerts,
+        ControllerStatus::Uninitialized => {
+            panic!("controller status is Uninitialized; did the controller run?")
+        }
+    }
+}
+
+/// Schedules the controller task for `catalog_name` to re-run on the
+/// next poll, clearing the `abandon_status.last_evaluated` throttle that
+/// would otherwise defer re-evaluation until `abandon_check_interval`
+/// has elapsed. Used between runs when a test mutates `alert_configs`
+/// and wants the next run to observe the change immediately.
+async fn clear_abandon_throttle(pool: &sqlx::PgPool, catalog_name: &str) {
+    sqlx::query!(
+        r#"
+        update controller_jobs cj
+        set status = jsonb_set(cj.status::jsonb, '{abandon}', 'null'::jsonb, false)::json
+        from live_specs ls
+        where ls.id = cj.live_spec_id
+          and ls.catalog_name = $1
+        "#,
+        catalog_name,
+    )
+    .execute(pool)
+    .await
+    .expect("failed to clear abandon throttle");
+    sqlx::query!(
+        r#"
+        update internal.tasks t
+        set wake_at = now() - '1 minute'::interval
+        from live_specs ls
+        where ls.controller_task_id = t.task_id
+          and ls.catalog_name = $1
+        "#,
+        catalog_name,
+    )
+    .execute(pool)
+    .await
+    .expect("failed to rearm controller task");
+}
+
+#[tokio::test]
+async fn test_abandon_per_task_thresholds() {
+    let mut harness = TestHarness::init("test_abandon_per_task_thresholds").await;
+    harness.setup_tenant("acme").await;
+    let pool = harness.pool.clone();
+
+    let now = chrono::Utc::now();
+    let forty_five_days_ago = now - chrono::Duration::days(45);
+
+    // Chronic scenario: seed a ShardFailed alert whose first_ts is 45d
+    // old. At a 60d `taskChronicallyFailing.threshold`, the abandon
+    // evaluator must NOT fire TaskChronicallyFailing; at 30d it must.
+    let chronic_status = serde_json::json!({
+        "type": "Capture",
+        "publications": {"history": []},
+        "activation": {},
+        "alerts": {
+            "shard_failed": {
+                "state": "firing",
+                "spec_type": "capture",
+                "first_ts": forty_five_days_ago,
+                "last_ts": forty_five_days_ago,
+                "error": "test-seeded shard failure",
+                "count": 10,
+                "resolved_at": null,
+            }
+        }
+    });
+    insert_capture_with_status(
+        &pool,
+        "acme/chronic",
+        chrono::Duration::days(50),
+        chronic_status,
+    )
+    .await;
+
+    // Idle scenario: fresh status (no pre-existing alerts), with
+    // `catalog_stats_daily` showing the last data movement was 45 days
+    // ago. `last_user_pub_at` is None because we never published
+    // anything — abandon treats that as "no recent user activity".
+    let fresh_status = serde_json::json!({
+        "type": "Capture",
+        "publications": {"history": []},
+        "activation": {},
+        "alerts": {}
+    });
+    insert_capture_with_status(&pool, "acme/idle", chrono::Duration::days(50), fresh_status).await;
+    sqlx::query!(
+        r#"
+        insert into catalog_stats_daily
+          (catalog_name, grain, ts, flow_document,
+           bytes_written_by_me, bytes_written_to_me, bytes_read_by_me, bytes_read_from_me)
+        values ($1, 'daily', $2, '{}', 1024, 0, 0, 0)
+        "#,
+        "acme/idle",
+        forty_five_days_ago,
+    )
+    .execute(&pool)
+    .await
+    .expect("seed catalog_stats_daily row");
+
+    // First pass: per-task thresholds exceed the observed staleness, so
+    // neither alert fires.
+    harness
+        .upsert_alert_config(
+            "acme/chronic",
+            serde_json::json!({
+                "taskChronicallyFailing": { "threshold": "60d" },
+            }),
+        )
+        .await;
+    harness
+        .upsert_alert_config(
+            "acme/idle",
+            serde_json::json!({ "taskIdle": { "threshold": "60d" } }),
+        )
+        .await;
+
+    harness.run_pending_controller("acme/chronic").await;
+    harness.run_pending_controller("acme/idle").await;
+
+    let chronic_state = harness.get_controller_state("acme/chronic").await;
+    assert!(
+        !current_alerts(&chronic_state).contains_key(&AlertType::TaskChronicallyFailing),
+        "60d threshold should suppress TaskChronicallyFailing at 45d ShardFailed age"
+    );
+    let idle_state = harness.get_controller_state("acme/idle").await;
+    assert!(
+        !current_alerts(&idle_state).contains_key(&AlertType::TaskIdle),
+        "60d threshold should suppress TaskIdle at 45d data staleness"
+    );
+
+    // Second pass: shrink both thresholds below the observed staleness;
+    // both alerts must fire on the next controller run.
+    harness
+        .upsert_alert_config(
+            "acme/chronic",
+            serde_json::json!({
+                "taskChronicallyFailing": { "threshold": "30d" },
+            }),
+        )
+        .await;
+    harness
+        .upsert_alert_config(
+            "acme/idle",
+            serde_json::json!({ "taskIdle": { "threshold": "30d" } }),
+        )
+        .await;
+    clear_abandon_throttle(&pool, "acme/chronic").await;
+    clear_abandon_throttle(&pool, "acme/idle").await;
+
+    harness.run_pending_controller("acme/chronic").await;
+    harness.run_pending_controller("acme/idle").await;
+
+    let chronic_state = harness.get_controller_state("acme/chronic").await;
+    assert!(
+        current_alerts(&chronic_state).contains_key(&AlertType::TaskChronicallyFailing),
+        "30d threshold should fire TaskChronicallyFailing at 45d ShardFailed age; got alerts: {:?}",
+        current_alerts(&chronic_state).keys().collect::<Vec<_>>(),
+    );
+    let idle_state = harness.get_controller_state("acme/idle").await;
+    assert!(
+        current_alerts(&idle_state).contains_key(&AlertType::TaskIdle),
+        "30d threshold should fire TaskIdle at 45d data staleness; got alerts: {:?}",
+        current_alerts(&idle_state).keys().collect::<Vec<_>>(),
+    );
+}
+
+/// Hierarchical merge: rows at every ancestor-prefix level plus an
+/// exact-name row each contribute their fields independently. Exercised
+/// here by inserting three rows at `acme/`, `acme/prod/`, and
+/// `acme/prod/source-pg`, each setting distinct fields, and asserting the
+/// merged config resolved via `ControlPlane::fetch_alert_config`.
+#[tokio::test]
+async fn test_alert_configs_hierarchical_merge() {
+    let mut harness = TestHarness::init("test_alert_configs_hierarchical_merge").await;
+    harness.setup_tenant("acme").await;
+
+    // Tenant-wide default: explicitly enable ShardFailed with a loose
+    // threshold (the `enabled` key is exercised here to verify it
+    // propagates through the merge; at runtime the baseline is firing).
+    harness
+        .upsert_alert_config(
+            "acme/",
+            serde_json::json!({
+                "shardFailed": { "enabled": true, "failureThreshold": 3 },
+                "taskIdle": { "threshold": "90d" },
+            }),
+        )
+        .await;
+    // Prod prefix: override shardFailed threshold; still inherit everything else.
+    harness
+        .upsert_alert_config(
+            "acme/prod/",
+            serde_json::json!({ "shardFailed": { "failureThreshold": 10 } }),
+        )
+        .await;
+    // Exact-name: override one taskIdle field only.
+    harness
+        .upsert_alert_config(
+            "acme/prod/source-pg",
+            serde_json::json!({ "taskIdle": { "threshold": "30d" } }),
+        )
+        .await;
+
+    let merged = {
+        use crate::controlplane::ControlPlane;
+        harness
+            .control_plane()
+            .fetch_alert_config("acme/prod/source-pg".to_string())
+            .await
+            .expect("fetch_alert_config")
+            .expect("some config matches")
+    };
+
+    insta::assert_json_snapshot!(serde_json::to_value(&merged).unwrap(), @r#"
+    {
+      "shardFailed": {
+        "enabled": true,
+        "failureThreshold": 10
+      },
+      "taskIdle": {
+        "threshold": "30days"
+      }
+    }
+    "#);
+}
+
+/// `dataMovementStalled.enabled: false` at a deeper layer silences the
+/// alert even when a prefix supplies a threshold.
+#[tokio::test]
+async fn test_data_movement_stalled_disabled_overrides_prefix_threshold() {
+    let mut harness =
+        TestHarness::init("test_data_movement_stalled_disabled_overrides_prefix_threshold").await;
+    harness.setup_tenant("acme").await;
+    let pool = harness.pool.clone();
+
+    insert_capture_for_controller(&pool, "acme/other", chrono::Duration::hours(3)).await;
+    insert_capture_for_controller(&pool, "acme/batch", chrono::Duration::hours(3)).await;
+
+    // Tenant-wide DataMovementStalled opt-in with a 1h threshold.
+    harness
+        .upsert_alert_config(
+            "acme/",
+            serde_json::json!({ "dataMovementStalled": { "threshold": "1h" } }),
+        )
+        .await;
+    // …but `acme/batch` explicitly opts out.
+    harness
+        .upsert_alert_config(
+            "acme/batch",
+            serde_json::json!({ "dataMovementStalled": { "enabled": false } }),
+        )
+        .await;
+
+    // No catalog_stats_hourly rows means zero bytes for everyone.
+    harness.run_pending_controller("acme/other").await;
+    harness.run_pending_controller("acme/batch").await;
+
+    let other = harness.get_controller_state("acme/other").await;
+    assert!(
+        current_alerts(&other).contains_key(&AlertType::DataMovementStalled),
+        "acme/other inherits tenant threshold and must fire; got: {:?}",
+        current_alerts(&other).keys().collect::<Vec<_>>(),
+    );
+    let batch = harness.get_controller_state("acme/batch").await;
+    assert!(
+        !current_alerts(&batch).contains_key(&AlertType::DataMovementStalled),
+        "acme/batch opts out via enabled=false; must NOT fire despite inherited threshold"
+    );
+}
+
+/// Once a DataMovementStalled alert resolves because bytes were written,
+/// the alert should re-fire if data stops flowing again.
+#[tokio::test]
+async fn test_data_movement_stalled_refires_after_resolution() {
+    let mut harness =
+        TestHarness::init("test_data_movement_stalled_refires_after_resolution").await;
+    harness.setup_tenant("acme").await;
+    let pool = harness.pool.clone();
+
+    insert_capture_for_controller(&pool, "acme/refiring", chrono::Duration::hours(3)).await;
+    harness
+        .upsert_alert_config(
+            "acme/",
+            serde_json::json!({ "dataMovementStalled": { "threshold": "1h" } }),
+        )
+        .await;
+
+    // Phase 1: Alert fires (no bytes).
+    harness.run_pending_controller("acme/refiring").await;
+    let state = harness.get_controller_state("acme/refiring").await;
+    assert!(
+        current_alerts(&state).contains_key(&AlertType::DataMovementStalled),
+        "should fire initially with no data"
+    );
+
+    // Phase 2: Data flows, alert resolves.
+    sqlx::query!(
+        r#"insert into catalog_stats_hourly
+             (catalog_name, grain, ts, flow_document,
+              bytes_written_by_me, bytes_written_to_me, bytes_read_by_me)
+           values
+             ('acme/refiring', 'hourly', date_trunc('hour', now()),
+              '{}', 512, 0, 0)"#,
     )
     .execute(&pool)
     .await
     .unwrap();
 
-    // Pause the alert evaluation and run the task a few times to make sure nothing changes
-    harness
-        .send_automation_message(
-            data_movement_task_id,
-            models::Id::zero(),
-            crate::alerts::EvaluatorMessage::Pause,
-        )
-        .await;
-    for i in 0..3 {
-        tracing::info!(%i, "fidna run paused alert eval task");
-        harness.set_min_task_wake_at(data_movement_task_id).await;
-        harness
-            .run_automation_task(automations::task_types::DATA_MOVEMENT_ALERT_EVALS)
-            .await
-            .expect("alert task must have run");
-        let paused_state: EvaluatorState = harness.get_task_state(data_movement_task_id).await;
-        assert!(paused_state.paused_at.is_some());
-        assert_eq!(paused_state.open_alerts, alerts_state.open_alerts);
-        assert_eq!(paused_state.last_result, alerts_state.last_result);
-        assert_eq!(
-            paused_state.last_evaluation_time,
-            alerts_state.last_evaluation_time
-        );
-    }
-
-    // Resume alert evaluation and expect that the alerts now resolve
-    harness
-        .send_automation_message(
-            data_movement_task_id,
-            models::Id::zero(),
-            crate::alerts::EvaluatorMessage::Resume,
-        )
-        .await;
-    harness
-        .run_automation_task(automations::task_types::DATA_MOVEMENT_ALERT_EVALS)
-        .await
-        .expect("alert task must have run");
-
-    let resolved = harness
-        .assert_alert_resolved(fired_notification_task_id)
-        .await;
-
-    let resolved_emails = resolved
-        .notifications
-        .iter()
-        .map(|n| n.recipient.email.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        vec!["alice@example.com", "bob@example.com"],
-        resolved_emails
-    );
-
-    let firing =
-        control_plane_api::alerts::fetch_open_alerts_by_type(AlertType::all(), &harness.pool)
-            .await
-            .unwrap();
+    harness.run_pending_controller("acme/refiring").await;
+    let resolved = harness.get_controller_state("acme/refiring").await;
     assert!(
-        firing.is_empty(),
-        "expected no more open alerts, got: {firing:?}"
+        !current_alerts(&resolved).contains_key(&AlertType::DataMovementStalled),
+        "should resolve after bytes flow"
     );
 
-    let task_state: serde_json::Value = harness.get_task_state(data_movement_task_id).await;
-    insta::assert_json_snapshot!(task_state, { ".last_evaluation_time" => "[redacted]" }, @r#"
-    {
-      "failures": 0,
-      "last_evaluation_time": "[redacted]",
-      "last_result": {
-        "resolved": {
-          "data_movement_stalled": 2
+    // Phase 3: Data stops again. Remove the stats row and re-run.
+    sqlx::query!("delete from catalog_stats_hourly where catalog_name = 'acme/refiring'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    harness.run_pending_controller("acme/refiring").await;
+    let refired = harness.get_controller_state("acme/refiring").await;
+    assert!(
+        current_alerts(&refired).contains_key(&AlertType::DataMovementStalled),
+        "should re-fire after data stops again"
+    );
+}
+
+/// `shardFailed.enabled: false` in alert_configs should suppress the
+/// ShardFailed alert while still counting failures and scheduling retries.
+#[tokio::test]
+async fn test_shard_failed_enabled_false() {
+    use super::harness::draft_catalog;
+    use crate::ControlPlane;
+
+    let mut harness = TestHarness::init("test_shard_failed_enabled_false").await;
+    let _user_id = harness.setup_tenant("foxes").await;
+
+    harness
+        .upsert_alert_config(
+            "foxes/",
+            serde_json::json!({ "shardFailed": { "enabled": false } }),
+        )
+        .await;
+
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "foxes/den": {
+                "schema": {
+                    "type": "object",
+                    "properties": { "id": { "type": "string" } }
+                },
+                "key": ["/id"]
+            }
         },
-        "starting_open": {
-          "data_movement_stalled": 2
+        "captures": {
+            "foxes/capture": {
+                "endpoint": {
+                    "connector": {
+                        "image": "source/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    { "resource": { "table": "den" }, "target": "foxes/den" }
+                ]
+            }
         }
-      },
-      "open_alerts": {
-        "data_movement_stalled": 0
-      },
-      "paused_at": null
+    }));
+
+    let result = harness
+        .control_plane()
+        .publish(
+            Some("initial".to_string()),
+            uuid::Uuid::new_v4(),
+            draft,
+            Some("ops/dp/public/test".to_string()),
+        )
+        .await
+        .expect("publish failed");
+    assert!(result.status.is_success());
+
+    harness.run_pending_controllers(None).await;
+    harness.control_plane().reset_activations();
+
+    // Trigger enough shard failures to normally fire an alert (threshold is 3).
+    let state = harness.get_controller_state("foxes/capture").await;
+    let shard = super::shard_failures::shard_ref(state.last_build_id, "foxes/capture");
+    for _ in 0..5 {
+        harness.fail_shard(&shard).await;
+        harness.run_pending_controller("foxes/capture").await;
     }
-    "#);
+
+    // With enabled: false, the alert should NOT fire despite exceeding
+    // the failure threshold.
+    harness
+        .assert_alert_clear("foxes/capture", AlertType::ShardFailed)
+        .await;
 }

@@ -5,6 +5,7 @@ pub(crate) mod capture;
 pub(crate) mod catalog_test;
 pub(crate) mod collection;
 pub(crate) mod config_update;
+pub(crate) mod data_movement;
 pub(crate) mod dependencies;
 pub(crate) mod executor;
 pub(crate) mod materialization;
@@ -29,12 +30,13 @@ fn parse_chrono_duration(s: &str) -> Result<chrono::Duration, String> {
     chrono::Duration::from_std(std_dur).map_err(|e| e.to_string())
 }
 
-/// Configuration values for controller automations, parsed from CLI
-/// arguments and threaded through `ControlPlane`.
+/// Global configuration for controller automations, parsed from CLI
+/// arguments / env vars. Fields marked "default" can be overridden
+/// per-prefix or per-task via `alert_configs`; all others are global.
 #[derive(Clone, Debug, clap::Parser)]
 pub struct ControllerConfig {
-    /// Retention window for rows in the `shard_failures` table. Failures older
-    /// than this are deleted when the controller runs.
+    /// Default retention window for rows in the `shard_failures` table.
+    /// Overridable via `shardFailed.retentionWindow` in `alert_configs`.
     #[clap(long, env = "SHARD_FAILURE_RETENTION", default_value = "8h")]
     #[arg(value_parser = parse_chrono_duration)]
     pub shard_failure_retention: chrono::Duration,
@@ -46,11 +48,13 @@ pub struct ControllerConfig {
     #[clap(long, env = "FLOW_MAX_SHARD_STATUS_INTERVAL", default_value = "2h")]
     #[arg(value_parser = parse_chrono_duration)]
     pub max_shard_status_interval: chrono::Duration,
-    /// Number of recent shard failures required to fire a ShardFailed alert.
+    /// Default number of recent shard failures required to fire a ShardFailed
+    /// alert. Overridable via `shardFailed.failureThreshold` in `alert_configs`.
     #[clap(long, env = "ALERT_AFTER_SHARD_FAILURES", default_value = "3")]
     pub alert_after_shard_failures: u32,
-    /// ShardFailed must be continuously firing for this long before the task
-    /// is considered chronically failing.
+    /// Default duration that ShardFailed must be continuously firing before
+    /// the task is considered chronically failing. Overridable via
+    /// `taskChronicallyFailing.threshold` in `alert_configs`.
     #[clap(long, env = "CHRONICALLY_FAILING_THRESHOLD", default_value = "30d")]
     #[arg(value_parser = parse_chrono_duration)]
     pub chronically_failing_threshold: chrono::Duration,
@@ -59,7 +63,8 @@ pub struct ControllerConfig {
     #[clap(long, env = "CHRONICALLY_FAILING_DISABLE_AFTER", default_value = "7d")]
     #[arg(value_parser = parse_chrono_duration)]
     pub chronically_failing_disable_after: chrono::Duration,
-    /// Task must have no data movement for this long before we consider it idle.
+    /// Default duration a task must have no data movement before we consider
+    /// it idle. Overridable via `taskIdle.threshold` in `alert_configs`.
     #[clap(long, env = "ABANDON_IDLE_THRESHOLD", default_value = "30d")]
     #[arg(value_parser = parse_chrono_duration)]
     pub abandon_idle_threshold: chrono::Duration,
@@ -72,10 +77,13 @@ pub struct ControllerConfig {
     #[clap(long, env = "ABANDON_IDLE_DISABLE_AFTER", default_value = "7d")]
     #[arg(value_parser = parse_chrono_duration)]
     pub abandon_idle_disable_after: chrono::Duration,
-    /// Whether to actually disable idle tasks (vs only alerting).
+    /// Default for whether to actually disable idle tasks (vs only alerting).
+    /// Overridable via `taskIdle.autoDisable` in `alert_configs`.
     #[clap(long, env = "DISABLE_IDLE_TASKS", default_value = "false")]
     pub disable_idle_tasks: bool,
-    /// Whether to actually disable chronically failing tasks (vs only alerting).
+    /// Default for whether to actually disable chronically failing tasks (vs
+    /// only alerting). Overridable via `taskChronicallyFailing.autoDisable`
+    /// in `alert_configs`.
     #[clap(long, env = "DISABLE_FAILING_TASKS", default_value = "false")]
     pub disable_failing_tasks: bool,
     /// Minimum interval between abandonment evaluations for a given task.
@@ -601,19 +609,44 @@ async fn controller_update<C: ControlPlane>(
         return Ok(None);
     };
 
+    // Fetch the effective alert config once per run so all evaluators
+    // observe a consistent snapshot; absent fields fall through to
+    // `ControllerConfig` globals at the evaluator call site.
+    let alert_cfg = control_plane
+        .fetch_alert_config(state.catalog_name.clone())
+        .await
+        .context("fetching alert config")?;
+    let alert_cfg = alert_cfg.as_ref();
+
     let next_run = match live_spec {
         AnySpec::Capture(c) => {
             let capture_status = status.as_capture_mut()?;
-            capture::update(capture_status, state, events, control_plane, c).await?
+            capture::update(capture_status, state, events, control_plane, c, alert_cfg).await?
         }
         AnySpec::Collection(c) => {
             let collection_status = status.as_collection_mut()?;
-            collection::update(collection_status, state, events, control_plane, c).await?
+            collection::update(
+                collection_status,
+                state,
+                events,
+                control_plane,
+                c,
+                alert_cfg,
+            )
+            .await?
         }
         AnySpec::Materialization(m) => {
             let materialization_status = status.as_materialization_mut()?;
 
-            materialization::update(materialization_status, state, events, control_plane, m).await?
+            materialization::update(
+                materialization_status,
+                state,
+                events,
+                control_plane,
+                m,
+                alert_cfg,
+            )
+            .await?
         }
         AnySpec::Test(t) => {
             let test_status = status.as_test_mut()?;

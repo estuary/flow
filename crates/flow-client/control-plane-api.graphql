@@ -80,6 +80,55 @@ type Alert {
 	resolvedArguments: JSON
 }
 
+"""
+A single row from `public.alert_configs`.
+"""
+type AlertConfigEntry {
+	id: Id!
+	catalogPrefixOrName: String!
+	config: JSON!
+	detail: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	lastModifiedBy: UUID
+}
+
+type AlertConfigEntryConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [AlertConfigEntryEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type AlertConfigEntryEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: AlertConfigEntry!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+Optional filter for the `alertConfigs` query. When omitted, all accessible
+rows are returned.
+"""
+input AlertConfigsFilter {
+	"""
+	Filter on the `catalog_prefix_or_name` column.
+	"""
+	catalogPrefixOrName: PrefixFilter
+}
+
 type AlertConnection {
 	"""
 	Information to aid in pagination.
@@ -961,6 +1010,16 @@ type MutationRoot {
 	"""
 	testConnectionHealth(catalogPrefix: Prefix!, spec: JSON!): ConnectionHealthTestResult!
 	"""
+	Creates or replaces the alert config at `catalogPrefixOrName`.
+	
+	To clear all configured overrides while keeping the row, pass an empty
+	`{}` config.
+	
+	If `detail` is omitted or `null` on update, the existing `detail`
+	value is preserved.
+	"""
+	updateAlertConfig(catalogPrefixOrName: String!, config: JSON!, detail: String): UpdateAlertConfigResult!
+	"""
 	Creates a new alert subscription. Returns an error if there is already
 	an existing subscription for the same prefix and email address.
 	"""
@@ -1181,6 +1240,15 @@ type QueryRoot {
 	prefixes.
 	"""
 	alerts(by: AlertsBy!, before: String, last: Int, after: String, first: Int): AlertConnection!
+	"""
+	Lists alert-config rows visible to the caller.
+	
+	Results are limited to readable prefixes and sorted by
+	`catalog_prefix_or_name`. `filter.catalogPrefixOrName.startsWith` can
+	narrow the results further. Passing a full catalog name returns at
+	most one exact-name row.
+	"""
+	alertConfigs(filter: AlertConfigsFilter, after: String, first: Int): AlertConfigEntryConnection!
 	"""
 	Returns all possible alert types with their user-facing metadata.
 	"""
@@ -1629,6 +1697,15 @@ entities without requiring a central allocating authority.
 * [RFC4122: A Universally Unique Identifier (UUID) URN Namespace](http://tools.ietf.org/html/rfc4122)
 """
 scalar UUID
+
+"""
+Result of the `updateAlertConfig` mutation.
+"""
+type UpdateAlertConfigResult {
+	id: Id!
+	catalogPrefixOrName: String!
+	created: Boolean!
+}
 
 """
 Result of updating a storage mapping.
