@@ -21,17 +21,6 @@ pub fn new_tenant_alerts_executor(
     }
 }
 
-/// Create an `automations::Executor` for evaluating `data_movement_stalled` alerts.
-pub fn new_data_movement_alerts_executor(
-    evaluation_interval: std::time::Duration,
-) -> AlertEvaluator<DataMovementStalledAlerts> {
-    AlertEvaluator {
-        view: DataMovementStalledAlerts,
-        id_gen: crate::id_generator::data_movement_stalled_alerts,
-        evaluation_interval,
-    }
-}
-
 /// This function inspects an alert view and compares it against the given
 /// array of `open_alerts`, returning a list of alert state transitions.
 /// Alerts only have two possible state transitions:
@@ -179,40 +168,6 @@ impl AlertView for TenantAlerts {
             where catalog_name is not null
             and alert_type is not null
                 "#
-        )
-        .fetch_all(db)
-        .await?;
-        Ok(rows)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DataMovementStalledAlerts;
-impl AlertView for DataMovementStalledAlerts {
-    fn alert_types(&self) -> Vec<AlertType> {
-        AlertType::all()
-            .into_iter()
-            .filter(|ty| ty.view_name() == Some("alert_data_movement_stalled"))
-            .map(|ty| *ty)
-            .collect()
-    }
-
-    async fn query<'a>(&'a self, db: &'a sqlx::PgPool) -> anyhow::Result<Vec<AlertViewRow>> {
-        // This queries the `internal.alert_data_movement_stalled` view for
-        // historical reasons. If we ever need to change that view, we should
-        // consider dropping the view in favor of a regular sql query, which is
-        // easier to manage.
-        let rows = sqlx::query_as!(
-            AlertViewRow,
-            r#"select
-                catalog_name as "catalog_name!: String",
-                alert_type as "alert_type!: AlertType",
-                arguments as "base_arguments: Json<ArgsObject>",
-                coalesce(firing, false) as "firing!: bool"
-            from internal.alert_data_movement_stalled
-            where catalog_name is not null
-            and alert_type is not null
-            "#,
         )
         .fetch_all(db)
         .await?;
@@ -415,25 +370,6 @@ impl<V: AlertView> AlertEvaluator<V> {
 
 impl Executor for AlertEvaluator<TenantAlerts> {
     const TASK_TYPE: TaskType = task_types::TENANT_ALERT_EVALS;
-
-    type Receive = EvaluatorMessage;
-    type State = EvaluatorState;
-    type Outcome = Action;
-
-    async fn poll<'s>(
-        &'s self,
-        pool: &'s sqlx::PgPool,
-        _task_id: models::Id,
-        _parent_id: Option<models::Id>,
-        state: &'s mut Self::State,
-        inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
-    ) -> anyhow::Result<Self::Outcome> {
-        self.run_evaluation_executor(pool, state, inbox).await
-    }
-}
-
-impl Executor for AlertEvaluator<DataMovementStalledAlerts> {
-    const TASK_TYPE: TaskType = task_types::DATA_MOVEMENT_ALERT_EVALS;
 
     type Receive = EvaluatorMessage;
     type State = EvaluatorState;

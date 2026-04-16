@@ -1,6 +1,7 @@
 use crate::controllers::{
     ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, abandon, activation,
     backoff_data_plane_activate, backoff_publication_failure, coalesce_results, config_update,
+    data_movement,
     dependencies::Dependencies,
     periodic,
     publication_status::{self, PendingPublication},
@@ -26,6 +27,7 @@ pub async fn update<C: ControlPlane>(
     events: &Inbox,
     control_plane: &C,
     model: &models::MaterializationDef,
+    alert_cfg: Option<&models::AlertConfig>,
 ) -> anyhow::Result<Option<NextRun>> {
     publication_status::clear_pending_publication_next_after(&mut status.publications);
 
@@ -141,14 +143,25 @@ pub async fn update<C: ControlPlane>(
         state,
         events,
         control_plane,
+        alert_cfg,
     )
     .await
     .with_retry(backoff_data_plane_activate(state.failures))
     .map_err(Into::into);
 
     let abandon_status = abandon.get_or_insert_with(Default::default);
-    let abandon_result =
-        abandon::evaluate_abandoned(alerts, publications, abandon_status, state, control_plane)
+    let abandon_result = abandon::evaluate_abandoned(
+        alerts,
+        publications,
+        abandon_status,
+        state,
+        control_plane,
+        alert_cfg,
+    )
+    .await;
+
+    let data_movement_result =
+        data_movement::evaluate_data_movement_stalled(alerts, state, control_plane, alert_cfg)
             .await;
 
     let observe_result =
@@ -164,6 +177,7 @@ pub async fn update<C: ControlPlane>(
             periodic_result,
             activation_result,
             abandon_result,
+            data_movement_result,
             source_capture_published.map(|_| None),
             updated_config_published.map(|_| None),
             dep_result.map(|_| None),

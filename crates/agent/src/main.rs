@@ -146,10 +146,14 @@ struct Args {
     #[arg(value_parser = humantime::parse_duration)]
     tenant_alert_interval: std::time::Duration,
 
-    /// How frequently to evaluate `data_movement_stalled` alert conditions
-    #[clap(long, env, default_value = "10m")]
+    /// Deprecated: DataMovementStalled evaluation moved into per-task
+    /// controllers. Accepted but ignored; emits a warning at startup if
+    /// set. Retained for one release as a rollback-safety shim so existing
+    /// deployments that still pass this flag do not fail to start. Remove
+    /// after the next deploy.
+    #[clap(long, env, hide = true)]
     #[arg(value_parser = humantime::parse_duration)]
-    data_movement_alert_interval: std::time::Duration,
+    data_movement_alert_interval: Option<std::time::Duration>,
 
     #[command(flatten)]
     controller_config: agent::controllers::ControllerConfig,
@@ -182,6 +186,14 @@ fn main() -> Result<(), anyhow::Error> {
             .expect("setting tracing default failed");
     };
     tracing::info!(?args, "started!");
+
+    if args.data_movement_alert_interval.is_some() {
+        tracing::warn!(
+            "--data-movement-alert-interval / DATA_MOVEMENT_ALERT_INTERVAL is \
+             deprecated and ignored; DataMovementStalled evaluation now runs \
+             per-controller. Remove this flag from your deployment config."
+        );
+    }
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -347,9 +359,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(migrate::automation::MigrationExecutor)
             .register(agent::alerts::new_tenant_alerts_executor(
                 args.tenant_alert_interval,
-            ))
-            .register(agent::alerts::new_data_movement_alerts_executor(
-                args.data_movement_alert_interval,
             ));
 
         if args.serve_alert_notifications {

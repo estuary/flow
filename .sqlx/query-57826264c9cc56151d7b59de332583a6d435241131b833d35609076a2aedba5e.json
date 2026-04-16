@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select config as \"config!: TextJson<serde_json::Value>\"\n        from alert_configs\n        where catalog_prefix_or_name = any($1)\n        order by length(catalog_prefix_or_name) asc\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "config!: TextJson<serde_json::Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "57826264c9cc56151d7b59de332583a6d435241131b833d35609076a2aedba5e"
+}

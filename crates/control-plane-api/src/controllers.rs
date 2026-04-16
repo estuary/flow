@@ -133,6 +133,133 @@ pub async fn fetch_last_data_movement_ts(
     .await
 }
 
+/// Computes the effective `AlertConfig` for `catalog_name` by deep-merging
+/// all matching `alert_configs` rows.
+///
+/// Matching rows are every ancestor prefix plus the exact catalog name.
+/// Applies shortest-prefix first, with the exact-name row applied last.
+/// Returns `None` when no rows match.
+///
+/// The query pre-computes the candidate keys and uses `= ANY(...)`, which can
+/// use the UNIQUE btree index on `catalog_prefix_or_name`.
+///
+/// Object values are merged recursively by key. Any non-object value replaces
+/// the destination slot. The merged JSON is validated as `models::AlertConfig`
+/// before it is returned.
+pub async fn fetch_alert_config(
+    catalog_name: &str,
+    db: impl sqlx::PgExecutor<'static>,
+) -> anyhow::Result<Option<models::AlertConfig>> {
+    let candidates = ancestor_prefixes_and_name(catalog_name);
+
+    let layers: Vec<TextJson<serde_json::Value>> = sqlx::query_scalar!(
+        r#"
+        select config as "config!: TextJson<serde_json::Value>"
+        from alert_configs
+        where catalog_prefix_or_name = any($1)
+        order by length(catalog_prefix_or_name) asc
+        "#,
+        &candidates,
+    )
+    .fetch_all(db)
+    .await?;
+
+    if layers.is_empty() {
+        return Ok(None);
+    }
+
+    let merged = layers
+        .into_iter()
+        .map(|t| t.0)
+        .reduce(|mut acc, next| {
+            deep_merge(&mut acc, next);
+            acc
+        })
+        .expect("layers is non-empty");
+
+    let config: models::AlertConfig = serde_json::from_value(merged)
+        .map_err(|e| anyhow::anyhow!("deserializing merged alert_config: {e}"))?;
+    Ok(Some(config))
+}
+
+/// Builds the set of candidate `catalog_prefix_or_name` values that could
+/// match `catalog_name`: every ancestor prefix (each suffix after a `/`)
+/// plus the exact name itself. Example: for `acmeCo/prod/source-pg` this
+/// returns `["acmeCo/", "acmeCo/prod/", "acmeCo/prod/source-pg"]`.
+fn ancestor_prefixes_and_name(catalog_name: &str) -> Vec<String> {
+    catalog_name
+        .match_indices('/')
+        .map(|(i, _)| catalog_name[..=i].to_string())
+        .chain(std::iter::once(catalog_name.to_string()))
+        .collect()
+}
+
+/// Recursively merges `src` into `dst`. Objects are merged by key; any
+/// non-object value at either side replaces the destination slot.
+fn deep_merge(dst: &mut serde_json::Value, src: serde_json::Value) {
+    match (dst, src) {
+        (serde_json::Value::Object(dst_map), serde_json::Value::Object(src_map)) => {
+            for (k, v) in src_map {
+                deep_merge(dst_map.entry(k).or_insert(serde_json::Value::Null), v);
+            }
+        }
+        (dst_slot, src) => *dst_slot = src,
+    }
+}
+
+/// Returns `alert_data_processing.evaluation_interval` for `catalog_name`, or
+/// `None` if no row exists. This is the fallback `DataMovementStalled`
+/// threshold when `alert_configs` does not configure one.
+/// TODO(js): Once we finish the configurable alert conditions migration and nothing
+/// writes to this table anymore, we can remove this.
+pub async fn fetch_legacy_data_movement_stalled_threshold(
+    catalog_name: &str,
+    db: impl sqlx::PgExecutor<'static>,
+) -> anyhow::Result<Option<chrono::Duration>> {
+    let Some(secs) = sqlx::query_scalar!(
+        r#"
+        select extract(epoch from evaluation_interval)::float8 as "secs!: f64"
+        from alert_data_processing
+        where catalog_name = $1
+        "#,
+        catalog_name,
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(chrono::Duration::milliseconds((secs * 1000.0) as i64)))
+}
+
+/// Returns total bytes processed for `catalog_name` from `since` onward using
+/// `catalog_stats_hourly`.
+///
+/// The sum includes `bytes_written_by_me`, `bytes_written_to_me`, and
+/// `bytes_read_by_me`. The lower bound is rounded down to the containing hour
+/// to match the table's hourly grain.
+pub async fn fetch_bytes_processed_since(
+    catalog_name: &str,
+    since: DateTime<Utc>,
+    db: impl sqlx::PgExecutor<'static>,
+) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(
+        r#"
+        select coalesce(
+            sum(bytes_written_by_me + bytes_written_to_me + bytes_read_by_me),
+            0
+        )::bigint as "bytes!: i64"
+        from catalog_stats_hourly
+        where catalog_name = $1
+            and ts >= date_trunc('hour', $2::timestamptz)
+        "#,
+        catalog_name,
+        since,
+    )
+    .fetch_one(db)
+    .await
+}
+
 #[tracing::instrument(level = "debug", skip(txn, status, controller_version))]
 pub async fn update_status(
     txn: &mut sqlx::PgConnection,
@@ -236,4 +363,64 @@ pub async fn notify_dependents(live_spec_id: Id, pool: &sqlx::PgPool) -> sqlx::R
     .await?;
 
     Ok(result.rows_affected())
+}
+
+#[cfg(test)]
+mod test {
+    use super::deep_merge;
+    use serde_json::json;
+
+    #[test]
+    fn deep_merge_objects_recurse_per_key() {
+        let mut dst = json!({ "a": { "x": 1, "y": 2 }, "b": 3 });
+        deep_merge(&mut dst, json!({ "a": { "y": 20, "z": 30 }, "c": 4 }));
+        assert_eq!(
+            dst,
+            json!({ "a": { "x": 1, "y": 20, "z": 30 }, "b": 3, "c": 4 })
+        );
+    }
+
+    #[test]
+    fn deep_merge_scalar_replaces() {
+        let mut dst = json!({ "a": 1 });
+        deep_merge(&mut dst, json!({ "a": 2 }));
+        assert_eq!(dst, json!({ "a": 2 }));
+    }
+
+    #[test]
+    fn deep_merge_non_object_replaces_object() {
+        let mut dst = json!({ "a": { "x": 1 } });
+        deep_merge(&mut dst, json!({ "a": null }));
+        assert_eq!(dst, json!({ "a": null }));
+    }
+
+    #[test]
+    fn deep_merge_object_replaces_scalar() {
+        let mut dst = json!({ "a": 1 });
+        deep_merge(&mut dst, json!({ "a": { "x": 2 } }));
+        assert_eq!(dst, json!({ "a": { "x": 2 } }));
+    }
+
+    #[test]
+    fn ancestor_prefixes_and_name_splits_correctly() {
+        assert_eq!(
+            super::ancestor_prefixes_and_name("acmeCo/prod/source-pg"),
+            vec!["acmeCo/", "acmeCo/prod/", "acmeCo/prod/source-pg"]
+        );
+        assert_eq!(
+            super::ancestor_prefixes_and_name("acmeCo/task"),
+            vec!["acmeCo/", "acmeCo/task"]
+        );
+    }
+
+    #[test]
+    fn deep_merge_empty_objects() {
+        let mut dst = json!({});
+        deep_merge(&mut dst, json!({ "a": 1 }));
+        assert_eq!(dst, json!({ "a": 1 }));
+
+        let mut dst = json!({ "a": 1 });
+        deep_merge(&mut dst, json!({}));
+        assert_eq!(dst, json!({ "a": 1 }));
+    }
 }

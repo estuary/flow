@@ -21,6 +21,7 @@ impl connection::CursorType for TimestampCursor {
     }
 }
 
+mod alert_configs;
 mod alert_subscriptions;
 mod alert_types;
 mod alerts;
@@ -55,6 +56,7 @@ pub struct PgDataLoader(pub sqlx::PgPool);
 pub struct QueryRoot(
     live_spec_refs::LiveSpecsQuery,
     alerts::AlertsQuery,
+    alert_configs::AlertConfigsQuery,
     alert_types::AlertTypesQuery,
     prefixes::PrefixesQuery,
     alert_subscriptions::AlertSubscriptionsQuery,
@@ -68,6 +70,7 @@ pub struct QueryRoot(
 #[derive(Debug, Default, async_graphql::MergedObject)]
 pub struct MutationRoot(
     storage_mappings::StorageMappingsMutation,
+    alert_configs::AlertConfigsMutation,
     alert_subscriptions::AlertSubscriptionsMutation,
     invite_links::InviteLinksMutation,
 );

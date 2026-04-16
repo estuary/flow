@@ -96,6 +96,33 @@ pub trait ControlPlane: Send + Sync {
         catalog_name: String,
     ) -> anyhow::Result<Option<DateTime<Utc>>>;
 
+    /// Returns the effective alert config for `catalog_name`, or `None` if no
+    /// row applies. Exact-name rows override prefix rows; among prefixes, the
+    /// longest match wins.
+    async fn fetch_alert_config(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<Option<models::AlertConfig>>;
+
+    /// Returns `alert_data_processing.evaluation_interval` for `catalog_name`,
+    /// used as the fallback `DataMovementStalled` threshold when
+    /// `alert_configs` does not configure one.
+    /// TODO(js): Once we finish the configurable alert conditions migration and nothing
+    /// writes to this table anymore, we can remove this.
+    async fn fetch_legacy_data_movement_stalled_threshold(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<Option<chrono::Duration>>;
+
+    /// Returns total bytes processed for `catalog_name` since `since` using
+    /// `catalog_stats_hourly`. Includes bytes written by this task, written to
+    /// this task, and read by this task.
+    async fn fetch_bytes_processed_since(
+        &self,
+        catalog_name: String,
+        since: DateTime<Utc>,
+    ) -> anyhow::Result<i64>;
+
     async fn delete_shard_failures(
         &self,
         catalog_name: String,
@@ -434,6 +461,34 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         controllers::fetch_last_data_movement_ts(&catalog_name, &self.pool)
             .await
             .context("fetching last data movement")
+    }
+
+    async fn fetch_alert_config(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<Option<models::AlertConfig>> {
+        controllers::fetch_alert_config(&catalog_name, &self.pool)
+            .await
+            .context("fetching alert config")
+    }
+
+    async fn fetch_legacy_data_movement_stalled_threshold(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<Option<chrono::Duration>> {
+        controllers::fetch_legacy_data_movement_stalled_threshold(&catalog_name, &self.pool)
+            .await
+            .context("fetching legacy DataMovementStalled threshold")
+    }
+
+    async fn fetch_bytes_processed_since(
+        &self,
+        catalog_name: String,
+        since: DateTime<Utc>,
+    ) -> anyhow::Result<i64> {
+        controllers::fetch_bytes_processed_since(&catalog_name, since, &self.pool)
+            .await
+            .context("fetching bytes processed")
     }
 
     async fn delete_shard_failures(

@@ -4,7 +4,7 @@ use super::{
     coalesce_results, dependencies::Dependencies,
 };
 use crate::controllers::{
-    abandon, activation, config_update, periodic, publication_status, republish,
+    abandon, activation, config_update, data_movement, periodic, publication_status, republish,
 };
 use anyhow::Context;
 use itertools::Itertools;
@@ -22,6 +22,7 @@ pub async fn update<C: ControlPlane>(
     events: &Inbox,
     control_plane: &C,
     model: &models::CaptureDef,
+    alert_cfg: Option<&models::AlertConfig>,
 ) -> anyhow::Result<Option<NextRun>> {
     publication_status::clear_pending_publication_next_after(&mut status.publications);
 
@@ -157,14 +158,25 @@ pub async fn update<C: ControlPlane>(
         state,
         events,
         control_plane,
+        alert_cfg,
     )
     .await
     .with_retry(backoff_data_plane_activate(state.failures))
     .map_err(Into::into);
 
     let abandon_status = abandon.get_or_insert_with(Default::default);
-    let abandon_result =
-        abandon::evaluate_abandoned(alerts, publications, abandon_status, state, control_plane)
+    let abandon_result = abandon::evaluate_abandoned(
+        alerts,
+        publications,
+        abandon_status,
+        state,
+        control_plane,
+        alert_cfg,
+    )
+    .await;
+
+    let data_movement_result =
+        data_movement::evaluate_data_movement_stalled(alerts, state, control_plane, alert_cfg)
             .await;
 
     let notify_result =
@@ -183,6 +195,7 @@ pub async fn update<C: ControlPlane>(
             republish_result.map(|_| None),
             activate_result,
             abandon_result,
+            data_movement_result,
             notify_result,
         ],
     )

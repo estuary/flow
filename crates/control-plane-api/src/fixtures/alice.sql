@@ -31,12 +31,12 @@ begin
   perform internal.create_task(capture_foo_id, 1::smallint, '000000000000'::flowid);
   perform internal.create_task(materialize_bar_id, 1::smallint, '000000000000'::flowid);
 
-  insert into public.live_specs (id, controller_task_id, catalog_name, last_pub_id, spec_type, built_spec, data_plane_id) values
-    (data_foo_id, data_foo_id, 'aliceCo/data/foo', last_pub_id, 'collection', '{"partitionTemplate":{"name":"aliceCo/data/foo/gen1234"}}', data_plane_one_id),
-    (ops_logs_id, ops_logs_id, 'ops/tasks/public/one/logs', last_pub_id, 'collection', '{"partitionTemplate":{"name":"ops/tasks/public/one/logs/gen1234"}}', data_plane_one_id),
-    (ops_stats_id, ops_stats_id, 'ops/tasks/public/one/stats', last_pub_id, 'collection', '{"partitionTemplate":{"name":"ops/tasks/public/one/stats/gen1234"}}', data_plane_one_id),
-    (capture_foo_id, capture_foo_id, 'aliceCo/in/capture-foo', last_pub_id, 'capture', '{"shardTemplate":{"id":"capture/aliceCo/in/capture-foo/gen5678"}}', data_plane_one_id),
-    (materialize_bar_id, materialize_bar_id, 'aliceCo/out/materialize-bar', last_pub_id, 'materialization', '{"shardTemplate":{"id":"materialization/aliceCo/out/materialize-bar/gen9012"}}', data_plane_one_id)
+  insert into public.live_specs (id, controller_task_id, catalog_name, last_pub_id, spec_type, spec, built_spec, data_plane_id) values
+    (data_foo_id, data_foo_id, 'aliceCo/data/foo', last_pub_id, 'collection', '{}', '{"partitionTemplate":{"name":"aliceCo/data/foo/gen1234"}}', data_plane_one_id),
+    (ops_logs_id, ops_logs_id, 'ops/tasks/public/one/logs', last_pub_id, 'collection', '{}', '{"partitionTemplate":{"name":"ops/tasks/public/one/logs/gen1234"}}', data_plane_one_id),
+    (ops_stats_id, ops_stats_id, 'ops/tasks/public/one/stats', last_pub_id, 'collection', '{}', '{"partitionTemplate":{"name":"ops/tasks/public/one/stats/gen1234"}}', data_plane_one_id),
+    (capture_foo_id, capture_foo_id, 'aliceCo/in/capture-foo', last_pub_id, 'capture', '{}', '{"shardTemplate":{"id":"capture/aliceCo/in/capture-foo/gen5678"}}', data_plane_one_id),
+    (materialize_bar_id, materialize_bar_id, 'aliceCo/out/materialize-bar', last_pub_id, 'materialization', '{}', '{"shardTemplate":{"id":"materialization/aliceCo/out/materialize-bar/gen9012"}}', data_plane_one_id)
   ;
 
 end
