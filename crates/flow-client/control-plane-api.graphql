@@ -411,6 +411,10 @@ and resources.
 """
 type ConnectorSpec {
 	"""
+	The database ID of the connector_tags row backing this spec.
+	"""
+	id: Id! @deprecated(reason: "Not intended to be part of the public API. To be removed once downstream components no longer depend on this field.")
+	"""
 	The OCI Image tag this spec was resolved from, including the leading `:`. For example `:v1`.
 	This may differ from the requested tag if the request fell back to the default.
 	"""
@@ -1645,6 +1649,10 @@ URL is a String implementing the [URL Standard](http://url.spec.whatwg.org/)
 """
 scalar Url
 
+"""
+Marks an element of a GraphQL schema as no longer supported.
+"""
+directive @deprecated(reason: String = "No longer supported") on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | ENUM_VALUE
 """
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """
