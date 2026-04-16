@@ -62,7 +62,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 3,
       "rollout": {
         "target": 0,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     },
@@ -108,7 +108,73 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 0,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
+      },
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.5.17",
+      "desired": 2,
+      "current": 2,
+      "rollout": {
+        "target": 0,
+        "step": -1
+      },
+      "tier": 50
+    },
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v0.100",
+      "desired": 9,
+      "current": 9,
+      "tier": 50
+    },
+    {
+      "role": "reactor",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.xlarge",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/estuary/flow:v0.5.11",
+      "desired": 7,
+      "current": 7,
+      "tier": 50
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:next",
+      "desired": 1,
+      "current": 0,
+      "rollout": {
+        "target": 3,
+        "step": -1
       },
       "tier": 50
     }
@@ -128,7 +194,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 2,
       "rollout": {
         "target": 0,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     },
@@ -171,10 +237,10 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "quay.io/coreos/etcd:next",
       "desired": 1,
-      "current": 0,
+      "current": 1,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     }
@@ -190,11 +256,11 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
         "zone": "a"
       },
       "oci_image": "quay.io/coreos/etcd:v3.5.17",
-      "desired": 0,
+      "desired": 1,
       "current": 1,
       "rollout": {
         "target": 0,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     },
@@ -240,7 +306,73 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 1,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
+      },
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.5.17",
+      "desired": 0,
+      "current": 1,
+      "rollout": {
+        "target": 0,
+        "step": -1
+      },
+      "tier": 50
+    },
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v0.100",
+      "desired": 9,
+      "current": 9,
+      "tier": 50
+    },
+    {
+      "role": "reactor",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.xlarge",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/estuary/flow:v0.5.11",
+      "desired": 7,
+      "current": 7,
+      "tier": 50
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:next",
+      "desired": 2,
+      "current": 2,
+      "rollout": {
+        "target": 3,
+        "step": -1
       },
       "tier": 50
     }
@@ -288,7 +420,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 2,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     }

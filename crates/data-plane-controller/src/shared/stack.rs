@@ -190,16 +190,29 @@ pub enum Role {
     Dekaf,
 }
 
-/// A Deployment under a rollout will be updated with each data-plane
-/// convergence, by adjusting the Deployment's `desired` toward the
-/// rollout `target` by at-most `step`.
+/// A Rollout attached to a Deployment adjusts `desired` toward `target` on
+/// each convergence cycle.
+///
+/// When a role has both a draining deployment (target 0) and a surging deployment,
+/// they form a coordinated pair that strictly alternates — only one side steps per
+/// convergence cycle — with the order determined by `step`'s sign:
+///
+/// - Positive `step` (surge): new surges `|step|` first, old drains `|step|` next cycle.
+///   e.g. `step = 1`: surge 1 → drain 1 → surge 1 → …
+/// - Negative `step` (replace): old drains `|step|` first, new surges `|step|` next cycle.
+///   e.g. `step = -1`: drain 1 → surge 1 → drain 1 → …
+///
+/// Rollouts may be set directly on a deployment without a corresponding `Release`
+/// record. For a manual replace, pair an old deployment (`rollout: {step: N, target: 0}`)
+/// with a new one (`rollout: {step: N, target: M}`).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub struct Rollout {
     /// Target `desired` of the Deployment once complete.
     pub target: usize,
-    /// Maximum amount to increment or decrement `desired` towards `target`.
-    pub step: usize,
+    /// Magnitude of each step. Sign encodes who leads:
+    /// positive = new surges first (surge strategy), negative = old drains first (replace strategy).
+    pub step: i32,
 }
 
 /// A Release is matched against a current Deployment of a data-plane.
@@ -464,9 +477,90 @@ impl DataPlane {
 
         let mut changed = false;
 
-        // Apply steps to all deployments with a rollout.
-        for deployment in self.deployments.iter_mut() {
-            changed = deployment.step_rollout() || changed;
+        // Determine which deployments step this cycle.
+        //
+        // When a role has both a draining deployment (desired > target) and a surging one
+        // (desired < target), they form a coordinated pair: only ONE steps per cycle,
+        // alternating based on how much each side has done so far.
+        //
+        // The "amount done" is read from confirmed Ansible state (`current`, which equals
+        // `desired` at this point per the assert above):
+        //   amount_drained = new.rollout.target - old.current  (instances torn down)
+        //   amount_surged  = new.current                       (new instances running)
+        //
+        //   step < 0 (replace): old leads. Drain when amounts are equal; surge once old is ahead.
+        //   step > 0 (surge):   new leads. Surge when amounts are equal; drain once new is ahead.
+        //
+        // Standalone deployments (no partner of the same role) always step.
+        let n = self.deployments.len();
+        let mut should_step = vec![false; n];
+
+        {
+            let mut role_to_drain: std::collections::HashMap<Role, usize> =
+                std::collections::HashMap::new();
+            let mut role_to_surge: std::collections::HashMap<Role, usize> =
+                std::collections::HashMap::new();
+
+            for (i, dep) in self.deployments.iter().enumerate() {
+                if let Some(rollout) = &dep.rollout {
+                    if dep.desired > rollout.target {
+                        role_to_drain.entry(dep.role.clone()).or_insert(i);
+                    } else if dep.desired < rollout.target {
+                        role_to_surge.entry(dep.role.clone()).or_insert(i);
+                    }
+                }
+            }
+
+            for (role, &old_i) in &role_to_drain {
+                if let Some(&new_i) = role_to_surge.get(role) {
+                    let step = self.deployments[old_i].rollout.as_ref().unwrap().step;
+                    let magnitude = step.unsigned_abs() as usize;
+                    let surge_target =
+                        self.deployments[new_i].rollout.as_ref().unwrap().target;
+                    let amount_drained = surge_target.saturating_sub(self.deployments[old_i].current);
+                    let amount_surged = self.deployments[new_i].current;
+
+                    if step < 0 {
+                        // Replace strategy: gated by two conditions.
+                        //
+                        // Coordination: new surges when old has drained more than `magnitude`
+                        // units ahead of new's surge (drained > surged + magnitude).
+                        //
+                        // Min-instances: old cannot drain if doing so would bring the combined
+                        // running count below surge_target - magnitude. Concretely, drain is
+                        // only allowed when old.current + new.current >= surge_target, ensuring
+                        // the sum stays >= surge_target - magnitude after the drain. For a
+                        // 3-node cluster with step=-1 this keeps the total at 2 or 3 at all
+                        // times. When old can't drain, new surges instead to build capacity.
+                        let can_drain = self.deployments[old_i].current
+                            + self.deployments[new_i].current
+                            >= surge_target;
+                        if amount_drained > amount_surged + magnitude || !can_drain {
+                            should_step[new_i] = true;
+                        } else {
+                            should_step[old_i] = true;
+                        }
+                    } else {
+                        // Surge: old and new step simultaneously each cycle.
+                        should_step[old_i] = true;
+                        should_step[new_i] = true;
+                    }
+                } else {
+                    should_step[old_i] = true; // standalone drain
+                }
+            }
+
+            for (role, &new_i) in &role_to_surge {
+                if !role_to_drain.contains_key(role) {
+                    should_step[new_i] = true; // standalone surge
+                }
+            }
+        }
+
+        for (i, deployment) in self.deployments.iter_mut().enumerate() {
+            if should_step[i] {
+                changed = deployment.step_rollout() || changed;
+            }
         }
 
         // Collect roles that currently have active rollouts.
@@ -499,6 +593,11 @@ impl DataPlane {
 
             roles_in_rollout.insert(last.role.clone());
 
+            // Propagate the release step sign directly into both rollouts.
+            // Positive (surge): old and new step concurrently.
+            // Negative (replace): old must fully drain before new may surge.
+            let step = release.step;
+
             let mut next = Deployment {
                 current: 0,
                 desired: 0,
@@ -506,7 +605,7 @@ impl DataPlane {
                 oci_image_override: None,
                 role: last.role.clone(),
                 rollout: Some(Rollout {
-                    step: release.step.abs() as usize,
+                    step,
                     target: last.desired,
                 }),
                 template: last.template.clone(),
@@ -515,17 +614,15 @@ impl DataPlane {
             };
 
             last.rollout = Some(Rollout {
-                step: release.step.abs() as usize,
+                step,
                 target: 0,
             });
 
             if release.step < 0 {
-                // Replace by stepping down the `last` deployment now,
-                // and then stepping up `next` after convergence.
+                // Replace: give the old deployment an extra initial drain step.
                 last.step_rollout();
             } else {
-                // Surge by stepping up the `next` deployment now,
-                // and then stepping down `last` after convergence.
+                // Surge: give the new deployment an extra initial surge step.
                 next.step_rollout();
             };
 
@@ -552,10 +649,11 @@ impl Deployment {
         let Some(rollout) = &self.rollout else {
             return false;
         };
+        let magnitude = rollout.step.unsigned_abs() as usize;
         if self.desired < rollout.target {
-            self.desired += rollout.step.min(rollout.target - self.desired);
-        } else {
-            self.desired -= rollout.step.min(self.desired - rollout.target);
+            self.desired += magnitude.min(rollout.target - self.desired);
+        } else if self.desired > rollout.target {
+            self.desired -= magnitude.min(self.desired - rollout.target);
         }
         true
     }

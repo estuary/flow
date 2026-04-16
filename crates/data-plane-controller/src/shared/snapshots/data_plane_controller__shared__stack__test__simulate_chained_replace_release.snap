@@ -34,7 +34,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 3,
       "rollout": {
         "target": 0,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     },
@@ -52,7 +52,45 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 0,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
+      },
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.5.17",
+      "desired": 2,
+      "current": 2,
+      "rollout": {
+        "target": 0,
+        "step": -1
+      },
+      "tier": 50
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 1,
+      "current": 0,
+      "rollout": {
+        "target": 3,
+        "step": -1
       },
       "tier": 50
     }
@@ -72,7 +110,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 2,
       "rollout": {
         "target": 0,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     },
@@ -87,10 +125,48 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "quay.io/coreos/etcd:v3.6",
       "desired": 1,
-      "current": 0,
+      "current": 1,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
+      },
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.5.17",
+      "desired": 1,
+      "current": 1,
+      "rollout": {
+        "target": 0,
+        "step": -1
+      },
+      "tier": 50
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 2,
+      "current": 1,
+      "rollout": {
+        "target": 3,
+        "step": -1
       },
       "tier": 50
     }
@@ -110,7 +186,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 1,
       "rollout": {
         "target": 0,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     },
@@ -125,10 +201,10 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "quay.io/coreos/etcd:v3.6",
       "desired": 2,
-      "current": 1,
+      "current": 2,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     }
@@ -148,7 +224,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 2,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     }
@@ -168,7 +244,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 3,
       "rollout": {
         "target": 0,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     },
@@ -186,7 +262,45 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 0,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
+      },
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 2,
+      "current": 2,
+      "rollout": {
+        "target": 0,
+        "step": -1
+      },
+      "tier": 50
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.7",
+      "desired": 1,
+      "current": 0,
+      "rollout": {
+        "target": 3,
+        "step": -1
       },
       "tier": 50
     }
@@ -206,7 +320,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 2,
       "rollout": {
         "target": 0,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     },
@@ -221,10 +335,48 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "quay.io/coreos/etcd:v3.7",
       "desired": 1,
-      "current": 0,
+      "current": 1,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
+      },
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.6",
+      "desired": 1,
+      "current": 1,
+      "rollout": {
+        "target": 0,
+        "step": -1
+      },
+      "tier": 50
+    },
+    {
+      "role": "etcd",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "m5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "quay.io/coreos/etcd:v3.7",
+      "desired": 2,
+      "current": 1,
+      "rollout": {
+        "target": 3,
+        "step": -1
       },
       "tier": 50
     }
@@ -244,7 +396,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 1,
       "rollout": {
         "target": 0,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     },
@@ -259,10 +411,10 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       },
       "oci_image": "quay.io/coreos/etcd:v3.7",
       "desired": 2,
-      "current": 1,
+      "current": 2,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     }
@@ -282,7 +434,7 @@ expression: "&simulate_rollout(&mut stack.config.model, releases)"
       "current": 2,
       "rollout": {
         "target": 3,
-        "step": 1
+        "step": -1
       },
       "tier": 50
     }
