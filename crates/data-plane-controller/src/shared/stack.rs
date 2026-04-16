@@ -1006,6 +1006,57 @@ mod test {
     }
 
     #[test]
+    fn simulate_direct_replace_rollout() {
+        // Rollouts set directly on deployments (no Release records) should drive
+        // themselves through evaluate_release_steps just as release-triggered ones do.
+        // This tests the replace strategy (step < 0): old drains first, new surges after.
+        let State { mut stack, .. } =
+            serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+
+        stack
+            .config
+            .model
+            .deployments
+            .retain(|d| d.role == Role::Etcd);
+
+        let mut new_etcd = stack.config.model.deployments[0].clone();
+        new_etcd.oci_image = "quay.io/coreos/etcd:next".to_string();
+        new_etcd.desired = 0;
+        new_etcd.current = 0;
+        new_etcd.rollout = Some(Rollout { target: 3, step: -1 });
+
+        stack.config.model.deployments[0].rollout = Some(Rollout { target: 0, step: -1 });
+        stack.config.model.deployments.push(new_etcd);
+
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, &[]));
+    }
+
+    #[test]
+    fn simulate_direct_surge_rollout() {
+        // Like simulate_direct_replace_rollout but for the surge strategy (step > 0):
+        // old and new step simultaneously each cycle.
+        let State { mut stack, .. } =
+            serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+
+        stack
+            .config
+            .model
+            .deployments
+            .retain(|d| d.role == Role::Gazette);
+
+        let mut new_gazette = stack.config.model.deployments[0].clone();
+        new_gazette.oci_image = "ghcr.io/gazette/broker:next".to_string();
+        new_gazette.desired = 0;
+        new_gazette.current = 0;
+        new_gazette.rollout = Some(Rollout { target: 9, step: 3 });
+
+        stack.config.model.deployments[0].rollout = Some(Rollout { target: 0, step: 3 });
+        stack.config.model.deployments.push(new_gazette);
+
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, &[]));
+    }
+
+    #[test]
     fn simulate_max_tier_filtering() {
         let State { mut stack, .. } =
             serde_json::from_str(include_str!("state_fixture.json")).unwrap();
