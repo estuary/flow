@@ -34,9 +34,10 @@ Configuring the SSL mode strengthens security when transferring data to Oracle M
 
 ### Bindings
 
-| Property                | Title              | Description                                | Type   | Required/Default       |
-|-------------------------|--------------------|--------------------------------------------|--------|------------------------|
-| **`/table`**            | Table              | The name of the table to send data to.     | string | Required               |
+| Property                       | Title                       | Description                                                       | Type   | Required/Default |
+|--------------------------------|-----------------------------|-------------------------------------------------------------------|--------|------------------|
+| **`/table`**                   | Table                       | The name of the table to send data to.                            | string | Required         |
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run after the table is created. | string |                  |
 
 
 
