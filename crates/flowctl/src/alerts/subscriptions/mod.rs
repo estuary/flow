@@ -94,7 +94,7 @@ impl AlertSubscriptions {
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
     schema_path = "../flow-client/control-plane-api.graphql",
-    query_path = "src/alert_subscriptions/list-query.graphql",
+    query_path = "src/alerts/subscriptions/list-query.graphql",
     response_derives = "Serialize,Clone",
     variables_derives = "Clone",
     extern_enums("AlertType")
@@ -156,7 +156,7 @@ impl output::CliOutput for list_alert_subscriptions::SelectAlertSubscription {
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
     schema_path = "../flow-client/control-plane-api.graphql",
-    query_path = "src/alert_subscriptions/create-mutation.graphql",
+    query_path = "src/alerts/subscriptions/create-mutation.graphql",
     response_derives = "Serialize,Clone",
     variables_derives = "Clone",
     extern_enums("AlertType")
@@ -166,7 +166,7 @@ struct CreateAlertSubscription;
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
     schema_path = "../flow-client/control-plane-api.graphql",
-    query_path = "src/alert_subscriptions/update-mutation.graphql",
+    query_path = "src/alerts/subscriptions/update-mutation.graphql",
     response_derives = "Serialize,Clone,Debug",
     variables_derives = "Clone",
     extern_enums("AlertType")
@@ -278,7 +278,7 @@ async fn get_existing_subscription(
 #[derive(graphql_client::GraphQLQuery)]
 #[graphql(
     schema_path = "../flow-client/control-plane-api.graphql",
-    query_path = "src/alert_subscriptions/delete-mutation.graphql",
+    query_path = "src/alerts/subscriptions/delete-mutation.graphql",
     response_derives = "Serialize,Clone,Debug",
     variables_derives = "Clone",
     extern_enums("AlertType")
@@ -300,7 +300,7 @@ async fn do_unsubscribe(args: &UnsubscribeArgs, ctx: &mut crate::CliContext) -> 
 
     let Some(existing) = get_existing_subscription(ctx, &prefix, &email).await? else {
         anyhow::bail!(
-            "no subscription exists for catalog prefix '{prefix}' and email '{email}'. Run `flowctl alert-subscriptions list` to see the current subscriptions"
+            "no subscription exists for catalog prefix '{prefix}' and email '{email}'. Run `flowctl alerts subscriptions list` to see the current subscriptions"
         );
     };
 
