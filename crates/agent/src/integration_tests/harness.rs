@@ -596,7 +596,7 @@ impl TestHarness {
 
     pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
         let mut txn = self.pool.begin().await.unwrap();
-        control_plane_api::directives::grant::upsert_user_grant(
+        control_plane_api::grants::upsert_user_grant(
             user_id,
             role,
             capability,

@@ -11,7 +11,6 @@ use validator::Validate;
 pub mod accept_demo_tenant;
 pub mod beta_onboard;
 pub mod click_to_accept;
-pub mod grant;
 pub mod storage_mappings;
 
 /// JobStatus is the possible outcomes of a handled directive operation.
@@ -43,7 +42,6 @@ pub enum Directive {
     BetaOnboard(beta_onboard::Directive),
     ClickToAccept(click_to_accept::Directive),
     AcceptDemoTenant(accept_demo_tenant::Directive),
-    Grant(grant::Directive),
     StorageMappings(storage_mappings::Directive),
 }
 
@@ -134,7 +132,6 @@ impl DirectiveHandler {
             }
             Ok(Directive::ClickToAccept(d)) => click_to_accept::apply(d, row, txn).await?,
             Ok(Directive::AcceptDemoTenant(d)) => accept_demo_tenant::apply(d, row, txn).await?,
-            Ok(Directive::Grant(d)) => grant::apply(d, row, txn).await?,
             Ok(Directive::StorageMappings(d)) => {
                 storage_mappings::apply(d, row, &self.logs_tx, txn).await?
             }
