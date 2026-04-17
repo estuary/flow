@@ -6,13 +6,14 @@
 
 /* You can override the default Infima variables here. */
 :root {
-    --ifm-color-primary: #25c2a0;
-    --ifm-color-primary-dark: rgb(33, 175, 144);
-    --ifm-color-primary-darker: rgb(31, 165, 136);
-    --ifm-color-primary-darkest: rgb(26, 136, 112);
-    --ifm-color-primary-light: rgb(70, 203, 174);
-    --ifm-color-primary-lighter: rgb(102, 212, 189);
-    --ifm-color-primary-lightest: rgb(146, 224, 208);
+    --ifm-color-primary: #5072EB;
+    --ifm-color-primary-dark: #3A5CD4;
+    --ifm-color-primary-darker: #47506D;
+    --ifm-color-primary-darkest: #04192B;
+    --ifm-color-primary-light: #A4B6F4;
+    --ifm-color-primary-lighter: #EEF1FD;
+    --ifm-color-primary-lightest: #F6F8FE;
+    --ifm-navbar-logo-height: 1.5rem;
     --ifm-code-font-size: 95%;
 }
 
@@ -27,6 +28,33 @@ html[data-theme='dark'] .docusaurus-highlight-code-line {
     background-color: rgba(0, 0, 0, 0.3);
 }
 
+html[data-theme='dark'] {
+    --custom-dark-bg: #0e2443;
+    --custom-dark-bg-hover: #1a3460;
+}
+
+html[data-theme='dark'] .button-link {
+    background-color: var(--custom-dark-bg);
+    color: white;
+}
+
+html[data-theme='dark'] .button-link:hover {
+    background-color: var(--custom-dark-bg-hover);
+}
+
+html[data-theme='dark'] .navbar__link--active {
+    color: var(--ifm-color-primary-light);
+    background-color: var(--custom-dark-bg);
+}
+
+html[data-theme='dark'] .navbar__link--active:hover {
+    background-color: var(--ifm-color-primary-darkest);
+}
+
+html[data-theme='dark'] .docs-section-link:hover {
+    background-color: var(--custom-dark-bg);
+}
+
 .navbar__search {
     padding-left: var(--ifm-navbar-padding-horizontal) !important;
 }
@@ -39,27 +67,26 @@ body.running-in-iframe .theme-doc-breadcrumbs {
 .button-link {
     display: inline-block;
     padding: 10px 20px;
-    /* Adjusts the padding around the text */
     background-color: rgb(233, 238, 237);
-    /* Blue background */
-    color: white;
-    /* White text */
     text-align: center;
     border-radius: 30px;
-    /* Rounded corners */
     text-decoration: none;
-    /* Removes underline */
     transition: background-color 0.3s;
-    /* Smooth transition for background color */
     margin-left: 2px;
     margin-right: 4px;
 }
 
 .button-link:hover {
     background-color: rgb(211, 214, 213);
-    /* Darker blue background on hover */
     cursor: pointer;
-    /* Changes cursor to pointer to indicate it's clickable */
+}
+
+/* Override Infima link styles inside button-link pills */
+.button-link a,
+.button-link a:hover {
+    background: none !important;
+    text-decoration: none !important;
+    padding: 0 !important;
 }
 
 .docs-section-link {
@@ -68,7 +95,7 @@ body.running-in-iframe .theme-doc-breadcrumbs {
 }
 
 .docs-section-link:hover {
-    text-decoration: underline;
+    text-decoration: none;
     background-color: rgb(233, 238, 237);
 }
 
