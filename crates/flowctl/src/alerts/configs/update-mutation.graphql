@@ -1,0 +1,15 @@
+mutation UpdateAlertConfig(
+    $catalogPrefixOrName: String!
+    $config: JSON!
+    $detail: String
+) {
+    updateAlertConfig(
+        catalogPrefixOrName: $catalogPrefixOrName
+        config: $config
+        detail: $detail
+    ) {
+        id
+        catalogPrefixOrName
+        created
+    }
+}

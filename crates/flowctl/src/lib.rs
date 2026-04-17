@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use clap::Parser;
 
-mod alert_subscriptions;
+mod alerts;
 mod auth;
 mod catalog;
 mod collection;
@@ -48,8 +48,12 @@ pub struct Cli {
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
-    /// View and manage subscriptions to alerts and notifications
-    AlertSubscriptions(alert_subscriptions::AlertSubscriptions),
+    /// View and manage alert subscriptions and per-prefix alert configuration
+    Alerts(alerts::Alerts),
+    /// View and manage subscriptions to alerts and notifications.
+    /// (Deprecated: use `flowctl alerts subscriptions` instead.)
+    #[clap(hide = true)]
+    AlertSubscriptions(alerts::subscriptions::AlertSubscriptions),
     /// Authenticate with Flow.
     Auth(auth::Auth),
     /// Work with the current Flow catalog.
@@ -191,7 +195,8 @@ impl Cli {
         let version_check = tokio::spawn(version::check_latest());
 
         let result = match &self.cmd {
-            Command::AlertSubscriptions(alerts) => alerts.run(&mut context).await,
+            Command::Alerts(alerts) => alerts.run(&mut context).await,
+            Command::AlertSubscriptions(subs) => subs.run(&mut context).await,
             Command::Auth(auth) => auth.run(&mut context).await,
             Command::Catalog(catalog) => catalog.run(&mut context).await,
             Command::Collections(collection) => collection.run(&mut context).await,
