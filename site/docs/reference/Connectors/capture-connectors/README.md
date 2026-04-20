@@ -53,6 +53,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Apple App Store
   - [Configuration](./apple-app-store.md)
   - Package - ghcr.io/estuary/source-apple-app-store:v1
+- AppsFlyer
+  - [Configuration](./appsflyer.md)
+  - Package - ghcr.io/estuary/source-appsflyer:v1
 - Asana
   - [Configuration](./asana.md)
   - Package - ghcr.io/estuary/source-asana:v1
