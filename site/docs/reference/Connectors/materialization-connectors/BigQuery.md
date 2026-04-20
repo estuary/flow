@@ -200,5 +200,5 @@ drop table <your_dataset>.<your_schema>.<your_table>_copy;
 6. Re-enable the materialization to continue materializing data to the now partitioned table.
 
 :::caution
-A [dataflow reset capture backfill or materialization backfill](../../../guides/backfilling-data.md) will drop and recreate the table, removing any custom partitioning. If you need to backfill but don't need to drop the table, use an [incremental capture backfill](../../../guides/backfilling-data.md) instead. Otherwise, you will need to re-apply the partitioning conversion steps above after the backfill.
+A [dataflow reset capture backfill](/reference/backfilling-data/#dataflow-reset) or [materialization backfill](/reference/backfilling-data/#materialization-backfill) will drop and recreate the table, removing any custom partitioning. If you need to backfill but don't need to drop the table, use an [incremental capture backfill](/reference/backfilling-data/#incremental-backfill) instead. Otherwise, you will need to re-apply the partitioning conversion steps above after the backfill.
 :::
