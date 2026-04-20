@@ -95,7 +95,7 @@ no_tags_dest as (
 ),
 multi_tag_source_image as (
    insert into connectors (id, external_url, image_name, title, short_description, logo_url, recommended)
-   values ('55:55:55:55:00:00:00:04', 'http://test.test/', 'source/multi-tag-test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}', false)
+   values ('55:55:55:55:00:00:00:04', 'http://test.test/', 'source/multi-tag-test', '{"en-US": "test"}', '{"en-US": "test"}', '{"en-US": "http://test.test/"}', true)
    returning id
 ),
 multi_tag_materialize_image as (

@@ -37,6 +37,7 @@ expression: response
       "recommended": false,
       "title": "test"
     },
+    "mismatchedPair": null,
     "missing": null,
     "noTagsDest": {
       "defaultImageTag": null,
@@ -78,7 +79,7 @@ expression: response
       "id": "5555555500000004",
       "imageName": "source/multi-tag-test",
       "protocol": "capture",
-      "recommended": false,
+      "recommended": true,
       "title": "test"
     }
   }

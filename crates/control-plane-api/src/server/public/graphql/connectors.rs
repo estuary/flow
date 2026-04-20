@@ -69,6 +69,14 @@ pub struct Connector {
 }
 
 impl Connector {
+    // The canonical tag is derived here as the lexicographically greatest
+    // `image_tag` among tags with a fetched spec. Under the `:dev` / `:vN`
+    // naming convention this yields `:vN` > `:dev` and higher `N` wins, which
+    // holds for single-digit `N`. Known gotcha: `:v10` sorts before `:v2`, so
+    // this will need revisiting if any connector reaches double-digit versions.
+    // TODO: once we drop `connector_tags` and switch to dynamically fetching
+    // connector specs, we'll likely want to introduce a `default_tag` column
+    // to `connectors`, which will end up being what we return here.
     fn default_image_tag_ref(&self) -> Option<&ConnectorTagRef> {
         self.tags
             .iter()
@@ -124,8 +132,8 @@ impl Connector {
     }
 
     /// The blessed image tag for newly created tasks using this connector.
-    /// Resolved as the lexicographically highest image tag (e.g. `:v2` wins
-    /// over `:v1`, `:v1` wins over `:dev`).
+    /// Resolved as the lexicographically highest image tag among tags with
+    /// a complete spec, e.g. `:v2` wins over `:v1`, `:v1` wins over `:dev`.
     pub async fn default_image_tag(&self) -> Option<String> {
         self.default_image_tag_ref().map(|t| t.image_tag.clone())
     }
@@ -152,10 +160,18 @@ pub struct ProtocolFilter {
 }
 
 /// Filters for the paginated `connectors` query.
-#[derive(Debug, Clone, async_graphql::InputObject)]
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct ConnectorsFilter {
     /// Filter by connector protocol. Only connectors with at least one version matching this protocol will be returned.
     protocol: Option<ProtocolFilter>,
+    /// Filter by whether the connector is recommended.
+    recommended: Option<bool>,
+}
+
+impl ConnectorsFilter {
+    fn protocol_eq(&self) -> Option<ConnectorProto> {
+        self.protocol.as_ref().map(|p| p.eq)
+    }
 }
 
 const DEFAULT_PAGE_SIZE: usize = 20;
@@ -290,28 +306,27 @@ impl ConnectorsQuery {
                 if limit == 0 {
                     return Ok(PaginatedConnectors::new(false, false));
                 }
+                let filter = filter.unwrap_or_default();
 
                 let (page, has_next, has_prev) = if before.is_some() || last.is_some() {
                     // Reverse pagination
-                    let rows =
-                        fetch_connectors_before(locale, filter, before, limit as i64, &env.pg_pool)
+                    let (rows, has_more) =
+                        fetch_connectors_before(locale, &filter, before, limit, &env.pg_pool)
                             .await
                             .map_err(async_graphql::Error::from)?;
                     // A next page is implied if the request had a before cursor
                     let has_next = before.is_some();
-                    let has_prev = rows.len() >= limit;
-                    (rows, has_next, has_prev)
+                    (rows, has_next, has_more)
                 } else {
                     // Forward pagination, is the default if no pagination
                     // parameters were provided.
-                    let rows =
-                        fetch_connectors_after(locale, filter, after, limit as i64, &env.pg_pool)
+                    let (rows, has_more) =
+                        fetch_connectors_after(locale, &filter, after, limit, &env.pg_pool)
                             .await
                             .map_err(async_graphql::Error::from)?;
-                    let has_next = rows.len() >= limit;
                     // A previous page is implied if the request had an after cursor
                     let has_prev = after.is_some();
-                    (rows, has_next, has_prev)
+                    (rows, has_more, has_prev)
                 };
 
                 let mut conn = PaginatedConnectors::new(has_prev, has_next);
@@ -328,12 +343,12 @@ impl ConnectorsQuery {
 
 async fn fetch_connectors_after(
     locale: Locale,
-    filter: Option<ConnectorsFilter>,
+    filter: &ConnectorsFilter,
     after: Option<Id>,
-    limit: i64,
+    limit: usize,
     db: &sqlx::PgPool,
-) -> sqlx::Result<Vec<Connector>> {
-    let results = sqlx::query_as!(
+) -> sqlx::Result<(Vec<Connector>, bool)> {
+    let mut results = sqlx::query_as!(
         Connector,
         r#"select
           c.id as "id: Id",
@@ -368,28 +383,35 @@ async fn fetch_connectors_after(
           where ct_filter.connector_id = c.id
           and ct_filter.protocol = $1::text
         ))
+        and ($5::bool is null or c.recommended = $5::bool)
         and ($2::flowid is null or c.id > $2::flowid)
         group by c.id
         order by c.id asc
-        limit $3
+        limit $3 + 1
           "#,
-        filter.and_then(|f| f.protocol).map(|p| p.eq) as Option<ConnectorProto>,
+        filter.protocol_eq() as Option<ConnectorProto>,
         after as Option<Id>,
-        limit,
+        limit as i64,
         locale.as_ref() as &str,
+        filter.recommended as Option<bool>,
     )
     .fetch_all(db)
     .await?;
-    Ok(results)
+    let has_more = results.len() > limit;
+
+    // The SQL fetches `limit + 1` rows as a probe for the existence of the
+    // next page; the extra row is dropped via `truncate` before returning.
+    results.truncate(limit);
+    Ok((results, has_more))
 }
 
 async fn fetch_connectors_before(
     locale: Locale,
-    filter: Option<ConnectorsFilter>,
+    filter: &ConnectorsFilter,
     before: Option<Id>,
-    limit: i64,
+    limit: usize,
     db: &sqlx::PgPool,
-) -> sqlx::Result<Vec<Connector>> {
+) -> sqlx::Result<(Vec<Connector>, bool)> {
     let mut results = sqlx::query_as!(
         Connector,
         r#"select
@@ -424,21 +446,25 @@ async fn fetch_connectors_before(
           where ct_filter.connector_id = c.id
           and ct_filter.protocol = $1::text
         ))
+        and ($5::bool is null or c.recommended = $5::bool)
         and ($2::flowid is null or c.id < $2::flowid)
         group by c.id
         order by c.id desc
-        limit $3
+        limit $3 + 1
           "#,
-        filter.and_then(|f| f.protocol).map(|p| p.eq) as Option<ConnectorProto>,
+        filter.protocol_eq() as Option<ConnectorProto>,
         before as Option<Id>,
-        limit,
+        limit as i64,
         locale.as_ref() as &str,
+        filter.recommended as Option<bool>,
     )
     .fetch_all(db)
     .await?;
+    let has_more = results.len() > limit;
+    results.truncate(limit);
     // Put results back into ascending order by id
     results.reverse();
-    Ok(results)
+    Ok((results, has_more))
 }
 
 #[cfg(test)]
@@ -512,12 +538,25 @@ mod test {
                       allWithEmptyFilter: connectors(filter: {}) {
                         ...Select
                       }
+
+                      recommended: connectors(filter: {recommended: true}) {
+                        ...Select
+                      }
+
+                      notRecommended: connectors(filter: {recommended: false}) {
+                        ...Select
+                      }
                     }
             "#
                 }),
                 Some(&access_token),
             )
             .await;
+
+        assert_eq!(
+            response["data"]["all"], response["data"]["allWithEmptyFilter"],
+            "`filter: null` and `filter: {{}}` must return identical results"
+        );
 
         insta::assert_json_snapshot!(response);
     }
@@ -569,6 +608,16 @@ mod test {
                         ...Select
                       }
                       missing: connector(imageName: "does/not/exist") {
+                        ...Select
+                      }
+
+                      # Both provided but referring to different rows; must
+                      # return null because the AND of filters doesn't match
+                      # any single connector.
+                      mismatchedPair: connector(
+                        imageName: "source/multi-tag-test"
+                        id: "55:55:55:55:00:00:00:05"
+                      ) {
                         ...Select
                       }
                     }
@@ -672,5 +721,152 @@ mod test {
             "noConnectorParams": no_params,
             "unauthenticated": unauthed,
         }));
+    }
+
+    /// Extract the list of edge IDs and the `pageInfo` flags from a
+    /// ConnectorConnection response, returning them in a form that's easy
+    /// to assert against. Panics if the response does not have the expected
+    /// shape, which indicates the test query itself is wrong.
+    fn edges_and_page_info(response: &serde_json::Value, alias: &str) -> (Vec<String>, bool, bool) {
+        let conn = &response["data"][alias];
+        let edges = conn["edges"]
+            .as_array()
+            .unwrap_or_else(|| panic!("missing edges for {alias} in {response:#?}"))
+            .iter()
+            .map(|e| e["node"]["id"].as_str().unwrap().to_string())
+            .collect();
+        let has_next = conn["pageInfo"]["hasNextPage"].as_bool().unwrap();
+        let has_prev = conn["pageInfo"]["hasPreviousPage"].as_bool().unwrap();
+        (edges, has_next, has_prev)
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("connectors"))
+    )]
+    async fn test_pagination_and_combined_filter(pool: sqlx::PgPool) {
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+        let access_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        // Fixture connectors returned by the list query (in ascending id order,
+        // those that have at least one connector_tag):
+        //   55:55:55:55:00:00:00:00  source/test           (capture,       not recommended)
+        //   55:55:55:55:00:00:00:01  materialize/test      (materialize,   not recommended)
+        //   55:55:55:55:00:00:00:04  source/multi-tag-test (capture,       recommended)
+        //   55:55:55:55:00:00:00:05  materialize/multi-tag (materialize,   not recommended)
+        // GraphQL serializes Id as compact hex without colons.
+        let id0 = "5555555500000000";
+        let id1 = "5555555500000001";
+        let id4 = "5555555500000004";
+        let id5 = "5555555500000005";
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    fragment Page on ConnectorConnection {
+                      edges { node { id } }
+                      pageInfo { hasNextPage hasPreviousPage }
+                    }
+
+                    query TestPagination {
+                      firstTwo: connectors(first: 2) {
+                        ...Page
+                      }
+                      firstTwoAfterId1: connectors(first: 2, after: "55:55:55:55:00:00:00:01") {
+                        ...Page
+                      }
+                      # Exact page size boundary: requesting a page that
+                      # happens to cover every remaining row must report
+                      # hasNextPage=false.
+                      firstFour: connectors(first: 4) {
+                        ...Page
+                      }
+                      # Full set is 4, so first=5 returns all 4 with no next page.
+                      firstFive: connectors(first: 5) {
+                        ...Page
+                      }
+                      lastTwo: connectors(last: 2) {
+                        ...Page
+                      }
+                      lastTwoBeforeId4: connectors(last: 2, before: "55:55:55:55:00:00:00:04") {
+                        ...Page
+                      }
+                      # Combined filter: capture protocol AND recommended = true
+                      # only matches source/multi-tag-test (id ...04).
+                      captureAndRecommended: connectors(
+                        filter: {protocol: {eq: "capture"}, recommended: true}
+                      ) {
+                        ...Page
+                      }
+                    }
+                    "#
+                }),
+                Some(&access_token),
+            )
+            .await;
+
+        assert_eq!(
+            response["errors"],
+            serde_json::Value::Null,
+            "unexpected errors: {:#?}",
+            response["errors"]
+        );
+
+        let (edges, has_next, has_prev) = edges_and_page_info(&response, "firstTwo");
+        assert_eq!(edges, vec![id0.to_string(), id1.to_string()]);
+        assert!(has_next, "more pages exist after first 2");
+        assert!(!has_prev);
+
+        let (edges, has_next, has_prev) = edges_and_page_info(&response, "firstTwoAfterId1");
+        assert_eq!(edges, vec![id4.to_string(), id5.to_string()]);
+        assert!(!has_next, "no further page after the last 2");
+        assert!(has_prev, "after cursor implies a previous page");
+
+        let (edges, has_next, has_prev) = edges_and_page_info(&response, "firstFour");
+        assert_eq!(
+            edges,
+            vec![
+                id0.to_string(),
+                id1.to_string(),
+                id4.to_string(),
+                id5.to_string()
+            ]
+        );
+        assert!(
+            !has_next,
+            "exact-page-size boundary: hasNextPage must be false when the page \
+             happens to contain every remaining row"
+        );
+        assert!(!has_prev);
+
+        let (edges, has_next, has_prev) = edges_and_page_info(&response, "firstFive");
+        assert_eq!(edges.len(), 4, "requesting more than total returns all");
+        assert!(!has_next);
+        assert!(!has_prev);
+
+        let (edges, has_next, has_prev) = edges_and_page_info(&response, "lastTwo");
+        assert_eq!(edges, vec![id4.to_string(), id5.to_string()]);
+        assert!(!has_next);
+        assert!(
+            has_prev,
+            "more pages exist before the last 2 in ascending order"
+        );
+
+        let (edges, has_next, has_prev) = edges_and_page_info(&response, "lastTwoBeforeId4");
+        assert_eq!(edges, vec![id0.to_string(), id1.to_string()]);
+        assert!(has_next, "before cursor implies a next page");
+        assert!(!has_prev);
+
+        let (edges, _, _) = edges_and_page_info(&response, "captureAndRecommended");
+        assert_eq!(
+            edges,
+            vec![id4.to_string()],
+            "combined protocol+recommended filter matches only source/multi-tag-test"
+        );
     }
 }
