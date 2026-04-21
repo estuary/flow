@@ -3,6 +3,9 @@ sidebar_position: 3
 slug: /reference/backfilling-data/
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Backfilling Data
 
 When new captures are created, you often have the option of backfilling data. This captures data in its current state and then switches to capturing change events on an ongoing basis.
@@ -31,11 +34,39 @@ When you perform an incremental backfill:
 
 To perform an incremental backfill:
 
+<Tabs>
+<TabItem value="In the dashboard" default>
+
 1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
 3. In the **Backfill mode** dropdown, select the **Incremental backfill (advanced)** option
 4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
 5. Save and publish your changes
+
+</TabItem>
+<TabItem value="Using flowctl">
+
+1. Edit your capture's `flow.yaml` specification file
+2. Increment the `backfill` property on all bindings you wish to backfill
+3. You may also optionally specify a [backfill mode](#resource-configuration-backfill-modes) for SQL CDC bindings
+
+   For example:
+
+   ```yaml
+   bindings:
+     - resource:
+         namespace: public
+         stream: tableName
+         mode: "Only Changes"
+       target: your/collection/name
+       backfill: 2
+   ```
+
+4. Modify the capture's configuration if applicable; for example, some captures allow you to specify a start date
+5. Publish your changes with `flowctl catalog publish`
+
+</TabItem>
+</Tabs>
 
 This option is ideal when you want to ensure your collections have the most up-to-date data without
 disrupting your destination systems.
@@ -65,6 +96,9 @@ When you perform a materialization backfill:
 
 To perform a materialization backfill:
 
+<Tabs>
+<TabItem value="In the dashboard" default>
+
 1. Navigate to the Destinations tab in Estuary's web UI
 2. Find your materialization and start editing it
 3. Under the **Source Collections** section, expand **Advanced options**
@@ -80,6 +114,27 @@ Or you can select individual collections to backfill:
 5. Select the **Backfill** button
 6. Repeat steps 3-5 for all collections you'd like to backfill
 7. Save and publish your changes
+
+</TabItem>
+<TabItem value="Using flowctl">
+
+1. Edit your materialization's `flow.yaml` specification file
+2. Increment the `backfill` property on all bindings you wish to backfill
+
+   For example:
+
+   ```yaml
+   bindings:
+     - resource:
+         table: tableName
+       source: your/collection/name
+       backfill: 2
+   ```
+
+3. Publish your changes with `flowctl catalog publish`
+
+</TabItem>
+</Tabs>
 
 :::tip
 Dropping destination tables may create downtime for your destination table consumers while data is backfilled.
@@ -105,11 +160,43 @@ When you perform a dataflow reset:
 
 To perform a dataflow reset:
 
+<Tabs>
+<TabItem value="In the dashboard" default>
+
 1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
 3. In the **Backfill mode** dropdown, select the **Dataflow reset** option
 4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
 5. Save and publish your changes
+
+</TabItem>
+<TabItem value="Using flowctl">
+
+1. Edit the `flow.yaml` specification file(s) for all collections you want to reset
+2. Add the property `reset: true` under each collection to reset
+
+   For example, note the location of `reset` in this simple collection specification:
+
+   ```yaml
+   collections:
+    your/collection/name:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      key: [/id]
+      reset: true
+   ```
+
+   This `reset: true` collection property acts as a flag and will not be stored in the collection model.
+
+3. Publish your changes with `flowctl catalog publish` to kick off the dataflow reset
+
+You do not need to modify other specifications: resetting from the collection updates associated bindings automatically, such as incrementing the capture and materialization backfill counters.
+
+</TabItem>
+</Tabs>
 
 This option is ideal when you need a complete refresh of your entire data pipeline, especially when
 you suspect data inconsistencies between source, collections, and destinations.
@@ -183,16 +270,12 @@ For example, Postgres currently deletes or requires users to drop logical replic
 The connectors that use CDC (Change Data Capture) allow fine-grained control of backfills for individual tables. These bindings include a "Backfill Mode" dropdown in their resource configuration. This setting then translates to a `mode` field for that resource in the specification. For example:
 
 ```yaml
-"bindings": [
-    {
-      "resource": {
-        "namespace": "public",
-        "stream": "tableName",
-        "mode": "Only Changes"
-      },
-      "target": "Artificial-Industries/postgres/public/tableName"
-    }
-  ]
+bindings:
+  - resource:
+      namespace: public
+      stream: tableName
+      mode: "Only Changes"
+    target: your/collection/name
 ```
 
 :::warning
@@ -228,6 +311,9 @@ The following modes are available:
 If you do not choose a specific backfill mode, Estuary defaults to an automatic mode.
 
 ## Advanced backfill configuration in specific systems
+
+Some connectors provide additional advanced settings to configure backfills.
+See the [reference docs](/reference/Connectors) for a connector's available properties.
 
 ### PostgreSQL Capture
 
