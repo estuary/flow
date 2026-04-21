@@ -146,15 +146,6 @@ struct Args {
     #[arg(value_parser = humantime::parse_duration)]
     tenant_alert_interval: std::time::Duration,
 
-    /// Deprecated: DataMovementStalled evaluation moved into per-task
-    /// controllers. Accepted but ignored; emits a warning at startup if
-    /// set. Retained for one release as a rollback-safety shim so existing
-    /// deployments that still pass this flag do not fail to start. Remove
-    /// after the next deploy.
-    #[clap(long, env, hide = true)]
-    #[arg(value_parser = humantime::parse_duration)]
-    data_movement_alert_interval: Option<std::time::Duration>,
-
     #[command(flatten)]
     controller_config: agent::controllers::ControllerConfig,
 }
@@ -186,14 +177,6 @@ fn main() -> Result<(), anyhow::Error> {
             .expect("setting tracing default failed");
     };
     tracing::info!(?args, "started!");
-
-    if args.data_movement_alert_interval.is_some() {
-        tracing::warn!(
-            "--data-movement-alert-interval / DATA_MOVEMENT_ALERT_INTERVAL is \
-             deprecated and ignored; DataMovementStalled evaluation now runs \
-             per-controller. Remove this flag from your deployment config."
-        );
-    }
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

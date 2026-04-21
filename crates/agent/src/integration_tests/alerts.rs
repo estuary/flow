@@ -328,6 +328,40 @@ async fn insert_materialization_for_controller(
     .await;
 }
 
+async fn insert_collection_without_task_for_controller(
+    pool: &sqlx::PgPool,
+    catalog_name: &str,
+    age: chrono::Duration,
+) {
+    insert_task(
+        pool,
+        catalog_name,
+        "collection",
+        r#"{"schema": {"type": "object"}, "key": ["/id"]}"#,
+        age,
+        0,
+        serde_json::json!({"type": "Uninitialized"}),
+    )
+    .await;
+}
+
+async fn insert_dekaf_materialization_for_controller(
+    pool: &sqlx::PgPool,
+    catalog_name: &str,
+    age: chrono::Duration,
+) {
+    insert_task(
+        pool,
+        catalog_name,
+        "materialization",
+        r#"{"endpoint": {"dekaf": {"variant": "test", "config": {}}}, "bindings": []}"#,
+        age,
+        0,
+        serde_json::json!({"type": "Uninitialized"}),
+    )
+    .await;
+}
+
 async fn insert_disabled_capture_for_controller(
     pool: &sqlx::PgPool,
     catalog_name: &str,
@@ -420,6 +454,18 @@ async fn test_data_movement_stalled_end_to_end() {
     insert_capture_for_controller(&pool, "acme/legacy", chrono::Duration::hours(3)).await;
     insert_capture_for_controller(&pool, "acme/no-config", chrono::Duration::hours(3)).await;
     insert_capture_for_controller(&pool, "acme/team-a/young", chrono::Duration::minutes(30)).await;
+    insert_collection_without_task_for_controller(
+        &pool,
+        "acme/team-a/no-task-collection",
+        chrono::Duration::hours(3),
+    )
+    .await;
+    insert_dekaf_materialization_for_controller(
+        &pool,
+        "acme/team-a/dekaf-mat",
+        chrono::Duration::hours(3),
+    )
+    .await;
     insert_materialization_for_controller(
         &pool,
         "acme/team-a/mat-stalled",
@@ -475,6 +521,8 @@ async fn test_data_movement_stalled_end_to_end() {
         "acme/legacy",
         "acme/no-config",
         "acme/team-a/young",
+        "acme/team-a/no-task-collection",
+        "acme/team-a/dekaf-mat",
         "acme/team-a/mat-stalled",
         "acme/team-a/disabled-cap",
     ] {
@@ -526,6 +574,25 @@ async fn test_data_movement_stalled_end_to_end() {
     assert!(
         !current_alerts(&young).contains_key(&AlertType::DataMovementStalled),
         "age gate should suppress a spec younger than its threshold"
+    );
+
+    // A non-derivation collection is not a shard-backed task and must not
+    // participate in DataMovementStalled.
+    let no_task_collection = harness
+        .get_controller_state("acme/team-a/no-task-collection")
+        .await;
+    assert!(
+        !current_alerts(&no_task_collection).contains_key(&AlertType::DataMovementStalled),
+        "non-derivation collections must not fire DataMovementStalled"
+    );
+
+    // Dekaf materializations have no reactor shards but do report
+    // data-movement stats, so they are eligible for this alert.
+    let dekaf_mat = harness.get_controller_state("acme/team-a/dekaf-mat").await;
+    assert!(
+        current_alerts(&dekaf_mat).contains_key(&AlertType::DataMovementStalled),
+        "dekaf materializations must fire DataMovementStalled; got: {:?}",
+        current_alerts(&dekaf_mat).keys().collect::<Vec<_>>(),
     );
 
     // Materialization fires just like a capture under the same prefix.

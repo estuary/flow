@@ -68,18 +68,15 @@ pub struct TaskChronicallyFailingConfig {
     )]
     #[schemars(schema_with = "crate::duration_schema")]
     pub threshold: Option<Duration>,
-    /// When the grace period expires after this alert first fires, disable
-    /// the task's shards via a controller publication. Defaults to the
-    /// global `DISABLE_FAILING_TASKS` env.
+    /// When the grace period expires after this alert first fires, disable the
+    /// task's shards through a controller publication. Defaults to `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_disable: Option<bool>,
 }
 
-/// data for `threshold`
-/// `enabled: false` to silence entirely.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    /// defers to the alert's baseline (firing).
+pub struct TaskIdleConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(
@@ -89,9 +86,8 @@ pub struct TaskChronicallyFailingConfig {
     )]
     #[schemars(schema_with = "crate::duration_schema")]
     pub threshold: Option<Duration>,
-    /// When the grace period expires after this alert first fires, disable
-    /// the task's shards via a controller publication. Defaults to the
-    /// global `DISABLE_IDLE_TASKS` env.
+    /// When the grace period expires after this alert first fires, disable the
+    /// task's shards through a controller publication. Defaults to `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_disable: Option<bool>,
 }

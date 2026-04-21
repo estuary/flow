@@ -5,10 +5,13 @@
 //! evaluation falls back to `alert_data_processing`.
 
 use super::{ControllerState, NextRun, alerts};
+use crate::controllers::activation::has_task_shards;
 use crate::controlplane::ControlPlane;
 use chrono::{DurationRound, TimeDelta};
-use models::AnySpec;
-use models::status::{AlertType, Alerts};
+use models::{
+    AnySpec,
+    status::{AlertType, Alerts},
+};
 use serde_json::json;
 
 const RECHECK_MINUTES: u32 = 60;
@@ -19,7 +22,7 @@ pub async fn evaluate_data_movement_stalled<C: ControlPlane>(
     control_plane: &C,
     alert_cfg: Option<&models::AlertConfig>,
 ) -> anyhow::Result<Option<NextRun>> {
-    let Some(spec) = state.live_spec.as_ref().filter(|s| !spec_is_disabled(s)) else {
+    let Some(spec) = state.live_spec.as_ref().filter(|_| moves_data(state)) else {
         alerts::resolve_alert(alerts_status, AlertType::DataMovementStalled);
         return Ok(None);
     };
@@ -106,11 +109,16 @@ pub async fn evaluate_data_movement_stalled<C: ControlPlane>(
     }
 }
 
-fn spec_is_disabled(spec: &AnySpec) -> bool {
-    match spec {
-        AnySpec::Capture(c) => c.shards.disable,
-        AnySpec::Materialization(m) => m.shards.disable,
-        AnySpec::Collection(c) => c.derive.as_ref().is_some_and(|d| d.shards.disable),
-        AnySpec::Test(_) => true, // tests have no data movement
+/// Like `has_task_shards`, but also includes Dekaf materializations which
+/// have no reactor shards yet still report data-movement stats.
+fn moves_data(state: &ControllerState) -> bool {
+    if has_task_shards(state) {
+        return true;
+    }
+    match state.live_spec.as_ref() {
+        Some(AnySpec::Materialization(mat)) if !mat.shards.disable => {
+            matches!(mat.endpoint, models::MaterializationEndpoint::Dekaf(_))
+        }
+        _ => false,
     }
 }
