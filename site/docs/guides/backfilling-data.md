@@ -34,7 +34,7 @@ To perform an incremental backfill:
 1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
 3. In the **Backfill mode** dropdown, select the **Incremental backfill (advanced)** option
-4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
+4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes-for-sql-cdc-captures) for the collection for advanced use cases
 5. Save and publish your changes
 
 This option is ideal when you want to ensure your collections have the most up-to-date data without
@@ -108,7 +108,7 @@ To perform a dataflow reset:
 1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
 3. In the **Backfill mode** dropdown, select the **Dataflow reset** option
-4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes) for the collection for advanced use cases
+4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes-for-sql-cdc-captures) for the collection for advanced use cases
 5. Save and publish your changes
 
 This option is ideal when you need a complete refresh of your entire data pipeline, especially when
@@ -173,14 +173,18 @@ For example, Postgres currently deletes or requires users to drop logical replic
 
 3. Perform the database upgrade.
 
-4. Backfill all bindings of the capture using the ["Only Changes" backfill mode](#resource-configuration-backfill-modes) and make sure to select "Incremental Backfill (Advanced)" from the drop down.
+4. Backfill all bindings of the capture using the ["Only Changes" backfill mode](#resource-configuration-backfill-modes-for-sql-cdc-captures) and make sure to select "Incremental Backfill (Advanced)" from the drop down.
    - This will not cause a full backfill. "Backfilling" all bindings at once resets the WAL (Write-Ahead Log) position for the capture, essentially allowing it to "jump ahead" to the current end of the WAL. The "Only Changes" mode will skip re-reading existing table content.  Incremental backfill will append new data to your current collection.
 
 5. Resume database writes.
 
-## Resource configuration backfill modes
+## Resource configuration backfill modes for SQL CDC captures
 
-The connectors that use CDC (Change Data Capture) allow fine-grained control of backfills for individual tables. These bindings include a "Backfill Mode" dropdown in their resource configuration. This setting then translates to a `mode` field for that resource in the specification. For example:
+:::note
+Backfill modes apply only to **SQL CDC connectors** (PostgreSQL, MySQL, SQL Server, etc.). Non-SQL connectors and non-CDC connectors do not have this setting.
+:::
+
+SQL CDC connectors allow fine-grained control of backfills for individual tables. These bindings include a "Backfill Mode" dropdown in their resource configuration. This setting then translates to a `mode` field for that resource in the specification. For example:
 
 ```yaml
 "bindings": [
@@ -199,37 +203,76 @@ The connectors that use CDC (Change Data Capture) allow fine-grained control of 
 In general, you should not change this setting. Make sure you understand your use case, such as [preventing backfills](#preventing-backfills-during-database-upgrades).
 :::
 
-The following modes are available:
+### Available modes
 
 * **Normal:** backfills chunks of the table and emits all replication events regardless of whether they occur within the backfilled portion of the table or not.
 
-   In Normal mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
-   All WAL changes are emitted immediately, whether or not they relate to an unread portion of the table. Therefore, if a change is made, it shows up quickly even if its table is still backfilling.
+   In Normal mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the replication log.
+   All replication log changes are emitted immediately, whether or not they relate to an unread portion of the table. Therefore, if a change is made, it shows up quickly even if its table is still backfilling.
 
-* **Precise:** backfills chunks of the table and filters replication events in portions of the table which haven't yet been reached.
+   **Pros:**
+   All change events (inserts, updates, and deletes) are captured during backfill — no replication events are filtered out. Changes appear in the destination quickly, even for tables still being backfilled.
 
-   In Precise mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the WAL.
-   Any WAL changes for portions of the table that have already been backfilled are emitted. In contrast to Normal mode, however, WAL changes are suppressed if they relate to a part of the table that hasn't been backfilled yet.
+   **Cons:**
+   Duplicate events are possible during backfill — the same row may be emitted once as a backfill chunk and again as a replication event. With standard (non-delta) materializations, duplicates are deduplicated by the runtime. With delta updates enabled, duplicates may result in duplicate records. The backfill row for a given key may also arrive after a later replication event for that row (for example, a backfill row may arrive after an update to that row), but the most recent replication event always arrives last, so the final value in the destination reflects the current source state.
 
-   WAL changes and backfill chunks get stitched together to produce a fully consistent logical sequence of changes for each key. For example, you are guaranteed to see an insert before an update or delete.
+* **Precise:** backfills chunks of the table while capturing replication events only for parts of the table that have been backfilled already.
+
+   In Precise mode, the connector fetches key-ordered chunks of the table for the backfill while performing reads of the replication log.
+   Any replication log changes for portions of the table that have already been backfilled are emitted. In contrast to Normal mode, however, replication log changes are suppressed if they relate to a part of the table that hasn't been backfilled yet.
+
+   Replication log changes and backfill chunks get stitched together to produce a fully consistent logical sequence of changes for each key. For example, you are guaranteed to see an insert before an update or delete.
 
    Note that Precise backfill is not possible in some cases due to equality comparison challenges when using varying character encodings.
 
+   **Pros:**
+   Produces a logically consistent sequence of changes per key — no duplicates, correct ordering.
+
+   **Cons:**
+   **During incremental backfills, rows deleted before the scanner reaches them will be silently lost.** If a row is deleted while the backfill scanner has not yet reached it, the DELETE event is filtered out — when the scanner arrives at that key range, the row no longer exists in the source and is never seen, leaving the old version in the destination without a delete marker. The at-risk window spans the entire backfill duration, so larger tables mean a larger window. Normal mode has a much shorter at-risk window for the same scenario (ending when the backfill starts rather than when it finishes), at the cost of possible duplicates. This does not affect full data flow resets, where the destination is rebuilt from scratch.
+
 * **Only Changes:** skips backfilling the table entirely and jumps directly to replication streaming for the entire dataset.
 
-   No backfill of the table content is performed at all. Only WAL changes are emitted.
+   No backfill of the table content is performed at all. Only replication log changes are emitted. Use this mode when you only need new changes going forward and don't need historical data.
 
 * **Without Primary Key:** can be used to capture tables without any form of unique primary key.
 
-   The connector uses an alternative physical row identifier (such as a Postgres `ctid`) to scan backfill chunks, rather than walking the table in key order.
+   The connector uses an alternative physical row identifier (such as a Postgres `ctid`) to scan backfill chunks, rather than walking the table in key order. Use this mode when a table lacks a usable primary key or unique index.
 
    This mode lacks the exact correctness properties of the Normal backfill mode.
 
-If you do not choose a specific backfill mode, Estuary defaults to an automatic mode.
+### Default behavior
+
+If you do not choose a specific backfill mode, Estuary uses **Automatic** mode, which selects the best mode based on the table's characteristics:
+
+- **Precise** is selected for tables with predictable key ordering (most tables with standard primary keys).
+- **Normal** is selected for tables where key ordering is unpredictable (e.g. certain character encodings or collations).
+- **Without Primary Key** is selected for tables that lack a usable primary key or unique index.
+
+For many SQL captures, Automatic will select **Precise**.
+
+### Choosing a mode
+
+| Consideration | Normal | Precise |
+|---|---|---|
+| Deletes during incremental backfill | Captured (safe) | Can be silently lost |
+| Event ordering per key | Not guaranteed | Guaranteed |
+| Duplicate processing | Possible (deduplicated unless using delta updates) | None |
+| Default for most tables | No | Yes (via Automatic) |
+
+If your workload includes hard deletes and you want to ensure no deletes are lost during incremental backfills, consider setting the backfill mode to **Normal** on affected bindings. The tradeoff is possible duplicate events during the backfill, which are deduplicated automatically unless you are using delta updates.
+
+In most cases, schema changes do not trigger backfills. Exceptions include:
+- **SQL Server** (with Automatic Capture Instance Management enabled): schema changes can trigger automatic backfills.
+- **MySQL/MariaDB**: schema changes can trigger backfills if executed with binlog writes disabled (common with some schema migration tools), or if the DDL statement cannot be parsed by the connector. Standard `ALTER TABLE` statements executed normally do not trigger backfills.
+
+For MySQL and MariaDB captures, setting `binlog_row_metadata=FULL` can prevent many schema-change-triggered backfills, reducing the window in which deletes could be missed regardless of backfill mode.
 
 ## Advanced backfill configuration in specific systems
 
 ### PostgreSQL Capture
+
+If a PostgreSQL table's primary key is uncorrelated with physical insert order (such as a UUIDv4 or other random token), a key-ordered backfill requires frequent random page fetches and may run significantly slower than expected. In these cases, using **Without Primary Key** mode (which uses the physical `ctid` row identifier instead of the primary key) can speed up the backfill considerably, at the cost of the ordering guarantees described above.
 
 PostgreSQL's `xmin` system column can be used as a cursor to keep track of the current location in a table. If you need to re-backfill a Postgres table, you can reduce the affected data volume by specifying a minimum or maximum backfill `XID`. Estuary will only backfill rows greater than or less than the specified `XID`.
 
