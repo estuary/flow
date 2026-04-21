@@ -12,7 +12,7 @@ const EXTRA_DISABLE_AT: &str = "disable_at";
 const EXTRA_FAILING_SINCE: &str = "failing_since";
 
 /// Why a task is being auto-disabled, used as the publication detail message.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DisableReason {
     ChronicallyFailing,
     Idle,
@@ -30,6 +30,19 @@ impl std::fmt::Display for DisableReason {
             Self::ChronicallyFailing => f.write_str("auto-disabling chronically failing task"),
             Self::Idle => f.write_str("auto-disabling idle task"),
         }
+    }
+}
+
+fn auto_disable_enabled(alert_config: Option<&models::AlertConfig>, reason: DisableReason) -> bool {
+    match reason {
+        DisableReason::Idle => alert_config
+            .and_then(|a| a.task_idle.as_ref())
+            .and_then(|t| t.auto_disable)
+            .unwrap_or(false),
+        DisableReason::ChronicallyFailing => alert_config
+            .and_then(|a| a.task_chronically_failing.as_ref())
+            .and_then(|c| c.auto_disable)
+            .unwrap_or(false),
     }
 }
 
@@ -67,21 +80,9 @@ pub async fn evaluate_abandoned<C: ControlPlane>(
 
     let disable_reason = evaluate_alerts(alerts_status, state, now, timestamps, &config, alert_cfg);
 
-    if let Some(reason) = disable_reason {
-        let should_disable = match reason {
-            DisableReason::Idle => alert_cfg
-                .and_then(|a| a.task_idle.as_ref())
-                .and_then(|t| t.auto_disable)
-                .unwrap_or(config.disable_idle_tasks),
-            DisableReason::ChronicallyFailing => alert_cfg
-                .and_then(|a| a.task_chronically_failing.as_ref())
-                .and_then(|c| c.auto_disable)
-                .unwrap_or(config.disable_failing_tasks),
-        };
-        if should_disable {
-            if maybe_disable_task(reason, state, publications, control_plane).await? {
-                return Ok(Some(NextRun::immediately()));
-            }
+    if let Some(reason) = disable_reason.filter(|reason| auto_disable_enabled(alert_cfg, *reason)) {
+        if maybe_disable_task(reason, state, publications, control_plane).await? {
+            return Ok(Some(NextRun::immediately()));
         }
     }
 
@@ -222,9 +223,8 @@ fn evaluate_alerts(
             .expect("disable_at was set from a valid date");
 
         let should_auto_disable_failing = alert_config
-            .and_then(|a| a.task_chronically_failing.as_ref())
-            .and_then(|c| c.auto_disable)
-            .unwrap_or(config.disable_failing_tasks);
+            .map(|cfg| auto_disable_enabled(Some(cfg), DisableReason::ChronicallyFailing))
+            .unwrap_or(false);
 
         if now.date_naive() >= disable_at && should_auto_disable_failing {
             if !alerts_status.contains_key(&AlertType::TaskAutoDisabledFailing) {
@@ -246,6 +246,8 @@ fn evaluate_alerts(
                     );
             }
             disable_reason = Some(DisableReason::ChronicallyFailing);
+        } else {
+            alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabledFailing);
         }
     } else {
         alerts::resolve_alert(alerts_status, AlertType::TaskChronicallyFailing);
@@ -313,9 +315,8 @@ fn evaluate_alerts(
             .expect("disable_at was set from a valid date");
 
         let should_auto_disable_idle = alert_config
-            .and_then(|a| a.task_idle.as_ref())
-            .and_then(|t| t.auto_disable)
-            .unwrap_or(config.disable_idle_tasks);
+            .map(|cfg| auto_disable_enabled(Some(cfg), DisableReason::Idle))
+            .unwrap_or(false);
 
         if now.date_naive() >= disable_at && should_auto_disable_idle {
             if !alerts_status.contains_key(&AlertType::TaskAutoDisabledIdle) {
@@ -329,6 +330,8 @@ fn evaluate_alerts(
                 );
             }
             disable_reason = Some(DisableReason::Idle);
+        } else {
+            alerts::resolve_alert(alerts_status, AlertType::TaskAutoDisabledIdle);
         }
     } else {
         alerts::resolve_alert(alerts_status, AlertType::TaskIdle);
@@ -652,8 +655,15 @@ mod test {
     /// shard later recovers and data starts moving again, all alerts resolve.
     #[test]
     fn chronically_failing_lifecycle() {
-        let mut config = ControllerConfig::default();
-        config.disable_failing_tasks = true;
+        let config = ControllerConfig::default();
+        let alert_cfg = models::AlertConfig {
+            task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
+                enabled: None,
+                threshold: None,
+                auto_disable: Some(true),
+            }),
+            ..Default::default()
+        };
         let shard_failed_at = fixed_now();
         let created_at = shard_failed_at - Duration::days(90);
         let state = mock_state(Some(enabled_capture()), created_at);
@@ -747,7 +757,14 @@ mod test {
         let chronically_fired_at =
             shard_failed_at + config.chronically_failing_threshold + Duration::days(1);
         let now = chronically_fired_at + config.chronically_failing_disable_after;
-        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps, &config, None);
+        let reason = evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            timestamps,
+            &config,
+            Some(&alert_cfg),
+        );
         assert_eq!(reason, Some(DisableReason::ChronicallyFailing));
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
         {
@@ -1047,8 +1064,15 @@ mod test {
     /// resolve when data starts moving again.
     #[test]
     fn idle_lifecycle() {
-        let mut config = ControllerConfig::default();
-        config.disable_idle_tasks = true;
+        let config = ControllerConfig::default();
+        let alert_cfg = models::AlertConfig {
+            task_idle: Some(models::TaskIdleConfig {
+                enabled: None,
+                threshold: None,
+                auto_disable: Some(true),
+            }),
+            ..Default::default()
+        };
         let base = fixed_now();
         let created_at = base - Duration::days(90);
         let state = mock_state(Some(enabled_materialization()), created_at);
@@ -1104,7 +1128,7 @@ mod test {
             now,
             AbandonmentTimestamps::default(),
             &config,
-            None,
+            Some(&alert_cfg),
         );
         assert_eq!(reason, Some(DisableReason::Idle));
         insta::assert_json_snapshot!(serde_json::to_value(&alerts).unwrap(), @r#"
@@ -1336,9 +1360,16 @@ mod test {
     }
 
     #[test]
-    fn alert_config_auto_disable_false_suppresses_auto_disabled_alert() {
-        let mut config = ControllerConfig::default();
-        config.disable_failing_tasks = true;
+    fn alert_config_auto_disable_false_resolves_existing_failing_auto_disabled_alert() {
+        let config = ControllerConfig::default();
+        let auto_disable_on = models::AlertConfig {
+            task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
+                enabled: None,
+                threshold: None,
+                auto_disable: Some(true),
+            }),
+            ..Default::default()
+        };
         let base = fixed_now();
         let shard_failed_at = base - config.chronically_failing_threshold - Duration::days(15);
         let created_at = shard_failed_at - Duration::days(30);
@@ -1351,21 +1382,35 @@ mod test {
             shard_failed_alert(shard_failed_at, base),
         );
 
-        // First fire TaskChronicallyFailing with global auto_disable=true.
-        let reason = evaluate_alerts(&mut alerts, &state, base, timestamps, &config, None);
+        // First fire TaskChronicallyFailing with per-task auto_disable=true.
+        let reason = evaluate_alerts(
+            &mut alerts,
+            &state,
+            base,
+            timestamps,
+            &config,
+            Some(&auto_disable_on),
+        );
         assert!(reason.is_none());
         assert!(alerts.contains_key(&AlertType::TaskChronicallyFailing));
 
         // Advance past the grace period: auto-disable fires.
         let now = base + config.chronically_failing_disable_after;
-        let reason = evaluate_alerts(&mut alerts, &state, now, timestamps, &config, None);
+        let reason = evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            timestamps,
+            &config,
+            Some(&auto_disable_on),
+        );
         assert_eq!(reason, Some(DisableReason::ChronicallyFailing));
         assert!(alerts.contains_key(&AlertType::TaskAutoDisabledFailing));
 
-        // Now remove TaskAutoDisabledFailing and re-evaluate with per-task
-        // auto_disable: false. The auto-disable alert should NOT re-fire.
-        alerts.remove(&AlertType::TaskAutoDisabledFailing);
-        let alert_cfg = models::AlertConfig {
+        // Flip per-task auto_disable to false while the task is still
+        // chronically failing. The warning should remain, but the
+        // auto-disabled alert should resolve.
+        let auto_disable_off = models::AlertConfig {
             task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
                 enabled: None,
                 threshold: None,
@@ -1379,12 +1424,73 @@ mod test {
             now,
             timestamps,
             &config,
-            Some(&alert_cfg),
+            Some(&auto_disable_off),
         );
         assert!(reason.is_none());
+        assert!(alerts.contains_key(&AlertType::TaskChronicallyFailing));
         assert!(
             !alerts.contains_key(&AlertType::TaskAutoDisabledFailing),
-            "auto_disable: false should suppress TaskAutoDisabledFailing"
+            "auto_disable: false should resolve TaskAutoDisabledFailing"
+        );
+    }
+
+    #[test]
+    fn alert_config_auto_disable_false_resolves_existing_idle_auto_disabled_alert() {
+        let config = ControllerConfig::default();
+        let auto_disable_on = models::AlertConfig {
+            task_idle: Some(models::TaskIdleConfig {
+                enabled: None,
+                threshold: None,
+                auto_disable: Some(true),
+            }),
+            ..Default::default()
+        };
+        let base = fixed_now();
+        let created_at = base - Duration::days(90);
+        let state = mock_state(Some(enabled_materialization()), created_at);
+        let timestamps = AbandonmentTimestamps::default();
+        let mut alerts: Alerts = Default::default();
+
+        // First fire TaskIdle.
+        let reason = evaluate_alerts(&mut alerts, &state, base, timestamps, &config, None);
+        assert!(reason.is_none());
+        assert!(alerts.contains_key(&AlertType::TaskIdle));
+
+        // Advance past the grace period with per-task auto_disable=true.
+        let now = base + config.abandon_idle_disable_after;
+        let reason = evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            timestamps,
+            &config,
+            Some(&auto_disable_on),
+        );
+        assert_eq!(reason, Some(DisableReason::Idle));
+        assert!(alerts.contains_key(&AlertType::TaskAutoDisabledIdle));
+
+        // Flip per-task auto_disable to false while the task remains idle.
+        let auto_disable_off = models::AlertConfig {
+            task_idle: Some(models::TaskIdleConfig {
+                enabled: None,
+                threshold: None,
+                auto_disable: Some(false),
+            }),
+            ..Default::default()
+        };
+        let reason = evaluate_alerts(
+            &mut alerts,
+            &state,
+            now,
+            timestamps,
+            &config,
+            Some(&auto_disable_off),
+        );
+        assert!(reason.is_none());
+        assert!(alerts.contains_key(&AlertType::TaskIdle));
+        assert!(
+            !alerts.contains_key(&AlertType::TaskAutoDisabledIdle),
+            "auto_disable: false should resolve TaskAutoDisabledIdle"
         );
     }
 
