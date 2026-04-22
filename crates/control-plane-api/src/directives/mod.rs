@@ -1,6 +1,5 @@
 pub mod accept_demo_tenant;
 pub mod beta_onboard;
-pub mod grant;
 pub mod storage_mappings;
 
 use crate::TextJson;

@@ -313,7 +313,7 @@ impl InviteLinksMutation {
         }
 
         // Upsert the user grant (only upgrades capability, never downgrades).
-        crate::directives::grant::upsert_user_grant(
+        crate::grants::upsert_user_grant(
             claims.sub,
             &invite.catalog_prefix,
             invite.capability,
