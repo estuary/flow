@@ -319,6 +319,16 @@ Available options in Estuary include:
 You do not need to explicitly set the [`TIMESTAMP_TYPE_MAPPING` configuration](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping) in Snowflake.
 However, if you do, the value in Snowflake **must** match the value in Estuary.
 
+## Query Tags
+
+The Snowflake connector automatically sets a [query tag](https://docs.snowflake.com/en/sql-reference/parameters#query-tag) on every session. The tag has the format `materialization_name:<task_name>`, where `<task_name>` is the full name of your Estuary materialization task.
+
+This requires no configuration. You can use query tags to:
+
+* **Monitor queries**: Filter [QUERY_HISTORY](https://docs.snowflake.com/en/sql-reference/functions/query_history) by `QUERY_TAG` to see all queries originating from a specific materialization.
+* **Attribute costs**: Break down warehouse costs per materialization task using the query tag in your Snowflake usage reports.
+* **Debug issues**: Quickly identify which materialization task generated a particular query.
+
 ## Reserved words
 
 Snowflake has a list of reserved words that must be quoted in order to be used as an identifier. Estuary automatically quotes fields that are in the reserved words list. You can find this list in Snowflake's documentation [here](https://docs.snowflake.com/en/sql-reference/reserved-keywords.html) and in the table below.
