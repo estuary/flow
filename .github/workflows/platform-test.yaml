@@ -125,6 +125,13 @@ jobs:
       - run: mise run build:flowctl-go
       - run: mise run ci:nextest-build
       - run: mise run ci:nextest-run
+
+      - name: Stripe integration test
+        if: env.STRIPE_API_KEY != ''
+        env:
+          STRIPE_API_KEY: ${{ secrets.STRIPE_TESTMODE_API_KEY }}
+        run: cargo nextest run --frozen --run-ignored ignored-only -E 'test(graphql_billing_live_stripe)'
+
       - run: mise run ci:doctest
       - run: mise run ci:gotest
       - run: mise run ci:catalog-test
