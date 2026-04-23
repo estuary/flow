@@ -77,9 +77,6 @@ In the future, other open-source materialization connectors from third parties c
 * Elasticsearch
   * [Configuration](./Elasticsearch.md)
   * Package — ghcr.io/estuary/materialize-elasticsearch:v3
-* Firebolt
-  * [Configuration](./Firebolt.md)
-  * Package - ghcr.io/estuary/materialize-firebolt:v1
 * Google BigQuery
   * [Configuration](./BigQuery.md)
   * Package — ghcr.io/estuary/materialize-bigquery:v3
