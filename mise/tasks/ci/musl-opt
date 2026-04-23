@@ -11,5 +11,4 @@ cargo build \
     -p connector-init \
     -p derive-python \
     -p derive-typescript \
-    -p parser \
-    -p schemalate \
+    -p parser
