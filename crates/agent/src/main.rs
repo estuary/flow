@@ -17,6 +17,11 @@ use std::sync::Arc;
 #[derive(Derivative, Parser)]
 #[derivative(Debug)]
 #[clap(author, version, about, long_about = None)]
+#[clap(group(
+    clap::ArgGroup::new("billing_provider")
+        .required(true)
+        .args(["stripe_api_key", "billing_in_memory"])
+))]
 struct Args {
     /// URL of the postgres database.
     #[derivative(Debug = "ignore")]
@@ -41,6 +46,15 @@ struct Args {
     /// The port to listen on for API requests.
     #[clap(long, default_value = "8080", env = "API_PORT")]
     api_port: u16,
+    /// Stripe secret API key. When provided, the billing GraphQL is served by
+    /// the Stripe-backed provider. Mutually exclusive with `--billing-in-memory`.
+    #[derivative(Debug = "ignore")]
+    #[clap(long = "stripe-api-key", env = "STRIPE_API_KEY")]
+    stripe_api_key: Option<String>,
+    /// Serve the billing GraphQL against an in-memory stub provider, for
+    /// local and dev use. Mutually exclusive with `--stripe-api-key`.
+    #[clap(long = "billing-in-memory", env = "BILLING_IN_MEMORY")]
+    billing_in_memory: bool,
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
@@ -316,9 +330,17 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         args.controller_config,
     );
 
-    // Wire up the agent's API Application and server.
+    let billing_provider: Arc<dyn control_plane_api::billing::BillingProvider> =
+        if let Some(api_key) = args.stripe_api_key {
+            Arc::new(control_plane_api::billing::StripeBillingProvider::new(
+                api_key,
+            ))
+        } else {
+            Arc::new(control_plane_api::billing::InMemoryBillingProvider::new())
+        };
     let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
+        billing_provider,
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),
