@@ -12,6 +12,8 @@ license.workspace = true
 activate = { path = "../activate" }
 allocator = { path = "../allocator" }
 async-process = { path = "../async-process" }
+async-stripe = { workspace = true }
+billing-types = { path = "../billing-types", features = ["async-graphql"] }
 build = { path = "../build" }
 coroutines = { path = "../coroutines" }
 doc = { path = "../doc" }
