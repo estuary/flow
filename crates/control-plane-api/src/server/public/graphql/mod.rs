@@ -25,6 +25,7 @@ mod alert_subscriptions;
 mod alert_types;
 mod alerts;
 mod authorized_prefixes;
+mod billing;
 mod data_planes;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;
@@ -37,6 +38,7 @@ mod prefixes;
 mod publication_history;
 pub mod status;
 mod storage_mappings;
+mod tenant;
 
 /// A JSON object, the shape of which is opaque to the graphql schema
 pub type JsonObject = async_graphql::Json<Box<serde_json::value::RawValue>>;
@@ -62,11 +64,13 @@ pub struct QueryRoot(
     data_planes::DataPlanesQuery,
     invite_links::InviteLinksQuery,
     connectors::ConnectorsQuery,
+    tenant::TenantQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
 #[derive(Debug, Default, async_graphql::MergedObject)]
 pub struct MutationRoot(
+    billing::BillingMutation,
     storage_mappings::StorageMappingsMutation,
     alert_subscriptions::AlertSubscriptionsMutation,
     invite_links::InviteLinksMutation,
@@ -90,18 +94,28 @@ pub fn schema_sdl() -> String {
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub(crate) async fn graphql_handler(
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     axum::Extension(schema): axum::Extension<GraphQLSchema>,
     env: crate::Envelope,
     axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
 ) -> axum::response::Response {
     let pg_pool = env.pg_pool.clone();
 
-    let request = req
+    let mut request = req
         .data(env)
         .data(async_graphql::dataloader::DataLoader::new(
             PgDataLoader(pg_pool),
             tokio::spawn,
         ));
+
+    if let Some(ref billing_provider) = app.billing_provider {
+        request = request.data(billing_provider.clone()).data(
+            async_graphql::dataloader::DataLoader::new(
+                billing::StripeDataLoader(billing_provider.clone()),
+                tokio::spawn,
+            ),
+        );
+    }
 
     let response = schema.execute(request).await;
 

@@ -73,7 +73,7 @@ impl TestServer {
         Self::start_with_billing(
             pg_pool,
             snapshot,
-            Arc::new(crate::billing::InMemoryBillingProvider::new()),
+            Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
         )
         .await
     }
@@ -81,7 +81,7 @@ impl TestServer {
     pub async fn start_with_billing(
         pg_pool: sqlx::PgPool,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
-        billing_provider: Arc<dyn crate::billing::BillingProvider>,
+        billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         // TODO(johnny): Aggregate into a sink?

@@ -34,7 +34,7 @@ pub enum Rejection {
 /// App is the wired application state of the control-plane API.
 pub struct App {
     pub _id_generator: std::sync::Mutex<models::IdGenerator>,
-    pub billing_provider: Arc<dyn crate::billing::BillingProvider>,
+    pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
@@ -45,7 +45,7 @@ pub struct App {
 impl App {
     pub fn new(
         id_generator: models::IdGenerator,
-        billing_provider: Arc<dyn crate::billing::BillingProvider>,
+        billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
         jwt_secret: &[u8],
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,

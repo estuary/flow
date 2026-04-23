@@ -1,0 +1,41 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/invoices.rs
+expression: response
+---
+{
+  "data": {
+    "tenant": {
+      "billing": {
+        "invoices": {
+          "edges": [
+            {
+              "node": {
+                "dateEnd": "2024-01-31",
+                "dateStart": "2024-01-01",
+                "extra": {
+                  "billed_month": "2024-01-01T00:00:00Z",
+                  "line_items": [
+                    {
+                      "description": "Usage",
+                      "subtotal": 1234
+                    }
+                  ],
+                  "subtotal": 1234
+                },
+                "invoiceType": "FINAL",
+                "lineItems": [
+                  {
+                    "description": "Usage",
+                    "subtotal": 1234
+                  }
+                ],
+                "subtotal": 1234
+              }
+            }
+          ]
+        }
+      },
+      "name": "aliceco/"
+    }
+  }
+}
