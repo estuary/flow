@@ -345,6 +345,10 @@ type Connector {
 	"""
 	logoUrl: String
 	"""
+	A string that contains a list of connector details (latency, batch, etc.)
+	"""
+	detail: String
+	"""
 	The protocol of this connector (capture or materialization).
 	"""
 	protocol: ConnectorProto
@@ -934,21 +938,21 @@ type LockFailure {
 type MutationRoot {
 	"""
 	Create a storage mapping for the given catalog prefix.
-
+	
 	This validates that the user has admin access to the catalog prefix,
 	runs health checks to verify that data planes can access the storage buckets,
 	and then saves the storage mapping to the database.
-
+	
 	All health checks must pass before the storage mapping is created.
 	"""
 	createStorageMapping(catalogPrefix: Prefix!, detail: String, spec: JSON!): CreateStorageMappingResult!
 	"""
 	Update an existing storage mapping for the given catalog prefix.
-
+	
 	This validates that the user has admin access to the catalog prefix,
 	runs health checks to verify that data planes can access the storage buckets,
 	and then updates the storage mapping in the database.
-
+	
 	Health checks for newly added stores or data planes must pass before the
 	storage mapping is updated. Health check failures for existing stores/data planes
 	are allowed (they were already validated when created).
@@ -956,10 +960,10 @@ type MutationRoot {
 	updateStorageMapping(catalogPrefix: Prefix!, detail: String, spec: JSON!): UpdateStorageMappingResult!
 	"""
 	Check storage health for a given catalog prefix and storage definition.
-
+	
 	This validates the inputs, verifies that the user has admin access to the catalog prefix,
 	and runs health checks to verify that data planes can access the storage buckets.
-
+	
 	Unlike create/update mutations, this does not modify any data and always returns
 	health check results (both successes and failures) rather than erroring on failures.
 	"""
@@ -980,7 +984,7 @@ type MutationRoot {
 	deleteAlertSubscription(prefix: Prefix!, email: String!): AlertSubscription!
 	"""
 	Create an invite link that grants access to a catalog prefix.
-
+	
 	The caller must have admin capability on the catalog prefix.
 	Share the returned token with the intended recipient out-of-band.
 	"""
@@ -992,7 +996,7 @@ type MutationRoot {
 	redeemInviteLink(token: UUID!): RedeemInviteLinkResult!
 	"""
 	Delete an invite link, revoking it so it can no longer be redeemed.
-
+	
 	The caller must have admin capability on the invite link's catalog prefix.
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
@@ -1172,7 +1176,7 @@ type QueryRoot {
 	"""
 	Returns a paginated list of live specs under the given prefix and
 	matching the given type.
-
+	
 	Note that the `user_capability` that's returned as part of the reference
 	represents the user's capability to the whole prefix, and it is possible
 	that there are more specific grants for a broader capability. In other
@@ -1196,21 +1200,21 @@ type QueryRoot {
 	alertSubscriptions(by: AlertSubscriptionsBy!): [AlertSubscription!]!
 	"""
 	Returns storage mappings accessible to the current user.
-
+	
 	Requires at least read capability to the queried prefixes.
 	Results are paginated and sorted by catalog_prefix.
 	"""
 	storageMappings(by: StorageMappingsBy!, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
 	"""
 	Returns data planes accessible to the current user.
-
+	
 	Results are paginated and sorted by data_plane_name.
 	Only data planes the user has at least read capability to are returned.
 	"""
 	dataPlanes(after: String, before: String, first: Int, last: Int): DataPlaneConnection!
 	"""
 	List invite links the caller has admin access to.
-
+	
 	Returns invite links under all prefixes where the caller has admin
 	capability, optionally narrowed by a prefix filter.
 	"""
