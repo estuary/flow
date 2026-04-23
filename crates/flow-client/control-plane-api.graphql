@@ -329,14 +329,6 @@ type Connector {
 	"""
 	recommended: Boolean!
 	"""
-	Brief human readable description, at most a few sentences
-	"""
-	shortDescription: String
-	"""
-	A longform description of this connector
-	"""
-	longDescription: String
-	"""
 	The title, a few words at most
 	"""
 	title: String
