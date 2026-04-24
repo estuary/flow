@@ -1,5 +1,5 @@
 use crate::stripe_utils::{Invoice, fetch_invoices};
-use billing_types::{InvoiceType, StatusFilter, invoices_by_type_query};
+use billing_types::{InvoiceSearch, InvoiceType, StatusFilter};
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use clap::Args;
 use futures::stream::{self, StreamExt};
@@ -42,22 +42,34 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
     let month_human_repr = cmd.month.format("%B %Y");
     tracing::info!("Fetching Stripe invoices to process for {month_human_repr}");
 
-    let draft_final_query = invoices_by_type_query(
-        InvoiceType::Final,
-        Some(&month_start),
-        StatusFilter::Only("draft"),
-    );
-    let open_final_query = invoices_by_type_query(
-        InvoiceType::Final,
-        Some(&month_start),
-        StatusFilter::Only("open"),
-    );
+    let draft_final_query = InvoiceSearch {
+        invoice_type: Some(InvoiceType::Final),
+        period_start: Some(&month_start),
+        status: StatusFilter::Only(stripe::InvoiceStatus::Draft),
+        ..Default::default()
+    }
+    .to_query();
+    let open_final_query = InvoiceSearch {
+        invoice_type: Some(InvoiceType::Final),
+        period_start: Some(&month_start),
+        status: StatusFilter::Only(stripe::InvoiceStatus::Open),
+        ..Default::default()
+    }
+    .to_query();
 
     // Separate queries for manual invoices (we'll filter dates client-side)
-    let draft_manual_query =
-        invoices_by_type_query(InvoiceType::Manual, None, StatusFilter::Only("draft"));
-    let open_manual_query =
-        invoices_by_type_query(InvoiceType::Manual, None, StatusFilter::Only("open"));
+    let draft_manual_query = InvoiceSearch {
+        invoice_type: Some(InvoiceType::Manual),
+        status: StatusFilter::Only(stripe::InvoiceStatus::Draft),
+        ..Default::default()
+    }
+    .to_query();
+    let open_manual_query = InvoiceSearch {
+        invoice_type: Some(InvoiceType::Manual),
+        status: StatusFilter::Only(stripe::InvoiceStatus::Open),
+        ..Default::default()
+    }
+    .to_query();
 
     // 1. Fetch invoices: final invoices with exact date match + all manual invoices
     let (
