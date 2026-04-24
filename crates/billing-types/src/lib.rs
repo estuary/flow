@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 mod stripe_helpers;
 pub use stripe_helpers::{SearchParams, stripe_search};
 
 pub const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
-pub const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
-pub const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
-pub const BILLING_PERIOD_END_KEY: &str = "estuary.dev/period_end";
+const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
+const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
+const BILLING_PERIOD_END_KEY: &str = "estuary.dev/period_end";
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize, sqlx::Type)]
 #[cfg_attr(
@@ -31,30 +32,38 @@ impl InvoiceType {
             InvoiceType::Manual => "manual",
         }
     }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "final" => Some(InvoiceType::Final),
+            "preview" => Some(InvoiceType::Preview),
+            "manual" => Some(InvoiceType::Manual),
+            _ => None,
+        }
+    }
 }
 
 /// Status clause to append to a Stripe invoice search query.
 ///
 /// Stripe's search DSL accepts both positive (`status:"open"`) and negative
-/// (`-status:"draft"`) filters; callers generally want one or the other or
-/// neither. The string values correspond to `stripe::InvoiceStatus`
-/// serializations (lowercase).
-#[derive(Debug, Clone, Copy)]
+/// (`-status:"draft"`) filters
+#[derive(Debug, Clone, Copy, Default)]
 pub enum StatusFilter {
     /// No status clause.
+    #[default]
     Any,
-    /// `status:"<name>"` — match only invoices with this status.
-    Only(&'static str),
-    /// `-status:"<name>"` — exclude invoices with this status.
-    Exclude(&'static str),
+    /// `status:"<name>"`: match only invoices with this status.
+    Only(stripe::InvoiceStatus),
+    /// `-status:"<name>"`: exclude invoices with this status.
+    Exclude(stripe::InvoiceStatus),
 }
 
 impl StatusFilter {
     fn clause(self) -> Option<String> {
         match self {
             StatusFilter::Any => None,
-            StatusFilter::Only(s) => Some(format!(r#"status:"{s}""#)),
-            StatusFilter::Exclude(s) => Some(format!(r#"-status:"{s}""#)),
+            StatusFilter::Only(s) => Some(format!(r#"status:"{}""#, s.as_str())),
+            StatusFilter::Exclude(s) => Some(format!(r#"-status:"{}""#, s.as_str())),
         }
     }
 }
@@ -63,51 +72,88 @@ pub fn customer_search_query(tenant: &str) -> String {
     format!(r#"metadata["{TENANT_METADATA_KEY}"]:"{tenant}""#)
 }
 
-/// Build a Stripe invoice search query for a specific customer, billing period,
-/// and invoice type, with an optional status clause.
-pub fn invoice_search_query(
-    customer_id: impl std::fmt::Display,
-    date_start: &str,
-    date_end: &str,
-    invoice_type: InvoiceType,
-    status: StatusFilter,
-) -> String {
-    let mut clauses = vec![
-        format!(r#"customer:"{customer_id}""#),
-        format!(
-            r#"metadata["{INVOICE_TYPE_KEY}"]:"{}""#,
-            invoice_type.as_str()
-        ),
-        format!(r#"metadata["{BILLING_PERIOD_START_KEY}"]:"{date_start}""#),
-        format!(r#"metadata["{BILLING_PERIOD_END_KEY}"]:"{date_end}""#),
-    ];
-    if let Some(status) = status.clause() {
-        clauses.push(status);
-    }
-    clauses.join(" AND ")
+/// These 4 pieces of metadata link an invoice in Stripe to a row in `invoices_ext`. This is
+/// an area that could be improved in the future if needed, but presently `invoices_ext` does not
+/// model a single "primary key", which is why we need to use this compound identity. It composes:
+/// * "Final" invoices, which come from `internal.billing_historicals`, and use the natural key of
+///   `(tenant, billed_month)`. `billing_historicals` does not contain a primary key
+/// * "Manual" invoices, which come from `internal.manual_bills` which uses the natural key
+///   `(tenant, date_start, date_end)`, again not modelling a primary key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvoiceMetadata {
+    pub tenant: String,
+    pub invoice_type: InvoiceType,
+    pub period_start: String,
+    pub period_end: String,
 }
 
-/// Build a Stripe invoice search query matching an invoice type, with an
-/// optional `period_start` metadata filter and an optional status clause.
-pub fn invoices_by_type_query(
-    invoice_type: InvoiceType,
-    date_start: Option<&str>,
-    status: StatusFilter,
-) -> String {
-    let mut clauses = Vec::with_capacity(3);
-    if let Some(status) = status.clause() {
-        clauses.push(status);
+impl InvoiceMetadata {
+    pub fn to_metadata_map(&self) -> HashMap<String, String> {
+        HashMap::from([
+            (TENANT_METADATA_KEY.to_string(), self.tenant.clone()),
+            (
+                INVOICE_TYPE_KEY.to_string(),
+                self.invoice_type.as_str().to_string(),
+            ),
+            (
+                BILLING_PERIOD_START_KEY.to_string(),
+                self.period_start.clone(),
+            ),
+            (BILLING_PERIOD_END_KEY.to_string(), self.period_end.clone()),
+        ])
     }
-    clauses.push(format!(
-        r#"metadata["{INVOICE_TYPE_KEY}"]:"{}""#,
-        invoice_type.as_str()
-    ));
-    if let Some(date_start) = date_start {
-        clauses.push(format!(
-            r#"metadata["{BILLING_PERIOD_START_KEY}"]:"{date_start}""#
-        ));
+
+    /// Parse an `InvoiceMetadata` from a Stripe invoice's metadata map.
+    /// Returns `Some` only if all four expected fields are present and the
+    /// invoice type parses; otherwise returns `None`.
+    pub fn from_metadata_map(map: &HashMap<String, String>) -> Option<Self> {
+        Some(Self {
+            tenant: map.get(TENANT_METADATA_KEY)?.clone(),
+            invoice_type: InvoiceType::from_str(map.get(INVOICE_TYPE_KEY)?)?,
+            period_start: map.get(BILLING_PERIOD_START_KEY)?.clone(),
+            period_end: map.get(BILLING_PERIOD_END_KEY)?.clone(),
+        })
     }
-    clauses.join(" AND ")
+}
+
+/// Filter for a Stripe invoice search. Each `Some` field becomes an AND-joined
+/// clause in the resulting query; `None` fields are omitted.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct InvoiceSearch<'a> {
+    pub customer_id: Option<&'a str>,
+    pub invoice_type: Option<InvoiceType>,
+    pub period_start: Option<&'a str>,
+    pub period_end: Option<&'a str>,
+    pub status: StatusFilter,
+}
+
+impl InvoiceSearch<'_> {
+    pub fn to_query(&self) -> String {
+        let mut clauses = Vec::with_capacity(5);
+        if let Some(id) = self.customer_id {
+            clauses.push(format!(r#"customer:"{id}""#));
+        }
+        if let Some(invoice_type) = self.invoice_type {
+            clauses.push(format!(
+                r#"metadata["{INVOICE_TYPE_KEY}"]:"{}""#,
+                invoice_type.as_str()
+            ));
+        }
+        if let Some(period_start) = self.period_start {
+            clauses.push(format!(
+                r#"metadata["{BILLING_PERIOD_START_KEY}"]:"{period_start}""#
+            ));
+        }
+        if let Some(period_end) = self.period_end {
+            clauses.push(format!(
+                r#"metadata["{BILLING_PERIOD_END_KEY}"]:"{period_end}""#
+            ));
+        }
+        if let Some(status) = self.status.clause() {
+            clauses.push(status);
+        }
+        clauses.join(" AND ")
+    }
 }
 
 #[cfg(test)]
@@ -123,14 +169,40 @@ mod tests {
     }
 
     #[test]
-    fn invoice_query_exclude_draft() {
-        let got = invoice_search_query(
-            "cus_123",
-            "2026-04-01",
-            "2026-04-30",
-            InvoiceType::Final,
-            StatusFilter::Exclude("draft"),
-        );
+    fn invoice_metadata_round_trip() {
+        let original = InvoiceMetadata {
+            tenant: "acme/widgets".to_string(),
+            invoice_type: InvoiceType::Final,
+            period_start: "2026-04-01".to_string(),
+            period_end: "2026-04-30".to_string(),
+        };
+        let parsed = InvoiceMetadata::from_metadata_map(&original.to_metadata_map());
+        assert_eq!(parsed, Some(original));
+    }
+
+    #[test]
+    fn invoice_metadata_missing_field_returns_none() {
+        let mut map = InvoiceMetadata {
+            tenant: "acme/widgets".to_string(),
+            invoice_type: InvoiceType::Final,
+            period_start: "2026-04-01".to_string(),
+            period_end: "2026-04-30".to_string(),
+        }
+        .to_metadata_map();
+        map.remove(BILLING_PERIOD_END_KEY);
+        assert_eq!(InvoiceMetadata::from_metadata_map(&map), None);
+    }
+
+    #[test]
+    fn search_full_exclude_draft() {
+        let got = InvoiceSearch {
+            customer_id: Some("cus_123"),
+            invoice_type: Some(InvoiceType::Final),
+            period_start: Some("2026-04-01"),
+            period_end: Some("2026-04-30"),
+            status: StatusFilter::Exclude(stripe::InvoiceStatus::Draft),
+        }
+        .to_query();
         assert_eq!(
             got,
             r#"customer:"cus_123" AND metadata["estuary.dev/invoice_type"]:"final" AND metadata["estuary.dev/period_start"]:"2026-04-01" AND metadata["estuary.dev/period_end"]:"2026-04-30" AND -status:"draft""#
@@ -138,36 +210,40 @@ mod tests {
     }
 
     #[test]
-    fn invoice_query_exclude_deleted() {
-        let got = invoice_search_query(
-            "cus_123",
-            "2026-04-01",
-            "2026-04-30",
-            InvoiceType::Final,
-            StatusFilter::Exclude("deleted"),
-        );
-        assert!(got.ends_with(r#"AND -status:"deleted""#));
+    fn search_full_exclude_void() {
+        let got = InvoiceSearch {
+            customer_id: Some("cus_123"),
+            invoice_type: Some(InvoiceType::Final),
+            period_start: Some("2026-04-01"),
+            period_end: Some("2026-04-30"),
+            status: StatusFilter::Exclude(stripe::InvoiceStatus::Void),
+        }
+        .to_query();
+        assert!(got.ends_with(r#"AND -status:"void""#));
     }
 
     #[test]
-    fn invoices_by_type_with_month_and_status() {
-        let got = invoices_by_type_query(
-            InvoiceType::Final,
-            Some("2026-04-01"),
-            StatusFilter::Only("draft"),
-        );
+    fn search_type_and_period_start() {
+        let got = InvoiceSearch {
+            invoice_type: Some(InvoiceType::Final),
+            period_start: Some("2026-04-01"),
+            status: StatusFilter::Only(stripe::InvoiceStatus::Draft),
+            ..Default::default()
+        }
+        .to_query();
         assert_eq!(
             got,
-            r#"status:"draft" AND metadata["estuary.dev/invoice_type"]:"final" AND metadata["estuary.dev/period_start"]:"2026-04-01""#
+            r#"metadata["estuary.dev/invoice_type"]:"final" AND metadata["estuary.dev/period_start"]:"2026-04-01" AND status:"draft""#
         );
     }
 
     #[test]
-    fn invoices_by_type_without_month() {
-        let got = invoices_by_type_query(InvoiceType::Manual, None, StatusFilter::Only("open"));
-        assert_eq!(
-            got,
-            r#"status:"open" AND metadata["estuary.dev/invoice_type"]:"manual""#
-        );
+    fn search_type_only_status_any() {
+        let got = InvoiceSearch {
+            invoice_type: Some(InvoiceType::Manual),
+            ..Default::default()
+        }
+        .to_query();
+        assert_eq!(got, r#"metadata["estuary.dev/invoice_type"]:"manual""#);
     }
 }

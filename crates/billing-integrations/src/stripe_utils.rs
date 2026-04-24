@@ -1,7 +1,4 @@
-use billing_types::{
-    BILLING_PERIOD_END_KEY, BILLING_PERIOD_START_KEY, INVOICE_TYPE_KEY, SearchParams,
-    TENANT_METADATA_KEY, stripe_search,
-};
+use billing_types::{InvoiceMetadata, SearchParams, stripe_search};
 use num_format::{Locale, ToFormattedString};
 use std::ops::{Deref, DerefMut};
 
@@ -55,8 +52,8 @@ impl Invoice {
         self.0
             .metadata
             .as_ref()
-            .and_then(|m| m.get(TENANT_METADATA_KEY))
-            .cloned()
+            .and_then(InvoiceMetadata::from_metadata_map)
+            .map(|m| m.tenant)
             .unwrap_or_default()
     }
     pub fn amount(&self) -> f64 {
@@ -91,16 +88,16 @@ impl Invoice {
         self.0
             .metadata
             .as_ref()
-            .and_then(|m| m.get(BILLING_PERIOD_START_KEY))
-            .cloned()
+            .and_then(InvoiceMetadata::from_metadata_map)
+            .map(|m| m.period_start)
     }
 
     pub fn period_end(&self) -> Option<String> {
         self.0
             .metadata
             .as_ref()
-            .and_then(|m| m.get(BILLING_PERIOD_END_KEY))
-            .cloned()
+            .and_then(InvoiceMetadata::from_metadata_map)
+            .map(|m| m.period_end)
     }
 
     pub fn to_table_row(&self) -> Vec<comfy_table::Cell> {

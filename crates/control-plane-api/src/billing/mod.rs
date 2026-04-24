@@ -3,10 +3,7 @@ pub mod memory;
 pub mod provider;
 pub mod stripe_impl;
 
-pub use billing_types::{
-    BILLING_PERIOD_END_KEY, BILLING_PERIOD_START_KEY, INVOICE_TYPE_KEY, InvoiceType,
-    TENANT_METADATA_KEY,
-};
+pub use billing_types::{InvoiceMetadata, InvoiceSearch, InvoiceType, TENANT_METADATA_KEY};
 pub use db::{
     DbInvoiceRow, InvoiceCursorKey, InvoiceQuery, fetch_invoice_rows_backward,
     fetch_invoice_rows_forward,

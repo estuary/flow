@@ -81,13 +81,14 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
             return Ok(None);
         };
 
-        let query = billing_types::invoice_search_query(
-            &customer.id,
-            date_start,
-            date_end,
-            invoice_type,
-            billing_types::StatusFilter::Exclude("draft"),
-        );
+        let query = billing_types::InvoiceSearch {
+            customer_id: Some(customer.id.as_str()),
+            invoice_type: Some(invoice_type),
+            period_start: Some(date_start),
+            period_end: Some(date_end),
+            status: billing_types::StatusFilter::Exclude(stripe::InvoiceStatus::Draft),
+        }
+        .to_query();
         let mut invoices = self.search_invoices(&query).await?;
         Ok(invoices.drain(..).next())
     }

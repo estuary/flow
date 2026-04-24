@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use billing_types::{
-    BILLING_PERIOD_END_KEY, BILLING_PERIOD_START_KEY, INVOICE_TYPE_KEY, InvoiceType, SearchParams,
-    TENANT_METADATA_KEY, customer_search_query, stripe_search,
+    InvoiceMetadata, InvoiceSearch, InvoiceType, SearchParams, TENANT_METADATA_KEY,
+    customer_search_query, stripe_search,
 };
 use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
@@ -159,13 +159,14 @@ impl Invoice {
             &client,
             "invoices",
             SearchParams {
-                query: billing_types::invoice_search_query(
-                    customer_id,
-                    &date_start_repr,
-                    &date_end_repr,
-                    self.invoice_type,
-                    billing_types::StatusFilter::Exclude("deleted"),
-                ),
+                query: InvoiceSearch {
+                    customer_id: Some(customer_id),
+                    invoice_type: Some(self.invoice_type),
+                    period_start: Some(&date_start_repr),
+                    period_end: Some(&date_end_repr),
+                    ..Default::default()
+                }
+                .to_query(),
                 ..Default::default()
             },
         )
@@ -286,12 +287,6 @@ impl Invoice {
         let date_start_repr = self.date_start.format("%F").to_string();
         let date_end_repr = self.date_end.format("%F").to_string();
 
-        let invoice_type_val =
-            serde_json::to_value(self.invoice_type.clone()).expect("InvoiceType is serializable");
-        let invoice_type_str = invoice_type_val
-            .as_str()
-            .expect("InvoiceType is serializable");
-
         let customer = get_or_create_customer_for_tenant(
             client,
             db_client,
@@ -384,12 +379,15 @@ impl Invoice {
                                 value: date_end_human.to_owned(),
                             },
                         ]),
-                        metadata: Some(HashMap::from([
-                            (TENANT_METADATA_KEY.to_string(), self.billed_prefix.to_owned()),
-                            (INVOICE_TYPE_KEY.to_string(), invoice_type_str.to_owned()),
-                            (BILLING_PERIOD_START_KEY.to_string(), date_start_repr),
-                            (BILLING_PERIOD_END_KEY.to_string(), date_end_repr)
-                        ])),
+                        metadata: Some(
+                            InvoiceMetadata {
+                                tenant: self.billed_prefix.to_owned(),
+                                invoice_type: self.invoice_type,
+                                period_start: date_start_repr,
+                                period_end: date_end_repr,
+                            }
+                            .to_metadata_map(),
+                        ),
                         ..Default::default()
                     },
                 )
