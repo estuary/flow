@@ -508,4 +508,71 @@ mod test {
         assert_eq!(merge_joined_extractor_count(&plan), 2 * N);
         assert_plan_matches(&doc, &extractors);
     }
+
+    // HeapNode preserves duplicate JSON object properties. The reference path's
+    // Fields::get uses a linear `find` (first match) below 16 fields and
+    // `binary_search_by` (arbitrary match) at or above. The plan's merge-join
+    // always returns the first match, so the two paths agree below the
+    // threshold and can disagree at or above it.
+    #[test]
+    fn duplicate_keys_diverge_at_fields_get_threshold() {
+        let policy = SerPolicy::noop();
+        let extractors = vec![
+            Extractor::new("/parent/a", &policy),
+            Extractor::new("/parent/z", &policy),
+        ];
+
+        fn pack(extractors: &[Extractor], raw: &str) -> (bytes::Bytes, bytes::Bytes) {
+            // Raw JSON bytes through a Deserializer preserve duplicate keys;
+            // going via serde_json::Value would coalesce them through
+            // BTreeMap before HeapNode ever sees them.
+            let alloc = crate::HeapNode::new_allocator();
+            let mut de = serde_json::Deserializer::from_str(raw);
+            let heap = crate::HeapNode::from_serde(&mut de, &alloc).unwrap();
+
+            let mut ref_buf = bytes::BytesMut::new();
+            Extractor::extract_all_indicate_truncation(
+                &heap,
+                extractors,
+                &mut ref_buf,
+                &AtomicBool::new(false),
+            );
+
+            let mut plan_buf = bytes::BytesMut::new();
+            ExtractorPlan::new(extractors).extract_all_indicate_truncation(
+                &heap,
+                &mut plan_buf,
+                &AtomicBool::new(false),
+            );
+
+            (ref_buf.freeze(), plan_buf.freeze())
+        }
+
+        // Parent has 3 fields — Fields::get takes the linear branch and
+        // returns the first "a" (value 1), matching the plan.
+        let small = r#"{"parent":{"a":1,"a":2,"z":9}}"#;
+        let (reference_small, plan_small) = pack(&extractors, small);
+        assert_eq!(reference_small, plan_small, "below threshold, paths agree");
+
+        // Parent has 16 fields — Fields::get switches to binary_search_by,
+        // which lands on the second "a" (value 2) for this construction,
+        // while the plan still returns the first (value 1).
+        let large = concat!(
+            r#"{"parent":{"a":1,"a":2,"#,
+            r#""c01":0,"c02":0,"c03":0,"c04":0,"c05":0,"c06":0,"c07":0,"#,
+            r#""c08":0,"c09":0,"c10":0,"c11":0,"c12":0,"c13":0,"z":9}}"#,
+        );
+        let (reference_large, plan_large) = pack(&extractors, large);
+        assert_ne!(
+            reference_large, plan_large,
+            "at the 16-field threshold, paths diverge on duplicates",
+        );
+
+        // The plan's output is independent of parent size: it always
+        // resolves to the first occurrence.
+        assert_eq!(
+            plan_small, plan_large,
+            "plan resolves to the first duplicate regardless of parent size",
+        );
+    }
 }
