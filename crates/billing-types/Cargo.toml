@@ -1,0 +1,20 @@
+[package]
+name = "billing-types"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-graphql = { workspace = true, optional = true }
+async-stripe = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+
+[features]
+default = []
+async-graphql = ["dep:async-graphql"]
