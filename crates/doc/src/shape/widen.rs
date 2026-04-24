@@ -430,7 +430,58 @@ fn length_bounds(l: usize) -> (u32, u32) {
     }
 }
 
-// Compute a lower and upper order-of-magnitude bound for the given number.
+// 2^n as f64, evaluated at compile time. Rust lacks hex-float literals and
+// `f64::powi` is not const, so we build the IEEE-754 bit pattern directly:
+// sign bit | biased exponent (n + 1023) | zero mantissa.
+const fn pow2(n: u32) -> f64 {
+    f64::from_bits((n as u64 + 1023) << 52)
+}
+
+// Common integer-size boundaries (signed and unsigned maxima for 64/128/256
+// bits). When an observed value fits within one of these boundaries but the
+// next power of 10 would exceed it, the inferred bound is clamped to the
+// boundary so the schema stays compatible with a standard integer type
+// rather than widening to 10^19 / 10^39 / 10^78.
+const POS_INT_BOUNDARIES: &[f64] = &[
+    pow2(63),  // i64
+    pow2(64),  // u64
+    pow2(127), // i128
+    pow2(128), // u128
+    pow2(255), // i256
+    pow2(256), // u256
+];
+// Mirror of POS_INT_BOUNDARIES for signed minima. Unsigned types don't
+// contribute, since their lower bound is 0.
+const NEG_INT_BOUNDARIES: &[f64] = &[
+    -pow2(63),  // i64
+    -pow2(127), // i128
+    -pow2(255), // i256
+];
+
+// Return the smallest boundary in POS_INT_BOUNDARIES that contains `value`
+// if `upper` would exceed it, otherwise return `upper` unchanged.
+fn clamp_pos_upper(value: f64, upper: f64) -> f64 {
+    for &b in POS_INT_BOUNDARIES {
+        if value <= b {
+            return if upper > b { b } else { upper };
+        }
+    }
+    upper
+}
+
+// Mirror of clamp_pos_upper for negative values and lower bounds.
+fn clamp_neg_lower(value: f64, lower: f64) -> f64 {
+    for &b in NEG_INT_BOUNDARIES {
+        if value >= b {
+            return if lower < b { b } else { lower };
+        }
+    }
+    lower
+}
+
+// Compute a lower and upper order-of-magnitude bound for the given number,
+// clamped to the nearest common integer-size boundary when a value fits
+// within the boundary but the power-of-10 bound would exceed it.
 #[cold]
 fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
     use json::Number;
@@ -440,8 +491,9 @@ fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
             if f.total_cmp(&-1.0).is_le() {
                 let e = (-f).log10() as i32;
                 let l = -(10f64.powi(e + 1));
+                let l = if l.is_finite() { l } else { f64::MIN };
                 (
-                    Number::Float(if l.is_finite() { l } else { f64::MIN }),
+                    Number::Float(clamp_neg_lower(f, l)),
                     Number::Float(-(10f64.powi(e))),
                 )
             } else if f.total_cmp(&-0.0).is_lt() {
@@ -455,13 +507,17 @@ fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
             } else {
                 let e = f.log10() as i32;
                 let u = 10f64.powi(e + 1);
+                let u = if u.is_finite() { u } else { f64::MAX };
                 (
                     Number::Float(10f64.powi(e)),
-                    Number::Float(if u.is_finite() { u } else { f64::MAX }),
+                    Number::Float(clamp_pos_upper(f, u)),
                 )
             }
         }
         Number::NegInt(n) => {
+            // NegInt ranges over [i64::MIN, -1], so the observed value is
+            // already at or above the -2^63 boundary. The existing saturation
+            // at i64::MIN when 10^(e+1) overflows i64 is exactly that clamp.
             assert!(n < 0, "invalid Number::NegInt (should be negative)");
 
             let e = n.saturating_neg().ilog10();
@@ -478,10 +534,18 @@ fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
         Number::PosInt(n) => {
             if n > 0 {
                 let e = n.ilog10();
-                (
-                    Number::PosInt(10u64.pow(e)),
-                    Number::PosInt(10u64.checked_pow(e + 1).unwrap_or(u64::MAX)),
-                )
+                let lower = 10u64.pow(e);
+                let upper = 10u64.checked_pow(e + 1).unwrap_or(u64::MAX);
+                // Clamp to 2^63 when the value fits in i64 but the next
+                // power of 10 would exceed i64::MAX. The 2^64 boundary is
+                // already enforced by the u64::MAX saturation above.
+                const I64_BOUND: u64 = 1u64 << 63;
+                let upper = if n <= I64_BOUND && upper > I64_BOUND {
+                    I64_BOUND
+                } else {
+                    upper
+                };
+                (Number::PosInt(lower), Number::PosInt(upper))
             } else {
                 (Number::PosInt(0), Number::PosInt(0))
             }
@@ -1213,12 +1277,14 @@ mod test {
         );
 
         // Non-fractional floats which are within the bounds of u64/i64 continue to be integers.
+        // Bounds are clamped to the nearest integer-size boundary (2^64 / -2^63)
+        // rather than widening to 10^20 / -10^19.
         widening_snapshot_helper(
             None,
             r#"
             type: integer
-            minimum: -1e19
-            maximum: 1e20
+            minimum: -9.223372036854776e18
+            maximum: 1.8446744073709552e19
             "#,
             &[
                 (true, json!(1)),
@@ -1252,6 +1318,22 @@ mod test {
     fn test_number_bounds() {
         use json::Number;
 
+        // Precompute boundary values via the runtime `powi` implementation.
+        // `black_box` prevents const-folding so these match what `number_bounds`
+        // computes at runtime (folded `powi` can round differently for large
+        // exponents where accumulated error matters).
+        let ten = std::hint::black_box(10f64);
+        let two = std::hint::black_box(2f64);
+        let pow2_63 = two.powi(63);
+        let pow2_64 = two.powi(64);
+        let pow2_127 = two.powi(127);
+        let pow2_128 = two.powi(128);
+        let pow2_255 = two.powi(255);
+        let pow2_256 = two.powi(256);
+        let pow10_38 = ten.powi(38);
+        let pow10_76 = ten.powi(76);
+        let pow10_77 = ten.powi(77);
+
         let cases: Vec<(serde_json::Number, serde_json::Number, serde_json::Number)> =
             serde_json::from_value(json!([
                 // Zero cases.
@@ -1274,11 +1356,23 @@ mod test {
                 [8_675_309, 1_000_000, 10_000_000],
                 [8_675_309.5, 1_000_000.0, 10_000_000.0],
                 [u64::MAX - 100, 10000000000000000000u64, u64::MAX],
-                [u64::MAX as f64 + 1.0, 1e19, 1e20],
+                // Clamps to integer-size boundaries when the observed value
+                // fits but the next power of 10 would overflow it.
+                [i64::MAX, 1_000_000_000_000_000_000u64, 1u64 << 63],
+                [5_000_000_000_000_000_000u64, 1_000_000_000_000_000_000u64, 1u64 << 63],
+                [5e18, 1e18, pow2_63],                           // 2^63 (i64)
+                [u64::MAX as f64 + 1.0, 1e19, pow2_64],          // 2^64 (u64)
+                [1e38, pow10_38, pow2_127],                      // 2^127 (i128)
+                [3e38, pow10_38, pow2_128],                      // 2^128 (u128)
+                [5e76, pow10_76, pow2_255],                      // 2^255 (i256)
+                [1e77, pow10_77, pow2_256],                      // 2^256 (u256)
                 [5e31, 1e31, 1e32],
                 // Negative cases.
                 [-5e31, -1e32, -1e31],
-                [i64::MIN as f64 - 1.0, -1e19, -1e18],
+                [-5e18, -pow2_63, -1e18],                        // -2^63 (i64)
+                [-1e38, -pow2_127, -pow10_38],                   // -2^127 (i128)
+                [-5e76, -pow2_255, -pow10_76],                   // -2^255 (i256)
+                [i64::MIN as f64 - 1.0, i64::MIN, -1e18],
                 [i64::MIN + 1, i64::MIN, -1000000000000000000i64],
                 [-8_675_309.5, -10_000_000.0, -1_000_000.0],
                 [-8_675_309, -10_000_000, -1_000_000],
