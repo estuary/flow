@@ -1347,6 +1347,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "async-stripe",
+ "billing-types",
  "chrono",
  "clap",
  "comfy-table",
@@ -1361,6 +1362,17 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "billing-types"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-graphql",
+ "async-stripe",
+ "serde",
+ "sqlx",
 ]
 
 [[package]]
@@ -2040,10 +2052,12 @@ dependencies = [
  "async-graphql",
  "async-graphql-axum",
  "async-process",
+ "async-stripe",
  "async-trait",
  "axum",
  "axum-extra",
  "base64 0.22.1",
+ "billing-types",
  "build",
  "bytes",
  "chrono",
