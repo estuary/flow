@@ -1,7 +1,5 @@
-use crate::{
-    publish::{BILLING_PERIOD_START_KEY, INVOICE_TYPE_KEY},
-    stripe_utils::{Invoice, fetch_invoices},
-};
+use crate::stripe_utils::{Invoice, fetch_invoices};
+use billing_types::{InvoiceType, StatusFilter, invoices_by_type_query};
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use clap::Args;
 use futures::stream::{self, StreamExt};
@@ -44,16 +42,22 @@ pub async fn do_send_invoices(cmd: &SendInvoices) -> anyhow::Result<()> {
     let month_human_repr = cmd.month.format("%B %Y");
     tracing::info!("Fetching Stripe invoices to process for {month_human_repr}");
 
-    let base_final_metadata = format!(
-        "metadata[\"{INVOICE_TYPE_KEY}\"]:'final' AND metadata[\"{BILLING_PERIOD_START_KEY}\"]:'{month_start}'"
+    let draft_final_query = invoices_by_type_query(
+        InvoiceType::Final,
+        Some(&month_start),
+        StatusFilter::Only("draft"),
     );
-    let draft_final_query = format!("status:'draft' AND {base_final_metadata}");
-    let open_final_query = format!("status:'open' AND {base_final_metadata}");
+    let open_final_query = invoices_by_type_query(
+        InvoiceType::Final,
+        Some(&month_start),
+        StatusFilter::Only("open"),
+    );
 
     // Separate queries for manual invoices (we'll filter dates client-side)
     let draft_manual_query =
-        format!("status:'draft' AND metadata[\"{INVOICE_TYPE_KEY}\"]:'manual'");
-    let open_manual_query = format!("status:'open' AND metadata[\"{INVOICE_TYPE_KEY}\"]:'manual'");
+        invoices_by_type_query(InvoiceType::Manual, None, StatusFilter::Only("draft"));
+    let open_manual_query =
+        invoices_by_type_query(InvoiceType::Manual, None, StatusFilter::Only("open"));
 
     // 1. Fetch invoices: final invoices with exact date match + all manual invoices
     let (
