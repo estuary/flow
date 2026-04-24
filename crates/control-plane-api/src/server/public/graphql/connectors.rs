@@ -55,14 +55,12 @@ pub struct Connector {
     image_name: String,
     /// Whether this connector should appear in a promoted position in connector listings
     recommended: bool,
-    /// Brief human readable description, at most a few sentences
-    short_description: Option<String>,
-    /// A longform description of this connector
-    long_description: Option<String>,
     /// The title, a few words at most
     title: Option<String>,
     /// The connector's logo image, represented as a URL per locale
     logo_url: Option<String>,
+    /// A string that contains a list of connector details (latency, batch, etc.)
+    detail: Option<String>,
     /// Internal: all tags for this connector, used to drive default-tag resolution.
     #[graphql(skip)]
     tags: Vec<ConnectorTagRef>,
@@ -245,11 +243,9 @@ impl ConnectorsQuery {
                 c.image_name,
 
                 c.recommended,
-                jsonb_extract_path_text(c.short_description::jsonb, $1) as "short_description: String",
-                jsonb_extract_path_text(c.long_description::jsonb, $1) as "long_description: String",
+                c.detail,
                 jsonb_extract_path_text(c.title::jsonb, $1) as "title: String",
                 jsonb_extract_path_text(c.logo_url::jsonb, $1) as "logo_url: String",
-
 
                 coalesce(
                   array_agg(
@@ -357,11 +353,9 @@ async fn fetch_connectors_after(
           c.image_name,
 
           c.recommended,
-          jsonb_extract_path_text(c.short_description::jsonb, $4) as "short_description: String",
-          jsonb_extract_path_text(c.long_description::jsonb, $4) as "long_description: String",
+          c.detail,
           jsonb_extract_path_text(c.title::jsonb, $4) as "title: String",
           jsonb_extract_path_text(c.logo_url::jsonb, $4) as "logo_url: String",
-
 
           coalesce(
             array_agg(
@@ -421,8 +415,7 @@ async fn fetch_connectors_before(
         c.image_name,
 
         c.recommended,
-        jsonb_extract_path_text(c.short_description::jsonb, $4) as "short_description: String",
-        jsonb_extract_path_text(c.long_description::jsonb, $4) as "long_description: String",
+        c.detail,
         jsonb_extract_path_text(c.title::jsonb, $4) as "title: String",
         jsonb_extract_path_text(c.logo_url::jsonb, $4) as "logo_url: String",
 
