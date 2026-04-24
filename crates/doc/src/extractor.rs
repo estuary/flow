@@ -80,48 +80,7 @@ impl Extractor {
         &'s self,
         doc: &'n N,
     ) -> Result<&'n N, Cow<'s, serde_json::Value>> {
-        let Some(node) = self.ptr.query(doc) else {
-            return Err(Cow::Borrowed(&self.default));
-        };
-
-        match self.magic {
-            None => { /* sorry, kid, I guess your parents aren't coming back */ }
-            Some(Magic::UuidV1DateTime) => {
-                if let Some(date_time) = match node.as_node() {
-                    json::Node::String(s) => Some(s),
-                    _ => None,
-                }
-                .and_then(|s| proto_gazette::uuid::parse_str(s).ok())
-                .and_then(|(_producer, clock, _flags)| {
-                    let (seconds, nanos) = clock.to_unix();
-                    time::OffsetDateTime::from_unix_timestamp_nanos(
-                        seconds as i128 * 1_000_000_000 + nanos as i128,
-                    )
-                    .ok()
-                }) {
-                    // Use a custom format and not time::format_description::well_known::Rfc3339,
-                    // because date-times must be right-padded out to the nanosecond to ensure
-                    // that lexicographic ordering matches temporal ordering.
-                    let format = time::macros::format_description!(
-                        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:9]Z"
-                    );
-                    return Err(Cow::Owned(serde_json::Value::String(
-                        date_time
-                            .format(format)
-                            .expect("rfc3339 format always succeeds"),
-                    )));
-                }
-            }
-            Some(Magic::TruncationIndicator) => {
-                // The real magic is behind some _other_ curtain.
-                // We just set a constant false value here.
-                // If we end up pruning some part of the document, we'll go back and change this
-                // value retroactively as part of `extract_all_indicate_truncation`.
-                return Err(Cow::Owned(serde_json::Value::Bool(false)));
-            }
-        }
-
-        Ok(node)
+        self.value_from_resolved(self.ptr.query(doc))
     }
 
     /// Extract a packed tuple representation from an instance of json::AsNode.
@@ -137,30 +96,15 @@ impl Extractor {
         out: &mut bytes::BytesMut,
         indicator: &AtomicBool,
     ) {
-        let mut w = out.writer();
-
-        // Truncation indicators are handled by having the extractor always write
-        // a `false` value (0x26). We remember the byte offset of this value in the
-        // encoded tuple, and will change it to `true` at the end if any value was
-        // truncated.
         let mut projected_indicator_pos: Option<usize> = None;
-        for ex in extractors {
-            if ex.magic == Some(Magic::TruncationIndicator) {
-                debug_assert!(
-                    projected_indicator_pos.is_none(),
-                    "extractors have multiple projections of truncation indicator"
-                );
-                projected_indicator_pos = Some(w.get_ref().len());
-            }
-            // Unwrap because Write is infallible for BytesMut.
-            ex.extract_indicate_truncation(doc, &mut w, indicator)
-                .unwrap();
-        }
-
-        let write_indicator = projected_indicator_pos.filter(|_| indicator.load(Ordering::SeqCst));
-        if let Some(pos) = write_indicator {
-            out[pos] = 0x27; // this is the Foundation tuple byte value of `true`
-        }
+        write_extracted(
+            doc,
+            extractors,
+            out,
+            indicator,
+            &mut projected_indicator_pos,
+        );
+        finalize_truncation_indicator(out, projected_indicator_pos, indicator);
     }
 
     pub fn extract_all_owned<'alloc>(
@@ -204,17 +148,7 @@ impl Extractor {
         w: &mut W,
         indicator: &AtomicBool,
     ) -> std::io::Result<()> {
-        match self.query(doc) {
-            Ok(v) => self
-                .policy
-                .with_truncation_indicator(v, indicator)
-                .pack(w, tuple::TupleDepth::new().increment())?,
-            Err(v) => self
-                .policy
-                .with_truncation_indicator(v.as_ref(), indicator)
-                .pack(w, tuple::TupleDepth::new().increment())?,
-        };
-        Ok(())
+        self.extract_from_resolved_indicate_truncation(self.ptr.query(doc), w, indicator)
     }
 
     /// Extract from an instance of json::AsNode, writing a packed encoding into the writer.
@@ -259,6 +193,120 @@ impl Extractor {
         let mut hasher = highway::HighwayHasher::new(HIGHWAY_KEY);
         hasher.append(packed_key);
         (hasher.finalize64() >> 32) as u32
+    }
+
+    pub(crate) fn is_truncation_indicator(&self) -> bool {
+        matches!(self.magic, Some(Magic::TruncationIndicator))
+    }
+
+    fn value_from_resolved<'s, 'n, N: json::AsNode>(
+        &'s self,
+        resolved: Option<&'n N>,
+    ) -> Result<&'n N, Cow<'s, serde_json::Value>> {
+        let Some(node) = resolved else {
+            return Err(Cow::Borrowed(&self.default));
+        };
+
+        match self.magic {
+            None => { /* sorry, kid, I guess your parents aren't coming back */ }
+            Some(Magic::UuidV1DateTime) => {
+                if let Some(date_time) = match node.as_node() {
+                    json::Node::String(s) => Some(s),
+                    _ => None,
+                }
+                .and_then(|s| proto_gazette::uuid::parse_str(s).ok())
+                .and_then(|(_producer, clock, _flags)| {
+                    let (seconds, nanos) = clock.to_unix();
+                    time::OffsetDateTime::from_unix_timestamp_nanos(
+                        seconds as i128 * 1_000_000_000 + nanos as i128,
+                    )
+                    .ok()
+                }) {
+                    // Use a custom format and not time::format_description::well_known::Rfc3339,
+                    // because date-times must be right-padded out to the nanosecond to ensure
+                    // that lexicographic ordering matches temporal ordering.
+                    let format = time::macros::format_description!(
+                        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:9]Z"
+                    );
+                    return Err(Cow::Owned(serde_json::Value::String(
+                        date_time
+                            .format(format)
+                            .expect("rfc3339 format always succeeds"),
+                    )));
+                }
+            }
+            Some(Magic::TruncationIndicator) => {
+                // The real magic is behind some _other_ curtain.
+                // We just set a constant false value here.
+                // If we end up pruning some part of the document, we'll go back and change this
+                // value retroactively as part of `extract_all_indicate_truncation`.
+                return Err(Cow::Owned(serde_json::Value::Bool(false)));
+            }
+        }
+
+        Ok(node)
+    }
+
+    /// Pre-resolved variant of `extract_indicate_truncation`. Used when a leaf
+    /// node has already been found, skipping the per-extractor
+    /// `Pointer::query`.
+    pub(crate) fn extract_from_resolved_indicate_truncation<N: json::AsNode, W: std::io::Write>(
+        &self,
+        resolved: Option<&N>,
+        w: &mut W,
+        indicator: &AtomicBool,
+    ) -> std::io::Result<()> {
+        match self.value_from_resolved(resolved) {
+            Ok(v) => self
+                .policy
+                .with_truncation_indicator(v, indicator)
+                .pack(w, tuple::TupleDepth::new().increment())?,
+            Err(v) => self
+                .policy
+                .with_truncation_indicator(v.as_ref(), indicator)
+                .pack(w, tuple::TupleDepth::new().increment())?,
+        };
+        Ok(())
+    }
+}
+
+pub(crate) fn write_extracted<N: json::AsNode>(
+    doc: &N,
+    extractors: &[Extractor],
+    out: &mut bytes::BytesMut,
+    indicator: &AtomicBool,
+    projected_indicator_pos: &mut Option<usize>,
+) {
+    let mut w = out.writer();
+
+    // Truncation indicators are handled by having the extractor always write
+    // a `false` value (0x26). We remember the byte offset of this value in the
+    // encoded tuple, and will change it to `true` at the end if any value was
+    // truncated.
+    for ex in extractors {
+        if ex.is_truncation_indicator() {
+            debug_assert!(
+                projected_indicator_pos.is_none(),
+                "extractors have multiple projections of truncation indicator"
+            );
+            *projected_indicator_pos = Some(w.get_ref().len());
+        }
+        // Unwrap because Write is infallible for BytesMut.
+        ex.extract_indicate_truncation(doc, &mut w, indicator)
+            .unwrap();
+    }
+}
+
+/// Retroactively flip the truncation-indicator placeholder to `true` if
+/// anything was truncated during the enclosing extract.
+pub(crate) fn finalize_truncation_indicator(
+    out: &mut bytes::BytesMut,
+    position: Option<usize>,
+    indicator: &AtomicBool,
+) {
+    let write_indicator = position.filter(|_| indicator.load(Ordering::SeqCst));
+    if let Some(pos) = write_indicator {
+        out[pos] = 0x27; // this is the Foundation tuple byte value of `true`
     }
 }
 
