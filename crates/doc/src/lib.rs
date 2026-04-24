@@ -35,6 +35,11 @@ pub use ser::SerPolicy;
 mod extractor;
 pub use extractor::{Extractor, TRUNCATION_INDICATOR_PTR};
 
+// ExtractorPlan is a pre-compiled Vec<Extractor> that shares pointer
+// traversals.
+mod extractor_plan;
+pub use extractor_plan::ExtractorPlan;
+
 // Optimized conversions from AsNode implementations into HeapNode.
 pub mod lazy;
 pub use lazy::LazyNode;

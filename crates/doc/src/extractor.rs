@@ -25,6 +25,22 @@ enum Magic {
     TruncationIndicator,
 }
 
+/// Planner-facing classification of an extractor.
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum PlanKind<'a> {
+    /// Sibling-leaf extractor. A candidate for inclusion in a planner block.
+    MergeJoinLeaf {
+        parent: &'a [json::ptr::Token],
+        name: &'a str,
+    },
+    /// Truncation indicator. Must run in place through the reference path so
+    /// its placeholder byte lands at the right tuple position.
+    TruncationIndicator,
+    /// Root document (empty pointer) or array-index terminal. Cannot be
+    /// included in a planner block.
+    Other,
+}
+
 impl Extractor {
     /// Build an Extractor for the JSON pointer.
     /// If the location doesn't exist, then `null` is extracted.
@@ -197,6 +213,22 @@ impl Extractor {
 
     pub(crate) fn is_truncation_indicator(&self) -> bool {
         matches!(self.magic, Some(Magic::TruncationIndicator))
+    }
+
+    pub(crate) fn plan_kind(&self) -> PlanKind<'_> {
+        if self.is_truncation_indicator() {
+            return PlanKind::TruncationIndicator;
+        }
+
+        match self.ptr.0.split_last() {
+            Some((json::ptr::Token::Property(name), parent)) => {
+                PlanKind::MergeJoinLeaf { parent, name }
+            }
+            // Root document (empty pointer) or array-index terminal (e.g.
+            // /arr/0) — neither can merge-join against an object's fields,
+            // so the plan runs them as singles through the reference path.
+            _ => PlanKind::Other,
+        }
     }
 
     fn value_from_resolved<'s, 'n, N: json::AsNode>(
