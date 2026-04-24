@@ -341,7 +341,7 @@ mod test {
                     ser_policy: doc::SerPolicy::noop(),
                     state_key: String::new(),
                     store_document: false,
-                    value_extractors: Vec::new(),
+                    value_plan: doc::ExtractorPlan::new(&[]),
                     uuid_ptr: json::Pointer::empty(),
                 })
                 .collect(),
