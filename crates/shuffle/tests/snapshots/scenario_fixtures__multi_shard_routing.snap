@@ -25,6 +25,7 @@ Checkpoint {
             1/0,
             0/0,
         ],
+        unresolved_hints: 0,
     },
     read: [
         ReadEntry {

@@ -269,6 +269,11 @@ Progress stays in `unresolved` until all hinted journals confirm the
 producer committed — this prevents the checkpoint from advancing past
 transactions that are only partially visible.
 
+`progressed` is held back behind `unresolved` (rather than reducing
+directly) so that newer progress — which may itself add fresh hints —
+can't indefinitely starve `unresolved` from fully resolving. Sequencing
+guarantees forward progress.
+
 Once all hints resolve, the frontier promotes to `ready`. When the
 coordinator sends `NextCheckpoint` and `ready` is non-empty, the Session
 drains it as chunked `FrontierChunk` messages.
@@ -278,13 +283,33 @@ previous session. The `recovery_pending` flag gates promotion until the
 coordinator consumes this recovery checkpoint, so that the very first
 checkpoint is exactly the hinted frontier and no more (or less).
 
+#### Peeks of partial progress
+
+In the recovery case, `unresolved` can carry hints whose resolution
+requires reading tens of GB before `ready` becomes available. To avoid
+keeping the coordinator idle (and log segments unscannable) during that
+window, `take_ready` may emit a *peek* of `unresolved` instead: a
+`Frontier` carrying `unresolved_hints == true` and zeroed byte deltas.
+A peek is emitted only when `unresolved` has made progress — any
+producer's `last_commit` advancing — since the last emission.
+
+The same "did `unresolved` make progress?" signal disarms the `on_tick`
+stall timeout: it fires only when no progress at all occurs between
+two consecutive ticks.
+
 ### 12. Coordinator Receives Checkpoint
 
-The coordinator receives `NextCheckpoint` chunks, reassembles the
-frontier, and processes the transaction: reading documents from Log
-files up to each producer's `last_commit` clock. After completing
-downstream processing, it merges the delta into its base checkpoint and
-requests the next one.
+The coordinator receives `NextCheckpoint` chunks and reassembles a
+`Frontier`. It may process the frontier (e.g. log scanning up to each
+producer's `last_commit`) regardless of `unresolved_hints`. But for a
+**transactional boundary** the coordinator must keep calling
+`next_checkpoint()` until it receives a `Frontier` with
+`unresolved_hints == false` — only then has the pipeline produced a
+fully-resolved checkpoint.
+
+After completing downstream processing on a fully-resolved frontier, the
+coordinator merges the delta into its base checkpoint and requests the
+next one.
 
 ## Key Types
 

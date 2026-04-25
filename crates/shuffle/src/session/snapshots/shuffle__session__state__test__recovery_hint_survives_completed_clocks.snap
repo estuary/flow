@@ -1,6 +1,5 @@
 ---
 source: crates/shuffle/src/session/state.rs
-assertion_line: 1567
 expression: pipeline_snapshot(&pipeline)
 ---
 PipelineSnapshot {
@@ -8,6 +7,7 @@ PipelineSnapshot {
     ready: Frontier {
         journals: [],
         flushed_lsn: [],
+        unresolved_hints: 0,
     },
     unresolved: Frontier {
         journals: [
@@ -27,10 +27,12 @@ PipelineSnapshot {
             },
         ],
         flushed_lsn: [],
+        unresolved_hints: 1,
     },
     unresolved_count: 1,
     progressed: Frontier {
         journals: [],
         flushed_lsn: [],
+        unresolved_hints: 0,
     },
 }

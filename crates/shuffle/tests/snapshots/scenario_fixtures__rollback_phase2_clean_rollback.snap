@@ -23,6 +23,7 @@ Checkpoint {
         flushed_lsn: [
             1/1,
         ],
+        unresolved_hints: 0,
     },
     read: [],
 }

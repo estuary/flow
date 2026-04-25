@@ -179,6 +179,17 @@ impl Topology {
 /// `unresolved` until all hinted journals confirm the producer committed.
 /// The `recovery_pending` flag additionally gates `progressed` → `unresolved`
 /// to protect the recovery checkpoint from contamination.
+///
+/// Why hold `progressed` back behind `unresolved`? Newer progress can introduce
+/// fresh causal hints. If we let `progressed` clobber `unresolved` whenever
+/// `unresolved` partially resolved, an unlucky stream of new hints could
+/// indefinitely starve the client of a fully-resolved frontier.
+/// Holding back `progressed` guarantees forward progress.
+///
+/// `take_ready()` may also emit a *peek* of `unresolved` when `ready` is
+/// unavailable but `unresolved` has advanced since the last request.
+/// Peeks let the client begin processing (e.g. release log
+/// segments) without waiting for full transactional resolution.
 pub struct CheckpointPipeline {
     /// Accumulated partial Progressed frontier chunks per-shard,
     /// awaiting end-of-sequence (empty journals terminator).
@@ -188,15 +199,23 @@ pub struct CheckpointPipeline {
     /// or promoted directly to `ready` if it contains no unresolved hints.
     progressed: crate::Frontier,
     /// Checkpoint awaiting resolution of unresolved causal hints (hinted_commit > last_commit).
+    /// `unresolved.unresolved_hints` is the count of producers awaiting resolution.
     unresolved: crate::Frontier,
-    /// Number of journal producers in `unresolved` having `last_commit < hinted_commit`.
-    unresolved_count: usize,
     /// Mark-and-sweep flag for detecting stalled causal hint resolution.
-    /// Set to `true` on the first tick where `unresolved_count > 0`.
-    /// If still `true` on a subsequent tick, hint resolution has stalled
-    /// and we return an error to tear down the session.
-    /// Cleared whenever `unresolved` is fully resolved and promoted.
+    /// Set to `true` on the first tick where `unresolved.unresolved_hints > 0`.
+    /// If still `true` on a subsequent tick AND no progress has been made
+    /// in `unresolved` between those ticks, hint resolution has stalled and
+    /// we return an error to tear down the session. Cleared on any progress
+    /// in `unresolved` (any producer's `last_commit` advancing) — the same
+    /// underlying signal that drives `unresolved_peek_progress`.
     unresolved_armed: bool,
+    /// Set true whenever `unresolved` advances via `resolve_hints`,
+    /// or `progressed` is promoted into `unresolved`. `take_ready()` clears.
+    /// Signals that a peek may be returned to the client in lieu of blocking.
+    ///
+    /// Invariant: when this is `true` and `ready` is empty, `unresolved` is
+    /// non-empty. The peek path of `take_ready()` relies on this.
+    unresolved_peek_progress: bool,
     /// Checkpoint having fully-resolved progress, ready to send to the client.
     ready: crate::Frontier,
     /// True if the client has requested a checkpoint.
@@ -226,7 +245,6 @@ impl CheckpointPipeline {
         // hinted_commit > last_commit represent transactions that were prepared
         // but not yet committed during the previous session.
         let unresolved = resume_checkpoint.project_unresolved_hints();
-        let unresolved_count = unresolved.count_unresolved_hints();
 
         let num_cohorts = binding_cohorts
             .iter()
@@ -235,8 +253,8 @@ impl CheckpointPipeline {
             .map_or(0, |m| m as usize + 1);
 
         tracing::debug!(
-            unresolved_hints = unresolved_count,
-            recovery_pending = unresolved_count > 0,
+            unresolved_hints = unresolved.unresolved_hints,
+            recovery_pending = unresolved.unresolved_hints != 0,
             num_cohorts,
             "CheckpointPipeline initialized"
         );
@@ -244,15 +262,16 @@ impl CheckpointPipeline {
         let mut completed_clocks = vec![crate::ProducerMap::default(); num_cohorts];
         update_completed_clocks(&mut completed_clocks, &binding_cohorts, resume_checkpoint);
 
+        let recovery_pending = unresolved.unresolved_hints != 0;
         Self {
             partials: vec![Vec::new(); shard_count],
             progressed: Default::default(),
             unresolved,
-            unresolved_count,
             unresolved_armed: false,
+            unresolved_peek_progress: false,
             ready: Default::default(),
             requested: false,
-            recovery_pending: unresolved_count > 0,
+            recovery_pending,
             completed_clocks,
             binding_cohorts,
         }
@@ -267,34 +286,81 @@ impl CheckpointPipeline {
         Ok(())
     }
 
-    /// If a checkpoint was requested and `ready` is non-empty,
-    /// take the ready frontier and clear the request flag.
+    /// If a checkpoint was requested, return a Frontier to the client:
+    /// preferentially a fully-resolved `ready`, or a *peek* of the
+    /// in-progress `unresolved` if it has advanced since the last emission.
     pub fn take_ready(&mut self) -> Option<crate::Frontier> {
-        if !self.requested || self.ready.journals.is_empty() {
+        if !self.requested {
             return None;
         }
 
-        let ready = std::mem::take(&mut self.ready);
-        // Retain flushed_lsn as a floor for future checkpoints: different
-        // Slices observe Log flushed_lsn at different times, so a later
-        // Progressed could carry a lower flushed_lsn than one already
-        // emitted. Keeping the floor in `self.ready` ensures that
-        // `reduce()` (which uses element-wise max) prevents regression.
-        self.ready.flushed_lsn = ready.flushed_lsn.clone();
-        self.requested = false;
+        if !self.ready.journals.is_empty() {
+            let ready = std::mem::take(&mut self.ready);
+            // Retain flushed_lsn as a floor for future checkpoints: different
+            // Slices observe Log flushed_lsn at different times, so a later
+            // Progressed could carry a lower flushed_lsn than one already
+            // emitted. Keeping the floor in `self.ready` ensures that
+            // `reduce()` (which uses element-wise max) prevents regression.
+            self.ready.flushed_lsn = ready.flushed_lsn.clone();
+            self.requested = false;
 
-        tracing::debug!(
-            journals = ready.journals.len(),
-            was_recovery = self.recovery_pending,
-            "checkpoint ready, taken by coordinator"
-        );
+            tracing::debug!(
+                journals = ready.journals.len(),
+                was_recovery = self.recovery_pending,
+                "checkpoint ready, taken by coordinator"
+            );
 
-        // Clearing recovery_pending may unblock accumulated progress that was
-        // previously held back to avoid contaminating the recovery checkpoint.
-        self.recovery_pending = false;
-        self.try_promote();
+            // Clearing recovery_pending may unblock accumulated progress that was
+            // previously held back to avoid contaminating the recovery checkpoint.
+            self.recovery_pending = false;
+            self.try_promote();
 
-        Some(ready)
+            return Some(ready);
+        }
+
+        // Peek path: `ready` is empty, but `unresolved` has progressed
+        // since the last emission. Surface a partial frontier so the client
+        // can scan/release log segments incrementally — but DO NOT progress
+        // the pipeline, since the underlying hints aren't fully resolved.
+        if self.unresolved_peek_progress {
+            assert!(!self.unresolved.journals.is_empty());
+
+            // Clone producer state and flushed_lsn; zero the per-journal byte
+            // deltas in the peek so the eventual `ready` (when this
+            // `unresolved` promotes) carries them exactly once. The bytes
+            // remain on `self.unresolved` for that eventual emission.
+            let peek_journals: Vec<crate::JournalFrontier> = self
+                .unresolved
+                .journals
+                .iter()
+                .map(|jf| crate::JournalFrontier {
+                    journal: jf.journal.clone(),
+                    binding: jf.binding,
+                    producers: jf.producers.clone(),
+                    bytes_read_delta: 0,
+                    bytes_behind_delta: 0,
+                })
+                .collect();
+
+            let peek = crate::Frontier {
+                journals: peek_journals,
+                flushed_lsn: self.unresolved.flushed_lsn.clone(),
+                unresolved_hints: self.unresolved.unresolved_hints,
+            };
+
+            self.requested = false;
+            self.unresolved_peek_progress = false;
+
+            tracing::debug!(
+                journals = peek.journals.len(),
+                unresolved_count = self.unresolved.unresolved_hints,
+                "peek of unresolved frontier, taken by coordinator"
+            );
+
+            return Some(peek);
+        }
+
+        None
     }
 
     /// Ingest a Progressed frontier chunk from a shard. Accumulates partial
@@ -320,16 +386,16 @@ impl CheckpointPipeline {
         tracing::debug!(shard_index, ?progressed, "received Progressed response");
 
         // Resolve causal hints in `unresolved` using the incoming progress.
-        // Producers in `unresolved` where hinted_commit > last_commit are resolved
-        // (have their last_commit set to their hinted_commit) if `progressed`
-        // shows the producer has since flushed through hinted_commit.
-        let resolved_count = self.unresolved.resolve_hints(&progressed);
+        // `advanced_count` includes producers whose `last_commit` advanced by
+        // any amount (toward but possibly below `hinted_commit`); `resolved_count`
+        // is the strict subset that reached `hinted_commit`.
+        let (advanced_count, resolved_count) = self.unresolved.resolve_hints(&progressed);
 
         // Causal hints can have cyclic cycles, where journal A hints at B,
         // and B hints at A, but are reported in distinct Progressed responses.
         // `progressed` resolves hints in `unresolved`, but `unresolved` may also
         // resolve hints in `progressed`.
-        let progressed_resolved = progressed.resolve_hints(&self.unresolved);
+        let (_, progressed_resolved) = progressed.resolve_hints(&self.unresolved);
 
         if progressed_resolved != 0 {
             tracing::debug!(
@@ -338,11 +404,18 @@ impl CheckpointPipeline {
             );
         }
 
+        // Any progress in `unresolved` (partial or full) disarms the timeout
+        // and arms the peek emission path.
+        if advanced_count != 0 {
+            self.unresolved_armed = false;
+            self.unresolved_peek_progress = true;
+        }
+
         // When progress resolves causal hints, fold its flushed_lsn into
         // unresolved. Even though progressed is held back to a later checkpoint,
         // the fact that it resolved a hint means `unresolved`'s consumer must
         // read through these LSNs to observe the resolving documents.
-        if resolved_count != 0 {
+        if advanced_count != 0 {
             self.unresolved.flushed_lsn = crate::Frontier::merge_flushed_lsn(
                 std::mem::take(&mut self.unresolved.flushed_lsn),
                 progressed.flushed_lsn.clone(),
@@ -350,25 +423,26 @@ impl CheckpointPipeline {
         }
 
         // Promote unresolved → ready if all its hints were just resolved.
-        if resolved_count != 0 && resolved_count == self.unresolved_count {
+        // `Frontier::resolve_hints` already decremented `self.unresolved.unresolved_hints`
+        // by `resolved_count`, so a zero count here means everything resolved.
+        if resolved_count != 0 && self.unresolved.unresolved_hints == 0 {
             tracing::debug!(
                 resolved_count,
                 unresolved_journals = self.unresolved.journals.len(),
                 "all causal hints resolved, promoting unresolved to ready"
             );
-            self.unresolved_armed = false;
             let resolved = std::mem::take(&mut self.unresolved);
 
             update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
             self.ready = std::mem::take(&mut self.ready).reduce(resolved);
-        } else if resolved_count != 0 {
+        } else if advanced_count != 0 {
             tracing::debug!(
+                advanced_count,
                 resolved_count,
-                remaining = self.unresolved_count - resolved_count,
-                "partially resolved causal hints"
+                remaining = self.unresolved.unresolved_hints,
+                "partially advanced causal hints"
             );
         }
-        self.unresolved_count -= resolved_count;
 
         // Reduce the incoming progress into self.progressed,
         // which is the aggregate progress since we last promoted.
@@ -381,16 +455,18 @@ impl CheckpointPipeline {
     /// Called on each actor tick to detect stalled causal hint resolution.
     ///
     /// Uses mark-and-sweep: the first tick with unresolved hints arms the flag.
-    /// If hints are still unresolved on the next tick, returns an error with
-    /// details about which producers and journals are stuck.
+    /// Any progress in `unresolved` between ticks (handled in
+    /// `on_progressed_chunk`/`try_promote`) disarms it. If still armed on
+    /// the next tick — i.e. no progress at all in the interval — return an
+    /// error with details about which producers and journals are stuck.
     pub fn on_tick(&mut self) -> anyhow::Result<()> {
-        if self.unresolved_count == 0 {
+        if self.unresolved.unresolved_hints == 0 {
             return Ok(());
         }
         if !self.unresolved_armed {
             tracing::debug!(
-                unresolved_count = self.unresolved_count,
-                "causal hint resolution armed; will error if unresolved on next tick"
+                unresolved_count = self.unresolved.unresolved_hints,
+                "causal hint resolution armed; will error if no progress by next tick"
             );
             self.unresolved_armed = true;
             return Ok(());
@@ -421,7 +497,7 @@ impl CheckpointPipeline {
 
         anyhow::bail!(
             "causal hint resolution timed out: {} hint(s) unresolved across {} journal(s){details}",
-            self.unresolved_count,
+            self.unresolved.unresolved_hints,
             self.unresolved.journals.len(),
         );
     }
@@ -441,7 +517,9 @@ impl CheckpointPipeline {
         // Remove causal hints of `progressed` that reference a commit the
         // cohort frontier already completed. This disables stale hints from
         // re-enabled bindings whose journals are catching up from behind the
-        // cohort's frontier.
+        // cohort's frontier. Track stale-hint clearings so we can keep
+        // `unresolved_hints` consistent without re-walking the journals.
+        let mut stale_cleared = 0usize;
         self.progressed.journals.retain_mut(|jf| {
             let cohort = self.binding_cohorts[jf.binding as usize];
             let completed = &self.completed_clocks[cohort as usize];
@@ -454,6 +532,7 @@ impl CheckpointPipeline {
                 {
                     // Hint is stale. Retain only if we also saw a commit.
                     pf.hinted_commit = uuid::Clock::zero();
+                    stale_cleared += 1;
                     pf.last_commit != uuid::Clock::zero()
                 } else {
                     true // Hint is at the frontier
@@ -462,16 +541,20 @@ impl CheckpointPipeline {
 
             !jf.producers.is_empty()
         });
+        self.progressed.unresolved_hints -= stale_cleared;
 
         self.unresolved = std::mem::take(&mut self.progressed);
-        self.unresolved_count = self.unresolved.count_unresolved_hints();
 
-        if self.unresolved_count == 0 {
+        // Promoting to `unresolved` is itself progress: it disarms
+        // the timeout and may enable the peek path.
+        self.unresolved_armed = false;
+        self.unresolved_peek_progress = self.unresolved.unresolved_hints != 0;
+
+        if self.unresolved.unresolved_hints == 0 {
             tracing::debug!(
                 journals,
                 "promoted progressed directly to ready (no unresolved hints)"
             );
-            self.unresolved_armed = false;
             let resolved = std::mem::take(&mut self.unresolved);
 
             update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
@@ -479,7 +562,7 @@ impl CheckpointPipeline {
         } else {
             tracing::debug!(
                 journals,
-                unresolved_hints = self.unresolved_count,
+                unresolved_hints = self.unresolved.unresolved_hints,
                 "promoted progressed to unresolved (awaiting hint resolution)"
             );
         }
@@ -514,8 +597,9 @@ impl std::fmt::Debug for CheckpointPipeline {
         f.debug_struct("CheckpointPipeline")
             .field("progressed", &self.progressed.journals.len())
             .field("unresolved", &self.unresolved.journals.len())
-            .field("unresolved_count", &self.unresolved_count)
+            .field("unresolved_count", &self.unresolved.unresolved_hints)
             .field("unresolved_armed", &self.unresolved_armed)
+            .field("unresolved_peek_progress", &self.unresolved_peek_progress)
             .field("ready", &self.ready.journals.len())
             .field("requested", &self.requested)
             .field("recovery_pending", &self.recovery_pending)
@@ -793,7 +877,7 @@ mod test {
                 case.name,
             );
             assert_eq!(
-                pipeline.unresolved_count, case.expect_unresolved_count,
+                pipeline.unresolved.unresolved_hints, case.expect_unresolved_count,
                 "case: {}: unresolved_count",
                 case.name,
             );
@@ -829,7 +913,7 @@ mod test {
             "case: second_batch_while_unresolved_blocked: progressed"
         );
         assert_eq!(
-            pipeline.unresolved_count, 1,
+            pipeline.unresolved.unresolved_hints, 1,
             "case: second_batch_while_unresolved_blocked: unresolved_count"
         );
 
@@ -858,7 +942,7 @@ mod test {
             "case: unresolved_unblocks: progressed"
         );
         assert_eq!(
-            pipeline.unresolved_count, 0,
+            pipeline.unresolved.unresolved_hints, 0,
             "case: unresolved_unblocks: unresolved_count"
         );
 
@@ -885,7 +969,7 @@ mod test {
             "case: new_hint_setup: progressed"
         );
         assert_eq!(
-            pipeline.unresolved_count, 1,
+            pipeline.unresolved.unresolved_hints, 1,
             "case: new_hint_setup: unresolved_count"
         );
 
@@ -916,7 +1000,7 @@ mod test {
             "case: resolve_and_new_hint: progressed"
         );
         assert_eq!(
-            pipeline.unresolved_count, 1,
+            pipeline.unresolved.unresolved_hints, 1,
             "case: resolve_and_new_hint: unresolved_count"
         );
 
@@ -1024,7 +1108,7 @@ mod test {
             ],
             vec![],
         );
-        assert_eq!(pipeline.unresolved_count, 2);
+        assert_eq!(pipeline.unresolved.unresolved_hints, 2);
         assert!(!pipeline.unresolved_armed);
 
         // First tick: arms the flag.
@@ -1035,7 +1119,33 @@ mod test {
         let err = pipeline.on_tick().unwrap_err();
         insta::assert_snapshot!("on_tick_timeout_error", format!("{err}"));
 
-        // Reset: resolve hints and verify disarm.
+        // Partial advance disarms (last 50 → still 50 hinted; advance
+        // last_commit toward but not past hinted_commit on a different hint).
+        let mut pipeline = test_pipeline();
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 10, 100, -50)])],
+            vec![],
+        );
+        pipeline.on_tick().unwrap();
+        assert!(pipeline.unresolved_armed);
+
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 60, 0, -200)])],
+            vec![],
+        );
+        // Not resolved (60 < 100), but advanced — disarms.
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1);
+        assert!(!pipeline.unresolved_armed, "partial progress disarms");
+
+        // Tick re-arms; another tick with no further progress errors.
+        pipeline.on_tick().unwrap();
+        assert!(pipeline.unresolved_armed);
+        let err = pipeline.on_tick().unwrap_err();
+        assert!(format!("{err}").contains("timed out"), "{err}");
+
+        // Full resolution disarms and clears unresolved_count.
         let mut pipeline = test_pipeline();
         ingest_progressed(
             &mut pipeline,
@@ -1043,20 +1153,101 @@ mod test {
             vec![],
         );
         pipeline.on_tick().unwrap();
-        assert!(pipeline.unresolved_armed);
-
-        // Resolve the hint.
         ingest_progressed(
             &mut pipeline,
             vec![jf("journal/A", 0, vec![pf(0x01, 60, 0, -500)])],
             vec![],
         );
-        assert_eq!(pipeline.unresolved_count, 0);
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0);
         assert!(!pipeline.unresolved_armed);
-
-        // Tick after resolution: no error.
         pipeline.on_tick().unwrap();
         assert!(!pipeline.unresolved_armed);
+    }
+
+    #[test]
+    fn test_take_ready_peek_lifecycle() {
+        // Recovery is the load-bearing case: a resume frontier with an
+        // unresolved hint that may take a long time to resolve. Peeks let
+        // the client observe partial advancement during that window, while
+        // byte deltas (queued in self.progressed) surface exactly once on
+        // the post-recovery ready.
+        let mut pipeline = CheckpointPipeline::new(
+            &crate::Frontier {
+                journals: vec![jf("journal/A", 0, vec![pf(0x01, 10, 100, -50)])],
+                flushed_lsn: vec![],
+                unresolved_hints: 1,
+            },
+            1,
+            vec![0],
+        );
+        assert!(pipeline.recovery_pending);
+
+        // Without progress, a request returns nothing — neither ready nor peek.
+        pipeline.request().unwrap();
+        assert!(pipeline.take_ready().is_none(), "no progress, no peek");
+        assert!(pipeline.requested, "request still pending after empty take");
+
+        // Partial advance with byte deltas. resolve_hints advances unresolved's
+        // last_commit but leaves bytes on self.progressed (the queue).
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf_with_bytes(
+                "journal/A",
+                0,
+                vec![pf(0x01, 60, 0, -200)],
+                400,
+                1000,
+            )],
+            vec![],
+        );
+        assert!(pipeline.unresolved_peek_progress);
+
+        // Peek of unresolved: partial advance, hint preserved, zero bytes.
+        let peek = pipeline.take_ready().expect("peek emitted");
+        assert_ne!(peek.unresolved_hints, 0, "peek carries unresolved_hints != 0");
+        assert_eq!(peek.journals[0].producers[0].last_commit.to_unix().0, 60);
+        assert_eq!(peek.journals[0].producers[0].hinted_commit.to_unix().0, 100);
+        assert_eq!(peek.journals[0].bytes_read_delta, 0, "peek zeros bytes");
+        assert_eq!(peek.journals[0].bytes_behind_delta, 0);
+
+        // Peek doesn't progress the pipeline: hint still unresolved,
+        // recovery still pending.
+        assert!(!pipeline.requested);
+        assert!(!pipeline.unresolved_peek_progress, "cleared by peek");
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1);
+        assert!(pipeline.recovery_pending, "peek does not clear recovery");
+
+        // Second request without further progress: blocks again.
+        pipeline.request().unwrap();
+        assert!(pipeline.take_ready().is_none(), "no peek without progress");
+
+        // Full resolution: unresolved → ready (carries no bytes — bytes are
+        // queued in self.progressed). take_ready returns the recovery
+        // checkpoint and clears recovery_pending.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 100, 0, -300)])],
+            vec![],
+        );
+        let recovery = pipeline.take_ready().expect("recovery ready");
+        assert_eq!(recovery.unresolved_hints, 0, "recovery is fully resolved");
+        assert_eq!(
+            recovery.journals[0].producers[0].last_commit.to_unix().0,
+            100
+        );
+        assert_eq!(recovery.journals[0].bytes_read_delta, 0);
+        assert!(!pipeline.recovery_pending);
+
+        // The byte deltas from the partial-advance chunk emerge exactly once
+        // on the next ready (try_promote ran when recovery_pending cleared).
+        pipeline.request().unwrap();
+        let post = pipeline.take_ready().expect("post-recovery ready");
+        assert_eq!(post.unresolved_hints, 0);
+        assert_eq!(
+            post.journals[0].bytes_read_delta, 400,
+            "bytes ride exactly once"
+        );
+        assert_eq!(post.journals[0].bytes_behind_delta, 1000);
     }
 
     /// Snapshot-friendly view of the checkpoint pipeline state.
@@ -1075,7 +1266,7 @@ mod test {
             recovery_pending: pipeline.recovery_pending,
             ready: &pipeline.ready,
             unresolved: &pipeline.unresolved,
-            unresolved_count: pipeline.unresolved_count,
+            unresolved_count: pipeline.unresolved.unresolved_hints,
             progressed: &pipeline.progressed,
         }
     }
@@ -1103,6 +1294,7 @@ mod test {
             &crate::Frontier {
                 journals: vec![jf("journal/A", 0, vec![pf(0x01, 50, 200, -100)])],
                 flushed_lsn: vec![],
+                unresolved_hints: 0,
             },
             1,
             vec![0],
@@ -1307,6 +1499,7 @@ mod test {
         topology.resume_checkpoint = crate::Frontier {
             journals: vec![jf("test/journal/F", 0, vec![pf(0x01, 100, 200, -500)])],
             flushed_lsn: vec![],
+            unresolved_hints: 0,
         };
 
         // Checkpoint found in resume_checkpoint.
@@ -1558,11 +1751,12 @@ mod test {
                 jf("journal/B", 1, vec![pf(0x01, 100, 300, -50)]),
             ],
             flushed_lsn: vec![],
+            unresolved_hints: 0,
         };
         let mut pipeline = CheckpointPipeline::new(&resume, 1, vec![0, 0]);
 
         // The recovery hint must be in unresolved, not silently filtered.
-        assert_eq!(pipeline.unresolved_count, 1);
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1);
         assert!(pipeline.recovery_pending);
         insta::assert_debug_snapshot!(
             "recovery_hint_survives_completed_clocks",
@@ -1575,7 +1769,7 @@ mod test {
             vec![jf("journal/B", 1, vec![pf(0x01, 250, 0, -200)])],
             vec![],
         );
-        assert_eq!(pipeline.unresolved_count, 1, "hint not yet resolved");
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1, "hint not yet resolved");
 
         // Progress that resolves the hint (P1 commits at 300 >= hinted 300).
         ingest_progressed(
@@ -1583,7 +1777,7 @@ mod test {
             vec![jf("journal/B", 1, vec![pf(0x01, 300, 0, -400)])],
             vec![],
         );
-        assert_eq!(pipeline.unresolved_count, 0, "hint resolved");
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0, "hint resolved");
         assert!(!pipeline.ready.journals.is_empty(), "promoted to ready");
     }
 }
