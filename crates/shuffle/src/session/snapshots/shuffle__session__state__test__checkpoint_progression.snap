@@ -34,4 +34,5 @@ Frontier {
         },
     ],
     flushed_lsn: [],
+    unresolved_hints: 0,
 }

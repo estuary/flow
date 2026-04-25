@@ -811,6 +811,7 @@ mod test {
                 bytes_behind_delta: 0,
             }],
             flushed_lsn: vec![],
+            unresolved_hints: 0,
         };
 
         // Request + flushed → Some(frontier), both cleared.

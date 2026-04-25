@@ -12,6 +12,7 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            unresolved_hints: 0,
         },
         [],
     ),
@@ -53,6 +54,7 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            unresolved_hints: 0,
         },
         [
             ReadState {
@@ -137,6 +139,7 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            unresolved_hints: 2,
         },
         [],
     ),
@@ -164,6 +167,7 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            unresolved_hints: 0,
         },
         [
             ReadState {
@@ -252,6 +256,7 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            unresolved_hints: 2,
         },
         [
             ReadState {
@@ -345,6 +350,7 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            unresolved_hints: 1,
         },
         [
             ReadState {
@@ -405,6 +411,7 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            unresolved_hints: 1,
         },
         [],
     ),
@@ -432,6 +439,7 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            unresolved_hints: 1,
         },
         [
             ReadState {

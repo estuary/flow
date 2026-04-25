@@ -632,7 +632,7 @@ fn polling_complete(
 
 /// Client-side hints projection: project last_commit → hinted_commit.
 fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
-    let journals = round_frontier
+    let journals: Vec<shuffle::JournalFrontier> = round_frontier
         .journals
         .iter()
         .map(|jf| shuffle::JournalFrontier {
@@ -643,7 +643,7 @@ fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
                 .iter()
                 .map(|pf| shuffle::ProducerFrontier {
                     producer: pf.producer,
-                    last_commit: uuid::Clock::default(),
+                    last_commit: uuid::Clock::zero(),
                     hinted_commit: pf.last_commit,
                     offset: 0,
                 })
@@ -653,7 +653,11 @@ fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
         })
         .collect();
 
+    // Each producer has `last_commit: zero` and a non-zero `hinted_commit`,
+    // so the unresolved count is the total producer count across journals.
+    let unresolved_hints = journals.iter().map(|jf| jf.producers.len()).sum();
     shuffle::Frontier {
+        unresolved_hints,
         journals,
         flushed_lsn: vec![],
     }
@@ -841,6 +845,7 @@ async fn run_test_case_inner(
         let mut round_frontier = shuffle::Frontier {
             journals: vec![],
             flushed_lsn: recovery.flushed_lsn.clone(),
+            unresolved_hints: 0,
         };
 
         // STEP 3: POLL CHECKPOINTS.
@@ -861,7 +866,9 @@ async fn run_test_case_inner(
                     "updated round_frontier after reducing delta"
                 );
 
-                if polling_complete(&round_frontier, &commit_clocks) {
+                if round_frontier.unresolved_hints == 0
+                    && polling_complete(&round_frontier, &commit_clocks)
+                {
                     tracing::debug!("polling is complete");
                     break;
                 }
@@ -907,14 +914,23 @@ async fn run_test_case_inner(
             round_frontier = shuffle::Frontier {
                 journals: vec![],
                 flushed_lsn: recovery.flushed_lsn.clone(),
+                unresolved_hints: 0,
             };
 
-            if recovery.count_unresolved_hints() > 0 {
-                let recovery_delta = session
-                    .next_checkpoint()
-                    .await
-                    .map_err(|e| format!("recovery next_checkpoint: {e}"))?;
-                round_frontier = recovery_delta;
+            if recovery.unresolved_hints != 0 {
+                // Loop past peeks until the recovery checkpoint fully resolves.
+                loop {
+                    let recovery_delta = session
+                        .next_checkpoint()
+                        .await
+                        .map_err(|e| format!("recovery next_checkpoint: {e}"))?;
+
+                    round_frontier = round_frontier.reduce(recovery_delta);
+
+                    if round_frontier.unresolved_hints == 0 {
+                        break;
+                    }
+                }
             }
         }
 

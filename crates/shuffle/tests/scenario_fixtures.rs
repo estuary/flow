@@ -19,6 +19,27 @@ use std::sync::Arc;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Loop `next_checkpoint` until a fully-resolved Frontier is obtained.
+async fn next_resolved_checkpoint(
+    session: &mut shuffle::SessionClient,
+    label: &str,
+) -> shuffle::Frontier {
+    let mut frontier = session
+        .next_checkpoint()
+        .await
+        .unwrap_or_else(|e| panic!("next_checkpoint ({label}): {e}"));
+
+    while frontier.unresolved_hints != 0 {
+        // We don't reduce because the resolved frontier is a full restatement
+        // of any partial progress (unresolved_hints != 0).
+        frontier = session
+            .next_checkpoint()
+            .await
+            .unwrap_or_else(|e| panic!("next_checkpoint follow-up ({label}): {e}"));
+    }
+    frontier
+}
+
 /// Build a Materialization task from a built MaterializationSpec.
 /// Exercises `shuffle::Binding::from_materialization_binding()`.
 fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
@@ -350,7 +371,7 @@ async fn single_producer_outside_txn(
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
     let mut shard_state: ShardState = (0..1).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
@@ -414,7 +435,7 @@ async fn continue_then_ack(
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
     let mut shard_state: ShardState = (0..1).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
@@ -475,7 +496,7 @@ async fn multi_shard_routing(
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
     let mut shard_state: ShardState = (0..3).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
@@ -559,7 +580,7 @@ async fn multiple_producers(
     .expect("SessionClient::open");
 
     // First checkpoint: P1 committed, P2 pending. Reader yields only P1's doc.
-    let frontier1 = session.next_checkpoint().await.expect("next_checkpoint 1");
+    let frontier1 = next_resolved_checkpoint(&mut session, "next_checkpoint 1").await;
     let mut shard_state: ShardState = (0..1).map(|_| None).collect();
     let read1 = collect_read_entries(&frontier1, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
@@ -577,7 +598,7 @@ async fn multiple_producers(
     pub2.write_intents(&journal_acks).await.unwrap();
 
     // Second checkpoint: P2 now committed. Reader yields P2's doc.
-    let frontier2 = session.next_checkpoint().await.expect("next_checkpoint 2");
+    let frontier2 = next_resolved_checkpoint(&mut session, "next_checkpoint 2").await;
     let read2 = collect_read_entries(&frontier2, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "multiple_producers_checkpoint2",
@@ -613,10 +634,7 @@ async fn multiple_producers(
     .await
     .expect("SessionClient::open resumed");
 
-    let frontier3 = resumed_session
-        .next_checkpoint()
-        .await
-        .expect("next_checkpoint resumed");
+    let frontier3 = next_resolved_checkpoint(&mut resumed_session, "next_checkpoint resumed").await;
     let mut resumed_shard_state: ShardState = (0..1).map(|_| None).collect();
     let read3 = collect_read_entries(&frontier3, &resume_dir, &mut resumed_shard_state);
     insta::assert_debug_snapshot!(
@@ -703,7 +721,7 @@ async fn resume_from_checkpoint(
     .await
     .expect("SessionClient::open phase 1");
 
-    let phase1_frontier = session.next_checkpoint().await.expect("phase 1 checkpoint");
+    let phase1_frontier = next_resolved_checkpoint(&mut session, "phase 1 checkpoint").await;
     let mut phase1_shard_state: ShardState = (0..1).map(|_| None).collect();
     let phase1_read = collect_read_entries(&phase1_frontier, &phase1_dir, &mut phase1_shard_state);
     insta::assert_debug_snapshot!(
@@ -756,10 +774,8 @@ async fn resume_from_checkpoint(
 
     // First checkpoint: recovery resolves the banana hint. New progress
     // (apple2) is held back by recovery_pending.
-    let recovery_frontier = session
-        .next_checkpoint()
-        .await
-        .expect("phase 2 recovery checkpoint");
+    let recovery_frontier =
+        next_resolved_checkpoint(&mut session, "phase 2 recovery checkpoint").await;
     let mut phase2_shard_state: ShardState = (0..1).map(|_| None).collect();
     let recovery_read =
         collect_read_entries(&recovery_frontier, &phase2_dir, &mut phase2_shard_state);
@@ -772,10 +788,8 @@ async fn resume_from_checkpoint(
     );
 
     // Second checkpoint: picks up remaining progress (apples original + new).
-    let progress_frontier = session
-        .next_checkpoint()
-        .await
-        .expect("phase 2 progress checkpoint");
+    let progress_frontier =
+        next_resolved_checkpoint(&mut session, "phase 2 progress checkpoint").await;
     let progress_read =
         collect_read_entries(&progress_frontier, &phase2_dir, &mut phase2_shard_state);
     insta::assert_debug_snapshot!(
@@ -857,7 +871,7 @@ async fn multi_partition_transaction(
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
     let mut shard_state: ShardState = (0..1).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
@@ -959,7 +973,7 @@ async fn partition_filtered_hints(
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
     let mut shard_state: ShardState = (0..1).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
@@ -1056,7 +1070,7 @@ async fn clock_window_filtering(
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
     let mut shard_state: ShardState = (0..1).map(|_| None).collect();
     let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
@@ -1191,7 +1205,7 @@ async fn rollback(
     // Both producers committed. Await to read Reader yields all three docs.
     let mut frontier1 = shuffle::Frontier::default();
     loop {
-        let delta = session.next_checkpoint().await.expect("phase 1 checkpoint");
+        let delta = next_resolved_checkpoint(&mut session, "phase 1 checkpoint").await;
         frontier1 = frontier1.reduce(delta);
 
         if frontier1.journals[0].bytes_behind_delta == 0 {
@@ -1238,7 +1252,7 @@ async fn rollback(
     pub2.write_intents(&rollback_acks).await.unwrap();
 
     // P2's pending docs must NOT appear. Frontier advances (flush propagates).
-    let frontier2 = session.next_checkpoint().await.expect("phase 2 checkpoint");
+    let frontier2 = next_resolved_checkpoint(&mut session, "phase 2 checkpoint").await;
     let read2 = collect_read_entries(&frontier2, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "rollback_phase2_clean_rollback",
@@ -1271,7 +1285,7 @@ async fn rollback(
     // Only P1's new doc appears. P2's rolled-back docs remain permanently
     // uncommitted — P2 is retired and no future ACK will advance its
     // last_commit past their clocks.
-    let frontier3 = session.next_checkpoint().await.expect("phase 3 checkpoint");
+    let frontier3 = next_resolved_checkpoint(&mut session, "phase 3 checkpoint").await;
     let read3 = collect_read_entries(&frontier3, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "rollback_phase3_p1_continues",
@@ -1313,7 +1327,7 @@ async fn rollback(
 
     // P1's pending CONTINUE docs are rolled back. P1's last_commit regresses
     // to Clock::default().
-    let frontier4 = session.next_checkpoint().await.expect("phase 4 checkpoint");
+    let frontier4 = next_resolved_checkpoint(&mut session, "phase 4 checkpoint").await;
     let read4 = collect_read_entries(&frontier4, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "rollback_phase4_deep_rollback",

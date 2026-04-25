@@ -70,7 +70,7 @@ pub fn build_flush_frontier(
             .map(|(producer, ps)| crate::ProducerFrontier {
                 producer: *producer,
                 last_commit: ps.last_commit,
-                hinted_commit: Clock::from_u64(0),
+                hinted_commit: Clock::zero(),
                 offset: ps.offset,
             })
             .collect();
@@ -97,6 +97,7 @@ pub fn build_flush_frontier(
     journals.sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
 
     let reads_frontier = crate::Frontier {
+        unresolved_hints: 0, // By construction: only `last_commit` set.
         journals,
         flushed_lsn: vec![crate::log::Lsn::ZERO; shard_count],
     };
@@ -108,7 +109,7 @@ pub fn build_flush_frontier(
                 .into_iter()
                 .map(|(producer, hinted_clock)| crate::ProducerFrontier {
                     producer,
-                    last_commit: Clock::from_u64(0),
+                    last_commit: Clock::zero(),
                     hinted_commit: hinted_clock,
                     offset: 0,
                 })
@@ -136,7 +137,10 @@ pub fn build_flush_frontier(
     // (entries must be unique since they come from HashMap keys).
     hint_journals.sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
 
+    // By construction every producer has `last_commit: zero` and a non-zero `hinted_commit`.
+    let unresolved_hints = hint_journals.iter().map(|jf| jf.producers.len()).sum();
     reads_frontier.reduce(crate::Frontier {
+        unresolved_hints,
         journals: hint_journals,
         flushed_lsn: vec![],
     })

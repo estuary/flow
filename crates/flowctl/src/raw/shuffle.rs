@@ -178,10 +178,19 @@ impl Shuffle {
 
             tracing::debug!(i, "requesting NextCheckpoint");
 
-            let frontier = client
+            let mut frontier = client
                 .next_checkpoint()
                 .await
                 .context("requesting next checkpoint")?;
+
+            while frontier.unresolved_hints != 0 {
+                // Reducing intermediate peeks is unnecessary here because the
+                // eventual ready frontier is a full restatement.
+                frontier = client
+                    .next_checkpoint()
+                    .await
+                    .context("requesting next checkpoint follow-up")?;
+            }
 
             // Scan committed entries from each shard's log,
             // pushing documents into the combiner.
