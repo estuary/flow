@@ -44,7 +44,7 @@ You may invite additional members of your company to collaborate with you. Estua
 
 1. Meanwhile, the tenant admin can sign into their Estuary dashboard and navigate to the **Admin** tab.
 
-2. Under [Account Access](../concepts/web-app.md#account-access), in the **Organization Membership** section, click the **Add Users** button.
+2. Under [Account Access](/guides/dashboard/admin/#account-access), in the **Organization Membership** section, click the **Add Users** button.
 
 3. Choose your desired prefix (such as your entire tenant or a defined subset), capability (admin or read access), and type (multi- or single-use). Then create an invite link.
 

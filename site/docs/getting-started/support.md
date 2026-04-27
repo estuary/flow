@@ -41,4 +41,4 @@ You should then see `estuary_support/` in the list of entities that you're shari
 
 When your issue is resolved, you can revoke access again by selecting the `estuary_support/` row and clicking **Remove**.
 
-Learn more about [access grants](../concepts/web-app.md#account-access).
+Learn more about [access grants](/guides/dashboard/admin/#account-access).

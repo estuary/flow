@@ -1,12 +1,12 @@
 ---
-sidebar_position: 1
+sidebar_position: 6
 slug: /guides/edit-data-flows/
 ---
 
-# Edit Data Flows in the Web App
+# Edit Data Flows in the Dashboard
 
-You can edit existing captures, collection schemas, and materializations in Estuary's web app.
-For a tour of the web app, [start here](/concepts/web-app).
+You can edit existing captures, collection schemas, and materializations in Estuary's dashboard.
+For a tour of the dashboard, [start here](/guides/dashboard).
 
 There are separate workflows for editing [captures](#edit-a-capture) and [materializations](#edit-a-materialization).
 You can edit a collection schema using Estuary's **Schema Inference** tool by editing either a capture or materialization associated

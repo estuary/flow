@@ -10,7 +10,7 @@ You can then set your infra-as-code repositories up with a CI/CD pipeline to aut
 
 This guide will show you how to configure Estuary resources programmatically for use in CI/CD workflows or other automation.
 
-For instructions on using the UI instead, see information on Estuary's [web application](../../concepts/web-app.md).
+For instructions on using the UI instead, see information on Estuary's [dashboard](/guides/dashboard).
 
 ## Creating Estuary Resources Locally
 
