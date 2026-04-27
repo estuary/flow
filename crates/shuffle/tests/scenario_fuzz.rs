@@ -979,6 +979,9 @@ fn prop(input: TestCase) -> quickcheck::TestResult {
 
     match harness.runtime.block_on(run_test_case(harness, input)) {
         Ok(()) => quickcheck::TestResult::passed(),
-        Err(_msg) => quickcheck::TestResult::failed(),
+        Err(msg) => {
+            eprintln!("run_test_case failed: {msg}");
+            quickcheck::TestResult::failed()
+        }
     }
 }
