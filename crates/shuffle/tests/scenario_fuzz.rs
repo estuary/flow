@@ -726,7 +726,7 @@ fn collect_scanned_entries(
 async fn run_test_case(harness: &SharedHarness, test_case: TestCase) -> Result<(), String> {
     reset_data_plane(harness)
         .await
-        .map_err(|e| format!("data_plane.reset: {e}"))?;
+        .map_err(|e| format!("data_plane.reset: {e:#}"))?;
 
     let case_id = harness
         .case_counter
@@ -781,7 +781,7 @@ async fn run_test_case_inner(
         recovery.clone(),
     )
     .await
-    .map_err(|e| format!("SessionClient::open: {e}"))?;
+    .map_err(|e| format!("SessionClient::open: {e:#}"))?;
     tracing::debug!("  session opened");
 
     let mut shard_state: Vec<Option<(Reader, VecDeque<Remainder>)>> =
@@ -851,7 +851,7 @@ async fn run_test_case_inner(
                 let delta = session
                     .next_checkpoint()
                     .await
-                    .map_err(|e| format!("next_checkpoint: {e}"))?;
+                    .map_err(|e| format!("next_checkpoint: {e:#}"))?;
 
                 tracing::debug!(?delta, "session.next_checkpoint returned delta");
 
@@ -884,7 +884,7 @@ async fn run_test_case_inner(
             session
                 .close()
                 .await
-                .map_err(|e| format!("session.close on crash: {e}"))?;
+                .map_err(|e| format!("session.close on crash: {e:#}"))?;
 
             // Reset aspects of the cumulative recovery Frontier that aren't
             // intended to be meaningful across sessions.
@@ -902,7 +902,7 @@ async fn run_test_case_inner(
                 recovery.clone(),
             )
             .await
-            .map_err(|e| format!("SessionClient::open on recovery: {e}"))?;
+            .map_err(|e| format!("SessionClient::open on recovery: {e:#}"))?;
 
             round_frontier = shuffle::Frontier {
                 journals: vec![],
@@ -913,7 +913,7 @@ async fn run_test_case_inner(
                 let recovery_delta = session
                     .next_checkpoint()
                     .await
-                    .map_err(|e| format!("recovery next_checkpoint: {e}"))?;
+                    .map_err(|e| format!("recovery next_checkpoint: {e:#}"))?;
                 round_frontier = recovery_delta;
             }
         }
@@ -939,7 +939,7 @@ async fn run_test_case_inner(
     session
         .close()
         .await
-        .map_err(|e| format!("final session.close: {e}"))?;
+        .map_err(|e| format!("final session.close: {e:#}"))?;
 
     Ok(())
 }
