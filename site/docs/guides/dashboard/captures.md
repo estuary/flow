@@ -23,7 +23,7 @@ You can search for any part of this full capture name. You can also use the `*` 
 For example, if you have a capture called `acmeCo/logistics/anvil-locations/source-postgres`,
 you can find it by filtering for `acmeCo*source-postgres`.
 
-**5:** Status indicator. Shows the status of the primary task [shard](/concepts/advanced/shards) that backs this capture.
+**5:** Status indicator. Shows the capture's [shard](/concepts/advanced/shards) status.
 
 * **Primary (Green)**: Data is actively flowing through the capture.
 * **Pending (Yellow)**: The capture is attempting to re-connect. Often, you'll see this after you re-enable the capture as Estuary backfills historical data.
@@ -59,8 +59,7 @@ For detailed steps to edit a capture, see the [guide](/guides/edit-data-flows/#e
 When you click **Create Capture**, you're taken to the Create Capture page.
 In the first view, all available capture connectors are displayed.
 
-Select the tile of the system from which you want to capture data to show the full capture form.
-The form details are specific to the connector you chose.
+Select your desired source system. This will open a connector-specific form where you can configure your connection.
 
 For detailed steps to create a capture, see the [guide](/guides/create-dataflow/#create-a-capture).
 

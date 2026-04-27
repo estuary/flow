@@ -20,7 +20,7 @@ You can search for any part of this full materialization name. You can also use 
 For example, if you have a materialization called `acmeCo/logistics/anvil-locations/materialize-snowflake`,
 you can find it by filtering for `acmeCo*materialize-snowflake`.
 
-**4:** Status indicator. Shows the status of the primary task [shard](/concepts/advanced/shards) that backs this materialization.
+**4:** Status indicator. Shows the materialization's [shard](/concepts/advanced/shards) status.
 
 * **Primary (Green)**: Data is actively flowing through the materialization.
 * **Pending (Yellow)**: The materialization is attempting to re-connect. Often, you'll see this after you re-enable the materialization as Estuary backfills historical data.

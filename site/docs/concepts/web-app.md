@@ -112,6 +112,6 @@ Here, you can manage:
 * Organization membership and data sharing
 * Data planes and storage mappings
 * Billing information
-* Refresh and access tokens for `flowctl`
+* Refresh tokens and access tokens for `flowctl`
 
 [See in-depth details on navigating these pages.](/guides/dashboard/admin)

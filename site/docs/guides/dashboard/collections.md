@@ -17,7 +17,7 @@ The full name is shown, including all [prefixes](/concepts/catalogs/#namespace).
 * View collection status with the status indicator. If the collection does not contain a [derivation](/concepts/#derivations), the indicator should show green.
 In the event that the server cannot be reached, the indicator will show "Unknown" status (black in light mode and white in dark mode).
 
-   If the collection contains a derivation, the status of the derivation's primary task [shard](/concepts/advanced/shards) will be indicated:
+   If the collection is a derivation, the derivation's [shard](/concepts/advanced/shards) status will be indicated:
 
    * **Primary (Green)**: Data is actively flowing through the derivation.
    * **Pending (Yellow)**: The derivation is attempting to re-connect.

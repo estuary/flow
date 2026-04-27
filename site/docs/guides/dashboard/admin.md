@@ -52,7 +52,7 @@ You can create new alert subscriptions or edit existing ones to choose which [al
 This section provides a table of the cloud storage locations that back your collections.
 You're able to view the table if you're an admin.
 
-Each top-level Estuary [prefix](/concepts/catalogs/#namespace) is backed by one or more cloud storage bucket that you own.
+Each top-level Estuary [prefix](/concepts/catalogs/#namespace) is backed by one or more cloud storage buckets.
 If you have not set up your own storage bucket(s) yet, your data is stored temporarily in Estuary's cloud storage bucket.
 
 [Learn more about storage mappings.](/concepts/storage-mappings)
