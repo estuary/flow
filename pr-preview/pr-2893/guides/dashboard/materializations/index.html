@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary&#39;s [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can&#39;t find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)." data-mcp-enabled="true" data-mcp-server-url="https://estuary.mcp.kapa.ai"></script><link rel="stylesheet" href="/pr-preview/pr-2893/assets/css/styles.5d76ff13.css">
-<script src="/pr-preview/pr-2893/assets/js/runtime~main.0305b7fb.js" defer="defer"></script>
-<script src="/pr-preview/pr-2893/assets/js/main.48ac6df8.js" defer="defer"></script>
+<script src="/pr-preview/pr-2893/assets/js/runtime~main.091ce1e9.js" defer="defer"></script>
+<script src="/pr-preview/pr-2893/assets/js/main.249aab7d.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -28,7 +28,7 @@ You can also create a new materialization with the <strong>New Materialization</
 You can search for any part of this full materialization name. You can also use the <code>*</code> wildcard.
 For example, if you have a materialization called <code>acmeCo/logistics/anvil-locations/materialize-snowflake</code>,
 you can find it by filtering for <code>acmeCo*materialize-snowflake</code>.</p>
-<p><strong>4:</strong> Status indicator. Shows the status of the primary task <a class="" href="/pr-preview/pr-2893/concepts/advanced/shards/">shard</a> that backs this materialization.</p>
+<p><strong>4:</strong> Status indicator. Shows the materialization&#x27;s <a class="" href="/pr-preview/pr-2893/concepts/advanced/shards/">shard</a> status.</p>
 <ul>
 <li class=""><strong>Primary (Green)</strong>: Data is actively flowing through the materialization.</li>
 <li class=""><strong>Pending (Yellow)</strong>: The materialization is attempting to re-connect. Often, you&#x27;ll see this after you re-enable the materialization as Estuary backfills historical data.</li>
