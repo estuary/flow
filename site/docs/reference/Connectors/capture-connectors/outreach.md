@@ -44,6 +44,7 @@ you'll sign in directly and won't need the access token.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
+| `/advanced/window_size` | Window size | Date window size for incremental syncs in ISO 8601 format. ex: P1D means 1 day, PT6H means 6 hours. | string | P1D |
 | `/start_date` | Start date | UTC date and time in the format 2025-04-24T00:00:00Z. Any data updated before this date will not be replicated. | string | 30 days before the present date |
 | **`/credentials/access_token`** | Access Token | The access token received from the OAuth app. | string | Required |
 | **`/credentials/access_token_expires_at`** | Access Token Expiration Datetime | The access token's expiration date and time in the format 2025-04-24T00:00:00Z. | string | Required |
@@ -69,6 +70,8 @@ captures:
       connector:
         image: ghcr.io/estuary/source-outreach:v1
         config:
+          advanced:
+            window_size: PT12H
           credentials:
             access_token: <secret>
             access_token_expires_at: "2025-04-24T12:00:00Z"
