@@ -24,6 +24,7 @@ pub struct AlertConfigsFilter {
 
 /// A single row from `public.alert_configs`.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
+#[graphql(complex)]
 pub struct AlertConfigEntry {
     pub id: models::Id,
     pub catalog_prefix_or_name: String,
@@ -32,6 +33,53 @@ pub struct AlertConfigEntry {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub last_modified_by: Option<sqlx::types::Uuid>,
+}
+
+#[async_graphql::ComplexObject]
+impl AlertConfigEntry {
+    /// The fully-resolved effective config at this scope, merging all
+    /// ancestor prefix layers and controller defaults.
+    async fn effective(&self, ctx: &Context<'_>) -> async_graphql::Result<EffectiveAlertConfig> {
+        resolve_effective_alert_config(ctx, &self.catalog_prefix_or_name).await
+    }
+}
+
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct EffectiveAlertConfig {
+    pub config: async_graphql::Json<models::AlertConfig>,
+    pub provenance: Vec<FieldProvenance>,
+}
+
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct FieldProvenance {
+    pub path: String,
+    pub source: Option<String>,
+}
+
+pub async fn resolve_effective_alert_config(
+    ctx: &Context<'_>,
+    catalog_prefix_or_name: &str,
+) -> async_graphql::Result<EffectiveAlertConfig> {
+    let env = ctx.data::<crate::Envelope>()?;
+    let defaults = ctx.data_opt::<models::AlertConfig>();
+
+    let (config, provenance_map) = crate::controllers::fetch_alert_config_with_provenance(
+        catalog_prefix_or_name,
+        &env.pg_pool,
+        defaults,
+    )
+    .await
+    .map_err(|e| async_graphql::Error::new(e.to_string()))?;
+
+    let provenance = provenance_map
+        .into_iter()
+        .map(|(path, source)| FieldProvenance { path, source })
+        .collect();
+
+    Ok(EffectiveAlertConfig {
+        config: async_graphql::Json(config),
+        provenance,
+    })
 }
 
 /// Result of the `updateAlertConfig` mutation.

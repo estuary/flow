@@ -28,14 +28,15 @@ pub async fn update_activation<C: ControlPlane>(
 ) -> anyhow::Result<Option<NextRun>> {
     let now = control_plane.current_time();
     let config = control_plane.controller_config();
-    let failure_retention = alert_cfg
+    let shard_failed_condition = alert_cfg
         .and_then(|a| a.shard_failed.as_ref())
-        .and_then(|s| s.retention_window)
+        .and_then(|s| s.condition.as_ref());
+    let failure_retention = shard_failed_condition
+        .and_then(|c| c.per)
         .and_then(|d| chrono::Duration::from_std(d).ok())
         .unwrap_or(config.shard_failure_retention);
-    let alert_after_shard_failures = alert_cfg
-        .and_then(|a| a.shard_failed.as_ref())
-        .and_then(|s| s.failure_threshold)
+    let alert_after_shard_failures = shard_failed_condition
+        .and_then(|c| c.failures)
         .unwrap_or(config.alert_after_shard_failures);
     let shard_failed_enabled = alert_cfg
         .and_then(|a| a.shard_failed.as_ref())

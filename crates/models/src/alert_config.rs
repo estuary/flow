@@ -19,22 +19,26 @@ pub struct AlertConfig {
     pub task_idle: Option<TaskIdleConfig>,
 }
 
-/// Configuration for the `DataMovementStalled` alert.
-///
-/// This alert is evaluated only when `threshold` is set.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DataMovementStalledConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<DataMovementStalledCondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DataMovementStalledCondition {
+    /// How long to wait for data movement before the alert fires.
     #[serde(
         default,
         with = "humantime_serde",
         skip_serializing_if = "Option::is_none"
     )]
-    /// How long the task must go with no data movement before the alert fires.
     #[schemars(schema_with = "crate::duration_schema")]
-    pub threshold: Option<Duration>,
+    pub stalled_for: Option<Duration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -42,18 +46,24 @@ pub struct DataMovementStalledConfig {
 pub struct ShardFailedConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
-    /// Number of shard failures within `retention_window` required to fire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure_threshold: Option<u32>,
-    /// Time window over which `failure_threshold` is evaluated; failures
-    /// older than this are discarded.
+    pub condition: Option<ShardFailedCondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ShardFailedCondition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failures: Option<u32>,
+    /// Time window over which `failures` is evaluated; failures older than
+    /// this are discarded.
     #[serde(
         default,
         with = "humantime_serde",
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(schema_with = "crate::duration_schema")]
-    pub retention_window: Option<Duration>,
+    pub per: Option<Duration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -61,17 +71,23 @@ pub struct ShardFailedConfig {
 pub struct TaskChronicallyFailingConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Whether to disable the failing task
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_disable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<TaskChronicallyFailingCondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskChronicallyFailingCondition {
     #[serde(
         default,
         with = "humantime_serde",
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(schema_with = "crate::duration_schema")]
-    pub threshold: Option<Duration>,
-    /// When the grace period expires after this alert first fires, disable the
-    /// task's shards through a controller publication. Defaults to `false`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auto_disable: Option<bool>,
+    pub failing_for: Option<Duration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -79,17 +95,23 @@ pub struct TaskChronicallyFailingConfig {
 pub struct TaskIdleConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Whether to disable the failing task
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_disable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<TaskIdleCondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskIdleCondition {
     #[serde(
         default,
         with = "humantime_serde",
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(schema_with = "crate::duration_schema")]
-    pub threshold: Option<Duration>,
-    /// When the grace period expires after this alert first fires, disable the
-    /// task's shards through a controller publication. Defaults to `false`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auto_disable: Option<bool>,
+    pub idle_for: Option<Duration>,
 }
 
 #[cfg(test)]
@@ -101,44 +123,60 @@ mod test {
         let cfg = AlertConfig {
             data_movement_stalled: Some(DataMovementStalledConfig {
                 enabled: Some(true),
-                threshold: Some(Duration::from_secs(7200)),
+                condition: Some(DataMovementStalledCondition {
+                    stalled_for: Some(Duration::from_secs(7200)),
+                }),
             }),
             shard_failed: Some(ShardFailedConfig {
                 enabled: Some(true),
-                failure_threshold: Some(5),
-                retention_window: Some(Duration::from_secs(14400)),
+                condition: Some(ShardFailedCondition {
+                    failures: Some(5),
+                    per: Some(Duration::from_secs(14400)),
+                }),
             }),
             task_chronically_failing: Some(TaskChronicallyFailingConfig {
                 enabled: Some(false),
-                threshold: Some(Duration::from_secs(60 * 60 * 24 * 7)),
                 auto_disable: Some(false),
+                condition: Some(TaskChronicallyFailingCondition {
+                    failing_for: Some(Duration::from_secs(60 * 60 * 24 * 7)),
+                }),
             }),
             task_idle: Some(TaskIdleConfig {
                 enabled: None,
-                threshold: Some(Duration::from_secs(60 * 60 * 24 * 14)),
                 auto_disable: Some(true),
+                condition: Some(TaskIdleCondition {
+                    idle_for: Some(Duration::from_secs(60 * 60 * 24 * 14)),
+                }),
             }),
         };
         let json = serde_json::to_value(&cfg).unwrap();
         insta::assert_json_snapshot!(json, @r#"
         {
           "dataMovementStalled": {
-            "enabled": true,
-            "threshold": "2h"
+            "condition": {
+              "stalledFor": "2h"
+            },
+            "enabled": true
           },
           "shardFailed": {
-            "enabled": true,
-            "failureThreshold": 5,
-            "retentionWindow": "4h"
+            "condition": {
+              "failures": 5,
+              "per": "4h"
+            },
+            "enabled": true
           },
           "taskChronicallyFailing": {
             "autoDisable": false,
-            "enabled": false,
-            "threshold": "7days"
+            "condition": {
+              "failingFor": "7days"
+            },
+            "enabled": false
           },
           "taskIdle": {
             "autoDisable": true,
-            "threshold": "14days"
+            "condition": {
+              "idleFor": "14days"
+            }
           }
         }
         "#);
@@ -151,7 +189,7 @@ mod test {
     fn enabled_roundtrips_at_each_sub_config() {
         let json = r#"{
             "shardFailed": {"enabled": false},
-            "dataMovementStalled": {"enabled": true, "threshold": "1h"},
+            "dataMovementStalled": {"enabled": true, "condition": {"stalledFor": "1h"}},
             "taskIdle": {"enabled": false},
             "taskChronicallyFailing": {"enabled": true}
         }"#;
@@ -192,9 +230,9 @@ mod test {
     #[test]
     fn partial_config_parses() {
         let cfg: AlertConfig =
-            serde_json::from_str(r#"{"taskIdle": {"threshold": "14d"}}"#).unwrap();
+            serde_json::from_str(r#"{"taskIdle": {"condition": {"idleFor": "14d"}}}"#).unwrap();
         assert_eq!(
-            cfg.task_idle.unwrap().threshold,
+            cfg.task_idle.unwrap().condition.unwrap().idle_for,
             Some(Duration::from_secs(60 * 60 * 24 * 14))
         );
         assert!(cfg.shard_failed.is_none());
@@ -203,15 +241,19 @@ mod test {
     #[test]
     fn humantime_formats_accepted() {
         let cfg: AlertConfig = serde_json::from_str(
-            r#"{"dataMovementStalled": {"threshold": "2h"}, "shardFailed": {"retentionWindow": "8h"}}"#,
+            r#"{"dataMovementStalled": {"condition": {"stalledFor": "2h"}}, "shardFailed": {"condition": {"per": "8h"}}}"#,
         )
         .unwrap();
         assert_eq!(
-            cfg.data_movement_stalled.unwrap().threshold,
+            cfg.data_movement_stalled
+                .unwrap()
+                .condition
+                .unwrap()
+                .stalled_for,
             Some(Duration::from_secs(7200))
         );
         assert_eq!(
-            cfg.shard_failed.unwrap().retention_window,
+            cfg.shard_failed.unwrap().condition.unwrap().per,
             Some(Duration::from_secs(8 * 3600))
         );
     }

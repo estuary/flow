@@ -157,7 +157,8 @@ fn evaluate_alerts(
 
     let chronically_failing_threshold = alert_config
         .and_then(|a| a.task_chronically_failing.as_ref())
-        .and_then(|c| c.threshold)
+        .and_then(|c| c.condition.as_ref())
+        .and_then(|c| c.failing_for)
         .and_then(|d| chrono::Duration::from_std(d).ok())
         .unwrap_or(config.chronically_failing_threshold);
     let chronic_silenced = alert_config
@@ -263,7 +264,8 @@ fn evaluate_alerts(
 
     let idle_threshold = alert_config
         .and_then(|a| a.task_idle.as_ref())
-        .and_then(|t| t.threshold)
+        .and_then(|t| t.condition.as_ref())
+        .and_then(|c| c.idle_for)
         .and_then(|d| chrono::Duration::from_std(d).ok())
         .unwrap_or(config.abandon_idle_threshold);
     let idle_silenced = alert_config
@@ -659,8 +661,8 @@ mod test {
         let alert_cfg = models::AlertConfig {
             task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
                 enabled: None,
-                threshold: None,
                 auto_disable: Some(true),
+                condition: None,
             }),
             ..Default::default()
         };
@@ -1068,8 +1070,8 @@ mod test {
         let alert_cfg = models::AlertConfig {
             task_idle: Some(models::TaskIdleConfig {
                 enabled: None,
-                threshold: None,
                 auto_disable: Some(true),
+                condition: None,
             }),
             ..Default::default()
         };
@@ -1266,8 +1268,8 @@ mod test {
         let alert_cfg = models::AlertConfig {
             task_idle: Some(models::TaskIdleConfig {
                 enabled: Some(false),
-                threshold: None,
                 auto_disable: None,
+                condition: None,
             }),
             ..Default::default()
         };
@@ -1297,8 +1299,8 @@ mod test {
         let alert_cfg = models::AlertConfig {
             task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
                 enabled: Some(false),
-                threshold: None,
                 auto_disable: None,
+                condition: None,
             }),
             ..Default::default()
         };
@@ -1336,8 +1338,10 @@ mod test {
         let alert_cfg = models::AlertConfig {
             task_idle: Some(models::TaskIdleConfig {
                 enabled: None,
-                threshold: Some(std::time::Duration::from_secs(60 * 60 * 24 * 90)),
                 auto_disable: None,
+                condition: Some(models::TaskIdleCondition {
+                    idle_for: Some(std::time::Duration::from_secs(60 * 60 * 24 * 90)),
+                }),
             }),
             ..Default::default()
         };
@@ -1365,8 +1369,8 @@ mod test {
         let auto_disable_on = models::AlertConfig {
             task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
                 enabled: None,
-                threshold: None,
                 auto_disable: Some(true),
+                condition: None,
             }),
             ..Default::default()
         };
@@ -1413,8 +1417,8 @@ mod test {
         let auto_disable_off = models::AlertConfig {
             task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
                 enabled: None,
-                threshold: None,
                 auto_disable: Some(false),
+                condition: None,
             }),
             ..Default::default()
         };
@@ -1440,8 +1444,8 @@ mod test {
         let auto_disable_on = models::AlertConfig {
             task_idle: Some(models::TaskIdleConfig {
                 enabled: None,
-                threshold: None,
                 auto_disable: Some(true),
+                condition: None,
             }),
             ..Default::default()
         };
@@ -1473,8 +1477,8 @@ mod test {
         let auto_disable_off = models::AlertConfig {
             task_idle: Some(models::TaskIdleConfig {
                 enabled: None,
-                threshold: None,
                 auto_disable: Some(false),
+                condition: None,
             }),
             ..Default::default()
         };
