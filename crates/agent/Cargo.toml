@@ -80,6 +80,7 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 assemble = { path = "../assemble" }
+control-plane-api = { path = "../control-plane-api", features = ["test-support"] }
 insta = { workspace = true }
 md5 = { workspace = true }
 tokio = { workspace = true }
