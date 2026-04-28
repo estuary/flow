@@ -538,45 +538,14 @@ impl TestHarness {
     /// storage_mappings, and tenants tables should all look just like they
     /// would in production.
     pub async fn setup_tenant(&self, tenant: &str) -> sqlx::types::Uuid {
-        let user_id = sqlx::types::Uuid::new_v4();
         let email = format!("{tenant}@{}.test", self.test_name.replace(' ', "-"));
-
         let meta = serde_json::json!({
             "picture": format!("http://{tenant}.test/avatar"),
             "full_name": format!("Full ({tenant}) Name"),
         });
 
-        let mut txn = self.pool.begin().await.unwrap();
-        sqlx::query!(
-            r#"insert into auth.users(id, email, raw_user_meta_data) values ($1, $2, $3)"#,
-            user_id,
-            email.as_str(),
-            meta
-        )
-        .execute(&mut *txn)
-        .await
-        .expect("failed to create user");
-
-        control_plane_api::directives::beta_onboard::provision_tenant(
-            "support@estuary.dev",
-            Some(format!("for test: {}", self.test_name)),
-            tenant,
-            user_id,
-            &mut txn,
-        )
-        .await
-        .expect("failed to provision tenant");
-
-        // Remove the estuary_support/ role grant, which gets automatically
-        // added by a trigger whenever we create a new tenant. Removing it here
-        // ensures that things still work correctly without it.
-        sqlx::query!(r#"delete from role_grants where subject_role = 'estuary_support/';"#)
-            .execute(&mut *txn)
+        control_plane_api::test_support::provision_test_tenant(&self.pool, tenant, &email, meta)
             .await
-            .expect("failed to remove estuary_support/ role");
-
-        txn.commit().await.expect("failed to commit transaction");
-        user_id
     }
 
     pub async fn add_role_grant(&mut self, subject: &str, object: &str, capability: Capability) {

@@ -91,3 +91,4 @@ tracing-subscriber = { workspace = true }
 [features]
 default = ["sqlx-support"]
 sqlx-support = []
+test-support = []

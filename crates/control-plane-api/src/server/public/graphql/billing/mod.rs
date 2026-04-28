@@ -24,33 +24,13 @@ pub(super) mod test_util {
     use std::sync::Arc;
 
     pub async fn provision_test_tenant(pool: &sqlx::PgPool, tenant: &str) -> uuid::Uuid {
-        let user_id = uuid::Uuid::new_v4();
-        sqlx::query(
-            r#"insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3)"#,
-        )
-        .bind(user_id)
-        .bind(format!("{tenant}@example.test"))
-        .bind(json!({"full_name": format!("{tenant} admin")}))
-        .execute(pool)
-        .await
-        .expect("insert auth user");
-
-        let mut txn = pool.begin().await.expect("begin txn");
-        crate::directives::beta_onboard::provision_tenant(
-            "support@estuary.dev",
-            Some("test tenant".to_string()),
+        crate::test_support::provision_test_tenant(
+            pool,
             tenant,
-            user_id,
-            &mut txn,
+            &format!("{tenant}@example.test"),
+            json!({"full_name": format!("{tenant} admin")}),
         )
         .await
-        .expect("provision tenant");
-        sqlx::query(r#"delete from role_grants where subject_role = 'estuary_support/';"#)
-            .execute(&mut *txn)
-            .await
-            .expect("delete support grant");
-        txn.commit().await.expect("commit tenant");
-        user_id
     }
 
     pub fn mock_provider() -> Arc<dyn billing::BillingProvider> {

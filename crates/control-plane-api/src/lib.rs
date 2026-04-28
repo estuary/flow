@@ -23,6 +23,9 @@ pub mod publications;
 pub mod server;
 mod text_json;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 #[cfg(test)]
 pub(crate) mod test_server;
 
