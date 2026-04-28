@@ -1,4 +1,16 @@
-use super::{Task, Transaction};
+//! Trigger compilation, variable construction, and webhook delivery.
+//!
+//! This module is the single source of truth for materialize trigger logic.
+//! It is consumed by:
+//!   - The leader actor, which fires triggers post-commit via the Shuffle
+//!     Leader protocol.
+//!   - The legacy `runtime` crate (via re-export from
+//!     `runtime/src/materialize/triggers.rs`), preserving its existing
+//!     per-shard firing behavior.
+//!
+//! Inputs are POD primitives (`TriggerInputs`) so this module has no
+//! coupling to either runtime's task/transaction types.
+
 use anyhow::Context;
 use models::TriggerVariables;
 use proto_gazette::uuid::Clock;
@@ -7,6 +19,14 @@ use proto_gazette::uuid::Clock;
 pub struct CompiledTriggers {
     pub configs: Vec<models::TriggerConfig>,
     registry: handlebars::Handlebars<'static>,
+}
+
+impl std::fmt::Debug for CompiledTriggers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompiledTriggers")
+            .field("configs", &self.configs.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl CompiledTriggers {
@@ -37,51 +57,73 @@ impl CompiledTriggers {
     }
 }
 
-/// Compute trigger variables from the current transaction state and task metadata.
-pub fn trigger_variables(
-    task: &Task,
-    txn: &Transaction,
-    connector_image: &str,
-) -> TriggerVariables {
-    // Collect collection names from bindings that have received documents.
-    let collection_names: Vec<String> = txn
-        .stats
-        .iter()
-        .map(|(index, _)| task.bindings[*index as usize].collection_name.clone())
-        .collect();
+/// Decrypt the SOPS-encrypted `triggers_json` blob from a materialization
+/// spec and compile its templates. Returns `None` if `triggers_json` is empty.
+pub async fn decrypt_and_compile(triggers_json: &[u8]) -> anyhow::Result<Option<CompiledTriggers>> {
+    if triggers_json.is_empty() {
+        return Ok(None);
+    }
 
-    let materialization_name = task.shard_ref.name.clone();
+    let mut triggers: models::Triggers =
+        serde_json::from_slice(triggers_json).context("parsing triggers JSON")?;
 
-    // Compute min of first_source_clock and max of last_source_clock across bindings.
-    let first_clocks = txn
-        .stats
-        .values()
-        .map(|s| s.first_source_clock)
-        .filter(|c| *c != Clock::default());
-    let last_clocks = txn
-        .stats
-        .values()
-        .map(|s| s.last_source_clock)
-        .filter(|c| *c != Clock::default());
+    // Strip HMAC-excluded fields before decryption (they were stripped
+    // during encryption so SOPS HMAC doesn't cover them), then restore.
+    let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
+    let stripped = models::RawValue::from_value(
+        &serde_json::to_value(&triggers).context("serializing stripped triggers")?,
+    );
 
-    let flow_published_at_min = first_clocks
-        .min()
+    let mut decrypted: models::Triggers = serde_json::from_str(
+        unseal::decrypt_sops(&stripped)
+            .await
+            .context("decrypting triggers_json")?
+            .get(),
+    )
+    .context("parsing decrypted triggers JSON")?;
+
+    models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
+
+    Ok(Some(
+        CompiledTriggers::compile(decrypted.config).context("compiling trigger templates")?,
+    ))
+}
+
+/// Inputs to `trigger_variables`. POD primitives so callers in different
+/// crates can supply them from their own task/transaction shapes.
+pub struct TriggerInputs<'a> {
+    /// Collection names of bindings that received documents this transaction.
+    pub collection_names: &'a [String],
+    pub materialization_name: &'a str,
+    pub connector_image: &'a str,
+    /// First-document time of the transaction (used as `run_id`).
+    pub started_at: std::time::SystemTime,
+    /// Min over all bindings' first-source clocks; `None` if no docs were read.
+    pub first_source_clock_min: Option<Clock>,
+    /// Max over all bindings' last-source clocks; `None` if no docs were read.
+    pub last_source_clock_max: Option<Clock>,
+}
+
+/// Compute trigger variables from POD inputs.
+pub fn trigger_variables(inputs: &TriggerInputs<'_>) -> TriggerVariables {
+    let flow_published_at_min = inputs
+        .first_source_clock_min
         .map(|c| clock_to_rfc3339(&c))
         .unwrap_or_default();
 
-    let flow_published_at_max = last_clocks
-        .max()
+    let flow_published_at_max = inputs
+        .last_source_clock_max
         .map(|c| clock_to_rfc3339(&c))
         .unwrap_or_default();
 
-    let run_id = time::OffsetDateTime::from(txn.started_at)
+    let run_id = time::OffsetDateTime::from(inputs.started_at)
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default();
 
     TriggerVariables {
-        collection_names,
-        connector_image: connector_image.to_string(),
-        materialization_name,
+        collection_names: inputs.collection_names.to_vec(),
+        connector_image: inputs.connector_image.to_string(),
+        materialization_name: inputs.materialization_name.to_string(),
         flow_published_at_min,
         flow_published_at_max,
         run_id,
@@ -324,54 +366,20 @@ mod test {
         insta::assert_json_snapshot!("rendered-template", parsed);
     }
 
-    use super::{Task, Transaction};
-    use crate::materialize::Binding;
-    use proto_gazette::uuid::Clock;
-
-    fn mock_task(binding_names: &[&str]) -> Task {
-        Task {
-            bindings: binding_names
-                .iter()
-                .map(|name| Binding {
-                    collection_name: name.to_string(),
-                    delta_updates: false,
-                    journal_read_suffix: String::new(),
-                    key_extractors: Vec::new(),
-                    read_schema_json: bytes::Bytes::new(),
-                    ser_policy: doc::SerPolicy::noop(),
-                    state_key: String::new(),
-                    store_document: false,
-                    value_extractors: Vec::new(),
-                    uuid_ptr: json::Pointer::empty(),
-                })
-                .collect(),
-            shard_ref: ops::ShardRef {
-                kind: ops::TaskType::Materialization as i32,
-                name: "acmeCo/my-materialization".to_string(),
-                key_begin: "00000000".to_string(),
-                r_clock_begin: "00000000".to_string(),
-                build: "test-build".to_string(),
-            },
-        }
-    }
-
     #[test]
     fn trigger_variables_snapshot() {
-        let task = mock_task(&["acmeCo/collection-a", "acmeCo/collection-b"]);
-        let mut txn = Transaction::new();
-        txn.started = true;
-
-        let stats = txn.stats.entry(0).or_default();
-        stats.right.docs_total = 5;
-        stats.first_source_clock = Clock::from_unix(1000, 0);
-        stats.last_source_clock = Clock::from_unix(3000, 0);
-
-        let stats = txn.stats.entry(1).or_default();
-        stats.right.docs_total = 3;
-        stats.first_source_clock = Clock::from_unix(500, 0);
-        stats.last_source_clock = Clock::from_unix(4000, 0);
-
-        let mut vars = trigger_variables(&task, &txn, "ghcr.io/estuary/materialize-postgres:dev");
+        let collection_names = vec![
+            "acmeCo/collection-a".to_string(),
+            "acmeCo/collection-b".to_string(),
+        ];
+        let mut vars = trigger_variables(&TriggerInputs {
+            collection_names: &collection_names,
+            materialization_name: "acmeCo/my-materialization",
+            connector_image: "ghcr.io/estuary/materialize-postgres:dev",
+            started_at: std::time::SystemTime::UNIX_EPOCH,
+            first_source_clock_min: Some(Clock::from_unix(500, 0)),
+            last_source_clock_max: Some(Clock::from_unix(4000, 0)),
+        });
         vars.run_id = "2024-06-15T12:30:00.000Z".to_string();
 
         insta::assert_json_snapshot!("trigger-variables", vars);

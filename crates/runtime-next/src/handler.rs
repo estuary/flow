@@ -1,42 +1,60 @@
-use super::{LogHandler, Runtime};
-use futures::{StreamExt, TryStreamExt, stream::BoxStream};
-use proto_flow::{capture, derive, materialize};
+//! Top-level Shard service implementation.
+//!
+//! `Runtime` directly implements the controller-facing `Shard` trait.
+//! "Controller" here is the peer that drives the shard's lifecycle: the
+//! Go runtime in production, an in-process driver such as `flowctl
+//! preview`, or a unit-test harness. From this crate's perspective the
+//! controller is just the peer of the bidi stream that commands the
+//! runtime and bounds its lifecycle.
 
-impl<L: LogHandler> Runtime<L> {
-    pub async fn unary_capture(
-        self,
-        request: capture::Request,
-    ) -> anyhow::Result<capture::Response> {
-        let response = self.serve_capture(unary_in(request));
-        unary_out(response).await
-    }
+use crate::{Runtime, materialize, new_channel, proto};
+use futures::Stream;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers;
 
-    pub async fn unary_derive(self, request: derive::Request) -> anyhow::Result<derive::Response> {
-        let response = self.serve_derive(unary_in(request));
-        unary_out(response).await
-    }
+impl<L: crate::LogHandler> Runtime<L> {
+    pub fn spawn_materialize<R>(
+        &self,
+        controller_rx: R,
+    ) -> mpsc::Receiver<tonic::Result<proto::Materialize>>
+    where
+        R: Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
+    {
+        let runtime = self.clone();
+        let (controller_tx, response_rx) = new_channel::<tonic::Result<proto::Materialize>>();
+        let error_tx = controller_tx.clone();
 
-    pub async fn unary_materialize(
-        self,
-        request: materialize::Request,
-    ) -> anyhow::Result<materialize::Response> {
-        let unary_resp = self.serve_materialize(unary_in(request)).boxed();
-        unary_out(unary_resp).await
+        tokio::spawn(async move {
+            if let Err(err) =
+                materialize::shard::handler::serve(runtime, controller_rx, controller_tx).await
+            {
+                let _ = error_tx.send(Err(crate::anyhow_to_status(err))).await;
+            }
+        });
+        response_rx
     }
 }
 
-fn unary_in<R: Send + 'static>(request: R) -> BoxStream<'static, anyhow::Result<R>> {
-    futures::stream::once(async move { Ok(request) }).boxed()
-}
+#[tonic::async_trait]
+impl<L: crate::LogHandler> proto_grpc::runtime::shard_server::Shard for Runtime<L> {
+    type MaterializeStream = wrappers::ReceiverStream<tonic::Result<proto::Materialize>>;
+    type DeriveStream = wrappers::ReceiverStream<tonic::Result<proto::Derive>>;
 
-async fn unary_out<S, R>(response_rx: S) -> anyhow::Result<R>
-where
-    S: futures::Stream<Item = anyhow::Result<R>>,
-{
-    let mut responses: Vec<R> = response_rx.try_collect().await?;
-
-    if responses.len() != 1 {
-        anyhow::bail!("unary request didn't return a response");
+    async fn materialize(
+        &self,
+        request: tonic::Request<tonic::Streaming<proto::Materialize>>,
+    ) -> tonic::Result<tonic::Response<Self::MaterializeStream>> {
+        Ok(tonic::Response::new(wrappers::ReceiverStream::new(
+            self.spawn_materialize(request.into_inner()),
+        )))
     }
-    Ok(responses.pop().unwrap())
+
+    async fn derive(
+        &self,
+        _request: tonic::Request<tonic::Streaming<proto::Derive>>,
+    ) -> tonic::Result<tonic::Response<Self::DeriveStream>> {
+        Err(tonic::Status::unimplemented(
+            "Shard.Derive: not in scope for the materialize phase",
+        ))
+    }
 }

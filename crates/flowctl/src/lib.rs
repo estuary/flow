@@ -72,28 +72,24 @@ pub enum Command {
     /// You then edit the generated stubs in your preferred editor to fill
     /// out implementations for your derivation transform lambdas.
     Generate(generate::Generate),
-    /// Locally run and preview a capture, derivation, or materialization.
+    /// Locally run and preview a materialization.
     ///
-    /// Preview runs a temporary, local instance of your task.
-    /// Capture tasks emit captured data to stdout.
-    /// Derivations read documents from your source collections, run them
-    /// through your derivation connector, and emit the results to stdout.
-    /// Materializations read documents from your source collection and
-    /// update the configured endpoint system.
+    /// Preview runs a temporary, local instance of your materialization task
+    /// using the runtime-next stack: a synthetic shard topology drives the
+    /// real shuffle service, leader, and connector container against your
+    /// chosen endpoint. Source documents come from real Gazette journal
+    /// reads (authed via your flowctl token).
     ///
-    /// When reading live collection data, preview will process all of your
-    /// historical source data and thereafter will emit ongoing updates.
-    /// Or, derivations and materializations may alternatively provide a data
-    /// --fixture of collection documents to derive or materialize, which is
-    /// useful in automated testing contexts.
+    /// Capture and derivation previews are not yet supported on
+    /// runtime-next; they will be re-added before upstream merge.
     ///
-    /// Preview provides various knobs for tuning timeouts, simulating back
-    /// pressure, and running multiple sessions to exercise connector resumption
-    /// and crash recovery, which may be helpful when developing connectors.
+    /// Multiple sessions exercise connector resumption and recovery —
+    /// shard-zero RocksDB and shuffle-log tempdirs persist across
+    /// sessions within one invocation.
     ///
-    /// WARNING: previews of captures and materializations make live changes
-    /// to their configured endpoints. Be sure that your task does not conflict
-    /// or collide with a live task running in the Flow managed service.
+    /// WARNING: previews of materializations make live changes to their
+    /// configured endpoints. Be sure that your task does not conflict or
+    /// collide with a live task running in the Flow managed service.
     Preview(preview::Preview),
     /// Work with your Flow catalog drafts.
     ///

@@ -1,0 +1,59 @@
+---
+source: crates/runtime-next/src/recovery/codec.rs
+expression: "decode_pairs(pairs, &mapping).unwrap()"
+---
+State {
+    hinted: [
+        JournalFrontier {
+            journal: "journal/0",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:aa:00:00:00:00),
+                    last_commit: Clock(0s 36ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: 12345,
+                },
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        },
+    ],
+    committed: [
+        JournalFrontier {
+            journal: "journal/0",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:bb:00:00:00:00),
+                    last_commit: Clock(0s 28ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: 4242,
+                },
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        },
+    ],
+    ack_intents: {
+        "j1": b"ack",
+    },
+    max_keys: {
+        0: b"pk",
+    },
+    connector_state: Some(
+        b"{\"reduced\":true}",
+    ),
+    trigger_params: Some(
+        b"{\"run_id\":\"r\"}",
+    ),
+    last_applied: Some(
+        b"proto-bytes",
+    ),
+    unknown: [
+        (
+            b"unknown-key",
+            b"!",
+        ),
+    ],
+}

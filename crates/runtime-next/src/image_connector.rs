@@ -1,5 +1,5 @@
 use super::container;
-use futures::{Stream, TryStreamExt, channel::mpsc, future::BoxFuture};
+use futures::{Stream, StreamExt, channel::mpsc, future::BoxFuture};
 
 /// Container is a description of a running Container instance.
 pub use proto_flow::runtime::Container;
@@ -23,7 +23,7 @@ pub async fn serve<Request, Response, StartRpc, Attach, L: crate::LogHandler>(
     task_type: ops::TaskType, // Type of this task, for labeling container.
     plane: crate::Plane,      // Data-plane context in which the connector is running.
 ) -> anyhow::Result<
-    impl Stream<Item = anyhow::Result<Response>> + Send + use<Request, Response, StartRpc, Attach, L>,
+    impl Stream<Item = tonic::Result<Response>> + Send + use<Request, Response, StartRpc, Attach, L>,
 >
 where
     Request: serde::Serialize + Send + 'static,
@@ -45,21 +45,20 @@ where
     .await?;
 
     // Start RPC over the container's gRPC `channel`.
-    let mut container_rx =
-        crate::stream_status_to_error((start_rpc)(channel, request_rx).await?.into_inner());
+    let container_rx = (start_rpc)(channel, request_rx).await?.into_inner();
 
-    let container_rx = coroutines::try_coroutine(move |mut co| async move {
-        let _guard = guard; // Move into future.
-        let mut offset = 0;
+    // Attach `container` at designated `attach_offset` in the stream.
+    let mut offset = 0;
+    let container_rx = container_rx.map(move |mut result| {
+        let _guard = &guard; // Move into Stream.
 
-        while let Some(mut response) = container_rx.try_next().await? {
-            if offset == attach_offset {
-                (attach_container)(&mut response, std::mem::take(&mut container));
-            }
-            offset += 1;
-            () = co.yield_(response).await;
+        if let Ok(result) = &mut result
+            && offset == attach_offset
+        {
+            attach_container(result, std::mem::take(&mut container));
         }
-        Ok(())
+        offset += 1;
+        result
     });
 
     Ok(container_rx)

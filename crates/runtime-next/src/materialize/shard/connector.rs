@@ -1,4 +1,3 @@
-use super::triggers::CompiledTriggers;
 use crate::{LogHandler, Runtime};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, TryStreamExt, channel::mpsc, stream::BoxStream};
@@ -11,8 +10,6 @@ use zeroize::Zeroize;
 
 /// Ancillary data extracted during connector start for Open requests.
 pub struct OpenExtras {
-    /// Pre-compiled trigger configurations, if any were specified.
-    pub compiled_triggers: Option<CompiledTriggers>,
     /// The OCI image name of the connector (empty for non-image connectors).
     pub connector_image: String,
 }
@@ -25,7 +22,7 @@ pub async fn start<L: LogHandler>(
     mut initial: Request,
 ) -> anyhow::Result<(
     mpsc::Sender<Request>,
-    BoxStream<'static, anyhow::Result<Response>>,
+    BoxStream<'static, tonic::Result<Response>>,
     OpenExtras,
 )> {
     let log_level = initial.get_internal()?.log_level();
@@ -105,10 +102,13 @@ pub async fn start<L: LogHandler>(
 
             (rx, String::new())
         }
-        models::MaterializationEndpoint::Dekaf(_) => (
-            dekaf_connector::connector(connector_rx).boxed(),
-            String::new(),
-        ),
+        models::MaterializationEndpoint::Dekaf(_) => {
+            let rx = dekaf_connector::connector(connector_rx)
+                .map_err(crate::anyhow_to_status)
+                .boxed();
+
+            (rx, String::new())
+        }
     };
 
     // Send an initial Spec request which may direct us to perform an IAM token exchange.
@@ -122,10 +122,10 @@ pub async fn start<L: LogHandler>(
         })
         .unwrap();
 
-    let verify = crate::verify("connector", "spec response");
-    let spec_response = match verify.not_eof(connector_rx.try_next().await?)? {
+    let verify = crate::verify("Materialize", "spec response", "connector", 0);
+    let spec_response = match verify.not_eof(connector_rx.next().await)? {
         Response { spec: Some(r), .. } => r,
-        response => return verify.fail(response),
+        response => return Err(verify.fail_msg(response)),
     };
 
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
@@ -144,48 +144,7 @@ pub async fn start<L: LogHandler>(
         }
     }
 
-    // Decrypt trigger configs and pre-compile their Handlebars templates.
-    let triggers_json = initial
-        .open
-        .as_ref()
-        .and_then(|open| open.materialization.as_ref())
-        .map(|s| &s.triggers_json)
-        .filter(|b| !b.is_empty());
-
-    let compiled_triggers = match triggers_json {
-        None => None,
-        Some(triggers_json) => {
-            let mut triggers: models::Triggers =
-                serde_json::from_slice(triggers_json).context("parsing triggers JSON")?;
-
-            // Strip HMAC-excluded fields before decryption (they were stripped
-            // during encryption so SOPS HMAC doesn't cover them), then restore.
-            let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
-            let stripped = models::RawValue::from_value(
-                &serde_json::to_value(&triggers).context("serializing stripped triggers")?,
-            );
-
-            let mut decrypted: models::Triggers = serde_json::from_str(
-                unseal::decrypt_sops(&stripped)
-                    .await
-                    .context("decrypting triggers_json")?
-                    .get(),
-            )
-            .context("parsing decrypted triggers JSON")?;
-
-            models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
-
-            Some(
-                CompiledTriggers::compile(decrypted.config)
-                    .context("compiling trigger templates")?,
-            )
-        }
-    };
-
-    let open_extras = OpenExtras {
-        compiled_triggers,
-        connector_image,
-    };
+    let open_extras = OpenExtras { connector_image };
 
     connector_tx.try_send(initial).unwrap();
 
@@ -234,7 +193,12 @@ fn extract_endpoint<'r>(
 
             (inner.connector_type, &mut inner.config_json, catalog_name)
         }
-        request => return crate::verify("client", "valid first request").fail(request),
+        request => {
+            return Err(
+                crate::verify("Materialize", "valid first request", "controller", 0)
+                    .fail_msg(request),
+            );
+        }
     };
 
     if connector_type == ConnectorType::Image as i32 {

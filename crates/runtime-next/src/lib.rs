@@ -1,51 +1,97 @@
-use anyhow::Context;
-use futures::TryStreamExt;
-use std::sync::Arc;
+//! `runtime-next` hosts both the controller-facing `Shard` gRPC service
+//! (per-shard, in `crate::materialize::shard`) and the `Leader` gRPC
+//! service (sidecar, in `crate::leader` and `crate::materialize::leader`).
+//! Each shard's `Shard` stream terminates both the controller-bound and
+//! leader-bound `runtime.proto` streams, and translates between them and
+//! the connector RPC. The only message that flows end-to-end unmodified
+//! is `Stop` (controller → runtime-next → leader).
+//!
+//! "Controller" here is the peer that drives the shard's lifecycle: the
+//! Go runtime in production, an in-process driver such as `flowctl
+//! preview`, or a unit-test harness. This crate is agnostic to which.
+//!
+//! `runtime-next` will eventually replace `runtime`; during the parity
+//! period both crates coexist and the controller selects between them
+//! per-task at startup. `runtime-next` MUST NOT depend on `runtime` —
+//! files shared between the two crates live physically in `runtime/` and
+//! are pulled into `runtime-next` via `#[path]`.
 
-mod capture;
-mod combine;
-mod container;
-mod derive;
-pub mod harness;
-mod image_connector;
-mod local_connector;
-mod materialize;
-mod rocksdb;
-mod task_service;
-mod tokio_context;
-mod unary;
-pub mod uuid;
+// `runtime` shares files with this crate via `#[path]`. Those shared files
+// reference symbols as `runtime_next::*` so the path resolves identically
+// from `runtime` (which has runtime-next as a dependency) and from this
+// crate compiling them in-tree.
+extern crate self as runtime_next;
 
 pub use ::proto_flow::runtime::Plane; // Re-export.
+/// Re-export of `proto_flow::runtime` so that this crate (and its dependents)
+/// can refer to protocol message types as `crate::proto::*` /
+/// `runtime_next::proto::*`, avoiding the naming conflict between this crate
+/// and the protobuf module.
+pub use proto_flow::runtime as proto;
+
+mod container;
+mod image_connector;
+mod local_connector;
+mod tokio_context;
+
+mod handler;
+pub mod leader;
+pub mod materialize;
+pub mod publish;
+pub mod recovery;
+mod rocksdb;
+mod task_service;
+
 pub use container::flow_runtime_protocol;
+
+use std::sync::Arc;
+
+pub use leader::Service;
+pub use publish::Publisher;
+pub use rocksdb::{RocksDB, extend_write_batch};
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
 
-// This constant is shared between Rust and Go code.
-// See go/protocols/flow/document_extensions.go.
-pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
+/// Maximum accepted protobuf message size on Shard / Leader streams.
+pub const MAX_MESSAGE_SIZE: usize = 1 << 26; // 64MB.
 
-/// CHANNEL_BUFFER is the standard buffer size used for holding documents in an
-/// asynchronous processing pipeline. User documents can be large -- up to 64MB --
-/// so this value should be small. At the same time, processing steps such as
-/// schema validation are greatly accelerated when they can loop over multiple
-/// documents without yielding, so it should not be *too* small.
+/// CHANNEL_BUFFER for connector RPC pipelines, shared with `runtime`.
 pub const CHANNEL_BUFFER: usize = 16;
 
-/// X_GENERATION_ID is a JSON-Schema annotation added to every inferred schema,
-/// which documents the generation ID of its associated collection.
-/// We use it to properly reset inferred schemas upon generation ID change.
-pub const X_GENERATION_ID: &str = "x-collection-generation-id";
+/// Interval at which leader actor event loops tick, ensuring per-loop tracing
+/// instrumentation fires periodically even when no other events arrive.
+pub(crate) const ACTOR_TICK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Describes the basic type of runtime protocol. This corresponds to the
-/// `FLOW_RUNTIME_PROTOCOL` label that's used on docker images.
+/// Construct an mpsc channel sized for runtime-next inter-task plumbing.
+/// Used for controller-, leader-, and connector-bound message channels;
+/// callers send via `verify_send` so a Full result fails fast as a
+/// capacity-invariant violation.
+pub(crate) fn new_channel<T>() -> (tokio::sync::mpsc::Sender<T>, tokio::sync::mpsc::Receiver<T>) {
+    tokio::sync::mpsc::channel::<T>(32)
+}
+
+/// Non-blocking channel send that enforces capacity invariants.
 ///
-/// Note that there's an unfortunate mismatch in how `RuntimeProtocol::Materialize`
-/// is represented in the control-plane database versus the image labels. We might
-/// in the future want to have more general and flexible `TryFrom<&str>` and `Display`
-/// impls, but for now there are only specific named functions since there are few places
-/// where we actually use this. The `Serialize` impl uses the image label representation,
-/// though that decision was made arbitrarily.
+/// Returns an error on `Full` — the caller's design must guarantee
+/// sufficient capacity. A Full here means a capacity invariant is
+/// violated. The error propagates up to tear down the session (fail-fast).
+///
+/// Silently drops on `Closed` — the peer has exited. The caller will
+/// discover a more informative error from the peer's rx stream.
+pub(crate) fn verify_send<T>(tx: &tokio::sync::mpsc::Sender<T>, value: T) -> anyhow::Result<()> {
+    use tokio::sync::mpsc::error::TrySendError;
+    match tx.try_send(value) {
+        Ok(()) => Ok(()),
+        Err(TrySendError::Closed(_)) => Ok(()),
+        Err(TrySendError::Full(_)) => {
+            anyhow::bail!("verify_send: channel full; capacity invariant violated")
+        }
+    }
+}
+
+/// Describes the basic type of runtime protocol. Mirrors `runtime::RuntimeProtocol`
+/// so that connector image inspection (Phase F-ported `container::flow_runtime_protocol`)
+/// can return a type that's local to this crate.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RuntimeProtocol {
@@ -63,9 +109,7 @@ impl RuntimeProtocol {
             other => Err(other),
         }
     }
-}
 
-impl RuntimeProtocol {
     /// Returns the appropriate representation for storing in the control plane database.
     pub fn database_string_value(&self) -> &'static str {
         match self {
@@ -109,18 +153,6 @@ pub fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
     }
 }
 
-fn stream_error_to_status<T, S: futures::Stream<Item = anyhow::Result<T>>>(
-    s: S,
-) -> impl futures::Stream<Item = tonic::Result<T>> {
-    s.map_err(anyhow_to_status)
-}
-
-fn stream_status_to_error<T, S: futures::Stream<Item = tonic::Result<T>>>(
-    s: S,
-) -> impl futures::Stream<Item = anyhow::Result<T>> {
-    s.map_err(status_to_anyhow)
-}
-
 pub trait LogHandler: Send + Sync + Clone + 'static {
     fn log(&self, log: &ops::Log);
 
@@ -128,7 +160,7 @@ pub trait LogHandler: Send + Sync + Clone + 'static {
         move |log| self.log(log)
     }
 }
-//pub trait LogHandler: Fn(&ops::Log) + Send + Sync + Clone + 'static {}
+
 impl<T: Fn(&ops::Log) + Send + Sync + Clone + 'static> LogHandler for T {
     fn log(&self, log: &ops::Log) {
         self(log)
@@ -138,26 +170,29 @@ impl<T: Fn(&ops::Log) + Send + Sync + Clone + 'static> LogHandler for T {
 /// Runtime implements the various services that constitute the Flow Runtime.
 #[derive(Clone)]
 pub struct Runtime<L: LogHandler> {
-    plane: Plane,
-    container_network: String,
-    log_handler: L,
-    set_log_level: Option<Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
-    task_name: String,
+    pub plane: Plane,
+    pub container_network: String,
+    pub log_handler: L,
+    pub set_log_level: Option<Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
+    pub task_name: String,
+    pub publisher_factory: gazette::journal::ClientFactory,
 }
 
 impl<L: LogHandler> Runtime<L> {
     /// Build a new Runtime.
-    /// * `plane`: the type of data plane in which this Runtime is operating.
-    /// * `container_network`: the Docker container network used for connector containers.
-    /// * `log_handler`: handler to which connector logs are dispatched.
-    /// * `set_log_level`: callback for adjusting the log level implied by runtime requests.
-    /// * `task_name`: name which is used to label any started connector containers.
+    /// - `plane`: the type of data plane in which this Runtime is operating.
+    /// - `container_network`: the Docker container network used for connector containers.
+    /// - `log_handler`: handler to which connector logs are dispatched.
+    /// - `set_log_level`: callback for adjusting the log level implied by runtime requests.
+    /// - `task_name`: name which is used to label any started connector containers.
+    /// - `publisher_factory`: client factory for creating and appending to collection partitions.
     pub fn new(
         plane: Plane,
         container_network: String,
         log_handler: L,
         set_log_level: Option<Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
         task_name: String,
+        publisher_factory: gazette::journal::ClientFactory,
     ) -> Self {
         Self {
             plane,
@@ -165,10 +200,11 @@ impl<L: LogHandler> Runtime<L> {
             log_handler,
             set_log_level,
             task_name,
+            publisher_factory,
         }
     }
 
-    /// Attempt to set the dynamic log level to the given `level`.
+    /// Apply the dynamic log level if a setter was provided.
     pub fn set_log_level(&self, level: ops::LogLevel) {
         if level == ops::LogLevel::UndefinedLevel {
             // No-op
@@ -176,58 +212,25 @@ impl<L: LogHandler> Runtime<L> {
             (set_log_level)(level);
         }
     }
-
-    /// Build a tonic Server which includes all of the Runtime's services.
-    pub fn build_tonic_server(self) -> tonic::transport::server::Router {
-        tonic::transport::Server::builder()
-            .add_service(
-                proto_grpc::capture::connector_server::ConnectorServer::new(self.clone())
-                    .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the Go runtime sends.
-                    .max_encoding_message_size(usize::MAX), // The default, made explicit.
-            )
-            .add_service(
-                proto_grpc::derive::connector_server::ConnectorServer::new(self.clone())
-                    .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the Go runtime sends.
-                    .max_encoding_message_size(usize::MAX), // The default, made explicit.
-            )
-            .add_service(
-                proto_grpc::materialize::connector_server::ConnectorServer::new(self.clone())
-                    .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the Go runtime sends.
-                    .max_encoding_message_size(usize::MAX), // The default, made explicit.
-            )
-            .add_service(
-                proto_grpc::runtime::combiner_server::CombinerServer::new(self)
-                    .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the Go runtime sends.
-                    .max_encoding_message_size(usize::MAX), // The default, made explicit.
-            )
-    }
-}
-
-fn parse_shard_labeling(
-    shard: Option<&proto_gazette::consumer::ShardSpec>,
-) -> anyhow::Result<ops::ShardLabeling> {
-    let Some(shard) = shard else {
-        anyhow::bail!("missing shard")
-    };
-    let Some(set) = &shard.labels else {
-        anyhow::bail!("missing shard labels")
-    };
-    labels::shard::decode_labeling(set).context("parsing shard labeling")
 }
 
 struct Accumulator(doc::combine::Accumulator, simd_doc::Parser);
 
 impl Accumulator {
-    fn new(spec: doc::combine::Spec) -> anyhow::Result<Self> {
+    pub fn new(spec: doc::combine::Spec) -> anyhow::Result<Self> {
         Ok(Self(
             doc::combine::Accumulator::new(spec, tempfile::tempfile()?)?,
             simd_doc::Parser::new(),
         ))
     }
 
-    // Parse document bytes into a HeapNode backed by the Accumulator's current
-    // MemTable and Allocator. Return the MemTable, Allocator, and HeapNode.
-    fn doc_bytes_to_heap_node<'a>(
+    pub fn memtable(&mut self) -> Result<&doc::combine::MemTable, doc::combine::Error> {
+        self.0.memtable()
+    }
+
+    /// Parse one JSON document into a HeapNode backed by the Accumulator's
+    /// current MemTable and Allocator.
+    pub fn parse_json_doc<'a>(
         &'a mut self,
         doc_bytes: &[u8],
     ) -> anyhow::Result<(
@@ -235,20 +238,18 @@ impl Accumulator {
         &'a doc::Allocator,
         doc::HeapNode<'a>,
     )> {
-        // Currently, we assume that `doc_bytes` is a JSON document.
-        // In the future, it could be an ArchivedNode serialization.
         let memtable = self.0.memtable()?;
         let alloc = memtable.alloc();
         Ok((memtable, alloc, self.1.parse_one(doc_bytes, alloc)?))
     }
 
-    fn into_drainer(
+    pub fn into_drainer(
         self,
     ) -> Result<(doc::combine::Drainer, simd_doc::Parser), doc::combine::Error> {
         Ok((self.0.into_drainer()?, self.1))
     }
 
-    fn from_drainer(
+    pub fn from_drainer(
         drainer: doc::combine::Drainer,
         parser: simd_doc::Parser,
     ) -> Result<Self, doc::combine::Error> {
@@ -256,119 +257,99 @@ impl Accumulator {
     }
 }
 
-// verify is a convenience for building protocol error messages in a standard, structured way.
-// You call verify to establish a Verify instance, which is then used to assert expectations
-// over protocol requests or responses.
-// If an expectation fails, it produces a suitable error message.
-fn verify(source: &'static str, expect: &'static str) -> Verify {
-    Verify { source, expect }
-}
-
-struct Verify {
+// `verify` is a convenience for building protocol error messages in a standard,
+// structured way. You call `verify` to establish a `Verify` instance, which
+// is then used to assert expectations over protocol requests or responses.
+// If an expectation fails, it produces a suitable error message annotated with
+// the originating peer and stream index.
+pub(crate) fn verify<'p>(
     source: &'static str,
     expect: &'static str,
+    peer: &'p str,
+    peer_index: usize,
+) -> Verify<'p> {
+    Verify {
+        source,
+        expect,
+        peer,
+        peer_index,
+    }
 }
 
-impl Verify {
-    #[must_use]
+pub(crate) struct Verify<'p> {
+    source: &'static str,
+    expect: &'static str,
+    peer: &'p str,
+    peer_index: usize,
+}
+
+impl<'p> Verify<'p> {
     #[inline]
-    fn not_eof<T>(&self, t: Option<T>) -> anyhow::Result<T> {
-        if let Some(t) = t {
-            Ok(t)
-        } else {
-            self.fail(Option::<()>::None)
+    pub(crate) fn ok<T>(&self, t: tonic::Result<T>) -> anyhow::Result<T> {
+        match t {
+            Ok(t) => Ok(t),
+            Err(status) => Err(self.fail_status(status)),
         }
     }
 
-    #[must_use]
+    #[allow(dead_code)]
     #[inline]
-    fn is_eof<T: serde::Serialize>(&self, t: Option<T>) -> anyhow::Result<()> {
+    pub(crate) fn eof<T: serde::Serialize>(
+        &self,
+        t: Option<tonic::Result<T>>,
+    ) -> anyhow::Result<()> {
+        match t {
+            None => Ok(()),
+            Some(Err(status)) => Err(self.fail_status(status)),
+            Some(Ok(t)) => Err(self.fail_msg(t)),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn not_eof<T>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<T> {
         if let Some(t) = t {
-            self.fail(t)
+            Ok(self.ok(t)?)
         } else {
-            Ok(())
+            Err(self.fail_err(anyhow::anyhow!("unexpected EOF")))
         }
     }
 
     #[must_use]
     #[cold]
-    fn fail<Ok, T: serde::Serialize>(&self, t: T) -> anyhow::Result<Ok> {
-        let (source, expect) = (self.source, self.expect);
+    pub(crate) fn fail_msg<T: serde::Serialize>(&self, msg: T) -> anyhow::Error {
+        let Self {
+            source,
+            expect,
+            peer,
+            peer_index,
+        } = self;
 
-        let mut t = serde_json::to_string(&t).unwrap();
+        let mut t = serde_json::to_string(&msg).unwrap();
         t.truncate(4096);
 
-        if t == "null" {
-            Err(anyhow::format_err!(
-                "unexpected {source} EOF (expected {expect})"
-            ))
-        } else {
-            Err(anyhow::format_err!(
-                "{source} protocol error (expected {expect}): {t}"
-            ))
-        }
+        anyhow::format_err!(
+            "{source} protocol error (expected {expect}) from {peer}@{peer_index}: {t}"
+        )
+    }
+
+    #[must_use]
+    #[cold]
+    pub(crate) fn fail_err(&self, err: anyhow::Error) -> anyhow::Error {
+        let Self {
+            source,
+            expect,
+            peer,
+            peer_index,
+        } = self;
+
+        err.context(format!(
+            "{source} error (expected {expect}) from {peer}@{peer_index}"
+        ))
+    }
+
+    #[must_use]
+    #[cold]
+    pub(crate) fn fail_status(&self, status: tonic::Status) -> anyhow::Error {
+        self.fail_err(crate::status_to_anyhow(status))
     }
 }
-
-/// exchange is a combinator for avoiding deadlocks. It sends into a request
-/// Stream while concurrently polling and yielding responses of a corresponding
-/// response Stream. It returns a stream which completes once the send has
-/// completed.
-///
-/// `exchange` mitigates an extremely common deadlock mistake, of sending into
-/// a receiver without consideration for whether the receiver may be unable to
-/// receive because it's output channel is stuffed and is not being serviced.
-/// This is a generalized problem -- in no way unique to Rust -- but the polled
-/// nature of Futures and Streams accentuate it because receiving from a Stream
-/// is *also* polling it, allowing it to perform other important activity even
-/// if it cannot immediately yield an item.
-fn exchange<'s, Request, Tx, Response, Rx>(
-    request: Request,
-    tx: &'s mut Tx,
-    rx: &'s mut Rx,
-) -> impl futures::Stream<Item = Response> + 's
-where
-    Request: 'static,
-    Tx: futures::Sink<Request> + Unpin + 's,
-    Rx: futures::Stream<Item = Response> + Unpin + 's,
-{
-    use futures::{SinkExt, StreamExt};
-
-    futures::stream::unfold((tx.feed(request), rx), move |(mut feed, rx)| async move {
-        tokio::select! {
-            biased;
-
-            // We suppress a `feed` error, which represents a disconnection / reset,
-            // because a better and causal error will invariably be surfaced by `rx`.
-            _result = &mut feed => None,
-
-            response = rx.next() => if let Some(response) = response {
-                Some((response, (feed, rx)))
-            } else {
-                None
-            },
-        }
-    })
-}
-
-fn truncate_chars(s: &str, max_chars: usize) -> &str {
-    match s.char_indices().nth(max_chars) {
-        None => s,
-        Some((idx, _)) => &s[..idx],
-    }
-}
-
-#[cfg(test)]
-mod test {
-    #[test]
-    fn test_truncate_chars() {
-        use super::truncate_chars;
-        let s = "ボAルBテックス";
-        assert_eq!(truncate_chars(s, 0), "");
-        assert_eq!(truncate_chars(s, 6), "ボAルBテッ");
-        assert_eq!(truncate_chars(s, 100), s);
-    }
-}
-
-// Maximum accepted message size.
-pub const MAX_MESSAGE_SIZE: usize = 1 << 26; // 64MB.

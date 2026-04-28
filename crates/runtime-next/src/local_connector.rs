@@ -9,7 +9,7 @@ pub fn serve<Request, Response>(
     log_level: ops::LogLevel,            // Log-level of the container, if known.
     protobuf: bool,                      // Whether to use protobuf codec.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
-) -> anyhow::Result<impl Stream<Item = anyhow::Result<Response>> + Send>
+) -> anyhow::Result<impl Stream<Item = tonic::Result<Response>> + Send>
 where
     Request: serde::Serialize + prost::Message + Send + Sync + 'static,
     Response: prost::Message + for<'de> serde::Deserialize<'de> + Default + 'static,
@@ -32,7 +32,6 @@ where
         request_rx.map(Result::Ok),
         log_handler.clone().as_fn(),
     )?;
-    let container_rx = crate::stream_status_to_error(container_rx);
 
     Ok(container_rx)
 }

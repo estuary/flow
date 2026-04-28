@@ -1,0 +1,121 @@
+---
+source: crates/runtime-next/src/recovery/codec.rs
+expression: snapshot
+---
+[
+    (
+        "empty",
+        [],
+    ),
+    (
+        "one_shot_commit",
+        [
+            DeleteRange {
+                from: b"FH:",
+                to: b"FH;",
+            },
+            Put {
+                key: b"FH:acme/events/000\0materialize/mat/t1\0\x01\xaa\0\0\0\0",
+                value: b"\x11d\0\0\0\0\0\0\0 \xfa\x01",
+            },
+            Put {
+                key: b"FH:acme/events/000\0materialize/mat/t1\0\x01\xbb\0\0\0\0",
+                value: b"\x11Z\0\0\0\0\0\0\0 \xd4\xfd\xff\xff\xff\xff\xff\xff\xff\x01",
+            },
+            Put {
+                key: b"FH:acme/events/001\0materialize/mat/t2\0\x01\xcc\0\0\0\0",
+                value: b"\x112\0\0\0\0\0\0\0 \xce\xff\xff\xff\xff\xff\xff\xff\xff\x01",
+            },
+            Put {
+                key: b"FC:acme/events/000\0materialize/mat/t1\0\x01\xaa\0\0\0\0",
+                value: b"\x11d\0\0\0\0\0\0\0 \xfa\x01",
+            },
+            Put {
+                key: b"FC:acme/events/000\0materialize/mat/t1\0\x01\xbb\0\0\0\0",
+                value: b"\x11Z\0\0\0\0\0\0\0 \xd4\xfd\xff\xff\xff\xff\xff\xff\xff\x01",
+            },
+            Put {
+                key: b"FC:acme/events/001\0materialize/mat/t2\0\x01\xcc\0\0\0\0",
+                value: b"\x112\0\0\0\0\0\0\0 \xce\xff\xff\xff\xff\xff\xff\xff\xff\x01",
+            },
+            Merge {
+                key: b"connector-state",
+                value: b"{\"cursor\":\"abc\"}",
+            },
+            Put {
+                key: b"MK-v2:materialize/mat/t1",
+                value: b"packed-1",
+            },
+            Put {
+                key: b"MK-v2:materialize/mat/t2",
+                value: b"packed-2",
+            },
+            DeleteRange {
+                from: b"AI:",
+                to: b"AI;",
+            },
+            Put {
+                key: b"AI:acme/events/000",
+                value: b"ack-bytes-A",
+            },
+            Put {
+                key: b"trigger-params",
+                value: b"{\"run_id\":\"r1\"}",
+            },
+            Put {
+                key: b"last-applied",
+                value: b"spec-proto-bytes",
+            },
+        ],
+    ),
+    (
+        "committed_no_acks",
+        [
+            Put {
+                key: b"FC:acme/events/000\0materialize/mat/t1\0\x01\xaa\0\0\0\0",
+                value: b"\x11d\0\0\0\0\0\0\0 \xfa\x01",
+            },
+            Put {
+                key: b"FC:acme/events/000\0materialize/mat/t1\0\x01\xbb\0\0\0\0",
+                value: b"\x11Z\0\0\0\0\0\0\0 \xd4\xfd\xff\xff\xff\xff\xff\xff\xff\x01",
+            },
+            Put {
+                key: b"FC:acme/events/001\0materialize/mat/t2\0\x01\xcc\0\0\0\0",
+                value: b"\x112\0\0\0\0\0\0\0 \xce\xff\xff\xff\xff\xff\xff\xff\xff\x01",
+            },
+        ],
+    ),
+    (
+        "delete_ack_alone",
+        [
+            DeleteRange {
+                from: b"AI:",
+                to: b"AI;",
+            },
+        ],
+    ),
+    (
+        "standalone_trigger_delete",
+        [
+            Merge {
+                key: b"connector-state",
+                value: b"{\"idle\":true}",
+            },
+            Delete {
+                key: b"trigger-params",
+            },
+        ],
+    ),
+    (
+        "trigger_delete_then_put",
+        [
+            Delete {
+                key: b"trigger-params",
+            },
+            Put {
+                key: b"trigger-params",
+                value: b"{\"run_id\":\"r2\"}",
+            },
+        ],
+    ),
+]

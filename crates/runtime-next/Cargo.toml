@@ -1,5 +1,5 @@
 [package]
-name = "runtime"
+name = "runtime-next"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -14,9 +14,9 @@ async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
 dekaf-connector = { path = "../dekaf-connector" }
-derive-sqlite = { path = "../derive-sqlite" }
 doc = { path = "../doc", features = ["combine"] }
 extractors = { path = "../extractors" }
+flow-client-next = { path = "../flow-client-next" }
 gazette = { path = "../gazette" }
 iam-auth = { path = "../iam-auth" }
 json = { path = "../json" }
@@ -33,33 +33,41 @@ proto-grpc = { path = "../proto-grpc", features = [
     "derive_server",
     "materialize_client",
     "materialize_server",
+    "runtime_client",
     "runtime_server",
 ] }
+publisher = { path = "../publisher" }
+shuffle = { path = "../shuffle" }
 simd-doc = { path = "../simd-doc" }
 tables = { path = "../tables" }
+tokens = { path = "../tokens" }
 tuple = { path = "../tuple" }
 unseal = { path = "../unseal" }
 
 anyhow = { workspace = true }
-handlebars = { workspace = true }
 aws-config = { workspace = true }
-aws-sdk-sts = { workspace = true }
 aws-credential-types = { workspace = true }
+aws-sdk-sts = { workspace = true }
 bytes = { workspace = true }
-clap = { workspace = true }
+chrono = { workspace = true }
 futures = { workspace = true }
+handlebars = { workspace = true }
 json-patch = { workspace = true }
 jsonwebtoken = { workspace = true }
 librocksdb-sys = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
+rand = { workspace = true }
+url = { workspace = true }
 reqwest = { workspace = true }
 rocksdb = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -71,3 +79,4 @@ zeroize = { workspace = true }
 axum = { workspace = true }
 insta = { workspace = true }
 quickcheck = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros"] }

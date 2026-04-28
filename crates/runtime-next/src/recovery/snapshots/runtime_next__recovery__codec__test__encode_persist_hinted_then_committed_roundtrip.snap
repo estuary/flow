@@ -1,0 +1,91 @@
+---
+source: crates/runtime-next/src/recovery/codec.rs
+expression: "decode_pairs(store, &mapping).unwrap()"
+---
+State {
+    hinted: [
+        JournalFrontier {
+            journal: "acme/events/000",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:aa:00:00:00:00),
+                    last_commit: Clock(0s 16ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: 250,
+                },
+                ProducerFrontier {
+                    producer: Producer(01:bb:00:00:00:00),
+                    last_commit: Clock(0s 40ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: -300,
+                },
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        },
+        JournalFrontier {
+            journal: "acme/events/001",
+            binding: 1,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:cc:00:00:00:00),
+                    last_commit: Clock(0s 8ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: -50,
+                },
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        },
+    ],
+    committed: [
+        JournalFrontier {
+            journal: "acme/events/000",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:aa:00:00:00:00),
+                    last_commit: Clock(0s 16ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: 250,
+                },
+                ProducerFrontier {
+                    producer: Producer(01:bb:00:00:00:00),
+                    last_commit: Clock(0s 40ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: -300,
+                },
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        },
+        JournalFrontier {
+            journal: "acme/events/001",
+            binding: 1,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:cc:00:00:00:00),
+                    last_commit: Clock(0s 8ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: -50,
+                },
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        },
+    ],
+    ack_intents: {
+        "acme/events/000": b"ack-000",
+        "acme/events/001": b"ack-001",
+    },
+    max_keys: {
+        0: b"mk-v1",
+    },
+    connector_state: Some(
+        b"{\"a\":1}\n{\"b\":null}\n{\"c\":[1,2]}",
+    ),
+    trigger_params: None,
+    last_applied: None,
+    unknown: [],
+}

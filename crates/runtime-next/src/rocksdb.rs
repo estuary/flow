@@ -1,13 +1,11 @@
+use crate::recovery::{self, codec};
 use anyhow::Context;
-use prost::Message;
-use proto_flow::{flow, runtime::RocksDbDescriptor};
-use proto_gazette::consumer;
-use std::sync::Arc;
-use tokio::runtime::Handle;
+use proto_flow::runtime::RocksDbDescriptor;
+use tokio::runtime;
 
 /// RocksDB database used for task state.
 pub struct RocksDB {
-    db: Arc<rocksdb::DB>,
+    db: rocksdb::DB,
     _tmp: Option<tempfile::TempDir>,
 }
 
@@ -16,15 +14,12 @@ impl RocksDB {
     pub async fn open(desc: Option<RocksDbDescriptor>) -> anyhow::Result<Self> {
         let (opts, path, _tmp) = unpack_descriptor(desc)?;
 
-        let db = Handle::current()
+        let db = runtime::Handle::current()
             .spawn_blocking(move || Self::open_blocking(opts, path))
             .await
             .unwrap()?;
 
-        Ok(Self {
-            db: Arc::new(db),
-            _tmp,
-        })
+        Ok(Self { db, _tmp })
     }
 
     fn open_blocking(
@@ -67,171 +62,76 @@ impl RocksDB {
         Ok(db)
     }
 
-    /// Perform an async get_opt using a blocking background thread.
-    pub async fn get_opt(
-        &self,
-        key: impl AsRef<[u8]> + Send + 'static,
-        ro: rocksdb::ReadOptions,
-    ) -> Result<Option<Vec<u8>>, rocksdb::Error> {
-        let db = self.db.clone();
-        Handle::current()
-            .spawn_blocking(move || db.get_opt(key, &ro))
-            .await
-            .unwrap()
-    }
-
-    /// Perform an async multi_get_opt using a blocking background thread.
-    pub async fn multi_get_opt<K, I>(
-        &self,
-        keys: I,
-        ro: rocksdb::ReadOptions,
-    ) -> Vec<Result<Option<Vec<u8>>, rocksdb::Error>>
-    where
-        K: AsRef<[u8]> + Send + 'static,
-        I: IntoIterator<Item = K> + Send + 'static,
-    {
-        let db = self.db.clone();
-
-        Handle::current()
-            .spawn_blocking(move || db.multi_get_opt(keys, &ro))
-            .await
-            .unwrap()
-    }
-
     /// Perform an async write_opt using a blocking background thread.
     pub async fn write_opt(
-        &self,
+        self,
         wb: rocksdb::WriteBatch,
         wo: rocksdb::WriteOptions,
-    ) -> Result<(), rocksdb::Error> {
-        let db = self.db.clone();
-        Handle::current()
-            .spawn_blocking(move || db.write_opt(wb, &wo))
+    ) -> Result<Self, rocksdb::Error> {
+        runtime::Handle::current()
+            .spawn_blocking(move || {
+                self.db.write_opt(wb, &wo)?;
+                Ok(self)
+            })
             .await
             .unwrap()
     }
 
-    /// Load a persisted runtime Checkpoint.
-    pub async fn load_checkpoint(&self) -> anyhow::Result<consumer::Checkpoint> {
-        match self
-            .get_opt(Self::CHECKPOINT_KEY, rocksdb::ReadOptions::default())
+    /// Scan the entire DB into a [`recovery::State`] snapshot using a blocking
+    /// background thread. Returns `(self, State)`.
+    ///
+    /// `binding_state_keys` is a sorted slice of `(state_key, binding_index)`
+    /// tuples used to map from stable `state_key` to current binding index.
+    pub async fn scan(
+        self,
+        binding_state_keys: Vec<(String, u32)>,
+    ) -> Result<(Self, recovery::State), codec::DecodeError> {
+        runtime::Handle::current()
+            .spawn_blocking(move || {
+                let mut state = recovery::State::default();
+
+                let mut it = self.db.raw_iterator();
+                it.seek_to_first();
+
+                while let Some((key, value)) = it.item() {
+                    state.decode_key_value(key, value, &binding_state_keys)?;
+                    it.next();
+                }
+                std::mem::drop(it);
+
+                Ok((self, state))
+            })
             .await
-            .context("failed to load runtime checkpoint")?
-        {
-            Some(v) => Ok(consumer::Checkpoint::decode(v.as_ref())
-                .context("failed to decode consumer checkpoint")?),
-            None => Ok(consumer::Checkpoint::default()),
-        }
+            .unwrap()
     }
-
-    /// Load the persisted, last-applied task specification.
-    pub async fn load_last_applied<S>(&self) -> anyhow::Result<Option<S>>
-    where
-        S: prost::Message + serde::Serialize + Default,
-    {
-        match self
-            .get_opt(Self::LAST_APPLIED, rocksdb::ReadOptions::default())
-            .await
-            .context("failed to load the last-applied task specification")?
-        {
-            Some(v) => {
-                let spec = S::decode(v.as_ref())
-                    .context("failed to decode the last-applied task specification")?;
-                tracing::debug!(spec=?ops::DebugJson(&spec), "loaded the last-applied task specification");
-                Ok(Some(spec))
-            }
-            None => {
-                tracing::debug!("did not find a last-applied task specification");
-                Ok(None)
-            }
-        }
-    }
-
-    /// Load a persisted connector state.
-    /// If it doesn't exist, it's durably initialized with value `initial`.
-    pub async fn load_connector_state(
-        &self,
-        initial: models::RawValue,
-    ) -> anyhow::Result<models::RawValue> {
-        if let Some(state) = self
-            .get_opt(Self::CONNECTOR_STATE_KEY, rocksdb::ReadOptions::default())
-            .await
-            .context("failed to load connector state")?
-        {
-            let state = String::from_utf8(state).context("decoding connector state as UTF-8")?;
-            let state = models::RawValue::from_string(state).context("decoding state as JSON")?;
-            return Ok(state);
-        };
-
-        let mut wo = rocksdb::WriteOptions::default();
-        wo.set_sync(true);
-
-        let mut wb = rocksdb::WriteBatch::default();
-        wb.put(Self::CONNECTOR_STATE_KEY, initial.get());
-
-        self.write_opt(wb, wo)
-            .await
-            .context("put-ing initial connector state")?;
-
-        tracing::debug!(state=?ops::DebugJson(&initial), "initialized a new persisted connector state");
-
-        Ok(initial)
-    }
-
-    /// Load persisted trigger template variables, if any.
-    /// Returns `None` if the key does not exist (no pending trigger delivery).
-    pub async fn load_trigger_params<T>(&self) -> anyhow::Result<Option<T>>
-    where
-        T: serde::de::DeserializeOwned,
-    {
-        let Some(bytes) = self
-            .get_opt(Self::TRIGGER_PARAMS, rocksdb::ReadOptions::default())
-            .await
-            .context("failed to load trigger params")?
-        else {
-            return Ok(None);
-        };
-        serde_json::from_slice(&bytes)
-            .context("failed to decode trigger params")
-            .map(Some)
-    }
-
-    // Key encoding under which the last-applied specification is stored.
-    pub const LAST_APPLIED: &'static str = "last-applied";
-    // Key encoding under which a marshalled checkpoint is stored.
-    pub const CHECKPOINT_KEY: &'static str = "checkpoint";
-    // Key encoding under which a connector state is stored.
-    pub const CONNECTOR_STATE_KEY: &'static str = "connector-state";
-    // Key encoding under which trigger template variables are stored.
-    pub const TRIGGER_PARAMS: &'static str = "trigger-params";
 }
 
-// Enqueues a MERGE or PUT to the WriteBatch for this `state` update.
-pub fn queue_connector_state_update(
-    state: &flow::ConnectorState,
+/// Extend `wb` with the encoded effects of one `Persist`. Pure: no IO.
+///
+/// Callers accumulate the `WriteBatch` across the streamed Persist
+/// sequence and dispatch it via [`RocksDB::write`] when the terminator
+/// (non-zero nonce) arrives. `binding_state_keys[i]` is the stable
+/// `state_key` for binding index `i` referenced by the Persist's
+/// `FrontierChunk`s.
+pub fn extend_write_batch<S: AsRef<str>>(
     wb: &mut rocksdb::WriteBatch,
-) -> anyhow::Result<()> {
-    let flow::ConnectorState {
-        merge_patch,
-        updated_json,
-    } = state;
-
-    let updated: models::RawValue =
-        serde_json::from_slice(updated_json).context("failed to decode connector state as JSON")?;
-
-    if *merge_patch {
-        wb.merge(RocksDB::CONNECTOR_STATE_KEY, updated.get());
-    } else {
-        wb.put(RocksDB::CONNECTOR_STATE_KEY, updated.get());
+    persist: &crate::proto::Persist,
+    binding_state_keys: &[S],
+) -> Result<(), codec::EncodeError> {
+    for op in codec::encode_persist(persist, binding_state_keys)? {
+        match op {
+            codec::KeyOp::Put { key, value } => wb.put(&key, &value),
+            codec::KeyOp::Merge { key, value } => wb.merge(&key, &value),
+            codec::KeyOp::Delete { key } => wb.delete(&key),
+            codec::KeyOp::DeleteRange { from, to } => wb.delete_range(&from, &to),
+        }
     }
-    tracing::debug!(updated=?ops::DebugJson(updated), %merge_patch, "applied an updated connector state");
-
     Ok(())
 }
 
 // Unpack a RocksDbDescriptor into its rocksdb::Options and path.
 // If the descriptor does not include an explicit path, a TempDir to use is
-// created and returned.
+// created and returned for the caller to keep alive alongside the DB.
 fn unpack_descriptor(
     desc: Option<RocksDbDescriptor>,
 ) -> anyhow::Result<(
@@ -277,11 +177,16 @@ fn unpack_descriptor(
 
 // RocksDB merge operator schema which uses `state_schema` for keys matching "connector-state".
 fn task_state_default_json_schema(state_schema: &serde_json::Value) -> serde_json::Value {
+    // KEY_CONNECTOR_STATE is `&[u8]`; render it as a string so the JSON-schema
+    // `const` matches the string literal at index 0 of the [key, doc] array.
+    let key_str = std::str::from_utf8(codec::KEY_CONNECTOR_STATE)
+        .expect("KEY_CONNECTOR_STATE is valid UTF-8");
+
     serde_json::json!({
         "oneOf": [
             {
                 "items": [
-                    {"const": RocksDB::CONNECTOR_STATE_KEY},
+                    {"const": key_str},
                     state_schema,
                 ]
             }
@@ -538,11 +443,11 @@ mod test {
         task_state_default_json_schema(&state_schema).to_string()
     }
 
-    /// Compute expected result via `json_patch::merge`, then verify `do_merge_batched`
+    /// Compute expected result via `json_patch::merge`, then verify `do_merge`
     /// matches for both full and partial-then-full merges at each batch size.
     fn check_merge(base: &str, ops: &[&str], max_counts: &[usize]) {
         let schema = test_schema();
-        let key = RocksDB::CONNECTOR_STATE_KEY.as_bytes();
+        let key = codec::KEY_CONNECTOR_STATE;
 
         let mut expected: serde_json::Value = serde_json::from_str(base).unwrap();
         for op in ops {
@@ -582,12 +487,15 @@ mod test {
             r#"{"a":"c","nn":null}"#,
             r#"{"d":"e","ans":42}"#,
         ] {
-            wb.merge(RocksDB::CONNECTOR_STATE_KEY, doc);
+            wb.merge(codec::KEY_CONNECTOR_STATE, doc);
         }
-        db.write_opt(wb, Default::default()).await.unwrap();
+        let db = db.write_opt(wb, Default::default()).await.unwrap();
 
-        let state = db.load_connector_state(Default::default()).await.unwrap();
-        assert_eq!(state.get(), r#"{"a":"c","ans":42,"d":"e","n":null}"#);
+        let (_db, state) = db.scan(Vec::new()).await.unwrap();
+        assert_eq!(
+            state.connector_state,
+            Some(r#"{"a":"c","ans":42,"d":"e","n":null}"#.into())
+        );
     }
 
     /// Verify merge batching handles many operands that would exceed memory
@@ -621,22 +529,20 @@ mod test {
                 i,
                 i * 1000
             );
-            wb.merge(RocksDB::CONNECTOR_STATE_KEY, &doc);
+            wb.merge(codec::KEY_CONNECTOR_STATE, &doc);
         }
-        db.write_opt(wb, Default::default()).await.unwrap();
+        let db = db.write_opt(wb, Default::default()).await.unwrap();
 
         // Force a compaction to trigger the merge operator with all operands at once.
         // This is what happens during recovery or when RocksDB decides to compact.
         db.db.compact_range::<&[u8], &[u8]>(None, None);
 
         // Load the state - this will also trigger a full merge if not already compacted.
-        let state = db
-            .load_connector_state(models::RawValue::from_string("{}".to_string()).unwrap())
-            .await
-            .expect("batched merge should handle many operands");
+        let (_db, state) = db.scan(Vec::new()).await.unwrap();
 
         // Verify the merged state contains all cursor entries.
-        let parsed: serde_json::Value = serde_json::from_str(state.get()).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&state.connector_state.unwrap()).unwrap();
         let cursors = parsed["cursors"]
             .as_object()
             .expect("cursors should be an object");
@@ -762,13 +668,13 @@ mod test {
         }
     }
 
-    /// Fuzz: `do_merge_batched` at various batch sizes must match `json_patch::merge`,
+    /// Fuzz: `do_merge` at various batch sizes must match `json_patch::merge`,
     /// for both full merges and partial-then-full merges.
     #[test]
     fn fuzz_batched_merge_matches_reference() {
         fn prop(seq: MergePatchSequence) -> bool {
             let schema = test_schema();
-            let key = RocksDB::CONNECTOR_STATE_KEY.as_bytes();
+            let key = codec::KEY_CONNECTOR_STATE;
 
             let mut expected = seq.base.0.clone();
             for op in &seq.operands {
@@ -818,5 +724,43 @@ mod test {
             .tests(1000)
             .max_tests(2000)
             .quickcheck(prop as fn(MergePatchSequence) -> bool);
+    }
+
+    #[tokio::test]
+    async fn round_trip_persist_stack_to_scan() {
+        let db = RocksDB::open(None).await.unwrap();
+
+        let mut wb = rocksdb::WriteBatch::default();
+        for persist in [
+            crate::proto::Persist {
+                nonce: 0,
+                ack_intents: [("j/A".to_string(), bytes::Bytes::from_static(b"INTENT-A"))]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+            crate::proto::Persist {
+                nonce: 0,
+                ack_intents: [("j/B".to_string(), bytes::Bytes::from_static(b"INTENT-B"))]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+            crate::proto::Persist {
+                nonce: 99,
+                last_applied: bytes::Bytes::from_static(b"v9"),
+                ..Default::default()
+            },
+        ] {
+            extend_write_batch::<&str>(&mut wb, &persist, &[]).unwrap();
+        }
+
+        let db = db.write_opt(wb, Default::default()).await.unwrap();
+
+        let (_db, state) = db.scan(Vec::new()).await.unwrap();
+        assert_eq!(state.ack_intents.len(), 2);
+        assert_eq!(state.ack_intents.get("j/A").unwrap().as_ref(), b"INTENT-A");
+        assert_eq!(state.ack_intents.get("j/B").unwrap().as_ref(), b"INTENT-B");
+        assert_eq!(state.last_applied.as_deref(), Some(b"v9".as_slice()));
     }
 }
