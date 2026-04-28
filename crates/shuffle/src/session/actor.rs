@@ -29,7 +29,7 @@ impl SessionActor {
         skip_all,
         fields(
             session = self.topology.session_id,
-            task = %self.topology.task_name,
+            shard_prefix = %self.topology.shard_prefix,
         )
     )]
     pub async fn serve<R>(

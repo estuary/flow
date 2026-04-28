@@ -200,7 +200,7 @@ impl<'p> Verify<'p> {
         let mut t = serde_json::to_string(&t).unwrap();
         t.truncate(4096);
 
-        if t == "None" {
+        if t == "null" {
             anyhow::format_err!("unexpected {source} EOF (expected {expect})")
         } else {
             anyhow::format_err!(

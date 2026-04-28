@@ -66,23 +66,22 @@ pub struct Binding {
     /// Assigned as ascending integers by walking bindings in index order
     /// and identifying unique (priority, read_delay) tuples.
     pub cohort: u32,
-    /// Partition template name for this binding's source collection.
-    /// Prefixes all partition journal names, and does not end in '/'.
-    /// Used to build the hint projection index.
-    pub partition_template_name: Box<str>,
     /// Sorted partition field names for this binding's source collection.
     /// Used to build partition filters for hint projection.
     pub partition_fields: Vec<String>,
+    /// Prefix of journal partition names for this binding's source collection,
+    /// including a trailing '/'. Used to build the hint index and gazette clients.
+    pub partition_prefix: Box<str>,
 }
 
 impl Binding {
-    /// Extract the task name, bindings, and per-binding validators of a shuffle::Task.
+    /// Extract the shard prefix, bindings, and per-binding validators of a shuffle::Task.
     /// Validators are returned separately so that callers can store them independently
     /// (e.g. on SliceActor) or discard them (e.g. SessionActor).
     pub fn from_task(
         task: &shuffle::Task,
-    ) -> anyhow::Result<(models::Name, Vec<Self>, Vec<doc::Validator>, u64)> {
-        let (name, pairs, disk_backlog_threshold) = match &task.task {
+    ) -> anyhow::Result<(String, Vec<Self>, Vec<doc::Validator>, u64)> {
+        let (shard_prefix, pairs, disk_backlog_threshold) = match &task.task {
             Some(shuffle::task::Task::Derivation(collection_spec)) => {
                 let derivation = collection_spec
                     .derivation
@@ -103,13 +102,13 @@ impl Binding {
                     .as_ref()
                     .context("Derivation missing ShardTemplate")?
                     .id
-                    .clone();
+                    .as_str();
 
                 // TODO: extract from task spec.
                 let disk_backlog_threshold = 10 * 1024 * 1024 * 1024u64;
 
                 (
-                    models::Name::new(shard_template_id),
+                    format!("{shard_template_id}/"),
                     pairs,
                     disk_backlog_threshold,
                 )
@@ -129,13 +128,13 @@ impl Binding {
                     .as_ref()
                     .context("Materialization missing ShardTemplate")?
                     .id
-                    .clone();
+                    .as_str();
 
                 // TODO: extract from task spec.
                 let disk_backlog_threshold = 10 * 1024 * 1024 * 1024u64;
 
                 (
-                    models::Name::new(shard_template_id),
+                    format!("{shard_template_id}/"),
                     pairs,
                     disk_backlog_threshold,
                 )
@@ -160,19 +159,8 @@ impl Binding {
                     partition_selector,
                 )?];
 
-                // NOTE(johnny): In practice, this name doesn't matter. Data-plane
-                // tasks don't perform ad-hoc collection reads -- only flowctl does,
-                // and flowctl uses flow_client::workflows::UserCollectionAuth which
-                // doesn't require the task shard ID or template ID.
-                let partition_template_name = collection_spec
-                    .partition_template
-                    .as_ref()
-                    .context("CollectionSpec missing PartitionTemplate")?
-                    .name
-                    .clone();
-
                 (
-                    models::Name::new(partition_template_name),
+                    String::new(), // No applicable shard prefix.
                     pairs,
                     *disk_backlog_threshold,
                 )
@@ -185,7 +173,7 @@ impl Binding {
 
         assign_cohorts(&mut bindings);
 
-        Ok((name, bindings, validators, disk_backlog_threshold))
+        Ok((shard_prefix, bindings, validators, disk_backlog_threshold))
     }
 
     fn from_derivation_transform(
@@ -225,8 +213,7 @@ impl Binding {
             .as_ref()
             .context("missing partition template")?
             .name
-            .as_str()
-            .into();
+            .as_str();
 
         // read_delay is a duration, not an absolute timestamp.
         // Clock's internal representation is (100ns_ticks << 4 | sequence_counter),
@@ -276,8 +263,8 @@ impl Binding {
             not_before,
             not_after,
             cohort: 0, // Assigned by assign_cohorts().
-            partition_template_name,
             partition_fields: partition_fields.clone(),
+            partition_prefix: format!("{partition_template_name}/").into(),
         };
 
         Ok((binding, validator))
@@ -321,8 +308,7 @@ impl Binding {
             .as_ref()
             .context("missing partition template")?
             .name
-            .as_str()
-            .into();
+            .as_str();
 
         let (not_before, not_after) = not_before_after(not_before.as_ref(), not_after.as_ref());
 
@@ -348,8 +334,8 @@ impl Binding {
             not_before,
             not_after,
             cohort: 0, // Assigned by assign_cohorts().
-            partition_template_name,
             partition_fields: partition_fields.clone(),
+            partition_prefix: format!("{partition_template_name}/").into(),
         };
 
         Ok((binding, validator))
@@ -376,8 +362,7 @@ impl Binding {
             .as_ref()
             .context("missing partition template")?
             .name
-            .as_str()
-            .into();
+            .as_str();
 
         let (validator, shape) = build_schema(read_schema_json, write_schema_json)?;
 
@@ -397,8 +382,8 @@ impl Binding {
             not_before: uuid::Clock::UNIX_EPOCH,
             not_after: uuid::Clock::from_u64(u64::MAX),
             cohort: 0, // Assigned by assign_cohorts().
-            partition_template_name,
             partition_fields: partition_fields.clone(),
+            partition_prefix: format!("{partition_template_name}/").into(),
         };
 
         Ok((binding, validator))

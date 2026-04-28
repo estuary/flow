@@ -10,8 +10,8 @@ pub struct Topology {
     pub session_id: u32,
     /// Ordered shard topology: each shard owns a disjoint key range.
     pub shards: Vec<shuffle::Shard>,
-    /// Name of the task that owns this session.
-    pub task_name: models::Name,
+    /// Shard Template ID prefix of the task that owns this session.
+    pub shard_prefix: String,
     /// Per-binding shuffle configuration extracted from the task spec.
     pub bindings: Vec<crate::Binding>,
     /// Checkpoint frontier restored from the previous session.
@@ -730,7 +730,7 @@ mod test {
         Topology {
             session_id: 1,
             shards,
-            task_name: models::Name::new("test/task"),
+            shard_prefix: "materialize/test/task/".to_string(),
             bindings,
             resume_checkpoint: Default::default(),
         }
@@ -1204,7 +1204,10 @@ mod test {
 
         // Peek of unresolved: partial advance, hint preserved, zero bytes.
         let peek = pipeline.take_ready().expect("peek emitted");
-        assert_ne!(peek.unresolved_hints, 0, "peek carries unresolved_hints != 0");
+        assert_ne!(
+            peek.unresolved_hints, 0,
+            "peek carries unresolved_hints != 0"
+        );
         assert_eq!(peek.journals[0].producers[0].last_commit.to_unix().0, 60);
         assert_eq!(peek.journals[0].producers[0].hinted_commit.to_unix().0, 100);
         assert_eq!(peek.journals[0].bytes_read_delta, 0, "peek zeros bytes");
@@ -1769,7 +1772,10 @@ mod test {
             vec![jf("journal/B", 1, vec![pf(0x01, 250, 0, -200)])],
             vec![],
         );
-        assert_eq!(pipeline.unresolved.unresolved_hints, 1, "hint not yet resolved");
+        assert_eq!(
+            pipeline.unresolved.unresolved_hints, 1,
+            "hint not yet resolved"
+        );
 
         // Progress that resolves the hint (P1 commits at 300 >= hinted 300).
         ingest_progressed(

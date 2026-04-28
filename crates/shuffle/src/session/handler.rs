@@ -35,7 +35,7 @@ where
     super::state::validate_shard_ranges(&shards)?;
 
     let task = task.context("Open must include task")?;
-    let (task_name, bindings, _validators, _disk_backlog_threshold) =
+    let (shard_prefix, bindings, _validators, _disk_backlog_threshold) =
         crate::Binding::from_task(&task)?;
 
     tracing::info!(
@@ -121,7 +121,7 @@ where
     let topology = super::state::Topology {
         session_id,
         shards,
-        task_name,
+        shard_prefix,
         bindings,
         resume_checkpoint,
     };
