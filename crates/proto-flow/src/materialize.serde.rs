@@ -546,8 +546,16 @@ impl serde::Serialize for request::Acknowledge {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let len = 0;
-        let struct_ser = serializer.serialize_struct("materialize.Request.Acknowledge", len)?;
+        let mut len = 0;
+        if !self.connector_state_patches_json.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("materialize.Request.Acknowledge", len)?;
+        if !self.connector_state_patches_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("connectorStatePatches", &crate::as_raw_json(&self.connector_state_patches_json)?)?;
+        }
         struct_ser.end()
     }
 }
@@ -558,10 +566,13 @@ impl<'de> serde::Deserialize<'de> for request::Acknowledge {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "connector_state_patches_json",
+            "connectorStatePatches",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            ConnectorStatePatchesJson,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -582,7 +593,10 @@ impl<'de> serde::Deserialize<'de> for request::Acknowledge {
                     where
                         E: serde::de::Error,
                     {
-                            Err(serde::de::Error::unknown_field(value, FIELDS))
+                        match value {
+                            "connectorStatePatches" | "connector_state_patches_json" => Ok(GeneratedField::ConnectorStatePatchesJson),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -600,10 +614,21 @@ impl<'de> serde::Deserialize<'de> for request::Acknowledge {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map_.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                let mut connector_state_patches_json__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ConnectorStatePatchesJson => {
+                            if connector_state_patches_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("connectorStatePatches"));
+                            }
+                            connector_state_patches_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
+                    }
                 }
                 Ok(request::Acknowledge {
+                    connector_state_patches_json: connector_state_patches_json__.unwrap_or_default(),
                 })
             }
         }
@@ -783,8 +808,16 @@ impl serde::Serialize for request::Flush {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let len = 0;
-        let struct_ser = serializer.serialize_struct("materialize.Request.Flush", len)?;
+        let mut len = 0;
+        if !self.connector_state_patches_json.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("materialize.Request.Flush", len)?;
+        if !self.connector_state_patches_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("connectorStatePatches", &crate::as_raw_json(&self.connector_state_patches_json)?)?;
+        }
         struct_ser.end()
     }
 }
@@ -795,10 +828,13 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "connector_state_patches_json",
+            "connectorStatePatches",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            ConnectorStatePatchesJson,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -819,7 +855,10 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                     where
                         E: serde::de::Error,
                     {
-                            Err(serde::de::Error::unknown_field(value, FIELDS))
+                        match value {
+                            "connectorStatePatches" | "connector_state_patches_json" => Ok(GeneratedField::ConnectorStatePatchesJson),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -837,10 +876,21 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map_.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                let mut connector_state_patches_json__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ConnectorStatePatchesJson => {
+                            if connector_state_patches_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("connectorStatePatches"));
+                            }
+                            connector_state_patches_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
+                    }
                 }
                 Ok(request::Flush {
+                    connector_state_patches_json: connector_state_patches_json__.unwrap_or_default(),
                 })
             }
         }
@@ -1258,9 +1308,17 @@ impl serde::Serialize for request::StartCommit {
         if self.runtime_checkpoint.is_some() {
             len += 1;
         }
+        if !self.connector_state_patches_json.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Request.StartCommit", len)?;
         if let Some(v) = self.runtime_checkpoint.as_ref() {
             struct_ser.serialize_field("runtimeCheckpoint", v)?;
+        }
+        if !self.connector_state_patches_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("connectorStatePatches", &crate::as_raw_json(&self.connector_state_patches_json)?)?;
         }
         struct_ser.end()
     }
@@ -1274,11 +1332,14 @@ impl<'de> serde::Deserialize<'de> for request::StartCommit {
         const FIELDS: &[&str] = &[
             "runtime_checkpoint",
             "runtimeCheckpoint",
+            "connector_state_patches_json",
+            "connectorStatePatches",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             RuntimeCheckpoint,
+            ConnectorStatePatchesJson,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1301,6 +1362,7 @@ impl<'de> serde::Deserialize<'de> for request::StartCommit {
                     {
                         match value {
                             "runtimeCheckpoint" | "runtime_checkpoint" => Ok(GeneratedField::RuntimeCheckpoint),
+                            "connectorStatePatches" | "connector_state_patches_json" => Ok(GeneratedField::ConnectorStatePatchesJson),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1321,6 +1383,7 @@ impl<'de> serde::Deserialize<'de> for request::StartCommit {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut runtime_checkpoint__ = None;
+                let mut connector_state_patches_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RuntimeCheckpoint => {
@@ -1329,10 +1392,19 @@ impl<'de> serde::Deserialize<'de> for request::StartCommit {
                             }
                             runtime_checkpoint__ = map_.next_value()?;
                         }
+                        GeneratedField::ConnectorStatePatchesJson => {
+                            if connector_state_patches_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("connectorStatePatches"));
+                            }
+                            connector_state_patches_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(request::StartCommit {
                     runtime_checkpoint: runtime_checkpoint__,
+                    connector_state_patches_json: connector_state_patches_json__.unwrap_or_default(),
                 })
             }
         }

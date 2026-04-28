@@ -863,3 +863,753 @@ pub mod connector_proxy_server {
         const NAME: &'static str = SERVICE_NAME;
     }
 }
+/// Generated client implementations.
+#[cfg(feature = "runtime_client")]
+pub mod leader_client {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value
+    )]
+    use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
+    /// Leader coordinates multi-shard transactions for derivations and
+    /// materializations. Shard instances dial the leader, which joins them
+    /// and leads them in transaction life-cycles.
+    ///
+    /// Each RPC uses a single message type for both directions. The protocol is
+    /// "inverted" compared to typical client-server: sometimes the shard initiates
+    /// (Join, Recover, Flushed), sometimes the leader initiates (Read, Flush,
+    /// Persist).
+    #[derive(Debug, Clone)]
+    pub struct LeaderClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl LeaderClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> LeaderClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::Body>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> LeaderClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                    http::Request<tonic::body::Body>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
+                    >,
+                >,
+            <T as tonic::codegen::Service<http::Request<tonic::body::Body>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
+        {
+            LeaderClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        pub async fn derive(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::runtime::Derive>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<::proto_flow::runtime::Derive>>,
+            tonic::Status,
+        > {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/runtime.Leader/Derive");
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("runtime.Leader", "Derive"));
+            self.inner.streaming(req, path, codec).await
+        }
+        pub async fn materialize(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::runtime::Materialize>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<::proto_flow::runtime::Materialize>>,
+            tonic::Status,
+        > {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/runtime.Leader/Materialize");
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("runtime.Leader", "Materialize"));
+            self.inner.streaming(req, path, codec).await
+        }
+    }
+}
+/// Generated server implementations.
+#[cfg(feature = "runtime_server")]
+pub mod leader_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with LeaderServer.
+    #[async_trait]
+    pub trait Leader: std::marker::Send + std::marker::Sync + 'static {
+        /// Server streaming response type for the Derive method.
+        type DeriveStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<::proto_flow::runtime::Derive, tonic::Status>,
+            > + std::marker::Send
+            + 'static;
+        async fn derive(
+            &self,
+            request: tonic::Request<tonic::Streaming<::proto_flow::runtime::Derive>>,
+        ) -> std::result::Result<tonic::Response<Self::DeriveStream>, tonic::Status>;
+        /// Server streaming response type for the Materialize method.
+        type MaterializeStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<::proto_flow::runtime::Materialize, tonic::Status>,
+            > + std::marker::Send
+            + 'static;
+        async fn materialize(
+            &self,
+            request: tonic::Request<tonic::Streaming<::proto_flow::runtime::Materialize>>,
+        ) -> std::result::Result<tonic::Response<Self::MaterializeStream>, tonic::Status>;
+    }
+    /// Leader coordinates multi-shard transactions for derivations and
+    /// materializations. Shard instances dial the leader, which joins them
+    /// and leads them in transaction life-cycles.
+    ///
+    /// Each RPC uses a single message type for both directions. The protocol is
+    /// "inverted" compared to typical client-server: sometimes the shard initiates
+    /// (Join, Recover, Flushed), sometimes the leader initiates (Read, Flush,
+    /// Persist).
+    #[derive(Debug)]
+    pub struct LeaderServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> LeaderServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for LeaderServer<T>
+    where
+        T: Leader,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::Body>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/runtime.Leader/Derive" => {
+                    #[allow(non_camel_case_types)]
+                    struct DeriveSvc<T: Leader>(pub Arc<T>);
+                    impl<T: Leader> tonic::server::StreamingService<::proto_flow::runtime::Derive> for DeriveSvc<T> {
+                        type Response = ::proto_flow::runtime::Derive;
+                        type ResponseStream = T::DeriveStream;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                tonic::Streaming<::proto_flow::runtime::Derive>,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move { <T as Leader>::derive(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = DeriveSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/runtime.Leader/Materialize" => {
+                    #[allow(non_camel_case_types)]
+                    struct MaterializeSvc<T: Leader>(pub Arc<T>);
+                    impl<T: Leader>
+                        tonic::server::StreamingService<::proto_flow::runtime::Materialize>
+                        for MaterializeSvc<T>
+                    {
+                        type Response = ::proto_flow::runtime::Materialize;
+                        type ResponseStream = T::MaterializeStream;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                tonic::Streaming<::proto_flow::runtime::Materialize>,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut =
+                                async move { <T as Leader>::materialize(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = MaterializeSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => Box::pin(async move {
+                    let mut response = http::Response::new(tonic::body::Body::default());
+                    let headers = response.headers_mut();
+                    headers.insert(
+                        tonic::Status::GRPC_STATUS,
+                        (tonic::Code::Unimplemented as i32).into(),
+                    );
+                    headers.insert(
+                        http::header::CONTENT_TYPE,
+                        tonic::metadata::GRPC_CONTENT_TYPE,
+                    );
+                    Ok(response)
+                }),
+            }
+        }
+    }
+    impl<T> Clone for LeaderServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "runtime.Leader";
+    impl<T> tonic::server::NamedService for LeaderServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
+    }
+}
+/// Generated client implementations.
+#[cfg(feature = "runtime_client")]
+pub mod shard_client {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value
+    )]
+    use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
+    /// Shard is the Go-facing bidirectional service exposed by runtime-next.
+    /// It carries the same message types as Leader on the wire,
+    /// but is a distinct service: it terminates parallel per-shard streams
+    /// and (separately) dials the leader sidecar's Leader service, translating
+    /// between the two and the connector RPC.
+    ///
+    /// Stream modes are determined by the first message:
+    ///
+    /// * Session mode: first message is `Start`. Then any number of leader
+    ///  sessions cycle through Join → ... → Stopped, terminated by
+    ///  client (Go) EOF.
+    /// * Unary mode: first message is `spec` or `validate`. The leader is
+    ///  not involved; the handler dials a transient connector and streams
+    ///  the response back. A Validate may follow a Spec on the same stream.
+    #[derive(Debug, Clone)]
+    pub struct ShardClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl ShardClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> ShardClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::Body>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> ShardClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                    http::Request<tonic::body::Body>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::Body>>::ResponseBody,
+                    >,
+                >,
+            <T as tonic::codegen::Service<http::Request<tonic::body::Body>>>::Error:
+                Into<StdError> + std::marker::Send + std::marker::Sync,
+        {
+            ShardClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        pub async fn derive(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::runtime::Derive>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<::proto_flow::runtime::Derive>>,
+            tonic::Status,
+        > {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/runtime.Shard/Derive");
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("runtime.Shard", "Derive"));
+            self.inner.streaming(req, path, codec).await
+        }
+        pub async fn materialize(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::runtime::Materialize>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<::proto_flow::runtime::Materialize>>,
+            tonic::Status,
+        > {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/runtime.Shard/Materialize");
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("runtime.Shard", "Materialize"));
+            self.inner.streaming(req, path, codec).await
+        }
+    }
+}
+/// Generated server implementations.
+#[cfg(feature = "runtime_server")]
+pub mod shard_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with ShardServer.
+    #[async_trait]
+    pub trait Shard: std::marker::Send + std::marker::Sync + 'static {
+        /// Server streaming response type for the Derive method.
+        type DeriveStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<::proto_flow::runtime::Derive, tonic::Status>,
+            > + std::marker::Send
+            + 'static;
+        async fn derive(
+            &self,
+            request: tonic::Request<tonic::Streaming<::proto_flow::runtime::Derive>>,
+        ) -> std::result::Result<tonic::Response<Self::DeriveStream>, tonic::Status>;
+        /// Server streaming response type for the Materialize method.
+        type MaterializeStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<::proto_flow::runtime::Materialize, tonic::Status>,
+            > + std::marker::Send
+            + 'static;
+        async fn materialize(
+            &self,
+            request: tonic::Request<tonic::Streaming<::proto_flow::runtime::Materialize>>,
+        ) -> std::result::Result<tonic::Response<Self::MaterializeStream>, tonic::Status>;
+    }
+    /// Shard is the Go-facing bidirectional service exposed by runtime-next.
+    /// It carries the same message types as Leader on the wire,
+    /// but is a distinct service: it terminates parallel per-shard streams
+    /// and (separately) dials the leader sidecar's Leader service, translating
+    /// between the two and the connector RPC.
+    ///
+    /// Stream modes are determined by the first message:
+    ///
+    /// * Session mode: first message is `Start`. Then any number of leader
+    ///  sessions cycle through Join → ... → Stopped, terminated by
+    ///  client (Go) EOF.
+    /// * Unary mode: first message is `spec` or `validate`. The leader is
+    ///  not involved; the handler dials a transient connector and streams
+    ///  the response back. A Validate may follow a Spec on the same stream.
+    #[derive(Debug)]
+    pub struct ShardServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> ShardServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for ShardServer<T>
+    where
+        T: Shard,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::Body>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/runtime.Shard/Derive" => {
+                    #[allow(non_camel_case_types)]
+                    struct DeriveSvc<T: Shard>(pub Arc<T>);
+                    impl<T: Shard> tonic::server::StreamingService<::proto_flow::runtime::Derive> for DeriveSvc<T> {
+                        type Response = ::proto_flow::runtime::Derive;
+                        type ResponseStream = T::DeriveStream;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                tonic::Streaming<::proto_flow::runtime::Derive>,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move { <T as Shard>::derive(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = DeriveSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/runtime.Shard/Materialize" => {
+                    #[allow(non_camel_case_types)]
+                    struct MaterializeSvc<T: Shard>(pub Arc<T>);
+                    impl<T: Shard>
+                        tonic::server::StreamingService<::proto_flow::runtime::Materialize>
+                        for MaterializeSvc<T>
+                    {
+                        type Response = ::proto_flow::runtime::Materialize;
+                        type ResponseStream = T::MaterializeStream;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                tonic::Streaming<::proto_flow::runtime::Materialize>,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut =
+                                async move { <T as Shard>::materialize(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = MaterializeSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => Box::pin(async move {
+                    let mut response = http::Response::new(tonic::body::Body::default());
+                    let headers = response.headers_mut();
+                    headers.insert(
+                        tonic::Status::GRPC_STATUS,
+                        (tonic::Code::Unimplemented as i32).into(),
+                    );
+                    headers.insert(
+                        http::header::CONTENT_TYPE,
+                        tonic::metadata::GRPC_CONTENT_TYPE,
+                    );
+                    Ok(response)
+                }),
+            }
+        }
+    }
+    impl<T> Clone for ShardServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "runtime.Shard";
+    impl<T> tonic::server::NamedService for ShardServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
+    }
+}

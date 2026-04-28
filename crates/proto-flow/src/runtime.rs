@@ -11,6 +11,14 @@ pub struct TaskServiceConfig {
     pub container_network: ::prost::alloc::string::String,
     #[prost(enumeration = "Plane", tag = "6")]
     pub plane: i32,
+    #[prost(string, tag = "7")]
+    pub data_plane_fqdn: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "8")]
+    pub data_plane_signing_key: ::prost::bytes::Bytes,
+    #[prost(string, tag = "9")]
+    pub control_api_endpoint: ::prost::alloc::string::String,
+    #[prost(string, tag = "10")]
+    pub availability_zone: ::prost::alloc::string::String,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,
@@ -418,6 +426,614 @@ pub struct ConnectorProxyResponse {
     /// All messages following the first are logs.
     #[prost(message, optional, tag = "3")]
     pub log: ::core::option::Option<super::ops::Log>,
+}
+/// Join is sent by each shard to the leader at session start. The leader
+/// gathers all expected Joins, verifies `shards` are exactly equal,
+/// and responds with Joined on consensus or disagreement.
+///
+/// Index 0 in `shards` is "shard zero": its reactor is co-located
+/// with the Shuffle Leader sidecar that owns this session, and it hosts
+/// the task's recovery log.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Join {
+    /// Etcd mod revision at which `shards` was observed.
+    /// On disagreement all participants await the highest revision, then re-try.
+    #[prost(int64, tag = "1")]
+    pub etcd_mod_revision: i64,
+    /// Current shard topology as observed by the sender.
+    #[prost(message, repeated, tag = "2")]
+    pub shards: ::prost::alloc::vec::Vec<join::Shard>,
+    /// This shard's index within `shards`.
+    #[prost(uint32, tag = "3")]
+    pub shard_index: u32,
+    /// Client-owned local directory where this shuffle Log segments should be written.
+    #[prost(string, tag = "4")]
+    pub shuffle_directory: ::prost::alloc::string::String,
+    /// Dial-able gRPC endpoint for reaching this shard's shuffle service.
+    #[prost(string, tag = "5")]
+    pub shuffle_endpoint: ::prost::alloc::string::String,
+    /// Dial-able gRPC endpoint for reaching the shuffle Leader's shuffle service.
+    #[prost(string, tag = "6")]
+    pub leader_endpoint: ::prost::alloc::string::String,
+}
+/// Nested message and enum types in `Join`.
+pub mod join {
+    /// Shard describes one shard and the reactor it is assigned to.
+    ///
+    /// Shards are ordered on ascending `shard.range.key_begin` and,
+    /// within a key range, on ascending `shard.range.r_clock_begin`. The
+    /// tiling must be complete and non-overlapping in 2D over
+    /// \[key_begin, key_end\] and \[r_clock_begin, r_clock_end\].
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Shard {
+        #[prost(string, tag = "1")]
+        pub id: ::prost::alloc::string::String,
+        /// Labeling that captures all shard metadata.
+        #[prost(message, optional, tag = "2")]
+        pub labeling: ::core::option::Option<super::super::ops::ShardLabeling>,
+        /// Hosting reactor ID.
+        #[prost(message, optional, tag = "3")]
+        pub reactor: ::core::option::Option<::proto_gazette::broker::process_spec::Id>,
+        /// Creation revision of the Etcd key representing the shard's
+        /// reactor assignment. Represents assignment identity:
+        /// each re-assignment has a unique, monotonic revision.
+        #[prost(int64, tag = "4")]
+        pub etcd_create_revision: i64,
+    }
+}
+/// Joined is broadcast by the leader to all shards after collecting Joins.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Joined {
+    /// Zero: consensus reached; the session proceeds.
+    /// Non-zero: topology disagreement. Await this revision, then retry.
+    #[prost(int64, tag = "1")]
+    pub max_etcd_revision: i64,
+}
+/// Recover is sent by each shard to the leader after Joined.
+///
+/// Recover is a streamed sequence terminated by an empty Recover. Any
+/// message in the sequence may carry one `hinted_frontier` chunk and/or
+/// one `committed_frontier` chunk; all other fields are aggregated by
+/// the leader across the sequence as documented per-field. Shards
+/// without a recovery log send only the empty terminator.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Recover {
+    /// Last-persisted ACK intents.
+    #[prost(btree_map = "string, bytes", tag = "1")]
+    pub ack_intents: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
+    >,
+    /// Last-persisted connector state patches. State Update Wire Format.
+    #[prost(bytes = "bytes", tag = "2")]
+    pub connector_patches_json: ::prost::bytes::Bytes,
+    /// Last-applied task specification (protobuf-encoded bytes), or empty.
+    #[prost(bytes = "bytes", tag = "3")]
+    pub last_applied: ::prost::bytes::Bytes,
+    /// Wall-clock timestamp (as UUID Clock value) of this task's most-recent
+    /// prior commit, or zero if none is known.
+    #[prost(fixed64, tag = "4")]
+    pub last_commit: u64,
+    /// Per-binding max-key entries.
+    /// Key: binding index; Value: packed composite key tuple.
+    #[prost(btree_map = "uint32, bytes", tag = "5")]
+    pub max_keys: ::prost::alloc::collections::BTreeMap<u32, ::prost::bytes::Bytes>,
+    /// Persisted trigger parameters (materialize only), or empty.
+    #[prost(bytes = "bytes", tag = "6")]
+    pub trigger_params_json: ::prost::bytes::Bytes,
+    /// Persisted hinted Frontier entries (FH: range).
+    #[prost(message, optional, tag = "7")]
+    pub hinted_frontier: ::core::option::Option<super::shuffle::FrontierChunk>,
+    /// Persisted committed Frontier entries (FC: range).
+    #[prost(message, optional, tag = "8")]
+    pub committed_frontier: ::core::option::Option<super::shuffle::FrontierChunk>,
+}
+/// Recovered is sent by the leader to all shards after aggregating Recover
+/// messages (and, for materializations, after Apply/Applied completes).
+/// All shards hold this aggregated state in memory for the session.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Recovered {
+    /// Aggregated connector state patches. State Update Wire Format.
+    #[prost(bytes = "bytes", tag = "1")]
+    pub connector_patches_json: ::prost::bytes::Bytes,
+    /// Aggregated per-binding max-key entries, reduced to per-binding maximum.
+    /// Key: binding index; Value: packed composite key tuple.
+    #[prost(btree_map = "uint32, bytes", tag = "2")]
+    pub max_keys: ::prost::alloc::collections::BTreeMap<u32, ::prost::bytes::Bytes>,
+}
+/// Persist is sent by the leader to shard zero when state must be durably
+/// written. Each field maps to a contractual WriteBatch effect on shard
+/// zero's RocksDB. Absent fields are inert.
+///
+/// Persist is a streamed sequence, which collectively land together in a
+/// single WriteBatch. Messages which are continued have `nonce` of zero.
+/// The final message of the sequence has a non-zero `nonce`, which is echoed
+/// back by the shard's Persisted response.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Persist {
+    /// Nonce which is echoed back in the shard's `Persisted` response.
+    #[prost(uint64, tag = "1")]
+    pub nonce: u64,
+    /// Delete a previously-persisted hinted frontier.
+    /// Effect: DeleteRange("FH:")
+    #[prost(bool, tag = "2")]
+    pub delete_hinted_frontier: bool,
+    /// Hinted Frontier entries.
+    /// Effect: Put FH: keys.
+    #[prost(message, optional, tag = "3")]
+    pub hinted_frontier: ::core::option::Option<super::shuffle::FrontierChunk>,
+    /// Committed Frontier entries.
+    /// Effect: Put FC: keys.
+    #[prost(message, optional, tag = "4")]
+    pub committed_frontier: ::core::option::Option<super::shuffle::FrontierChunk>,
+    /// Connector state patches. State Update Wire Format.
+    /// Effect: one Merge per individual patch on the connector-state key.
+    #[prost(bytes = "bytes", tag = "5")]
+    pub connector_patches_json: ::prost::bytes::Bytes,
+    /// Per-binding max-key updates, reduced to per-binding maximum across shards.
+    /// Key: binding index; Value: packed composite key tuple.
+    /// Effect: Put value under MK-v2:{state_key} (state_key resolved by the encoder).
+    #[prost(btree_map = "uint32, bytes", tag = "6")]
+    pub max_keys: ::prost::alloc::collections::BTreeMap<u32, ::prost::bytes::Bytes>,
+    /// Delete previously-persisted ACK intents.
+    /// Effect: DeleteRange("AI:")
+    #[prost(bool, tag = "7")]
+    pub delete_ack_intents: bool,
+    /// ACK intent entries.
+    /// Key: journal name; Value: raw journal content to write.
+    /// Effect: Put value under AI:{journal}.
+    #[prost(btree_map = "string, bytes", tag = "8")]
+    pub ack_intents: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
+    >,
+    /// Delete previously-persisted trigger parameters (materialize only).
+    /// Effect: Delete the trigger-params key.
+    #[prost(bool, tag = "9")]
+    pub delete_trigger_params: bool,
+    /// Materialization trigger parameters.
+    /// Effect: Put on the trigger-params key.
+    #[prost(bytes = "bytes", tag = "10")]
+    pub trigger_params_json: ::prost::bytes::Bytes,
+    /// Last-applied task specification (protobuf-encoded bytes), or empty.
+    /// Effect: Put last-applied key.
+    #[prost(bytes = "bytes", tag = "11")]
+    pub last_applied: ::prost::bytes::Bytes,
+}
+/// Persisted is sent by shard zero to the leader after the state is durable
+/// in the recovery log.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Persisted {
+    /// Nonce which is echoed back from the leader's terminal `Persist` request.
+    /// The leader uses this to match responses to requests.
+    #[prost(uint64, tag = "1")]
+    pub nonce: u64,
+}
+/// Stop is sent by a shard to the leader to request graceful shutdown.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Stop {}
+/// Stopped is sent by the leader to all shards confirming shutdown.
+/// The leader sends EOF after Stopped.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Stopped {}
+/// Start is sent as the first message of a session-mode stream on the Shard
+/// service. It carries process-level configuration that outlives leader sessions,
+/// such as the the RocksDB context to use across leader sessions.
+/// The Leader service never sees Start.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Start {
+    /// Initial Log level for this Shard stream.
+    /// Updated by the log level contained with a subsequent Open.
+    #[prost(enumeration = "super::ops::log::Level", tag = "1")]
+    pub log_level: i32,
+    /// RocksDB context to be opened for this Shard stream.
+    /// Absent for non-zero materialize/derive shards, which don't host RocksDB.
+    #[prost(message, optional, tag = "2")]
+    pub rocksdb_descriptor: ::core::option::Option<RocksDbDescriptor>,
+}
+/// PartialAckIntent is a single shard's contribution to the transaction's
+/// ACK intents. The leader collects these from all shards and calls
+/// build_transaction_intents() to produce final ACK intent documents.
+///
+/// Matches the return type of Publisher::commit_intents().
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PartialAckIntent {
+    /// Producer ID (only the low 6 bytes are used).
+    #[prost(int64, tag = "1")]
+    pub producer: i64,
+    /// Commit clock timestamp.
+    #[prost(fixed64, tag = "2")]
+    pub clock: u64,
+    /// Journals to which this producer appended CONTINUE_TXN documents.
+    #[prost(string, repeated, tag = "3")]
+    pub journals: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+/// Derive is the bidirectional message type for derivation sessions.
+/// Exactly one field is set per message.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Derive {
+    /// Shard -> Leader. Session initiation with topology.
+    #[prost(message, optional, tag = "1")]
+    pub join: ::core::option::Option<Join>,
+    /// Leader -> Shards. Topology consensus or retry directive.
+    #[prost(message, optional, tag = "2")]
+    pub joined: ::core::option::Option<Joined>,
+    /// Shard -> Leader. Persisted state from recovery.
+    #[prost(message, optional, tag = "3")]
+    pub recover: ::core::option::Option<Recover>,
+    /// Shard zero -> Leader. Task spec, sent before Recovered.
+    #[prost(message, optional, tag = "4")]
+    pub open: ::core::option::Option<derive::Open>,
+    /// Leader -> Shards. Aggregated global state.
+    #[prost(message, optional, tag = "5")]
+    pub recovered: ::core::option::Option<Recovered>,
+    /// All shards -> Leader. Connector flags from C:Opened.
+    #[prost(message, optional, tag = "6")]
+    pub opened: ::core::option::Option<derive::Opened>,
+    /// Leader -> Shards. Source document locations for this transaction.
+    #[prost(message, optional, tag = "7")]
+    pub read: ::core::option::Option<derive::Read>,
+    /// Leader -> Shards. Begin flush phase.
+    #[prost(message, optional, tag = "8")]
+    pub flush: ::core::option::Option<derive::Flush>,
+    /// Shard -> Leader. Flush phase complete.
+    #[prost(message, optional, tag = "9")]
+    pub flushed: ::core::option::Option<derive::Flushed>,
+    /// Leader -> Shards. Begin commit phase.
+    #[prost(message, optional, tag = "10")]
+    pub start_commit: ::core::option::Option<derive::StartCommit>,
+    /// Shard -> Leader. Commit phase initiated.
+    #[prost(message, optional, tag = "11")]
+    pub started_commit: ::core::option::Option<derive::StartedCommit>,
+    /// Leader -> Shard zero. Durable state write.
+    #[prost(message, optional, tag = "12")]
+    pub persist: ::core::option::Option<Persist>,
+    /// Shard zero -> Leader. State is durable.
+    #[prost(message, optional, tag = "13")]
+    pub persisted: ::core::option::Option<Persisted>,
+    /// Leader -> Shards. Transaction complete.
+    #[prost(message, optional, tag = "14")]
+    pub acknowledge: ::core::option::Option<derive::Acknowledge>,
+    /// Shard -> Leader. Graceful shutdown request.
+    #[prost(message, optional, tag = "15")]
+    pub stop: ::core::option::Option<Stop>,
+    /// Leader -> Shards. Shutdown confirmed; EOF follows.
+    #[prost(message, optional, tag = "16")]
+    pub stopped: ::core::option::Option<Stopped>,
+    /// Go -> Shard. First message of a session-mode stream.
+    #[prost(message, optional, tag = "17")]
+    pub start: ::core::option::Option<Start>,
+    /// Go -> Shard. First message of a unary-mode stream.
+    /// Only `validate` may follow.
+    #[prost(message, optional, tag = "18")]
+    pub spec: ::core::option::Option<super::derive::request::Spec>,
+    /// Shard -> Go. Connector's reply to `spec`.
+    #[prost(message, optional, tag = "19")]
+    pub spec_response: ::core::option::Option<super::derive::response::Spec>,
+    /// Go -> Shard. Unary connector Validate.
+    #[prost(message, optional, tag = "20")]
+    pub validate: ::core::option::Option<super::derive::request::Validate>,
+    /// Shard -> Go. Connector's reply to `validate`.
+    #[prost(message, optional, tag = "21")]
+    pub validated: ::core::option::Option<super::derive::response::Validated>,
+}
+/// Nested message and enum types in `Derive`.
+pub mod derive {
+    /// Open carries the current derivation spec from shard zero to the leader.
+    /// Sent after Recover, before Recovered.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Open {
+        /// CollectionSpec for this derivation. The inner `derivation` field must be set.
+        #[prost(message, optional, tag = "1")]
+        pub derivation: ::core::option::Option<super::super::flow::CollectionSpec>,
+        #[prost(message, optional, tag = "2")]
+        pub ops_logs_spec: ::core::option::Option<super::super::flow::CollectionSpec>,
+        #[prost(message, optional, tag = "3")]
+        pub ops_stats_spec: ::core::option::Option<super::super::flow::CollectionSpec>,
+        #[prost(string, tag = "4")]
+        pub ops_logs_journal: ::prost::alloc::string::String,
+        #[prost(string, tag = "5")]
+        pub ops_stats_journal: ::prost::alloc::string::String,
+    }
+    /// Opened carries connector flags reported by C:Opened. Sent by every
+    /// shard after its connector session responds to C:Open.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Opened {
+        /// Connector declares crash-replay determinism can be skipped.
+        /// Per-task invariant: all shards must report the same value.
+        #[prost(bool, tag = "1")]
+        pub skip_replay_determinism: bool,
+        /// Description of the running connector container.
+        /// Sent to the client, but not the leader.
+        #[prost(message, optional, tag = "2")]
+        pub container: ::core::option::Option<super::Container>,
+    }
+    /// Read carries a FrontierChunk identifying source documents to process.
+    /// Shards read from their local shuffle Log segments and send C:Read
+    /// to the connector for each document. C:Published responses accumulate
+    /// in combiners.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Read {
+        #[prost(message, optional, tag = "1")]
+        pub frontier: ::core::option::Option<super::super::shuffle::FrontierChunk>,
+    }
+    /// Flush signals the end of the Read phase and distributes the prior
+    /// transaction's aggregated connector state patches.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Flush {
+        /// Prior transaction's aggregated C:StartedCommit patches.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+    }
+    /// Flushed reports this shard's partial ACK intents and stats after
+    /// draining combiners and publishing CONTINUE_TXN documents.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Flushed {
+        #[prost(message, optional, tag = "1")]
+        pub ack_intent: ::core::option::Option<super::PartialAckIntent>,
+        #[prost(message, optional, tag = "2")]
+        pub stats: ::core::option::Option<super::super::ops::Stats>,
+    }
+    /// StartCommit tells shards to trigger the connector commit phase.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct StartCommit {}
+    /// StartedCommit carries connector state patches from C:StartedCommit.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct StartedCommit {
+        /// Connector state patches from this shard's C:StartedCommit.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+    }
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Acknowledge {}
+}
+/// Materialize is the bidirectional message type for materialization sessions.
+/// Exactly one field is set per message.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Materialize {
+    /// Shard -> Leader. Session initiation with topology.
+    #[prost(message, optional, tag = "1")]
+    pub join: ::core::option::Option<Join>,
+    /// Leader -> Shards. Topology consensus or retry directive.
+    #[prost(message, optional, tag = "2")]
+    pub joined: ::core::option::Option<Joined>,
+    /// Shard -> Leader. Persisted state from recovery.
+    #[prost(message, optional, tag = "3")]
+    pub recover: ::core::option::Option<Recover>,
+    /// Shard zero -> Leader. Task spec, sent after Recover and before Apply.
+    #[prost(message, optional, tag = "4")]
+    pub open: ::core::option::Option<materialize::Open>,
+    /// Leader -> Shard zero. Run C:Apply with brokered last-applied and state.
+    #[prost(message, optional, tag = "5")]
+    pub apply: ::core::option::Option<materialize::Apply>,
+    /// Shard zero -> Leader. C:Apply complete.
+    #[prost(message, optional, tag = "6")]
+    pub applied: ::core::option::Option<materialize::Applied>,
+    /// Leader -> Shards. Aggregated global state, extended by Applied.state.
+    #[prost(message, optional, tag = "7")]
+    pub recovered: ::core::option::Option<Recovered>,
+    /// All shards -> Leader. Connector flags and optional legacy
+    /// consumer.Checkpoint, from C:Opened.
+    #[prost(message, optional, tag = "8")]
+    pub opened: ::core::option::Option<materialize::Opened>,
+    /// Leader -> Shards. Source document locations (incremental Frontier).
+    /// Multiple Load messages may be sent per transaction.
+    #[prost(message, optional, tag = "9")]
+    pub load: ::core::option::Option<materialize::Load>,
+    /// Shard -> Leader. Load phase report.
+    #[prost(message, optional, tag = "10")]
+    pub loaded: ::core::option::Option<materialize::Loaded>,
+    /// Leader -> Shards. End of Load phase, begin flush.
+    #[prost(message, optional, tag = "11")]
+    pub flush: ::core::option::Option<materialize::Flush>,
+    /// Shard -> Leader. Flush phase complete.
+    #[prost(message, optional, tag = "12")]
+    pub flushed: ::core::option::Option<materialize::Flushed>,
+    /// Leader -> Shards. Begin commit phase.
+    #[prost(message, optional, tag = "13")]
+    pub start_commit: ::core::option::Option<materialize::StartCommit>,
+    /// Shard -> Leader. Commit phase initiated.
+    #[prost(message, optional, tag = "14")]
+    pub started_commit: ::core::option::Option<materialize::StartedCommit>,
+    /// Leader -> Shard zero. Durable state write.
+    #[prost(message, optional, tag = "15")]
+    pub persist: ::core::option::Option<Persist>,
+    /// Shard zero -> Leader. State is durable.
+    #[prost(message, optional, tag = "16")]
+    pub persisted: ::core::option::Option<Persisted>,
+    /// Leader -> Shards. Transaction complete.
+    #[prost(message, optional, tag = "17")]
+    pub acknowledge: ::core::option::Option<materialize::Acknowledge>,
+    /// Shard -> Leader. Reports C:Acknowledged state from prior transaction.
+    #[prost(message, optional, tag = "18")]
+    pub acknowledged: ::core::option::Option<materialize::Acknowledged>,
+    /// Shard -> Leader. Graceful shutdown request.
+    #[prost(message, optional, tag = "19")]
+    pub stop: ::core::option::Option<Stop>,
+    /// Leader -> Shards. Shutdown confirmed; EOF follows.
+    #[prost(message, optional, tag = "20")]
+    pub stopped: ::core::option::Option<Stopped>,
+    /// Go -> Shard. First message of a session-mode stream.
+    #[prost(message, optional, tag = "21")]
+    pub start: ::core::option::Option<Start>,
+    /// Go -> Shard. First message of a unary-mode stream.
+    /// Only `validate` may follow.
+    #[prost(message, optional, tag = "22")]
+    pub spec: ::core::option::Option<super::materialize::request::Spec>,
+    /// Shard -> Go. Connector's reply to `spec`.
+    #[prost(message, optional, tag = "23")]
+    pub spec_response: ::core::option::Option<super::materialize::response::Spec>,
+    /// Go -> Shard. Unary connector Validate.
+    #[prost(message, optional, tag = "24")]
+    pub validate: ::core::option::Option<super::materialize::request::Validate>,
+    /// Shard -> Go. Connector's reply to `validate`.
+    #[prost(message, optional, tag = "25")]
+    pub validated: ::core::option::Option<super::materialize::response::Validated>,
+}
+/// Nested message and enum types in `Materialize`.
+pub mod materialize {
+    /// Open carries the current materialization spec from shard zero to the leader.
+    /// Sent after Recover, before Apply.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Open {
+        #[prost(message, optional, tag = "1")]
+        pub materialization: ::core::option::Option<super::super::flow::MaterializationSpec>,
+        #[prost(message, optional, tag = "2")]
+        pub ops_logs_spec: ::core::option::Option<super::super::flow::CollectionSpec>,
+        #[prost(message, optional, tag = "3")]
+        pub ops_stats_spec: ::core::option::Option<super::super::flow::CollectionSpec>,
+        #[prost(string, tag = "4")]
+        pub ops_logs_journal: ::prost::alloc::string::String,
+        #[prost(string, tag = "5")]
+        pub ops_stats_journal: ::prost::alloc::string::String,
+    }
+    /// Opened carries connector flags reported by C:Opened. Sent by every
+    /// shard after its long-lived connector responds to C:Open.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Opened {
+        /// Connector declares crash-replay determinism can be skipped.
+        /// When true, Persist of extents is elided entirely.
+        /// Per-task invariant: all shards must report the same value.
+        #[prost(bool, tag = "1")]
+        pub skip_replay_determinism: bool,
+        /// Optional legacy consumer.Checkpoint returned by C:Opened.
+        /// Remote-authoritative connectors store this in their endpoint;
+        /// when present, it supersedes the persisted committed Frontier
+        /// for this shard when the leader composes the session resume
+        /// Frontier.
+        #[prost(message, optional, tag = "2")]
+        pub legacy_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
+        /// Description of the running connector container.
+        /// Sent to the client, but not the leader.
+        #[prost(message, optional, tag = "3")]
+        pub container: ::core::option::Option<super::Container>,
+        /// OCI image of the connector (empty for local/dekaf connectors).
+        /// Sent only by shard zero; other shards leave empty. The leader
+        /// records this on Task and feeds it into trigger parameters.
+        #[prost(string, tag = "4")]
+        pub connector_image: ::prost::alloc::string::String,
+    }
+    /// Apply tells shard zero to run C:Apply against a separate connector instance.
+    /// The current spec is not carried — shard zero already has it.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Apply {
+        /// Last-applied MaterializationSpec bytes, or empty.
+        /// Brokered through Leader from L:Recover.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub last_applied: ::prost::bytes::Bytes,
+        /// Running connector state patches. State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "2")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+    }
+    /// Applied confirms the C:Apply is complete. May carry a connector state
+    /// update which the leader folds into Recovered before broadcasting.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Applied {
+        /// Connector state patches from this shard's C:Applied.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+    }
+    /// Load carries an incremental Frontier update: new source documents
+    /// available for loading. Shards add source docs to their combiner and
+    /// issue C:Load RPCs for documents that may already exist in the endpoint.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Load {
+        #[prost(message, optional, tag = "1")]
+        pub frontier: ::core::option::Option<super::super::shuffle::FrontierChunk>,
+    }
+    /// Loaded reports combiner usage after processing a Load.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Loaded {
+        /// On-disk size of this shard's combiner, for transaction close policy.
+        #[prost(uint64, tag = "1")]
+        pub combiner_usage_bytes: u64,
+        /// Max-key deltas: new per-binding maximums observed during Load.
+        /// Key: binding index; Value: packed composite key tuple.
+        #[prost(btree_map = "uint32, bytes", tag = "2")]
+        pub max_key_deltas: ::prost::alloc::collections::BTreeMap<u32, ::prost::bytes::Bytes>,
+        /// Source DocsAndBytes read by this shard in this Load round.
+        #[prost(btree_map = "uint32, message", tag = "3")]
+        pub binding_read:
+            ::prost::alloc::collections::BTreeMap<u32, super::super::ops::stats::DocsAndBytes>,
+        /// Endpoint DocsAndBytes loaded by this shard in this Load round.
+        #[prost(btree_map = "uint32, message", tag = "4")]
+        pub binding_loaded:
+            ::prost::alloc::collections::BTreeMap<u32, super::super::ops::stats::DocsAndBytes>,
+    }
+    /// Flush signals the end of the Load phase and distributes the prior
+    /// transaction's aggregated connector state patches.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Flush {
+        /// Prior transaction's aggregated C:Acknowledged state patches.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+    }
+    /// Flushed reports connector state patches and max-key deltas from C:Flushed.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Flushed {
+        /// Connector state patches from this shard's C:Flushed.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+        /// Endpoint DocsAndBytes loaded by this shard between last L:Loaded and C:Flushed
+        #[prost(btree_map = "uint32, message", tag = "2")]
+        pub binding_loaded:
+            ::prost::alloc::collections::BTreeMap<u32, super::super::ops::stats::DocsAndBytes>,
+    }
+    /// StartCommit distributes aggregated L:Flushed patches from all shards
+    /// so each connector instance can observe its peers' state for cooperative
+    /// strategies (e.g., parallel file staging).
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct StartCommit {
+        /// Aggregated Flushed connector state patches from all shards.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+    }
+    /// StartedCommit carries connector state patches, ACK intents, stats,
+    /// and per-shard source-clock extremes from C:StartedCommit.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct StartedCommit {
+        /// Connector state patches from this shard's C:StartedCommit.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+        #[prost(btree_map = "uint32, message", tag = "2")]
+        pub binding_stored:
+            ::prost::alloc::collections::BTreeMap<u32, super::super::ops::stats::DocsAndBytes>,
+        /// Per-binding min source-document Clock observed by this shard in this
+        /// transaction. Only bindings that received documents are present. The
+        /// leader reduces (min across shards, then min across bindings) and
+        /// feeds the result into trigger parameters.
+        #[prost(btree_map = "uint32, uint64", tag = "3")]
+        pub first_source_clock: ::prost::alloc::collections::BTreeMap<u32, u64>,
+        /// Per-binding max source-document Clock observed by this shard in this
+        /// transaction. Only bindings that received documents are present.
+        /// Also used in trigger parameters.
+        #[prost(btree_map = "uint32, uint64", tag = "4")]
+        pub last_source_clock: ::prost::alloc::collections::BTreeMap<u32, u64>,
+    }
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Acknowledge {
+        /// Aggregated StartedCommit connector state patches from all shards.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+    }
+    /// Acknowledged reports C:Acknowledged connector state from the prior
+    /// transaction. Sent by each shard after its connector responds to
+    /// C:Acknowledge.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Acknowledged {
+        /// Connector state patches from this shard's C:Acknowledged.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+    }
 }
 /// Plane describes the type of data plane in which the runtime is operating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

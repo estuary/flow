@@ -3,10 +3,15 @@ syntax = "proto3";
 package shuffle;
 
 import "broker/protocol/protocol.proto";
-import "consumer/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "github.com/estuary/flow/go/protocols/shuffle";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_getters_all) = false;
 
 // Shard represents a participant in the shuffle topology (e.x. a task shard).
 message Shard {

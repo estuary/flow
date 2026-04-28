@@ -1,6 +1,5 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-assertion_line: 1052
 expression: json_test(msg)
 ---
 {
@@ -514,7 +513,9 @@ expression: json_test(msg)
     "key": [42,"hi"],
     "keyPacked": "VkseCQ=="
   },
-  "flush": {},
+  "flush": {
+    "connectorStatePatches": [{"flushed":1}]
+  },
   "store": {
     "binding": 3,
     "key": [true,null],
@@ -551,8 +552,11 @@ expression: json_test(msg)
       "ackIntents": {
         "an/ack/journal": "AwQCBQ=="
       }
-    }
+    },
+    "connectorStatePatches": [{"started":"commit"}]
   },
-  "acknowledge": {},
+  "acknowledge": {
+    "connectorStatePatches": [{"acked":true}]
+  },
   "$internal": "EgJIaRgB"
 }
