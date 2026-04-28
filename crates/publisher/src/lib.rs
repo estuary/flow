@@ -9,18 +9,10 @@ pub use appender::{Appender, AppenderGroup};
 pub use binding::Binding;
 pub use publisher::Publisher;
 
-/// Factory that builds a Gazette journal Client for appends to a Collection
-/// on behalf of a task Name. Used by `Binding::from_capture_spec` to lazily
-/// create per-binding clients: the factory is called at most once per binding,
-/// only when the binding is first written to.
-pub type JournalClientFactory = std::sync::Arc<
-    dyn Fn(models::Collection, models::Name) -> gazette::journal::Client + Send + Sync,
->;
-
 /// Boxed closure for lazy initialization of a partitions watch and journal Client.
 /// Callers of `Binding::from_collection_spec` provide this to control how the
 /// journal Client and partitions watch are created.
-pub type PartitionsClientInit = Box<
+type PartitionsClientInit = Box<
     dyn FnOnce() -> (
             gazette::journal::Client,
             tokens::PendingWatch<Vec<watch::PartitionSplit>>,

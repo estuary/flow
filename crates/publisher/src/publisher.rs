@@ -1,33 +1,76 @@
 use bytes::BufMut;
 use proto_gazette::uuid;
 
+/// Publisher is responsible for transactional publishing of documents to
+/// journal partitions, creating partitions on-demand and as needed.
 pub struct Publisher {
-    bindings: Vec<super::Binding>,
-    producer: uuid::Producer,
-    clock: uuid::Clock,
+    // Re-useable Appenders for binding journals.
     appenders: super::AppenderGroup,
-    prefix_buf: String,
+    // Subject used to scope journal authorizations.
+    #[allow(dead_code)]
+    authz_subject: String,
+    // Bindings of this Publisher.
+    bindings: Vec<super::Binding>,
+    // Lazily-initialized journal Client and partitions watch for each `bindings` entry.
+    binding_clients: Vec<super::LazyPartitionsClient>,
+    // Factory for building journal Clients on demand.
+    #[allow(dead_code)]
+    client_factory: gazette::journal::ClientFactory,
+    // Clock used to stamp published document UUIDs.
+    clock: uuid::Clock,
+    // Re-useable buffer into which packed keys are extracted.
     packed_key_buf: bytes::BytesMut,
+    // Re-useable buffer into which journal names are built.
+    prefix_buf: String,
+    // Producer used to stamp published document UUIDs.
+    producer: uuid::Producer,
 }
 
 impl Publisher {
     /// Create a new Publisher for the given bindings, producer identity, and clock.
     ///
+    /// `client_factory` is used to build lazy per-binding journal clients
+    /// (one per entry of `bindings`). `authz_subject` is passed through to
+    /// this factory without modification, and
+    /// `Binding::partitions_prefix_or_name` is the AuthZ object.
+    ///
     /// The `producer` identifies this Publisher as a distinct writer and is
     /// embedded in every UUID it generates. The `clock` provides a monotonic
     /// timestamp for ordering documents within this producer's stream.
     pub fn new(
+        authz_subject: String,
         bindings: Vec<super::Binding>,
+        client_factory: gazette::journal::ClientFactory,
         producer: uuid::Producer,
         clock: uuid::Clock,
     ) -> Self {
+        let binding_clients = bindings
+            .iter()
+            .map(|b| {
+                let client_factory = client_factory.clone();
+                let authz_subject = authz_subject.clone();
+                let authz_object = b.partitions_prefix_or_name.clone();
+
+                let init: crate::PartitionsClientInit = Box::new(move || {
+                    let client = client_factory(authz_subject, authz_object.clone());
+                    let partitions = crate::watch::watch_partitions(client.clone(), &authz_object);
+                    (client, partitions)
+                });
+
+                std::sync::LazyLock::new(init)
+            })
+            .collect();
+
         Self {
-            bindings,
-            producer,
-            clock,
             appenders: super::AppenderGroup::new(),
-            prefix_buf: String::new(),
+            authz_subject,
+            binding_clients,
+            bindings,
+            client_factory,
+            clock,
             packed_key_buf: bytes::BytesMut::new(),
+            prefix_buf: String::new(),
+            producer,
         }
     }
 
@@ -65,11 +108,16 @@ impl Publisher {
         let uuid = proto_gazette::uuid::build(self.producer, self.clock.tick(), flags);
         let (binding, doc) = doc(uuid);
 
-        let (mut journal, mut packed_key) =
-            super::mapping::map_partition(&self.bindings[binding], &doc, prefix, packed_key)
-                .await?;
+        let (mut journal, mut packed_key) = super::mapping::map_partition(
+            &self.bindings[binding],
+            &self.binding_clients[binding],
+            &doc,
+            prefix,
+            packed_key,
+        )
+        .await?;
 
-        let (client, _partitions) = &(*self.bindings[binding].client);
+        let (client, _partitions) = &(*self.binding_clients[binding]);
         let appender = self.appenders.activate(&journal, client);
 
         // Enqueue the serialization to the Appender's buffer, then checkpoint.
@@ -119,7 +167,7 @@ impl Publisher {
     ///
     /// Takes the output of `intents::build_transaction_intents()` and writes
     /// each journal's ACK documents as newline-delimited JSON. For each journal,
-    /// finds the binding whose `partitions_template.name` is a prefix of the
+    /// finds the binding whose `partitions_prefix_or_name` is a prefix of the
     /// journal name, activates an appender using that binding's client, and
     /// writes the ACK documents. After all ACKs are written, flushes and sweeps
     /// all appenders to idle.
@@ -131,17 +179,17 @@ impl Publisher {
             // TODO(johnny): We're walking bindings for each ACK intent journal.
             // This is probably fine but _could_ be faster.
             // We can do this by building a sorted index of partition template name => binding.
-            let binding = self
+            let binding_idx = self
                 .bindings
                 .iter()
-                .find(|b| journal.starts_with(&b.partitions_template.name))
+                .position(|b| journal.starts_with(&b.partitions_prefix_or_name))
                 .ok_or_else(|| {
                     tonic::Status::internal(format!(
                         "cannot find a binding to write ACK of journal {journal}"
                     ))
                 })?;
 
-            let (client, _partitions) = &(*binding.client);
+            let (client, _partitions) = &(*self.binding_clients[binding_idx]);
             let appender = self.appenders.activate(journal, client);
 
             for ack in acks {
@@ -156,5 +204,17 @@ impl Publisher {
         self.appenders.flush().await?;
         self.appenders.sweep();
         Ok(())
+    }
+
+    /// Access the lazy Client and partitions watch for the binding at `index`.
+    /// Primarily used by tests.
+    pub fn binding_client(
+        &self,
+        index: usize,
+    ) -> &(
+        gazette::journal::Client,
+        tokens::PendingWatch<Vec<super::watch::PartitionSplit>>,
+    ) {
+        &*self.binding_clients[index]
     }
 }

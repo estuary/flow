@@ -88,15 +88,21 @@ fn make_publisher(
     journal_client: &gazette::journal::Client,
     producer: uuid::Producer,
 ) -> publisher::Publisher {
-    let client_factory: publisher::JournalClientFactory = Arc::new({
+    let factory: gazette::journal::ClientFactory = Arc::new({
         let journal_client = journal_client.clone();
-        move |_collection, _task_name| journal_client.clone()
+        move |_authz_sub, _authz_obj| journal_client.clone()
     });
 
-    let bindings = publisher::Binding::from_capture_spec(spec, &client_factory)
+    let bindings = publisher::Binding::from_capture_spec(spec)
         .expect("should build bindings from capture spec");
 
-    publisher::Publisher::new(bindings, producer, uuid::Clock::default())
+    publisher::Publisher::new(
+        String::new(), // Empty AuthZ subject.
+        bindings,
+        factory,
+        producer,
+        uuid::Clock::default(),
+    )
 }
 
 /// A document read back from the on-disk log by a `FrontierScan`.
@@ -204,13 +210,11 @@ async fn shuffle_scenarios() {
         .expect("bind shuffle server");
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
 
-    let service = {
+    let factory: gazette::journal::ClientFactory = Arc::new({
         let journal_client = data_plane.journal_client.clone();
-        shuffle::Service::new(
-            endpoint.clone(),
-            Box::new(move |_collection, _task| journal_client.clone()),
-        )
-    };
+        move |_authz_sub, _authz_obj| journal_client.clone()
+    });
+    let service = shuffle::Service::new(endpoint.clone(), factory);
 
     let server = service.clone().build_tonic_server();
     let server_handle = tokio::spawn(async move {

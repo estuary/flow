@@ -18,8 +18,8 @@ pub struct Topology {
     pub shards: Vec<shuffle::Shard>,
     /// Index of this Slice RPC within `shards`.
     pub slice_shard_index: u32,
-    /// Name of the task that owns this session.
-    pub task_name: models::Name,
+    /// Shard Template ID prefix of the task that owns this session.
+    pub shard_prefix: String,
     /// Per-binding shuffle configuration extracted from the task spec.
     pub bindings: Vec<crate::Binding>,
     /// Lazily-initialized Gazette clients for listing and reading journals, indexed by binding.
@@ -402,14 +402,11 @@ impl HintIndex {
 
         index.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
 
-        // Now that we've sorted, re-allocate partition name prefixes extended with a trailing slash.
-        // This ensures we don't match "acmeCo/anvils/..." to "acmeCo/anvils-two/...",
-        // and also aligns memory locality and ordering with our query pattern.
+        // Now that we've sorted, re-allocate partition name prefixes.
+        // This ensures aligns memory locality and ordering with our query pattern.
         let owned: Vec<(Box<str>, u16, u32, PartitionFilter)> = index
             .into_iter()
-            .map(|(prefix, idx, cohort, filter)| {
-                (Box::from(format!("{prefix}/")), idx, cohort, filter)
-            })
+            .map(|(prefix, idx, cohort, filter)| (Box::from(prefix), idx, cohort, filter))
             .collect();
 
         Self(owned)
@@ -418,7 +415,7 @@ impl HintIndex {
     pub fn from_bindings(bindings: &[crate::Binding]) -> Self {
         Self::new(bindings.iter().map(|b| {
             (
-                b.partition_template_name.as_ref(),
+                b.partition_prefix.as_ref(),
                 b.index,
                 b.cohort,
                 PartitionFilter::new(&b.partition_fields, &b.partition_selector),
@@ -992,8 +989,8 @@ mod test {
             // Prefix match: anvils has 1 partition field, bananas has 0.
             (
                 vec![
-                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/bananas", 1, 0, passthrough_filter(&[])),
+                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/bananas/", 1, 0, passthrough_filter(&[])),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 0,
@@ -1001,8 +998,8 @@ mod test {
             ),
             (
                 vec![
-                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/bananas", 1, 0, passthrough_filter(&[])),
+                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/bananas/", 1, 0, passthrough_filter(&[])),
                 ],
                 "acmeCo/bananas/pivot=00",
                 0,
@@ -1011,8 +1008,8 @@ mod test {
             // No matching prefix.
             (
                 vec![
-                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/bananas", 1, 0, passthrough_filter(&[])),
+                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/bananas/", 1, 0, passthrough_filter(&[])),
                 ],
                 "other/collection/pivot=00",
                 0,
@@ -1021,8 +1018,8 @@ mod test {
             // Cohort filtering: same prefix, different cohorts.
             (
                 vec![
-                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/anvils", 1, 1, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils/", 1, 1, passthrough_filter(&["part"])),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 0,
@@ -1030,8 +1027,8 @@ mod test {
             ),
             (
                 vec![
-                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/anvils", 1, 1, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils/", 1, 1, passthrough_filter(&["part"])),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 1,
@@ -1040,8 +1037,8 @@ mod test {
             // Unknown cohort.
             (
                 vec![
-                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/anvils", 1, 1, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils/", 1, 1, passthrough_filter(&["part"])),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 99,
@@ -1050,8 +1047,8 @@ mod test {
             // Multiple bindings, same prefix and cohort.
             (
                 vec![
-                    ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
-                    ("acmeCo/anvils", 1, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                    ("acmeCo/anvils/", 1, 0, passthrough_filter(&["part"])),
                 ],
                 "acmeCo/anvils/part=a/pivot=00",
                 0,
@@ -1059,21 +1056,21 @@ mod test {
             ),
             // Partition filter: "alpha" is included, "eu" not excluded.
             (
-                vec![("acmeCo/anvils", 0, 0, filter.clone())],
+                vec![("acmeCo/anvils/", 0, 0, filter.clone())],
                 "acmeCo/anvils/category=alpha/region=eu/pivot=00",
                 0,
                 vec![0],
             ),
             // Partition filter: "beta" is not included, "eu" not excluded.
             (
-                vec![("acmeCo/anvils", 0, 0, filter.clone())],
+                vec![("acmeCo/anvils/", 0, 0, filter.clone())],
                 "acmeCo/anvils/category=beta/region=eu/pivot=00",
                 0,
                 vec![],
             ),
             // Partition filter: "alpha" is included, "bad" is excluded.
             (
-                vec![("acmeCo/anvils", 0, 0, filter.clone())],
+                vec![("acmeCo/anvils/", 0, 0, filter.clone())],
                 "acmeCo/anvils/category=beta/region=bad/pivot=00",
                 0,
                 vec![],
@@ -1093,8 +1090,8 @@ mod test {
         // anvils has 1 partition field ("part"), bananas has 0.
         HintIndex::new(
             [
-                ("acmeCo/anvils", 0, 0, passthrough_filter(&["part"])),
-                ("acmeCo/bananas", 1, 0, passthrough_filter(&[])),
+                ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                ("acmeCo/bananas/", 1, 0, passthrough_filter(&[])),
             ]
             .into_iter(),
         )

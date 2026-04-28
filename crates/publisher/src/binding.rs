@@ -2,11 +2,8 @@ use anyhow::Context;
 use proto_flow::flow;
 use proto_gazette::broker;
 
+/// Metadata for mapping documents to collection partitions.
 pub struct Binding {
-    /// Index of this Binding within the publishing task.
-    pub index: u32,
-    /// Lazy journal Client and partitions watch.
-    pub client: super::LazyPartitionsClient,
     /// Target collection name (for logging/debugging).
     pub collection: models::Collection,
     /// Pre-built key extractors for the collection key pointers.
@@ -19,25 +16,16 @@ pub struct Binding {
     pub partitions_template: broker::JournalSpec,
     /// Maximum number of allowed partitions for this binding.
     pub partitions_limit: usize,
+    /// Collection partitions prefix ("{partitions_template.name}/"), or a
+    /// more-specific prefix or journal name to which this binding is scoped.
+    pub partitions_prefix_or_name: String,
 }
 
 impl Binding {
     /// Build Bindings for a CaptureSpec, one per active capture binding.
-    ///
-    /// Each binding's journal Client and partitions watch are initialized lazily:
-    /// the `client_factory` is called only when a binding is first written to,
-    /// producing a Client scoped to the binding's collection and the capture's
-    /// task name.
-    pub fn from_capture_spec(
-        spec: &flow::CaptureSpec,
-        client_factory: &super::JournalClientFactory,
-    ) -> anyhow::Result<Vec<Self>> {
-        let task_name = models::Name::new(&spec.name);
-
+    pub fn from_capture_spec(spec: &flow::CaptureSpec) -> anyhow::Result<Vec<Self>> {
         spec.bindings
             .iter()
-            // We must include inactive bindings so we may write their ACK intents.
-            .chain(spec.inactive_bindings.iter())
             .enumerate()
             .map(|(index, binding)| {
                 let collection_spec = binding
@@ -45,31 +33,24 @@ impl Binding {
                     .as_ref()
                     .with_context(|| format!("capture binding {index} missing collection"))?;
 
-                let collection = models::Collection::new(&collection_spec.name);
-                let task_name = task_name.clone();
-                let client_factory = client_factory.clone();
-
-                let client_init: super::PartitionsClientInit = Box::new(move || {
-                    let client = client_factory(collection.clone(), task_name);
-                    let partitions =
-                        super::watch::watch_partitions(client.clone(), collection.as_ref());
-                    (client, partitions)
-                });
-
-                Self::from_collection_spec(index as u32, collection_spec, client_init)
+                Self::from_collection_spec(collection_spec, None).with_context(|| {
+                    format!("building binding for collection {}", collection_spec.name)
+                })
             })
             .collect()
     }
 
     /// Build a Binding from a built CollectionSpec.
     ///
-    /// Extracts key and partition-field extractors from the spec's projections.
-    /// `client_init` is called lazily on first use to create the journal Client
-    /// and partitions watch for this binding's collection.
+    /// If `partitions_prefix_or_name` is Some, the Binding will authorize-to and
+    /// watch only that sub-prefix or specific journal. When None, the Binding
+    /// authorizes to all partitions of the collection.
+    ///
+    /// `partitions_prefix_or_name` must be prefixed by the CollectionSpec's
+    /// actual partition template prefix, or this routine errors.
     pub fn from_collection_spec(
-        index: u32,
         spec: &flow::CollectionSpec,
-        client_init: super::PartitionsClientInit,
+        partitions_prefix_or_name: Option<&str>,
     ) -> anyhow::Result<Self> {
         let flow::CollectionSpec {
             name,
@@ -84,12 +65,22 @@ impl Binding {
             .as_ref()
             .context("CollectionSpec missing partition_template")?
             .clone();
+        let partitions_prefix = format!("{}/", &partitions_template.name);
+
+        let partitions_prefix_or_name = if let Some(fixed) = partitions_prefix_or_name {
+            if !fixed.starts_with(&partitions_prefix) {
+                anyhow::bail!(
+                    "prefix or name {fixed} must begin with collection prefix {partitions_prefix}"
+                );
+            }
+            fixed.to_string()
+        } else {
+            partitions_prefix
+        };
 
         let policy = doc::SerPolicy::noop();
-
         let key_extractors =
             extractors::for_key(key, projections, &policy).context("building key extractors")?;
-
         let partition_extractors = extractors::for_fields(partition_fields, projections, &policy)
             .context("building partition extractors")?;
 
@@ -104,14 +95,13 @@ impl Binding {
         };
 
         Ok(Self {
-            index,
-            client: std::sync::LazyLock::new(client_init),
             collection: models::Collection::new(name),
             key_extractors,
             partition_fields: partition_fields.clone(),
             partition_extractors,
             partitions_template,
             partitions_limit,
+            partitions_prefix_or_name,
         })
     }
 }
