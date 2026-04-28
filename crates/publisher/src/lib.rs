@@ -34,3 +34,24 @@ type LazyPartitionsClient = std::sync::LazyLock<
     ),
     PartitionsClientInit,
 >;
+
+/// Sanity-check that `intents` is non-empty NDJSON: terminated by a newline,
+/// with every line a syntactically-valid JSON document.
+pub(crate) fn validate_ndjson(journal: &str, intents: &bytes::Bytes) -> tonic::Result<()> {
+    if !matches!(intents.last(), Some(b'\n')) {
+        return Err(tonic::Status::internal(format!(
+            "invalid ACK intents for {journal}: doesn't end in newline"
+        )));
+    }
+    // Split on '\n' and deserialize each line as an `IgnoredAny` to validate
+    // the JSON syntax. The trailing newline produces an empty final line,
+    // which we skip to avoid a spurious EOF error.
+    for line in intents[..intents.len() - 1].split(|b| *b == b'\n') {
+        serde_json::from_slice::<serde::de::IgnoredAny>(line).map_err(|e| {
+            tonic::Status::internal(format!(
+                "invalid ACK intent for {journal} line {line:?}: {e}"
+            ))
+        })?;
+    }
+    Ok(())
+}

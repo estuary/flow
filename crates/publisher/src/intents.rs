@@ -1,18 +1,21 @@
 use base64::Engine;
 use itertools::Itertools;
 use proto_gazette::uuid;
+use std::collections::BTreeMap;
 
 /// Build per-journal ACK intent documents for a committed transaction.
 ///
 /// Each element of `transaction` is a (producer, clock, journals) tuple
-/// representing one producer's contribution. The output is a list of
-/// (journal_name, ack_documents) pairs. The first ACK document for each
-/// journal carries causal hints referencing all other journal+producer
-/// pairs in the transaction; subsequent ACK documents for the same journal
-/// (from other producers) omit hints as they'd be redundant.
+/// representing one producer's contribution. The output is a map of
+/// journal_name => ndjson_bytes, where each value is the concatenated
+/// newline-delimited JSON encoding of that journal's ACK documents (with a
+/// trailing newline). The first ACK document for each journal carries causal
+/// hints referencing all other journal+producer pairs in the transaction;
+/// subsequent ACK documents for the same journal (from other producers) omit
+/// hints as they'd be redundant.
 pub fn build_transaction_intents(
     transaction: &[(uuid::Producer, uuid::Clock, Vec<String>)],
-) -> Vec<(String, Vec<serde_json::Value>)> {
+) -> BTreeMap<String, bytes::Bytes> {
     // Flatten and index on journal, then producer.
     let mut flattened: Vec<(&str, uuid::Producer, uuid::Clock)> = transaction
         .iter()
@@ -29,7 +32,7 @@ pub fn build_transaction_intents(
         .iter()
         .chunk_by(|(journal, _producer, _clock)| *journal);
 
-    let mut journal_acks = Vec::new();
+    let mut journal_acks = BTreeMap::new();
 
     for (this_journal, mut these_producers) in group_by.into_iter() {
         // We'll generate an ACK document for each of `these_producers`, but we
@@ -78,26 +81,38 @@ pub fn build_transaction_intents(
             .collect::<Vec<_>>();
 
         let this_uuid = uuid::build(*this_producer, *this_commit, uuid::Flags::ACK_TXN);
-        let mut acks = vec![serde_json::json!({
-            "_meta": { "uuid": this_uuid },
-            "is_ack": true,
-            "hints": hinted_journals,
-        })];
+        let mut buf = Vec::new();
+        write_ndjson(
+            &mut buf,
+            &serde_json::json!({
+                "_meta": { "uuid": this_uuid },
+                "is_ack": true,
+                "hints": hinted_journals,
+            }),
+        );
 
         // Remainder of `these_producers` also need ACK documents.
         // They were already hinted by the first ACK of this journal, and don't carry hints themselves.
         for (_this_journal, this_producer, this_commit) in these_producers {
             let this_uuid = uuid::build(*this_producer, *this_commit, uuid::Flags::ACK_TXN);
-            acks.push(serde_json::json!({
-                "_meta": { "uuid": this_uuid },
-                "is_ack": true,
-            }));
+            write_ndjson(
+                &mut buf,
+                &serde_json::json!({
+                    "_meta": { "uuid": this_uuid },
+                    "is_ack": true,
+                }),
+            );
         }
 
-        journal_acks.push((this_journal.to_string(), acks));
+        journal_acks.insert(this_journal.to_string(), bytes::Bytes::from(buf));
     }
 
     journal_acks
+}
+
+fn write_ndjson(buf: &mut Vec<u8>, doc: &serde_json::Value) {
+    serde_json::to_writer(&mut *buf, doc).expect("serialization of Value cannot fail");
+    buf.push(b'\n');
 }
 
 /// Decode causal hints embedded in an ACK document.
@@ -294,16 +309,34 @@ mod test {
         journals.iter().map(|j| j.to_string()).collect()
     }
 
+    /// Parse the NDJSON output of `build_transaction_intents` back into the
+    /// structured `Vec<serde_json::Value>` shape these tests assert against.
+    fn parse_intents(
+        journal_acks: BTreeMap<String, bytes::Bytes>,
+    ) -> Vec<(String, Vec<serde_json::Value>)> {
+        journal_acks
+            .into_iter()
+            .map(|(journal, bytes)| {
+                assert_eq!(bytes.last(), Some(&b'\n'));
+                let docs = bytes[..bytes.len() - 1]
+                    .split(|b| *b == b'\n')
+                    .map(|line| serde_json::from_slice(line).unwrap())
+                    .collect();
+                (journal, docs)
+            })
+            .collect()
+    }
+
     #[test]
     fn test_empty_transaction() {
-        let result = build_transaction_intents(&[]);
+        let result = parse_intents(build_transaction_intents(&[]));
         insta::assert_json_snapshot!(result);
     }
 
     #[test]
     fn test_single_producer_single_journal() {
         let txn = vec![(P1, clock(100), js(&["acmeCo/anvils/part=a/pivot=00"]))];
-        insta::assert_json_snapshot!(build_transaction_intents(&txn));
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn)));
     }
 
     #[test]
@@ -316,7 +349,7 @@ mod test {
                 "acmeCo/anvils/part=b/pivot=00",
             ]),
         )];
-        insta::assert_json_snapshot!(build_transaction_intents(&txn));
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn)));
     }
 
     #[test]
@@ -325,7 +358,7 @@ mod test {
             (P1, clock(100), js(&["acmeCo/anvils/part=a/pivot=00"])),
             (P2, clock(200), js(&["acmeCo/anvils/part=a/pivot=00"])),
         ];
-        insta::assert_json_snapshot!(build_transaction_intents(&txn));
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn)));
     }
 
     // Three producers across four journals with overlapping membership.
@@ -361,7 +394,7 @@ mod test {
                 ]),
             ),
         ];
-        insta::assert_json_snapshot!(build_transaction_intents(&txn));
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn)));
     }
 
     // --- decode_transaction_hints tests ---
@@ -381,7 +414,7 @@ mod test {
     /// no hints.
     fn assert_round_trip(txn: &[(uuid::Producer, uuid::Clock, Vec<String>)]) {
         let expected = flatten_transaction(txn);
-        let journal_acks = build_transaction_intents(txn);
+        let journal_acks = parse_intents(build_transaction_intents(txn));
 
         for (journal, acks) in &journal_acks {
             // First ACK carries hints.

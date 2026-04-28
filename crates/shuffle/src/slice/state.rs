@@ -1125,8 +1125,11 @@ mod test {
         let journal_acks = publisher::intents::build_transaction_intents(&txn);
 
         // For each journal's first ACK, extract hints into causal_hints.
-        for (journal, acks) in &journal_acks {
-            let ack = &acks[0];
+        // build_transaction_intents returns NDJSON bytes per journal;
+        // parse the first line back into a serde_json::Value for hint extraction.
+        for (journal, ndjson) in &journal_acks {
+            let first_line = ndjson.split(|b| *b == b'\n').next().unwrap();
+            let ack: serde_json::Value = serde_json::from_slice(first_line).unwrap();
             let uuid_str = ack["_meta"]["uuid"].as_str().unwrap();
             let (ack_producer, commit_clock, _flags) = uuid::parse_str(uuid_str).unwrap();
 
@@ -1136,7 +1139,7 @@ mod test {
                 0, // cohort
                 ack_producer,
                 commit_clock,
-                ack,
+                &ack,
                 &mut causal_hints,
             )
             .unwrap();

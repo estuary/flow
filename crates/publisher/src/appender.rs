@@ -168,6 +168,7 @@ impl Appender {
             };
 
         let handle = tokio::spawn(async move {
+            let journal = request.journal.clone();
             let stream = client.append(request, chunk_stream);
 
             futures::pin_mut!(stream);
@@ -182,10 +183,13 @@ impl Appender {
                         inner: err,
                     })) => {
                         if err.is_transient() {
-                            tracing::warn!(?attempt, %err, "append failed (will retry)");
+                            tracing::warn!(?attempt, journal, %err, "append failed (will retry)");
                         } else {
                             let err = match err {
                                 gazette::Error::Grpc(status) => status,
+                                gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
+                                    tonic::Status::not_found(format!("journal {journal} not found"))
+                                }
                                 other => tonic::Status::internal(other.to_string()),
                             };
                             update(Err(err));

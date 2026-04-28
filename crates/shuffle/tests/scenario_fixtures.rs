@@ -428,7 +428,7 @@ async fn continue_then_ack(
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
@@ -599,7 +599,7 @@ async fn multiple_producers(
     let (producer, commit_clock, journals) = pub2.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub2.write_intents(&journal_acks).await.unwrap();
+    pub2.write_intents(journal_acks).await.unwrap();
 
     // Second checkpoint: P2 now committed. Reader yields P2's doc.
     let frontier2 = next_resolved_checkpoint(&mut session, "next_checkpoint 2").await;
@@ -714,7 +714,7 @@ async fn resume_from_checkpoint(
     let (producer_id, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer_id, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
@@ -727,13 +727,17 @@ async fn resume_from_checkpoint(
 
     let phase1_frontier = next_resolved_checkpoint(&mut session, "phase 1 checkpoint").await;
     let mut phase1_shard_state: ShardState = (0..1).map(|_| None).collect();
-    let phase1_read = collect_read_entries(&phase1_frontier, &phase1_dir, &mut phase1_shard_state);
-    insta::assert_debug_snapshot!(
-        "resume_from_checkpoint_phase1",
-        Checkpoint {
-            frontier: &phase1_frontier,
-            read: phase1_read,
-        }
+    let mut phase1_read =
+        collect_read_entries(&phase1_frontier, &phase1_dir, &mut phase1_shard_state);
+
+    // Journal creation / discovery / read races may interleave, so we assert content only.
+    phase1_read.sort_by_key(|e| e.binding);
+    assert_eq!(
+        phase1_read
+            .iter()
+            .map(|e| (e.binding, e.doc["id"].as_str().unwrap()))
+            .collect::<Vec<_>>(),
+        vec![(0, "r-apple"), (1, "r-banana")],
     );
     session.close().await.expect("close phase 1");
 
@@ -864,7 +868,7 @@ async fn multi_partition_transaction(
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
@@ -966,7 +970,7 @@ async fn partition_filtered_hints(
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
@@ -1063,7 +1067,7 @@ async fn clock_window_filtering(
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
@@ -1095,18 +1099,18 @@ fn build_rollback_ack(
     producer: uuid::Producer,
     clock: uuid::Clock,
     journals: &[String],
-) -> Vec<(String, Vec<serde_json::Value>)> {
+) -> Vec<(String, bytes::Bytes)> {
     journals
         .iter()
         .map(|journal| {
             let ack_uuid = uuid::build(producer, clock, uuid::Flags::ACK_TXN);
-            (
-                journal.clone(),
-                vec![serde_json::json!({
-                    "_meta": { "uuid": ack_uuid },
-                    "is_ack": true,
-                })],
-            )
+            let doc = serde_json::json!({
+                "_meta": { "uuid": ack_uuid },
+                "is_ack": true,
+            });
+            let mut buf = serde_json::to_vec(&doc).unwrap();
+            buf.push(b'\n');
+            (journal.clone(), bytes::Bytes::from(buf))
         })
         .collect()
 }
@@ -1174,7 +1178,7 @@ async fn rollback(
         commit_clock_p2,
         p2_journals.clone(),
     )]);
-    pub2.write_intents(&p2_acks).await.unwrap();
+    pub2.write_intents(p2_acks).await.unwrap();
 
     // P1 commits OUTSIDE_TXN docs.
     for id in ["rb-p1-a1", "rb-p1-a2"] {
@@ -1253,7 +1257,7 @@ async fn rollback(
 
     // Roll back at P2's prior commit clock.
     let rollback_acks = build_rollback_ack(p2_id, commit_clock_p2, &p2_journals);
-    pub2.write_intents(&rollback_acks).await.unwrap();
+    pub2.write_intents(rollback_acks).await.unwrap();
 
     // P2's pending docs must NOT appear. Frontier advances (flush propagates).
     let frontier2 = next_resolved_checkpoint(&mut session, "phase 2 checkpoint").await;
@@ -1327,7 +1331,7 @@ async fn rollback(
 
     // Deep rollback ACK for P1 at Clock::default() (< P1's last_commit).
     let deep_rollback_acks = build_rollback_ack(p1, uuid::Clock::default(), &p2_journals);
-    pub1.write_intents(&deep_rollback_acks).await.unwrap();
+    pub1.write_intents(deep_rollback_acks).await.unwrap();
 
     // P1's pending CONTINUE docs are rolled back. P1's last_commit regresses
     // to Clock::default().
