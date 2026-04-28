@@ -1,8 +1,8 @@
 //! Per-task evaluation of the `DataMovementStalled` alert.
 //!
 //! The threshold comes from `alert_configs`
-//! (`dataMovementStalled.threshold`). If no threshold is configured there,
-//! evaluation falls back to `alert_data_processing`.
+//! (`dataMovementStalled.condition.stalledFor`). If no threshold is configured
+//! there, evaluation falls back to `alert_data_processing`.
 
 use super::{ControllerState, NextRun, alerts};
 use crate::controllers::activation::has_task_shards;
@@ -38,7 +38,8 @@ pub async fn evaluate_data_movement_stalled<C: ControlPlane>(
 
     let configured_threshold = alert_cfg
         .and_then(|a| a.data_movement_stalled.as_ref())
-        .and_then(|d| d.threshold)
+        .and_then(|d| d.condition.as_ref())
+        .and_then(|c| c.stalled_for)
         .and_then(|d| chrono::Duration::from_std(d).ok());
 
     let threshold = match configured_threshold {

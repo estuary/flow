@@ -31,8 +31,9 @@ mod tests;
 pub mod triggers;
 
 pub use crate::alert_config::{
-    AlertConfig, DataMovementStalledConfig, ShardFailedConfig, TaskChronicallyFailingConfig,
-    TaskIdleConfig,
+    AlertConfig, DataMovementStalledCondition, DataMovementStalledConfig, ShardFailedCondition,
+    ShardFailedConfig, TaskChronicallyFailingCondition, TaskChronicallyFailingConfig,
+    TaskIdleCondition, TaskIdleConfig,
 };
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};

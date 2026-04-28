@@ -496,13 +496,13 @@ async fn test_data_movement_stalled_end_to_end() {
     harness
         .upsert_alert_config(
             "acme/team-a/",
-            serde_json::json!({ "dataMovementStalled": { "threshold": "1h" } }),
+            serde_json::json!({ "dataMovementStalled": { "condition": { "stalledFor": "1h" } } }),
         )
         .await;
     harness
         .upsert_alert_config(
             "acme/team-a/special",
-            serde_json::json!({ "dataMovementStalled": { "threshold": "4h" } }),
+            serde_json::json!({ "dataMovementStalled": { "condition": { "stalledFor": "4h" } } }),
         )
         .await;
 
@@ -761,7 +761,7 @@ async fn test_abandon_per_task_thresholds() {
     let forty_five_days_ago = now - chrono::Duration::days(45);
 
     // Chronic scenario: seed a ShardFailed alert whose first_ts is 45d
-    // old. At a 60d `taskChronicallyFailing.threshold`, the abandon
+    // old. At a 60d `taskChronicallyFailing.condition.failingFor`, the abandon
     // evaluator must NOT fire TaskChronicallyFailing; at 30d it must.
     let chronic_status = serde_json::json!({
         "type": "Capture",
@@ -818,14 +818,14 @@ async fn test_abandon_per_task_thresholds() {
         .upsert_alert_config(
             "acme/chronic",
             serde_json::json!({
-                "taskChronicallyFailing": { "threshold": "60d" },
+                "taskChronicallyFailing": { "condition": { "failingFor": "60d" } },
             }),
         )
         .await;
     harness
         .upsert_alert_config(
             "acme/idle",
-            serde_json::json!({ "taskIdle": { "threshold": "60d" } }),
+            serde_json::json!({ "taskIdle": { "condition": { "idleFor": "60d" } } }),
         )
         .await;
 
@@ -849,14 +849,14 @@ async fn test_abandon_per_task_thresholds() {
         .upsert_alert_config(
             "acme/chronic",
             serde_json::json!({
-                "taskChronicallyFailing": { "threshold": "30d" },
+                "taskChronicallyFailing": { "condition": { "failingFor": "30d" } },
             }),
         )
         .await;
     harness
         .upsert_alert_config(
             "acme/idle",
-            serde_json::json!({ "taskIdle": { "threshold": "30d" } }),
+            serde_json::json!({ "taskIdle": { "condition": { "idleFor": "30d" } } }),
         )
         .await;
     clear_abandon_throttle(&pool, "acme/chronic").await;
@@ -896,23 +896,23 @@ async fn test_alert_configs_hierarchical_merge() {
         .upsert_alert_config(
             "acme/",
             serde_json::json!({
-                "shardFailed": { "enabled": true, "failureThreshold": 3 },
-                "taskIdle": { "threshold": "90d" },
+                "shardFailed": { "enabled": true, "condition": { "failures": 3 } },
+                "taskIdle": { "condition": { "idleFor": "90d" } },
             }),
         )
         .await;
-    // Prod prefix: override shardFailed threshold; still inherit everything else.
+    // Prod prefix: override shardFailed condition; still inherit everything else.
     harness
         .upsert_alert_config(
             "acme/prod/",
-            serde_json::json!({ "shardFailed": { "failureThreshold": 10 } }),
+            serde_json::json!({ "shardFailed": { "condition": { "failures": 10 } } }),
         )
         .await;
     // Exact-name: override one taskIdle field only.
     harness
         .upsert_alert_config(
             "acme/prod/source-pg",
-            serde_json::json!({ "taskIdle": { "threshold": "30d" } }),
+            serde_json::json!({ "taskIdle": { "condition": { "idleFor": "30d" } } }),
         )
         .await;
 
@@ -929,11 +929,15 @@ async fn test_alert_configs_hierarchical_merge() {
     insta::assert_json_snapshot!(serde_json::to_value(&merged).unwrap(), @r#"
     {
       "shardFailed": {
-        "enabled": true,
-        "failureThreshold": 10
+        "condition": {
+          "failures": 10
+        },
+        "enabled": true
       },
       "taskIdle": {
-        "threshold": "30days"
+        "condition": {
+          "idleFor": "30days"
+        }
       }
     }
     "#);
@@ -955,7 +959,7 @@ async fn test_data_movement_stalled_disabled_overrides_prefix_threshold() {
     harness
         .upsert_alert_config(
             "acme/",
-            serde_json::json!({ "dataMovementStalled": { "threshold": "1h" } }),
+            serde_json::json!({ "dataMovementStalled": { "condition": { "stalledFor": "1h" } } }),
         )
         .await;
     // …but `acme/batch` explicitly opts out.
@@ -996,7 +1000,7 @@ async fn test_data_movement_stalled_refires_after_resolution() {
     harness
         .upsert_alert_config(
             "acme/",
-            serde_json::json!({ "dataMovementStalled": { "threshold": "1h" } }),
+            serde_json::json!({ "dataMovementStalled": { "condition": { "stalledFor": "1h" } } }),
         )
         .await;
 

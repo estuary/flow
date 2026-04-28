@@ -134,52 +134,63 @@ pub async fn fetch_last_data_movement_ts(
 }
 
 /// Computes the effective `AlertConfig` for `catalog_name` by deep-merging
-/// all matching `alert_configs` rows.
+/// all matching `alert_configs` rows, shortest prefix first.
 ///
-/// Matching rows are every ancestor prefix plus the exact catalog name.
-/// Applies shortest-prefix first, with the exact-name row applied last.
 /// Returns `None` when no rows match.
-///
-/// The query pre-computes the candidate keys and uses `= ANY(...)`, which can
-/// use the UNIQUE btree index on `catalog_prefix_or_name`.
-///
-/// Object values are merged recursively by key. Any non-object value replaces
-/// the destination slot. The merged JSON is validated as `models::AlertConfig`
-/// before it is returned.
 pub async fn fetch_alert_config(
     catalog_name: &str,
     db: impl sqlx::PgExecutor<'static>,
 ) -> anyhow::Result<Option<models::AlertConfig>> {
+    let (config, _) = fetch_alert_config_with_provenance(catalog_name, db, None).await?;
+    if config == models::AlertConfig::default() {
+        Ok(None)
+    } else {
+        Ok(Some(config))
+    }
+}
+
+/// Computes the effective `AlertConfig` for `catalog_name` by deep-merging
+/// all matching `alert_configs` rows, shortest prefix first. Also returns a
+/// provenance map from dotted JSON path to the source prefix/name (`Some`)
+/// or controller default (`None`) that provided each leaf value.
+///
+/// If `defaults` is provided, it is merged as the lowest-priority layer.
+type Provenance = std::collections::BTreeMap<String, Option<String>>;
+
+pub async fn fetch_alert_config_with_provenance(
+    catalog_name: &str,
+    db: impl sqlx::PgExecutor<'static>,
+    defaults: Option<&models::AlertConfig>,
+) -> anyhow::Result<(models::AlertConfig, Provenance)> {
     let candidates = ancestor_prefixes_and_name(catalog_name);
 
-    let layers: Vec<TextJson<serde_json::Value>> = sqlx::query_scalar!(
+    let layers: Vec<(String, TextJson<serde_json::Value>)> = sqlx::query_as(
         r#"
-        select config as "config!: TextJson<serde_json::Value>"
+        select catalog_prefix_or_name, config
         from alert_configs
         where catalog_prefix_or_name = any($1)
         order by length(catalog_prefix_or_name) asc
         "#,
-        &candidates,
     )
+    .bind(&candidates)
     .fetch_all(db)
     .await?;
 
-    if layers.is_empty() {
-        return Ok(None);
-    }
+    let mut merged = serde_json::Value::Object(Default::default());
+    let mut provenance = Provenance::new();
 
-    let merged = layers
-        .into_iter()
-        .map(|t| t.0)
-        .reduce(|mut acc, next| {
-            deep_merge(&mut acc, next);
-            acc
-        })
-        .expect("layers is non-empty");
+    if let Some(defaults) = defaults {
+        let json = serde_json::to_value(defaults)
+            .map_err(|e| anyhow::anyhow!("serializing alert config defaults: {e}"))?;
+        deep_merge(&mut merged, json, None, &mut provenance, "");
+    }
+    for (source, TextJson(config)) in layers {
+        deep_merge(&mut merged, config, Some(&source), &mut provenance, "");
+    }
 
     let config: models::AlertConfig = serde_json::from_value(merged)
         .map_err(|e| anyhow::anyhow!("deserializing merged alert_config: {e}"))?;
-    Ok(Some(config))
+    Ok((config, provenance))
 }
 
 /// Builds the set of candidate `catalog_prefix_or_name` values that could
@@ -194,16 +205,35 @@ fn ancestor_prefixes_and_name(catalog_name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Recursively merges `src` into `dst`. Objects are merged by key; any
-/// non-object value at either side replaces the destination slot.
-fn deep_merge(dst: &mut serde_json::Value, src: serde_json::Value) {
-    match (dst, src) {
-        (serde_json::Value::Object(dst_map), serde_json::Value::Object(src_map)) => {
-            for (k, v) in src_map {
-                deep_merge(dst_map.entry(k).or_insert(serde_json::Value::Null), v);
-            }
+fn deep_merge(
+    dst: &mut serde_json::Value,
+    src: serde_json::Value,
+    source: Option<&str>,
+    provenance: &mut Provenance,
+    path: &str,
+) {
+    if let serde_json::Value::Object(src_map) = src {
+        if !dst.is_object() {
+            *dst = serde_json::Value::Object(Default::default());
         }
-        (dst_slot, src) => *dst_slot = src,
+        let dst_map = dst.as_object_mut().unwrap();
+        for (k, v) in src_map {
+            let child = if path.is_empty() {
+                k.clone()
+            } else {
+                format!("{path}.{k}")
+            };
+            deep_merge(
+                dst_map.entry(k).or_insert(serde_json::Value::Null),
+                v,
+                source,
+                provenance,
+                &child,
+            );
+        }
+    } else {
+        *dst = src;
+        provenance.insert(path.to_string(), source.map(str::to_string));
     }
 }
 
@@ -367,8 +397,11 @@ pub async fn notify_dependents(live_spec_id: Id, pool: &sqlx::PgPool) -> sqlx::R
 
 #[cfg(test)]
 mod test {
-    use super::deep_merge;
     use serde_json::json;
+
+    fn deep_merge(dst: &mut serde_json::Value, src: serde_json::Value) {
+        super::deep_merge(dst, src, None, &mut Default::default(), "");
+    }
 
     #[test]
     fn deep_merge_objects_recurse_per_key() {
@@ -422,5 +455,63 @@ mod test {
         let mut dst = json!({ "a": 1 });
         deep_merge(&mut dst, json!({}));
         assert_eq!(dst, json!({ "a": 1 }));
+    }
+
+    #[test]
+    fn provenance_tracks_leaf_sources() {
+        let mut merged = json!({});
+        let mut provenance = Default::default();
+
+        super::deep_merge(
+            &mut merged,
+            json!({ "a": { "x": 1 }, "b": 2 }),
+            Some("layer1"),
+            &mut provenance,
+            "",
+        );
+        super::deep_merge(
+            &mut merged,
+            json!({ "a": { "y": 3 } }),
+            Some("layer2"),
+            &mut provenance,
+            "",
+        );
+
+        insta::assert_json_snapshot!(
+            "provenance_tracks_leaf_sources",
+            json!({
+                "merged": merged,
+                "provenance": provenance,
+            })
+        );
+    }
+
+    #[test]
+    fn provenance_defaults_then_override() {
+        let mut merged = json!({});
+        let mut provenance = Default::default();
+
+        super::deep_merge(
+            &mut merged,
+            json!({ "a": { "x": 1 } }),
+            None,
+            &mut provenance,
+            "",
+        );
+        super::deep_merge(
+            &mut merged,
+            json!({ "a": { "x": 99 } }),
+            Some("override"),
+            &mut provenance,
+            "",
+        );
+
+        insta::assert_json_snapshot!(
+            "provenance_defaults_then_override",
+            json!({
+                "merged": merged,
+                "provenance": provenance,
+            })
+        );
     }
 }

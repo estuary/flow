@@ -36,7 +36,7 @@ fn parse_chrono_duration(s: &str) -> Result<chrono::Duration, String> {
 #[derive(Clone, Debug, clap::Parser)]
 pub struct ControllerConfig {
     /// Default retention window for rows in the `shard_failures` table.
-    /// Overridable via `shardFailed.retentionWindow` in `alert_configs`.
+    /// Overridable via `shardFailed.condition.per` in `alert_configs`.
     #[clap(long, env = "SHARD_FAILURE_RETENTION", default_value = "8h")]
     #[arg(value_parser = parse_chrono_duration)]
     pub shard_failure_retention: chrono::Duration,
@@ -49,12 +49,12 @@ pub struct ControllerConfig {
     #[arg(value_parser = parse_chrono_duration)]
     pub max_shard_status_interval: chrono::Duration,
     /// Default number of recent shard failures required to fire a ShardFailed
-    /// alert. Overridable via `shardFailed.failureThreshold` in `alert_configs`.
+    /// alert. Overridable via `shardFailed.condition.failures` in `alert_configs`.
     #[clap(long, env = "ALERT_AFTER_SHARD_FAILURES", default_value = "3")]
     pub alert_after_shard_failures: u32,
     /// Default duration that ShardFailed must be continuously firing before
     /// the task is considered chronically failing. Overridable via
-    /// `taskChronicallyFailing.threshold` in `alert_configs`.
+    /// `taskChronicallyFailing.condition.failingFor` in `alert_configs`.
     #[clap(long, env = "CHRONICALLY_FAILING_THRESHOLD", default_value = "30d")]
     #[arg(value_parser = parse_chrono_duration)]
     pub chronically_failing_threshold: chrono::Duration,
@@ -64,7 +64,7 @@ pub struct ControllerConfig {
     #[arg(value_parser = parse_chrono_duration)]
     pub chronically_failing_disable_after: chrono::Duration,
     /// Default duration a task must have no data movement before we consider
-    /// it idle. Overridable via `taskIdle.threshold` in `alert_configs`.
+    /// it idle. Overridable via `taskIdle.condition.idleFor` in `alert_configs`.
     #[clap(long, env = "ABANDON_IDLE_THRESHOLD", default_value = "30d")]
     #[arg(value_parser = parse_chrono_duration)]
     pub abandon_idle_threshold: chrono::Duration,

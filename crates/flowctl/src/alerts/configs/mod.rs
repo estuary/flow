@@ -34,8 +34,8 @@ pub struct UpdateArgs {
     pub prefix: String,
 
     /// Set a single field by dotted path (repeatable).
-    /// Examples: `shardFailed.enabled=true`, `shardFailed.failureThreshold=10`,
-    /// `taskIdle.threshold=60d`. Values are parsed as JSON if possible
+    /// Examples: `shardFailed.enabled=true`, `shardFailed.condition.failures=10`,
+    /// `taskIdle.condition.idleFor=60d`. Values are parsed as JSON if possible
     /// (so `true`, `42`, `"quoted"` work as expected); otherwise treated as
     /// a string. Mutually exclusive with `--config`.
     #[clap(long, value_name = "PATH=VALUE", conflicts_with = "config")]
@@ -342,14 +342,14 @@ mod test {
         .unwrap();
         apply_set(
             &mut target,
-            &parse_path("shardFailed.failureThreshold").unwrap(),
+            &parse_path("shardFailed.condition.failures").unwrap(),
             serde_json::json!(10),
         )
         .unwrap();
         assert_eq!(
             target,
             serde_json::json!({
-                "shardFailed": { "enabled": true, "failureThreshold": 10 }
+                "shardFailed": { "enabled": true, "condition": { "failures": 10 } }
             })
         );
     }
@@ -357,24 +357,24 @@ mod test {
     #[test]
     fn apply_unset_removes_leaf_and_subtree() {
         let mut target = serde_json::json!({
-            "shardFailed": { "enabled": true, "failureThreshold": 10 },
+            "shardFailed": { "enabled": true, "condition": { "failures": 10 } },
             "taskIdle": { "enabled": false }
         });
         apply_unset(
             &mut target,
-            &parse_path("shardFailed.failureThreshold").unwrap(),
+            &parse_path("shardFailed.condition.failures").unwrap(),
         );
         assert_eq!(
             target,
             serde_json::json!({
-                "shardFailed": { "enabled": true },
+                "shardFailed": { "condition": {}, "enabled": true },
                 "taskIdle": { "enabled": false }
             })
         );
         apply_unset(&mut target, &parse_path("taskIdle").unwrap());
         assert_eq!(
             target,
-            serde_json::json!({ "shardFailed": { "enabled": true } })
+            serde_json::json!({ "shardFailed": { "condition": {}, "enabled": true } })
         );
     }
 
