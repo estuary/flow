@@ -7,14 +7,12 @@ pub struct Publisher {
     // Re-useable Appenders for binding journals.
     appenders: super::AppenderGroup,
     // Subject used to scope journal authorizations.
-    #[allow(dead_code)]
     authz_subject: String,
     // Bindings of this Publisher.
     bindings: Vec<super::Binding>,
     // Lazily-initialized journal Client and partitions watch for each `bindings` entry.
     binding_clients: Vec<super::LazyPartitionsClient>,
     // Factory for building journal Clients on demand.
-    #[allow(dead_code)]
     client_factory: gazette::journal::ClientFactory,
     // Clock used to stamp published document UUIDs.
     clock: uuid::Clock,
@@ -30,9 +28,10 @@ impl Publisher {
     /// Create a new Publisher for the given bindings, producer identity, and clock.
     ///
     /// `client_factory` is used to build lazy per-binding journal clients
-    /// (one per entry of `bindings`). `authz_subject` is passed through to
-    /// this factory without modification, and
-    /// `Binding::partitions_prefix_or_name` is the AuthZ object.
+    /// (one per entry of `bindings`), and to build ephemeral clients inside
+    /// `write_intents` for ACK intents that do not match any current binding.
+    /// `authz_subject` is passed through to this factory without modification,
+    /// and `Binding::partitions_prefix_or_name` is the AuthZ object.
     ///
     /// The `producer` identifies this Publisher as a distinct writer and is
     /// embedded in every UUID it generates. The `clock` provides a monotonic
@@ -163,46 +162,67 @@ impl Publisher {
         (self.producer, clock, journal_names)
     }
 
-    /// Write ACK intent documents to journals, flush, and sweep active to idle.
+    /// Write pre-serialized ACK intent documents to their journals.
     ///
-    /// Takes the output of `intents::build_transaction_intents()` and writes
-    /// each journal's ACK documents as newline-delimited JSON. For each journal,
-    /// finds the binding whose `partitions_prefix_or_name` is a prefix of the
-    /// journal name, activates an appender using that binding's client, and
-    /// writes the ACK documents. After all ACKs are written, flushes and sweeps
-    /// all appenders to idle.
-    pub async fn write_intents(
-        &mut self,
-        journal_acks: &[(String, Vec<serde_json::Value>)],
-    ) -> tonic::Result<()> {
-        for (journal, acks) in journal_acks {
+    /// Takes the output of `intents::build_transaction_intents()` — per-journal
+    /// NDJSON `Bytes` — and appends each to its journal in parallel. For each
+    /// journal, this uses a hybrid client strategy:
+    /// - If the journal is a prefix-match of an existing binding's
+    ///   `auth_prefix_or_name`, reuse that binding's client.
+    /// - Otherwise, build an ephemeral client. This supports recovered ACK
+    ///   intents that may reference journals no longer bound to the current
+    ///   task (e.g. from a prior published task). For this class of journals,
+    ///   a `NotFound` status is tolerated and handled by discarding the ACK
+    ///   (it was intentionally deleted, for example due to a data reset)
+    ///
+    /// On Ok return, all ACKs have been durably appended (no need to flush).
+    pub async fn write_intents<I>(&mut self, journal_intents: I) -> tonic::Result<()>
+    where
+        I: IntoIterator<Item = (String, bytes::Bytes)>,
+    {
+        let mut ephemeral = super::AppenderGroup::new();
+
+        for (journal, intents) in journal_intents {
+            super::validate_ndjson(&journal, &intents)?;
+
+            // Attempt to find a binding that covers `journal`.
             // TODO(johnny): We're walking bindings for each ACK intent journal.
             // This is probably fine but _could_ be faster.
             // We can do this by building a sorted index of partition template name => binding.
-            let binding_idx = self
+            let binding_client = self
                 .bindings
                 .iter()
                 .position(|b| journal.starts_with(&b.partitions_prefix_or_name))
-                .ok_or_else(|| {
-                    tonic::Status::internal(format!(
-                        "cannot find a binding to write ACK of journal {journal}"
-                    ))
-                })?;
+                .map(|i| &(*self.binding_clients[i]).0);
 
-            let (client, _partitions) = &(*self.binding_clients[binding_idx]);
-            let appender = self.appenders.activate(journal, client);
+            let appender = if let Some(client) = binding_client {
+                self.appenders.activate(&journal, client)
+            } else {
+                let client = (self.client_factory)(self.authz_subject.clone(), journal.clone());
+                ephemeral.activate(&journal, &client)
+            };
 
-            for ack in acks {
-                let mut writer = std::mem::take(&mut appender.buffer).writer();
-                serde_json::to_writer(&mut writer, &ack)
-                    .expect("serialization of Value cannot fail");
-                appender.buffer = writer.into_inner();
-                appender.buffer.put_u8(b'\n');
-            }
+            appender.buffer.extend_from_slice(&intents);
         }
 
+        // Require that binding appenders flush nominally: journals must exist.
         self.appenders.flush().await?;
         self.appenders.sweep();
+
+        let ephemeral_flushes = ephemeral
+            .active_set()
+            .map(|(journal, appender)| async move {
+                match appender.flush().await {
+                    Ok(()) => Ok(()),
+                    Err(status) if status.code() == tonic::Code::NotFound => {
+                        tracing::warn!(%journal, "discarding journal ACK-intent (not found)");
+                        Ok(())
+                    }
+                    Err(status) => Err(status),
+                }
+            });
+        _ = futures::future::try_join_all(ephemeral_flushes).await?;
+
         Ok(())
     }
 

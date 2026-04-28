@@ -113,7 +113,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
 
     publisher
-        .write_intents(&journal_acks)
+        .write_intents(journal_acks)
         .await
         .expect("ACK write should succeed");
 

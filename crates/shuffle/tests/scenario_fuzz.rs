@@ -515,13 +515,13 @@ async fn write_actions(
                     commit_clock,
                     journals,
                 )]);
-                state.publisher.write_intents(&intents).await.unwrap();
-                state.last_committed_clock = commit_clock;
                 for (journal, _) in &intents {
                     state
                         .journal_committed_clocks
                         .insert(journal.clone(), commit_clock);
                 }
+                state.publisher.write_intents(intents).await.unwrap();
+                state.last_committed_clock = commit_clock;
                 commit_clocks.insert(prod_id, commit_clock);
             }
             Action::ContinueRollback { continues } => {
@@ -557,21 +557,21 @@ async fn write_actions(
                 // times. Using the wrong clock causes AckPartialCommit errors
                 // when the global clock falls between a journal's last_commit
                 // and its pending max_continue.
-                let rollback_acks: Vec<(String, Vec<serde_json::Value>)> = journals
+                let rollback_acks: Vec<(String, bytes::Bytes)> = journals
                     .iter()
                     .filter_map(|journal| {
                         let clock = state.journal_committed_clocks.get(journal)?;
                         let ack_uuid = uuid::build(state.producer, *clock, uuid::Flags::ACK_TXN);
-                        Some((
-                            journal.clone(),
-                            vec![serde_json::json!({
-                                "_meta": { "uuid": ack_uuid },
-                                "is_ack": true,
-                            })],
-                        ))
+                        let doc = serde_json::json!({
+                            "_meta": { "uuid": ack_uuid },
+                            "is_ack": true,
+                        });
+                        let mut buf = serde_json::to_vec(&doc).unwrap();
+                        buf.push(b'\n');
+                        Some((journal.clone(), bytes::Bytes::from(buf)))
                     })
                     .collect();
-                state.publisher.write_intents(&rollback_acks).await.unwrap();
+                state.publisher.write_intents(rollback_acks).await.unwrap();
             }
         }
     }
