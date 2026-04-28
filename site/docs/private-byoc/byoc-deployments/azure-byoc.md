@@ -13,6 +13,8 @@ Your account will need Azure admin access to add the application to your Azure t
 If the application subscription process is successful, you will be redirected back to Estuary's homepage. You can confirm that the OAuth flow succeeded if there is a `code` query parameter attached to the URL (e.g. `https://estuary.dev/?code=123`).
 :::
 
+If your Azure admin is signed into multiple tenants, the `common` endpoint defaults to whichever they're currently signed into, which may be the wrong one. To force a specific tenant, replace `common` with your tenant ID: `https://login.microsoftonline.com/{TENANT_ID}/oauth2/authorize?client_id=76f09062-041b-476e-9c79-1cf8d26fe213&response_type=code&redirect_uri=https%3A%2F%2Feyrcnmuzzyriypdajwdk.supabase.co%2Ffunctions%2Fv1%2Fazure-dpc-oauth`
+
 2. In Azure Portal, search for "Subscriptions" and find your subscription, then click on "Access control (IAM)"
 
 ![Subscriptions -> Access control IAM](../images/azure/step-1.png)
