@@ -54,6 +54,15 @@ To receive real-time events from AppsFlyer, you need to configure AppsFlyer to s
 1. First, publish your AppsFlyer capture in Estuary.
 2. After publishing, go to the **Capture Details** page and scroll down to the **Endpoints** section. Copy the endpoint URL provided by Estuary.
 3. In the [AppsFlyer dashboard](https://hq1.appsflyer.com/), navigate to **Integration > API Access** and configure your [Push API postback URLs](https://support.appsflyer.com/hc/en-us/articles/207034356-Push-API-streaming-raw-data) to point to the Estuary endpoint URL.
+4. Configure your Push API export to include the following required fields, which Estuary uses to construct each document's unique identifier:
+   - `app_id`
+   - `app_type`
+   - `appsflyer_id`
+   - `campaign_type`
+   - `conversion_type`
+   - `event_name`
+   - `event_time`
+   - `event_value`
 
 Once configured, AppsFlyer will stream events to Estuary in real time.
 
