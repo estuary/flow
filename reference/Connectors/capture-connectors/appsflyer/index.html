@@ -5,8 +5,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async="" src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary's [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can't find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)." data-mcp-enabled="true" data-mcp-server-url="https://estuary.mcp.kapa.ai"></script><link rel="stylesheet" href="/assets/css/styles.5d76ff13.css">
-<script src="/assets/js/runtime~main.5019860b.js" defer="defer"></script>
-<script src="/assets/js/main.feffa49e.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.9b06700b.js" defer="defer"></script>
+<script src="/assets/js/main.04fce8ad.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -64,6 +64,18 @@
 <li class="">First, publish your AppsFlyer capture in Estuary.</li>
 <li class="">After publishing, go to the <strong>Capture Details</strong> page and scroll down to the <strong>Endpoints</strong> section. Copy the endpoint URL provided by Estuary.</li>
 <li class="">In the <a href="https://hq1.appsflyer.com/" target="_blank" rel="noopener noreferrer" class="">AppsFlyer dashboard</a>, navigate to <strong>Integration &gt; API Access</strong> and configure your <a href="https://support.appsflyer.com/hc/en-us/articles/207034356-Push-API-streaming-raw-data" target="_blank" rel="noopener noreferrer" class="">Push API postback URLs</a> to point to the Estuary endpoint URL.</li>
+<li class="">Configure your Push API export to include the following required fields, which Estuary uses to construct each document's unique identifier:<!-- -->
+<ul>
+<li class=""><code>app_id</code></li>
+<li class=""><code>app_type</code></li>
+<li class=""><code>appsflyer_id</code></li>
+<li class=""><code>campaign_type</code></li>
+<li class=""><code>conversion_type</code></li>
+<li class=""><code>event_name</code></li>
+<li class=""><code>event_time</code></li>
+<li class=""><code>event_value</code></li>
+</ul>
+</li>
 </ol>
 <p>Once configured, AppsFlyer will stream events to Estuary in real time.</p>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="configuration">Configuration<a href="#configuration" class="hash-link" aria-label="Direct link to Configuration" title="Direct link to Configuration" translate="no">​</a></h2>
