@@ -352,31 +352,33 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                 args.data_movement_alert_interval,
             ));
 
+        let sender = if let Some(api_key) = &args.resend_api_key {
+            let from_email = args
+                .email_from_address
+                .clone()
+                .expect("missing email-from-address");
+            let reply_to_email = args
+                .email_reply_to_address
+                .clone()
+                .expect("missing email-reply-to-address");
+            tracing::info!(%from_email, %reply_to_email, "Email sending is enabled");
+            agent::email::Sender::resend(
+                api_key,
+                from_email,
+                reply_to_email,
+                new_http_client()?,
+            )
+        } else {
+            tracing::warn!("Email sending is disabled");
+            agent::email::Sender::Disabled
+        };
+        let sender = std::sync::Arc::new(sender);
+
         if args.serve_alert_notifications {
-            let sender = if let Some(api_key) = &args.resend_api_key {
-                // These two are required if api-key is provided, so clap should have ensured they are present
-                let from_email = args
-                    .email_from_address
-                    .clone()
-                    .expect("missing email-from-address");
-                let reply_to_email = args
-                    .email_reply_to_address
-                    .clone()
-                    .expect("missing email-reply-to-address");
-                tracing::info!(%from_email, %reply_to_email, "Sending of alert emails is enabled");
-                agent::alerts::Sender::resend(
-                    api_key,
-                    from_email,
-                    reply_to_email,
-                    new_http_client()?,
-                )
-            } else {
-                // Hopefully this is a local env
-                tracing::warn!("Sending of alert emails is disabled");
-                agent::alerts::Sender::Disabled
-            };
-            let alert_notifications =
-                agent::alerts::AlertNotifications::new(&args.dashboard_base_url, sender)?;
+            let alert_notifications = agent::alerts::AlertNotifications::new(
+                &args.dashboard_base_url,
+                sender.clone(),
+            )?;
             automations_server = automations_server.register(alert_notifications);
         }
 

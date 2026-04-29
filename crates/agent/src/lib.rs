@@ -1,6 +1,7 @@
 pub mod alerts;
 pub(crate) mod connector_tags;
 pub mod controllers;
+pub mod email;
 pub(crate) mod controlplane;
 mod directives;
 mod discovers;
