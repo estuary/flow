@@ -1,0 +1,15 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+expression: clear_response
+---
+{
+  "data": {
+    "setBillingContact": {
+      "contact": {
+        "address": null,
+        "email": null,
+        "name": null
+      }
+    }
+  }
+}

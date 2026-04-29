@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+expression: cross_tenant_response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 27,
+          "line": 3
+        }
+      ],
+      "message": "PermissionDenied: contacttest@example.test is not authorized to access prefix or name 'contactvictim/' with required capability admin",
+      "path": [
+        "setBillingContact"
+      ]
+    }
+  ]
+}

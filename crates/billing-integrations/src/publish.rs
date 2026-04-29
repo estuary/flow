@@ -769,6 +769,13 @@ async fn get_or_create_customer_for_tenant(
     tenant: String,
     create: bool,
 ) -> anyhow::Result<Option<stripe::Customer>> {
+    let billing_row = sqlx::query!(
+        r#"SELECT billing_email, billing_address FROM tenants WHERE tenant = $1"#,
+        tenant,
+    )
+    .fetch_optional(db_client)
+    .await?;
+
     let customers: Vec<stripe::Customer> = stripe_search(
         client,
         "customers",
@@ -793,10 +800,21 @@ async fn get_or_create_customer_for_tenant(
             .with_strategy(stripe::RequestStrategy::Idempotent(
                 customer_create_idempotency_key(&tenant),
             ));
+
+        let billing_email = billing_row
+            .as_ref()
+            .and_then(|r| r.billing_email.as_deref());
+        let billing_address: Option<stripe::Address> = billing_row
+            .as_ref()
+            .and_then(|r| r.billing_address.as_ref())
+            .and_then(|v| serde_json::from_value::<stripe::Address>(v.clone()).ok());
+
         let new_customer = stripe::Customer::create(
             &create_client,
             stripe::CreateCustomer {
                 name: Some(tenant.as_str()),
+                email: billing_email,
+                address: billing_address,
                 description: Some(
                     format!("Represents the billing entity for Flow tenant '{tenant}'").as_str(),
                 ),
@@ -812,33 +830,23 @@ async fn get_or_create_customer_for_tenant(
         )
         .await?;
 
+        // Wake the tenant controller so it can reconcile any remaining mismatch.
+        sqlx::query("SELECT internal.wake_tenant_controller($1::catalog_tenant)")
+            .bind(&tenant)
+            .execute(db_client)
+            .await
+            .ok();
+
         new_customer
     } else {
         return Ok(None);
     };
 
     if customer.email.is_none() {
-        let responses = sqlx::query!(
-            r#"
-                select users.email as email
-                from user_grants
-                join auth.users as users on user_grants.user_id = users.id
-                where users.email is not null and user_grants.object_role = $1
-                and user_grants.capability = 'admin'
-                order by users.created_at asc
-            "#,
-            tenant
-        )
-        .fetch_all(db_client)
-        .await?;
+        let db_email = billing_row.as_ref().and_then(|r| r.billing_email.clone());
 
-        if let Some(email) = responses
-            .iter()
-            .find_map(|response| response.email.to_owned())
-        {
-            tracing::warn!(
-                "Stripe customer object is missing an email. Going with {email}, an admin on that tenant."
-            );
+        if let Some(email) = db_email {
+            tracing::info!("Using billing_email from tenants table: {email}");
             stripe::Customer::update(
                 client,
                 &customer.id,
@@ -849,11 +857,43 @@ async fn get_or_create_customer_for_tenant(
             )
             .await?;
         } else {
-            bail!(
-                "Stripe customer object is missing an email. No admins found for tenant {tenant}, unable to create invoice without email. Found users: {found:?} Skipping",
-                found = responses,
-                tenant = tenant
-            );
+            let responses = sqlx::query!(
+                r#"
+                    select users.email as email
+                    from user_grants
+                    join auth.users as users on user_grants.user_id = users.id
+                    where users.email is not null and user_grants.object_role = $1
+                    and user_grants.capability = 'admin'
+                    order by users.created_at asc
+                "#,
+                tenant
+            )
+            .fetch_all(db_client)
+            .await?;
+
+            if let Some(email) = responses
+                .iter()
+                .find_map(|response| response.email.to_owned())
+            {
+                tracing::warn!(
+                    "Stripe customer object is missing an email. Going with {email}, an admin on that tenant."
+                );
+                stripe::Customer::update(
+                    client,
+                    &customer.id,
+                    stripe::UpdateCustomer {
+                        email: Some(&email),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            } else {
+                bail!(
+                    "Stripe customer object is missing an email. No admins found for tenant {tenant}, unable to create invoice without email. Found users: {found:?} Skipping",
+                    found = responses,
+                    tenant = tenant
+                );
+            }
         }
     }
     Ok(Some(customer))

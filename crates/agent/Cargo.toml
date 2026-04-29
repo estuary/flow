@@ -37,6 +37,7 @@ tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }
 
 aide = { workspace = true }
+async-stripe = { workspace = true }
 anyhow = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-axum = { workspace = true }

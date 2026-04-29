@@ -325,6 +325,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                 api_key,
             )) as Arc<dyn control_plane_api::billing::BillingProvider>
         });
+    let tenant_controller_billing_provider = billing_provider.clone();
     let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
@@ -360,6 +361,9 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(migrate::automation::MigrationExecutor)
             .register(agent::alerts::new_tenant_alerts_executor(
                 args.tenant_alert_interval,
+            ))
+            .register(agent::tenant_controller::TenantController::new(
+                tenant_controller_billing_provider,
             ));
 
         if args.serve_alert_notifications {
