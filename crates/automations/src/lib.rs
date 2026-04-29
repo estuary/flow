@@ -45,6 +45,8 @@ pub mod task_types {
     pub const TENANT_ALERT_EVALS: TaskType = TaskType(10);
     /// Evaluates data_movement_stalled alerts
     pub const DATA_MOVEMENT_ALERT_EVALS: TaskType = TaskType(11);
+    /// Per-tenant controller that reconciles billing contact with Stripe
+    pub const TENANT_CONTROLLER: TaskType = TaskType(12);
 }
 
 /// Outcome of an `Executor::poll()` for a given task, which encloses

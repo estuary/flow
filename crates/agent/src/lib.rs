@@ -5,6 +5,7 @@ pub(crate) mod controlplane;
 mod directives;
 mod discovers;
 pub mod publications;
+pub mod tenant_controller;
 
 #[cfg(test)]
 pub(crate) mod integration_tests;

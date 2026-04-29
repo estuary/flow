@@ -46,6 +46,7 @@ impl BillingProvider for StripeBillingProvider {
         tenant: &str,
         user_email: &str,
         user_name: Option<&str>,
+        address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut metadata = HashMap::from([
             (TENANT_METADATA_KEY.to_string(), tenant.to_string()),
@@ -61,6 +62,7 @@ impl BillingProvider for StripeBillingProvider {
             stripe::CreateCustomer {
                 email: Some(user_email),
                 name: Some(tenant),
+                address,
                 description: Some(&description),
                 metadata: Some(metadata),
                 ..Default::default()
@@ -149,5 +151,24 @@ impl BillingProvider for StripeBillingProvider {
             },
         )
         .await
+    }
+
+    async fn update_customer_billing_profile(
+        &self,
+        customer_id: &stripe::CustomerId,
+        email: Option<&str>,
+        address: Option<stripe::Address>,
+    ) -> anyhow::Result<stripe::Customer> {
+        let customer = stripe::Customer::update(
+            &self.client,
+            customer_id,
+            stripe::UpdateCustomer {
+                email,
+                address,
+                ..Default::default()
+            },
+        )
+        .await?;
+        Ok(customer)
     }
 }
