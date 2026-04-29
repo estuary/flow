@@ -54,14 +54,15 @@ impl Client {
         );
 
         let http_client = reqwest::ClientBuilder::new()
-            .user_agent(user_agent)
+            .user_agent(user_agent.clone())
             .build()
             .expect("failed to build http client");
         Self {
             agent_endpoint,
             http_client,
             pg_parent: postgrest::Postgrest::new(pg_url.as_str())
-                .insert_header("apikey", pg_api_token.as_str()),
+                .insert_header("apikey", pg_api_token.as_str())
+                .insert_header("user-agent", user_agent),
             journal_client,
             shard_client,
             user_access_token,

@@ -17,6 +17,7 @@ mod output;
 mod poll;
 mod preview;
 mod raw;
+mod version;
 
 pub(crate) use flow_client::client::Client;
 use flow_client::client::refresh_authorizations;
@@ -186,7 +187,10 @@ impl Cli {
             output,
         };
 
-        match &self.cmd {
+        // Version check runs concurrently with the command
+        let version_check = tokio::spawn(version::check_latest());
+
+        let result = match &self.cmd {
             Command::AlertSubscriptions(alerts) => alerts.run(&mut context).await,
             Command::Auth(auth) => auth.run(&mut context).await,
             Command::Catalog(catalog) => catalog.run(&mut context).await,
@@ -197,8 +201,16 @@ impl Cli {
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
-        }?;
+        };
 
+        // Print before `result?` so the warning is visible even when the command fails
+        if let Ok(Some(latest)) = version_check.await {
+            tracing::warn!(
+                "You're running an outdated version of flowctl — please update to {latest}",
+            );
+        }
+
+        result?;
         context.config.write(&self.profile)?;
 
         Ok(())
