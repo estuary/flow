@@ -2,6 +2,7 @@ use axum::response::IntoResponse;
 use std::sync::Arc;
 
 pub mod graphql;
+mod kapa;
 mod open_metrics;
 pub mod status;
 
@@ -53,6 +54,10 @@ pub(crate) fn api_v1_router(app: Arc<crate::App>) -> axum::Router<Arc<crate::App
             "/api/v1/catalog/status",
             aide::axum::routing::get(status::handle_get_status)
                 .route_layer(axum::middleware::from_fn(ensure_accepts_json)),
+        )
+        .api_route(
+            "/api/v1/kapa/session",
+            aide::axum::routing::post(kapa::handle_create_kapa_session),
         )
         .api_route(
             "/api/v1/metrics/{*prefix}",
