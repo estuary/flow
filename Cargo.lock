@@ -111,6 +111,7 @@ dependencies = [
  "async-graphql",
  "async-graphql-axum",
  "async-process",
+ "async-stripe",
  "async-trait",
  "automations",
  "axum",

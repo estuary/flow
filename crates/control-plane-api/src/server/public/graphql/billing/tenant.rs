@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use super::super::tenant::{Tenant, verify_tenant};
 use super::billing_provider;
+use super::contact::{self, BillingContact};
 use super::invoices::{Invoice, InvoiceCursor, InvoiceFilter};
 use super::payment_methods::PaymentMethod;
 use crate::billing::{self, BillingProvider};
@@ -34,6 +35,13 @@ impl TenantBilling {
 
 #[async_graphql::Object]
 impl TenantBilling {
+    async fn contact(&self, ctx: &Context<'_>) -> Result<BillingContact> {
+        let env = ctx.data::<crate::Envelope>()?;
+        contact::fetch_billing_contact(&env.pg_pool, &self.tenant)
+            .await
+            .map_err(|err| async_graphql::Error::new(err.to_string()))
+    }
+
     async fn payment_methods(&self) -> Result<Vec<PaymentMethod>> {
         let Some(customer) = self
             .provider

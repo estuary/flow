@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::billing::BillingProvider;
 use async_graphql::Context;
 
+pub(super) mod contact;
 mod invoices;
 mod mutations;
 mod payment_methods;

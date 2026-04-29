@@ -106,11 +106,13 @@ impl BillingProvider for InMemoryBillingProvider {
         tenant: &str,
         _user_email: &str,
         _user_name: Option<&str>,
+        address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut state = self.state.lock().unwrap();
         let id = format!("cus_mock_{}", tenant.replace('/', ""));
         let customer = stripe::Customer {
             id: id.parse().unwrap(),
+            address,
             metadata: Some(HashMap::from([(
                 TENANT_METADATA_KEY.to_string(),
                 tenant.to_string(),
@@ -203,5 +205,22 @@ impl BillingProvider for InMemoryBillingProvider {
             .filter(|(customer_id, _)| query.contains(customer_id.as_str()))
             .map(|(_, invoice)| invoice.clone())
             .collect())
+    }
+
+    async fn update_customer_billing_profile(
+        &self,
+        customer_id: &stripe::CustomerId,
+        email: Option<&str>,
+        address: Option<stripe::Address>,
+    ) -> anyhow::Result<stripe::Customer> {
+        let mut state = self.state.lock().unwrap();
+        let customer = state
+            .customers
+            .iter_mut()
+            .find(|c| &c.id == customer_id)
+            .ok_or_else(|| anyhow::anyhow!("customer not found: {customer_id}"))?;
+        customer.email = email.map(str::to_string);
+        customer.address = address;
+        Ok(customer.clone())
     }
 }

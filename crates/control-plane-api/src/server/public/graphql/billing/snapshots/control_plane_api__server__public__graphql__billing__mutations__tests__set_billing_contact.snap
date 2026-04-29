@@ -1,0 +1,22 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+expression: set_response
+---
+{
+  "data": {
+    "setBillingContact": {
+      "contact": {
+        "address": {
+          "city": "Springfield",
+          "country": "US",
+          "line1": "123 Main St",
+          "line2": null,
+          "postalCode": "62704",
+          "state": "IL"
+        },
+        "email": "billing@example.com",
+        "name": "Acme Corp"
+      }
+    }
+  }
+}
