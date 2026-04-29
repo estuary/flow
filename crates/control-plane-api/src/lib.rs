@@ -52,7 +52,7 @@ pub use envelope::{Envelope, Locale, MaybeControlClaims};
 // hoisted from the `server` module. For now, just re-export to minimize churn.
 pub(crate) use server::evaluate_names_authorization;
 pub use server::{
-    ApiError, App, AuthZRetry, build_router,
+    ApiError, App, AuthZRetry, KapaConfig, build_router,
     snapshot::{self, Snapshot},
 };
 

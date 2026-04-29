@@ -31,11 +31,18 @@ pub enum Rejection {
     JsonError(#[from] axum::extract::rejection::JsonRejection),
 }
 
+/// Configuration for the Kapa.ai documentation assistant integration.
+pub struct KapaConfig {
+    pub api_key: String,
+    pub project_id: String,
+}
+
 /// App is the wired application state of the control-plane API.
 pub struct App {
     pub _id_generator: std::sync::Mutex<models::IdGenerator>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
+    pub kapa_config: Option<KapaConfig>,
     pub pg_pool: sqlx::PgPool,
     pub publisher: crate::publications::Publisher,
     pub snapshot: Arc<dyn tokens::Watch<Snapshot>>,
@@ -48,11 +55,13 @@ impl App {
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        kapa_config: Option<KapaConfig>,
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
+            kapa_config,
             pg_pool,
             publisher,
             snapshot,

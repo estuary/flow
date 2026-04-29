@@ -91,6 +91,7 @@ impl TestServer {
             pg_pool.clone(),
             publisher,
             snapshot,
+            None,
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();
 

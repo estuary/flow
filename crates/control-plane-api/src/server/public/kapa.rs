@@ -8,25 +8,23 @@ pub struct SessionResponse {
 
 #[axum::debug_handler(state = Arc<crate::App>)]
 pub(crate) async fn handle_create_kapa_session(
+    axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
     env: crate::Envelope,
 ) -> Result<axum::Json<SessionResponse>, crate::ApiError> {
-    // Require authentication — any valid Estuary user can create a Kapa session.
     let _claims = env.claims()?;
 
-    let api_key = std::env::var("KAPA_API_KEY").map_err(|_| {
-        tonic::Status::internal("KAPA_API_KEY is not configured")
-    })?;
-    let project_id = std::env::var("KAPA_PROJECT_ID").map_err(|_| {
-        tonic::Status::internal("KAPA_PROJECT_ID is not configured")
+    let kapa = app.kapa_config.as_ref().ok_or_else(|| {
+        tonic::Status::not_found("Kapa integration is not configured")
     })?;
 
     let url = format!(
-        "https://api.kapa.ai/agent/v1/projects/{project_id}/agent/sessions/"
+        "https://api.kapa.ai/agent/v1/projects/{}/agent/sessions/",
+        kapa.project_id,
     );
 
     let response = reqwest::Client::new()
         .post(&url)
-        .header("X-API-Key", &api_key)
+        .header("X-API-Key", &kapa.api_key)
         .send()
         .await
         .map_err(|err| {

@@ -151,6 +151,15 @@ struct Args {
     #[arg(value_parser = humantime::parse_duration)]
     data_movement_alert_interval: std::time::Duration,
 
+    /// API key for the Kapa.ai documentation assistant. If not provided,
+    /// the Kapa session endpoint will return 404.
+    #[clap(long, env, requires = "kapa_project_id")]
+    kapa_api_key: Option<String>,
+
+    /// Kapa.ai project ID for the documentation assistant.
+    #[clap(long, env)]
+    kapa_project_id: Option<String>,
+
     #[command(flatten)]
     controller_config: agent::controllers::ControllerConfig,
 }
@@ -317,12 +326,21 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     );
 
     // Wire up the agent's API Application and server.
+    let kapa_config = args
+        .kapa_api_key
+        .zip(args.kapa_project_id)
+        .map(|(api_key, project_id)| control_plane_api::KapaConfig {
+            api_key,
+            project_id,
+        });
+
     let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),
         snapshot_watch,
+        kapa_config,
     ));
     let api_router = control_plane_api::build_router(api_app.clone(), &args.allow_origin)?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
