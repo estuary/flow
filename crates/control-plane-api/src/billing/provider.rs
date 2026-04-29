@@ -15,6 +15,7 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         tenant: &str,
         user_email: &str,
         user_name: Option<&str>,
+        address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer>;
 
     async fn update_customer_default_payment_method(
@@ -50,6 +51,13 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         id: &stripe::PaymentIntentId,
     ) -> anyhow::Result<stripe::PaymentIntent>;
 
+    async fn update_customer_billing_profile(
+        &self,
+        customer_id: &stripe::CustomerId,
+        email: Option<&str>,
+        address: Option<stripe::Address>,
+    ) -> anyhow::Result<stripe::Customer>;
+
     async fn find_customer(&self, tenant: &str) -> anyhow::Result<Option<stripe::Customer>> {
         let query = billing_types::customer_search_query(tenant);
         let customers = self.search_customers(&query).await?;
@@ -67,12 +75,14 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         tenant: &str,
         email: &str,
         full_name: Option<&str>,
+        address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         if let Some(existing) = self.find_customer(tenant).await? {
             return Ok(existing);
         }
 
-        self.create_customer(tenant, email, full_name).await
+        self.create_customer(tenant, email, full_name, address)
+            .await
     }
 }
 

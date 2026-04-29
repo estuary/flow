@@ -3,6 +3,7 @@ use std::sync::Arc;
 use super::super::tenant::Tenant;
 use super::super::verify_authorization;
 use super::billing_provider;
+use super::contact::{self, BillingContact};
 use super::invoices::{Invoice, InvoiceFilter};
 use super::loaders::CustomerDataLoader;
 use super::payment_methods::PaymentMethod;
@@ -37,9 +38,21 @@ impl TenantBilling {
 
 #[async_graphql::Object]
 impl TenantBilling {
-    async fn payment_methods(&self, ctx: &Context<'_>) -> Result<Vec<PaymentMethod>> {
-        let loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
-        let Some(customer) = loader.load_one(self.tenant.clone()).await? else {
+    async fn contact(&self, ctx: &Context<'_>) -> Result<BillingContact> {
+        let env = ctx.data::<crate::Envelope>()?;
+        contact::fetch_billing_contact(&env.pg_pool, &self.tenant)
+            .await
+            .map_err(|err| async_graphql::Error::new(err.to_string()))
+    }
+
+    async fn payment_methods(&self) -> Result<Vec<PaymentMethod>> {
+        let Some(customer) = self
+            .provider
+            .as_ref()
+            .find_customer(&self.tenant)
+            .await
+            .map_err(|err| async_graphql::Error::new(err.to_string()))?
+        else {
             return Ok(Vec::new());
         };
         let methods = self
