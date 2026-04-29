@@ -265,9 +265,14 @@ async fn generate_missing_materialization_configs(
 ) -> anyhow::Result<Vec<(url::Url, models::RawValue, doc::Shape)>> {
     let tables::DraftMaterialization {
         materialization,
-        model: Some(models::MaterializationDef {
-            endpoint, bindings, ..
-        }),
+        model:
+            Some(models::MaterializationDef {
+                endpoint,
+                bindings,
+                source,
+                target_naming,
+                ..
+            }),
         ..
     } = materialization
     else {
@@ -333,12 +338,55 @@ async fn generate_missing_materialization_configs(
     .spec
     .context("connector didn't send expected Spec response")?;
 
-    stub_missing_configs(
+    let mut out = stub_missing_configs(
         &config_schema_json,
         &resource_config_schema_json,
         missing_config_url,
-        missing_resource_urls,
-    )
+        Vec::new(), // Resource configs handled below with naming strategy.
+    )?;
+
+    if !missing_resource_urls.is_empty() {
+        let resource_config_schema = std::str::from_utf8(&resource_config_schema_json)
+            .context("resource config schema is not valid UTF-8")?;
+        let resource_spec_pointers = tables::utils::pointer_for_schema(resource_config_schema)?;
+
+        let build_shape = |schema: &[u8]| -> anyhow::Result<doc::Shape> {
+            let schema = doc::validation::build_bundle(schema)?;
+            let mut index = doc::SchemaIndexBuilder::new();
+            index.add(&schema)?;
+            index.verify_references()?;
+            let index = index.into_index();
+            Ok(doc::Shape::infer(&schema, &index))
+        };
+        let resource_config_shape = build_shape(&resource_config_schema_json)
+            .context("connector sent invalid resource config schema")?;
+
+        for (resource, collection) in missing_resource_urls {
+            // Without either a naming strategy or a source capture, fall back
+            // to stub_config's default annotation-driven behavior, which fills
+            // x-collection-name and x-schema-name from the collection path.
+            let stub = if target_naming.is_none() && source.is_none() {
+                stub_config(&resource_config_shape, Some(&collection))
+            } else {
+                let mut stub = stub_config(&resource_config_shape, None);
+                tables::utils::update_materialization_resource_spec(
+                    target_naming.as_ref(),
+                    source.as_ref(),
+                    &mut stub,
+                    &resource_spec_pointers,
+                    collection.as_str(),
+                )?;
+                stub
+            };
+            out.push((
+                resource,
+                models::RawValue::from_value(&stub),
+                resource_config_shape.clone(),
+            ));
+        }
+    }
+
+    Ok(out)
 }
 
 fn stub_missing_configs(
@@ -488,5 +536,138 @@ mod test {
         );
 
         insta::assert_json_snapshot!(cfg);
+    }
+
+    /// Tests the two-step stub generation flow from generate_missing_materialization_configs:
+    /// stub_config(&shape, None) produces a blank stub, then update_materialization_resource_spec
+    /// populates x-schema-name and x-collection-name according to the TargetNamingStrategy.
+    #[test]
+    fn test_stub_config_with_target_naming_strategy() {
+        let schema_json = r#"{
+            "type": "object",
+            "properties": {
+                "table": { "type": "string", "x-collection-name": true },
+                "schema": { "type": "string", "x-schema-name": true }
+            },
+            "required": ["table"]
+        }"#;
+
+        let shape = shape_from(
+            r#"
+        type: object
+        properties:
+            table:
+                type: string
+                x-collection-name: true
+            schema:
+                type: string
+                x-schema-name: true
+        required:
+            - table
+        "#,
+        );
+
+        let pointers = tables::utils::pointer_for_schema(schema_json).unwrap();
+
+        // SingleSchema: x-schema-name comes from the strategy, x-collection-name
+        // is the last collection component.
+        let mut stub = stub_config(&shape, None);
+        tables::utils::update_materialization_resource_spec(
+            Some(&models::TargetNamingStrategy::SingleSchema {
+                schema: "my_dataset".to_string(),
+                table_template: None,
+            }),
+            None,
+            &mut stub,
+            &pointers,
+            "tenant/task/my_table",
+        )
+        .unwrap();
+        insta::assert_json_snapshot!(stub, @r#"
+        {
+          "schema": "my_dataset",
+          "table": "my_table"
+        }
+        "#);
+
+        // MatchSourceStructure: x-schema-name derived from 2nd-to-last collection component.
+        let mut stub = stub_config(&shape, None);
+        tables::utils::update_materialization_resource_spec(
+            Some(&models::TargetNamingStrategy::MatchSourceStructure {
+                table_template: None,
+                schema_template: None,
+            }),
+            None,
+            &mut stub,
+            &pointers,
+            "tenant/some_schema/my_table",
+        )
+        .unwrap();
+        insta::assert_json_snapshot!(stub, @r#"
+        {
+          "schema": "some_schema",
+          "table": "my_table"
+        }
+        "#);
+
+        // PrefixTableNames: x-collection-name gets schema prefix, x-schema-name
+        // is the strategy's schema.
+        let mut stub = stub_config(&shape, None);
+        tables::utils::update_materialization_resource_spec(
+            Some(&models::TargetNamingStrategy::PrefixTableNames {
+                schema: "default".to_string(),
+                skip_common_defaults: true,
+                table_template: None,
+            }),
+            None,
+            &mut stub,
+            &pointers,
+            "tenant/custom_schema/my_table",
+        )
+        .unwrap();
+        insta::assert_json_snapshot!(stub, @r#"
+        {
+          "schema": "default",
+          "table": "custom_schema_my_table"
+        }
+        "#);
+
+        // Legacy path: no target_naming, source capture with NoSchema.
+        // x-schema-name left empty, x-collection-name is last component.
+        let source = models::SourceType::Configured(models::SourceDef {
+            capture: None,
+            target_naming: models::TargetNaming::NoSchema,
+            delta_updates: false,
+            fields_recommended: Default::default(),
+        });
+        let mut stub = stub_config(&shape, None);
+        tables::utils::update_materialization_resource_spec(
+            None,
+            Some(&source),
+            &mut stub,
+            &pointers,
+            "tenant/task/my_table",
+        )
+        .unwrap();
+        insta::assert_json_snapshot!(stub, @r#"
+        {
+          "schema": "",
+          "table": "my_table"
+        }
+        "#);
+
+        // No target_naming and no source capture: generate_missing_materialization_configs
+        // falls back to annotation-driven stub_config, which fills x-collection-name
+        // and x-schema-name from the collection path.
+        let stub = stub_config(
+            &shape,
+            Some(&models::Collection::new("tenant/some_schema/my_table")),
+        );
+        insta::assert_json_snapshot!(stub, @r#"
+        {
+          "schema": "some_schema",
+          "table": "my_table"
+        }
+        "#);
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     collection::read::ReadBounds,
-    local_specs,
+    local_specs, migrate_target_naming,
     ops::{OpsCollection, TaskSelector},
 };
 use anyhow::Context;
@@ -75,6 +75,13 @@ pub enum Command {
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
+
+    /// Migrate materializations to use explicit targetNaming strategies.
+    ///
+    /// Analyzes all materializations and determines the appropriate
+    /// TargetNamingStrategy based on current source.targetNaming and
+    /// endpoint configuration. Currently read-only (dry-run).
+    MigrateTargetNaming(migrate_target_naming::MigrateTargetNaming),
 
     #[clap(hide = true)]
     Shuffle(shuffle::Shuffle),
@@ -241,6 +248,9 @@ impl Advanced {
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
+            Command::MigrateTargetNaming(args) => {
+                migrate_target_naming::do_migrate_target_naming(ctx, args).await
+            }
             Command::Shuffle(shuffle) => shuffle.run(ctx).await,
         }
     }
