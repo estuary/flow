@@ -165,7 +165,11 @@ impl Binding {
         };
 
         let key_extractors = extractors::for_fields(selected_key, projections, &ser_policy)?;
-        let value_extractors = extractors::for_fields(selected_values, projections, &ser_policy)?;
+        let value_plan = doc::ExtractorPlan::new(&extractors::for_fields(
+            selected_values,
+            projections,
+            &ser_policy,
+        )?);
 
         let read_schema_json = if read_schema_json.is_empty() {
             write_schema_json
@@ -185,7 +189,7 @@ impl Binding {
             ser_policy,
             state_key: state_key.clone(),
             store_document: !selected_root.is_empty(),
-            value_extractors,
+            value_plan,
             uuid_ptr,
         })
     }
