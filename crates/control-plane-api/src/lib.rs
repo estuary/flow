@@ -4,6 +4,7 @@ use sqlx::types::Uuid;
 
 pub mod alert_subscriptions;
 pub mod alerts;
+pub mod billing;
 pub mod connector_tags;
 pub mod controllers;
 pub mod data_plane;
@@ -21,6 +22,9 @@ pub mod proxy_connectors;
 pub mod publications;
 pub mod server;
 mod text_json;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 
 #[cfg(test)]
 pub(crate) mod test_server;

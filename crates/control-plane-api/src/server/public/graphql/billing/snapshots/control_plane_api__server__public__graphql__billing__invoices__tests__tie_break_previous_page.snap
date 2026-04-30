@@ -1,0 +1,22 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/invoices.rs
+expression: invoices_page(&previous_page)
+---
+{
+  "edges": [
+    {
+      "cursor": "2024-03-31;2024-03-01;final",
+      "node": {
+        "dateEnd": "2024-03-31",
+        "dateStart": "2024-03-01",
+        "invoiceType": "FINAL"
+      }
+    }
+  ],
+  "pageInfo": {
+    "endCursor": "2024-03-31;2024-03-01;final",
+    "hasNextPage": true,
+    "hasPreviousPage": false,
+    "startCursor": "2024-03-31;2024-03-01;final"
+  }
+}

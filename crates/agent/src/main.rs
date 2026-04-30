@@ -17,6 +17,7 @@ use std::sync::Arc;
 #[derive(Derivative, Parser)]
 #[derivative(Debug)]
 #[clap(author, version, about, long_about = None)]
+#[clap()]
 struct Args {
     /// URL of the postgres database.
     #[derivative(Debug = "ignore")]
@@ -41,6 +42,12 @@ struct Args {
     /// The port to listen on for API requests.
     #[clap(long, default_value = "8080", env = "API_PORT")]
     api_port: u16,
+    /// Stripe secret API key. When provided, the billing GraphQL queries and
+    /// mutations that interact with Stripe are enabled. Without this, those
+    /// operations return an error indicating billing is not configured.
+    #[derivative(Debug = "ignore")]
+    #[clap(long = "stripe-api-key", env = "STRIPE_API_KEY")]
+    stripe_api_key: Option<String>,
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
@@ -316,9 +323,15 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         args.controller_config,
     );
 
-    // Wire up the agent's API Application and server.
+    let billing_provider: Option<Arc<dyn control_plane_api::billing::BillingProvider>> =
+        args.stripe_api_key.map(|api_key| {
+            Arc::new(control_plane_api::billing::StripeBillingProvider::new(
+                api_key,
+            )) as Arc<dyn control_plane_api::billing::BillingProvider>
+        });
     let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
+        billing_provider,
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),

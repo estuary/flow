@@ -1,5 +1,8 @@
-use crate::stripe_utils::{SearchParams, stripe_search};
 use anyhow::{Context, bail};
+use billing_types::{
+    InvoiceMetadata, InvoiceSearch, InvoiceType, SearchParams, TENANT_METADATA_KEY,
+    customer_search_query, stripe_search,
+};
 use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
@@ -9,11 +12,7 @@ use sqlx::{Pool, postgres::PgPoolOptions, types::chrono::NaiveDate};
 use std::collections::HashMap;
 use stripe::InvoiceStatus;
 
-pub const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
 const CREATED_BY_BILLING_AUTOMATION: &str = "estuary.dev/created_by_automation";
-pub const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
-pub const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
-pub const BILLING_PERIOD_END_KEY: &str = "estuary.dev/period_end";
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 #[clap(rename_all = "kebab_case")]
@@ -63,17 +62,6 @@ pub struct PublishInvoice {
 
 fn parse_date(arg: &str) -> Result<NaiveDate, ParseError> {
     NaiveDate::parse_from_str(arg, "%Y-%m-%d")
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::Type, Serialize, Deserialize)]
-#[sqlx(rename_all = "snake_case")]
-enum InvoiceType {
-    #[serde(rename = "final")]
-    Final,
-    #[serde(rename = "preview")]
-    Preview,
-    #[serde(rename = "manual")]
-    Manual,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -167,25 +155,18 @@ impl Invoice {
         let date_start_repr = self.date_start.format("%F").to_string();
         let date_end_repr = self.date_end.format("%F").to_string();
 
-        let invoice_type_val =
-            serde_json::to_value(self.invoice_type.clone()).expect("InvoiceType is serializable");
-        let invoice_type_str = invoice_type_val
-            .as_str()
-            .expect("InvoiceType is serializable");
-
         let invoice_search = stripe_search::<stripe::Invoice>(
             &client,
             "invoices",
             SearchParams {
-                query: format!(
-                    r#"
-                    -status:"deleted" AND
-                    customer:"{customer_id}" AND
-                    metadata["{INVOICE_TYPE_KEY}"]:"{invoice_type_str}" AND
-                    metadata["{BILLING_PERIOD_START_KEY}"]:"{date_start_repr}" AND
-                    metadata["{BILLING_PERIOD_END_KEY}"]:"{date_end_repr}"
-                "#
-                ),
+                query: InvoiceSearch {
+                    customer_id: Some(customer_id),
+                    invoice_type: Some(self.invoice_type),
+                    period_start: Some(&date_start_repr),
+                    period_end: Some(&date_end_repr),
+                    ..Default::default()
+                }
+                .to_query(),
                 ..Default::default()
             },
         )
@@ -306,12 +287,6 @@ impl Invoice {
         let date_start_repr = self.date_start.format("%F").to_string();
         let date_end_repr = self.date_end.format("%F").to_string();
 
-        let invoice_type_val =
-            serde_json::to_value(self.invoice_type.clone()).expect("InvoiceType is serializable");
-        let invoice_type_str = invoice_type_val
-            .as_str()
-            .expect("InvoiceType is serializable");
-
         let customer = get_or_create_customer_for_tenant(
             client,
             db_client,
@@ -404,12 +379,15 @@ impl Invoice {
                                 value: date_end_human.to_owned(),
                             },
                         ]),
-                        metadata: Some(HashMap::from([
-                            (TENANT_METADATA_KEY.to_string(), self.billed_prefix.to_owned()),
-                            (INVOICE_TYPE_KEY.to_string(), invoice_type_str.to_owned()),
-                            (BILLING_PERIOD_START_KEY.to_string(), date_start_repr),
-                            (BILLING_PERIOD_END_KEY.to_string(), date_end_repr)
-                        ])),
+                        metadata: Some(
+                            InvoiceMetadata {
+                                tenant: self.billed_prefix.to_owned(),
+                                invoice_type: self.invoice_type,
+                                period_start: date_start_repr,
+                                period_end: date_end_repr,
+                            }
+                            .to_metadata_map(),
+                        ),
                         ..Default::default()
                     },
                 )
@@ -791,18 +769,18 @@ async fn get_or_create_customer_for_tenant(
     tenant: String,
     create: bool,
 ) -> anyhow::Result<Option<stripe::Customer>> {
-    let customers = stripe_search::<stripe::Customer>(
+    let mut customers: Vec<stripe::Customer> = stripe_search(
         client,
         "customers",
         SearchParams {
-            query: format!("metadata[\"{TENANT_METADATA_KEY}\"]:\"{tenant}\""),
+            query: customer_search_query(&tenant),
             ..Default::default()
         },
     )
     .await
     .context(format!("Searching for tenant {tenant}"))?;
 
-    let customer = if let Some(customer) = customers.into_iter().next() {
+    let customer = if let Some(customer) = customers.drain(..).next() {
         tracing::debug!("Found existing customer {id}", id = customer.id.to_string());
         customer
     } else if create {

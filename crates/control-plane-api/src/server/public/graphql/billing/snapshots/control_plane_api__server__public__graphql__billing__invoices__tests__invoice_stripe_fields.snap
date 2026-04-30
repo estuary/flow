@@ -1,0 +1,24 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/invoices.rs
+expression: response
+---
+{
+  "data": {
+    "tenant": {
+      "billing": {
+        "invoices": {
+          "edges": [
+            {
+              "node": {
+                "amountDue": 2600,
+                "hostedInvoiceUrl": "https://example.test/hosted",
+                "invoicePdf": "https://example.test/invoice.pdf",
+                "status": "open"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

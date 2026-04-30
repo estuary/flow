@@ -13,6 +13,7 @@ license.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 async-stripe = { workspace = true }
+billing-types = { path = "../billing-types" }
 clap = { workspace = true }
 chrono = { workspace = true }
 comfy-table = { workspace = true }
