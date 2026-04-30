@@ -92,6 +92,46 @@ impl Default for ControllerConfig {
     }
 }
 
+impl ControllerConfig {
+    /// Builds a `models::AlertConfig` populated with the global defaults from
+    /// this config. Used as the lowest-priority layer when resolving effective
+    /// alert configs via the GraphQL API.
+    ///
+    /// `dataMovementStalled` is omitted because its threshold is inherently
+    /// per-task (different tasks have different expected data frequencies)
+    /// and there is no sensible global default.
+    pub fn alert_config_defaults(&self) -> models::AlertConfig {
+        models::AlertConfig {
+            data_movement_stalled: None,
+            shard_failed: Some(models::ShardFailedConfig {
+                enabled: Some(true),
+                condition: Some(models::ShardFailedCondition {
+                    failures: Some(self.alert_after_shard_failures),
+                    per: Some(self.shard_failure_retention.to_std().unwrap_or_default()),
+                }),
+            }),
+            task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
+                enabled: Some(true),
+                auto_disable: Some(false),
+                condition: Some(models::TaskChronicallyFailingCondition {
+                    failing_for: Some(
+                        self.chronically_failing_threshold
+                            .to_std()
+                            .unwrap_or_default(),
+                    ),
+                }),
+            }),
+            task_idle: Some(models::TaskIdleConfig {
+                enabled: Some(true),
+                auto_disable: Some(false),
+                condition: Some(models::TaskIdleCondition {
+                    idle_for: Some(self.abandon_idle_threshold.to_std().unwrap_or_default()),
+                }),
+            }),
+        }
+    }
+}
+
 /// This version is used to determine if the controller state is compatible with the current
 /// code. Any controller state having a higher version than this will be ignored.
 pub const CONTROLLER_VERSION: i32 = 2;
@@ -822,5 +862,12 @@ mod test {
             format!("{PUBLICATION_COOLDOWN_ERROR} (will retry)"),
             err.to_string()
         );
+    }
+
+    #[test]
+    fn alert_config_defaults_snapshot() {
+        let config = ControllerConfig::default();
+        let defaults = config.alert_config_defaults();
+        insta::assert_json_snapshot!(serde_json::to_value(&defaults).unwrap());
     }
 }

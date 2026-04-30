@@ -94,17 +94,22 @@ pub fn schema_sdl() -> String {
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub(crate) async fn graphql_handler(
     axum::Extension(schema): axum::Extension<GraphQLSchema>,
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     env: crate::Envelope,
     axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
 ) -> axum::response::Response {
     let pg_pool = env.pg_pool.clone();
 
-    let request = req
+    let mut request = req
         .data(env)
         .data(async_graphql::dataloader::DataLoader::new(
             PgDataLoader(pg_pool),
             tokio::spawn,
         ));
+
+    if let Some(defaults) = &app.alert_config_defaults {
+        request = request.data(defaults.clone());
+    }
 
     let response = schema.execute(request).await;
 

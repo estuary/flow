@@ -465,4 +465,117 @@ mod test {
             .await;
         insta::assert_json_snapshot!("rejected_nonexistent_task", response);
     }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_effective_alert_config_with_defaults(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let defaults = models::AlertConfig {
+            data_movement_stalled: None,
+            shard_failed: Some(models::ShardFailedConfig {
+                enabled: Some(true),
+                condition: Some(models::ShardFailedCondition {
+                    failures: Some(3),
+                    per: Some(std::time::Duration::from_secs(8 * 3600)),
+                }),
+            }),
+            task_chronically_failing: Some(models::TaskChronicallyFailingConfig {
+                enabled: Some(true),
+                auto_disable: Some(false),
+                condition: Some(models::TaskChronicallyFailingCondition {
+                    failing_for: Some(std::time::Duration::from_secs(30 * 86400)),
+                }),
+            }),
+            task_idle: Some(models::TaskIdleConfig {
+                enabled: Some(true),
+                auto_disable: Some(false),
+                condition: Some(models::TaskIdleCondition {
+                    idle_for: Some(std::time::Duration::from_secs(30 * 86400)),
+                }),
+            }),
+        };
+
+        let server = test_server::TestServer::start_with_defaults(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+            Some(defaults),
+        )
+        .await;
+
+        let token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        // No alert_configs rows exist: effective config should be entirely defaults.
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { names: ["aliceCo/in/capture-foo"] }) {
+                            edges {
+                                node {
+                                    catalogName
+                                    liveSpec {
+                                        effectiveAlertConfig {
+                                            config
+                                            provenance { path source }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }"#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!("effective_defaults_only", response);
+
+        // Insert a prefix override for a single field.
+        let _: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        updateAlertConfig(
+                            catalogPrefixOrName: "aliceCo/"
+                            config: { shardFailed: { condition: { failures: 5 } } }
+                        ) { id }
+                    }"#
+                }),
+                Some(&token),
+            )
+            .await;
+
+        // Query effective config on the same task: defaults + prefix override merged.
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        liveSpecs(by: { names: ["aliceCo/in/capture-foo"] }) {
+                            edges {
+                                node {
+                                    catalogName
+                                    liveSpec {
+                                        effectiveAlertConfig {
+                                            config
+                                            provenance { path source }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }"#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!("effective_defaults_plus_prefix_override", response);
+    }
 }
