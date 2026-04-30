@@ -1,0 +1,28 @@
+---
+source: crates/agent/src/controllers/mod.rs
+assertion_line: 870
+expression: "serde_json::to_value(&defaults).unwrap()"
+---
+{
+  "shardFailed": {
+    "condition": {
+      "failures": 3,
+      "per": "8h"
+    },
+    "enabled": true
+  },
+  "taskChronicallyFailing": {
+    "autoDisable": false,
+    "condition": {
+      "failingFor": "30days"
+    },
+    "enabled": true
+  },
+  "taskIdle": {
+    "autoDisable": false,
+    "condition": {
+      "idleFor": "30days"
+    },
+    "enabled": true
+  }
+}

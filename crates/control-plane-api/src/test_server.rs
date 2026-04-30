@@ -70,6 +70,14 @@ pub struct TestServer {
 
 impl TestServer {
     pub async fn start(pg_pool: sqlx::PgPool, snapshot: Arc<dyn tokens::Watch<Snapshot>>) -> Self {
+        Self::start_with_defaults(pg_pool, snapshot, None).await
+    }
+
+    pub async fn start_with_defaults(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        alert_config_defaults: Option<models::AlertConfig>,
+    ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         // TODO(johnny): Aggregate into a sink?
         let (logs_tx, _logs_rx) = tokio::sync::mpsc::channel(1);
@@ -91,6 +99,7 @@ impl TestServer {
             pg_pool.clone(),
             publisher,
             snapshot,
+            alert_config_defaults,
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();
 

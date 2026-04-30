@@ -34,6 +34,7 @@ pub enum Rejection {
 /// App is the wired application state of the control-plane API.
 pub struct App {
     pub _id_generator: std::sync::Mutex<models::IdGenerator>,
+    pub alert_config_defaults: Option<models::AlertConfig>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
@@ -48,9 +49,11 @@ impl App {
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        alert_config_defaults: Option<models::AlertConfig>,
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
+            alert_config_defaults,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,

@@ -299,6 +299,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     let controller_publication_cooldown =
         chrono::Duration::from_std(args.controller_publication_cooldown)?;
+    let alert_config_defaults = args.controller_config.alert_config_defaults();
     let control_plane = agent::PGControlPlane::new(
         pg_pool.clone(),
         system_user_id,
@@ -318,6 +319,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         pg_pool.clone(),
         publisher.clone(),
         snapshot_watch,
+        Some(alert_config_defaults),
     ));
     let api_router = control_plane_api::build_router(api_app.clone(), &args.allow_origin)?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());

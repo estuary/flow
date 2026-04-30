@@ -1,0 +1,83 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_configs.rs
+assertion_line: 579
+expression: response
+---
+{
+  "data": {
+    "liveSpecs": {
+      "edges": [
+        {
+          "node": {
+            "catalogName": "aliceCo/in/capture-foo",
+            "liveSpec": {
+              "effectiveAlertConfig": {
+                "config": {
+                  "shardFailed": {
+                    "condition": {
+                      "failures": 5,
+                      "per": "8h"
+                    },
+                    "enabled": true
+                  },
+                  "taskChronicallyFailing": {
+                    "autoDisable": false,
+                    "condition": {
+                      "failingFor": "30days"
+                    },
+                    "enabled": true
+                  },
+                  "taskIdle": {
+                    "autoDisable": false,
+                    "condition": {
+                      "idleFor": "30days"
+                    },
+                    "enabled": true
+                  }
+                },
+                "provenance": [
+                  {
+                    "path": "shardFailed.condition.failures",
+                    "source": "aliceCo/"
+                  },
+                  {
+                    "path": "shardFailed.condition.per",
+                    "source": null
+                  },
+                  {
+                    "path": "shardFailed.enabled",
+                    "source": null
+                  },
+                  {
+                    "path": "taskChronicallyFailing.autoDisable",
+                    "source": null
+                  },
+                  {
+                    "path": "taskChronicallyFailing.condition.failingFor",
+                    "source": null
+                  },
+                  {
+                    "path": "taskChronicallyFailing.enabled",
+                    "source": null
+                  },
+                  {
+                    "path": "taskIdle.autoDisable",
+                    "source": null
+                  },
+                  {
+                    "path": "taskIdle.condition.idleFor",
+                    "source": null
+                  },
+                  {
+                    "path": "taskIdle.enabled",
+                    "source": null
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

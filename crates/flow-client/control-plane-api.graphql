@@ -91,6 +91,11 @@ type AlertConfigEntry {
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	lastModifiedBy: UUID
+	"""
+	The fully-resolved effective config at this scope, merging all
+	ancestor prefix layers and controller defaults.
+	"""
+	effective: EffectiveAlertConfig!
 }
 
 type AlertConfigEntryConnection {
@@ -696,6 +701,11 @@ type DiscoverChange {
 	disable: Boolean!
 }
 
+type EffectiveAlertConfig {
+	config: JSON!
+	provenance: [FieldProvenance!]!
+}
+
 """
 A generic error that can be associated with a particular draft spec for a given operation.
 """
@@ -703,6 +713,11 @@ type Error {
 	catalogName: String!
 	scope: String
 	detail: String!
+}
+
+type FieldProvenance {
+	path: String!
+	source: String
 }
 
 scalar Id
@@ -848,6 +863,11 @@ type LiveSpec {
 	be empty if this spec is a not a collection.
 	"""
 	readBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection
+	"""
+	The fully-resolved effective alert config for this task, merging all
+	ancestor prefix layers and controller defaults.
+	"""
+	effectiveAlertConfig: EffectiveAlertConfig!
 }
 
 """
@@ -1011,6 +1031,12 @@ type MutationRoot {
 	testConnectionHealth(catalogPrefix: Prefix!, spec: JSON!): ConnectionHealthTestResult!
 	"""
 	Creates or replaces the alert config at `catalogPrefixOrName`.
+	
+	`catalogPrefixOrName` is either a catalog prefix ending in `/`
+	(applies to all tasks under that prefix) or an exact catalog name
+	with no trailing slash (applies to that single task). Exact catalog
+	names must refer to a task that currently exists in `live_specs`;
+	prefixes have no such constraint.
 	
 	To clear all configured overrides while keeping the row, pass an empty
 	`{}` config.
