@@ -252,6 +252,8 @@ func ListAllFragments(ctx context.Context, client pb.RoutedJournalClient, req pb
 			return resp, mapGRPCCtxErr(ctx, err)
 		} else if err = r.Validate(); err != nil {
 			return resp, err
+		} else if r.Status == pb.Status_SUSPENDED {
+			return resp, ErrSuspended
 		} else if r.Status != pb.Status_OK {
 			return resp, errors.New(r.Status.String())
 		} else {

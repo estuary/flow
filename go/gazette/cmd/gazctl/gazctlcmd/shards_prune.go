@@ -2,6 +2,7 @@ package gazctlcmd
 
 import (
 	"context"
+	"errors"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -102,12 +103,20 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 
 	for journal, segments := range logSegmentSets {
 		if skipRecoveryLogs[journal] {
-			log.WithField("journal", journal).Warn("skipping journal because a shard is missing hints that cover it or has unlhealthy store")
+			log.WithField("journal", journal).Warn("skipping journal because a shard is missing hints that cover it or has unhealthy store")
 			continue
 		}
 		log.WithField("journal", journal).Debug("checking fragments of journal")
+		var resp, err = client.ListAllFragments(ctx, rjc, pb.FragmentsRequest{Journal: journal})
+		if errors.Is(err, client.ErrSuspended) {
+			metrics.skippedJournals++
+			log.WithField("journal", journal).Debug("skipping suspended recovery log")
+			continue
+		}
+		mbp.Must(err, "failed to fetch fragments")
+
 		var prunedFragments []pb.Fragment
-		for _, f := range fetchFragments(ctx, rjc, journal) {
+		for _, f := range resp.Fragments {
 			var spec = f.Spec
 
 			metrics.fragmentsTotal++
@@ -226,18 +235,6 @@ func overlapsAnySegment(segments []recoverylog.Segment, fragment pb.Fragment) bo
 		return true
 	}
 	return false
-}
-
-func fetchFragments(ctx context.Context, journalClient pb.RoutedJournalClient, journal pb.Journal) []pb.FragmentsResponse__Fragment {
-	var err error
-	var req = pb.FragmentsRequest{
-		Journal: journal,
-	}
-
-	resp, err := client.ListAllFragments(ctx, journalClient, req)
-	mbp.Must(err, "failed to fetch fragments")
-
-	return resp.Fragments
 }
 
 func foldHintsIntoSegments(hints recoverylog.FSMHints, sets map[pb.Journal][]recoverylog.Segment) {
