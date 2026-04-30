@@ -1,6 +1,5 @@
 use super::{actor, fsm, startup};
-use crate::leader;
-use crate::proto;
+use crate::{leader, proto};
 use futures::StreamExt;
 use tokio::sync::mpsc;
 
@@ -89,11 +88,11 @@ where
         "consensus reached; starting session",
     );
 
+    let mut build = String::new();
     let mut reactors: Vec<String> = Vec::new();
     let mut shard_rx = Vec::with_capacity(slots.len());
     let mut shard_tx = Vec::with_capacity(slots.len());
     let mut shard_ids = Vec::with_capacity(slots.len());
-    let mut shard_labelings: Vec<ops::ShardLabeling> = Vec::with_capacity(slots.len());
     let mut shard_shuffles: Vec<shuffle::proto::Shard> = Vec::with_capacity(slots.len());
 
     for slot in slots {
@@ -129,7 +128,7 @@ where
             directory,
             endpoint,
         });
-        shard_labelings.push(labeling);
+        build = labeling.build;
     }
 
     let error_tx = shard_tx.clone();
@@ -137,46 +136,46 @@ where
     // Run startup, and then the Actor transaction loop.
     let result = async move {
         let startup::Startup {
+            committed_close,
+            committed_frontier,
             idempotent_replay,
-            last_commit,
-            peers,
             pending_ack_intents,
             pending_trigger_params,
             publisher,
             session,
             task,
         } = startup::run(
+            build,
             reactors,
             &mut shard_rx,
             &mut shard_tx,
             &service,
             shard_ids,
-            shard_labelings,
             shard_shuffles,
         )
         .await?;
 
         let head = fsm::Head::Idle(fsm::HeadIdle {
-            last_commit,
+            last_close: committed_close,
             idempotent_replay,
         });
         let pending = fsm::PendingDeltas {
+            ack_intents: pending_ack_intents,
             trigger_params: pending_trigger_params,
             ..Default::default()
         };
         let tail = fsm::Tail::Begin(fsm::TailBegin { pending });
 
-        let mut actor = actor::Actor {
-            ack_intents_fut: None,
-            http_client: service.http_client.clone(),
-            parked_publisher: Some(publisher),
-            peers,
-            pending_ack_intents,
+        // TODO: Make this toggle-able for dropping rollback support.
+        let legacy_checkpoint = Some(committed_frontier);
+
+        let mut actor = actor::Actor::new(
+            service.http_client.clone(),
+            legacy_checkpoint,
+            publisher,
             shard_tx,
-            stats_flush_fut: None,
             task,
-            trigger_fut: None,
-        };
+        );
         actor.serve(head, tail, session, shard_rx).await
     }
     .await;

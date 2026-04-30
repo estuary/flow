@@ -1,3 +1,4 @@
+use crate::{LogHandler, Runtime};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, TryStreamExt, channel::mpsc, stream::BoxStream};
 use proto_flow::{
@@ -7,20 +8,32 @@ use proto_flow::{
 use unseal;
 use zeroize::Zeroize;
 
+/// Ancillary data extracted during connector start for Open requests.
+pub struct OpenExtras {
+    /// The OCI image name of the connector (empty for non-image connectors).
+    pub connector_image: String,
+}
+
 // Start a materialization connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses,
 // plus OpenExtras with decrypted trigger configs and connector metadata.
-pub async fn start<L: crate::LogHandler>(
-    runtime: &crate::shard::Service<L>,
+pub async fn start<L: LogHandler>(
+    runtime: &Runtime<L>,
     mut initial: Request,
 ) -> anyhow::Result<(
     mpsc::Sender<Request>,
     BoxStream<'static, tonic::Result<Response>>,
-    Option<crate::proto::Container>,
+    OpenExtras,
 )> {
     let log_level = initial.get_internal()?.log_level();
     let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
     let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
+
+    fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
+        response.set_internal(|internal| {
+            internal.container = Some(container);
+        });
+    }
 
     fn start_rpc(
         channel: tonic::transport::Channel,
@@ -36,14 +49,16 @@ pub async fn start<L: crate::LogHandler>(
         .boxed()
     }
 
-    let (mut connector_rx, container) = match endpoint {
+    let (mut connector_rx, connector_image) = match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
         }) => {
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
-            let (rx, container) = crate::image_connector::serve(
+            let rx = crate::image_connector::serve(
+                attach_container,
+                1, // Skip first (internal) Spec response.
                 image.clone(),
                 runtime.log_handler.clone(),
                 log_level,
@@ -54,9 +69,10 @@ pub async fn start<L: crate::LogHandler>(
                 ops::TaskType::Materialization,
                 runtime.plane,
             )
-            .await?;
+            .await?
+            .boxed();
 
-            (rx.boxed(), Some(container))
+            (rx, image)
         }
         models::MaterializationEndpoint::Local(_)
             if !matches!(runtime.plane, crate::Plane::Local) =>
@@ -84,14 +100,14 @@ pub async fn start<L: crate::LogHandler>(
             )?
             .boxed();
 
-            (rx, None)
+            (rx, String::new())
         }
         models::MaterializationEndpoint::Dekaf(_) => {
             let rx = dekaf_connector::connector(connector_rx)
                 .map_err(crate::anyhow_to_status)
                 .boxed();
 
-            (rx, None)
+            (rx, String::new())
         }
     };
 
@@ -128,9 +144,11 @@ pub async fn start<L: crate::LogHandler>(
         }
     }
 
+    let open_extras = OpenExtras { connector_image };
+
     connector_tx.try_send(initial).unwrap();
 
-    Ok((connector_tx, connector_rx, container))
+    Ok((connector_tx, connector_rx, open_extras))
 }
 
 fn extract_endpoint<'r>(

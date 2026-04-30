@@ -962,23 +962,7 @@ pub mod leader_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        pub async fn derive(
-            &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::runtime::Derive>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<::proto_flow::runtime::Derive>>,
-            tonic::Status,
-        > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/runtime.Leader/Derive");
-            let mut req = request.into_streaming_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("runtime.Leader", "Derive"));
-            self.inner.streaming(req, path, codec).await
-        }
+        /// rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
         pub async fn materialize(
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::runtime::Materialize>,
@@ -1012,20 +996,12 @@ pub mod leader_server {
     /// Generated trait containing gRPC methods that should be implemented for use with LeaderServer.
     #[async_trait]
     pub trait Leader: std::marker::Send + std::marker::Sync + 'static {
-        /// Server streaming response type for the Derive method.
-        type DeriveStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<::proto_flow::runtime::Derive, tonic::Status>,
-            > + std::marker::Send
-            + 'static;
-        async fn derive(
-            &self,
-            request: tonic::Request<tonic::Streaming<::proto_flow::runtime::Derive>>,
-        ) -> std::result::Result<tonic::Response<Self::DeriveStream>, tonic::Status>;
         /// Server streaming response type for the Materialize method.
         type MaterializeStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<::proto_flow::runtime::Materialize, tonic::Status>,
             > + std::marker::Send
             + 'static;
+        /// rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
         async fn materialize(
             &self,
             request: tonic::Request<tonic::Streaming<::proto_flow::runtime::Materialize>>,
@@ -1112,47 +1088,6 @@ pub mod leader_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/runtime.Leader/Derive" => {
-                    #[allow(non_camel_case_types)]
-                    struct DeriveSvc<T: Leader>(pub Arc<T>);
-                    impl<T: Leader> tonic::server::StreamingService<::proto_flow::runtime::Derive> for DeriveSvc<T> {
-                        type Response = ::proto_flow::runtime::Derive;
-                        type ResponseStream = T::DeriveStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                tonic::Streaming<::proto_flow::runtime::Derive>,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Leader>::derive(&inner, request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = DeriveSvc(inner);
-                        let codec = tonic_prost::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/runtime.Leader/Materialize" => {
                     #[allow(non_camel_case_types)]
                     struct MaterializeSvc<T: Leader>(pub Arc<T>);
@@ -1337,23 +1272,7 @@ pub mod shard_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        pub async fn derive(
-            &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::runtime::Derive>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<::proto_flow::runtime::Derive>>,
-            tonic::Status,
-        > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/runtime.Shard/Derive");
-            let mut req = request.into_streaming_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("runtime.Shard", "Derive"));
-            self.inner.streaming(req, path, codec).await
-        }
+        /// rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
         pub async fn materialize(
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = ::proto_flow::runtime::Materialize>,
@@ -1387,20 +1306,12 @@ pub mod shard_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ShardServer.
     #[async_trait]
     pub trait Shard: std::marker::Send + std::marker::Sync + 'static {
-        /// Server streaming response type for the Derive method.
-        type DeriveStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<::proto_flow::runtime::Derive, tonic::Status>,
-            > + std::marker::Send
-            + 'static;
-        async fn derive(
-            &self,
-            request: tonic::Request<tonic::Streaming<::proto_flow::runtime::Derive>>,
-        ) -> std::result::Result<tonic::Response<Self::DeriveStream>, tonic::Status>;
         /// Server streaming response type for the Materialize method.
         type MaterializeStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<::proto_flow::runtime::Materialize, tonic::Status>,
             > + std::marker::Send
             + 'static;
+        /// rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
         async fn materialize(
             &self,
             request: tonic::Request<tonic::Streaming<::proto_flow::runtime::Materialize>>,
@@ -1493,47 +1404,6 @@ pub mod shard_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/runtime.Shard/Derive" => {
-                    #[allow(non_camel_case_types)]
-                    struct DeriveSvc<T: Shard>(pub Arc<T>);
-                    impl<T: Shard> tonic::server::StreamingService<::proto_flow::runtime::Derive> for DeriveSvc<T> {
-                        type Response = ::proto_flow::runtime::Derive;
-                        type ResponseStream = T::DeriveStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                tonic::Streaming<::proto_flow::runtime::Derive>,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Shard>::derive(&inner, request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = DeriveSvc(inner);
-                        let codec = tonic_prost::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/runtime.Shard/Materialize" => {
                     #[allow(non_camel_case_types)]
                     struct MaterializeSvc<T: Shard>(pub Arc<T>);

@@ -1,4 +1,4 @@
-use crate::recovery::{self, codec};
+use crate::{proto, recovery::codec};
 use anyhow::Context;
 use proto_flow::runtime::RocksDbDescriptor;
 use tokio::runtime;
@@ -77,29 +77,50 @@ impl RocksDB {
             .unwrap()
     }
 
-    /// Scan the entire DB into a [`recovery::State`] snapshot using a blocking
-    /// background thread. Returns `(self, State)`.
+    /// Scan the entire DB into a [`proto::Recover`] using a blocking
+    /// background thread. Returns `(self, Recover)`.
     ///
     /// `binding_state_keys` is a sorted slice of `(state_key, binding_index)`
     /// tuples used to map from stable `state_key` to current binding index.
     pub async fn scan(
         self,
         binding_state_keys: Vec<(String, u32)>,
-    ) -> Result<(Self, recovery::State), codec::DecodeError> {
+    ) -> Result<(Self, proto::Recover), codec::DecodeError> {
         runtime::Handle::current()
             .spawn_blocking(move || {
-                let mut state = recovery::State::default();
+                let mut recover = proto::Recover::default();
+                let mut committed_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
+                let mut hinted_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
 
                 let mut it = self.db.raw_iterator();
                 it.seek_to_first();
 
                 while let Some((key, value)) = it.item() {
-                    state.decode_key_value(key, value, &binding_state_keys)?;
+                    codec::decode_recover_key_value(
+                        &mut recover,
+                        &mut committed_frontier,
+                        &mut hinted_frontier,
+                        key,
+                        value,
+                        &binding_state_keys,
+                    )?;
                     it.next();
                 }
                 std::mem::drop(it);
 
-                Ok((self, state))
+                for (frontier, slot) in [
+                    (&mut committed_frontier, &mut recover.committed_frontier),
+                    (&mut hinted_frontier, &mut recover.hinted_frontier),
+                ] {
+                    // Mapping from state-key to binding index means journal frontiers are unordered.
+                    frontier
+                        .sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
+
+                    *slot =
+                        (!frontier.is_empty()).then(|| shuffle::JournalFrontier::encode(&frontier));
+                }
+
+                Ok((self, recover))
             })
             .await
             .unwrap()
@@ -493,9 +514,78 @@ mod test {
 
         let (_db, state) = db.scan(Vec::new()).await.unwrap();
         assert_eq!(
-            state.connector_state,
-            Some(r#"{"a":"c","ans":42,"d":"e","n":null}"#.into())
+            state.connector_state_json,
+            bytes::Bytes::from_static(br#"{"a":"c","ans":42,"d":"e","n":null}"#)
         );
+    }
+
+    #[tokio::test]
+    async fn scan_returns_recover_with_sorted_frontier_chunks() {
+        let db = RocksDB::open(None).await.unwrap();
+        let mut wb = rocksdb::WriteBatch::default();
+        let producer = proto_gazette::uuid::Producer::from_bytes([0x01, 0xaa, 0, 0, 0, 0]);
+
+        let frontier = shuffle::JournalFrontier::encode(&[
+            shuffle::JournalFrontier {
+                journal: "journal/shared".into(),
+                binding: 1,
+                producers: vec![shuffle::ProducerFrontier {
+                    producer,
+                    last_commit: proto_gazette::uuid::Clock::from_u64(11),
+                    hinted_commit: proto_gazette::uuid::Clock::default(),
+                    offset: 101,
+                }],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            },
+            shuffle::JournalFrontier {
+                journal: "journal/shared".into(),
+                binding: 0,
+                producers: vec![shuffle::ProducerFrontier {
+                    producer,
+                    last_commit: proto_gazette::uuid::Clock::from_u64(22),
+                    hinted_commit: proto_gazette::uuid::Clock::default(),
+                    offset: 202,
+                }],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            },
+        ]);
+
+        extend_write_batch(
+            &mut wb,
+            &proto::Persist {
+                committed_frontier: Some(frontier.clone()),
+                hinted_frontier: Some(frontier),
+                ..Default::default()
+            },
+            &["z-binding", "a-binding"],
+        )
+        .unwrap();
+
+        let db = db.write_opt(wb, Default::default()).await.unwrap();
+        let mapping = vec![("a-binding".to_string(), 1), ("z-binding".to_string(), 0)];
+        let (_db, recover) = db.scan(mapping).await.unwrap();
+
+        let committed: Vec<_> = recover
+            .committed_frontier
+            .clone()
+            .into_iter()
+            .flat_map(shuffle::JournalFrontier::decode)
+            .collect();
+        let hinted: Vec<_> = recover
+            .hinted_frontier
+            .clone()
+            .into_iter()
+            .flat_map(shuffle::JournalFrontier::decode)
+            .collect();
+
+        assert_eq!(committed.len(), 2);
+        assert_eq!(hinted.len(), 2);
+        assert_eq!(committed[0].binding, 0);
+        assert_eq!(committed[1].binding, 1);
+        assert_eq!(hinted[0].binding, 0);
+        assert_eq!(hinted[1].binding, 1);
     }
 
     /// Verify merge batching handles many operands that would exceed memory
@@ -542,7 +632,7 @@ mod test {
 
         // Verify the merged state contains all cursor entries.
         let parsed: serde_json::Value =
-            serde_json::from_slice(&state.connector_state.unwrap()).unwrap();
+            serde_json::from_slice(&state.connector_state_json).unwrap();
         let cursors = parsed["cursors"]
             .as_object()
             .expect("cursors should be an object");
@@ -761,6 +851,6 @@ mod test {
         assert_eq!(state.ack_intents.len(), 2);
         assert_eq!(state.ack_intents.get("j/A").unwrap().as_ref(), b"INTENT-A");
         assert_eq!(state.ack_intents.get("j/B").unwrap().as_ref(), b"INTENT-B");
-        assert_eq!(state.last_applied.as_deref(), Some(b"v9".as_slice()));
+        assert_eq!(state.last_applied.as_ref(), b"v9");
     }
 }

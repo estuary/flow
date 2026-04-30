@@ -40,6 +40,7 @@ pub mod materialize;
 pub mod publish;
 pub mod recovery;
 mod rocksdb;
+mod shard;
 mod task_service;
 
 pub use container::flow_runtime_protocol;
@@ -66,6 +67,7 @@ pub(crate) const ACTOR_TICK_INTERVAL: std::time::Duration = std::time::Duration:
 /// Used for controller-, leader-, and connector-bound message channels;
 /// callers send via `verify_send` so a Full result fails fast as a
 /// capacity-invariant violation.
+#[allow(dead_code)]
 pub(crate) fn new_channel<T>() -> (tokio::sync::mpsc::Sender<T>, tokio::sync::mpsc::Receiver<T>) {
     tokio::sync::mpsc::channel::<T>(32)
 }
@@ -78,6 +80,7 @@ pub(crate) fn new_channel<T>() -> (tokio::sync::mpsc::Sender<T>, tokio::sync::mp
 ///
 /// Silently drops on `Closed` — the peer has exited. The caller will
 /// discover a more informative error from the peer's rx stream.
+#[allow(dead_code)]
 pub(crate) fn verify_send<T>(tx: &tokio::sync::mpsc::Sender<T>, value: T) -> anyhow::Result<()> {
     use tokio::sync::mpsc::error::TrySendError;
     match tx.try_send(value) {
@@ -214,8 +217,10 @@ impl<L: LogHandler> Runtime<L> {
     }
 }
 
+#[allow(dead_code)]
 struct Accumulator(doc::combine::Accumulator, simd_doc::Parser);
 
+#[allow(dead_code)]
 impl Accumulator {
     pub fn new(spec: doc::combine::Spec) -> anyhow::Result<Self> {
         Ok(Self(

@@ -42,6 +42,7 @@ impl Service {
             .max_encoding_message_size(usize::MAX)
     }
 
+    /*
     pub fn spawn_derive<R>(
         &self,
         request_rx: R,
@@ -60,6 +61,7 @@ impl Service {
         });
         response_rx
     }
+    */
 
     pub fn spawn_materialize<R>(
         &self,
@@ -94,11 +96,12 @@ impl std::ops::Deref for Service {
 
 #[tonic::async_trait]
 impl proto_grpc::runtime::leader_server::Leader for Service {
-    type DeriveStream =
-        tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;
+    //type DeriveStream =
+    //    tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;
     type MaterializeStream =
         tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Materialize>>;
 
+    /*
     async fn derive(
         &self,
         request: tonic::Request<tonic::Streaming<proto::Derive>>,
@@ -109,6 +112,7 @@ impl proto_grpc::runtime::leader_server::Leader for Service {
             ),
         ))
     }
+    */
 
     async fn materialize(
         &self,
@@ -122,6 +126,7 @@ impl proto_grpc::runtime::leader_server::Leader for Service {
     }
 }
 
+/*
 async fn serve_derive<R>(
     _service: Service,
     _request_rx: R,
@@ -132,3 +137,4 @@ where
 {
     anyhow::bail!("Leader Derive RPC is not yet implemented")
 }
+*/

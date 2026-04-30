@@ -1,6 +1,6 @@
 //! Per-session driver: spawns N shard tasks via
 //! `runtime_next::Runtime::spawn_materialize`, synthesizing the
-//! Start/Join/Open envelopes the controller (Go in production) would
+//! SessionLoop/Join/Task envelopes the controller (Go in production) would
 //! normally send.
 //!
 //! Transactions are counted by observing `Acknowledge` messages on a
@@ -9,6 +9,7 @@
 //! request channel and surfacing a clean Go EOF to `serve`.
 
 use crate::preview::services::Run;
+use prost::Message;
 use proto_flow::{flow, runtime as cruntime};
 use runtime_next::proto;
 use std::io::Write;
@@ -137,8 +138,10 @@ async fn drive_one_shard(
     );
 
     let mut response_rx = runtime.spawn_materialize(UnboundedReceiverStream::new(request_rx));
+    let connector_image = connector_image(&spec)?;
+    let spec_bytes = spec.encode_to_vec().into();
 
-    // 1. Start.
+    // 1. Session loop.
     let rocksdb_descriptor = if shard_index == 0 {
         Some(cruntime::RocksDbDescriptor {
             rocksdb_path: run.rocksdb_path.clone(),
@@ -149,13 +152,10 @@ async fn drive_one_shard(
     };
     request_tx
         .send(Ok(proto::Materialize {
-            start: Some(proto::Start {
-                log_level: ::ops::LogLevel::Info as i32,
-                rocksdb_descriptor,
-            }),
+            session_loop: Some(proto::SessionLoop { rocksdb_descriptor }),
             ..Default::default()
         }))
-        .map_err(|_| anyhow::anyhow!("serve task closed before Start"))?;
+        .map_err(|_| anyhow::anyhow!("serve task closed before SessionLoop"))?;
 
     // 2. Join.
     request_tx
@@ -172,19 +172,18 @@ async fn drive_one_shard(
         }))
         .map_err(|_| anyhow::anyhow!("serve task closed before Join"))?;
 
-    // 3. Open. ops_logs/ops_stats omitted ⇒ Publisher::Preview on both sides.
+    // 3. Task. Preview mode selects Publisher::Preview on both sides.
     request_tx
         .send(Ok(proto::Materialize {
-            open: Some(proto::materialize::Open {
-                materialization: Some(spec),
-                ops_logs_spec: None,
-                ops_stats_spec: None,
-                ops_logs_journal: String::new(),
+            task: Some(proto::Task {
+                spec: spec_bytes,
                 ops_stats_journal: String::new(),
+                ops_stats_spec: None,
+                preview: true,
             }),
             ..Default::default()
         }))
-        .map_err(|_| anyhow::anyhow!("serve task closed before Open"))?;
+        .map_err(|_| anyhow::anyhow!("serve task closed before Task"))?;
 
     // 4. Response loop.
     //
@@ -200,7 +199,7 @@ async fn drive_one_shard(
     let mut saw_session_open_ack = false;
     while let Some(msg) = response_rx.recv().await {
         let msg = msg.map_err(runtime_next::status_to_anyhow)?;
-        emit_to_stdout(&msg, output_state, output_apply, &stdout)?;
+        emit_to_stdout(&msg, output_state, output_apply, &connector_image, &stdout)?;
 
         if msg.acknowledge.is_some() {
             if !saw_session_open_ack {
@@ -231,19 +230,17 @@ fn emit_to_stdout(
     msg: &proto::Materialize,
     output_state: bool,
     output_apply: bool,
+    connector_image: &str,
     stdout: &std::sync::Arc<std::sync::Mutex<std::io::Stdout>>,
 ) -> anyhow::Result<()> {
     if output_apply {
-        if let Some(opened) = &msg.opened {
+        if msg.opened.is_some() {
             // The driver sees only the leader's L:Opened. Apply runs
             // entirely inside startup; we surface the resolved
             // connector image as a one-shot line.
             let mut stdout = stdout.lock().unwrap();
-            writeln!(
-                stdout,
-                "[\"applied\",{{\"image\":\"{}\"}}]",
-                opened.connector_image
-            )?;
+            let connector_image = serde_json::to_string(connector_image)?;
+            writeln!(stdout, "[\"applied\",{{\"image\":{connector_image}}}]")?;
         }
     }
 
@@ -267,4 +264,12 @@ fn emit_to_stdout(
     }
 
     Ok(())
+}
+
+fn connector_image(spec: &flow::MaterializationSpec) -> anyhow::Result<String> {
+    if spec.connector_type != flow::materialization_spec::ConnectorType::Image as i32 {
+        return Ok(String::new());
+    }
+
+    Ok(serde_json::from_slice::<models::ConnectorConfig>(&spec.config_json)?.image)
 }

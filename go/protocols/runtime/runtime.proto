@@ -354,7 +354,7 @@ service ConnectorProxy {
 // (Join, Recover, Flushed), sometimes the leader initiates (Read, Flush,
 // Persist).
 service Leader {
-  rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
+  // rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
   rpc Materialize(stream .runtime.Materialize) returns (stream .runtime.Materialize);
 }
 
@@ -372,7 +372,7 @@ service Leader {
 //    not involved; the handler dials a transient connector and streams
 //    the response back. A Validate may follow a Spec on the same stream.
 service Shard {
-  rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
+  // rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
   rpc Materialize(stream .runtime.Materialize) returns (stream .runtime.Materialize);
 }
 
@@ -423,88 +423,114 @@ message Joined {
   int64 max_etcd_revision = 1;
 }
 
-// Recover is sent by each shard to the leader after Joined.
-//
-// Recover is a streamed sequence terminated by an empty Recover. Any
-// message in the sequence may carry one `hinted_frontier` chunk and/or
-// one `committed_frontier` chunk; all other fields are aggregated by
-// the leader across the sequence as documented per-field. Shards
-// without a recovery log send only the empty terminator.
+// Task which is being processed by the runtime.
+// Sent from coordinator -> Shard, and from Shard zero (only) -> Leader after Joined.
+message Task {
+  // Task specification (protobuf-encoded bytes).
+  bytes               spec              = 1;
+  // Collection journal partition to which task states are written.
+  string              ops_stats_journal = 2;
+  // Collection to which task stats are written.
+  flow.CollectionSpec ops_stats_spec    = 3;
+  // When true, documents and stats are written to output and not directed to collections.
+  bool                preview           = 4;
+}
+
+// Recover is sent by each shard to the leader after Joined,
+// and carries state recovered from the shard's RocksDB.
+// All shards send Recover, though it may be empty (e.g., non-zero shards).
 message Recover {
   // Last-persisted ACK intents.
   map<string, bytes> ack_intents = 1;
-  // Last-persisted connector state patches. State Update Wire Format.
-  bytes connector_patches_json = 2 [json_name = "connectorPatches"];
+  // Clock at which the last-committed transaction closed,
+  // or zero if never committed.
+  fixed64 committed_close_clock = 2;
+  // Committed Frontier entries. Not a delta.
+  shuffle.FrontierChunk committed_frontier = 3;
+  // Persisted connector state.
+  bytes connector_state_json = 4 [json_name = "connectorState"];
+  // Clock at which the last hinted transaction closed, or zero if never hinted.
+  // Iff ahead of `committed_close_clock` then the last transaction was hinted
+  // but did not commit in the recovery log.
+  //
+  // Remote-Authoritative connectors may commit in the endpoint ahead of the
+  // recovery log (during StartCommit/StartedCommit). We therefore store
+  // `committed_close_clock` in checkpoints passed to StartCommit and compare
+  // with `hinted_close_clock` on L:Opened to detect this case (and handle it
+  // by treating the hinted Frontier as in-fact committed).
+  //
+  // If the same as `last_close_clock`, then the hinted transaction committed.
+  // If this is ahead of `last_close_clock`, then a transaction was
+  // hinted but did not commit.
+  fixed64 hinted_close_clock = 5;
+  // Persisted hinted Frontier entries (FH: range).
+  shuffle.FrontierChunk hinted_frontier = 6;
   // Last-applied task specification (protobuf-encoded bytes), or empty.
-  bytes last_applied = 3;
-  // Wall-clock timestamp (as UUID Clock value) of this task's most-recent
-  // prior commit, or zero if none is known.
-  fixed64 last_commit = 4;
+  bytes last_applied = 7;
+  // Legacy Checkpoint persisted in RocksDB for roll-forward / roll-back
+  // capability with the legacy V1 runtime. This will be phased out as we fully
+  // cut over to the `committed_frontier` representation.
+  //
+  // Note this is distinct from the checkpoint returned by C:Opened and
+  // compared with `hinted_close_clock`, which will not be removed.
+  consumer.Checkpoint legacy_checkpoint = 8;
   // Per-binding max-key entries.
   // Key: binding index; Value: packed composite key tuple.
-  map<uint32, bytes> max_keys = 5;
+  map<uint32, bytes> max_keys = 9;
   // Persisted trigger parameters (materialize only), or empty.
-  bytes trigger_params_json = 6 [json_name = "triggerParams"];
-  // Persisted hinted Frontier entries (FH: range).
-  shuffle.FrontierChunk hinted_frontier = 7;
-  // Persisted committed Frontier entries (FC: range).
-  shuffle.FrontierChunk committed_frontier = 8;
-}
-
-// Recovered is sent by the leader to all shards after aggregating Recover
-// messages (and, for materializations, after Apply/Applied completes).
-// All shards hold this aggregated state in memory for the session.
-message Recovered {
-  // Aggregated connector state patches. State Update Wire Format.
-  bytes connector_patches_json = 1 [json_name = "connectorPatches"];
-  // Aggregated per-binding max-key entries, reduced to per-binding maximum.
-  // Key: binding index; Value: packed composite key tuple.
-  map<uint32, bytes> max_keys = 2;
+  bytes trigger_params_json = 10 [json_name = "triggerParams"];
 }
 
 // Persist is sent by the leader to shard zero when state must be durably
 // written. Each field maps to a contractual WriteBatch effect on shard
 // zero's RocksDB. Absent fields are inert.
 //
-// Persist is a streamed sequence, which collectively land together in a
-// single WriteBatch. Messages which are continued have `nonce` of zero.
-// The final message of the sequence has a non-zero `nonce`, which is echoed
-// back by the shard's Persisted response.
+// All fields of a Persist land together in a single WriteBatch.
+// Its `nonce` is echoed back by the shard's Persisted response.
 message Persist {
   // Nonce which is echoed back in the shard's `Persisted` response.
   uint64 nonce = 1;
-  // Delete a previously-persisted hinted frontier.
-  // Effect: DeleteRange("FH:")
-  bool delete_hinted_frontier = 2;
-  // Hinted Frontier entries.
-  // Effect: Put FH: keys.
-  shuffle.FrontierChunk hinted_frontier = 3;
-  // Committed Frontier entries.
-  // Effect: Put FC: keys.
-  shuffle.FrontierChunk committed_frontier = 4;
-  // Connector state patches. State Update Wire Format.
-  // Effect: one Merge per individual patch on the connector-state key.
-  bytes connector_patches_json = 5 [json_name = "connectorPatches"];
-  // Per-binding max-key updates, reduced to per-binding maximum across shards.
-  // Key: binding index; Value: packed composite key tuple.
-  // Effect: Put value under MK-v2:{state_key} (state_key resolved by the encoder).
-  map<uint32, bytes> max_keys = 6;
-  // Delete previously-persisted ACK intents.
+  // Delete previously-persisted ACK intents. Applies ahead of `ack_intents`.
   // Effect: DeleteRange("AI:")
-  bool delete_ack_intents = 7;
+  bool delete_ack_intents = 2;
   // ACK intent entries.
   // Key: journal name; Value: raw journal content to write.
-  // Effect: Put value under AI:{journal}.
-  map<string, bytes> ack_intents = 8;
-  // Delete previously-persisted trigger parameters (materialize only).
-  // Effect: Delete the trigger-params key.
-  bool delete_trigger_params = 9;
-  // Materialization trigger parameters.
-  // Effect: Put on the trigger-params key.
-  bytes trigger_params_json = 10 [ json_name = "triggerParams" ];
+  // Effect: Put under "AI:{journal}".
+  map<string, bytes> ack_intents = 3;
+  // Clock at which the last-committed transaction closed.
+  // Effect: Put under "committed-close-clock".
+  fixed64 committed_close_clock = 4;
+  // Committed Frontier entries.
+  // Effect: Put under "FC:..." keys.
+  shuffle.FrontierChunk committed_frontier = 5;
+  // Connector state patches. State Update Wire Format.
+  // Effect: Merge each patch under "connector-state".
+  bytes connector_patches_json = 6 [json_name = "connectorPatches"];
+  // Clock at which the hinted transaction closed.
+  // Effect: Put under "hinted-close-clock".
+  fixed64 hinted_close_clock = 7;
+  // Delete a previously-persisted hinted frontier. Applies ahead of `hinted_frontier`.
+  // Effect: DeleteRange("FH:")
+  bool delete_hinted_frontier = 8;
+  // Hinted Frontier entries.
+  // Effect: Put under "FH:" keys.
+  shuffle.FrontierChunk hinted_frontier = 9;
   // Last-applied task specification (protobuf-encoded bytes), or empty.
-  // Effect: Put last-applied key.
-  bytes last_applied = 11;
+  // Effect: Put under "last-applied" key.
+  bytes last_applied = 10;
+  // Legacy checkpoint, required for rollback to legacy runtime.
+  // Effect: Put under "checkpoint" key.
+  consumer.Checkpoint legacy_checkpoint = 11;
+  // Per-binding max-key updates, reduced to per-binding maximum across shards.
+  // Key: binding index; Value: packed composite key tuple.
+  // Effect: Put value under "MK-v2:{state_key}" (state_key resolved by the encoder).
+  map<uint32, bytes> max_keys = 12;
+  // Delete previously-persisted trigger parameters. Applies ahead of `trigger_params_json`.
+  // Effect: Delete the "trigger-params" key.
+  bool delete_trigger_params = 13;
+  // Materialization trigger parameters.
+  // Effect: Put under "trigger-params" key.
+  bytes trigger_params_json = 14 [ json_name = "triggerParams" ];
 }
 
 // Persisted is sent by shard zero to the leader after the state is durable
@@ -515,24 +541,60 @@ message Persisted {
   uint64 nonce = 1;
 }
 
-// Stop is sent by a shard to the leader to request graceful shutdown.
+message Apply {
+  // Task specification to be applied (protobuf-encoded bytes).
+  bytes spec = 1;
+  // Version of the specification being applied.
+  string version = 2;
+  // Last specification which was successfully applied.
+  bytes last_spec = 4;
+  // Version of the last applied specification.
+  string last_version = 5;
+  // Last-persisted connector state from a previous session.
+  bytes state_json = 6 [ json_name = "state" ];
+}
+
+message Applied {
+  // Human-readable description of the action that the connector took.
+  // If empty, this Apply is to be considered a "no-op".
+  string action_description = 1;
+  // Applied connector state patches. State Update Wire Format.
+  bytes connector_patches_json = 2 [json_name = "connectorPatches"];
+}
+
+message Open {
+  // Task specification to be opened (protobuf-encoded bytes).
+  bytes spec = 1;
+  // Version of the specification being opened.
+  string version = 2;
+  // Range of documents to be processed by this session.
+  flow.RangeSpec range = 3;
+  // Last-persisted connector checkpoint state from a previous session.
+  bytes connector_state_json = 4 [ json_name = "state" ];
+  // Materializations only: per-binding maximum keys.
+  // Key: binding index; Value: packed composite key tuple.
+  map<uint32, bytes> max_keys = 5;
+}
+
+// CloseNow is sent by controller, to shard, to leader, as a request to
+// immediately close a transaction being held open by policy.
+message CloseNow {}
+
+// Stop is sent by controller, to shard, to leader to request graceful shutdown.
 message Stop {}
 
 // Stopped is sent by the leader to all shards confirming shutdown.
 // The leader sends EOF after Stopped.
 message Stopped {}
 
-// Start is sent as the first message of a session-mode stream on the Shard
+// SessionLoop is sent as the first message of a session-loop stream on the Shard
 // service. It carries process-level configuration that outlives leader sessions,
 // such as the the RocksDB context to use across leader sessions.
-// The Leader service never sees Start.
-message Start {
-  // Initial Log level for this Shard stream.
-  // Updated by the log level contained with a subsequent Open.
-  ops.Log.Level log_level = 1;
+// The Leader service never sees SessionLoop.
+message SessionLoop {
   // RocksDB context to be opened for this Shard stream.
   // Absent for non-zero materialize/derive shards, which don't host RocksDB.
-  RocksDBDescriptor rocksdb_descriptor = 2;
+  RocksDBDescriptor rocksdb_descriptor = 1;
 }
 
 // PartialAckIntent is a single shard's contribution to the transaction's
@@ -542,243 +604,90 @@ message Start {
 // Matches the return type of Publisher::commit_intents().
 message PartialAckIntent {
   // Producer ID (only the low 6 bytes are used).
-  int64 producer = 1;
+  fixed64 producer = 1;
   // Commit clock timestamp.
   fixed64 clock = 2;
   // Journals to which this producer appended CONTINUE_TXN documents.
   repeated string journals = 3;
 }
 
-// Derive is the bidirectional message type for derivation sessions.
-// Exactly one field is set per message.
-message Derive {
-  // Shard -> Leader. Session initiation with topology.
-  Join join = 1;
-  // Leader -> Shards. Topology consensus or retry directive.
-  Joined joined = 2;
-  // Shard -> Leader. Persisted state from recovery.
-  Recover recover = 3;
-  // Shard zero -> Leader. Task spec, sent before Recovered.
-  Open open = 4;
-  // Leader -> Shards. Aggregated global state.
-  Recovered recovered = 5;
-  // All shards -> Leader. Connector flags from C:Opened.
-  Opened opened = 6;
-
-  // Leader -> Shards. Source document locations for this transaction.
-  Read read = 7;
-  // Leader -> Shards. Begin flush phase.
-  Flush flush = 8;
-  // Shard -> Leader. Flush phase complete.
-  Flushed flushed = 9;
-  // Leader -> Shards. Begin commit phase.
-  StartCommit start_commit = 10;
-  // Shard -> Leader. Commit phase initiated.
-  StartedCommit started_commit = 11;
-
-  // Leader -> Shard zero. Durable state write.
-  Persist persist = 12;
-  // Shard zero -> Leader. State is durable.
-  Persisted persisted = 13;
-  // Leader -> Shards. Transaction complete.
-  Acknowledge acknowledge = 14;
-
-  // Shard -> Leader. Graceful shutdown request.
-  Stop stop = 15;
-  // Leader -> Shards. Shutdown confirmed; EOF follows.
-  Stopped stopped = 16;
-
-  // Go -> Shard. First message of a session-mode stream.
-  Start start = 17;
-
-  // Go -> Shard. First message of a unary-mode stream.
-  // Only `validate` may follow.
-  derive.Request.Spec spec = 18;
-  // Shard -> Go. Connector's reply to `spec`.
-  derive.Response.Spec spec_response = 19;
-  // Go -> Shard. Unary connector Validate.
-  derive.Request.Validate validate = 20;
-  // Shard -> Go. Connector's reply to `validate`.
-  derive.Response.Validated validated = 21;
-
-  // Open carries the current derivation spec from shard zero to the leader.
-  // Sent after Recover, before Recovered.
-  message Open {
-    // CollectionSpec for this derivation. The inner `derivation` field must be set.
-    flow.CollectionSpec derivation        = 1;
-    flow.CollectionSpec ops_logs_spec     = 2;
-    flow.CollectionSpec ops_stats_spec    = 3;
-    string              ops_logs_journal  = 4;
-    string              ops_stats_journal = 5;
-  }
-
-  // Opened carries connector flags reported by C:Opened. Sent by every
-  // shard after its connector session responds to C:Open.
-  message Opened {
-    // Connector declares crash-replay determinism can be skipped.
-    // Per-task invariant: all shards must report the same value.
-    bool skip_replay_determinism = 1;
-    // Description of the running connector container.
-    // Sent to the client, but not the leader.
-    Container container = 2;
-  }
-
-  // Read carries a FrontierChunk identifying source documents to process.
-  // Shards read from their local shuffle Log segments and send C:Read
-  // to the connector for each document. C:Published responses accumulate
-  // in combiners.
-  message Read {
-    shuffle.FrontierChunk frontier = 1;
-  }
-
-  // Flush signals the end of the Read phase and distributes the prior
-  // transaction's aggregated connector state patches.
-  message Flush {
-    // Prior transaction's aggregated C:StartedCommit patches.
-    // State Update Wire Format.
-    bytes connector_patches_json = 1 [json_name = "connectorPatches"];
-  }
-
-  // Flushed reports this shard's partial ACK intents and stats after
-  // draining combiners and publishing CONTINUE_TXN documents.
-  message Flushed {
-    PartialAckIntent ack_intent = 1;
-    ops.Stats        stats      = 2;
-  }
-
-  // StartCommit tells shards to trigger the connector commit phase.
-  message StartCommit {}
-
-  // StartedCommit carries connector state patches from C:StartedCommit.
-  message StartedCommit {
-    // Connector state patches from this shard's C:StartedCommit.
-    // State Update Wire Format.
-    bytes connector_patches_json = 1 [json_name = "connectorPatches"];
-  }
-
-  message Acknowledge {}
-}
-
 // Materialize is the bidirectional message type for materialization sessions.
 // Exactly one field is set per message.
 message Materialize {
-  // Shard -> Leader. Session initiation with topology.
-  Join join = 1;
-  // Leader -> Shards. Topology consensus or retry directive.
-  Joined joined = 2;
-  // Shard -> Leader. Persisted state from recovery.
-  Recover recover = 3;
-  // Shard zero -> Leader. Task spec, sent after Recover and before Apply.
-  Open open = 4;
-  // Leader -> Shard zero. Run C:Apply with brokered last-applied and state.
-  Apply apply = 5;
-  // Shard zero -> Leader. C:Apply complete.
-  Applied applied = 6;
-  // Leader -> Shards. Aggregated global state, extended by Applied.state.
-  Recovered recovered = 7;
-  // All shards -> Leader. Connector flags and optional legacy
-  // consumer.Checkpoint, from C:Opened.
-  Opened opened = 8;
 
-  // Leader -> Shards. Source document locations (incremental Frontier).
-  // Multiple Load messages may be sent per transaction.
-  Load load = 9;
-  // Shard -> Leader. Load phase report.
-  Loaded loaded = 10;
-  // Leader -> Shards. End of Load phase, begin flush.
-  Flush flush = 11;
-  // Shard -> Leader. Flush phase complete.
-  Flushed flushed = 12;
-  // Leader -> Shards. Begin commit phase.
-  StartCommit start_commit = 13;
-  // Shard -> Leader. Commit phase initiated.
-  StartedCommit started_commit = 14;
+  // ----- UNARY REQUESTS -----
 
-  // Leader -> Shard zero. Durable state write.
-  Persist persist = 15;
-  // Shard zero -> Leader. State is durable.
-  Persisted persisted = 16;
-  // Leader -> Shards. Transaction complete.
-  Acknowledge acknowledge = 17;
-  // Shard -> Leader. Reports C:Acknowledged state from prior transaction.
-  Acknowledged acknowledged = 18;
-
-  // Shard -> Leader. Graceful shutdown request.
-  Stop stop = 19;
-  // Leader -> Shards. Shutdown confirmed; EOF follows.
-  Stopped stopped = 20;
-
-  // Go -> Shard. First message of a session-mode stream.
-  Start start = 21;
-
-  // Go -> Shard. First message of a unary-mode stream.
-  // Only `validate` may follow.
-  materialize.Request.Spec spec = 22;
+  // Go -> Shard. Unary request outside of a SessionLoop.
+  materialize.Request.Spec spec = 1;
   // Shard -> Go. Connector's reply to `spec`.
-  materialize.Response.Spec spec_response = 23;
-  // Go -> Shard. Unary connector Validate.
-  materialize.Request.Validate validate = 24;
+  materialize.Response.Spec spec_response = 2;
+  // Go -> Shard. Unary request outside of a SessionLoop.
+  materialize.Request.Validate validate = 3;
   // Shard -> Go. Connector's reply to `validate`.
-  materialize.Response.Validated validated = 25;
+  materialize.Response.Validated validated = 4;
 
-  // Open carries the current materialization spec from shard zero to the leader.
-  // Sent after Recover, before Apply.
-  message Open {
-    flow.MaterializationSpec materialization   = 1;
-    flow.CollectionSpec      ops_logs_spec     = 2;
-    flow.CollectionSpec      ops_stats_spec    = 3;
-    string                   ops_logs_journal  = 4;
-    string                   ops_stats_journal = 5;
-  }
+  // ----- STARTUP -----
 
-  // Opened carries connector flags reported by C:Opened. Sent by every
-  // shard after its long-lived connector responds to C:Open.
+  // Coordinator -> Shard. First message of a session-loop stream.
+  SessionLoop session_loop = 20;
+
+  // Coordinator -> Shard -> Leader. Session initiation with topology.
+  Join join = 21;
+
+  // Leader -> Shards -> Coordinators. Topology consensus or retry directive.
+  Joined joined = 22;
+
+  // Coordinator -> Shard, Shard zero (only) -> Leader.
+  // Defines the task being processed by the now-joined topology.
+  Task task = 23;
+
+  // All Shards -> Leader. State recovered from RocksDB on startup.
+  Recover recover = 24;
+
+  // Leader -> Shard zero.
+  Apply apply = 25;
+
+  // Shard zero -> Leader. C:Apply complete.
+  // If Applied emits state patches then Leader runs Persist / Persisted
+  // and calls Apply again, until it emits no further state patches.
+  Applied applied = 26;
+
+  // Leader -> Shards. Open connector and prepare for transactions.
+  Open open = 27;
+
+  // Shard -> Leader and also Shard -> Coordinator.
+  // Connector is running and session startup is complete.
   message Opened {
-    // Connector declares crash-replay determinism can be skipped.
-    // When true, Persist of extents is elided entirely.
-    // Per-task invariant: all shards must report the same value.
-    bool skip_replay_determinism = 1;
-    // Optional legacy consumer.Checkpoint returned by C:Opened.
-    // Remote-authoritative connectors store this in their endpoint;
-    // when present, it supersedes the persisted committed Frontier
-    // for this shard when the leader composes the session resume
-    // Frontier.
-    consumer.Checkpoint legacy_checkpoint = 2;
     // Description of the running connector container.
-    // Sent to the client, but not the leader.
-    Container container = 3;
-    // OCI image of the connector (empty for local/dekaf connectors).
-    // Sent only by shard zero; other shards leave empty. The leader
-    // records this on Task and feeds it into trigger parameters.
-    string connector_image = 4;
+    Container container = 1;
+    // Optional connector consumer.Checkpoint returned by C:Opened.
+    //
+    // Remote-authoritative connectors commit to their endpoint during
+    // StartCommit, and we compare its embedded `committed_close_clock` with the
+    // recovered `hinted_close_clock` to determine the commit status of the
+    // hinted Frontier.
+    //
+    // Migration: if `committed_close_clock` is not present then the checkpoint
+    // is assumed to be a V1 legacy checkpoint, and it replaces the recovered
+    // committed Frontier. The V2 runtime may write additional checkpoint
+    // keys for rollback compatibility with the V1 runtime.
+    consumer.Checkpoint connector_checkpoint = 2;
   }
+  Opened opened = 28;
 
-  // Apply tells shard zero to run C:Apply against a separate connector instance.
-  // The current spec is not carried — shard zero already has it.
-  message Apply {
-    // Last-applied MaterializationSpec bytes, or empty.
-    // Brokered through Leader from L:Recover.
-    bytes last_applied = 1;
-    // Running connector state patches. State Update Wire Format.
-    bytes connector_patches_json = 2 [json_name = "connectorPatches"];
-  }
+  // ----- TRANSACTION PROCESSING -----
 
-  // Applied confirms the C:Apply is complete. May carry a connector state
-  // update which the leader folds into Recovered before broadcasting.
-  message Applied {
-    // Connector state patches from this shard's C:Applied.
-    // State Update Wire Format.
-    bytes connector_patches_json = 1 [json_name = "connectorPatches"];
-  }
-
-  // Load carries an incremental Frontier update: new source documents
-  // available for loading. Shards add source docs to their combiner and
-  // issue C:Load RPCs for documents that may already exist in the endpoint.
+  // Leader -> Shards. Incremental Frontier to process into transaction.
+  // Shards add source docs to their combiner and issue C:Load RPCs for
+  // documents that may already exist in the endpoint.
+  // Multiple Load messages may be sent per transaction.
   message Load {
     shuffle.FrontierChunk frontier = 1;
   }
+  Load load = 40;
 
-  // Loaded reports combiner usage after processing a Load.
+  // Shard -> Leader. Load complete.
+  // All documents have been sent into the connector.
   message Loaded {
     // On-disk size of this shard's combiner, for transaction close policy.
     uint64 combiner_usage_bytes = 1;
@@ -790,16 +699,18 @@ message Materialize {
     // Endpoint DocsAndBytes loaded by this shard in this Load round.
     map<uint32, ops.Stats.DocsAndBytes> binding_loaded = 4;
   }
+  Loaded loaded = 41;
 
-  // Flush signals the end of the Load phase and distributes the prior
-  // transaction's aggregated connector state patches.
+  // Leader -> Shards. Signals end of Load phase.
   message Flush {
     // Prior transaction's aggregated C:Acknowledged state patches.
     // State Update Wire Format.
     bytes connector_patches_json = 1 [json_name = "connectorPatches"];
   }
+  Flush flush = 42;
 
-  // Flushed reports connector state patches and max-key deltas from C:Flushed.
+  // Shard -> Leader. Flush phase complete.
+  // Reports connector state patches and max-key deltas from C:Flushed.
   message Flushed {
     // Connector state patches from this shard's C:Flushed.
     // State Update Wire Format.
@@ -807,46 +718,81 @@ message Materialize {
     // Endpoint DocsAndBytes loaded by this shard between last L:Loaded and C:Flushed
     map<uint32, ops.Stats.DocsAndBytes> binding_loaded = 2;
   }
+  Flushed flushed = 43;
 
-  // StartCommit distributes aggregated L:Flushed patches from all shards
-  // so each connector instance can observe its peers' state for cooperative
-  // strategies (e.g., parallel file staging).
-  message StartCommit {
-    // Aggregated Flushed connector state patches from all shards.
-    // State Update Wire Format.
-    bytes connector_patches_json = 1 [json_name = "connectorPatches"];
-  }
+  // Leader -> Shards. Idempotency Persist now complete, drain combiners
+  // into C:Store requests.
+  message Store {}
+  Store store = 44;
 
-  // StartedCommit carries connector state patches, ACK intents, stats,
-  // and per-shard source-clock extremes from C:StartedCommit.
-  message StartedCommit {
-    // Connector state patches from this shard's C:StartedCommit.
-    // State Update Wire Format.
-    bytes                               connector_patches_json = 1 [json_name = "connectorPatches"];
-    map<uint32, ops.Stats.DocsAndBytes> binding_stored         = 2;
+  // Shard -> Leader. Store phase complete, shard is ready to commit.
+  // Reports final per-bindings transaction statistics.
+  message Stored {
+    map<uint32, ops.Stats.DocsAndBytes> binding_stored = 1;
     // Per-binding min source-document Clock observed by this shard in this
     // transaction. Only bindings that received documents are present. The
     // leader reduces (min across shards, then min across bindings) and
     // feeds the result into trigger parameters.
-    map<uint32, uint64> first_source_clock = 3;
+    map<uint32, fixed64> first_source_clock = 2;
     // Per-binding max source-document Clock observed by this shard in this
     // transaction. Only bindings that received documents are present.
     // Also used in trigger parameters.
-    map<uint32, uint64> last_source_clock = 4;
+    map<uint32, fixed64> last_source_clock = 3;
   }
+  Stored stored = 45;
 
+  // Leader -> Shards. Begin commit phase.
+  // Distributes aggregated L:Flushed patches from all shards so each connector
+  // instance can observe its peers' state for cooperative strategies (such as
+  // parallel file staging).
+  message StartCommit {
+    // Aggregated Flushed connector state patches from all shards.
+    // State Update Wire Format.
+    bytes connector_patches_json = 1 [json_name = "connectorPatches"];
+    // Transaction Checkpoint for remote-authoritative connectors.
+    consumer.Checkpoint connector_checkpoint = 2;
+  }
+  StartCommit start_commit = 46;
+
+  // Shard -> Leader. Commit initiated.
+  // Remote-authoritative connectors will literally commit prior to return.
+  message StartedCommit {
+    // Connector state patches from this shard's C:StartedCommit.
+    // State Update Wire Format.
+    bytes connector_patches_json = 1 [json_name = "connectorPatches"];
+  }
+  StartedCommit started_commit = 47;
+
+  // Leader -> Shards. Transaction complete.
   message Acknowledge {
     // Aggregated StartedCommit connector state patches from all shards.
     // State Update Wire Format.
     bytes connector_patches_json = 1 [json_name = "connectorPatches"];
   }
+  Acknowledge acknowledge = 48;
 
-  // Acknowledged reports C:Acknowledged connector state from the prior
-  // transaction. Sent by each shard after its connector responds to
-  // C:Acknowledge.
+  // Shard -> Leader. Reports C:Acknowledged state from prior transaction.
+  // Sent by each shard after its connector responds to C:Acknowledge.
   message Acknowledged {
     // Connector state patches from this shard's C:Acknowledged.
     // State Update Wire Format.
     bytes connector_patches_json = 1 [json_name = "connectorPatches"];
   }
+  Acknowledged acknowledged = 49;
+
+  // Leader -> Shard zero. Durably persist state.
+  Persist persist = 50;
+
+  // Shard zero -> Leader. State is durable.
+  Persisted persisted = 51;
+
+  // Shard -> Leader. Request immediate close of a current transaction.
+  CloseNow close_now = 52;
+
+  // ----- TEARDOWN -----
+
+  // Shard -> Leader. Graceful shutdown request.
+  Stop stop = 60;
+  // Leader -> Shards. Shutdown confirmed; EOF follows.
+  Stopped stopped = 61;
 }

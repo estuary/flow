@@ -3,7 +3,7 @@
 //! Owns all per-session IO and reacts to leader and connector events. The
 //! leader's FSM drives transaction pipelining; the shard's job is to react
 //! to leader-driven actions (L:Load, L:Flush, L:StartCommit, L:Acknowledge,
-//! L:Persist) and connector responses, updating per-session state and
+//! L:Store, L:Persist) and connector responses, updating per-session state and
 //! emitting the corresponding outbound messages. There is intentionally no
 //! shard-side FSM: per-session bookkeeping lives in fields on `Actor`.
 //!
@@ -23,10 +23,9 @@
 //!    Persist is in flight — the leader never sends another L:Persist
 //!    until the matching L:Persisted has been observed.
 //!
-//! Persist#1 fence on C:Store: the combiner drain begins only after BOTH
-//! C:Flushed has been observed AND L:StartCommit has been received from
-//! the leader. The leader sends L:StartCommit only after Persist#1 is
-//! durable on shard zero, so this gate is the runtime-side enforcement
+//! Persist#1 fence on C:Store: the combiner drain begins only after L:Store
+//! is received from the leader. The leader sends L:Store only after Persist#1
+//! is durable on shard zero, so this gate is the runtime-side enforcement
 //! that no C:Store runs before max-keys are durable.
 
 #![allow(dead_code)]
@@ -125,16 +124,11 @@ pub struct Actor {
     /// delta and this is cleared.
     pub frontier_journals: Vec<shuffle::frontier::JournalFrontier>,
 
-    /// True after C:Flushed has been observed for the current
-    /// transaction. Alongside `received_l_start_commit`, gates the start
-    /// of the Stores drain.
+    /// True after C:Flushed has been observed for the current transaction.
+    /// L:Store is only valid after this point.
     pub c_flushed_received: bool,
 
-    /// True after L:StartCommit has been received for the current
-    /// transaction. Alongside `c_flushed_received`, gates the start of
-    /// the Stores drain. This is the runtime-side enforcement of the
-    /// Persist#1 fence on C:Store — the leader sends L:StartCommit only
-    /// after Persist#1 is durable on shard zero.
+    /// True after L:StartCommit has been received for the current transaction.
     pub received_l_start_commit: bool,
 
     /// Aggregated peer state patches stashed on L:StartCommit; forwarded
@@ -290,6 +284,8 @@ impl Actor {
             self.on_l_load(load).await?;
         } else if let Some(flush) = msg.flush {
             self.on_l_flush(flush).await?;
+        } else if let Some(store) = msg.store {
+            self.on_l_store(store).await?;
         } else if let Some(start_commit) = msg.start_commit {
             self.on_l_start_commit(start_commit).await?;
         } else if let Some(ack) = msg.acknowledge {
@@ -425,18 +421,36 @@ impl Actor {
         Ok(())
     }
 
-    /// L:StartCommit: stash the aggregated peer patches and, if
-    /// C:Flushed has already been observed, kick off the combiner drain.
-    /// Otherwise the drain starts when C:Flushed arrives.
+    /// L:Store: begin draining the combiner into C:Store requests. This is
+    /// sent by the leader only after the idempotency Persist is durable.
+    async fn on_l_store(&mut self, _store: proto::materialize::Store) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.c_flushed_received,
+            "received L:Store before C:Flushed completed"
+        );
+        self.start_drain()?;
+        Ok(())
+    }
+
+    /// L:StartCommit: forward as C:StartCommit after the leader has observed
+    /// L:Stored from every shard and assembled the transaction checkpoint.
     async fn on_l_start_commit(
         &mut self,
         sc: proto::materialize::StartCommit,
     ) -> anyhow::Result<()> {
         self.received_l_start_commit = true;
         self.peer_patches_for_start_commit = sc.connector_patches_json;
-        if self.c_flushed_received {
-            self.start_drain()?;
-        }
+        let connector_state_patches_json = std::mem::take(&mut self.peer_patches_for_start_commit);
+        self.connector_tx
+            .send(materialize::Request {
+                start_commit: Some(materialize::request::StartCommit {
+                    runtime_checkpoint: sc.connector_checkpoint,
+                    connector_state_patches_json,
+                }),
+                ..Default::default()
+            })
+            .await
+            .context("send C:StartCommit")?;
         Ok(())
     }
 
@@ -543,9 +557,8 @@ impl Actor {
         Ok(())
     }
 
-    /// C:Flushed: emit L:Flushed and, if L:StartCommit has already been
-    /// received, kick off the combiner drain. Otherwise wait for
-    /// L:StartCommit.
+    /// C:Flushed: emit L:Flushed and wait for L:Store before draining
+    /// the combiner. L:Store is the leader's durable Persist#1 fence.
     async fn on_c_flushed(&mut self, resp: materialize::Response) -> anyhow::Result<()> {
         let flushed = resp
             .flushed
@@ -570,19 +583,13 @@ impl Actor {
             .context("send L:Flushed")?;
 
         self.c_flushed_received = true;
-        if self.received_l_start_commit {
-            self.start_drain()?;
-        }
         Ok(())
     }
 
-    /// Begin the combiner drain. Both gates (`c_flushed_received` and
-    /// `received_l_start_commit`) MUST be true on entry; the only
-    /// callers ensure this. The Persist#1 fence on C:Store is enforced
-    /// by the L:StartCommit gate — the leader sends L:StartCommit only
-    /// after Persist#1 is durable on shard zero.
+    /// Begin the combiner drain. The Persist#1 fence on C:Store is enforced
+    /// by the L:Store gate.
     fn start_drain(&mut self) -> anyhow::Result<()> {
-        debug_assert!(self.c_flushed_received && self.received_l_start_commit);
+        debug_assert!(self.c_flushed_received);
         self.load_keys.clear();
         let task = self.task.take().context("start_drain: no Task")?;
         let accumulator = self
@@ -615,9 +622,6 @@ impl Actor {
             .unwrap_or_default();
         let l_started = proto::materialize::StartedCommit {
             connector_patches_json,
-            binding_stored: std::mem::take(&mut self.deltas.binding_stored),
-            first_source_clock: std::mem::take(&mut self.deltas.first_source_clock),
-            last_source_clock: std::mem::take(&mut self.deltas.last_source_clock),
         };
         self.leader_tx
             .send(proto::Materialize {
@@ -858,8 +862,7 @@ impl Actor {
     /// Advance an in-progress combiner drain by up to
     /// `DRAIN_CHUNK_STORES` C:Store messages. When the drainer is
     /// exhausted, recycle the Accumulator/Task back into the actor,
-    /// fold per-binding store counts into deltas, and emit C:StartCommit
-    /// to the connector. While drain is in progress, the main `select!`
+    /// and emit L:Stored. While drain is in progress, the main `select!`
     /// keeps servicing `leader_rx` (Persist#1) and `persist_fut` between
     /// chunks so a slow connector doesn't starve Persist application.
     async fn drive_drain(&mut self) -> anyhow::Result<()> {
@@ -870,7 +873,7 @@ impl Actor {
         let mut buf = bytes::BytesMut::new();
         for _ in 0..DRAIN_CHUNK_STORES {
             let Some(drained) = state.drainer.drain_next().context("drain_next")? else {
-                // Drainer exhausted: recycle, fold, emit C:StartCommit.
+                // Drainer exhausted: recycle and emit L:Stored.
                 let recycled = Accumulator::from_drainer(state.drainer, state.parser)?;
                 self.accumulator = Some(recycled);
                 self.task = Some(state.task);
@@ -878,32 +881,17 @@ impl Actor {
                     binding_stored = ?state.summary.binding_stored,
                     "drain complete"
                 );
-                for (binding, dab) in state.summary.binding_stored {
-                    let entry = self.deltas.binding_stored.entry(binding).or_default();
-                    entry.docs_total += dab.docs_total;
-                    entry.bytes_total += dab.bytes_total;
-                }
-
-                let connector_state_patches_json =
-                    std::mem::take(&mut self.peer_patches_for_start_commit);
-                self.connector_tx
-                    .send(materialize::Request {
-                        start_commit: Some(materialize::request::StartCommit {
-                            // The legacy runtime forwarded a `consumer.Checkpoint`
-                            // here; runtime-next uses Frontier-based recovery, so
-                            // this is advisory only. Send an empty Checkpoint
-                            // until the Frontier→Checkpoint mapping is plumbed
-                            // through the leader proto. (Connectors that persist
-                            // this value will store an empty placeholder.)
-                            runtime_checkpoint: Some(
-                                proto_gazette::consumer::Checkpoint::default(),
-                            ),
-                            connector_state_patches_json,
+                self.leader_tx
+                    .send(proto::Materialize {
+                        stored: Some(proto::materialize::Stored {
+                            binding_stored: state.summary.binding_stored,
+                            first_source_clock: std::mem::take(&mut self.deltas.first_source_clock),
+                            last_source_clock: std::mem::take(&mut self.deltas.last_source_clock),
                         }),
                         ..Default::default()
                     })
                     .await
-                    .context("send C:StartCommit")?;
+                    .context("send L:Stored")?;
                 return Ok(());
             };
 
@@ -1090,13 +1078,12 @@ mod tests {
         serve.abort();
     }
 
-    /// Persist#1 fence: when C:Flushed has been observed but
-    /// L:StartCommit has not, the drain MUST NOT begin and no C:Store
-    /// must be sent to the connector. This is the runtime-side
-    /// enforcement that no C:Store runs before max-keys are durable on
-    /// shard zero.
+    /// Persist#1 fence: when C:Flushed has been observed but L:Store has
+    /// not, the drain MUST NOT begin and no C:Store must be sent to the
+    /// connector. This is the runtime-side enforcement that no C:Store runs
+    /// before max-keys are durable on shard zero.
     #[tokio::test]
-    async fn drain_does_not_start_before_l_start_commit() {
+    async fn drain_does_not_start_before_l_store() {
         let (leader_tx, mut leader_rx_capture) = mpsc::channel(8);
         let (connector_tx, mut connector_rx_capture) = futures::channel::mpsc::channel(8);
 
@@ -1121,31 +1108,27 @@ mod tests {
         let l_flushed = leader_rx_capture.recv().await.unwrap();
         assert!(l_flushed.flushed.is_some(), "L:Flushed forwarded");
         assert!(actor.c_flushed_received);
-        assert!(!actor.received_l_start_commit);
         assert!(
             actor.drain_state.is_none(),
-            "drain must not begin before L:StartCommit"
+            "drain must not begin before L:Store"
         );
         assert!(
             connector_rx_capture.try_next().is_err(),
-            "no C:Store sent before L:StartCommit"
+            "no C:Store sent before L:Store"
         );
 
-        // Now deliver L:StartCommit. With Task/Accumulator absent in this
+        // Now deliver L:Store. With Task/Accumulator absent in this
         // bare test fixture, start_drain returns an error — but we're
         // verifying the *gate*: the handler MUST attempt start_drain
         // exactly when both gates flip true. Confirm by observing that
-        // received_l_start_commit toggles and the call path is exercised.
+        // the call path is exercised.
         let err = actor
-            .on_l_start_commit(proto::materialize::StartCommit {
-                connector_patches_json: Bytes::new(),
-            })
+            .on_l_store(proto::materialize::Store {})
             .await
             .expect_err("start_drain errors without Task/Accumulator");
         assert!(
             err.to_string().contains("start_drain"),
             "expected start_drain error, got: {err}"
         );
-        assert!(actor.received_l_start_commit);
     }
 }

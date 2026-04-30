@@ -1,32 +1,61 @@
-use super::fsm;
-use super::state::Task;
+use super::{Task, fsm};
 use crate::proto;
 use anyhow::Context;
 use bytes::Bytes;
 use futures::stream::{BoxStream, FuturesUnordered};
 use futures::{FutureExt, StreamExt, future::BoxFuture};
-use proto_gazette::uuid;
+use proto_gazette::{consumer, uuid};
 use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 
 /// Actor leads transactions of an established materialization task session.
-// We use UnboundedSender because Actor never "pumps" messages to shards:
-// it follows a strict request-response pattern, where requests may be emitted
-// as a run of gRPC messages but have a bounded scope. UnboundedSender lets us
-// ignore details of waiting for send capacity and model sends as synchronous.
 pub struct Actor {
-    pub ack_intents_fut: Option<BoxFuture<'static, (crate::Publisher, tonic::Result<()>)>>,
-    pub http_client: reqwest::Client,
-    pub parked_publisher: Option<crate::Publisher>,
-    pub peers: Vec<String>,
-    pub pending_ack_intents: BTreeMap<String, Bytes>,
-    pub shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
-    pub stats_flush_fut: Option<BoxFuture<'static, (crate::Publisher, tonic::Result<()>)>>,
-    pub task: Task,
-    pub trigger_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
+    // Client used for trigger dispatch.
+    http_client: reqwest::Client,
+    // Future for an in-flight ACK intents write, if any.
+    intents_write_fut: Option<BoxFuture<'static, tonic::Result<crate::Publisher>>>,
+    // Optional full Frontier and Checkpoint, used for V1 rollback support.
+    legacy_checkpoint: Option<(shuffle::Frontier, consumer::Checkpoint)>,
+    // Publisher for stats and ACK intents, parked while no async operation is in-flight.
+    parked_publisher: Option<crate::Publisher>,
+    // ACK intents to persist and append at later transaction stages.
+    pending_ack_intents: BTreeMap<String, Bytes>,
+    // One channel to each shard, for sending messages to the shard.
+    // We use UnboundedSender because Actor never "pumps" messages to shards:
+    // it follows a strict request-response pattern, where requests may be emitted
+    // as a run of gRPC messages but have a bounded scope. UnboundedSender lets us
+    // ignore details of waiting for send capacity and model sends as synchronous.
+    shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
+    // Future for an in-flight stats flush, if any, yielding ACK intents.
+    stats_write_fut:
+        Option<BoxFuture<'static, tonic::Result<(crate::Publisher, BTreeMap<String, Bytes>)>>>,
+    // Task being executed by this actor.
+    task: Task,
+    // Future for an in-flight trigger dispatch, if any.
+    trigger_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
 }
 
 impl Actor {
+    pub fn new(
+        http_client: reqwest::Client,
+        legacy_checkpoint: Option<shuffle::Frontier>,
+        publisher: crate::Publisher,
+        shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
+        task: Task,
+    ) -> Self {
+        Self {
+            http_client,
+            intents_write_fut: None,
+            legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
+            parked_publisher: Some(publisher),
+            pending_ack_intents: BTreeMap::new(),
+            shard_tx,
+            stats_write_fut: None,
+            task,
+            trigger_fut: None,
+        }
+    }
+
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
     pub async fn serve(
         &mut self,
@@ -35,11 +64,9 @@ impl Actor {
         session: shuffle::SessionClient,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
     ) -> anyhow::Result<()> {
-        let n_shards = self.peers.len();
-        assert_eq!(n_shards, shard_rx.len());
-        assert_eq!(n_shards, self.shard_tx.len());
-
-        tracing::info!(n_shards, "materialize actor started");
+        tracing::info!(self.task.n_shards, "materialize actor started");
+        assert_eq!(self.task.n_shards, shard_rx.len());
+        assert_eq!(self.task.n_shards, self.shard_tx.len());
 
         // Build a stream of receive futures for each shard.
         let mut shard_rx: FuturesUnordered<_> = shard_rx
@@ -55,6 +82,7 @@ impl Actor {
         });
         let mut frontier_rx = std::pin::pin!(frontier_rx);
 
+        let mut binding_bytes_behind = vec![0; self.task.binding_collection_names.len()];
         let mut now = now_clock();
         let mut ready_frontier = None;
         let mut ready_shard_rx = None;
@@ -67,11 +95,11 @@ impl Actor {
             // Drive `tail` to idle.
             let action: fsm::Action;
             (action, tail) = tail.step(
-                self.ack_intents_fut.is_none(),
+                self.intents_write_fut.is_none(),
                 now,
                 &mut ready_shard_rx,
                 &self.task,
-                self.trigger_fut.is_none(),
+                self.trigger_fut.is_some(),
             );
 
             match action {
@@ -87,10 +115,14 @@ impl Actor {
             // Drive `head` to idle or stop.
             let action: fsm::Action;
             (action, head) = head.step(
+                &mut binding_bytes_behind,
+                &mut self.legacy_checkpoint,
                 now,
                 &mut ready_frontier,
                 &mut ready_shard_rx,
-                self.stats_flush_fut.is_none(),
+                self.stats_write_fut
+                    .is_none()
+                    .then_some(&mut self.pending_ack_intents),
                 stopping,
                 &mut tail,
                 &self.task,
@@ -115,45 +147,49 @@ impl Actor {
             }
 
             // If `ready_shard_rx` was not consumed by either `head` or `tail`,
-            // then it's unexpected and a protocol error.
+            // then it was unexpected and is a protocol error.
             if let Some((shard_index, msg)) = ready_shard_rx.take() {
                 anyhow::bail!(
-                    "unexpected message {msg:?} from {}@{shard_index}",
-                    self.peers[shard_index],
+                    "unexpected message {msg:?} from {} (index {shard_index})",
+                    self.task.peers[shard_index],
                 );
             }
 
             tokio::select! {
                 biased;
 
-                // First receive shard IO.
+                // Prioritize RX completions of the leader first, and then shard RX.
+                Some(result) = frontier_rx.next(), if ready_frontier.is_none() => {
+                    ready_frontier = Some(result?);
+                }
+                Some(result) = maybe_fut(&mut self.stats_write_fut) => {
+                    let (publisher, intents) = result.map_err(crate::status_to_anyhow)
+                        .context("writing ops stats document")?;
+
+                    self.parked_publisher = Some(publisher);
+                    self.pending_ack_intents = intents;
+                    self.stats_write_fut = None;
+                }
+                Some(result) = maybe_fut(&mut self.intents_write_fut) => {
+                    let publisher = result.map_err(crate::status_to_anyhow)
+                        .context("writing ACK intents")?;
+
+                    self.parked_publisher = Some(publisher);
+                    self.intents_write_fut = None;
+                }
+                Some(result) = maybe_fut(&mut self.trigger_fut) => {
+                    () = result?;
+                    self.trigger_fut = None;
+                }
+                // Finally, process messages from shards.
                 Some((shard_index, msg, rx)) = shard_rx.next() => {
                     if let Some(msg) = self.on_shard_rx(&mut stopping, shard_index, msg)? {
                         ready_shard_rx = Some((shard_index, msg));
                     }
                     shard_rx.push(next_shard_rx((shard_index, rx)));
                 }
-                Some((publisher, result)) = maybe_fut(&mut self.stats_flush_fut) => {
-                    () = result.map_err(crate::status_to_anyhow)
-                        .context("flushing stats")?;
 
-                    self.parked_publisher = Some(publisher);
-                    self.stats_flush_fut = None;
-                }
-                Some((publisher, result)) = maybe_fut(&mut self.ack_intents_fut) => {
-                    () = result.map_err(crate::status_to_anyhow)
-                        .context("writing ACK intents")?;
-
-                    self.parked_publisher = Some(publisher);
-                    self.ack_intents_fut = None;
-                }
-                Some(result) = maybe_fut(&mut self.trigger_fut) => {
-                    () = result.context("trigger delivery")?;
-                    self.trigger_fut = None;
-                }
-                Some(result) = frontier_rx.next(), if ready_frontier.is_none() => {
-                    ready_frontier = Some(result?);
-                }
+                // Lowest priority.
                 _ = tokio::time::sleep(wake_after) => {}
             }
 
@@ -177,7 +213,7 @@ impl Actor {
     fn dispatch(&mut self, action: fsm::Action) -> anyhow::Result<()> {
         match action {
             fsm::Action::Idle | fsm::Action::Sleep { .. } | fsm::Action::Rotate { .. } => {
-                unreachable!("terminators never reach dispatch");
+                unreachable!("never reach dispatch");
             }
 
             fsm::Action::Load { frontier } => {
@@ -208,13 +244,26 @@ impl Actor {
                 });
             }
 
-            fsm::Action::StartCommit { connector_patches } => {
+            fsm::Action::Store => {
+                tracing::debug!("broadcasting L:Store");
+                self.broadcast(proto::Materialize {
+                    store: Some(proto::materialize::Store {}),
+                    ..Default::default()
+                });
+            }
+
+            fsm::Action::StartCommit {
+                connector_checkpoint,
+                connector_patches,
+            } => {
                 tracing::debug!(
                     patches_bytes = connector_patches.len(),
                     "broadcasting L:StartCommit"
                 );
+
                 self.broadcast(proto::Materialize {
                     start_commit: Some(proto::materialize::StartCommit {
+                        connector_checkpoint: Some(connector_checkpoint),
                         connector_patches_json: connector_patches,
                     }),
                     ..Default::default()
@@ -234,86 +283,60 @@ impl Actor {
                 });
             }
 
-            fsm::Action::Persist {
-                stack,
-                snapshot_ack_intents,
-            } => {
-                tracing::debug!(
-                    stack_len = stack.len(),
-                    snapshot_ack_intents,
-                    "dispatching L:Persist to shard zero"
-                );
-                let prelude = if snapshot_ack_intents {
-                    let publisher = self
-                        .parked_publisher
-                        .as_mut()
-                        .expect("publisher owned at Persist dispatch with ACK snapshot");
+            fsm::Action::Persist { persist } => {
+                tracing::debug!("dispatching L:Persist to shard zero");
 
-                    // Retain to write later, post-commit. In
-                    // `Publisher::Preview` there are no producers and
-                    // `commit_intents` returns None, leaving
-                    // `pending_ack_intents` empty.
-                    self.pending_ack_intents = match publisher.commit_intents() {
-                        Some(commit) => publisher::intents::build_transaction_intents(&[commit]),
-                        None => BTreeMap::new(),
-                    };
-
-                    Some(proto::Persist {
-                        delete_ack_intents: true,
-                        ack_intents: self.pending_ack_intents.clone(),
-                        ..Default::default()
-                    })
-                } else {
-                    None
-                };
-
-                for persist in prelude.into_iter().chain(stack) {
-                    let _ = self.shard_tx[0].send(Ok(proto::Materialize {
-                        persist: Some(persist),
-                        ..Default::default()
-                    }));
-                }
+                let _ = self.shard_tx[0].send(Ok(proto::Materialize {
+                    persist: Some(persist),
+                    ..Default::default()
+                }));
             }
 
-            fsm::Action::PublishStats { stats } => {
+            fsm::Action::WriteStats { stats } => {
                 let mut publisher = self
                     .parked_publisher
                     .take()
-                    .expect("publisher owned at PublishStats dispatch");
+                    .expect("publisher owned at WriteOpsStats dispatch");
 
-                self.stats_flush_fut = Some(
+                self.stats_write_fut = Some(
                     async move {
-                        let result = publisher.publish_stats(stats).await;
-                        (publisher, result)
+                        () = publisher.publish_stats(stats).await?;
+
+                        let intents = match publisher.commit_intents() {
+                            Some(commit) => {
+                                publisher::intents::build_transaction_intents(&[commit])
+                            }
+                            None => BTreeMap::new(),
+                        };
+
+                        Ok((publisher, intents))
                     }
                     .boxed(),
                 );
             }
 
-            fsm::Action::WriteAckIntents {} => {
-                let intents = std::mem::take(&mut self.pending_ack_intents);
-
+            fsm::Action::WriteIntents { ack_intents } => {
                 let mut publisher = self
                     .parked_publisher
                     .take()
-                    .expect("publisher owned at WriteAckIntents dispatch");
+                    .expect("publisher owned at WriteIntents dispatch");
 
-                self.ack_intents_fut = Some(
+                self.intents_write_fut = Some(
                     async move {
-                        let result = publisher.write_intents(intents).await;
-                        (publisher, result)
+                        () = publisher.write_intents(ack_intents).await?;
+                        Ok(publisher)
                     }
                     .boxed(),
                 );
             }
 
-            fsm::Action::CallTrigger { trigger_variables } => {
+            fsm::Action::CallTrigger { trigger_params } => {
                 let variables: models::TriggerVariables =
-                    serde_json::from_slice(&trigger_variables)
+                    serde_json::from_slice(&trigger_params)
                         .context("decoding trigger_variables JSON")?;
                 let compiled = self
                     .task
-                    .compiled_triggers
+                    .triggers
                     .clone()
                     .expect("CallTrigger fired without compiled_triggers");
                 let client = self.http_client.clone();
@@ -341,7 +364,7 @@ impl Actor {
         let verify = crate::verify(
             "Materialize",
             "message",
-            &self.peers[shard_index],
+            &self.task.peers[shard_index],
             shard_index,
         );
         let msg = verify.not_eof(result)?;
@@ -355,6 +378,8 @@ impl Actor {
             "L:Loaded"
         } else if msg.flushed.is_some() {
             "L:Flushed"
+        } else if msg.stored.is_some() {
+            "L:Stored"
         } else if msg.started_commit.is_some() {
             "L:StartedCommit"
         } else if msg.acknowledged.is_some() {
@@ -377,9 +402,12 @@ impl Actor {
 
     /// Synchronously fan out a single leader message to every shard.
     fn broadcast(&self, msg: proto::Materialize) {
-        for tx in &self.shard_tx {
+        let (head, tail) = self.shard_tx.split_first().unwrap();
+
+        for tx in tail {
             let _ = tx.send(Ok(msg.clone()));
         }
+        let _ = head.send(Ok(msg)); // Avoid a clone (single-shard common case).
     }
 }
 

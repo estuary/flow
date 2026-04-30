@@ -1,32 +1,10 @@
-//! Trigger compilation, variable construction, and webhook delivery.
-//!
-//! This module is the single source of truth for materialize trigger logic.
-//! It is consumed by:
-//!   - The leader actor, which fires triggers post-commit via the Shuffle
-//!     Leader protocol.
-//!   - The legacy `runtime` crate (via re-export from
-//!     `runtime/src/materialize/triggers.rs`), preserving its existing
-//!     per-shard firing behavior.
-//!
-//! Inputs are POD primitives (`TriggerInputs`) so this module has no
-//! coupling to either runtime's task/transaction types.
-
 use anyhow::Context;
 use models::TriggerVariables;
-use proto_gazette::uuid::Clock;
 
 /// Pre-compiled trigger templates and their associated configs.
 pub struct CompiledTriggers {
     pub configs: Vec<models::TriggerConfig>,
     registry: handlebars::Handlebars<'static>,
-}
-
-impl std::fmt::Debug for CompiledTriggers {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CompiledTriggers")
-            .field("configs", &self.configs.len())
-            .finish_non_exhaustive()
-    }
 }
 
 impl CompiledTriggers {
@@ -55,88 +33,6 @@ impl CompiledTriggers {
     fn template_name(index: usize) -> String {
         format!("trigger_{index}")
     }
-}
-
-/// Decrypt the SOPS-encrypted `triggers_json` blob from a materialization
-/// spec and compile its templates. Returns `None` if `triggers_json` is empty.
-pub async fn decrypt_and_compile(triggers_json: &[u8]) -> anyhow::Result<Option<CompiledTriggers>> {
-    if triggers_json.is_empty() {
-        return Ok(None);
-    }
-
-    let mut triggers: models::Triggers =
-        serde_json::from_slice(triggers_json).context("parsing triggers JSON")?;
-
-    // Strip HMAC-excluded fields before decryption (they were stripped
-    // during encryption so SOPS HMAC doesn't cover them), then restore.
-    let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
-    let stripped = models::RawValue::from_value(
-        &serde_json::to_value(&triggers).context("serializing stripped triggers")?,
-    );
-
-    let mut decrypted: models::Triggers = serde_json::from_str(
-        unseal::decrypt_sops(&stripped)
-            .await
-            .context("decrypting triggers_json")?
-            .get(),
-    )
-    .context("parsing decrypted triggers JSON")?;
-
-    models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
-
-    Ok(Some(
-        CompiledTriggers::compile(decrypted.config).context("compiling trigger templates")?,
-    ))
-}
-
-/// Inputs to `trigger_variables`. POD primitives so callers in different
-/// crates can supply them from their own task/transaction shapes.
-pub struct TriggerInputs<'a> {
-    /// Collection names of bindings that received documents this transaction.
-    pub collection_names: &'a [String],
-    pub materialization_name: &'a str,
-    pub connector_image: &'a str,
-    /// First-document time of the transaction (used as `run_id`).
-    pub started_at: std::time::SystemTime,
-    /// Min over all bindings' first-source clocks; `None` if no docs were read.
-    pub first_source_clock_min: Option<Clock>,
-    /// Max over all bindings' last-source clocks; `None` if no docs were read.
-    pub last_source_clock_max: Option<Clock>,
-}
-
-/// Compute trigger variables from POD inputs.
-pub fn trigger_variables(inputs: &TriggerInputs<'_>) -> TriggerVariables {
-    let flow_published_at_min = inputs
-        .first_source_clock_min
-        .map(|c| clock_to_rfc3339(&c))
-        .unwrap_or_default();
-
-    let flow_published_at_max = inputs
-        .last_source_clock_max
-        .map(|c| clock_to_rfc3339(&c))
-        .unwrap_or_default();
-
-    let run_id = time::OffsetDateTime::from(inputs.started_at)
-        .format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_default();
-
-    TriggerVariables {
-        collection_names: inputs.collection_names.to_vec(),
-        connector_image: inputs.connector_image.to_string(),
-        materialization_name: inputs.materialization_name.to_string(),
-        flow_published_at_min,
-        flow_published_at_max,
-        run_id,
-    }
-}
-
-fn clock_to_rfc3339(clock: &Clock) -> String {
-    let (seconds, nanos) = clock.to_unix();
-    let ts = time::OffsetDateTime::from_unix_timestamp(seconds as i64)
-        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
-    let ts = ts + time::Duration::nanoseconds(nanos as i64);
-    ts.format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
 /// Fire all configured triggers using the given variables.
@@ -364,25 +260,6 @@ mod test {
         let rendered = compiled.render(0, &context).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
         insta::assert_json_snapshot!("rendered-template", parsed);
-    }
-
-    #[test]
-    fn trigger_variables_snapshot() {
-        let collection_names = vec![
-            "acmeCo/collection-a".to_string(),
-            "acmeCo/collection-b".to_string(),
-        ];
-        let mut vars = trigger_variables(&TriggerInputs {
-            collection_names: &collection_names,
-            materialization_name: "acmeCo/my-materialization",
-            connector_image: "ghcr.io/estuary/materialize-postgres:dev",
-            started_at: std::time::SystemTime::UNIX_EPOCH,
-            first_source_clock_min: Some(Clock::from_unix(500, 0)),
-            last_source_clock_max: Some(Clock::from_unix(4000, 0)),
-        });
-        vars.run_id = "2024-06-15T12:30:00.000Z".to_string();
-
-        insta::assert_json_snapshot!("trigger-variables", vars);
     }
 
     #[tokio::test]

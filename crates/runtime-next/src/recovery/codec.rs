@@ -1,11 +1,12 @@
-//! On-disk codec for the RocksDB keys that back a runtime-next task.
+//! Codec for the RocksDB keys and values that back runtime tasks.
 //!
 //! [`encode_persist`] turns a [`proto::Persist`] message into an ordered
 //! sequence of [`KeyOp`] effects that a runtime crate stages into a real
-//! `rocksdb::WriteBatch`. [`State::decode_key_value`] is called once per
+//! `rocksdb::WriteBatch`. [`decode_recover_key_value`] is called once per
 //! `(key, value)` pair from a full `rocksdb::DB` scan on session startup,
-//! folding the entry into a [`State`] snapshot. Neither entry point
-//! touches `rocksdb` types.
+//! folding singleton state directly into a `proto::Recover` while collecting
+//! frontier entries separately for final sort and proto encoding. Neither
+//! entry point touches `rocksdb` types.
 //!
 //! `{state_key}` below is the binding-stable `state_key` field of
 //! `flow::MaterializationSpec.Binding` — distinct from `journal_read_suffix`,
@@ -20,15 +21,17 @@
 //! | `FC:`        | `{journal}\0{state_key}\0{producer[6]}`  | proto `shuffle.ProducerFrontier` |
 //! | `AI:`        | `{journal}`                              | raw ACK intent bytes             |
 //! | `MK-v2:`     | `{state_key}`                            | `tuple::pack` packed key         |
+//! | (singleton)  | `checkpoint`                             | legacy `consumer.Checkpoint`     |
+//! | (singleton)  | `committed-close`                        | fixed64 little-endian clock      |
 //! | (singleton)  | `connector-state`                        | reduced JSON merge-patch         |
-//! | (singleton)  | `trigger-params`                         | JSON `TriggerVariables`          |
+//! | (singleton)  | `hinted-close`                           | fixed64 little-endian clock      |
 //! | (singleton)  | `last-applied`                           | proto task spec                  |
+//! | (singleton)  | `trigger-params`                         | JSON `TriggerVariables`          |
 
 use crate::proto;
 use bytes::{BufMut, Bytes, BytesMut};
 use prost::Message;
-use proto_gazette::uuid;
-use std::collections::BTreeMap;
+use proto_gazette::{consumer, uuid};
 
 /// Key prefix for hinted Frontier entries:
 /// `FH:{journal}\0{state_key}\0{producer}`.
@@ -44,12 +47,18 @@ pub const PREFIX_ACK_INTENT: &[u8] = b"AI:";
 pub const PREFIX_ACK_INTENT_END: &[u8] = b"AI;";
 /// Key prefix for per-binding max-key entries: `MK-v2:{state_key}`.
 pub const PREFIX_MAX_KEY: &[u8] = b"MK-v2:";
+/// Legacy checkpoint.
+pub const KEY_LEGACY_CHECKPOINT: &[u8] = b"checkpoint";
+/// Clock at which the last-committed transaction closed.
+pub const KEY_COMMITTED_CLOSE: &[u8] = b"committed-close";
 /// Reduced connector state (opaque JSON).
 pub const KEY_CONNECTOR_STATE: &[u8] = b"connector-state";
-/// Trigger variables (JSON `models::TriggerVariables`).
-pub const KEY_TRIGGER_PARAMS: &[u8] = b"trigger-params";
+/// Clock at which the last-hinted transaction closed.
+pub const KEY_HINTED_CLOSE: &[u8] = b"hinted-close";
 /// Last-applied task spec (protobuf bytes).
 pub const KEY_LAST_APPLIED: &[u8] = b"last-applied";
+/// Trigger parameters (JSON `models::TriggerVariables`).
+pub const KEY_TRIGGER_PARAMS: &[u8] = b"trigger-params";
 
 /// A single write effect contributed by a `Persist`. Values are carried as
 /// [`Bytes`] so shared allocations (e.g. a proto-decoded
@@ -86,7 +95,7 @@ pub enum EncodeError {
     MalformedStatePatches { reason: &'static str },
 }
 
-/// Errors produced by [`decode_state`].
+/// Errors produced by [`decode_recover_key_value`].
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
     #[error("duplicate {kind} singleton key")]
@@ -95,61 +104,49 @@ pub enum DecodeError {
     MalformedFrontierKey { reason: &'static str },
     #[error("FH:/FC: value failed to decode as ProducerFrontier")]
     FrontierValueDecode(#[source] prost::DecodeError),
+    #[error("checkpoint value failed to decode as consumer.Checkpoint")]
+    CheckpointValueDecode(#[source] prost::DecodeError),
     #[error("key component is not valid UTF-8")]
     InvalidUtf8(#[source] std::str::Utf8Error),
+    #[error("{kind} singleton value is {got} bytes, want 8")]
+    InvalidClockValue { kind: &'static str, got: usize },
     #[error(transparent)]
     RocksDB(#[from] rocksdb::Error),
 }
 
 /// Encode a [`proto::Persist`] as an ordered list of [`KeyOp`] effects.
 ///
-/// `binding_state_keys[i]` is the stable `state_key` for binding index `i`
-/// in the Persist's `FrontierChunk`s — written as the key tail of
-/// `FH:/FC:{journal}\0{state_key}\0{producer}`. This matches the existing
-/// runtime's `MK-v2:{state_key}` keying.
-///
-/// Each populated field maps independently to one effect — this function
-/// does not validate semantic combinations (e.g., ACK intents without a
-/// committed frontier). Callers compose their own invariants across the
-/// stream of `Persist` messages that accumulate into a single WriteBatch.
+/// `binding_state_keys[i]` is the stable `state_key` for binding index `i`.
 pub fn encode_persist<S: AsRef<str>>(
     persist: &proto::Persist,
     binding_state_keys: &[S],
 ) -> Result<Vec<KeyOp>, EncodeError> {
-    let proto::Persist {
-        nonce: _,
-        delete_hinted_frontier,
-        hinted_frontier,
-        committed_frontier,
-        connector_patches_json,
-        max_keys,
-        delete_ack_intents,
-        ack_intents,
-        delete_trigger_params,
-        trigger_params_json,
-        last_applied,
-    } = persist;
-
     let mut buf = BytesMut::new();
     let mut ops = Vec::new();
 
-    if *delete_hinted_frontier {
+    if persist.delete_ack_intents {
         ops.push(KeyOp::DeleteRange {
-            from: Bytes::from_static(PREFIX_HINTED_FRONTIER),
-            to: Bytes::from_static(PREFIX_HINTED_FRONTIER_END),
+            from: Bytes::from_static(PREFIX_ACK_INTENT),
+            to: Bytes::from_static(PREFIX_ACK_INTENT_END),
         });
     }
-    if let Some(chunk) = hinted_frontier {
-        encode_frontier_chunk(
-            PREFIX_HINTED_FRONTIER,
-            chunk,
-            binding_state_keys,
-            &mut ops,
-            &mut buf,
-        )?;
+    for (journal, intent) in &persist.ack_intents {
+        buf.extend_from_slice(PREFIX_ACK_INTENT);
+        buf.extend_from_slice(journal.as_bytes());
+        ops.push(KeyOp::Put {
+            key: buf.split().freeze(),
+            value: intent.clone(),
+        });
     }
 
-    if let Some(chunk) = committed_frontier {
+    if persist.committed_close_clock != 0 {
+        ops.push(KeyOp::Put {
+            key: Bytes::from_static(KEY_COMMITTED_CLOSE),
+            value: Bytes::copy_from_slice(&persist.committed_close_clock.to_le_bytes()),
+        });
+    }
+
+    if let Some(chunk) = &persist.committed_frontier {
         encode_frontier_chunk(
             PREFIX_COMMITTED_FRONTIER,
             chunk,
@@ -159,14 +156,54 @@ pub fn encode_persist<S: AsRef<str>>(
         )?;
     }
 
-    for patch in split_state_patches(connector_patches_json)? {
+    for patch in split_state_patches(&persist.connector_patches_json)? {
         ops.push(KeyOp::Merge {
             key: Bytes::from_static(KEY_CONNECTOR_STATE),
             value: patch,
         });
     }
 
-    for (binding, packed_key) in max_keys {
+    if persist.hinted_close_clock != 0 {
+        ops.push(KeyOp::Put {
+            key: Bytes::from_static(KEY_HINTED_CLOSE),
+            value: Bytes::copy_from_slice(&persist.hinted_close_clock.to_le_bytes()),
+        });
+    }
+
+    if persist.delete_hinted_frontier {
+        ops.push(KeyOp::DeleteRange {
+            from: Bytes::from_static(PREFIX_HINTED_FRONTIER),
+            to: Bytes::from_static(PREFIX_HINTED_FRONTIER_END),
+        });
+    }
+    if let Some(chunk) = &persist.hinted_frontier {
+        encode_frontier_chunk(
+            PREFIX_HINTED_FRONTIER,
+            chunk,
+            binding_state_keys,
+            &mut ops,
+            &mut buf,
+        )?;
+    }
+
+    if !persist.last_applied.is_empty() {
+        ops.push(KeyOp::Put {
+            key: Bytes::from_static(KEY_LAST_APPLIED),
+            value: persist.last_applied.clone(),
+        });
+    }
+
+    if let Some(checkpoint) = &persist.legacy_checkpoint {
+        checkpoint
+            .encode(&mut buf)
+            .expect("BytesMut never errors on encode");
+        ops.push(KeyOp::Put {
+            key: Bytes::from_static(KEY_LEGACY_CHECKPOINT),
+            value: buf.split().freeze(),
+        });
+    }
+
+    for (binding, packed_key) in &persist.max_keys {
         let state_key = binding_state_keys
             .get(*binding as usize)
             .ok_or(EncodeError::UnknownBinding {
@@ -183,37 +220,15 @@ pub fn encode_persist<S: AsRef<str>>(
         });
     }
 
-    if *delete_ack_intents {
-        ops.push(KeyOp::DeleteRange {
-            from: Bytes::from_static(PREFIX_ACK_INTENT),
-            to: Bytes::from_static(PREFIX_ACK_INTENT_END),
-        });
-    }
-    for (journal, intent) in ack_intents {
-        buf.extend_from_slice(PREFIX_ACK_INTENT);
-        buf.extend_from_slice(journal.as_bytes());
-        ops.push(KeyOp::Put {
-            key: buf.split().freeze(),
-            value: intent.clone(),
-        });
-    }
-
-    if *delete_trigger_params {
+    if persist.delete_trigger_params {
         ops.push(KeyOp::Delete {
             key: Bytes::from_static(KEY_TRIGGER_PARAMS),
         });
     }
-    if !trigger_params_json.is_empty() {
+    if !persist.trigger_params_json.is_empty() {
         ops.push(KeyOp::Put {
             key: Bytes::from_static(KEY_TRIGGER_PARAMS),
-            value: trigger_params_json.clone(),
-        });
-    }
-
-    if !last_applied.is_empty() {
-        ops.push(KeyOp::Put {
-            key: Bytes::from_static(KEY_LAST_APPLIED),
-            value: last_applied.clone(),
+            value: persist.trigger_params_json.clone(),
         });
     }
 
@@ -282,24 +297,20 @@ fn append_frontier_key(
     out.extend_from_slice(producer);
 }
 
-/// Encode JSON patches as a State-Update-Wire-Format payload.
+/// Extend a State-Update-Wire-Format payload with another payload.
 ///
-/// The wire form is always a JSON array with one patch per line:
-/// zero patches is empty bytes, one or more patches are framed with `[` / `,`
-/// prefixes and `\n` terminators, closed by `]`.
-pub fn encode_state_patches(patches: &[Bytes]) -> Bytes {
-    if patches.is_empty() {
-        return Bytes::new();
+/// Both `out` and `src` use the framed JSON-array wire form accepted by
+/// [`split_state_patches`]. Empty bytes is interpreted as "zero patches".
+pub fn extend_state_patches(out: &mut Vec<u8>, src: &[u8]) {
+    if out.is_empty() {
+        out.extend_from_slice(src);
+    } else if !src.is_empty() {
+        out.truncate(out.len() - 1); // Remove trailing ']'.
+        let src = &src[1..]; // Remove leading '['.
+
+        out.push(b','); // Add separator.
+        out.extend_from_slice(src);
     }
-    let body_len: usize = patches.iter().map(|p| p.len()).sum();
-    let mut out = Vec::with_capacity(body_len + 2 * patches.len() + 1);
-    for (i, patch) in patches.iter().enumerate() {
-        out.push(if i == 0 { b'[' } else { b',' });
-        out.extend_from_slice(patch);
-        out.push(b'\n');
-    }
-    out.push(b']');
-    Bytes::from(out)
 }
 
 /// Split a State-Update-Wire-Format payload into its individual JSON patches.
@@ -369,85 +380,90 @@ pub fn split_state_patches(payload: &Bytes) -> Result<Vec<Bytes>, EncodeError> {
 // Decoder
 // ---------------------------------------------------------------------------
 
-/// Plain-old-data snapshot of the recovery-log state RocksDB holds for a
-/// task, accumulated by repeated calls to [`State::decode_key_value`].
+/// Decode one RocksDB `(key, value)` pair into recovery accumulators.
 ///
-/// `hinted` and `committed` are append-only Vecs of `JournalFrontier`
-/// entries pushed in RocksDB byte-sort order on the persisted
-/// `(journal, state_key, producer)` key tail. These must be sorted
-/// on `(journal, binding)` prior to being fed to shuffle::Frontier::new().
-#[derive(Debug, Default, Clone)]
-pub struct State {
-    /// `FH:` entries.
-    pub hinted: Vec<shuffle::JournalFrontier>,
-    /// `FC:` entries.
-    pub committed: Vec<shuffle::JournalFrontier>,
-    /// `AI:` range, keyed by journal name.
-    pub ack_intents: BTreeMap<String, Bytes>,
-    /// `MK-v2:` range, keyed by binding index.
-    pub max_keys: BTreeMap<u32, Bytes>,
-    pub connector_state: Option<Bytes>,
-    pub trigger_params: Option<Bytes>,
-    pub last_applied: Option<Bytes>,
-    /// Keys the decoder could not classify, captured for diagnostics.
-    pub unknown: Vec<(Bytes, Bytes)>,
-}
-
-impl State {
-    /// Decode one `(key, value)` pair into `self`.
-    ///
-    /// `binding_state_keys` is a slice of `(state_key, binding_index)`
-    /// tuples sorted on `state_key`, used to translate persisted
-    /// `state_key`s in `FH:`/`FC:`/`MK-v2:` keys into their current
-    /// binding indices. Entries whose `state_key` does not appear in
-    /// the slice are silently dropped — they belong to bindings that
-    /// have been removed or backfilled.
-    pub fn decode_key_value(
-        &mut self,
-        key: &[u8],
-        value: &[u8],
-        binding_state_keys: &[(String, u32)],
-    ) -> Result<(), DecodeError> {
-        if let Some(rest) = key.strip_prefix(PREFIX_HINTED_FRONTIER) {
-            decode_frontier_entry(&mut self.hinted, rest, value, binding_state_keys)
-        } else if let Some(rest) = key.strip_prefix(PREFIX_COMMITTED_FRONTIER) {
-            decode_frontier_entry(&mut self.committed, rest, value, binding_state_keys)
-        } else if let Some(rest) = key.strip_prefix(PREFIX_ACK_INTENT) {
-            let journal = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
-            self.ack_intents
-                .insert(journal.to_owned(), Bytes::copy_from_slice(value));
-            Ok(())
-        } else if let Some(rest) = key.strip_prefix(PREFIX_MAX_KEY) {
-            let state_key = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
-            if let Some(binding) = lookup_binding(binding_state_keys, state_key) {
-                self.max_keys.insert(binding, Bytes::copy_from_slice(value));
-            }
-            Ok(())
-        } else if key == KEY_CONNECTOR_STATE {
-            set_singleton(&mut self.connector_state, value, "connector-state")
-        } else if key == KEY_TRIGGER_PARAMS {
-            set_singleton(&mut self.trigger_params, value, "trigger-params")
-        } else if key == KEY_LAST_APPLIED {
-            set_singleton(&mut self.last_applied, value, "last-applied")
-        } else {
-            self.unknown
-                .push((Bytes::copy_from_slice(key), Bytes::copy_from_slice(value)));
-            Ok(())
+/// `binding_state_keys` is a slice of `(state_key, binding_index)` tuples
+/// sorted on `state_key`, used to translate persisted `state_key`s in
+/// `FH:`/`FC:`/`MK-v2:` keys into their current binding indices. Entries
+/// whose `state_key` does not appear in the slice are silently dropped: they
+/// belong to bindings that have been removed or backfilled.
+pub fn decode_recover_key_value(
+    recover: &mut proto::Recover,
+    committed_frontier: &mut Vec<shuffle::JournalFrontier>,
+    hinted_frontier: &mut Vec<shuffle::JournalFrontier>,
+    key: &[u8],
+    value: &[u8],
+    binding_state_keys: &[(String, u32)],
+) -> Result<(), DecodeError> {
+    if let Some(rest) = key.strip_prefix(PREFIX_HINTED_FRONTIER) {
+        decode_frontier_entry(hinted_frontier, rest, value, binding_state_keys)
+    } else if let Some(rest) = key.strip_prefix(PREFIX_COMMITTED_FRONTIER) {
+        decode_frontier_entry(committed_frontier, rest, value, binding_state_keys)
+    } else if let Some(rest) = key.strip_prefix(PREFIX_ACK_INTENT) {
+        let journal = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
+        recover
+            .ack_intents
+            .insert(journal.to_owned(), Bytes::copy_from_slice(value));
+        Ok(())
+    } else if let Some(rest) = key.strip_prefix(PREFIX_MAX_KEY) {
+        let state_key = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
+        if let Some(binding) = lookup_binding(binding_state_keys, state_key) {
+            recover
+                .max_keys
+                .insert(binding, Bytes::copy_from_slice(value));
         }
+        Ok(())
+    } else if key == KEY_COMMITTED_CLOSE {
+        recover.committed_close_clock = decode_clock(value, "committed-close-clock")?;
+        Ok(())
+    } else if key == KEY_CONNECTOR_STATE {
+        set_bytes_singleton(&mut recover.connector_state_json, value, "connector-state")
+    } else if key == KEY_HINTED_CLOSE {
+        recover.hinted_close_clock = decode_clock(value, "hinted-close-clock")?;
+        Ok(())
+    } else if key == KEY_TRIGGER_PARAMS {
+        set_bytes_singleton(&mut recover.trigger_params_json, value, "trigger-params")
+    } else if key == KEY_LAST_APPLIED {
+        set_bytes_singleton(&mut recover.last_applied, value, "last-applied")
+    } else if key == KEY_LEGACY_CHECKPOINT {
+        set_checkpoint(&mut recover.legacy_checkpoint, value)
+    } else {
+        Ok(())
     }
 }
 
-fn set_singleton(
-    slot: &mut Option<Bytes>,
+fn decode_clock(value: &[u8], kind: &'static str) -> Result<u64, DecodeError> {
+    let bytes: [u8; 8] = value
+        .try_into()
+        .map_err(|_| DecodeError::InvalidClockValue {
+            kind,
+            got: value.len(),
+        })?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+fn set_bytes_singleton(
+    slot: &mut Bytes,
     value: &[u8],
     kind: &'static str,
 ) -> Result<(), DecodeError> {
-    if slot.is_some() {
+    if !slot.is_empty() {
         Err(DecodeError::DuplicateSingleton { kind })
     } else {
-        *slot = Some(Bytes::copy_from_slice(value));
+        *slot = Bytes::copy_from_slice(value);
         Ok(())
     }
+}
+
+fn set_checkpoint(
+    slot: &mut Option<consumer::Checkpoint>,
+    value: &[u8],
+) -> Result<(), DecodeError> {
+    if slot.is_some() {
+        return Err(DecodeError::DuplicateSingleton { kind: "checkpoint" });
+    }
+    *slot = Some(consumer::Checkpoint::decode(value).map_err(DecodeError::CheckpointValueDecode)?);
+    Ok(())
 }
 
 /// Binary-search `binding_state_keys` for `state_key`, returning the
@@ -605,7 +621,7 @@ mod test {
     }
 
     /// Sorted `Vec<(state_key, binding_index)>` mapping for
-    /// `State::decode_key_value`.
+    /// `decode_recover_key_value`.
     fn state_key_index(entries: &[(&str, u32)]) -> Vec<(String, u32)> {
         let mut v: Vec<(String, u32)> = entries
             .iter()
@@ -615,16 +631,40 @@ mod test {
         v
     }
 
-    /// Drive a (key, value) iterable through `State::decode_key_value`.
-    fn decode_pairs<I>(pairs: I, binding_state_keys: &[(String, u32)]) -> Result<State, DecodeError>
+    #[derive(Debug)]
+    struct DecodedRecover {
+        recover: proto::Recover,
+        #[allow(dead_code)] // Read by insta's Debug snapshot.
+        committed_frontier: Vec<shuffle::JournalFrontier>,
+        hinted_frontier: Vec<shuffle::JournalFrontier>,
+    }
+
+    /// Drive a (key, value) iterable through `decode_recover_key_value`.
+    fn decode_pairs<I>(
+        pairs: I,
+        binding_state_keys: &[(String, u32)],
+    ) -> Result<DecodedRecover, DecodeError>
     where
         I: IntoIterator<Item = (Bytes, Bytes)>,
     {
-        let mut state = State::default();
+        let mut recover = proto::Recover::default();
+        let mut committed_frontier = Vec::new();
+        let mut hinted_frontier = Vec::new();
         for (k, v) in pairs {
-            state.decode_key_value(&k, &v, binding_state_keys)?;
+            decode_recover_key_value(
+                &mut recover,
+                &mut committed_frontier,
+                &mut hinted_frontier,
+                &k,
+                &v,
+                binding_state_keys,
+            )?;
         }
-        Ok(state)
+        Ok(DecodedRecover {
+            recover,
+            committed_frontier,
+            hinted_frontier,
+        })
     }
 
     fn ack_intents_map(
@@ -634,6 +674,13 @@ mod test {
             .iter()
             .map(|(j, v)| (j.to_string(), Bytes::from_static(v)))
             .collect()
+    }
+
+    fn checkpoint_fixture() -> consumer::Checkpoint {
+        consumer::Checkpoint {
+            ack_intents: ack_intents_map(&[("acme/events/000", b"legacy-ack")]),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -655,6 +702,15 @@ mod test {
                     ack_intents: ack_intents_map(&[("acme/events/000", b"ack-bytes-A")]),
                     trigger_params_json: Bytes::from_static(b"{\"run_id\":\"r1\"}"),
                     last_applied: Bytes::from_static(b"spec-proto-bytes"),
+                    ..Default::default()
+                },
+            ),
+            (
+                "clocks_and_legacy_checkpoint",
+                proto::Persist {
+                    committed_close_clock: 123,
+                    hinted_close_clock: 456,
+                    legacy_checkpoint: Some(checkpoint_fixture()),
                     ..Default::default()
                 },
             ),
@@ -802,37 +858,34 @@ mod test {
     }
 
     #[test]
-    fn encode_state_patches_roundtrip() {
-        let cases: &[&[&[u8]]] = &[
-            &[],
-            &[b"{\"a\":1}"],
-            &[b"{\"a\":1}", b"{\"b\":null}", b"{\"c\":[1,2]}"],
-        ];
-        for patches in cases {
-            let patches: Vec<Bytes> = patches.iter().map(|p| Bytes::copy_from_slice(p)).collect();
-            let encoded = encode_state_patches(&patches);
-            let decoded = split_state_patches(&encoded).unwrap();
-            assert_eq!(decoded, patches);
-        }
+    fn extend_state_patches_cases() {
+        let mut out = Vec::new();
+        extend_state_patches(&mut out, b"");
+        assert!(out.is_empty());
 
-        // Zero patches encode to empty bytes (State Update Wire Format).
-        let empty = encode_state_patches(&[]);
-        assert!(empty.is_empty());
+        extend_state_patches(&mut out, b"[{\"a\":1}\n]");
+        assert_eq!(out.as_slice(), b"[{\"a\":1}\n]");
 
-        // One-patch form is framed identically to N-patch form.
-        let one = encode_state_patches(&[Bytes::from_static(b"{\"a\":1}")]);
-        assert_eq!(one.as_ref(), b"[{\"a\":1}\n]");
+        extend_state_patches(&mut out, b"");
+        assert_eq!(out.as_slice(), b"[{\"a\":1}\n]");
 
-        // Multi form uses the wire framing consumed by split_state_patches.
-        let multi = encode_state_patches(&[
-            Bytes::from_static(b"{\"a\":1}"),
-            Bytes::from_static(b"{\"b\":2}"),
-        ]);
-        assert_eq!(multi.as_ref(), b"[{\"a\":1}\n,{\"b\":2}\n]");
+        extend_state_patches(&mut out, b"[{\"b\":2}\n,{\"c\":null}\n]");
+        assert_eq!(out.as_slice(), b"[{\"a\":1}\n,{\"b\":2}\n,{\"c\":null}\n]");
+
+        let decoded = split_state_patches(&Bytes::from(out)).unwrap();
+        let decoded: Vec<&[u8]> = decoded.iter().map(|b| b.as_ref()).collect();
+        assert_eq!(
+            decoded,
+            vec![
+                b"{\"a\":1}".as_slice(),
+                b"{\"b\":2}".as_slice(),
+                b"{\"c\":null}".as_slice()
+            ]
+        );
     }
 
     #[test]
-    fn decode_state_classifies_ranges() {
+    fn decode_recover_classifies_ranges() {
         let fh_value = producer_frontier(0xaa, 777, 12345).encode_to_vec();
         let fc_value = producer_frontier(0xbb, 999, 4242).encode_to_vec();
 
@@ -868,6 +921,18 @@ mod test {
                 Bytes::from_static(b"proto-bytes"),
             ),
             (
+                Bytes::from_static(KEY_COMMITTED_CLOSE),
+                Bytes::copy_from_slice(&123_u64.to_le_bytes()),
+            ),
+            (
+                Bytes::from_static(KEY_HINTED_CLOSE),
+                Bytes::copy_from_slice(&456_u64.to_le_bytes()),
+            ),
+            (
+                Bytes::from_static(KEY_LEGACY_CHECKPOINT),
+                Bytes::from(checkpoint_fixture().encode_to_vec()),
+            ),
+            (
                 prefixed(PREFIX_MAX_KEY, b"derive/d/binding"),
                 Bytes::from_static(b"pk"),
             ),
@@ -883,7 +948,7 @@ mod test {
     }
 
     #[test]
-    fn decode_drops_unknown_state_keys() {
+    fn decode_recover_drops_unknown_state_keys() {
         // FH:/FC: and MK-v2: entries whose state_key is not in the
         // current binding mapping are silently discarded — they belong
         // to backfilled or removed bindings.
@@ -903,14 +968,13 @@ mod test {
                 Bytes::from_static(b"pk"),
             ),
         ];
-        let state = decode_pairs(pairs, &state_key_index(&[("kept-binding", 0)])).unwrap();
-        assert!(state.hinted.is_empty());
-        assert!(state.max_keys.is_empty());
-        assert!(state.unknown.is_empty());
+        let decoded = decode_pairs(pairs, &state_key_index(&[("kept-binding", 0)])).unwrap();
+        assert!(decoded.hinted_frontier.is_empty());
+        assert!(decoded.recover.max_keys.is_empty());
     }
 
     #[test]
-    fn decode_state_errors() {
+    fn decode_recover_errors() {
         let valid_value = Bytes::from(producer_frontier(0xaa, 1, 0).encode_to_vec());
 
         // FH:/FC: layout: rest = journal \0 state_key \0 producer[6].

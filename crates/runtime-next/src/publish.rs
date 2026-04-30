@@ -45,8 +45,6 @@ impl Publisher {
     pub fn new_real<'a, I>(
         authz_subject: String,
         client_factory: &gazette::journal::ClientFactory,
-        ops_logs_journal: &str,
-        ops_logs_spec: &flow::CollectionSpec,
         ops_stats_journal: &str,
         ops_stats_spec: &flow::CollectionSpec,
         collection_specs: I,
@@ -56,10 +54,6 @@ impl Publisher {
     {
         let mut bindings = Vec::new();
 
-        bindings.push(publisher::Binding::from_collection_spec(
-            ops_logs_spec,
-            Some(ops_logs_journal),
-        )?);
         bindings.push(publisher::Binding::from_collection_spec(
             ops_stats_spec,
             Some(ops_stats_journal),
@@ -110,9 +104,9 @@ impl Publisher {
             Self::Real(p) => {
                 p.enqueue(
                     |uuid| {
-                        // Binding index 1: ops_stats_spec (see `new_real`).
+                        // Binding index 0 is ops_stats_spec.
                         stats.meta.as_mut().unwrap().uuid = uuid.to_string();
-                        (1, serde_json::to_value(&stats).unwrap())
+                        (0, serde_json::to_value(&stats).unwrap())
                     },
                     uuid::Flags::CONTINUE_TXN,
                 )

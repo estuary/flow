@@ -1,12 +1,17 @@
 use super::{Binding, Task};
 use anyhow::Context;
 use proto_flow::flow;
+use proto_flow::materialize::{Request, request};
 
 impl Task {
-    pub fn new(
-        spec: &flow::MaterializationSpec,
-        shard: &ops::proto::ShardLabeling,
-    ) -> anyhow::Result<Self> {
+    pub fn new(open: &Request) -> anyhow::Result<Self> {
+        let request::Open {
+            materialization: spec,
+            range,
+            state_json: _,
+            version,
+        } = open.clone().open.context("expected Open")?;
+
         let flow::MaterializationSpec {
             bindings,
             config_json,
@@ -17,14 +22,7 @@ impl Task {
             shard_template: _,
             inactive_bindings: _,
             triggers_json: _,
-        } = spec;
-
-        let ops::proto::ShardLabeling {
-            range,
-            build: version,
-            ..
-        } = shard;
-
+        } = spec.as_ref().context("missing materialization")?;
         let range = range.context("missing range")?;
 
         if range.r_clock_begin != 0 || range.r_clock_end != u32::MAX {
@@ -75,10 +73,7 @@ impl Task {
             build: version.clone(),
         };
 
-        let binding_state_keys = bindings.iter().map(|b| b.state_key.clone()).collect();
-
         Ok(Self {
-            binding_state_keys,
             bindings,
             shard_ref,
         })

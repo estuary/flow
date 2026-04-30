@@ -1,0 +1,61 @@
+---
+source: crates/runtime-next/src/recovery/codec.rs
+expression: "decode_pairs(pairs, &mapping).unwrap()"
+---
+DecodedRecover {
+    recover: Recover {
+        ack_intents: {
+            "j1": b"ack",
+        },
+        committed_close_clock: 123,
+        committed_frontier: None,
+        connector_state_json: b"{\"reduced\":true}",
+        hinted_close_clock: 456,
+        hinted_frontier: None,
+        last_applied: b"proto-bytes",
+        legacy_checkpoint: Some(
+            Checkpoint {
+                sources: {},
+                ack_intents: {
+                    "acme/events/000": b"legacy-ack",
+                },
+            },
+        ),
+        max_keys: {
+            0: b"pk",
+        },
+        trigger_params_json: b"{\"run_id\":\"r\"}",
+    },
+    committed_frontier: [
+        JournalFrontier {
+            journal: "journal/0",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:bb:00:00:00:00),
+                    last_commit: Clock(0s 28ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: 4242,
+                },
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        },
+    ],
+    hinted_frontier: [
+        JournalFrontier {
+            journal: "journal/0",
+            binding: 0,
+            producers: [
+                ProducerFrontier {
+                    producer: Producer(01:aa:00:00:00:00),
+                    last_commit: Clock(0s 36ns),
+                    hinted_commit: Clock(0s 0ns),
+                    offset: 12345,
+                },
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        },
+    ],
+}

@@ -7,7 +7,7 @@
 //! controller is just the peer of the bidi stream that commands the
 //! runtime and bounds its lifecycle.
 
-use crate::{Runtime, materialize, new_channel, proto};
+use crate::{Runtime, materialize, proto};
 use futures::Stream;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers;
@@ -16,19 +16,26 @@ impl<L: crate::LogHandler> Runtime<L> {
     pub fn spawn_materialize<R>(
         &self,
         controller_rx: R,
-    ) -> mpsc::Receiver<tonic::Result<proto::Materialize>>
+    ) -> mpsc::UnboundedReceiver<tonic::Result<proto::Materialize>>
     where
         R: Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
     {
-        let runtime = self.clone();
-        let (controller_tx, response_rx) = new_channel::<tonic::Result<proto::Materialize>>();
+        let service = crate::shard::Service {
+            plane: self.plane,
+            container_network: self.container_network.clone(),
+            log_handler: self.log_handler.clone(),
+            set_log_level: self.set_log_level.clone(),
+            task_name: self.task_name.clone(),
+            publisher_factory: self.publisher_factory.clone(),
+        };
+        let (controller_tx, response_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
         let error_tx = controller_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(err) =
-                materialize::shard::handler::serve(runtime, controller_rx, controller_tx).await
+            if let Err(err) = materialize::shard::serve(service, controller_rx, controller_tx).await
             {
-                let _ = error_tx.send(Err(crate::anyhow_to_status(err))).await;
+                let _ = error_tx.send(Err(crate::anyhow_to_status(err)));
             }
         });
         response_rx
@@ -37,18 +44,19 @@ impl<L: crate::LogHandler> Runtime<L> {
 
 #[tonic::async_trait]
 impl<L: crate::LogHandler> proto_grpc::runtime::shard_server::Shard for Runtime<L> {
-    type MaterializeStream = wrappers::ReceiverStream<tonic::Result<proto::Materialize>>;
-    type DeriveStream = wrappers::ReceiverStream<tonic::Result<proto::Derive>>;
+    type MaterializeStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Materialize>>;
+    //type DeriveStream = wrappers::ReceiverStream<tonic::Result<proto::Derive>>;
 
     async fn materialize(
         &self,
         request: tonic::Request<tonic::Streaming<proto::Materialize>>,
     ) -> tonic::Result<tonic::Response<Self::MaterializeStream>> {
-        Ok(tonic::Response::new(wrappers::ReceiverStream::new(
-            self.spawn_materialize(request.into_inner()),
-        )))
+        Ok(tonic::Response::new(
+            wrappers::UnboundedReceiverStream::new(self.spawn_materialize(request.into_inner())),
+        ))
     }
 
+    /*
     async fn derive(
         &self,
         _request: tonic::Request<tonic::Streaming<proto::Derive>>,
@@ -57,4 +65,5 @@ impl<L: crate::LogHandler> proto_grpc::runtime::shard_server::Shard for Runtime<
             "Shard.Derive: not in scope for the materialize phase",
         ))
     }
+    */
 }

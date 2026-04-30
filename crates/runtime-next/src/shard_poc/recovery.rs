@@ -9,8 +9,7 @@ use crate::proto;
 use bytes::Bytes;
 use shuffle::frontier::{Drain, Frontier, JournalFrontier};
 
-/// Build a `shuffle::Frontier` from a `recovery_codec::State`'s
-/// `JournalFrontier` accumulator.
+/// Build a `shuffle::Frontier` from decoded `JournalFrontier` entries.
 fn frontier_from_groups(
     mut groups: Vec<JournalFrontier>,
 ) -> Result<Frontier, shuffle::frontier::Error> {
@@ -18,53 +17,74 @@ fn frontier_from_groups(
     Frontier::new(groups, Vec::new())
 }
 
-/// Build the L:Recover stream from a recovered RocksDB `State`. Consumes
-/// `state` so the JournalFrontier accumulators move directly into
-/// `Frontier::new` without copying.
+/// Build the L:Recover stream from a recovered RocksDB `Recover`.
 ///
 /// Emits frontier chunks for hinted and committed frontiers, a singleton
-/// Recover carrying ack_intents/connector_patches/last_applied/
+/// Recover carrying ack_intents/connector_state/last_applied/
 /// max_keys/trigger_params, and an empty terminator.
-pub fn recover_stream_from_state(
-    state: crate::recovery::codec::State,
+pub fn recover_stream_from_recover(
+    recover: proto::Recover,
 ) -> Result<Vec<proto::Recover>, shuffle::frontier::Error> {
-    let crate::recovery::codec::State {
-        hinted,
-        committed,
+    let proto::Recover {
         ack_intents,
-        max_keys,
-        connector_state,
-        trigger_params,
+        committed_close_clock,
+        committed_frontier,
+        connector_state_json,
+        hinted_close_clock,
+        hinted_frontier,
         last_applied,
-        unknown: _,
-    } = state;
+        legacy_checkpoint,
+        max_keys,
+        trigger_params_json,
+    } = recover;
+
+    let hinted_frontier = hinted_frontier
+        .into_iter()
+        .flat_map(shuffle::JournalFrontier::decode)
+        .collect();
+    let committed_frontier = committed_frontier
+        .into_iter()
+        .flat_map(shuffle::JournalFrontier::decode)
+        .collect();
 
     let mut out = Vec::new();
 
-    drain_into(&mut out, frontier_from_groups(hinted)?, true);
-    drain_into(&mut out, frontier_from_groups(committed)?, false);
+    drain_into(&mut out, frontier_from_groups(hinted_frontier)?, true);
+    drain_into(&mut out, frontier_from_groups(committed_frontier)?, false);
 
     // Singleton fields packed into one Recover.
     let mut singleton = proto::Recover::default();
     let mut any = false;
+    if committed_close_clock != 0 {
+        singleton.committed_close_clock = committed_close_clock;
+        any = true;
+    }
     if !ack_intents.is_empty() {
         singleton.ack_intents = ack_intents;
         any = true;
     }
-    if let Some(patches) = connector_state {
-        singleton.connector_patches_json = patches;
+    if !connector_state_json.is_empty() {
+        singleton.connector_state_json = connector_state_json;
         any = true;
     }
-    if let Some(last_applied) = last_applied {
+    if !last_applied.is_empty() {
         singleton.last_applied = last_applied;
+        any = true;
+    }
+    if hinted_close_clock != 0 {
+        singleton.hinted_close_clock = hinted_close_clock;
+        any = true;
+    }
+    if let Some(legacy_checkpoint) = legacy_checkpoint {
+        singleton.legacy_checkpoint = Some(legacy_checkpoint);
         any = true;
     }
     if !max_keys.is_empty() {
         singleton.max_keys = max_keys;
         any = true;
     }
-    if let Some(trigger_params) = trigger_params {
-        singleton.trigger_params_json = trigger_params;
+    if !trigger_params_json.is_empty() {
+        singleton.trigger_params_json = trigger_params_json;
         any = true;
     }
     if any {
@@ -109,23 +129,6 @@ pub fn reduce_state_patches(payload: &Bytes) -> anyhow::Result<Bytes> {
         json_patch::merge(&mut doc, &patch_value);
     }
     Ok(Bytes::from(serde_json::to_vec(&doc)?))
-}
-
-/// Append `b` (a State Update Wire Format payload) to `a` (also wire format),
-/// producing a single combined payload.
-pub fn append_patch(a: &Bytes, b: &Bytes) -> Bytes {
-    if a.is_empty() {
-        return b.clone();
-    }
-    if b.is_empty() {
-        return a.clone();
-    }
-    let mut buf = Vec::with_capacity(a.len() + b.len());
-    buf.extend_from_slice(a);
-    buf.truncate(buf.len() - 1); // strip trailing ']'
-    buf.push(b',');
-    buf.extend_from_slice(&b[1..]); // strip leading '['
-    Bytes::from(buf)
 }
 
 /// Decode the build label from a MaterializationSpec's shard template.
@@ -205,12 +208,18 @@ mod tests {
 
     #[test]
     fn recover_stream_emits_chunks_singletons_and_terminator() {
-        let mut state = crate::recovery::codec::State::default();
-        state.hinted.push(jf("journal/x", 0, vec![p(1, 100)]));
-        state.max_keys.insert(0, Bytes::from_static(b"pk1"));
-        state.connector_state = Some(Bytes::from_static(b"[{}\n]"));
+        let mut recover = proto::Recover {
+            hinted_frontier: Some(shuffle::JournalFrontier::encode(&[jf(
+                "journal/x",
+                0,
+                vec![p(1, 100)],
+            )])),
+            connector_state_json: Bytes::from_static(b"[{}\n]"),
+            ..Default::default()
+        };
+        recover.max_keys.insert(0, Bytes::from_static(b"pk1"));
 
-        let recovers = recover_stream_from_state(state).unwrap();
+        let recovers = recover_stream_from_recover(recover).unwrap();
 
         // Expect: 1 hinted chunk + 1 terminator-chunk-from-Drain + 1 singleton + 1 empty terminator.
         assert!(recovers.len() >= 3);
@@ -219,7 +228,7 @@ mod tests {
         assert_eq!(*last, proto::Recover::default());
         let has_singleton = recovers
             .iter()
-            .any(|r| r.connector_patches_json.as_ref() == b"[{}\n]" && !r.max_keys.is_empty());
+            .any(|r| r.connector_state_json.as_ref() == b"[{}\n]" && !r.max_keys.is_empty());
         assert!(has_singleton, "singleton fields should appear in stream");
     }
 
@@ -265,7 +274,7 @@ mod tests {
         // Sorted (state_key, binding_index) mapping for the scan.
         let mapping: Vec<(String, u32)> = vec![("binding-A".into(), 0), ("binding-B".into(), 1)];
         let (_db, state) = db.scan(mapping).await.unwrap();
-        let rebuilt = frontier_from_groups(state.hinted).unwrap();
+        let rebuilt = frontier_from_groups(state.hinted_frontier).unwrap();
 
         assert_eq!(rebuilt.journals.len(), original.journals.len());
         for (got, want) in rebuilt.journals.iter().zip(original.journals.iter()) {
