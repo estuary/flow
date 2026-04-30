@@ -3,6 +3,7 @@ package gazctlcmd
 import (
 	"context"
 	"errors"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -12,6 +13,7 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	mbp "go.gazette.dev/core/mainboilerplate"
+	"golang.org/x/sync/errgroup"
 )
 
 type cmdShardsPrune struct {
@@ -116,51 +118,68 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 		mbp.Must(err, "failed to fetch fragments")
 
 		var prunedFragments []pb.Fragment
+
+		var mu sync.Mutex
+		var group errgroup.Group
+		group.SetLimit(32) // Reasonable concurrency for deleting objects from cloud storage
+
 		for _, f := range resp.Fragments {
 			var spec = f.Spec
 
 			metrics.fragmentsTotal++
 			metrics.bytesTotal += spec.ContentLength()
 
-			if !overlapsAnySegment(segments, spec) {
-				if spec.ModTime == 0 {
-					// This shouldn't ever happen, as long as the label selector covers all shards that are using
-					// each journal. But we don't validate that up front, so failing fast is the next best thing.
-					log.WithFields(log.Fields{
-						"journal":        spec.Journal,
-						"name":           spec.ContentName(),
-						"begin":          spec.Begin,
-						"end":            spec.End,
-						"hintedSegments": segments,
-					}).Fatal("unpersisted fragment does not overlap any hinted segments (the label selector argument does not include all shards using this log)")
-				}
-				log.WithFields(log.Fields{
-					"log":   spec.Journal,
-					"name":  spec.ContentName(),
-					"size":  spec.ContentLength(),
-					"mod":   spec.ModTime,
-					"begin": spec.Begin,
-					"end":   spec.End,
-				}).Debug("pruning fragment")
-
-				var removed = true
-				if !cmd.DryRun {
-					if err := fragment.Remove(ctx, spec); err != nil {
-						removed = false
-						metrics.failedToRemove++
-						log.WithFields(log.Fields{
-							"fragment": spec,
-							"error":    err,
-						}).Warn("failed to remove fragment (skipping)")
-					}
-				}
-				if removed {
-					metrics.fragmentsPruned++
-					metrics.bytesPruned += spec.ContentLength()
-					prunedFragments = append(prunedFragments, spec)
-				}
+			if overlapsAnySegment(segments, spec) {
+				continue
 			}
+
+			if spec.ModTime == 0 {
+				// This shouldn't ever happen, as long as the label selector covers all shards that are using
+				// each journal. But we don't validate that up front, so failing fast is the next best thing.
+				log.WithFields(log.Fields{
+					"journal":        spec.Journal,
+					"name":           spec.ContentName(),
+					"begin":          spec.Begin,
+					"end":            spec.End,
+					"hintedSegments": segments,
+				}).Fatal("unpersisted fragment does not overlap any hinted segments (the label selector argument does not include all shards using this log)")
+			}
+
+			log.WithFields(log.Fields{
+				"log":   spec.Journal,
+				"name":  spec.ContentName(),
+				"size":  spec.ContentLength(),
+				"mod":   spec.ModTime,
+				"begin": spec.Begin,
+				"end":   spec.End,
+			}).Debug("pruning fragment")
+
+			group.Go(func() error {
+				var err error
+				if !cmd.DryRun {
+					err = fragment.Remove(ctx, spec)
+				}
+
+				mu.Lock()
+				defer mu.Unlock()
+
+				if err != nil {
+					log.WithFields(log.Fields{
+						"fragment": spec,
+						"error":    err,
+					}).Warn("failed to remove fragment (skipping)")
+					metrics.failedToRemove++
+					return nil
+				}
+				metrics.fragmentsPruned++
+				metrics.bytesPruned += spec.ContentLength()
+				prunedFragments = append(prunedFragments, spec)
+
+				return nil
+			})
 		}
+		_ = group.Wait() // Errors from group workers are logged, so this always returns `nil`
+
 		if len(prunedFragments) > 0 {
 			log.WithFields(log.Fields{
 				"journal":         journal,
