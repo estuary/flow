@@ -116,6 +116,7 @@ pub async fn probe_write_head(
     journal: &str,
     binding_state_key: &str,
     header: Option<broker::Header>,
+    journal_create_revision: i64,
 ) -> anyhow::Result<(i64, Option<broker::Header>)> {
     use futures::StreamExt;
 
@@ -127,6 +128,7 @@ pub async fn probe_write_head(
         block: false,
         do_not_proxy: true,
         header,
+        min_etcd_revision: journal_create_revision,
         ..Default::default()
     });
     tokio::pin!(stream);
