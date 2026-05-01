@@ -38,10 +38,11 @@ func (svc *Service) Append(claims pb.Claims, stream pb.Journal_AppendServer) (er
 	}
 
 	fsm = appendFSM{
-		svc:    svc,
-		ctx:    stream.Context(),
-		claims: claims,
-		req:    *req,
+		svc:            svc,
+		ctx:            stream.Context(),
+		claims:         claims,
+		req:            *req,
+		readThroughRev: req.MinEtcdRevision, // Honor a client request for a specific Etcd revision, if present
 	}
 	fsm.run(stream.Recv)
 

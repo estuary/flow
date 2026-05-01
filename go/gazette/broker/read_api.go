@@ -34,9 +34,10 @@ func (svc *Service) Read(claims pb.Claims, req *pb.ReadRequest, stream pb.Journa
 	}
 
 	resolved, err = svc.resolver.resolve(stream.Context(), claims, req.Journal, resolveOpts{
-		mayProxy:       !req.DoNotProxy,
-		requirePrimary: false,
-		proxyHeader:    req.Header,
+		mayProxy:        !req.DoNotProxy,
+		requirePrimary:  false,
+		minEtcdRevision: req.MinEtcdRevision, // Honor a client request for a specific Etcd revision, if present
+		proxyHeader:     req.Header,
 	})
 
 	if err != nil {

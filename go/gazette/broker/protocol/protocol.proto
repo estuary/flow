@@ -440,6 +440,10 @@ message ReadRequest {
   // seconds since the epoch. The request Offset will be advanced as-needed
   // to skip persisted Fragments having a modication time before the bound.
   int64 begin_mod_time = 8;
+  // Minimum Etcd revision the broker must have read through before resolving
+  // the request. If the broker is behind, it waits for its KeySpace to catch
+  // up.
+  int64 min_etcd_revision = 9;
 }
 
 // ReadResponse is the streamed response message of the broker Read RPC.
@@ -566,6 +570,11 @@ message AppendRequest {
     SUSPEND_NOW = 0x03;
   }
   Suspend suspend = 9;
+
+  // Minimum Etcd revision the broker must have read through before resolving
+  // the request. If the broker is behind, it waits for its KeySpace to catch
+  // up.
+  int64 min_etcd_revision = 10;
 
   // Content chunks to be appended. Immediately prior to closing the stream,
   // the client must send an empty chunk (eg, zero-valued AppendRequest) to
