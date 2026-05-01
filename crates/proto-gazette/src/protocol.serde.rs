@@ -30,6 +30,9 @@ impl serde::Serialize for AppendRequest {
         if self.suspend != 0 {
             len += 1;
         }
+        if self.min_etcd_revision != 0 {
+            len += 1;
+        }
         if !self.content.is_empty() {
             len += 1;
         }
@@ -62,6 +65,11 @@ impl serde::Serialize for AppendRequest {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.suspend)))?;
             struct_ser.serialize_field("suspend", &v)?;
         }
+        if self.min_etcd_revision != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("minEtcdRevision", ToString::to_string(&self.min_etcd_revision).as_str())?;
+        }
         if !self.content.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
@@ -89,6 +97,8 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
             "subtract_registers",
             "subtractRegisters",
             "suspend",
+            "min_etcd_revision",
+            "minEtcdRevision",
             "content",
         ];
 
@@ -102,6 +112,7 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
             UnionRegisters,
             SubtractRegisters,
             Suspend,
+            MinEtcdRevision,
             Content,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -132,6 +143,7 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
                             "unionRegisters" | "union_registers" => Ok(GeneratedField::UnionRegisters),
                             "subtractRegisters" | "subtract_registers" => Ok(GeneratedField::SubtractRegisters),
                             "suspend" => Ok(GeneratedField::Suspend),
+                            "minEtcdRevision" | "min_etcd_revision" => Ok(GeneratedField::MinEtcdRevision),
                             "content" => Ok(GeneratedField::Content),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -160,6 +172,7 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
                 let mut union_registers__ = None;
                 let mut subtract_registers__ = None;
                 let mut suspend__ = None;
+                let mut min_etcd_revision__ = None;
                 let mut content__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -213,6 +226,14 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
                             }
                             suspend__ = Some(map_.next_value::<append_request::Suspend>()? as i32);
                         }
+                        GeneratedField::MinEtcdRevision => {
+                            if min_etcd_revision__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("minEtcdRevision"));
+                            }
+                            min_etcd_revision__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::Content => {
                             if content__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("content"));
@@ -232,6 +253,7 @@ impl<'de> serde::Deserialize<'de> for AppendRequest {
                     union_registers: union_registers__,
                     subtract_registers: subtract_registers__,
                     suspend: suspend__.unwrap_or_default(),
+                    min_etcd_revision: min_etcd_revision__.unwrap_or_default(),
                     content: content__.unwrap_or_default(),
                 })
             }
@@ -3934,6 +3956,9 @@ impl serde::Serialize for ReadRequest {
         if self.begin_mod_time != 0 {
             len += 1;
         }
+        if self.min_etcd_revision != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("protocol.ReadRequest", len)?;
         if let Some(v) = self.header.as_ref() {
             struct_ser.serialize_field("header", v)?;
@@ -3965,6 +3990,11 @@ impl serde::Serialize for ReadRequest {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("beginModTime", ToString::to_string(&self.begin_mod_time).as_str())?;
         }
+        if self.min_etcd_revision != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("minEtcdRevision", ToString::to_string(&self.min_etcd_revision).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -3987,6 +4017,8 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
             "endOffset",
             "begin_mod_time",
             "beginModTime",
+            "min_etcd_revision",
+            "minEtcdRevision",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3999,6 +4031,7 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
             MetadataOnly,
             EndOffset,
             BeginModTime,
+            MinEtcdRevision,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -4028,6 +4061,7 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
                             "metadataOnly" | "metadata_only" => Ok(GeneratedField::MetadataOnly),
                             "endOffset" | "end_offset" => Ok(GeneratedField::EndOffset),
                             "beginModTime" | "begin_mod_time" => Ok(GeneratedField::BeginModTime),
+                            "minEtcdRevision" | "min_etcd_revision" => Ok(GeneratedField::MinEtcdRevision),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -4055,6 +4089,7 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
                 let mut metadata_only__ = None;
                 let mut end_offset__ = None;
                 let mut begin_mod_time__ = None;
+                let mut min_etcd_revision__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Header => {
@@ -4111,6 +4146,14 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::MinEtcdRevision => {
+                            if min_etcd_revision__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("minEtcdRevision"));
+                            }
+                            min_etcd_revision__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(ReadRequest {
@@ -4122,6 +4165,7 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
                     metadata_only: metadata_only__.unwrap_or_default(),
                     end_offset: end_offset__.unwrap_or_default(),
                     begin_mod_time: begin_mod_time__.unwrap_or_default(),
+                    min_etcd_revision: min_etcd_revision__.unwrap_or_default(),
                 })
             }
         }

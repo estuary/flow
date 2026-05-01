@@ -270,7 +270,7 @@ impl SliceActor {
         let shuffle::slice_request::StartRead {
             binding: binding_index,
             spec,
-            create_revision: _,
+            create_revision,
             mod_revision: _,
             route,
             checkpoint,
@@ -293,6 +293,7 @@ impl SliceActor {
             binding = binding.state_key(),
             %journal,
             offset,
+            create_revision,
             ?producers,
             "starting journal read"
         );
@@ -308,6 +309,7 @@ impl SliceActor {
             end_offset: 0, // No end offset.
             metadata_only: false,
             offset,
+            min_etcd_revision: create_revision,
 
             // `route` is a hint which directs us to the right broker.
             // This is an optimization and isn't required for correctness.
@@ -337,6 +339,7 @@ impl SliceActor {
                 &request.journal,
                 &binding_state_key,
                 request.header.take(),
+                create_revision,
             )
             .await?;
 
