@@ -168,6 +168,10 @@ pub mod session_request {
     /// This is a blocking request: the Session only responds when progress is
     /// available. The Coordinator client requests a next checkpoint at times of
     /// its choosing (e.g., after completing processing of the previous checkpoint).
+    ///
+    /// A NextCheckpoint response may be a fully-resolved checkpoint OR a "peek"
+    /// of an in-flight frontier whose causal hints have not yet fully resolved.
+    /// See SessionResponse.next_checkpoint_chunk for the contract.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct NextCheckpoint {}
 }
@@ -176,15 +180,29 @@ pub mod session_request {
 pub struct SessionResponse {
     #[prost(message, optional, tag = "1")]
     pub opened: ::core::option::Option<session_response::Opened>,
-    /// The next frontier delta (atop the resume checkpoint) which reflects the extents
-    /// of a transaction which is ready to be processed. It's sent in response to
-    /// SessionRequest.NextCheckpoint, and is never empty (though the Session may
-    /// block indefinitely until progress is available).
+    /// The next frontier delta (atop the resume checkpoint), sent in response to
+    /// SessionRequest.NextCheckpoint. Never empty (though the Session may block
+    /// indefinitely until progress is available).
     ///
-    /// The Coordinator client should retain this checkpoint and use it to initialize
-    /// `hinted_commit` of future session resume checkpoint. Then, upon it's durable
-    /// completion of all downstream processing related to the NextCheckpoint,
-    /// it should merge it into its base checkpoint.
+    /// The response may be either (a) a fully-resolved checkpoint, where all
+    /// causal hints in the delta are resolved (every ProducerFrontier has
+    /// `last_commit >= hinted_commit`) — this is a transactional boundary
+    /// suitable for commit; or (b) a "peek" of an in-flight frontier, where
+    /// at least one ProducerFrontier still has `hinted_commit > last_commit`,
+    /// signaling that resolution has made progress but is incomplete. Peeks
+    /// let the client begin processing partial progress (e.g. release log
+    /// segments) without waiting for full resolution. Peeks carry zeroed
+    /// `bytes_*_delta` fields; those byte deltas are surfaced exactly once
+    /// on the eventual fully-resolved checkpoint.
+    ///
+    /// For a transactional boundary the Coordinator MUST keep calling
+    /// NextCheckpoint until it receives a fully-resolved checkpoint (no
+    /// ProducerFrontier with `hinted_commit > last_commit`).
+    ///
+    /// The Coordinator client should retain the checkpoint and use it to
+    /// initialize `hinted_commit` of future session resume checkpoints. Then,
+    /// upon its durable completion of all downstream processing related to a
+    /// fully-resolved NextCheckpoint, it should merge it into its base checkpoint.
     #[prost(message, optional, tag = "2")]
     pub next_checkpoint_chunk: ::core::option::Option<FrontierChunk>,
 }

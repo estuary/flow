@@ -50,33 +50,20 @@ impl Shuffle {
         let peer_addr_even = format!("http://{bind_addr_even}");
         let peer_addr_odd = format!("http://{bind_addr_odd}");
 
+        // TODO(johnny): handle refresh rotation.
         let user_tokens = tokens::fixed(Ok(flow_client_next::user_auth::UserToken {
             access_token: ctx.config.user_access_token.clone(),
             refresh_token: None,
         }));
 
-        let api_client = flow_client_next::rest::Client::new(ctx.config.get_agent_url(), "flowctl");
-        let fragment_client = gazette::journal::Client::new_fragment_client();
-        let router = gazette::Router::new("local");
-
-        let auth_fn = move |collection, _task| -> gazette::journal::Client {
-            let source = flow_client_next::workflows::UserCollectionAuth {
-                capability: models::Capability::Read,
-                collection,
-                client: api_client.clone(),
-                user_tokens: user_tokens.clone(),
-            };
-            let watch = tokens::watch(source);
-
-            flow_client_next::workflows::user_collection_auth::new_journal_client(
-                fragment_client.clone(),
-                router.clone(),
-                watch,
-            )
-        };
-
-        let service_even = shuffle::Service::new(peer_addr_even.clone(), Box::new(auth_fn.clone()));
-        let service_odd = shuffle::Service::new(peer_addr_odd.clone(), Box::new(auth_fn.clone()));
+        let factory = flow_client_next::workflows::user_collection_auth::new_journal_client_factory(
+            flow_client_next::rest::Client::new(ctx.config.get_agent_url(), "flowctl"),
+            models::Capability::Read,
+            gazette::Router::new("local"),
+            user_tokens,
+        );
+        let service_even = shuffle::Service::new(peer_addr_even.clone(), factory.clone());
+        let service_odd = shuffle::Service::new(peer_addr_odd.clone(), factory.clone());
 
         let server_even = service_even.clone().build_tonic_server();
         let server_odd = service_odd.build_tonic_server();
@@ -178,10 +165,19 @@ impl Shuffle {
 
             tracing::debug!(i, "requesting NextCheckpoint");
 
-            let frontier = client
+            let mut frontier = client
                 .next_checkpoint()
                 .await
                 .context("requesting next checkpoint")?;
+
+            while frontier.unresolved_hints != 0 {
+                // Reducing intermediate peeks is unnecessary here because the
+                // eventual ready frontier is a full restatement.
+                frontier = client
+                    .next_checkpoint()
+                    .await
+                    .context("requesting next checkpoint follow-up")?;
+            }
 
             // Scan committed entries from each shard's log,
             // pushing documents into the combiner.

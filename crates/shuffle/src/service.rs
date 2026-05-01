@@ -13,7 +13,7 @@ pub struct ServiceImpl {
     /// The endpoint of this service as seen by peers (e.g. "http://127.0.0.1:9876").
     pub(crate) peer_endpoint: String,
     /// Factory for building Gazette journal Clients.
-    pub(crate) journal_client_factory: JournalClientFactory,
+    pub(crate) journal_client_factory: gazette::journal::ClientFactory,
     /// Transport channels to dialed peers.
     pub(crate) channels: std::sync::Mutex<HashMap<String, tonic::transport::Channel>>,
     /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
@@ -21,13 +21,11 @@ pub struct ServiceImpl {
     pub(crate) log_joins: std::sync::Mutex<HashMap<(String, u32), log::LogJoin>>,
 }
 
-/// JournalClientFactory is a boxed closure which builds and returns a Gazette
-/// journal Client for reads of the Collection on behalf of a task Name.
-pub type JournalClientFactory =
-    Box<dyn Fn(models::Collection, models::Name) -> gazette::journal::Client + Send + Sync>;
-
 impl Service {
-    pub fn new(peer_endpoint: String, journal_client_factory: JournalClientFactory) -> Self {
+    pub fn new(
+        peer_endpoint: String,
+        journal_client_factory: gazette::journal::ClientFactory,
+    ) -> Self {
         Self(Arc::new(ServiceImpl {
             peer_endpoint,
             journal_client_factory,
@@ -36,13 +34,18 @@ impl Service {
         }))
     }
 
+    /// Wrap this service in its typed tonic server, applying the
+    /// max-message-size overrides so it can be composed with sibling
+    /// services on a shared `tonic::transport::Server::builder()`.
+    pub fn into_tonic_service(self) -> proto_grpc::shuffle::shuffle_server::ShuffleServer<Self> {
+        proto_grpc::shuffle::shuffle_server::ShuffleServer::new(self)
+            .max_decoding_message_size(usize::MAX)
+            .max_encoding_message_size(usize::MAX)
+    }
+
     /// Build a tonic Router containing the Shuffle service.
     pub fn build_tonic_server(self) -> tonic::transport::server::Router {
-        tonic::transport::Server::builder().add_service(
-            proto_grpc::shuffle::shuffle_server::ShuffleServer::new(self)
-                .max_decoding_message_size(usize::MAX)
-                .max_encoding_message_size(usize::MAX),
-        )
+        tonic::transport::Server::builder().add_service(self.into_tonic_service())
     }
 
     /// Return endpoint of this service as seen by peers.

@@ -211,13 +211,11 @@ fn get_harness() -> &'static SharedHarness {
                     .expect("bind shuffle server");
                 let endpoint = format!("http://{}", listener.local_addr().unwrap());
 
-                let service = {
+                let factory: gazette::journal::ClientFactory = Arc::new({
                     let journal_client = data_plane.journal_client.clone();
-                    shuffle::Service::new(
-                        endpoint,
-                        Box::new(move |_collection, _task| journal_client.clone()),
-                    )
-                };
+                    move |_authz_sub, _authz_obj| journal_client.clone()
+                });
+                let service = shuffle::Service::new(endpoint, factory);
 
                 let server = service.clone().build_tonic_server();
                 let server_handle = tokio::spawn(async move {
@@ -315,15 +313,21 @@ fn make_publisher(
     journal_client: &gazette::journal::Client,
     producer: uuid::Producer,
 ) -> publisher::Publisher {
-    let client_factory: publisher::JournalClientFactory = Arc::new({
+    let factory: gazette::journal::ClientFactory = Arc::new({
         let journal_client = journal_client.clone();
-        move |_collection, _task_name| journal_client.clone()
+        move |_authz_sub, _authz_obj| journal_client.clone()
     });
 
-    let bindings = publisher::Binding::from_capture_spec(capture_spec, &client_factory)
+    let bindings = publisher::Binding::from_capture_spec(capture_spec)
         .expect("build bindings from capture spec");
 
-    publisher::Publisher::new(bindings, producer, uuid::Clock::default())
+    publisher::Publisher::new(
+        String::new(), // Empty AuthZ subject.
+        bindings,
+        factory,
+        producer,
+        uuid::Clock::default(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -511,13 +515,13 @@ async fn write_actions(
                     commit_clock,
                     journals,
                 )]);
-                state.publisher.write_intents(&intents).await.unwrap();
-                state.last_committed_clock = commit_clock;
                 for (journal, _) in &intents {
                     state
                         .journal_committed_clocks
                         .insert(journal.clone(), commit_clock);
                 }
+                state.publisher.write_intents(intents).await.unwrap();
+                state.last_committed_clock = commit_clock;
                 commit_clocks.insert(prod_id, commit_clock);
             }
             Action::ContinueRollback { continues } => {
@@ -553,21 +557,21 @@ async fn write_actions(
                 // times. Using the wrong clock causes AckPartialCommit errors
                 // when the global clock falls between a journal's last_commit
                 // and its pending max_continue.
-                let rollback_acks: Vec<(String, Vec<serde_json::Value>)> = journals
+                let rollback_acks: Vec<(String, bytes::Bytes)> = journals
                     .iter()
                     .filter_map(|journal| {
                         let clock = state.journal_committed_clocks.get(journal)?;
                         let ack_uuid = uuid::build(state.producer, *clock, uuid::Flags::ACK_TXN);
-                        Some((
-                            journal.clone(),
-                            vec![serde_json::json!({
-                                "_meta": { "uuid": ack_uuid },
-                                "is_ack": true,
-                            })],
-                        ))
+                        let doc = serde_json::json!({
+                            "_meta": { "uuid": ack_uuid },
+                            "is_ack": true,
+                        });
+                        let mut buf = serde_json::to_vec(&doc).unwrap();
+                        buf.push(b'\n');
+                        Some((journal.clone(), bytes::Bytes::from(buf)))
                     })
                     .collect();
-                state.publisher.write_intents(&rollback_acks).await.unwrap();
+                state.publisher.write_intents(rollback_acks).await.unwrap();
             }
         }
     }
@@ -632,7 +636,7 @@ fn polling_complete(
 
 /// Client-side hints projection: project last_commit → hinted_commit.
 fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
-    let journals = round_frontier
+    let journals: Vec<shuffle::JournalFrontier> = round_frontier
         .journals
         .iter()
         .map(|jf| shuffle::JournalFrontier {
@@ -643,7 +647,7 @@ fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
                 .iter()
                 .map(|pf| shuffle::ProducerFrontier {
                     producer: pf.producer,
-                    last_commit: uuid::Clock::default(),
+                    last_commit: uuid::Clock::zero(),
                     hinted_commit: pf.last_commit,
                     offset: 0,
                 })
@@ -653,7 +657,11 @@ fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
         })
         .collect();
 
+    // Each producer has `last_commit: zero` and a non-zero `hinted_commit`,
+    // so the unresolved count is the total producer count across journals.
+    let unresolved_hints = journals.iter().map(|jf| jf.producers.len()).sum();
     shuffle::Frontier {
+        unresolved_hints,
         journals,
         flushed_lsn: vec![],
     }
@@ -841,6 +849,7 @@ async fn run_test_case_inner(
         let mut round_frontier = shuffle::Frontier {
             journals: vec![],
             flushed_lsn: recovery.flushed_lsn.clone(),
+            unresolved_hints: 0,
         };
 
         // STEP 3: POLL CHECKPOINTS.
@@ -861,7 +870,9 @@ async fn run_test_case_inner(
                     "updated round_frontier after reducing delta"
                 );
 
-                if polling_complete(&round_frontier, &commit_clocks) {
+                if round_frontier.unresolved_hints == 0
+                    && polling_complete(&round_frontier, &commit_clocks)
+                {
                     tracing::debug!("polling is complete");
                     break;
                 }
@@ -907,14 +918,23 @@ async fn run_test_case_inner(
             round_frontier = shuffle::Frontier {
                 journals: vec![],
                 flushed_lsn: recovery.flushed_lsn.clone(),
+                unresolved_hints: 0,
             };
 
-            if recovery.count_unresolved_hints() > 0 {
-                let recovery_delta = session
-                    .next_checkpoint()
-                    .await
-                    .map_err(|e| format!("recovery next_checkpoint: {e}"))?;
-                round_frontier = recovery_delta;
+            if recovery.unresolved_hints != 0 {
+                // Loop past peeks until the recovery checkpoint fully resolves.
+                loop {
+                    let recovery_delta = session
+                        .next_checkpoint()
+                        .await
+                        .map_err(|e| format!("recovery next_checkpoint: {e}"))?;
+
+                    round_frontier = round_frontier.reduce(recovery_delta);
+
+                    if round_frontier.unresolved_hints == 0 {
+                        break;
+                    }
+                }
             }
         }
 

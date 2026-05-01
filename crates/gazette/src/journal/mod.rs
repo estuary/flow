@@ -9,6 +9,22 @@ pub mod read;
 // TODO(johnny): Update usages to gazette::journal::read::ReadJsonLines;
 pub use read::{ReadJsonLine, ReadJsonLines};
 
+/// ClientFactory is a standard closure shape that builds Gazette
+/// journal Clients. It's used for lazy initialization of Clients
+/// in dynamically-authorized contexts.
+pub type ClientFactory = std::sync::Arc<
+    dyn Fn(
+            // Authorization Subject.
+            // Generally this is a shard ID or template prefix.
+            String,
+            // Authorization Object.
+            // Generally this is a journal name prefix.
+            String,
+        ) -> Client
+        + Send
+        + Sync,
+>;
+
 // SubClient is the routed sub-client of Client.
 type SubClient = proto_grpc::broker::journal_client::JournalClient<
     tonic::service::interceptor::InterceptedService<Channel, proto_grpc::Metadata>,

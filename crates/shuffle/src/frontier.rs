@@ -102,9 +102,22 @@ impl JournalFrontier {
         }
     }
 
-    /// Resolve causal hints on producers of `self` using progress from `other`.
-    /// Both must be for the same `(journal, binding)`. Returns the count resolved.
-    fn resolve_hints(&mut self, other: &JournalFrontier) -> usize {
+    /// Advance `last_commit` on producers of `self` up to each one's
+    /// `hinted_commit` using progress from `other`.
+    ///
+    /// `self` and `other` must be for the same `(journal, binding)`.
+    ///
+    /// `offset` is intentionally NOT updated here: when `last_commit` is
+    /// capped at `hinted_commit` but `other.last_commit` is past it,
+    /// `other.offset` corresponds to a journal position that overshoots
+    /// where our claimed `last_commit` actually sits.
+    ///
+    /// Returns `(advanced, resolved)`:
+    /// - `advanced`: producers whose `last_commit` advanced by any amount.
+    /// - `resolved`: producers whose `last_commit` reached `hinted_commit`
+    ///   (a subset of `advanced`).
+    fn resolve_hints(&mut self, other: &JournalFrontier) -> (usize, usize) {
+        let mut advanced = 0usize;
         let mut resolved = 0usize;
         let mut lhs = self.producers.iter_mut().peekable();
         let mut rhs = other.producers.iter().peekable();
@@ -129,13 +142,17 @@ impl JournalFrontier {
             let lhs = lhs.next().unwrap();
             let rhs = rhs.next().unwrap();
 
-            if lhs.hinted_commit > lhs.last_commit && rhs.last_commit >= lhs.hinted_commit {
-                lhs.last_commit = lhs.hinted_commit;
-                resolved += 1;
+            if lhs.hinted_commit > lhs.last_commit && rhs.last_commit > lhs.last_commit {
+                lhs.last_commit = rhs.last_commit.min(lhs.hinted_commit);
+                advanced += 1;
+
+                if rhs.last_commit >= lhs.hinted_commit {
+                    resolved += 1;
+                }
             }
         }
 
-        resolved
+        (advanced, resolved)
     }
 
     /// Decode a proto `FrontierChunk` into an iterator of `JournalFrontier`.
@@ -232,13 +249,58 @@ pub struct Frontier {
     /// Per-shard flushed LSN (log read-through barrier), indexed by shard_index.
     /// Empty when not applicable (e.g. resume checkpoints).
     pub flushed_lsn: Vec<log::Lsn>,
+    /// Count of `ProducerFrontier` entries with `hinted_commit > last_commit`.
+    /// A Frontier with a non-zero count is "partial": readable for processing
+    /// (e.g. log scanning), but NOT a transactional boundary.
+    pub unresolved_hints: usize,
+}
+
+/// Error returned by `Frontier::new` when its validation invariants fail.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(
+        "JournalFrontier is not ordered on (journal, binding) at index {index}: \
+         ({curr_journal}, {curr_binding}) follows ({prev_journal}, {prev_binding})"
+    )]
+    JournalOutOfOrder {
+        index: usize,
+        prev_journal: String,
+        prev_binding: u16,
+        curr_journal: String,
+        curr_binding: u16,
+    },
+    #[error(
+        "JournalFrontier is not unique on (journal, binding) at index {index}: \
+         ({journal}, {binding})"
+    )]
+    JournalDuplicate {
+        index: usize,
+        journal: String,
+        binding: u16,
+    },
+    #[error(
+        "ProducerFrontier is not ordered on producer at index {index} in ({binding}, {journal})"
+    )]
+    ProducerOutOfOrder {
+        index: usize,
+        journal: String,
+        binding: u16,
+    },
+    #[error(
+        "ProducerFrontier is not unique on producer at index {index} in ({binding}, {journal})"
+    )]
+    ProducerDuplicate {
+        index: usize,
+        journal: String,
+        binding: u16,
+    },
 }
 
 impl Frontier {
     /// Construct a `Frontier` from journal entries and per-shard flushed LSNs,
     /// validating that entries are sorted and unique on `(journal, binding)` and
     /// that producers within each entry are sorted and unique on `producer`.
-    pub fn new(journals: Vec<JournalFrontier>, flushed_lsn: Vec<u64>) -> anyhow::Result<Self> {
+    pub fn new(journals: Vec<JournalFrontier>, flushed_lsn: Vec<u64>) -> Result<Self, Error> {
         let flushed_lsn = flushed_lsn.into_iter().map(log::Lsn::from_u64).collect();
 
         for (index, window) in journals.windows(2).enumerate() {
@@ -250,20 +312,22 @@ impl Frontier {
                 .then(prev.binding.cmp(&curr.binding))
             {
                 std::cmp::Ordering::Less => {}
-                std::cmp::Ordering::Equal => anyhow::bail!(
-                    "JournalFrontier is not unique on (journal, binding) at index {}: ({}, {})",
-                    index + 1,
-                    curr.journal,
-                    curr.binding,
-                ),
-                std::cmp::Ordering::Greater => anyhow::bail!(
-                    "JournalFrontier is not ordered on (journal, binding) at index {}: ({}, {}) follows ({}, {})",
-                    index + 1,
-                    curr.journal,
-                    curr.binding,
-                    prev.journal,
-                    prev.binding,
-                ),
+                std::cmp::Ordering::Equal => {
+                    return Err(Error::JournalDuplicate {
+                        index: index + 1,
+                        journal: curr.journal.to_string(),
+                        binding: curr.binding,
+                    });
+                }
+                std::cmp::Ordering::Greater => {
+                    return Err(Error::JournalOutOfOrder {
+                        index: index + 1,
+                        prev_journal: prev.journal.to_string(),
+                        prev_binding: prev.binding,
+                        curr_journal: curr.journal.to_string(),
+                        curr_binding: curr.binding,
+                    });
+                }
             }
         }
         for jf in &journals {
@@ -271,24 +335,28 @@ impl Frontier {
                 let (prev, curr) = (&window[0], &window[1]);
                 match prev.producer.cmp(&curr.producer) {
                     std::cmp::Ordering::Less => {}
-                    std::cmp::Ordering::Equal => anyhow::bail!(
-                        "ProducerFrontier is not unique on producer at index {} in ({}, {})",
-                        index + 1,
-                        jf.binding,
-                        jf.journal,
-                    ),
-                    std::cmp::Ordering::Greater => anyhow::bail!(
-                        "ProducerFrontier is not ordered on producer at index {} in ({}, {})",
-                        index + 1,
-                        jf.binding,
-                        jf.journal,
-                    ),
+                    std::cmp::Ordering::Equal => {
+                        return Err(Error::ProducerDuplicate {
+                            index: index + 1,
+                            journal: jf.journal.to_string(),
+                            binding: jf.binding,
+                        });
+                    }
+                    std::cmp::Ordering::Greater => {
+                        return Err(Error::ProducerOutOfOrder {
+                            index: index + 1,
+                            journal: jf.journal.to_string(),
+                            binding: jf.binding,
+                        });
+                    }
                 }
             }
         }
+        let unresolved_hints = count_unresolved_hints(&journals);
         Ok(Self {
             journals,
             flushed_lsn,
+            unresolved_hints,
         })
     }
 
@@ -364,9 +432,12 @@ impl Frontier {
         }
         merged.shrink_to_fit();
 
+        // Max-merging can either create or eliminate unresolved-ness, so recompute.
+        let unresolved_hints = count_unresolved_hints(&merged);
         Self {
             journals: merged,
             flushed_lsn,
+            unresolved_hints,
         }
     }
 
@@ -383,27 +454,21 @@ impl Frontier {
             .map(|i| &mut self.journals[i])
     }
 
-    /// Resolve causal hints in `self` using progress from `progressed`.
-    ///
-    /// For each producer in `self` where `hinted_commit > last_commit`,
-    /// if `progressed` contains a matching `(journal, binding, producer)`
-    /// with `last_commit >= hinted_commit`, set this producer's `last_commit`
-    /// to `hinted_commit` (capped, not the full progressed last_commit).
+    /// Advance `last_commit` on producers of `self` up to each one's
+    /// `hinted_commit` using progress from `other`.
     ///
     /// Uses an ordered merge on `(journal, binding)` then `producer`,
     /// matching the sorted invariants of both frontiers.
     ///
-    /// Returns the number of producers that were resolved.
-    ///
-    /// Liveness: unresolved hints always eventually resolve because a producer's
-    /// write-ahead log guarantees that if any journal in a transaction receives an ACK,
-    /// all journals in that transaction will eventually receive their ACKs as well.
-    /// If the producer WAL commit fails, no ACKs are written to any journal,
-    /// so unresolved hints for failed transactions never appear.
-    pub fn resolve_hints(&mut self, progressed: &Frontier) -> usize {
+    /// Returns `(advanced, resolved)`:
+    /// - `advanced`: producers whose `last_commit` advanced by any amount.
+    /// - `resolved`: producers whose `last_commit` reached `hinted_commit`
+    ///   (a subset of `advanced`).
+    pub fn resolve_hints(&mut self, other: &Frontier) -> (usize, usize) {
+        let mut advanced = 0usize;
         let mut resolved = 0usize;
         let mut lhs = self.journals.iter_mut().peekable();
-        let mut rhs = progressed.journals.iter().peekable();
+        let mut rhs = other.journals.iter().peekable();
 
         loop {
             let ord = match (lhs.peek(), rhs.peek()) {
@@ -424,28 +489,24 @@ impl Frontier {
                 std::cmp::Ordering::Equal => {
                     let lhs = lhs.next().unwrap();
                     let rhs = rhs.next().unwrap();
-                    resolved += lhs.resolve_hints(rhs);
+                    let (a, r) = lhs.resolve_hints(rhs);
+                    advanced += a;
+                    resolved += r;
                 }
             }
         }
 
-        resolved
-    }
-
-    /// Count producers with unresolved causal hints (`hinted_commit > last_commit`).
-    pub fn count_unresolved_hints(&self) -> usize {
-        self.journals
-            .iter()
-            .flat_map(|jf| &jf.producers)
-            .filter(|p| p.hinted_commit > p.last_commit)
-            .count()
+        // `resolved` is exact: each producer is visited at most once per ordered-merge
+        // walk and counted only when transitioning across `hinted_commit`.
+        self.unresolved_hints -= resolved;
+        (advanced, resolved)
     }
 
     /// Extract producers with unresolved causal hints (`hinted_commit > last_commit`)
     /// into a new Frontier, filtering out journals that have no such producers.
     /// Used at startup to project read-through state from `resume_checkpoint`.
     pub fn project_unresolved_hints(&self) -> Frontier {
-        let journals = self
+        let journals: Vec<JournalFrontier> = self
             .journals
             .iter()
             .filter_map(|jf| {
@@ -470,11 +531,22 @@ impl Frontier {
             })
             .collect();
 
+        let unresolved_hints = count_unresolved_hints(&journals);
         Frontier {
             journals,
             flushed_lsn: vec![],
+            unresolved_hints,
         }
     }
+}
+
+/// Walk a journal list and count producers with `hinted_commit > last_commit`.
+fn count_unresolved_hints(journals: &[JournalFrontier]) -> usize {
+    journals
+        .iter()
+        .flat_map(|jf| &jf.producers)
+        .filter(|p| p.hinted_commit > p.last_commit)
+        .count()
 }
 
 /// Drains a `Frontier` as a sequence of chunked `FrontierChunk` messages.
@@ -614,6 +686,7 @@ mod test {
                 ),
             ],
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(3)],
+            unresolved_hints: 0,
         };
         let hints = Frontier {
             journals: vec![
@@ -621,6 +694,7 @@ mod test {
                 jf("journal/C", 1, vec![pf(0x03, 0, 300, 0)]),
             ],
             flushed_lsn: vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(30)],
+            unresolved_hints: 2,
         };
         let r = reads.reduce(hints);
 
@@ -690,6 +764,7 @@ mod test {
         let f = Frontier {
             journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(20)],
+            unresolved_hints: 0,
         };
         let r = f.clone().reduce(Frontier::default());
         assert_eq!(r.journals.len(), 1);
@@ -929,6 +1004,7 @@ mod test {
                 ),
             ],
             flushed_lsn: vec![],
+            unresolved_hints: 2,
         };
 
         // Progressed: journal/A has P1 with last_commit=250 (matches hint @200),
@@ -939,38 +1015,50 @@ mod test {
                 jf("journal/B", 0, vec![pf(0x03, 250, 0, -600)]),
             ],
             flushed_lsn: vec![],
+            unresolved_hints: 0,
         };
 
-        let resolved = pending.resolve_hints(&progressed);
-        // Only P1 in journal/A resolved (progressed 250 >= hinted 200).
-        // P3 in journal/B not resolved (progressed 250 < hinted 300).
-        assert_eq!(resolved, 1);
+        let (advanced, resolved) = pending.resolve_hints(&progressed);
+        // P1 in journal/A: fully resolved (progressed 250 >= hinted 200).
+        // P3 in journal/B: partially advanced (last_commit 0 → 250) but not
+        // resolved (still < hinted 300). Both count as "advanced".
+        assert_eq!((advanced, resolved), (2, 1));
 
-        // P1's last_commit is set to hinted_commit (200s), not progressed (250s).
+        // P1's last_commit is set to hinted_commit (200s), capping at hint.
         assert_eq!(
             pending.journals[0].producers[0].last_commit.to_unix().0,
             200
         );
-        // P3 unchanged.
-        assert_eq!(pending.journals[1].producers[0].last_commit.to_unix().0, 0);
+        // P3 partially advanced to progressed.last_commit (250s), still under hint (300s).
+        assert_eq!(
+            pending.journals[1].producers[0].last_commit.to_unix().0,
+            250
+        );
 
-        // Second round: P3 now has enough progress.
+        // Offsets are NOT updated by resolve_hints (overshoot risk on capped
+        // resolution). The original P1 offset (-100) is preserved — the
+        // eventual reduce() with progressed picks the max absolute offset.
+        assert_eq!(pending.journals[0].producers[0].offset, -100);
+        assert_eq!(pending.journals[1].producers[0].offset, 0);
+
+        // Second round: P3 now has enough progress to fully resolve.
         let progressed2 = Frontier {
             journals: vec![jf("journal/B", 0, vec![pf(0x03, 400, 0, -900)])],
             flushed_lsn: vec![],
+            unresolved_hints: 0,
         };
-        let resolved2 = pending.resolve_hints(&progressed2);
-        assert_eq!(resolved2, 1);
+        let (advanced2, resolved2) = pending.resolve_hints(&progressed2);
+        assert_eq!((advanced2, resolved2), (1, 1));
         assert_eq!(
             pending.journals[1].producers[0].last_commit.to_unix().0,
             300
         );
 
         // Empty progressed resolves nothing.
-        assert_eq!(pending.resolve_hints(&Frontier::default()), 0);
+        assert_eq!(pending.resolve_hints(&Frontier::default()), (0, 0));
 
         // Empty pending resolves nothing.
-        assert_eq!(Frontier::default().resolve_hints(&progressed), 0);
+        assert_eq!(Frontier::default().resolve_hints(&progressed), (0, 0));
     }
 
     #[test]
@@ -980,18 +1068,20 @@ mod test {
         let mut pending = Frontier {
             journals: vec![jf("journal/X", 1, vec![pf(0x01, 0, 100, 0)])],
             flushed_lsn: vec![],
+            unresolved_hints: 1,
         };
         let progressed = Frontier {
             journals: vec![jf("journal/X", 0, vec![pf(0x01, 200, 0, -500)])],
             flushed_lsn: vec![],
+            unresolved_hints: 0,
         };
-        assert_eq!(pending.resolve_hints(&progressed), 0);
+        assert_eq!(pending.resolve_hints(&progressed), (0, 0));
     }
 
     #[test]
-    fn test_count_unresolved_hints() {
-        let f = Frontier {
-            journals: vec![
+    fn test_unresolved_hints_count() {
+        let f = Frontier::new(
+            vec![
                 jf(
                     "journal/A",
                     0,
@@ -1009,10 +1099,11 @@ mod test {
                 ),
                 jf("journal/C", 1, vec![pf(0x07, 100, 0, -200)]), // no hint
             ],
-            flushed_lsn: vec![],
-        };
-        assert_eq!(f.count_unresolved_hints(), 2);
-        assert_eq!(Frontier::default().count_unresolved_hints(), 0);
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(f.unresolved_hints, 2);
+        assert_eq!(Frontier::default().unresolved_hints, 0);
     }
 
     #[test]
@@ -1031,6 +1122,7 @@ mod test {
                 jf("journal/C", 1, vec![pf(0x07, 0, 300, 0)]),    // unresolved
             ],
             flushed_lsn: vec![],
+            unresolved_hints: 2,
         };
 
         let projected = f.project_unresolved_hints();
@@ -1071,6 +1163,7 @@ mod test {
         let no_hints = Frontier {
             journals: vec![jf("journal/A", 0, vec![pf(0x01, 100, 0, -200)])],
             flushed_lsn: vec![],
+            unresolved_hints: 0,
         };
         assert!(no_hints.project_unresolved_hints().journals.is_empty());
 
@@ -1111,6 +1204,7 @@ mod test {
             drain.start(Frontier {
                 journals: all_journals[..n].to_vec(),
                 flushed_lsn: vec![],
+                unresolved_hints: 0,
             });
             assert_eq!(
                 drain_all(&mut drain),
@@ -1135,6 +1229,7 @@ mod test {
             drain.start(Frontier {
                 journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
                 flushed_lsn: vec![],
+                unresolved_hints: 0,
             });
             assert_eq!(drain_all(&mut drain), [1, 0]);
         }
@@ -1147,6 +1242,7 @@ mod test {
         drain.start(Frontier {
             journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
             flushed_lsn: vec![],
+            unresolved_hints: 0,
         });
         drain.start(Frontier::default());
     }

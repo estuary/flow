@@ -33,7 +33,7 @@ where
         );
     }
     let task = task.context("Open must include task")?;
-    let (task_name, bindings, validators, disk_backlog_threshold) =
+    let (shard_prefix, bindings, validators, disk_backlog_threshold) =
         crate::Binding::from_task(&task)?;
 
     tracing::info!(
@@ -87,11 +87,11 @@ where
         .iter()
         .map(|binding| {
             let service = service.clone();
-            let collection = binding.collection.clone();
-            let task_name = task_name.clone();
+            let shard_prefix = shard_prefix.clone();
+            let partition_prefix = binding.partition_prefix.clone().into();
 
             LazyJournalClient::new(Box::new(move || {
-                (service.journal_client_factory)(collection, task_name)
+                (service.journal_client_factory)(shard_prefix, partition_prefix)
             }))
         })
         .collect();
@@ -102,7 +102,7 @@ where
         session_id,
         shards,
         slice_shard_index,
-        task_name,
+        shard_prefix,
         bindings,
         journal_clients,
         hint_index,
