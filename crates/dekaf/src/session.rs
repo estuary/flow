@@ -2509,7 +2509,7 @@ impl Session {
                     if e.downcast_ref::<gazette::Error>().map_or(false, |err| {
                         matches!(
                             err,
-                            gazette::Error::BrokerStatus(gazette::broker::Status::Suspended { .. })
+                            gazette::Error::BrokerStatus(gazette::broker::Status::Suspended)
                         )
                     }) =>
                 {

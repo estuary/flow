@@ -180,6 +180,7 @@ impl Appender {
                     Some(Err(gazette::RetryError {
                         attempt,
                         inner: err,
+                        ..
                     })) => {
                         if err.is_transient() {
                             tracing::warn!(?attempt, %err, "append failed (will retry)");

@@ -182,6 +182,7 @@ mod test {
         super::super::read::ReadState {
             binding_index: binding,
             journal: journal.into(),
+            min_etcd_revision: 0,
             settled: ProducerMap::default(),
             pending: map,
             read_offset,

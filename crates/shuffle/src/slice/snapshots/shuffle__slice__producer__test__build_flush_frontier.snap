@@ -1,5 +1,6 @@
 ---
 source: crates/shuffle/src/slice/producer.rs
+assertion_line: 334
 expression: snap
 ---
 [
@@ -58,6 +59,7 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/B",
+                min_etcd_revision: 0,
                 settled: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
@@ -74,6 +76,7 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/A",
+                min_etcd_revision: 0,
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -90,6 +93,7 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/C",
+                min_etcd_revision: 0,
                 settled: {},
                 pending: {},
                 read_offset: 123,
@@ -169,6 +173,7 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/A",
+                min_etcd_revision: 0,
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -185,6 +190,7 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/B",
+                min_etcd_revision: 0,
                 settled: {},
                 pending: {},
                 read_offset: 0,
@@ -257,6 +263,7 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/A",
+                min_etcd_revision: 0,
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -273,6 +280,7 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/B",
+                min_etcd_revision: 0,
                 settled: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
@@ -350,6 +358,7 @@ expression: snap
             ReadState {
                 binding_index: 2,
                 journal: "journal/X",
+                min_etcd_revision: 0,
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -366,6 +375,7 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/X",
+                min_etcd_revision: 0,
                 settled: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),
@@ -437,6 +447,7 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/A",
+                min_etcd_revision: 0,
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),

@@ -221,6 +221,7 @@ impl Reader {
                     Err(gazette::RetryError {
                         attempt,
                         inner: err,
+                        ..
                     }) if err.is_transient() => {
                         tracing::warn!(?err, %attempt, %journal, %binding, "transient error reading journal (will retry)");
                         continue;

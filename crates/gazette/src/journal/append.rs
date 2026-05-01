@@ -37,7 +37,11 @@ impl Client {
                 }
 
                 // Surface error to the caller, who can either drop to cancel or poll to retry.
-                () = co.yield_(Err(err.with_attempt(attempt))).await;
+                () = co
+                    .yield_(Err(err
+                        .with_attempt(attempt)
+                        .with_etcd_revision_from(req.header.as_ref())))
+                    .await;
                 () = tokio::time::sleep(crate::backoff(attempt)).await;
                 attempt += 1;
 

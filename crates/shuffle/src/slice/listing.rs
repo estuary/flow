@@ -88,6 +88,7 @@ pub fn spawn_listing(
                 Some(Err(gazette::RetryError {
                     attempt,
                     inner: err,
+                    ..
                 })) => {
                     if err.is_transient() {
                         tracing::warn!(

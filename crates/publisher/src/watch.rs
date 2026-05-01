@@ -37,6 +37,7 @@ pub fn watch_partitions(
             Err(gazette::RetryError {
                 attempt,
                 inner: err,
+                ..
             }) => {
                 if err.is_transient() {
                     tracing::warn!(attempt, %err, "partition listing watch failed (will retry)");

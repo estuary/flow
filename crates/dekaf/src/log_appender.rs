@@ -207,7 +207,9 @@ impl GazetteAppender {
         loop {
             match resp.try_next().await {
                 Ok(_) => return Ok(()),
-                Err(RetryError { attempt, ref inner }) if inner.is_transient() => {
+                Err(RetryError {
+                    attempt, ref inner, ..
+                }) if inner.is_transient() => {
                     tracing::warn!(
                         ?attempt,
                         ?inner,

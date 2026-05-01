@@ -270,7 +270,7 @@ impl SliceActor {
         let shuffle::slice_request::StartRead {
             binding: binding_index,
             spec,
-            create_revision: _,
+            create_revision,
             mod_revision: _,
             route,
             checkpoint,
@@ -322,6 +322,7 @@ impl SliceActor {
         self.reads.push(ReadState {
             binding_index: binding_index as u16,
             journal,
+            min_etcd_revision: create_revision,
             settled: producers,
             pending: Default::default(),
             read_offset: offset,
@@ -337,6 +338,7 @@ impl SliceActor {
                 &request.journal,
                 &binding_state_key,
                 request.header.take(),
+                create_revision,
             )
             .await?;
 
@@ -399,7 +401,25 @@ impl SliceActor {
             Err(gazette::RetryError {
                 attempt,
                 inner: err,
+                broker_etcd_revision,
             }) => match err {
+                gazette::Error::BrokerStatus(broker::Status::JournalNotFound)
+                    if broker_etcd_revision
+                        .is_some_and(|r| r < read_state.min_etcd_revision) =>
+                {
+                    // Broker hasn't yet observed the journal at the Etcd
+                    // revision where we know it exists. Treat as transient.
+                    tracing::warn!(
+                        binding = %binding.state_key(),
+                        journal = %read.fragment().journal,
+                        attempt,
+                        broker_etcd_revision = broker_etcd_revision.unwrap(),
+                        min_etcd_revision = read_state.min_etcd_revision,
+                        "broker has not yet observed journal at its Etcd revision (will retry)"
+                    );
+                    self.pending_reads.push(read.into_future());
+                    return Ok(());
+                }
                 gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
                     tracing::info!(
                         binding = binding.state_key(),

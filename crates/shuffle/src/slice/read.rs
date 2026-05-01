@@ -14,6 +14,9 @@ pub struct ReadState {
     pub binding_index: u16,
     /// The journal name (canonical, without the `;suffix` read metadata).
     pub journal: Box<str>,
+    /// Etcd create_revision of the JournalSpec — the revision at which we
+    /// know the journal began to exist.
+    pub min_etcd_revision: i64,
     /// Producers whose state is settled: either from the initial checkpoint
     /// or drained from `pending` at the start of a flush cycle.
     pub settled: ProducerMap<ProducerState>,
@@ -116,6 +119,7 @@ pub async fn probe_write_head(
     journal: &str,
     binding_state_key: &str,
     header: Option<broker::Header>,
+    min_etcd_revision: i64,
 ) -> anyhow::Result<(i64, Option<broker::Header>)> {
     use futures::StreamExt;
 
@@ -139,6 +143,7 @@ pub async fn probe_write_head(
             Some(Err(gazette::RetryError {
                 attempt,
                 inner: err,
+                broker_etcd_revision,
             })) => {
                 if err.is_transient() {
                     tracing::warn!(
@@ -147,6 +152,20 @@ pub async fn probe_write_head(
                         attempt,
                         %err,
                         "transient error probing journal write head (will retry)"
+                    );
+                } else if matches!(
+                    err,
+                    gazette::Error::BrokerStatus(broker::Status::JournalNotFound)
+                ) && let Some(etcd_revision) = broker_etcd_revision
+                    && etcd_revision < min_etcd_revision
+                {
+                    tracing::warn!(
+                        binding = %binding_state_key,
+                        %journal,
+                        attempt,
+                        broker_etcd_revision = etcd_revision,
+                        min_etcd_revision,
+                        "broker has not yet observed journal at its Etcd revision (will retry)"
                     );
                 } else {
                     return Err(map_read_error(

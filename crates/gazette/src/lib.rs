@@ -52,6 +52,8 @@ pub struct RetryError {
     pub attempt: usize,
     /// Error encountered with this attempt.
     pub inner: Error,
+    /// Etcd revision observed by the broker at the time of its response, when known.
+    pub broker_etcd_revision: Option<i64>,
 }
 
 impl Error {
@@ -59,6 +61,7 @@ impl Error {
         RetryError {
             attempt,
             inner: self,
+            broker_etcd_revision: None,
         }
     }
 
@@ -125,6 +128,16 @@ impl Error {
             Error::ReadLines { .. } => false,
             Error::UUID(_) => false,
         }
+    }
+}
+
+impl RetryError {
+    /// Extract the broker's Etcd revision from a response header and attach it
+    /// to this retry error. Leaves `broker_etcd_revision` as None when the
+    /// header is absent (e.g. transport-level errors with no broker response).
+    pub fn with_etcd_revision_from(mut self, header: Option<&broker::Header>) -> Self {
+        self.broker_etcd_revision = header.and_then(|h| h.etcd.as_ref()).map(|e| e.revision);
+        self
     }
 }
 

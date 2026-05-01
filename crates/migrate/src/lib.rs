@@ -427,6 +427,7 @@ async fn apply_journal_suspension<'a>(
                     Err(gazette::RetryError {
                         attempt,
                         inner: err,
+                        ..
                     }) if attempt < 5 && err.is_transient() => {
                         tracing::warn!(attempt, ?err, "failed to suspend journal (will retry)");
                     }

@@ -21,7 +21,7 @@ where
         Ok(response) => std::future::ready(Some(Ok(response))),
 
         // Caller provides handling for transient errors.
-        Err(gazette::RetryError { attempt, inner }) if inner.is_transient() => {
+        Err(gazette::RetryError { attempt, inner, .. }) if inner.is_transient() => {
             if attempt == 0 {
                 return std::future::ready(None); // Always suppress first attempt.
             } else {
@@ -35,12 +35,16 @@ where
         Err(gazette::RetryError {
             attempt: _,
             inner: gazette::Error::Grpc(status),
+            ..
         }) => std::future::ready(Some(Err(status))),
 
         // Wrap other errors as unknown gRPC errors.
-        Err(gazette::RetryError { attempt: _, inner }) => std::future::ready(Some(Err(
-            tonic::Status::unknown(format!("{:?}", anyhow::anyhow!(inner))),
-        ))),
+        Err(gazette::RetryError {
+            attempt: _, inner, ..
+        }) => std::future::ready(Some(Err(tonic::Status::unknown(format!(
+            "{:?}",
+            anyhow::anyhow!(inner)
+        ))))),
     })
 }
 

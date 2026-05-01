@@ -148,6 +148,7 @@ pub async fn read_collection_journal(
             Err(gazette::RetryError {
                 inner: err,
                 attempt,
+                ..
             }) => match err {
                 err if err.is_transient() => {
                     tracing::warn!(?err, %attempt, "error reading collection (will retry)");

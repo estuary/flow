@@ -654,6 +654,7 @@ mod test {
         s.reads.push(ReadState {
             binding_index: 0,
             journal: "test/journal/A".into(),
+            min_etcd_revision: 0,
             settled: producers,
             pending: Default::default(),
             read_offset: 0,
@@ -708,6 +709,7 @@ mod test {
         s.reads.push(ReadState {
             binding_index: 0,
             journal: "test/journal/A".into(),
+            min_etcd_revision: 0,
             settled: producers,
             pending: Default::default(),
             read_offset: 0,
@@ -866,6 +868,7 @@ mod test {
         s.reads.push(ReadState {
             binding_index: 0,
             journal: "test/journal/A".into(),
+            min_etcd_revision: 0,
             settled: producers,
             pending: Default::default(),
             read_offset: 0,

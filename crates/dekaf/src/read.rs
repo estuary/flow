@@ -285,7 +285,7 @@ impl Read {
                             continue;
                         }
                     },
-                    Err(gazette::RetryError { attempt, inner })
+                    Err(gazette::RetryError { attempt, inner, .. })
                         if inner.is_transient() && attempt < 5 =>
                     {
                         tracing::warn!(error = ?inner, "Retrying transient read error");
@@ -295,6 +295,7 @@ impl Read {
                     Err(gazette::RetryError {
                         attempt,
                         inner: err @ gazette::Error::Parsing { .. },
+                        ..
                     }) => {
                         if attempt == 0 {
                             tracing::debug!(%err, "Ignoring first parse error to skip past partial document");
