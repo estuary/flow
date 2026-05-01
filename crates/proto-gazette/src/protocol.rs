@@ -375,6 +375,11 @@ pub struct ReadRequest {
     /// to skip persisted Fragments having a modication time before the bound.
     #[prost(int64, tag = "8")]
     pub begin_mod_time: i64,
+    /// Minimum Etcd revision the broker must have read through before resolving
+    /// the request. If the broker is behind, it waits for its KeySpace to catch
+    /// up.
+    #[prost(int64, tag = "9")]
+    pub min_etcd_revision: i64,
 }
 /// ReadResponse is the streamed response message of the broker Read RPC.
 /// Responses messages are of two types:
@@ -493,6 +498,11 @@ pub struct AppendRequest {
     pub subtract_registers: ::core::option::Option<LabelSet>,
     #[prost(enumeration = "append_request::Suspend", tag = "9")]
     pub suspend: i32,
+    /// Minimum Etcd revision the broker must have read through before resolving
+    /// the request. If the broker is behind, it waits for its KeySpace to catch
+    /// up.
+    #[prost(int64, tag = "10")]
+    pub min_etcd_revision: i64,
     /// Content chunks to be appended. Immediately prior to closing the stream,
     /// the client must send an empty chunk (eg, zero-valued AppendRequest) to
     /// indicate the Append should be committed. Absence of this empty chunk
