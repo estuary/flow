@@ -174,7 +174,7 @@ impl UncommittedBuild {
     }
 
     pub fn errors(&self) -> impl Iterator<Item = &tables::Error> {
-        self.output.errors()
+        self.output.errors().chain(self.test_errors.iter())
     }
 
     pub fn build_failed(self) -> PublicationResult {
@@ -757,7 +757,12 @@ mod test {
             .collect(),
             retry_count: 0,
         };
+
+        assert_eq!(1, build.errors().count());
+        assert!(build.has_errors());
+
         let result = build.build_failed();
         assert_eq!(StatusType::TestFailed, result.status.r#type);
+        assert_eq!(1, result.test_errors.len());
     }
 }
