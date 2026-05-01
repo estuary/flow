@@ -211,6 +211,11 @@ pub async fn test_catalog(
     let consumer_socket_path = tmpdir.join("consumer.sock");
     let consumer_sock = format!("unix://localhost{}", consumer_socket_path.display());
 
+    // The temp-data-plane is started concurrently and the unix sockets do not
+    // exist until gazette and the consumer have begun listening. Waiting for
+    // the socket files prevents an immediate ENOENT on the first gRPC dial.
+    wait_for_sockets(&[&broker_socket_path, &consumer_socket_path]).await?;
+
     let build_id = format!("{build_id}");
 
     // Activate all derivations.
@@ -331,6 +336,16 @@ pub async fn test_catalog(
     }
 
     Ok(errors)
+}
+
+async fn wait_for_sockets(paths: &[&path::Path]) -> anyhow::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while !paths.iter().all(|p| p.exists()) {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .with_context(|| format!("timed out waiting for temp-data-plane sockets {paths:?}"))
 }
 
 /*
