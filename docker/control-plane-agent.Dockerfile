@@ -35,7 +35,12 @@ ARG TARGETARCH
 COPY ${TARGETARCH}/agent /usr/local/bin/
 COPY ${TARGETARCH}/sops /usr/local/bin/
 COPY ${TARGETARCH}/flowctl-go /usr/local/bin/
+COPY ${TARGETARCH}/gazette /usr/local/bin/
+COPY ${TARGETARCH}/etcd /usr/local/bin/
 COPY ${TARGETARCH}/agent-api-entrypoint.sh /usr/local/bin/
+RUN command -v flowctl-go \
+    && command -v gazette \
+    && command -v etcd
 
 CMD [ "/usr/local/bin/agent-api-entrypoint.sh" ]
 WORKDIR /tmp
