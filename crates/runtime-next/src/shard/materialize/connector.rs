@@ -1,4 +1,3 @@
-use crate::{LogHandler, Runtime};
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, TryStreamExt, channel::mpsc, stream::BoxStream};
 use proto_flow::{
@@ -8,32 +7,20 @@ use proto_flow::{
 use unseal;
 use zeroize::Zeroize;
 
-/// Ancillary data extracted during connector start for Open requests.
-pub struct OpenExtras {
-    /// The OCI image name of the connector (empty for non-image connectors).
-    pub connector_image: String,
-}
-
 // Start a materialization connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses,
 // plus OpenExtras with decrypted trigger configs and connector metadata.
-pub async fn start<L: LogHandler>(
-    runtime: &Runtime<L>,
+pub async fn start<L: crate::LogHandler>(
+    service: &crate::shard::Service<L>,
     mut initial: Request,
 ) -> anyhow::Result<(
     mpsc::Sender<Request>,
     BoxStream<'static, tonic::Result<Response>>,
-    OpenExtras,
+    Option<crate::proto::Container>,
 )> {
     let log_level = initial.get_internal()?.log_level();
     let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
     let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
-
-    fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
-        response.set_internal(|internal| {
-            internal.container = Some(container);
-        });
-    }
 
     fn start_rpc(
         channel: tonic::transport::Channel,
@@ -49,33 +36,30 @@ pub async fn start<L: LogHandler>(
         .boxed()
     }
 
-    let (mut connector_rx, connector_image) = match endpoint {
+    let (mut connector_rx, container) = match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
         }) => {
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
-            let rx = crate::image_connector::serve(
-                attach_container,
-                1, // Skip first (internal) Spec response.
+            let (rx, container) = crate::image_connector::serve(
                 image.clone(),
-                runtime.log_handler.clone(),
+                service.log_handler.clone(),
                 log_level,
-                &runtime.container_network,
+                &service.container_network,
                 connector_rx,
                 start_rpc,
-                &runtime.task_name,
+                &service.task_name,
                 ops::TaskType::Materialization,
-                runtime.plane,
+                service.plane,
             )
-            .await?
-            .boxed();
+            .await?;
 
-            (rx, image)
+            (rx.boxed(), Some(container))
         }
         models::MaterializationEndpoint::Local(_)
-            if !matches!(runtime.plane, crate::Plane::Local) =>
+            if !matches!(service.plane, crate::Plane::Local) =>
         {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
@@ -93,21 +77,21 @@ pub async fn start<L: LogHandler>(
             let rx = crate::local_connector::serve(
                 command,
                 env,
-                runtime.log_handler.clone(),
+                service.log_handler.clone(),
                 log_level,
                 protobuf,
                 connector_rx,
             )?
             .boxed();
 
-            (rx, String::new())
+            (rx, None)
         }
         models::MaterializationEndpoint::Dekaf(_) => {
             let rx = dekaf_connector::connector(connector_rx)
                 .map_err(crate::anyhow_to_status)
                 .boxed();
 
-            (rx, String::new())
+            (rx, None)
         }
     };
 
@@ -122,7 +106,7 @@ pub async fn start<L: LogHandler>(
         })
         .unwrap();
 
-    let verify = crate::verify("Materialize", "spec response", "connector", 0);
+    let verify = crate::verify("Materialize", "spec response", "connector");
     let spec_response = match verify.not_eof(connector_rx.next().await)? {
         Response { spec: Some(r), .. } => r,
         response => return Err(verify.fail_msg(response)),
@@ -144,11 +128,9 @@ pub async fn start<L: LogHandler>(
         }
     }
 
-    let open_extras = OpenExtras { connector_image };
-
     connector_tx.try_send(initial).unwrap();
 
-    Ok((connector_tx, connector_rx, open_extras))
+    Ok((connector_tx, connector_rx, container))
 }
 
 fn extract_endpoint<'r>(
@@ -195,8 +177,7 @@ fn extract_endpoint<'r>(
         }
         request => {
             return Err(
-                crate::verify("Materialize", "valid first request", "controller", 0)
-                    .fail_msg(request),
+                crate::verify("Materialize", "valid first request", "controller").fail_msg(request),
             );
         }
     };

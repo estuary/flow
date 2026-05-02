@@ -67,7 +67,7 @@ pub(super) async fn run(
     }
 
     // Receive L:Task from shard zero.
-    let verify = crate::verify("Materialize", "Open", &peers[0], 0);
+    let verify = crate::verify("Materialize", "Open", &peers[0]);
     let task = match verify.not_eof(shard_rx[0].next().await)? {
         proto::Materialize {
             task: Some(task), ..
@@ -106,34 +106,29 @@ pub(super) async fn run(
     };
 
     // Receive Recover fan-in.
-    let (recovers, hinted_frontiers, committed_frontiers) = recv_recovers(shard_rx, &task.peers)
-        .await
-        .context("receiving Recover fan-in")?;
-
     let proto::Recover {
         ack_intents: mut pending_ack_intents,
         committed_close_clock: committed_close,
-        committed_frontier: _,
+        committed_frontier,
         mut connector_state_json,
         hinted_close_clock: hinted_close,
-        hinted_frontier: _,
+        hinted_frontier,
         last_applied,
         legacy_checkpoint,
         max_keys,
         trigger_params_json: pending_trigger_params,
-    } = reduce_recovers(&task.peers, recovers).context("reducing Recover fan-in")?;
+    } = recv_recovers(shard_rx, &task.peers)
+        .await
+        .context("receiving Recover fan-in")?;
 
     let mut committed_close = uuid::Clock::from_u64(committed_close);
     let hinted_close = uuid::Clock::from_u64(hinted_close);
     let legacy_checkpoint = legacy_checkpoint.unwrap_or_default();
 
-    // Reduce per-shard hinted/committed Frontiers across all shards.
-    let mut hinted_frontier = hinted_frontiers
-        .into_iter()
-        .fold(shuffle::Frontier::default(), shuffle::Frontier::reduce);
-    let mut committed_frontier = committed_frontiers
-        .into_iter()
-        .fold(shuffle::Frontier::default(), shuffle::Frontier::reduce);
+    let mut hinted_frontier = shuffle::Frontier::decode(hinted_frontier.unwrap_or_default())
+        .context("validating hinted Frontier")?;
+    let mut committed_frontier = shuffle::Frontier::decode(committed_frontier.unwrap_or_default())
+        .context("validating committed Frontier")?;
 
     tracing::debug!(
         ?committed_close,
@@ -161,25 +156,26 @@ pub(super) async fn run(
     .await?;
 
     // Open connectors across all shards.
-    () = broadcast_open(
-        &shard_tx,
-        &shard_shuffles,
-        &spec_bytes,
-        &task.shard_ref.build,
-        &connector_state_json,
-        &max_keys,
-    )
-    .await;
+    for (tx, shard) in shard_tx.iter().zip(shard_shuffles.iter()) {
+        let _ = tx.send(Ok(proto::Materialize {
+            open: Some(proto::Open {
+                spec: spec_bytes.clone(),
+                version: task.shard_ref.build.clone(),
+                range: shard.range.clone(),
+                connector_state_json: connector_state_json.clone(),
+                max_keys: max_keys.clone(),
+            }),
+            ..Default::default()
+        }));
+    }
 
     // Receive Opened fan-in.
-    let openeds = recv_opened(shard_rx, &task.peers)
-        .await
-        .context("receiving Opened fan-in")?;
-
     let proto::materialize::Opened {
         container: _, // Not sent to leader.
         connector_checkpoint,
-    } = reduce_opened(&task.peers, openeds).context("reducing Opened fan-in")?;
+    } = recv_opened(shard_rx, &task.peers)
+        .await
+        .context("receiving Opened fan-in")?;
     let connector_checkpoint = connector_checkpoint.unwrap_or_default();
 
     // Build sorted index on journal_read_suffix => binding index, for frontier mapping.
@@ -309,160 +305,24 @@ pub(super) async fn run(
 async fn recv_recovers(
     request_rxs: &mut [BoxStream<'static, tonic::Result<proto::Materialize>>],
     peers: &[String],
-) -> anyhow::Result<(
-    Vec<(usize, proto::Recover)>,
-    Vec<shuffle::Frontier>,
-    Vec<shuffle::Frontier>,
-)> {
-    let per_shard: Vec<(Vec<proto::Recover>, shuffle::Frontier, shuffle::Frontier)> =
-        futures::future::try_join_all(request_rxs.into_iter().enumerate().map(
-            |(shard_index, rx)| async move {
-                let verify =
-                    crate::verify("Materialize", "Recover", &peers[shard_index], shard_index);
-                let mut recover = match verify.not_eof(rx.next().await)? {
-                    proto::Materialize {
-                        recover: Some(recover),
-                        ..
-                    } => recover,
-                    other => return Err(verify.fail_msg(other)),
-                };
-                if shard_index != 0 && recover != proto::Recover::default() {
-                    anyhow::bail!(
-                        "non-zero shard {} (index {shard_index}) sent non-empty Recover: {recover:?}",
-                        peers[shard_index],
-                    );
-                }
-                let hinted_journals = recover
-                    .hinted_frontier
-                    .take()
-                    .into_iter()
-                    .flat_map(shuffle::JournalFrontier::decode)
-                    .collect();
-                let committed_journals = recover
-                    .committed_frontier
-                    .take()
-                    .into_iter()
-                    .flat_map(shuffle::JournalFrontier::decode)
-                    .collect();
-                let hinted = shuffle::Frontier::new(hinted_journals, vec![]).with_context(|| {
-                    format!(
-                        "validating hinted Frontier from {}@{shard_index}",
-                        peers[shard_index],
-                    )
-                })?;
-                let committed =
-                    shuffle::Frontier::new(committed_journals, vec![]).with_context(|| {
-                        format!(
-                            "validating committed Frontier from {}@{shard_index}",
-                            peers[shard_index],
-                        )
-                    })?;
-                let recovers = if recover == proto::Recover::default() {
-                    Vec::new()
-                } else {
-                    vec![recover]
-                };
-
-                Ok((recovers, hinted, committed))
-            },
-        ))
-        .await?;
-
-    let mut flattened: Vec<(usize, proto::Recover)> = Vec::new();
-    let mut hinted_per_shard: Vec<shuffle::Frontier> = Vec::with_capacity(per_shard.len());
-    let mut committed_per_shard: Vec<shuffle::Frontier> = Vec::with_capacity(per_shard.len());
-
-    for (index, (recovers, hinted, committed)) in per_shard.into_iter().enumerate() {
-        flattened.extend(recovers.into_iter().map(|r| (index, r)));
-        hinted_per_shard.push(hinted);
-        committed_per_shard.push(committed);
-    }
-
-    Ok((flattened, hinted_per_shard, committed_per_shard))
-}
-
-fn reduce_recovers(
-    peers: &[String],
-    recovers: impl IntoIterator<Item = (usize, proto::Recover)>,
 ) -> anyhow::Result<proto::Recover> {
-    let mut reduced = proto::Recover::default();
-
-    for (
-        shard_index,
-        proto::Recover {
-            ack_intents,
-            committed_close_clock,
-            committed_frontier: _, // Handled in recv_recovers
-            connector_state_json,
-            hinted_close_clock,
-            hinted_frontier: _, // Handled in recv_recovers
-            last_applied,
-            legacy_checkpoint,
-            max_keys,
-            trigger_params_json,
+    let mut recovers = futures::future::try_join_all(request_rxs.into_iter().enumerate().map(
+        |(shard_index, rx)| async move {
+            let verify = crate::verify("Materialize", "Recover", &peers[shard_index]);
+            match verify.not_eof(rx.next().await)? {
+                proto::Materialize {
+                    recover: Some(recover),
+                    ..
+                } if shard_index == 0 || recover == proto::Recover::default() => {
+                    Ok::<_, anyhow::Error>(recover)
+                }
+                other => Err(verify.fail_msg(other)),
+            }
         },
-    ) in recovers
-    {
-        ack_intents.into_iter().for_each(|(k, v)| {
-            reduced
-                .ack_intents
-                .entry(k)
-                .and_modify(|cur| {
-                    let mut b = cur.to_vec();
-                    b.extend_from_slice(&v);
-                    *cur = b.into();
-                })
-                .or_insert(v);
-        });
-        if committed_close_clock > reduced.committed_close_clock {
-            reduced.committed_close_clock = committed_close_clock;
-        }
-        if !connector_state_json.is_empty() {
-            anyhow::ensure!(
-                reduced.connector_state_json.is_empty()
-                    || reduced.connector_state_json == connector_state_json,
-                "conflicting connector_state_json from {} (index {shard_index})",
-                peers[shard_index],
-            );
-            reduced.connector_state_json = connector_state_json;
-        }
-        if hinted_close_clock > reduced.hinted_close_clock {
-            reduced.hinted_close_clock = hinted_close_clock;
-        }
-        if !last_applied.is_empty() {
-            anyhow::ensure!(
-                reduced.last_applied.is_empty() || reduced.last_applied == last_applied,
-                "conflicting last_applied from {} (index {shard_index})",
-                peers[shard_index],
-            );
-            reduced.last_applied = last_applied;
-        }
-        if legacy_checkpoint.is_some() {
-            reduced.legacy_checkpoint = legacy_checkpoint;
-        }
-        max_keys.into_iter().for_each(|(k, v)| {
-            reduced
-                .max_keys
-                .entry(k)
-                .and_modify(|cur| {
-                    if v > *cur {
-                        *cur = v.clone();
-                    }
-                })
-                .or_insert(v);
-        });
-        if !trigger_params_json.is_empty() {
-            anyhow::ensure!(
-                reduced.trigger_params_json.is_empty()
-                    || reduced.trigger_params_json == trigger_params_json,
-                "conflicting trigger_params_json from {} (index {shard_index})",
-                peers[shard_index],
-            );
-            reduced.trigger_params_json = trigger_params_json;
-        }
-    }
+    ))
+    .await?;
 
-    Ok(reduced)
+    Ok(recovers.swap_remove(0))
 }
 
 async fn apply_loop(
@@ -474,8 +334,8 @@ async fn apply_loop(
     next_version: &str,
     connector_state_json: &mut Bytes,
 ) -> anyhow::Result<()> {
-    let verify_applied = crate::verify("Materialize", "Applied", peer, 0);
-    let verify_persisted = crate::verify("Materialize", "Persisted", peer, 0);
+    let verify_applied = crate::verify("Materialize", "Applied", peer);
+    let verify_persisted = crate::verify("Materialize", "Persisted", peer);
     let last_version = if last_applied.is_empty() {
         String::new()
     } else {
@@ -540,7 +400,8 @@ async fn apply_loop(
 
         // Fold the iteration's patches into the running reduced state so
         // subsequent Apply iterations and Open observe the newly-applied state.
-        *connector_state_json = apply_state_patches(connector_state_json, &applied_patches_json)?;
+        *connector_state_json =
+            crate::patches::apply_state_patches(connector_state_json, &applied_patches_json)?;
 
         // Persist the iteration's patches to shard zero.
         let _ = tx.send(Ok(proto::Materialize {
@@ -565,43 +426,6 @@ async fn apply_loop(
     unreachable!();
 }
 
-async fn broadcast_open(
-    response_txs: &[mpsc::UnboundedSender<tonic::Result<proto::Materialize>>],
-    shard_shuffles: &[shuffle::proto::Shard],
-    spec: &Bytes,
-    version: &str,
-    connector_state_json: &Bytes,
-    max_keys: &BTreeMap<u32, Bytes>,
-) {
-    for (tx, shard) in response_txs.iter().zip(shard_shuffles) {
-        let _ = tx.send(Ok(proto::Materialize {
-            open: Some(proto::Open {
-                spec: spec.clone(),
-                version: version.to_string(),
-                range: shard.range.clone(),
-                connector_state_json: connector_state_json.clone(),
-                max_keys: max_keys.clone(),
-            }),
-            ..Default::default()
-        }));
-    }
-}
-
-fn apply_state_patches(state_json: &Bytes, patches_json: &Bytes) -> anyhow::Result<Bytes> {
-    let mut doc = if state_json.is_empty() {
-        serde_json::Value::Object(Default::default())
-    } else {
-        serde_json::from_slice(state_json).context("parsing connector state JSON")?
-    };
-
-    for patch in crate::recovery::codec::split_state_patches(patches_json)? {
-        let patch = serde_json::from_slice(&patch).context("parsing connector state patch")?;
-        json_patch::merge(&mut doc, &patch);
-    }
-
-    Ok(Bytes::from(serde_json::to_vec(&doc)?))
-}
-
 fn labels_build_for(spec: &flow::MaterializationSpec) -> String {
     let Some(template) = spec.shard_template.as_ref() else {
         return String::new();
@@ -618,43 +442,22 @@ fn labels_build_for(spec: &flow::MaterializationSpec) -> String {
 async fn recv_opened(
     request_rxs: &mut [BoxStream<'static, tonic::Result<proto::Materialize>>],
     peers: &[String],
-) -> anyhow::Result<Vec<(usize, proto::materialize::Opened)>> {
-    futures::future::try_join_all(request_rxs.iter_mut().enumerate().map(
+) -> anyhow::Result<proto::materialize::Opened> {
+    let mut openeds = futures::future::try_join_all(request_rxs.iter_mut().enumerate().map(
         |(shard_index, rx)| async move {
-            let verify = crate::verify("Materialize", "Opened", &peers[shard_index], shard_index);
+            let verify = crate::verify("Materialize", "Opened", &peers[shard_index]);
             match verify.not_eof(rx.next().await)? {
                 proto::Materialize {
                     opened: Some(opened),
                     ..
-                } => Ok::<_, anyhow::Error>((shard_index, opened)),
+                } if shard_index == 0 || opened == proto::materialize::Opened::default() => {
+                    Ok::<_, anyhow::Error>(opened)
+                }
                 other => Err(verify.fail_msg(other)),
             }
         },
     ))
-    .await
-}
+    .await?;
 
-fn reduce_opened(
-    peers: &[String],
-    opened: impl IntoIterator<Item = (usize, proto::materialize::Opened)>,
-) -> anyhow::Result<proto::materialize::Opened> {
-    let mut opened = opened.into_iter();
-    let (_, reduced) = opened.next().unwrap();
-
-    for (
-        shard_index,
-        proto::materialize::Opened {
-            container: _, // Not sent to leader.
-            connector_checkpoint,
-        },
-    ) in opened
-    {
-        anyhow::ensure!(
-            connector_checkpoint.is_none(),
-            "shard {} (index {shard_index}) returned a non-empty connector_checkpoint, but only shard zero should",
-            peers[shard_index],
-        );
-    }
-
-    Ok(reduced)
+    Ok(openeds.swap_remove(0))
 }

@@ -129,7 +129,7 @@ impl<'de> serde::Deserialize<'de> for CollectionPartitions {
         deserializer.deserialize_struct("shuffle.CollectionPartitions", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for FrontierChunk {
+impl serde::Serialize for Frontier {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -143,7 +143,7 @@ impl serde::Serialize for FrontierChunk {
         if !self.flushed_lsn.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("shuffle.FrontierChunk", len)?;
+        let mut struct_ser = serializer.serialize_struct("shuffle.Frontier", len)?;
         if !self.journals.is_empty() {
             struct_ser.serialize_field("journals", &self.journals)?;
         }
@@ -153,7 +153,7 @@ impl serde::Serialize for FrontierChunk {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for FrontierChunk {
+impl<'de> serde::Deserialize<'de> for Frontier {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -201,13 +201,13 @@ impl<'de> serde::Deserialize<'de> for FrontierChunk {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = FrontierChunk;
+            type Value = Frontier;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct shuffle.FrontierChunk")
+                formatter.write_str("struct shuffle.Frontier")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<FrontierChunk, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Frontier, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -232,13 +232,13 @@ impl<'de> serde::Deserialize<'de> for FrontierChunk {
                         }
                     }
                 }
-                Ok(FrontierChunk {
+                Ok(Frontier {
                     journals: journals__.unwrap_or_default(),
                     flushed_lsn: flushed_lsn__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("shuffle.FrontierChunk", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("shuffle.Frontier", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for JournalFrontier {
@@ -1590,7 +1590,7 @@ impl serde::Serialize for SessionRequest {
         if self.open.is_some() {
             len += 1;
         }
-        if self.resume_checkpoint_chunk.is_some() {
+        if self.resume_checkpoint.is_some() {
             len += 1;
         }
         if self.next_checkpoint.is_some() {
@@ -1600,8 +1600,8 @@ impl serde::Serialize for SessionRequest {
         if let Some(v) = self.open.as_ref() {
             struct_ser.serialize_field("open", v)?;
         }
-        if let Some(v) = self.resume_checkpoint_chunk.as_ref() {
-            struct_ser.serialize_field("resumeCheckpointChunk", v)?;
+        if let Some(v) = self.resume_checkpoint.as_ref() {
+            struct_ser.serialize_field("resumeCheckpoint", v)?;
         }
         if let Some(v) = self.next_checkpoint.as_ref() {
             struct_ser.serialize_field("nextCheckpoint", v)?;
@@ -1617,8 +1617,8 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
     {
         const FIELDS: &[&str] = &[
             "open",
-            "resume_checkpoint_chunk",
-            "resumeCheckpointChunk",
+            "resume_checkpoint",
+            "resumeCheckpoint",
             "next_checkpoint",
             "nextCheckpoint",
         ];
@@ -1626,7 +1626,7 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Open,
-            ResumeCheckpointChunk,
+            ResumeCheckpoint,
             NextCheckpoint,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1650,7 +1650,7 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                     {
                         match value {
                             "open" => Ok(GeneratedField::Open),
-                            "resumeCheckpointChunk" | "resume_checkpoint_chunk" => Ok(GeneratedField::ResumeCheckpointChunk),
+                            "resumeCheckpoint" | "resume_checkpoint" => Ok(GeneratedField::ResumeCheckpoint),
                             "nextCheckpoint" | "next_checkpoint" => Ok(GeneratedField::NextCheckpoint),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -1672,7 +1672,7 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut open__ = None;
-                let mut resume_checkpoint_chunk__ = None;
+                let mut resume_checkpoint__ = None;
                 let mut next_checkpoint__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -1682,11 +1682,11 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                             }
                             open__ = map_.next_value()?;
                         }
-                        GeneratedField::ResumeCheckpointChunk => {
-                            if resume_checkpoint_chunk__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("resumeCheckpointChunk"));
+                        GeneratedField::ResumeCheckpoint => {
+                            if resume_checkpoint__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("resumeCheckpoint"));
                             }
-                            resume_checkpoint_chunk__ = map_.next_value()?;
+                            resume_checkpoint__ = map_.next_value()?;
                         }
                         GeneratedField::NextCheckpoint => {
                             if next_checkpoint__.is_some() {
@@ -1698,7 +1698,7 @@ impl<'de> serde::Deserialize<'de> for SessionRequest {
                 }
                 Ok(SessionRequest {
                     open: open__,
-                    resume_checkpoint_chunk: resume_checkpoint_chunk__,
+                    resume_checkpoint: resume_checkpoint__,
                     next_checkpoint: next_checkpoint__,
                 })
             }
@@ -1896,15 +1896,15 @@ impl serde::Serialize for SessionResponse {
         if self.opened.is_some() {
             len += 1;
         }
-        if self.next_checkpoint_chunk.is_some() {
+        if self.next_checkpoint.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("shuffle.SessionResponse", len)?;
         if let Some(v) = self.opened.as_ref() {
             struct_ser.serialize_field("opened", v)?;
         }
-        if let Some(v) = self.next_checkpoint_chunk.as_ref() {
-            struct_ser.serialize_field("nextCheckpointChunk", v)?;
+        if let Some(v) = self.next_checkpoint.as_ref() {
+            struct_ser.serialize_field("nextCheckpoint", v)?;
         }
         struct_ser.end()
     }
@@ -1917,14 +1917,14 @@ impl<'de> serde::Deserialize<'de> for SessionResponse {
     {
         const FIELDS: &[&str] = &[
             "opened",
-            "next_checkpoint_chunk",
-            "nextCheckpointChunk",
+            "next_checkpoint",
+            "nextCheckpoint",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Opened,
-            NextCheckpointChunk,
+            NextCheckpoint,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1947,7 +1947,7 @@ impl<'de> serde::Deserialize<'de> for SessionResponse {
                     {
                         match value {
                             "opened" => Ok(GeneratedField::Opened),
-                            "nextCheckpointChunk" | "next_checkpoint_chunk" => Ok(GeneratedField::NextCheckpointChunk),
+                            "nextCheckpoint" | "next_checkpoint" => Ok(GeneratedField::NextCheckpoint),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1968,7 +1968,7 @@ impl<'de> serde::Deserialize<'de> for SessionResponse {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut opened__ = None;
-                let mut next_checkpoint_chunk__ = None;
+                let mut next_checkpoint__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Opened => {
@@ -1977,17 +1977,17 @@ impl<'de> serde::Deserialize<'de> for SessionResponse {
                             }
                             opened__ = map_.next_value()?;
                         }
-                        GeneratedField::NextCheckpointChunk => {
-                            if next_checkpoint_chunk__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("nextCheckpointChunk"));
+                        GeneratedField::NextCheckpoint => {
+                            if next_checkpoint__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nextCheckpoint"));
                             }
-                            next_checkpoint_chunk__ = map_.next_value()?;
+                            next_checkpoint__ = map_.next_value()?;
                         }
                     }
                 }
                 Ok(SessionResponse {
                     opened: opened__,
-                    next_checkpoint_chunk: next_checkpoint_chunk__,
+                    next_checkpoint: next_checkpoint__,
                 })
             }
         }

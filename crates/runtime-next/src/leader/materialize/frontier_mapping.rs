@@ -207,7 +207,7 @@ pub fn project_hinted(mut frontier: shuffle::Frontier) -> shuffle::Frontier {
 /// connectors and the Gazette ecosystem), using it to convey a single close
 /// Clock which can later be inspected to determine a commit outcome.
 pub fn encode_committed_close(clock: uuid::Clock) -> (String, consumer::checkpoint::Source) {
-    let key = str::from_utf8(crate::recovery::codec::KEY_COMMITTED_CLOSE).unwrap();
+    let key = str::from_utf8(crate::shard::recovery::KEY_COMMITTED_CLOSE).unwrap();
 
     (
         key.to_string(),
@@ -227,7 +227,7 @@ pub fn encode_committed_close(clock: uuid::Clock) -> (String, consumer::checkpoi
 /// Extract a close Clock of a committed transaction from a consumer::Checkpoint, if present.
 /// This is the inverse of `encode_committed_close`.
 pub fn extract_committed_close(checkpoint: &consumer::Checkpoint) -> Option<uuid::Clock> {
-    let key = str::from_utf8(crate::recovery::codec::KEY_COMMITTED_CLOSE).unwrap();
+    let key = str::from_utf8(crate::shard::recovery::KEY_COMMITTED_CLOSE).unwrap();
 
     let Some(source) = checkpoint.sources.get(key) else {
         return None;

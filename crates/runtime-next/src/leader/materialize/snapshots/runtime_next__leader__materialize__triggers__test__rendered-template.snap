@@ -1,5 +1,6 @@
 ---
-source: crates/runtime-next/src/materialize/leader/triggers.rs
+source: crates/runtime-next/src/leader/materialize/triggers.rs
+assertion_line: 262
 expression: parsed
 ---
 {

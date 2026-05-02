@@ -1,11 +1,10 @@
-use super::{connector, connector_state_to_patches_json};
-use crate::{materialize::shard::startup, proto};
+use super::{connector, startup};
+use crate::{patches, proto};
 use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::materialize;
 use tokio::sync::mpsc;
 
-#[allow(dead_code)]
 pub(crate) async fn serve<R, L: crate::LogHandler>(
     service: crate::shard::Service<L>,
     mut controller_rx: R,
@@ -14,7 +13,7 @@ pub(crate) async fn serve<R, L: crate::LogHandler>(
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
 {
-    let verify = crate::verify("Materialize", "Start, Spec, or Validate", "coordinator", 0);
+    let verify = crate::verify("Materialize", "Start, Spec, or Validate", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
             proto::Materialize {
@@ -70,7 +69,8 @@ pub async fn serve_unary<L: crate::LogHandler>(
     let (connector_tx, mut connector_rx, _container) = connector::start(service, request).await?;
     std::mem::drop(connector_tx); // Send EOF.
 
-    let verify = crate::verify("Materialize", "unary response", "connector", 0);
+    // Read connector response, and verify it matches the request type.
+    let verify = crate::verify("Materialize", "unary response", "connector");
     let response = match verify.not_eof(connector_rx.next().await)? {
         materialize::Response {
             spec: Some(spec), ..
@@ -95,13 +95,14 @@ pub async fn serve_unary<L: crate::LogHandler>(
         } if is_apply => proto::Materialize {
             applied: Some(proto::Applied {
                 action_description,
-                connector_patches_json: connector_state_to_patches_json(state),
+                connector_patches_json: patches::encode_connector_state(state),
             }),
             ..Default::default()
         },
         response => return Err(verify.fail_msg(response)),
     };
 
+    // Expect EOF after the single response.
     () = verify.eof(connector_rx.next().await)?;
 
     Ok(response)
@@ -117,31 +118,30 @@ where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
 {
     let proto::SessionLoop { rocksdb_descriptor } = session_loop;
+    let mut db = crate::shard::RocksDB::open(rocksdb_descriptor).await?;
 
-    let mut db = crate::RocksDB::open(rocksdb_descriptor).await?;
-
-    let verify = crate::verify("Materialize", "Join", "coordinator", 0);
+    let verify = crate::verify("Materialize", "Join", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
             proto::Materialize {
                 join: Some(join), ..
             } => {
-                db = serve_single_session(service, controller_rx, controller_tx, db, join).await?;
+                db = serve_session(service, controller_rx, controller_tx, db, join).await?;
             }
             request => return Err(verify.fail_msg(request)),
         };
     }
 
-    todo!()
+    Ok(())
 }
 
-async fn serve_single_session<R, L: crate::LogHandler>(
+async fn serve_session<R, L: crate::LogHandler>(
     service: &crate::shard::Service<L>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
-    db: crate::RocksDB,
+    db: crate::shard::RocksDB,
     join: proto::Join,
-) -> anyhow::Result<crate::RocksDB>
+) -> anyhow::Result<crate::shard::RocksDB>
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
 {
@@ -157,20 +157,32 @@ where
 
     let labeling = labeling.as_ref().context("missing shard labeling")?.clone();
     let shard_id = shard_id.clone();
-    let shard_zero = join.shard_index == 0;
+    let shard_index = join.shard_index;
+    let shuffle_directory = join.shuffle_directory.clone();
 
     let (joined, leader_stream) = startup::dial_and_join(join).await?;
 
-    // Forward Joined to leader.
+    // Forward Joined to controller.
     _ = controller_tx.send(Ok(proto::Materialize {
         joined: Some(joined),
         ..Default::default()
     }));
     let Some((leader_tx, leader_rx)) = leader_stream else {
-        return Ok(db); // We must retry Join/Joined.
+        return Ok(db); // Controller must retry Join/Joined.
     };
 
-    let _startup = startup::run(
+    let startup::Startup {
+        binding_state_keys,
+        mut connector_rx,
+        connector_tx,
+        db,
+        disable_load_optimization,
+        mut leader_rx,
+        leader_tx,
+        max_keys,
+        shuffle_reader,
+        task,
+    } = startup::run(
         controller_rx,
         controller_tx,
         db,
@@ -179,9 +191,27 @@ where
         leader_tx,
         service,
         shard_id,
-        shard_zero,
+        shard_index,
+        shuffle_directory,
     )
     .await?;
 
-    todo!()
+    let mut actor = super::actor::Actor::new(
+        controller_tx.clone(),
+        leader_tx,
+        connector_tx,
+        db,
+        binding_state_keys,
+        task,
+        max_keys,
+        disable_load_optimization,
+        shuffle_reader,
+    )?;
+
+    actor
+        .serve(controller_rx, &mut leader_rx, &mut connector_rx)
+        .await?;
+    let (db, _) = actor.db.take().context("materialize actor lost RocksDB")?;
+
+    Ok(db)
 }

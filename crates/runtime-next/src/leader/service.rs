@@ -33,12 +33,11 @@ impl Service {
         }))
     }
 
-    /// Wrap this service in its typed tonic server, applying the
-    /// max-message-size overrides so it can be composed with sibling
-    /// services on a shared `tonic::transport::Server::builder()`.
+    /// Wrap this service in its typed tonic server, for composition
+    /// with sibling services on a `tonic::transport::Server::builder()`.
     pub fn into_tonic_service(self) -> proto_grpc::runtime::leader_server::LeaderServer<Self> {
         proto_grpc::runtime::leader_server::LeaderServer::new(self)
-            .max_decoding_message_size(usize::MAX)
+            .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
             .max_encoding_message_size(usize::MAX)
     }
 
@@ -76,9 +75,7 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) =
-                crate::materialize::leader::serve(service, request_rx, response_tx).await
-            {
+            if let Err(e) = super::materialize::serve(service, request_rx, response_tx).await {
                 let _ = error_tx.send(Err(crate::anyhow_to_status(e)));
             }
         });

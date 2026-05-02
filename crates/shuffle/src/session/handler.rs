@@ -77,30 +77,17 @@ where
         }),
     )?;
 
-    // Read resume-checkpoint frontier chunks.
-    let mut resume_checkpoint: Vec<crate::JournalFrontier> = Vec::new();
-    let verify = crate::verify(
-        "SessionRequest",
-        "resume-checkpoint chunk",
-        "coordinator",
-        0,
-    );
-    loop {
-        match verify.not_eof(request_rx.next().await)? {
-            shuffle::SessionRequest {
-                resume_checkpoint_chunk: Some(chunk),
-                ..
-            } => {
-                if chunk.journals.is_empty() {
-                    break;
-                }
-                resume_checkpoint.extend(crate::JournalFrontier::decode(chunk));
-            }
-            request => return Err(verify.fail(request)),
-        };
-    }
-    let resume_checkpoint = crate::Frontier::new(resume_checkpoint, Vec::new())
-        .context("validating resume_checkpoint frontier")?;
+    // Read the resume-checkpoint frontier.
+    let verify = crate::verify("SessionRequest", "resume_checkpoint", "coordinator", 0);
+    let proto = match verify.not_eof(request_rx.next().await)? {
+        shuffle::SessionRequest {
+            resume_checkpoint: Some(proto),
+            ..
+        } => proto,
+        request => return Err(verify.fail(request)),
+    };
+    let resume_checkpoint =
+        crate::Frontier::decode(proto).context("validating resume_checkpoint frontier")?;
 
     tracing::debug!(session_id, ?resume_checkpoint, "Session resume checkpoint");
 
@@ -126,11 +113,8 @@ where
         resume_checkpoint,
     };
     let binding_cohorts: Vec<u32> = topology.bindings.iter().map(|b| b.cohort).collect();
-    let checkpoint = super::state::CheckpointPipeline::new(
-        &topology.resume_checkpoint,
-        shard_count,
-        binding_cohorts,
-    );
+    let checkpoint =
+        super::state::CheckpointPipeline::new(&topology.resume_checkpoint, binding_cohorts);
 
     super::actor::SessionActor {
         topology,
@@ -139,7 +123,7 @@ where
         session_response_tx: session_response_tx.clone(),
         slice_request_tx,
         start_reads: std::collections::VecDeque::new(),
-        checkpoint_drain: crate::frontier::Drain::new(),
+        checkpoint_drain: None,
     }
     .serve(request_rx, response_rx)
     .await

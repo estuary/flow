@@ -1,22 +1,19 @@
 //! CGO entry point: binds a UDS, registers the `Shard` gRPC service, and
-//! serves until cancellation. Modeled on `crates/runtime/src/task_service.rs`,
-//! adapted to the runtime-next service set (just `Shard`).
-
-use crate::{LogHandler, Runtime, TokioContext};
+//! serves until cancellation.
+use crate::{proto, shard};
 use anyhow::Context;
 use futures::FutureExt;
 use futures::channel::oneshot;
-use proto_flow::runtime::{Plane, TaskServiceConfig};
 
 pub struct TaskService {
     cancel_tx: oneshot::Sender<()>,
-    tokio_context: TokioContext,
+    tokio_context: crate::TokioContext,
     server: tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
 }
 
 impl TaskService {
-    pub fn new(config: TaskServiceConfig, log_file: std::fs::File) -> anyhow::Result<Self> {
-        let TaskServiceConfig {
+    pub fn new(config: proto::TaskServiceConfig, log_file: std::fs::File) -> anyhow::Result<Self> {
+        let proto::TaskServiceConfig {
             log_file_fd: _,
             task_name,
             uds_path,
@@ -35,7 +32,7 @@ impl TaskService {
         let log_handler = ::ops::new_encoded_json_write_handler(std::sync::Arc::new(
             std::sync::Mutex::new(log_file),
         ));
-        let tokio_context = TokioContext::new(
+        let tokio_context = crate::TokioContext::new(
             ops::LogLevel::Warn,
             log_handler.clone(),
             task_name.clone(),
@@ -56,8 +53,8 @@ impl TaskService {
 
         std::mem::drop(data_plane_signing_key);
 
-        let runtime = Runtime::new(
-            Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?,
+        let shard_svc = shard::Service::new(
+            crate::proto::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?,
             container_network,
             log_handler,
             Some(tokio_context.set_log_level_fn()),
@@ -76,8 +73,9 @@ impl TaskService {
             Ok::<_, std::io::Error>(Some((conn, uds)))
         });
 
-        let server =
-            build_tonic_server(runtime).serve_with_incoming_shutdown(uds_stream, async move {
+        let server = tonic::transport::Server::builder()
+            .add_service(shard_svc.into_tonic_service())
+            .serve_with_incoming_shutdown(uds_stream, async move {
                 _ = cancel_rx.await;
             });
         let server = tokio_context.spawn(server);
@@ -114,12 +112,4 @@ impl TaskService {
         };
         let () = tokio_context.block_on(tokio_context.spawn(log)).unwrap();
     }
-}
-
-fn build_tonic_server<L: LogHandler>(runtime: Runtime<L>) -> tonic::transport::server::Router {
-    tonic::transport::Server::builder().add_service(
-        proto_grpc::runtime::shard_server::ShardServer::new(runtime)
-            .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the controller sends.
-            .max_encoding_message_size(usize::MAX),
-    )
 }

@@ -1,5 +1,6 @@
 ---
-source: crates/runtime-next/src/recovery/codec.rs
+source: crates/runtime-next/src/shard/recovery.rs
+assertion_line: 947
 expression: "decode_pairs(pairs, &mapping).unwrap()"
 ---
 DecodedRecover {

@@ -11,7 +11,7 @@ pub(crate) async fn serve<R>(
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
 {
-    let verify = crate::verify("Materialize", "Join", "shard", 0);
+    let verify = crate::verify("Materialize", "Join", "shard");
 
     // Read the Join request.
     let join = match verify.not_eof(request_rx.next().await)? {

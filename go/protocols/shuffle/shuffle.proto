@@ -94,14 +94,11 @@ message JournalFrontier {
   repeated ProducerFrontier producers = 6;
 }
 
-// FrontierChunk is a portion of a frontier sequence for streaming.
+// Frontier is a complete frontier (or frontier delta) of journal progress.
 // Entries are sorted and unique on (journal name, binding).
-// A final empty chunk (empty `journals`) represents end-of-sequence.
-message FrontierChunk {
+message Frontier {
   repeated JournalFrontier journals = 1;
   // Per-shard flushed LSN, indexed by shard_index.
-  // Populated only on the terminal (empty-journals) chunk of a
-  // Progressed or NextCheckpoint sequence. Empty otherwise.
   repeated uint64 flushed_lsn = 2;
 }
 
@@ -118,7 +115,7 @@ message SessionRequest {
   Open open = 1;
 
   // The resume checkpoint: the non-delta frontier from which the
-  // session is to resume. It's streamed by the Coordinator client after reading
+  // session is to resume. It's sent by the Coordinator client after reading
   // SessionResponse.Opened.
   //
   // This is a comprehensive checkpoint, reflecting all journals and producers
@@ -139,7 +136,7 @@ message SessionRequest {
   // the first NextCheckpoint of the current session will match the last
   // unfinished NextCheckpoint of its prior session, which enables the transaction
   // to be idempotent.
-  FrontierChunk resume_checkpoint_chunk = 2;
+  Frontier resume_checkpoint = 2;
 
   // NextCheckpoint requests the next available checkpoint delta.
   // This is a blocking request: the Session only responds when progress is
@@ -148,7 +145,7 @@ message SessionRequest {
   //
   // A NextCheckpoint response may be a fully-resolved checkpoint OR a "peek"
   // of an in-flight frontier whose causal hints have not yet fully resolved.
-  // See SessionResponse.next_checkpoint_chunk for the contract.
+  // See SessionResponse.next_checkpoint for the contract.
   message NextCheckpoint {}
   NextCheckpoint next_checkpoint = 3;
 }
@@ -183,7 +180,7 @@ message SessionResponse {
   // initialize `hinted_commit` of future session resume checkpoints. Then,
   // upon its durable completion of all downstream processing related to a
   // fully-resolved NextCheckpoint, it should merge it into its base checkpoint.
-  FrontierChunk next_checkpoint_chunk = 2;
+  Frontier next_checkpoint = 2;
 }
 
 // SliceRequest is sent by the Session to each shard's Slice RPC.
@@ -260,7 +257,7 @@ message SliceResponse {
   // Progressed reports the frontier of log progress since the last Progressed.
   // It's sent in response to a Request.Progress, and only once at least one
   // flush cycle has completed since the prior Progressed.
-  FrontierChunk progressed = 3;
+  Frontier progressed = 3;
 }
 
 // LogRequest is sent by Slices to each shard's Log.

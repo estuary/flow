@@ -106,16 +106,13 @@ pub struct JournalFrontier {
     #[prost(message, repeated, tag = "6")]
     pub producers: ::prost::alloc::vec::Vec<ProducerFrontier>,
 }
-/// FrontierChunk is a portion of a frontier sequence for streaming.
+/// Frontier is a complete frontier (or frontier delta) of journal progress.
 /// Entries are sorted and unique on (journal name, binding).
-/// A final empty chunk (empty `journals`) represents end-of-sequence.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct FrontierChunk {
+pub struct Frontier {
     #[prost(message, repeated, tag = "1")]
     pub journals: ::prost::alloc::vec::Vec<JournalFrontier>,
     /// Per-shard flushed LSN, indexed by shard_index.
-    /// Populated only on the terminal (empty-journals) chunk of a
-    /// Progressed or NextCheckpoint sequence. Empty otherwise.
     #[prost(uint64, repeated, tag = "2")]
     pub flushed_lsn: ::prost::alloc::vec::Vec<u64>,
 }
@@ -125,7 +122,7 @@ pub struct SessionRequest {
     #[prost(message, optional, tag = "1")]
     pub open: ::core::option::Option<session_request::Open>,
     /// The resume checkpoint: the non-delta frontier from which the
-    /// session is to resume. It's streamed by the Coordinator client after reading
+    /// session is to resume. It's sent by the Coordinator client after reading
     /// SessionResponse.Opened.
     ///
     /// This is a comprehensive checkpoint, reflecting all journals and producers
@@ -147,7 +144,7 @@ pub struct SessionRequest {
     /// unfinished NextCheckpoint of its prior session, which enables the transaction
     /// to be idempotent.
     #[prost(message, optional, tag = "2")]
-    pub resume_checkpoint_chunk: ::core::option::Option<FrontierChunk>,
+    pub resume_checkpoint: ::core::option::Option<Frontier>,
     #[prost(message, optional, tag = "3")]
     pub next_checkpoint: ::core::option::Option<session_request::NextCheckpoint>,
 }
@@ -171,7 +168,7 @@ pub mod session_request {
     ///
     /// A NextCheckpoint response may be a fully-resolved checkpoint OR a "peek"
     /// of an in-flight frontier whose causal hints have not yet fully resolved.
-    /// See SessionResponse.next_checkpoint_chunk for the contract.
+    /// See SessionResponse.next_checkpoint for the contract.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct NextCheckpoint {}
 }
@@ -204,7 +201,7 @@ pub struct SessionResponse {
     /// upon its durable completion of all downstream processing related to a
     /// fully-resolved NextCheckpoint, it should merge it into its base checkpoint.
     #[prost(message, optional, tag = "2")]
-    pub next_checkpoint_chunk: ::core::option::Option<FrontierChunk>,
+    pub next_checkpoint: ::core::option::Option<Frontier>,
 }
 /// Nested message and enum types in `SessionResponse`.
 pub mod session_response {
@@ -292,7 +289,7 @@ pub struct SliceResponse {
     /// It's sent in response to a Request.Progress, and only once at least one
     /// flush cycle has completed since the prior Progressed.
     #[prost(message, optional, tag = "3")]
-    pub progressed: ::core::option::Option<FrontierChunk>,
+    pub progressed: ::core::option::Option<Frontier>,
 }
 /// Nested message and enum types in `SliceResponse`.
 pub mod slice_response {

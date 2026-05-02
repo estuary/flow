@@ -20,11 +20,9 @@ pub struct Actor {
     parked_publisher: Option<crate::Publisher>,
     // ACK intents to persist and append at later transaction stages.
     pending_ack_intents: BTreeMap<String, Bytes>,
-    // One channel to each shard, for sending messages to the shard.
+    // One channel to each shard for synchronously sending it messages.
     // We use UnboundedSender because Actor never "pumps" messages to shards:
-    // it follows a strict request-response pattern, where requests may be emitted
-    // as a run of gRPC messages but have a bounded scope. UnboundedSender lets us
-    // ignore details of waiting for send capacity and model sends as synchronous.
+    // it follows a strict request/response pattern.
     shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
     // Future for an in-flight stats flush, if any, yielding ACK intents.
     stats_write_fut:
@@ -82,10 +80,15 @@ impl Actor {
         });
         let mut frontier_rx = std::pin::pin!(frontier_rx);
 
+        // Per-binding absolute measure, into which deltas are reduced.
         let mut binding_bytes_behind = vec![0; self.task.binding_collection_names.len()];
+        // Monotonic Clock which is ticked on loop iterations, and updated on IO.
         let mut now = now_clock();
-        let mut ready_frontier = None;
+        // When Some, a Frontier that's ready to extend a transaction.
+        let mut ready_frontier: Option<shuffle::Frontier> = None;
+        // When Some, a message from a shard that's ready to consume.
         let mut ready_shard_rx = None;
+        // When true, the topology should gracefully exit.
         let mut stopping = false;
 
         loop {
@@ -104,8 +107,8 @@ impl Actor {
 
             match action {
                 fsm::Action::Idle => (),
-                fsm::Action::Sleep { .. } => unreachable!("Tail does not emit Sleep"),
-                fsm::Action::Rotate { .. } => unreachable!("Tail does not emit Rotate"),
+                fsm::Action::Sleep { .. } => unreachable!("Tail does not Sleep"),
+                fsm::Action::Rotate { .. } => unreachable!("Tail does not Rotate"),
                 action => {
                     self.dispatch(action)?;
                     continue;
@@ -158,10 +161,7 @@ impl Actor {
             tokio::select! {
                 biased;
 
-                // Prioritize RX completions of the leader first, and then shard RX.
-                Some(result) = frontier_rx.next(), if ready_frontier.is_none() => {
-                    ready_frontier = Some(result?);
-                }
+                // Prioritize completions of leader IO first.
                 Some(result) = maybe_fut(&mut self.stats_write_fut) => {
                     let (publisher, intents) = result.map_err(crate::status_to_anyhow)
                         .context("writing ops stats document")?;
@@ -181,12 +181,16 @@ impl Actor {
                     () = result?;
                     self.trigger_fut = None;
                 }
-                // Finally, process messages from shards.
+                // Process shard messages next.
                 Some((shard_index, msg, rx)) = shard_rx.next() => {
                     if let Some(msg) = self.on_shard_rx(&mut stopping, shard_index, msg)? {
                         ready_shard_rx = Some((shard_index, msg));
                     }
                     shard_rx.push(next_shard_rx((shard_index, rx)));
+                }
+                // Poll for a next frontier when otherwise idle.
+                Some(result) = frontier_rx.next(), if ready_frontier.is_none() => {
+                    ready_frontier = Some(result?);
                 }
 
                 // Lowest priority.
@@ -213,22 +217,17 @@ impl Actor {
     fn dispatch(&mut self, action: fsm::Action) -> anyhow::Result<()> {
         match action {
             fsm::Action::Idle | fsm::Action::Sleep { .. } | fsm::Action::Rotate { .. } => {
-                unreachable!("never reach dispatch");
+                unreachable!("never dispatched");
             }
 
             fsm::Action::Load { frontier } => {
                 tracing::debug!(journals = frontier.journals.len(), "broadcasting L:Load");
-                let mut drain = shuffle::frontier::Drain::new();
-                drain.start(frontier);
-
-                while let Some(chunk) = drain.next_chunk() {
-                    self.broadcast(proto::Materialize {
-                        load: Some(proto::materialize::Load {
-                            frontier: Some(chunk),
-                        }),
-                        ..Default::default()
-                    });
-                }
+                self.broadcast(proto::Materialize {
+                    load: Some(proto::materialize::Load {
+                        frontier: Some(frontier.encode()),
+                    }),
+                    ..Default::default()
+                });
             }
 
             fsm::Action::Flush { connector_patches } => {
@@ -363,9 +362,8 @@ impl Actor {
     ) -> anyhow::Result<Option<proto::Materialize>> {
         let verify = crate::verify(
             "Materialize",
-            "message",
+            "actor message",
             &self.task.peers[shard_index],
-            shard_index,
         );
         let msg = verify.not_eof(result)?;
 

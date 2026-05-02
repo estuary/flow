@@ -3,7 +3,7 @@
 //! Spawns one in-process tonic server hosting both `runtime_next::Service`
 //! and `shuffle::Service` on a single ephemeral 127.0.0.1 port, then runs
 //! N synthetic shards as tokio tasks driving
-//! `runtime_next::materialize::shard::handler::serve` over mpsc channels.
+//! `runtime_next::shard::materialize::handler::serve` over mpsc channels.
 //! Source
 //! documents come from real Gazette journal reads (authed via the user's
 //! flowctl token); endpoint mutations go to the connector container as in

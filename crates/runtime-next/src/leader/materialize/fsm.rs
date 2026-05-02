@@ -96,7 +96,7 @@ pub enum Action {
         wake_after: std::time::Duration,
     },
 
-    /// Broadcast `L:Load` chunks of the Frontier.
+    /// Broadcast a `L:Load` Frontier.
     Load {
         frontier: shuffle::Frontier,
     },
@@ -1094,8 +1094,8 @@ pub fn reduce_max_keys(tgt: &mut BTreeMap<u32, bytes::Bytes>, src: BTreeMap<u32,
 // Extend separate accrued patches for a future Persist vs future shard broadcast,
 // into `pending` from `src`.
 pub fn extend_patches(pending: &mut PendingDeltas, src: &[u8]) {
-    crate::recovery::codec::extend_state_patches(&mut pending.shard_patches, src);
-    crate::recovery::codec::extend_state_patches(&mut pending.persist_patches, src);
+    crate::patches::extend_state_patches(&mut pending.shard_patches, src);
+    crate::patches::extend_state_patches(&mut pending.persist_patches, src);
 }
 
 // Take patches from `src`, leaving it empty, and freeze into Bytes.

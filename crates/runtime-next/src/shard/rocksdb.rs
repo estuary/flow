@@ -1,4 +1,5 @@
-use crate::{proto, recovery::codec};
+use super::recovery;
+use crate::proto;
 use anyhow::Context;
 use proto_flow::runtime::RocksDbDescriptor;
 use tokio::runtime;
@@ -63,7 +64,7 @@ impl RocksDB {
     }
 
     /// Perform an async write_opt using a blocking background thread.
-    pub async fn write_opt(
+    async fn write_opt(
         self,
         wb: rocksdb::WriteBatch,
         wo: rocksdb::WriteOptions,
@@ -77,6 +78,30 @@ impl RocksDB {
             .unwrap()
     }
 
+    /// Encode a [`proto::Persist`] into a WriteBatch and synchronously write it.
+    /// `binding_state_keys[i]` is the stable `state_key` for binding index `i`.
+    pub async fn persist<S: AsRef<str>>(
+        self,
+        persist: &proto::Persist,
+        binding_state_keys: &[S],
+    ) -> anyhow::Result<Self> {
+        let mut wb = rocksdb::WriteBatch::default();
+        recovery::encode_persist(persist, binding_state_keys, |op| match op {
+            recovery::KeyOp::Put { key, value } => wb.put(&key, &value),
+            recovery::KeyOp::Merge { key, value } => wb.merge(&key, &value),
+            recovery::KeyOp::Delete { key } => wb.delete(&key),
+            recovery::KeyOp::DeleteRange { from, to } => wb.delete_range(&from, &to),
+        })
+        .context("encoding Persist into WriteBatch")?;
+
+        let mut wo = rocksdb::WriteOptions::new();
+        wo.set_sync(true);
+
+        self.write_opt(wb, wo)
+            .await
+            .context("RocksDB Persist write")
+    }
+
     /// Scan the entire DB into a [`proto::Recover`] using a blocking
     /// background thread. Returns `(self, Recover)`.
     ///
@@ -85,7 +110,7 @@ impl RocksDB {
     pub async fn scan(
         self,
         binding_state_keys: Vec<(String, u32)>,
-    ) -> Result<(Self, proto::Recover), codec::DecodeError> {
+    ) -> Result<(Self, proto::Recover), recovery::DecodeError> {
         runtime::Handle::current()
             .spawn_blocking(move || {
                 let mut recover = proto::Recover::default();
@@ -96,7 +121,7 @@ impl RocksDB {
                 it.seek_to_first();
 
                 while let Some((key, value)) = it.item() {
-                    codec::decode_recover_key_value(
+                    recovery::decode_recover_key_value(
                         &mut recover,
                         &mut committed_frontier,
                         &mut hinted_frontier,
@@ -125,29 +150,6 @@ impl RocksDB {
             .await
             .unwrap()
     }
-}
-
-/// Extend `wb` with the encoded effects of one `Persist`. Pure: no IO.
-///
-/// Callers accumulate the `WriteBatch` across the streamed Persist
-/// sequence and dispatch it via [`RocksDB::write`] when the terminator
-/// (non-zero nonce) arrives. `binding_state_keys[i]` is the stable
-/// `state_key` for binding index `i` referenced by the Persist's
-/// `FrontierChunk`s.
-pub fn extend_write_batch<S: AsRef<str>>(
-    wb: &mut rocksdb::WriteBatch,
-    persist: &crate::proto::Persist,
-    binding_state_keys: &[S],
-) -> Result<(), codec::EncodeError> {
-    for op in codec::encode_persist(persist, binding_state_keys)? {
-        match op {
-            codec::KeyOp::Put { key, value } => wb.put(&key, &value),
-            codec::KeyOp::Merge { key, value } => wb.merge(&key, &value),
-            codec::KeyOp::Delete { key } => wb.delete(&key),
-            codec::KeyOp::DeleteRange { from, to } => wb.delete_range(&from, &to),
-        }
-    }
-    Ok(())
 }
 
 // Unpack a RocksDbDescriptor into its rocksdb::Options and path.
@@ -200,7 +202,7 @@ fn unpack_descriptor(
 fn task_state_default_json_schema(state_schema: &serde_json::Value) -> serde_json::Value {
     // KEY_CONNECTOR_STATE is `&[u8]`; render it as a string so the JSON-schema
     // `const` matches the string literal at index 0 of the [key, doc] array.
-    let key_str = std::str::from_utf8(codec::KEY_CONNECTOR_STATE)
+    let key_str = std::str::from_utf8(recovery::KEY_CONNECTOR_STATE)
         .expect("KEY_CONNECTOR_STATE is valid UTF-8");
 
     serde_json::json!({
@@ -468,7 +470,7 @@ mod test {
     /// matches for both full and partial-then-full merges at each batch size.
     fn check_merge(base: &str, ops: &[&str], max_counts: &[usize]) {
         let schema = test_schema();
-        let key = codec::KEY_CONNECTOR_STATE;
+        let key = recovery::KEY_CONNECTOR_STATE;
 
         let mut expected: serde_json::Value = serde_json::from_str(base).unwrap();
         for op in ops {
@@ -508,7 +510,7 @@ mod test {
             r#"{"a":"c","nn":null}"#,
             r#"{"d":"e","ans":42}"#,
         ] {
-            wb.merge(codec::KEY_CONNECTOR_STATE, doc);
+            wb.merge(recovery::KEY_CONNECTOR_STATE, doc);
         }
         let db = db.write_opt(wb, Default::default()).await.unwrap();
 
@@ -522,7 +524,6 @@ mod test {
     #[tokio::test]
     async fn scan_returns_recover_with_sorted_frontier_chunks() {
         let db = RocksDB::open(None).await.unwrap();
-        let mut wb = rocksdb::WriteBatch::default();
         let producer = proto_gazette::uuid::Producer::from_bytes([0x01, 0xaa, 0, 0, 0, 0]);
 
         let frontier = shuffle::JournalFrontier::encode(&[
@@ -552,18 +553,17 @@ mod test {
             },
         ]);
 
-        extend_write_batch(
-            &mut wb,
-            &proto::Persist {
-                committed_frontier: Some(frontier.clone()),
-                hinted_frontier: Some(frontier),
-                ..Default::default()
-            },
-            &["z-binding", "a-binding"],
-        )
-        .unwrap();
-
-        let db = db.write_opt(wb, Default::default()).await.unwrap();
+        let db = db
+            .persist(
+                &proto::Persist {
+                    committed_frontier: Some(frontier.clone()),
+                    hinted_frontier: Some(frontier),
+                    ..Default::default()
+                },
+                &["z-binding", "a-binding"],
+            )
+            .await
+            .unwrap();
         let mapping = vec![("a-binding".to_string(), 1), ("z-binding".to_string(), 0)];
         let (_db, recover) = db.scan(mapping).await.unwrap();
 
@@ -619,7 +619,7 @@ mod test {
                 i,
                 i * 1000
             );
-            wb.merge(codec::KEY_CONNECTOR_STATE, &doc);
+            wb.merge(recovery::KEY_CONNECTOR_STATE, &doc);
         }
         let db = db.write_opt(wb, Default::default()).await.unwrap();
 
@@ -764,7 +764,7 @@ mod test {
     fn fuzz_batched_merge_matches_reference() {
         fn prop(seq: MergePatchSequence) -> bool {
             let schema = test_schema();
-            let key = codec::KEY_CONNECTOR_STATE;
+            let key = recovery::KEY_CONNECTOR_STATE;
 
             let mut expected = seq.base.0.clone();
             for op in &seq.operands {
@@ -818,19 +818,18 @@ mod test {
 
     #[tokio::test]
     async fn round_trip_persist_stack_to_scan() {
-        let db = RocksDB::open(None).await.unwrap();
+        let mut db = RocksDB::open(None).await.unwrap();
 
-        let mut wb = rocksdb::WriteBatch::default();
         for persist in [
             crate::proto::Persist {
-                nonce: 0,
+                nonce: 1,
                 ack_intents: [("j/A".to_string(), bytes::Bytes::from_static(b"INTENT-A"))]
                     .into_iter()
                     .collect(),
                 ..Default::default()
             },
             crate::proto::Persist {
-                nonce: 0,
+                nonce: 2,
                 ack_intents: [("j/B".to_string(), bytes::Bytes::from_static(b"INTENT-B"))]
                     .into_iter()
                     .collect(),
@@ -842,10 +841,8 @@ mod test {
                 ..Default::default()
             },
         ] {
-            extend_write_batch::<&str>(&mut wb, &persist, &[]).unwrap();
+            db = db.persist::<&str>(&persist, &[]).await.unwrap();
         }
-
-        let db = db.write_opt(wb, Default::default()).await.unwrap();
 
         let (_db, state) = db.scan(Vec::new()).await.unwrap();
         assert_eq!(state.ack_intents.len(), 2);

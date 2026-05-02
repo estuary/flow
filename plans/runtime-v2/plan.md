@@ -114,29 +114,29 @@ Leader and shard implementations both live in `crates/runtime-next/`.
   the bidirectional `Leader` (sidecar) and `Shard` (per-shard,
   controller-facing) RPCs. Both carry the same message types (`Derive`,
   `Materialize`); messages and their fields are documented inline.
-- **Sidecar Shuffle Leader** — `crates/runtime-next/src/leader/` and
-  `crates/runtime-next/src/materialize/leader/`.
-  - `leader/service.rs`, `materialize/leader/handler.rs`: gRPC entry
+- **Sidecar Shuffle Leader** — `crates/runtime-next/src/leader/`.
+  - `leader/service.rs`, `leader/materialize/handler.rs`: gRPC entry
     points and per-task Join rendezvous.
-  - `materialize/leader/startup.rs`: Recover/Open/Apply/Recovered phase.
-  - `materialize/leader/fsm.rs`, `materialize/leader/actor.rs`:
+  - `leader/materialize/startup.rs`: Recover/Open/Apply/Recovered phase.
+  - `leader/materialize/fsm.rs`, `leader/materialize/actor.rs`:
     pipelined HeadFSM/TailFSM driving open / commit / acknowledge /
     trigger.
-  - `recovery/codec.rs`: encode/decode of `Persist` payloads to RocksDB
+  - `shard/recovery.rs`: encode/decode of `Persist` payloads to RocksDB
     `WriteBatch` operations and recovery iteration to in-memory state.
     Single source of truth for the on-disk key layout (`FH:`, `FC:`,
     `AI:`, `MK-v2:`, `connector-state`, `trigger-params`, `last-applied`).
-  - `recovery/frontier_mapping.rs`: bi-directional mapping between
+  - `patches.rs`: wire format for connector state patch streams shared
+    by leader-side state reduction and shard-side persistence.
+  - `leader/materialize/frontier_mapping.rs`: bi-directional mapping between
     `consumer.Checkpoint` and `shuffle::Frontier`.
   - `triggers.rs`, `publish.rs`: webhook trigger delivery and
     leader-side journal publishing of stats / ACK intents.
 - **Per-shard TaskService** — `crates/runtime-next/src/`.
   - `task_service.rs`, `handler.rs`: CGO entry point and `Shard` gRPC
     handler.
-  - `materialize/shard/`: per-shard transaction loop, connector RPC
-    bridging, and (on shard zero) RocksDB persistence via the shared
-    recovery codec.
-  - `rocksdb.rs`: the single Persist application code path; capture
+  - `shard/materialize/`: per-shard transaction loop, connector RPC
+    bridging, and (on shard zero) RocksDB persistence.
+  - `shard/rocksdb.rs`: the single Persist application code path; capture
     will reuse it by synthesizing Persist messages locally.
 
 ## Key invariants
@@ -146,7 +146,7 @@ new code must continue to honor:
 
 - **Crate dependency direction.** Leader and shard implementations both
   live in `runtime-next`. The legacy `runtime` crate does not yet depend on
-  `runtime-next`, and MAYBE will use `runtime_next::recovery::frontier_mapping`
+  `runtime-next`, and MAYBE will use `runtime_next::leader::materialize::frontier_mapping`
   for its rollback path — Frontier↔Checkpoint encoding has one source
   of truth. `runtime-next` MUST NOT depend on `runtime`.
   Prefer a little copying to a little dependency.
@@ -230,7 +230,7 @@ complete runtime in stages of increasing blast radius.
   machine regardless of which tasks are assigned; old-runtime tasks
   simply don't talk to it. The only change to the existing `runtime`
   crate is Frontier-aware rollback (the migration swap on startup,
-  using `runtime_next::recovery::frontier_mapping`).
+  using `runtime_next::leader::materialize::frontier_mapping`).
 - **Rollback**: switching a task's feature flag back to the old runtime
   is a per-task operation. No global rollback needed.
 

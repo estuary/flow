@@ -173,7 +173,7 @@ impl Topology {
 
 /// Four-stage checkpoint pipeline state machine.
 ///
-/// Progress flows: `on_progressed_chunk()` → `progressed` → `unresolved` → `ready` → `take_ready()`.
+/// Progress flows: `on_progressed()` → `progressed` → `unresolved` → `ready` → `take_ready()`.
 ///
 /// Causal hints gate the `unresolved` → `ready` promotion: progress stays in
 /// `unresolved` until all hinted journals confirm the producer committed.
@@ -191,9 +191,6 @@ impl Topology {
 /// Peeks let the client begin processing (e.g. release log
 /// segments) without waiting for full transactional resolution.
 pub struct CheckpointPipeline {
-    /// Accumulated partial Progressed frontier chunks per-shard,
-    /// awaiting end-of-sequence (empty journals terminator).
-    partials: Vec<Vec<crate::JournalFrontier>>,
     /// Raw accumulated and reduced Progressed responses.
     /// Promoted to `unresolved` when a) non-empty and b) `unresolved` is empty,
     /// or promoted directly to `ready` if it contains no unresolved hints.
@@ -236,11 +233,7 @@ pub struct CheckpointPipeline {
 impl CheckpointPipeline {
     /// Create a new pipeline using the `recovery` Frontier,
     /// which may contain unresolved hints.
-    pub fn new(
-        resume_checkpoint: &crate::Frontier,
-        shard_count: usize,
-        binding_cohorts: Vec<u32>,
-    ) -> Self {
+    pub fn new(resume_checkpoint: &crate::Frontier, binding_cohorts: Vec<u32>) -> Self {
         // Project read-through state from resume_checkpoint: producers with
         // hinted_commit > last_commit represent transactions that were prepared
         // but not yet committed during the previous session.
@@ -264,7 +257,6 @@ impl CheckpointPipeline {
 
         let recovery_pending = unresolved.unresolved_hints != 0;
         Self {
-            partials: vec![Vec::new(); shard_count],
             progressed: Default::default(),
             unresolved,
             unresolved_armed: false,
@@ -363,25 +355,15 @@ impl CheckpointPipeline {
         None
     }
 
-    /// Ingest a Progressed frontier chunk from a shard. Accumulates partial
-    /// chunks until end-of-sequence (empty journals), then assembles the full
-    /// frontier, resolves causal hints, and promotes through the pipeline.
-    ///
-    /// Returns `true` when a complete sequence was ingested, signaling that
-    /// the caller should send the next ProgressRequest to this shard.
-    pub fn on_progressed_chunk(
+    /// Ingest a Progressed frontier from a shard, resolve causal hints, and
+    /// promote through the pipeline.
+    pub fn on_progressed(
         &mut self,
         shard_index: usize,
-        chunk: proto_flow::shuffle::FrontierChunk,
-    ) -> anyhow::Result<bool> {
-        if !chunk.journals.is_empty() {
-            self.partials[shard_index].extend(crate::JournalFrontier::decode(chunk));
-            return Ok(false);
-        }
-
-        let journals = std::mem::take(&mut self.partials[shard_index]);
-        let mut progressed = crate::Frontier::new(journals, chunk.flushed_lsn)
-            .context("validating Progressed frontier delta")?;
+        proto: proto_flow::shuffle::Frontier,
+    ) -> anyhow::Result<()> {
+        let mut progressed =
+            crate::Frontier::decode(proto).context("validating Progressed frontier delta")?;
 
         tracing::debug!(shard_index, ?progressed, "received Progressed response");
 
@@ -449,7 +431,7 @@ impl CheckpointPipeline {
         self.progressed = std::mem::take(&mut self.progressed).reduce(progressed);
         self.try_promote();
 
-        Ok(true)
+        Ok(())
     }
 
     /// Called on each actor tick to detect stalled causal hint resolution.
@@ -736,32 +718,21 @@ mod test {
         }
     }
 
-    /// Build a CheckpointPipeline with no recovery state and one test shard.
+    /// Build a CheckpointPipeline with no recovery state.
     /// Binding indices 0 and 1 both map to cohort 0.
     fn test_pipeline() -> CheckpointPipeline {
-        CheckpointPipeline::new(&Default::default(), 1, vec![0, 0])
+        CheckpointPipeline::new(&Default::default(), vec![0, 0])
     }
 
-    /// Feed a sequence of JournalFrontiers to the pipeline as a chunked
-    /// Progressed sequence (data chunk + empty terminator) via shard 0.
+    /// Feed a Progressed frontier to the pipeline via shard 0.
     fn ingest_progressed(
         pipeline: &mut CheckpointPipeline,
         journals: Vec<crate::JournalFrontier>,
         flushed_lsn: Vec<u64>,
     ) {
-        let chunk = crate::JournalFrontier::encode(&journals);
-        assert!(!pipeline.on_progressed_chunk(0, chunk).unwrap());
-        assert!(
-            pipeline
-                .on_progressed_chunk(
-                    0,
-                    proto_flow::shuffle::FrontierChunk {
-                        journals: vec![],
-                        flushed_lsn,
-                    }
-                )
-                .unwrap()
-        );
+        let mut proto = crate::JournalFrontier::encode(&journals);
+        proto.flushed_lsn = flushed_lsn;
+        pipeline.on_progressed(0, proto).unwrap();
     }
 
     // --- Tests ---
@@ -1177,7 +1148,6 @@ mod test {
                 flushed_lsn: vec![],
                 unresolved_hints: 1,
             },
-            1,
             vec![0],
         );
         assert!(pipeline.recovery_pending);
@@ -1299,7 +1269,6 @@ mod test {
                 flushed_lsn: vec![],
                 unresolved_hints: 0,
             },
-            1,
             vec![0],
         );
 
@@ -1718,7 +1687,7 @@ mod test {
     #[test]
     fn test_stale_hint_cross_cohort_isolation() {
         // Binding 0 in cohort 0, binding 1 in cohort 1.
-        let mut pipeline = CheckpointPipeline::new(&Default::default(), 1, vec![0, 1]);
+        let mut pipeline = CheckpointPipeline::new(&Default::default(), vec![0, 1]);
 
         // Cohort 0 commits producer 0x01 at clock 500.
         ingest_progressed(
@@ -1756,7 +1725,7 @@ mod test {
             flushed_lsn: vec![],
             unresolved_hints: 0,
         };
-        let mut pipeline = CheckpointPipeline::new(&resume, 1, vec![0, 0]);
+        let mut pipeline = CheckpointPipeline::new(&resume, vec![0, 0]);
 
         // The recovery hint must be in unresolved, not silently filtered.
         assert_eq!(pipeline.unresolved.unresolved_hints, 1);

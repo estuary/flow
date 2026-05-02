@@ -45,8 +45,8 @@ pub struct SliceActor {
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
     pub ready_read_heap: ReadyReadHeap,
-    /// Drain of the Progressed frontier being transmitted as chunked responses.
-    pub progressed_drain: crate::frontier::Drain,
+    /// Drain of the next Progressed response to transmit.
+    pub progressed_drain: Option<shuffle::Frontier>,
 }
 
 struct Buffers {
@@ -845,27 +845,24 @@ impl SliceActor {
         // Future which represent an absence of an awake signal.
         let idle = future::Either::Right(std::future::ready(false));
 
-        // If no drain is in progress, check whether we should start one.
-        if self.progressed_drain.is_empty() {
+        if self.progressed_drain.is_none() {
             let Some(frontier) = self.progress.take_progressed() else {
                 return Ok(idle);
             };
             tracing::debug!(?frontier, "sending Progressed to Session");
-            self.progressed_drain.start(frontier);
+            self.progressed_drain = Some(frontier.encode());
         }
 
-        // Drain chunked Progressed responses.
-        // Ensure channel capacity *before* next_chunk() to not lose it.
-        while !self.progressed_drain.is_empty() {
+        // Drain a Progressed response.
+        // Ensure channel capacity *before* take() to not lose it.
+        if self.progressed_drain.is_some() {
             let Ok(permit) = self.slice_response_tx.try_reserve() else {
                 return Ok(future::Either::Left(
                     self.slice_response_tx.clone().reserve_owned().map(|_| true),
                 ));
             };
-            let chunk = self.progressed_drain.next_chunk().unwrap();
-
             permit.send(Ok(shuffle::SliceResponse {
-                progressed: Some(chunk),
+                progressed: self.progressed_drain.take(),
                 ..Default::default()
             }));
         }

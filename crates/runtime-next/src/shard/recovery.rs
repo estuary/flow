@@ -1,12 +1,12 @@
 //! Codec for the RocksDB keys and values that back runtime tasks.
 //!
 //! [`encode_persist`] turns a [`proto::Persist`] message into an ordered
-//! sequence of [`KeyOp`] effects that a runtime crate stages into a real
+//! stream of [`KeyOp`] effects, invoking a caller-supplied closure for each.
+//! `shard::rocksdb` stages those effects directly into a real
 //! `rocksdb::WriteBatch`. [`decode_recover_key_value`] is called once per
 //! `(key, value)` pair from a full `rocksdb::DB` scan on session startup,
 //! folding singleton state directly into a `proto::Recover` while collecting
-//! frontier entries separately for final sort and proto encoding. Neither
-//! entry point touches `rocksdb` types.
+//! frontier entries separately for final sort and proto encoding.
 //!
 //! `{state_key}` below is the binding-stable `state_key` field of
 //! `flow::MaterializationSpec.Binding` — distinct from `journal_read_suffix`,
@@ -87,12 +87,18 @@ pub enum KeyOp {
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeError {
     #[error(
-        "FrontierChunk journal has binding index {binding}, but only {num_bindings} \
+        "Frontier journal has binding index {binding}, but only {num_bindings} \
          binding state_keys were supplied"
     )]
     UnknownBinding { binding: u32, num_bindings: usize },
     #[error("connector_patches_json is framed (starts with `[`) but is malformed: {reason}")]
     MalformedStatePatches { reason: &'static str },
+}
+
+impl From<crate::patches::MalformedStatePatches> for EncodeError {
+    fn from(err: crate::patches::MalformedStatePatches) -> Self {
+        Self::MalformedStatePatches { reason: err.reason }
+    }
 }
 
 /// Errors produced by [`decode_recover_key_value`].
@@ -114,18 +120,19 @@ pub enum DecodeError {
     RocksDB(#[from] rocksdb::Error),
 }
 
-/// Encode a [`proto::Persist`] as an ordered list of [`KeyOp`] effects.
+/// Encode a [`proto::Persist`] as an ordered stream of [`KeyOp`] effects,
+/// invoking `emit` for each.
 ///
 /// `binding_state_keys[i]` is the stable `state_key` for binding index `i`.
 pub fn encode_persist<S: AsRef<str>>(
     persist: &proto::Persist,
     binding_state_keys: &[S],
-) -> Result<Vec<KeyOp>, EncodeError> {
+    mut emit: impl FnMut(KeyOp),
+) -> Result<(), EncodeError> {
     let mut buf = BytesMut::new();
-    let mut ops = Vec::new();
 
     if persist.delete_ack_intents {
-        ops.push(KeyOp::DeleteRange {
+        emit(KeyOp::DeleteRange {
             from: Bytes::from_static(PREFIX_ACK_INTENT),
             to: Bytes::from_static(PREFIX_ACK_INTENT_END),
         });
@@ -133,61 +140,61 @@ pub fn encode_persist<S: AsRef<str>>(
     for (journal, intent) in &persist.ack_intents {
         buf.extend_from_slice(PREFIX_ACK_INTENT);
         buf.extend_from_slice(journal.as_bytes());
-        ops.push(KeyOp::Put {
+        emit(KeyOp::Put {
             key: buf.split().freeze(),
             value: intent.clone(),
         });
     }
 
     if persist.committed_close_clock != 0 {
-        ops.push(KeyOp::Put {
+        emit(KeyOp::Put {
             key: Bytes::from_static(KEY_COMMITTED_CLOSE),
             value: Bytes::copy_from_slice(&persist.committed_close_clock.to_le_bytes()),
         });
     }
 
-    if let Some(chunk) = &persist.committed_frontier {
-        encode_frontier_chunk(
+    if let Some(frontier) = &persist.committed_frontier {
+        encode_frontier(
             PREFIX_COMMITTED_FRONTIER,
-            chunk,
+            frontier,
             binding_state_keys,
-            &mut ops,
+            &mut emit,
             &mut buf,
         )?;
     }
 
-    for patch in split_state_patches(&persist.connector_patches_json)? {
-        ops.push(KeyOp::Merge {
+    for patch in crate::patches::split_state_patches(&persist.connector_patches_json)? {
+        emit(KeyOp::Merge {
             key: Bytes::from_static(KEY_CONNECTOR_STATE),
             value: patch,
         });
     }
 
     if persist.hinted_close_clock != 0 {
-        ops.push(KeyOp::Put {
+        emit(KeyOp::Put {
             key: Bytes::from_static(KEY_HINTED_CLOSE),
             value: Bytes::copy_from_slice(&persist.hinted_close_clock.to_le_bytes()),
         });
     }
 
     if persist.delete_hinted_frontier {
-        ops.push(KeyOp::DeleteRange {
+        emit(KeyOp::DeleteRange {
             from: Bytes::from_static(PREFIX_HINTED_FRONTIER),
             to: Bytes::from_static(PREFIX_HINTED_FRONTIER_END),
         });
     }
-    if let Some(chunk) = &persist.hinted_frontier {
-        encode_frontier_chunk(
+    if let Some(frontier) = &persist.hinted_frontier {
+        encode_frontier(
             PREFIX_HINTED_FRONTIER,
-            chunk,
+            frontier,
             binding_state_keys,
-            &mut ops,
+            &mut emit,
             &mut buf,
         )?;
     }
 
     if !persist.last_applied.is_empty() {
-        ops.push(KeyOp::Put {
+        emit(KeyOp::Put {
             key: Bytes::from_static(KEY_LAST_APPLIED),
             value: persist.last_applied.clone(),
         });
@@ -197,7 +204,7 @@ pub fn encode_persist<S: AsRef<str>>(
         checkpoint
             .encode(&mut buf)
             .expect("BytesMut never errors on encode");
-        ops.push(KeyOp::Put {
+        emit(KeyOp::Put {
             key: Bytes::from_static(KEY_LEGACY_CHECKPOINT),
             value: buf.split().freeze(),
         });
@@ -214,38 +221,38 @@ pub fn encode_persist<S: AsRef<str>>(
 
         buf.extend_from_slice(PREFIX_MAX_KEY);
         buf.extend_from_slice(state_key.as_bytes());
-        ops.push(KeyOp::Put {
+        emit(KeyOp::Put {
             key: buf.split().freeze(),
             value: packed_key.clone(),
         });
     }
 
     if persist.delete_trigger_params {
-        ops.push(KeyOp::Delete {
+        emit(KeyOp::Delete {
             key: Bytes::from_static(KEY_TRIGGER_PARAMS),
         });
     }
     if !persist.trigger_params_json.is_empty() {
-        ops.push(KeyOp::Put {
+        emit(KeyOp::Put {
             key: Bytes::from_static(KEY_TRIGGER_PARAMS),
             value: persist.trigger_params_json.clone(),
         });
     }
 
-    Ok(ops)
+    Ok(())
 }
 
-fn encode_frontier_chunk<S: AsRef<str>>(
+fn encode_frontier<S: AsRef<str>>(
     prefix: &'static [u8],
-    chunk: &shuffle::proto::FrontierChunk,
+    frontier: &shuffle::proto::Frontier,
     binding_state_keys: &[S],
-    ops: &mut Vec<KeyOp>,
+    emit: &mut impl FnMut(KeyOp),
     buf: &mut BytesMut,
 ) -> Result<(), EncodeError> {
-    // FrontierChunk.journals is delta-encoded against a running journal name.
+    // Frontier.journals is delta-encoded against a running journal name.
     let mut journal = String::new();
 
-    for jf in &chunk.journals {
+    for jf in &frontier.journals {
         let new_len = journal
             .len()
             .saturating_sub(jf.journal_name_truncate_delta.max(0) as usize);
@@ -272,7 +279,7 @@ fn encode_frontier_chunk<S: AsRef<str>>(
                 ..*producer
             };
             value.encode(buf).expect("BytesMut never errors on encode");
-            ops.push(KeyOp::Put {
+            emit(KeyOp::Put {
                 key,
                 value: buf.split().freeze(),
             });
@@ -295,85 +302,6 @@ fn append_frontier_key(
     out.extend_from_slice(state_key.as_bytes());
     out.put_u8(0);
     out.extend_from_slice(producer);
-}
-
-/// Extend a State-Update-Wire-Format payload with another payload.
-///
-/// Both `out` and `src` use the framed JSON-array wire form accepted by
-/// [`split_state_patches`]. Empty bytes is interpreted as "zero patches".
-pub fn extend_state_patches(out: &mut Vec<u8>, src: &[u8]) {
-    if out.is_empty() {
-        out.extend_from_slice(src);
-    } else if !src.is_empty() {
-        out.truncate(out.len() - 1); // Remove trailing ']'.
-        let src = &src[1..]; // Remove leading '['.
-
-        out.push(b','); // Add separator.
-        out.extend_from_slice(src);
-    }
-}
-
-/// Split a State-Update-Wire-Format payload into its individual JSON patches.
-///
-/// The wire form is always framed — a JSON array with each patch on its own
-/// line, prefixed by `[` (first) or `,` (subsequent) and terminated by `\n`,
-/// with a closing `]`. Empty bytes is interpreted as "zero patches".
-pub fn split_state_patches(payload: &Bytes) -> Result<Vec<Bytes>, EncodeError> {
-    if payload.is_empty() {
-        return Ok(Vec::new());
-    }
-    if payload.first() != Some(&b'[') {
-        return Err(EncodeError::MalformedStatePatches {
-            reason: "expected leading `[`",
-        });
-    }
-
-    let mut out = Vec::new();
-    let mut cursor = 0usize;
-    loop {
-        match payload.get(cursor) {
-            Some(b'[') | Some(b',') => cursor += 1,
-            Some(b']') => {
-                let tail = payload.len() - cursor - 1;
-                if tail == 0 || (tail == 1 && payload[cursor + 1] == b'\n') {
-                    return Ok(out);
-                }
-                return Err(EncodeError::MalformedStatePatches {
-                    reason: "trailing bytes after closing `]`",
-                });
-            }
-            _ => {
-                return Err(EncodeError::MalformedStatePatches {
-                    reason: "expected framing `[`, `,`, or `]`",
-                });
-            }
-        }
-
-        // Handle `[]` (empty array) and guard against a stray trailing comma.
-        if payload.get(cursor) == Some(&b']') {
-            if out.is_empty() {
-                let tail = payload.len() - cursor - 1;
-                if tail == 0 || (tail == 1 && payload[cursor + 1] == b'\n') {
-                    return Ok(out);
-                }
-                return Err(EncodeError::MalformedStatePatches {
-                    reason: "trailing bytes after closing `]`",
-                });
-            }
-            return Err(EncodeError::MalformedStatePatches {
-                reason: "trailing comma before `]`",
-            });
-        }
-
-        let newline = payload[cursor..].iter().position(|b| *b == b'\n').ok_or(
-            EncodeError::MalformedStatePatches {
-                reason: "missing trailing newline",
-            },
-        )?;
-        let end = cursor + newline;
-        out.push(payload.slice(cursor..end));
-        cursor = end + 1;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -573,8 +501,8 @@ mod test {
 
     // Two journals, two bindings, with the second journal name delta-encoded
     // against the first.
-    fn chunk_fixture() -> shuffle::proto::FrontierChunk {
-        shuffle::proto::FrontierChunk {
+    fn frontier_fixture() -> shuffle::proto::Frontier {
+        shuffle::proto::Frontier {
             journals: vec![
                 shuffle::proto::JournalFrontier {
                     journal_name_suffix: "acme/events/000".into(),
@@ -694,8 +622,8 @@ mod test {
                 "one_shot_commit",
                 proto::Persist {
                     delete_hinted_frontier: true,
-                    hinted_frontier: Some(chunk_fixture()),
-                    committed_frontier: Some(chunk_fixture()),
+                    hinted_frontier: Some(frontier_fixture()),
+                    committed_frontier: Some(frontier_fixture()),
                     connector_patches_json: Bytes::from_static(b"[{\"cursor\":\"abc\"}\n]"),
                     max_keys: max_keys_map(&[(0, b"packed-1"), (1, b"packed-2")]),
                     delete_ack_intents: true,
@@ -719,7 +647,7 @@ mod test {
             (
                 "committed_no_acks",
                 proto::Persist {
-                    committed_frontier: Some(chunk_fixture()),
+                    committed_frontier: Some(frontier_fixture()),
                     ..Default::default()
                 },
             ),
@@ -753,7 +681,11 @@ mod test {
 
         let snapshot: Vec<(&str, Vec<KeyOp>)> = cases
             .into_iter()
-            .map(|(name, p)| (name, encode_persist(&p, binding_state_keys).unwrap()))
+            .map(|(name, p)| {
+                let mut ops = Vec::new();
+                encode_persist(&p, binding_state_keys, |op| ops.push(op)).unwrap();
+                (name, ops)
+            })
             .collect();
         insta::assert_debug_snapshot!(snapshot);
     }
@@ -765,12 +697,12 @@ mod test {
         // decoder.
         let persist1 = proto::Persist {
             delete_hinted_frontier: true,
-            hinted_frontier: Some(chunk_fixture()),
+            hinted_frontier: Some(frontier_fixture()),
             max_keys: max_keys_map(&[(0, b"mk-v1")]),
             ..Default::default()
         };
         let persist2 = proto::Persist {
-            committed_frontier: Some(chunk_fixture()),
+            committed_frontier: Some(frontier_fixture()),
             connector_patches_json: Bytes::from_static(
                 b"[{\"a\":1}\n,{\"b\":null}\n,{\"c\":[1,2]}\n]",
             ),
@@ -784,8 +716,10 @@ mod test {
         };
 
         let binding_state_keys = &["materialize/mat/t1", "materialize/mat/t2"];
-        let ops1 = encode_persist(&persist1, binding_state_keys).unwrap();
-        let ops2 = encode_persist(&persist2, binding_state_keys).unwrap();
+        let mut ops1 = Vec::new();
+        encode_persist(&persist1, binding_state_keys, |op| ops1.push(op)).unwrap();
+        let mut ops2 = Vec::new();
+        encode_persist(&persist2, binding_state_keys, |op| ops2.push(op)).unwrap();
 
         let mut store: Vec<(Bytes, Bytes)> = Vec::new();
         for op in ops1.into_iter().chain(ops2.into_iter()) {
@@ -802,7 +736,7 @@ mod test {
         let cases: Vec<(&str, proto::Persist, &[&str], &str)> = vec![(
             "unknown_binding",
             proto::Persist {
-                committed_frontier: Some(chunk_fixture()),
+                committed_frontier: Some(frontier_fixture()),
                 ..Default::default()
             },
             &["only-one-state-key"],
@@ -810,78 +744,12 @@ mod test {
         )];
 
         for (label, persist, state_keys, want) in cases {
-            let err = encode_persist(&persist, state_keys).unwrap_err();
+            let err = encode_persist(&persist, state_keys, |_| {}).unwrap_err();
             assert!(
                 format!("{err:?}").contains(want),
                 "{label}: expected {want}, got {err:?}"
             );
         }
-    }
-
-    #[test]
-    fn split_state_patches_cases() {
-        let ok_cases: &[(&[u8], &[&[u8]])] = &[
-            // Empty bytes tolerated (proto default) as "zero patches".
-            (b"", &[]),
-            // Canonical zero-patches wire form.
-            (b"[]", &[]),
-            (b"[]\n", &[]),
-            (b"[{\"a\":1}\n]", &[b"{\"a\":1}"]),
-            (
-                b"[{\"a\":1}\n,{\"b\":2}\n,{\"c\":3}\n]",
-                &[b"{\"a\":1}", b"{\"b\":2}", b"{\"c\":3}"],
-            ),
-            // Trailing newline after `]` is permitted.
-            (b"[{\"a\":1}\n]\n", &[b"{\"a\":1}"]),
-        ];
-        for (input, want) in ok_cases {
-            let got = split_state_patches(&Bytes::copy_from_slice(input)).unwrap();
-            let got: Vec<&[u8]> = got.iter().map(|b| b.as_ref()).collect();
-            assert_eq!(got, *want, "input {:?}", String::from_utf8_lossy(input));
-        }
-
-        let err_cases: &[&[u8]] = &[
-            b"{\"a\":1}",                // bare single-patch form is no longer valid
-            b"[{\"a\":1}]",              // missing trailing newline
-            b"[{\"a\":1}\n] extra",      // junk after closing
-            b"[{\"a\":1}\n{\"b\":2}\n]", // missing inter-entry comma
-            b"[{\"a\":1}\n,]",           // trailing comma before `]`
-        ];
-        for input in err_cases {
-            let err = split_state_patches(&Bytes::copy_from_slice(input)).unwrap_err();
-            assert!(
-                matches!(err, EncodeError::MalformedStatePatches { .. }),
-                "input {:?}: got {err:?}",
-                String::from_utf8_lossy(input),
-            );
-        }
-    }
-
-    #[test]
-    fn extend_state_patches_cases() {
-        let mut out = Vec::new();
-        extend_state_patches(&mut out, b"");
-        assert!(out.is_empty());
-
-        extend_state_patches(&mut out, b"[{\"a\":1}\n]");
-        assert_eq!(out.as_slice(), b"[{\"a\":1}\n]");
-
-        extend_state_patches(&mut out, b"");
-        assert_eq!(out.as_slice(), b"[{\"a\":1}\n]");
-
-        extend_state_patches(&mut out, b"[{\"b\":2}\n,{\"c\":null}\n]");
-        assert_eq!(out.as_slice(), b"[{\"a\":1}\n,{\"b\":2}\n,{\"c\":null}\n]");
-
-        let decoded = split_state_patches(&Bytes::from(out)).unwrap();
-        let decoded: Vec<&[u8]> = decoded.iter().map(|b| b.as_ref()).collect();
-        assert_eq!(
-            decoded,
-            vec![
-                b"{\"a\":1}".as_slice(),
-                b"{\"b\":2}".as_slice(),
-                b"{\"c\":null}".as_slice()
-            ]
-        );
     }
 
     #[test]

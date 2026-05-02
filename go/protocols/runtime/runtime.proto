@@ -446,7 +446,7 @@ message Recover {
   // or zero if never committed.
   fixed64 committed_close_clock = 2;
   // Committed Frontier entries. Not a delta.
-  shuffle.FrontierChunk committed_frontier = 3;
+  shuffle.Frontier committed_frontier = 3;
   // Persisted connector state.
   bytes connector_state_json = 4 [json_name = "connectorState"];
   // Clock at which the last hinted transaction closed, or zero if never hinted.
@@ -464,7 +464,7 @@ message Recover {
   // hinted but did not commit.
   fixed64 hinted_close_clock = 5;
   // Persisted hinted Frontier entries (FH: range).
-  shuffle.FrontierChunk hinted_frontier = 6;
+  shuffle.Frontier hinted_frontier = 6;
   // Last-applied task specification (protobuf-encoded bytes), or empty.
   bytes last_applied = 7;
   // Legacy Checkpoint persisted in RocksDB for roll-forward / roll-back
@@ -502,7 +502,7 @@ message Persist {
   fixed64 committed_close_clock = 4;
   // Committed Frontier entries.
   // Effect: Put under "FC:..." keys.
-  shuffle.FrontierChunk committed_frontier = 5;
+  shuffle.Frontier committed_frontier = 5;
   // Connector state patches. State Update Wire Format.
   // Effect: Merge each patch under "connector-state".
   bytes connector_patches_json = 6 [json_name = "connectorPatches"];
@@ -514,7 +514,7 @@ message Persist {
   bool delete_hinted_frontier = 8;
   // Hinted Frontier entries.
   // Effect: Put under "FH:" keys.
-  shuffle.FrontierChunk hinted_frontier = 9;
+  shuffle.Frontier hinted_frontier = 9;
   // Last-applied task specification (protobuf-encoded bytes), or empty.
   // Effect: Put under "last-applied" key.
   bytes last_applied = 10;
@@ -682,7 +682,7 @@ message Materialize {
   // documents that may already exist in the endpoint.
   // Multiple Load messages may be sent per transaction.
   message Load {
-    shuffle.FrontierChunk frontier = 1;
+    shuffle.Frontier frontier = 1;
   }
   Load load = 40;
 

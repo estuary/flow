@@ -523,7 +523,7 @@ pub struct Recover {
     pub committed_close_clock: u64,
     /// Committed Frontier entries. Not a delta.
     #[prost(message, optional, tag = "3")]
-    pub committed_frontier: ::core::option::Option<super::shuffle::FrontierChunk>,
+    pub committed_frontier: ::core::option::Option<super::shuffle::Frontier>,
     /// Persisted connector state.
     #[prost(bytes = "bytes", tag = "4")]
     pub connector_state_json: ::prost::bytes::Bytes,
@@ -544,7 +544,7 @@ pub struct Recover {
     pub hinted_close_clock: u64,
     /// Persisted hinted Frontier entries (FH: range).
     #[prost(message, optional, tag = "6")]
-    pub hinted_frontier: ::core::option::Option<super::shuffle::FrontierChunk>,
+    pub hinted_frontier: ::core::option::Option<super::shuffle::Frontier>,
     /// Last-applied task specification (protobuf-encoded bytes), or empty.
     #[prost(bytes = "bytes", tag = "7")]
     pub last_applied: ::prost::bytes::Bytes,
@@ -594,7 +594,7 @@ pub struct Persist {
     /// Committed Frontier entries.
     /// Effect: Put under "FC:..." keys.
     #[prost(message, optional, tag = "5")]
-    pub committed_frontier: ::core::option::Option<super::shuffle::FrontierChunk>,
+    pub committed_frontier: ::core::option::Option<super::shuffle::Frontier>,
     /// Connector state patches. State Update Wire Format.
     /// Effect: Merge each patch under "connector-state".
     #[prost(bytes = "bytes", tag = "6")]
@@ -610,7 +610,7 @@ pub struct Persist {
     /// Hinted Frontier entries.
     /// Effect: Put under "FH:" keys.
     #[prost(message, optional, tag = "9")]
-    pub hinted_frontier: ::core::option::Option<super::shuffle::FrontierChunk>,
+    pub hinted_frontier: ::core::option::Option<super::shuffle::Frontier>,
     /// Last-applied task specification (protobuf-encoded bytes), or empty.
     /// Effect: Put under "last-applied" key.
     #[prost(bytes = "bytes", tag = "10")]
@@ -839,7 +839,7 @@ pub mod materialize {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Load {
         #[prost(message, optional, tag = "1")]
-        pub frontier: ::core::option::Option<super::super::shuffle::FrontierChunk>,
+        pub frontier: ::core::option::Option<super::super::shuffle::Frontier>,
     }
     /// Shard -> Leader. Load complete.
     /// All documents have been sent into the connector.

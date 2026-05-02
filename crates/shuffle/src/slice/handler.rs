@@ -123,7 +123,7 @@ where
         parser: simd_doc::SimdParser::new(1_000_000),
         ready_read_heap: ReadyReadHeap::new(),
         tailing_reads: 0,
-        progressed_drain: crate::frontier::Drain::new(),
+        progressed_drain: None,
     }
     .serve(slice_request_rx, log_response_rx)
     .await

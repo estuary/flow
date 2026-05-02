@@ -137,7 +137,7 @@ resume checkpoint frontier. The Session:
 2. Opens a Slice RPC to every shard (shard 0 is in-process; others are
    remote gRPC calls).
 3. Sends `Opened` to the coordinator, then reads the resume checkpoint
-   (streamed as chunked `FrontierChunk` messages).
+   `Frontier`.
 4. Sends `Start` to all Slices, which triggers journal listing watches.
 
 ### 2. Journal Discovery
@@ -254,8 +254,7 @@ processes the previous checkpoint.
 
 The Session maintains one outstanding `Progress` / `Progressed` cycle
 per Slice. When the Slice has flushed progress available and a Progress
-request pending, it sends the accumulated frontier as chunked
-`FrontierChunk` messages.
+request pending, it sends the accumulated frontier as a `Frontier`.
 
 ### 11. Checkpoint Pipeline
 
@@ -276,7 +275,7 @@ guarantees forward progress.
 
 Once all hints resolve, the frontier promotes to `ready`. When the
 coordinator sends `NextCheckpoint` and `ready` is non-empty, the Session
-drains it as chunked `FrontierChunk` messages.
+sends it as a single `Frontier` message.
 
 At startup, `resume_checkpoint` may contain unresolved hints from the
 previous session. The `recovery_pending` flag gates promotion until the

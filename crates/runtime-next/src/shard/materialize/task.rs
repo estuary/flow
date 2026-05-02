@@ -75,10 +75,7 @@ impl Task {
             build: version.clone(),
         };
 
-        let binding_state_keys = bindings.iter().map(|b| b.state_key.clone()).collect();
-
         Ok(Self {
-            binding_state_keys,
             bindings,
             shard_ref,
         })
@@ -115,7 +112,7 @@ impl Binding {
             delta_updates,
             deprecated_shuffle: _,
             field_selection,
-            journal_read_suffix,
+            journal_read_suffix: _,
             not_after: _,
             not_before: _,
             partition_selector: _,
@@ -144,7 +141,7 @@ impl Binding {
             partition_template: _,
             projections,
             read_schema_json,
-            uuid_ptr,
+            uuid_ptr: _,
             write_schema_json,
         } = collection.as_ref().context("missing collection")?;
 
@@ -179,19 +176,15 @@ impl Binding {
         }
         .clone();
 
-        let uuid_ptr = json::Pointer::from_str(uuid_ptr.as_str());
-
         Ok(Self {
             collection_name: collection_name.clone(),
             delta_updates: *delta_updates,
-            journal_read_suffix: journal_read_suffix.clone(),
             key_extractors,
             read_schema_json,
             ser_policy,
             state_key: state_key.clone(),
             store_document: !selected_root.is_empty(),
             value_extractors,
-            uuid_ptr,
         })
     }
 

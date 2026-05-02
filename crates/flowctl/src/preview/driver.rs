@@ -1,5 +1,5 @@
 //! Per-session driver: spawns N shard tasks via
-//! `runtime_next::Runtime::spawn_materialize`, synthesizing the
+//! `runtime_next::shard::Service::spawn_materialize`, synthesizing the
 //! SessionLoop/Join/Task envelopes the controller (Go in production) would
 //! normally send.
 //!
@@ -128,7 +128,7 @@ async fn drive_one_shard(
         }
     });
 
-    let runtime = runtime_next::Runtime::new(
+    let shard_svc = runtime_next::shard::Service::new(
         cruntime::Plane::Local,
         run.network.clone(),
         run.log_handler,
@@ -137,7 +137,7 @@ async fn drive_one_shard(
         publisher_factory,
     );
 
-    let mut response_rx = runtime.spawn_materialize(UnboundedReceiverStream::new(request_rx));
+    let mut response_rx = shard_svc.spawn_materialize(UnboundedReceiverStream::new(request_rx));
     let connector_image = connector_image(&spec)?;
     let spec_bytes = spec.encode_to_vec().into();
 

@@ -1,10 +1,10 @@
 //! `runtime-next` hosts both the controller-facing `Shard` gRPC service
-//! (per-shard, in `crate::materialize::shard`) and the `Leader` gRPC
-//! service (sidecar, in `crate::leader` and `crate::materialize::leader`).
-//! Each shard's `Shard` stream terminates both the controller-bound and
-//! leader-bound `runtime.proto` streams, and translates between them and
-//! the connector RPC. The only message that flows end-to-end unmodified
-//! is `Stop` (controller → runtime-next → leader).
+//! (per-shard, in `crate::shard`) and the `Leader` gRPC service (sidecar,
+//! in `crate::leader`). Each shard's `Shard` stream terminates both the
+//! controller-bound and leader-bound `runtime.proto` streams, and
+//! translates between them and the connector RPC. The only messages that
+//! flow end-to-end unmodified are `Stop` and `CloseNow`
+//! (controller → runtime-next → leader).
 //!
 //! "Controller" here is the peer that drives the shard's lifecycle: the
 //! Go runtime in production, an in-process driver such as `flowctl
@@ -34,22 +34,16 @@ mod image_connector;
 mod local_connector;
 mod tokio_context;
 
-mod handler;
 pub mod leader;
-pub mod materialize;
+pub mod patches;
 pub mod publish;
-pub mod recovery;
-mod rocksdb;
-mod shard;
+pub mod shard;
 mod task_service;
 
 pub use container::flow_runtime_protocol;
 
-use std::sync::Arc;
-
 pub use leader::Service;
 pub use publish::Publisher;
-pub use rocksdb::{RocksDB, extend_write_batch};
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
 
@@ -62,35 +56,6 @@ pub const CHANNEL_BUFFER: usize = 16;
 /// Interval at which leader actor event loops tick, ensuring per-loop tracing
 /// instrumentation fires periodically even when no other events arrive.
 pub(crate) const ACTOR_TICK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// Construct an mpsc channel sized for runtime-next inter-task plumbing.
-/// Used for controller-, leader-, and connector-bound message channels;
-/// callers send via `verify_send` so a Full result fails fast as a
-/// capacity-invariant violation.
-#[allow(dead_code)]
-pub(crate) fn new_channel<T>() -> (tokio::sync::mpsc::Sender<T>, tokio::sync::mpsc::Receiver<T>) {
-    tokio::sync::mpsc::channel::<T>(32)
-}
-
-/// Non-blocking channel send that enforces capacity invariants.
-///
-/// Returns an error on `Full` — the caller's design must guarantee
-/// sufficient capacity. A Full here means a capacity invariant is
-/// violated. The error propagates up to tear down the session (fail-fast).
-///
-/// Silently drops on `Closed` — the peer has exited. The caller will
-/// discover a more informative error from the peer's rx stream.
-#[allow(dead_code)]
-pub(crate) fn verify_send<T>(tx: &tokio::sync::mpsc::Sender<T>, value: T) -> anyhow::Result<()> {
-    use tokio::sync::mpsc::error::TrySendError;
-    match tx.try_send(value) {
-        Ok(()) => Ok(()),
-        Err(TrySendError::Closed(_)) => Ok(()),
-        Err(TrySendError::Full(_)) => {
-            anyhow::bail!("verify_send: channel full; capacity invariant violated")
-        }
-    }
-}
 
 /// Describes the basic type of runtime protocol. Mirrors `runtime::RuntimeProtocol`
 /// so that connector image inspection (Phase F-ported `container::flow_runtime_protocol`)
@@ -170,57 +135,8 @@ impl<T: Fn(&ops::Log) + Send + Sync + Clone + 'static> LogHandler for T {
     }
 }
 
-/// Runtime implements the various services that constitute the Flow Runtime.
-#[derive(Clone)]
-pub struct Runtime<L: LogHandler> {
-    pub plane: Plane,
-    pub container_network: String,
-    pub log_handler: L,
-    pub set_log_level: Option<Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
-    pub task_name: String,
-    pub publisher_factory: gazette::journal::ClientFactory,
-}
-
-impl<L: LogHandler> Runtime<L> {
-    /// Build a new Runtime.
-    /// - `plane`: the type of data plane in which this Runtime is operating.
-    /// - `container_network`: the Docker container network used for connector containers.
-    /// - `log_handler`: handler to which connector logs are dispatched.
-    /// - `set_log_level`: callback for adjusting the log level implied by runtime requests.
-    /// - `task_name`: name which is used to label any started connector containers.
-    /// - `publisher_factory`: client factory for creating and appending to collection partitions.
-    pub fn new(
-        plane: Plane,
-        container_network: String,
-        log_handler: L,
-        set_log_level: Option<Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
-        task_name: String,
-        publisher_factory: gazette::journal::ClientFactory,
-    ) -> Self {
-        Self {
-            plane,
-            container_network,
-            log_handler,
-            set_log_level,
-            task_name,
-            publisher_factory,
-        }
-    }
-
-    /// Apply the dynamic log level if a setter was provided.
-    pub fn set_log_level(&self, level: ops::LogLevel) {
-        if level == ops::LogLevel::UndefinedLevel {
-            // No-op
-        } else if let Some(set_log_level) = &self.set_log_level {
-            (set_log_level)(level);
-        }
-    }
-}
-
-#[allow(dead_code)]
 struct Accumulator(doc::combine::Accumulator, simd_doc::Parser);
 
-#[allow(dead_code)]
 impl Accumulator {
     pub fn new(spec: doc::combine::Spec) -> anyhow::Result<Self> {
         Ok(Self(
@@ -265,19 +181,13 @@ impl Accumulator {
 // `verify` is a convenience for building protocol error messages in a standard,
 // structured way. You call `verify` to establish a `Verify` instance, which
 // is then used to assert expectations over protocol requests or responses.
-// If an expectation fails, it produces a suitable error message annotated with
-// the originating peer and stream index.
-pub(crate) fn verify<'p>(
-    source: &'static str,
-    expect: &'static str,
-    peer: &'p str,
-    peer_index: usize,
-) -> Verify<'p> {
+// If an expectation fails, it produces a suitable error message annotated
+// with the originating peer.
+pub(crate) fn verify<'p>(source: &'static str, expect: &'static str, peer: &'p str) -> Verify<'p> {
     Verify {
         source,
         expect,
         peer,
-        peer_index,
     }
 }
 
@@ -285,7 +195,6 @@ pub(crate) struct Verify<'p> {
     source: &'static str,
     expect: &'static str,
     peer: &'p str,
-    peer_index: usize,
 }
 
 impl<'p> Verify<'p> {
@@ -326,15 +235,12 @@ impl<'p> Verify<'p> {
             source,
             expect,
             peer,
-            peer_index,
         } = self;
 
         let mut t = serde_json::to_string(&msg).unwrap();
         t.truncate(4096);
 
-        anyhow::format_err!(
-            "{source} protocol error (expected {expect}) from {peer}@{peer_index}: {t}"
-        )
+        anyhow::format_err!("{source} protocol error (expected {expect}) from {peer}: {t}")
     }
 
     #[must_use]
@@ -344,12 +250,9 @@ impl<'p> Verify<'p> {
             source,
             expect,
             peer,
-            peer_index,
         } = self;
 
-        err.context(format!(
-            "{source} error (expected {expect}) from {peer}@{peer_index}"
-        ))
+        err.context(format!("{source} error (expected {expect}) from {peer}"))
     }
 
     #[must_use]
