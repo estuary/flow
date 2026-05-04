@@ -883,10 +883,10 @@ async fn test_abandon_per_task_thresholds() {
 /// exact-name row each contribute their fields independently. Exercised
 /// here by inserting three rows at `acme/`, `acme/prod/`, and
 /// `acme/prod/source-pg`, each setting distinct fields, and asserting the
-/// merged config resolved via `ControlPlane::fetch_alert_config`.
+/// merged sparse config before the agent projects it into runtime policy.
 #[tokio::test]
 async fn test_alert_configs_hierarchical_merge() {
-    let mut harness = TestHarness::init("test_alert_configs_hierarchical_merge").await;
+    let harness = TestHarness::init("test_alert_configs_hierarchical_merge").await;
     harness.setup_tenant("acme").await;
 
     // Tenant-wide default: explicitly enable ShardFailed with a loose
@@ -916,28 +916,37 @@ async fn test_alert_configs_hierarchical_merge() {
         )
         .await;
 
-    let merged = {
-        use crate::controlplane::ControlPlane;
-        harness
-            .control_plane()
-            .fetch_alert_config("acme/prod/source-pg".to_string())
-            .await
-            .expect("fetch_alert_config")
-            .expect("some config matches")
-    };
+    let defaults = crate::controllers::ControllerConfig::default().alert_config_defaults();
+    let merged = control_plane_api::controllers::fetch_alert_config(
+        "acme/prod/source-pg",
+        &harness.pool,
+        &defaults,
+    )
+    .await
+    .expect("fetch_alert_config");
 
     insta::assert_json_snapshot!(serde_json::to_value(&merged).unwrap(), @r#"
     {
       "shardFailed": {
         "condition": {
-          "failures": 10
+          "failures": 10,
+          "per": "8h"
+        },
+        "enabled": true
+      },
+      "taskChronicallyFailing": {
+        "autoDisable": false,
+        "condition": {
+          "failingFor": "30days"
         },
         "enabled": true
       },
       "taskIdle": {
+        "autoDisable": false,
         "condition": {
           "idleFor": "30days"
-        }
+        },
+        "enabled": true
       }
     }
     "#);
@@ -954,6 +963,9 @@ async fn test_data_movement_stalled_disabled_overrides_prefix_threshold() {
 
     insert_capture_for_controller(&pool, "acme/other", chrono::Duration::hours(3)).await;
     insert_capture_for_controller(&pool, "acme/batch", chrono::Duration::hours(3)).await;
+    insert_capture_for_controller(&pool, "acme/cleared-no-legacy", chrono::Duration::hours(3))
+        .await;
+    insert_capture_for_controller(&pool, "acme/cleared-legacy", chrono::Duration::hours(3)).await;
 
     // Tenant-wide DataMovementStalled opt-in with a 1h threshold.
     harness
@@ -969,10 +981,35 @@ async fn test_data_movement_stalled_disabled_overrides_prefix_threshold() {
             serde_json::json!({ "dataMovementStalled": { "enabled": false } }),
         )
         .await;
+    // Explicit null clears the inherited configured threshold. With no legacy
+    // row, that means no alert; with a legacy row, it means legacy fallback.
+    for name in ["acme/cleared-no-legacy", "acme/cleared-legacy"] {
+        harness
+            .upsert_alert_config(
+                name,
+                serde_json::json!({ "dataMovementStalled": { "condition": null } }),
+            )
+            .await;
+    }
+    sqlx::query!(
+        r#"insert into alert_data_processing (catalog_name, evaluation_interval)
+           values
+             ('acme/batch', '2 hours'::interval),
+             ('acme/cleared-legacy', '2 hours'::interval)"#,
+    )
+    .execute(&pool)
+    .await
+    .expect("failed to insert legacy alert_data_processing rows");
 
     // No catalog_stats_hourly rows means zero bytes for everyone.
-    harness.run_pending_controller("acme/other").await;
-    harness.run_pending_controller("acme/batch").await;
+    for name in [
+        "acme/other",
+        "acme/batch",
+        "acme/cleared-no-legacy",
+        "acme/cleared-legacy",
+    ] {
+        harness.run_pending_controller(name).await;
+    }
 
     let other = harness.get_controller_state("acme/other").await;
     assert!(
@@ -983,7 +1020,24 @@ async fn test_data_movement_stalled_disabled_overrides_prefix_threshold() {
     let batch = harness.get_controller_state("acme/batch").await;
     assert!(
         !current_alerts(&batch).contains_key(&AlertType::DataMovementStalled),
-        "acme/batch opts out via enabled=false; must NOT fire despite inherited threshold"
+        "acme/batch opts out via enabled=false; must NOT fire despite inherited and legacy thresholds"
+    );
+    let cleared_no_legacy = harness.get_controller_state("acme/cleared-no-legacy").await;
+    assert!(
+        !current_alerts(&cleared_no_legacy).contains_key(&AlertType::DataMovementStalled),
+        "condition=null clears the inherited threshold; without legacy fallback it must not fire"
+    );
+    let cleared_legacy = harness.get_controller_state("acme/cleared-legacy").await;
+    let cleared_legacy_alert = current_alerts(&cleared_legacy)
+        .get(&AlertType::DataMovementStalled)
+        .expect("condition=null should fall back to the legacy threshold when present");
+    assert_eq!(
+        cleared_legacy_alert
+            .extra
+            .get("evaluation_interval")
+            .unwrap(),
+        "2h",
+        "legacy fallback threshold is 2h"
     );
 }
 

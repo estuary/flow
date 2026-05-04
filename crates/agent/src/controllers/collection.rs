@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use super::{
-    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, abandon, activation,
-    backoff_data_plane_activate, backoff_publication_failure, coalesce_results, data_movement,
+    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, ResolvedAlertConfig,
+    abandon, activation, backoff_data_plane_activate, backoff_publication_failure,
+    coalesce_results, data_movement,
     dependencies::Dependencies,
     periodic,
     publication_status::{self, PendingPublication},
@@ -19,7 +20,7 @@ pub async fn update<C: ControlPlane>(
     events: &Inbox,
     control_plane: &C,
     model: &models::CollectionDef,
-    alert_cfg: Option<&models::AlertConfig>,
+    alert_cfg: &ResolvedAlertConfig,
 ) -> anyhow::Result<Option<NextRun>> {
     publication_status::clear_pending_publication_next_after(&mut status.publications);
     let published = maybe_publish(events, status, state, control_plane, model).await;

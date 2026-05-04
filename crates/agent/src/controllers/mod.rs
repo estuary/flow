@@ -132,6 +132,208 @@ impl ControllerConfig {
     }
 }
 
+/// Runtime alert policy consumed by controller evaluators.
+///
+/// `models::AlertConfig` is intentionally sparse because it represents JSON
+/// patch layers from `alert_configs`. This type is intentionally dense because
+/// it represents the policy after defaults and overrides have been resolved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedAlertConfig {
+    pub shard_failed: ResolvedShardFailedConfig,
+    pub task_chronically_failing: ResolvedTaskChronicallyFailingConfig,
+    pub task_idle: ResolvedTaskIdleConfig,
+    pub data_movement_stalled: ResolvedDataMovementStalledConfig,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedShardFailedConfig {
+    /// Failure records are retained and pruned even if the ShardFailed alert is
+    /// not emitted, because retry behavior still depends on recent failures.
+    pub retention: chrono::Duration,
+    pub alert: ResolvedShardFailedAlert,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedShardFailedAlert {
+    Disabled,
+    Enabled { failures: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedTaskChronicallyFailingConfig {
+    Disabled,
+    Enabled {
+        failing_for: chrono::Duration,
+        auto_disable: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedTaskIdleConfig {
+    Disabled,
+    Enabled {
+        idle_for: chrono::Duration,
+        auto_disable: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedDataMovementStalledConfig {
+    Disabled,
+    Configured {
+        stalled_for: chrono::Duration,
+    },
+    /// No global default exists for this threshold. Until the migration is
+    /// complete, the evaluator must look for a per-task legacy row in
+    /// `alert_data_processing`.
+    LegacyFallback,
+}
+
+impl ResolvedAlertConfig {
+    /// Convert a merged `models::AlertConfig` into evaluator-ready policy.
+    ///
+    /// This is the single place where the "defaults have been applied" invariant
+    /// is checked. The exhaustive destructuring below is deliberate: adding a
+    /// new model field should force an explicit decision about whether and how
+    /// that field participates in runtime alert evaluation.
+    pub fn from_effective(config: models::AlertConfig) -> anyhow::Result<Self> {
+        let models::AlertConfig {
+            data_movement_stalled,
+            shard_failed,
+            task_chronically_failing,
+            task_idle,
+        } = config;
+
+        Ok(Self {
+            shard_failed: resolve_shard_failed(shard_failed)?,
+            task_chronically_failing: resolve_task_chronically_failing(task_chronically_failing)?,
+            task_idle: resolve_task_idle(task_idle)?,
+            data_movement_stalled: resolve_data_movement_stalled(data_movement_stalled)?,
+        })
+    }
+}
+
+fn resolve_shard_failed(
+    config: Option<models::ShardFailedConfig>,
+) -> anyhow::Result<ResolvedShardFailedConfig> {
+    let config = required(config, "shardFailed")?;
+    let models::ShardFailedConfig { enabled, condition } = config;
+    let condition = required(condition, "shardFailed.condition")?;
+    let models::ShardFailedCondition { failures, per } = condition;
+
+    let alert = if required(enabled, "shardFailed.enabled")? {
+        ResolvedShardFailedAlert::Enabled {
+            failures: required(failures, "shardFailed.condition.failures")?,
+        }
+    } else {
+        ResolvedShardFailedAlert::Disabled
+    };
+
+    Ok(ResolvedShardFailedConfig {
+        retention: required_duration(per, "shardFailed.condition.per")?,
+        alert,
+    })
+}
+
+fn resolve_task_chronically_failing(
+    config: Option<models::TaskChronicallyFailingConfig>,
+) -> anyhow::Result<ResolvedTaskChronicallyFailingConfig> {
+    let config = required(config, "taskChronicallyFailing")?;
+    let models::TaskChronicallyFailingConfig {
+        enabled,
+        auto_disable,
+        condition,
+    } = config;
+
+    if !required(enabled, "taskChronicallyFailing.enabled")? {
+        return Ok(ResolvedTaskChronicallyFailingConfig::Disabled);
+    }
+
+    let condition = required(condition, "taskChronicallyFailing.condition")?;
+    let models::TaskChronicallyFailingCondition { failing_for } = condition;
+
+    Ok(ResolvedTaskChronicallyFailingConfig::Enabled {
+        failing_for: required_duration(failing_for, "taskChronicallyFailing.condition.failingFor")?,
+        auto_disable: required(auto_disable, "taskChronicallyFailing.autoDisable")?,
+    })
+}
+
+fn resolve_task_idle(
+    config: Option<models::TaskIdleConfig>,
+) -> anyhow::Result<ResolvedTaskIdleConfig> {
+    let config = required(config, "taskIdle")?;
+    let models::TaskIdleConfig {
+        enabled,
+        auto_disable,
+        condition,
+    } = config;
+
+    if !required(enabled, "taskIdle.enabled")? {
+        return Ok(ResolvedTaskIdleConfig::Disabled);
+    }
+
+    let condition = required(condition, "taskIdle.condition")?;
+    let models::TaskIdleCondition { idle_for } = condition;
+
+    Ok(ResolvedTaskIdleConfig::Enabled {
+        idle_for: required_duration(idle_for, "taskIdle.condition.idleFor")?,
+        auto_disable: required(auto_disable, "taskIdle.autoDisable")?,
+    })
+}
+
+fn resolve_data_movement_stalled(
+    config: Option<models::DataMovementStalledConfig>,
+) -> anyhow::Result<ResolvedDataMovementStalledConfig> {
+    let Some(config) = config else {
+        return Ok(ResolvedDataMovementStalledConfig::LegacyFallback);
+    };
+
+    let models::DataMovementStalledConfig { enabled, condition } = config;
+    if enabled == Some(false) {
+        return Ok(ResolvedDataMovementStalledConfig::Disabled);
+    }
+
+    let stalled_for = match condition {
+        Some(condition) => {
+            let models::DataMovementStalledCondition { stalled_for } = condition;
+            optional_duration(stalled_for, "dataMovementStalled.condition.stalledFor")?
+        }
+        None => None,
+    };
+
+    Ok(match stalled_for {
+        Some(stalled_for) => ResolvedDataMovementStalledConfig::Configured { stalled_for },
+        None => ResolvedDataMovementStalledConfig::LegacyFallback,
+    })
+}
+
+fn required<T>(value: Option<T>, path: &'static str) -> anyhow::Result<T> {
+    value.ok_or_else(|| anyhow::anyhow!("missing resolved alert config field {path}"))
+}
+
+fn required_duration(
+    value: Option<std::time::Duration>,
+    path: &'static str,
+) -> anyhow::Result<chrono::Duration> {
+    let value = required(value, path)?;
+    chrono_duration(value, path)
+}
+
+fn optional_duration(
+    value: Option<std::time::Duration>,
+    path: &'static str,
+) -> anyhow::Result<Option<chrono::Duration>> {
+    value.map(|value| chrono_duration(value, path)).transpose()
+}
+
+fn chrono_duration(
+    value: std::time::Duration,
+    path: &'static str,
+) -> anyhow::Result<chrono::Duration> {
+    chrono::Duration::from_std(value)
+        .with_context(|| format!("resolved alert config field {path} is out of range"))
+}
+
 /// This version is used to determine if the controller state is compatible with the current
 /// code. Any controller state having a higher version than this will be ignored.
 pub const CONTROLLER_VERSION: i32 = 2;
@@ -640,14 +842,11 @@ async fn controller_update<C: ControlPlane>(
         return Ok(None);
     };
 
-    // Fetch the effective alert config once per run so all evaluators
-    // observe a consistent snapshot; absent fields fall through to
-    // `ControllerConfig` globals at the evaluator call site.
     let alert_cfg = control_plane
-        .fetch_alert_config(state.catalog_name.clone())
+        .resolved_alert_config(state.catalog_name.clone())
         .await
-        .context("fetching alert config")?;
-    let alert_cfg = alert_cfg.as_ref();
+        .context("resolving alert config")?;
+    let alert_cfg = &alert_cfg;
 
     let next_run = match live_spec {
         AnySpec::Capture(c) => {
@@ -869,5 +1068,93 @@ mod test {
         let config = ControllerConfig::default();
         let defaults = config.alert_config_defaults();
         insta::assert_json_snapshot!(serde_json::to_value(&defaults).unwrap());
+    }
+
+    #[test]
+    fn resolved_alert_config_rejects_unresolved_defaults() {
+        let err = ResolvedAlertConfig::from_effective(models::AlertConfig::default())
+            .expect_err("missing defaults should be rejected at the boundary");
+        assert!(
+            err.to_string()
+                .contains("missing resolved alert config field shardFailed"),
+            "{err}",
+        );
+    }
+
+    #[test]
+    fn resolved_alert_config_leaves_data_movement_threshold_unresolved() {
+        let resolved = ResolvedAlertConfig::from_effective(
+            ControllerConfig::default().alert_config_defaults(),
+        )
+        .expect("controller defaults should resolve");
+
+        assert_eq!(
+            resolved.data_movement_stalled,
+            ResolvedDataMovementStalledConfig::LegacyFallback,
+        );
+    }
+
+    #[test]
+    fn resolved_alert_config_models_disabled_branches_without_irrelevant_fields() {
+        let mut cfg = ControllerConfig::default().alert_config_defaults();
+        let idle = cfg.task_idle.as_mut().unwrap();
+        idle.enabled = Some(false);
+        idle.auto_disable = None;
+        idle.condition = None;
+
+        let chronic = cfg.task_chronically_failing.as_mut().unwrap();
+        chronic.enabled = Some(false);
+        chronic.auto_disable = None;
+        chronic.condition = None;
+
+        let shard_failed = cfg.shard_failed.as_mut().unwrap();
+        shard_failed.enabled = Some(false);
+        shard_failed.condition.as_mut().unwrap().failures = None;
+
+        let resolved = ResolvedAlertConfig::from_effective(cfg)
+            .expect("disabled alert branches should not require irrelevant fields");
+
+        assert_eq!(resolved.task_idle, ResolvedTaskIdleConfig::Disabled);
+        assert_eq!(
+            resolved.task_chronically_failing,
+            ResolvedTaskChronicallyFailingConfig::Disabled,
+        );
+        assert_eq!(
+            resolved.shard_failed.alert,
+            ResolvedShardFailedAlert::Disabled,
+        );
+    }
+
+    #[test]
+    fn resolved_alert_config_models_data_movement_states() {
+        let disabled = ResolvedAlertConfig::from_effective(models::AlertConfig {
+            data_movement_stalled: Some(models::DataMovementStalledConfig {
+                enabled: Some(false),
+                condition: None,
+            }),
+            ..ControllerConfig::default().alert_config_defaults()
+        })
+        .expect("disabled DataMovementStalled should resolve");
+        assert_eq!(
+            disabled.data_movement_stalled,
+            ResolvedDataMovementStalledConfig::Disabled,
+        );
+
+        let configured = ResolvedAlertConfig::from_effective(models::AlertConfig {
+            data_movement_stalled: Some(models::DataMovementStalledConfig {
+                enabled: None,
+                condition: Some(models::DataMovementStalledCondition {
+                    stalled_for: Some(std::time::Duration::from_secs(3600)),
+                }),
+            }),
+            ..ControllerConfig::default().alert_config_defaults()
+        })
+        .expect("configured DataMovementStalled should resolve");
+        assert_eq!(
+            configured.data_movement_stalled,
+            ResolvedDataMovementStalledConfig::Configured {
+                stalled_for: chrono::Duration::hours(1),
+            },
+        );
     }
 }

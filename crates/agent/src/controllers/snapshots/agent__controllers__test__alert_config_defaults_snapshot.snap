@@ -1,6 +1,5 @@
 ---
 source: crates/agent/src/controllers/mod.rs
-assertion_line: 870
 expression: "serde_json::to_value(&defaults).unwrap()"
 ---
 {

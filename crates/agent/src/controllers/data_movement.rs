@@ -4,7 +4,9 @@
 //! (`dataMovementStalled.condition.stalledFor`). If no threshold is configured
 //! there, evaluation falls back to `alert_data_processing`.
 
-use super::{ControllerState, NextRun, alerts};
+use super::{
+    ControllerState, NextRun, ResolvedAlertConfig, ResolvedDataMovementStalledConfig, alerts,
+};
 use crate::controllers::activation::has_task_shards;
 use crate::controlplane::ControlPlane;
 use chrono::{DurationRound, TimeDelta};
@@ -20,31 +22,20 @@ pub async fn evaluate_data_movement_stalled<C: ControlPlane>(
     alerts_status: &mut Alerts,
     state: &ControllerState,
     control_plane: &C,
-    alert_cfg: Option<&models::AlertConfig>,
+    alert_cfg: &ResolvedAlertConfig,
 ) -> anyhow::Result<Option<NextRun>> {
     let Some(spec) = state.live_spec.as_ref().filter(|_| moves_data(state)) else {
         alerts::resolve_alert(alerts_status, AlertType::DataMovementStalled);
         return Ok(None);
     };
 
-    if alert_cfg
-        .and_then(|a| a.data_movement_stalled.as_ref())
-        .and_then(|d| d.enabled)
-        == Some(false)
-    {
-        alerts::resolve_alert(alerts_status, AlertType::DataMovementStalled);
-        return Ok(Some(NextRun::after_minutes(RECHECK_MINUTES)));
-    }
-
-    let configured_threshold = alert_cfg
-        .and_then(|a| a.data_movement_stalled.as_ref())
-        .and_then(|d| d.condition.as_ref())
-        .and_then(|c| c.stalled_for)
-        .and_then(|d| chrono::Duration::from_std(d).ok());
-
-    let threshold = match configured_threshold {
-        Some(t) => t,
-        None => {
+    let threshold = match &alert_cfg.data_movement_stalled {
+        ResolvedDataMovementStalledConfig::Disabled => {
+            alerts::resolve_alert(alerts_status, AlertType::DataMovementStalled);
+            return Ok(Some(NextRun::after_minutes(RECHECK_MINUTES)));
+        }
+        ResolvedDataMovementStalledConfig::Configured { stalled_for } => *stalled_for,
+        ResolvedDataMovementStalledConfig::LegacyFallback => {
             // TODO: remove once this fallback path is no longer needed.
             // Fall back to `alert_data_processing`.
             match control_plane

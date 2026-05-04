@@ -140,13 +140,10 @@ pub async fn fetch_last_data_movement_ts(
 pub async fn fetch_alert_config(
     catalog_name: &str,
     db: impl sqlx::PgExecutor<'static>,
-) -> anyhow::Result<Option<models::AlertConfig>> {
-    let (config, _) = fetch_alert_config_with_provenance(catalog_name, db, None).await?;
-    if config == models::AlertConfig::default() {
-        Ok(None)
-    } else {
-        Ok(Some(config))
-    }
+    defaults: &models::AlertConfig,
+) -> anyhow::Result<models::AlertConfig> {
+    let (config, _) = fetch_alert_config_with_provenance(catalog_name, db, Some(defaults)).await?;
+    Ok(config)
 }
 
 /// Computes the effective `AlertConfig` for `catalog_name` by deep-merging

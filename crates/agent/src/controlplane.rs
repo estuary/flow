@@ -96,13 +96,13 @@ pub trait ControlPlane: Send + Sync {
         catalog_name: String,
     ) -> anyhow::Result<Option<DateTime<Utc>>>;
 
-    /// Returns the effective alert config for `catalog_name`, or `None` if no
-    /// row applies. Exact-name rows override prefix rows; among prefixes, the
-    /// longest match wins.
-    async fn fetch_alert_config(
+    /// Returns the effective alert config for `catalog_name`, after merging
+    /// global defaults from `ControllerConfig` as the lowest-priority layer.
+    /// DB rows override defaults; among prefixes, the longest match wins.
+    async fn resolved_alert_config(
         &self,
         catalog_name: String,
-    ) -> anyhow::Result<Option<models::AlertConfig>>;
+    ) -> anyhow::Result<crate::controllers::ResolvedAlertConfig>;
 
     /// Returns `alert_data_processing.evaluation_interval` for `catalog_name`,
     /// used as the fallback `DataMovementStalled` threshold when
@@ -463,13 +463,16 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             .context("fetching last data movement")
     }
 
-    async fn fetch_alert_config(
+    async fn resolved_alert_config(
         &self,
         catalog_name: String,
-    ) -> anyhow::Result<Option<models::AlertConfig>> {
-        controllers::fetch_alert_config(&catalog_name, &self.pool)
+    ) -> anyhow::Result<crate::controllers::ResolvedAlertConfig> {
+        let defaults = self.controller_config.alert_config_defaults();
+        let cfg = controllers::fetch_alert_config(&catalog_name, &self.pool, &defaults)
             .await
-            .context("fetching alert config")
+            .context("fetching alert config")?;
+        crate::controllers::ResolvedAlertConfig::from_effective(cfg)
+            .context("resolving effective alert config")
     }
 
     async fn fetch_legacy_data_movement_stalled_threshold(
