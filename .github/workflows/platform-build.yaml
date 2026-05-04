@@ -65,6 +65,7 @@ jobs:
       - run: mise run ci:musl-opt
       - run: mise run ci:gnu-opt
       - run: mise run build:flowctl-go --release
+      - run: mise run build:gazette
       - run: mise run ci:wasm-opt
       - run: mise run ci:package
 
