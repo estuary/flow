@@ -2032,11 +2032,11 @@ impl ControlPlane for TestControlPlane {
         self.inner.fetch_last_data_movement_ts(catalog_name).await
     }
 
-    async fn fetch_alert_config(
+    async fn resolved_alert_config(
         &self,
         catalog_name: String,
-    ) -> anyhow::Result<Option<models::AlertConfig>> {
-        self.inner.fetch_alert_config(catalog_name).await
+    ) -> anyhow::Result<crate::controllers::ResolvedAlertConfig> {
+        self.inner.resolved_alert_config(catalog_name).await
     }
 
     async fn fetch_legacy_data_movement_stalled_threshold(

@@ -1,7 +1,7 @@
 mod auto_discover;
 use super::{
-    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, backoff_data_plane_activate,
-    coalesce_results, dependencies::Dependencies,
+    ControlPlane, ControllerErrorExt, ControllerState, Inbox, NextRun, ResolvedAlertConfig,
+    backoff_data_plane_activate, coalesce_results, dependencies::Dependencies,
 };
 use crate::controllers::{
     abandon, activation, config_update, data_movement, periodic, publication_status, republish,
@@ -22,7 +22,7 @@ pub async fn update<C: ControlPlane>(
     events: &Inbox,
     control_plane: &C,
     model: &models::CaptureDef,
-    alert_cfg: Option<&models::AlertConfig>,
+    alert_cfg: &ResolvedAlertConfig,
 ) -> anyhow::Result<Option<NextRun>> {
     publication_status::clear_pending_publication_next_after(&mut status.publications);
 

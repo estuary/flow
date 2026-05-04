@@ -1,4 +1,7 @@
-use super::{ControllerConfig, ControllerState, NextRun, alerts, backoff_data_plane_activate};
+use super::{
+    ControllerConfig, ControllerState, NextRun, ResolvedAlertConfig, ResolvedShardFailedAlert,
+    alerts, backoff_data_plane_activate,
+};
 use crate::{
     controllers::{ControllerErrorExt, Inbox},
     controlplane::ControlPlane,
@@ -24,24 +27,15 @@ pub async fn update_activation<C: ControlPlane>(
     state: &ControllerState,
     events: &Inbox,
     control_plane: &C,
-    alert_cfg: Option<&models::AlertConfig>,
+    alert_cfg: &ResolvedAlertConfig,
 ) -> anyhow::Result<Option<NextRun>> {
     let now = control_plane.current_time();
     let config = control_plane.controller_config();
-    let shard_failed_condition = alert_cfg
-        .and_then(|a| a.shard_failed.as_ref())
-        .and_then(|s| s.condition.as_ref());
-    let failure_retention = shard_failed_condition
-        .and_then(|c| c.per)
-        .and_then(|d| chrono::Duration::from_std(d).ok())
-        .unwrap_or(config.shard_failure_retention);
-    let alert_after_shard_failures = shard_failed_condition
-        .and_then(|c| c.failures)
-        .unwrap_or(config.alert_after_shard_failures);
-    let shard_failed_enabled = alert_cfg
-        .and_then(|a| a.shard_failed.as_ref())
-        .and_then(|s| s.enabled)
-        .unwrap_or(true);
+    let failure_retention = alert_cfg.shard_failed.retention;
+    let (shard_failed_enabled, alert_after_shard_failures) = match &alert_cfg.shard_failed.alert {
+        ResolvedShardFailedAlert::Enabled { failures } => (true, *failures),
+        ResolvedShardFailedAlert::Disabled => (false, 0),
+    };
     if !shard_failed_enabled {
         alerts::resolve_alert(alerts_status, AlertType::ShardFailed);
     }
