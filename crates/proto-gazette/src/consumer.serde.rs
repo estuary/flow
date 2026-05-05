@@ -482,7 +482,7 @@ impl<'de> serde::Deserialize<'de> for Checkpoint {
                                 return Err(serde::de::Error::duplicate_field("sources"));
                             }
                             sources__ = Some(
-                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
                         GeneratedField::AckIntents => {
@@ -490,7 +490,7 @@ impl<'de> serde::Deserialize<'de> for Checkpoint {
                                 return Err(serde::de::Error::duplicate_field("ackIntents"));
                             }
                             ack_intents__ = Some(
-                                map_.next_value::<std::collections::HashMap<_, ::pbjson::private::BytesDeserialize<_>>>()?
+                                map_.next_value::<std::collections::BTreeMap<_, ::pbjson::private::BytesDeserialize<_>>>()?
                                     .into_iter().map(|(k,v)| (k, v.0)).collect()
                             );
                         }
@@ -2517,7 +2517,7 @@ impl<'de> serde::Deserialize<'de> for StatRequest {
                                 return Err(serde::de::Error::duplicate_field("readThrough"));
                             }
                             read_through__ = Some(
-                                map_.next_value::<std::collections::HashMap<_, ::pbjson::private::NumberDeserialize<i64>>>()?
+                                map_.next_value::<std::collections::BTreeMap<_, ::pbjson::private::NumberDeserialize<i64>>>()?
                                     .into_iter().map(|(k,v)| (k, v.0)).collect()
                             );
                         }
@@ -2684,7 +2684,7 @@ impl<'de> serde::Deserialize<'de> for StatResponse {
                                 return Err(serde::de::Error::duplicate_field("readThrough"));
                             }
                             read_through__ = Some(
-                                map_.next_value::<std::collections::HashMap<_, ::pbjson::private::NumberDeserialize<i64>>>()?
+                                map_.next_value::<std::collections::BTreeMap<_, ::pbjson::private::NumberDeserialize<i64>>>()?
                                     .into_iter().map(|(k,v)| (k, v.0)).collect()
                             );
                         }
@@ -2693,7 +2693,7 @@ impl<'de> serde::Deserialize<'de> for StatResponse {
                                 return Err(serde::de::Error::duplicate_field("publishAt"));
                             }
                             publish_at__ = Some(
-                                map_.next_value::<std::collections::HashMap<_, ::pbjson::private::NumberDeserialize<i64>>>()?
+                                map_.next_value::<std::collections::BTreeMap<_, ::pbjson::private::NumberDeserialize<i64>>>()?
                                     .into_iter().map(|(k,v)| (k, v.0)).collect()
                             );
                         }

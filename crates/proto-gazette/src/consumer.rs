@@ -241,14 +241,17 @@ pub mod replica_status {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Checkpoint {
     /// Sources is metadata of journals consumed by the shard.
-    #[prost(map = "string, message", tag = "1")]
-    pub sources: ::std::collections::HashMap<::prost::alloc::string::String, checkpoint::Source>,
+    #[prost(btree_map = "string, message", tag = "1")]
+    pub sources:
+        ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, checkpoint::Source>,
     /// AckIntents is acknowledgement intents to be written to journals to which
     /// uncommitted messages were published during the transaction which produced
     /// this Checkpoint.
-    #[prost(map = "string, bytes", tag = "2")]
-    pub ack_intents:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::vec::Vec<u8>>,
+    #[prost(btree_map = "string, bytes", tag = "2")]
+    pub ack_intents: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
+    >,
 }
 /// Nested message and enum types in `Checkpoint`.
 pub mod checkpoint {
@@ -267,8 +270,8 @@ pub mod checkpoint {
         /// RFC 4122 v1 node identifiers (see message.ProducerID).
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct ProducerEntry {
-            #[prost(bytes = "vec", tag = "1")]
-            pub id: ::prost::alloc::vec::Vec<u8>,
+            #[prost(bytes = "bytes", tag = "1")]
+            pub id: ::prost::bytes::Bytes,
             #[prost(message, optional, tag = "2")]
             pub state: ::core::option::Option<super::ProducerState>,
         }
@@ -391,8 +394,8 @@ pub struct StatRequest {
     /// Journals and offsets which must be reflected in a completed consumer
     /// transaction before Stat returns, blocking if required. Offsets of journals
     /// not read by this shard are ignored.
-    #[prost(map = "string, int64", tag = "3")]
-    pub read_through: ::std::collections::HashMap<::prost::alloc::string::String, i64>,
+    #[prost(btree_map = "string, int64", tag = "3")]
+    pub read_through: ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, i64>,
     /// Optional extension of the StatRequest.
     #[prost(bytes = "vec", tag = "100")]
     pub extension: ::prost::alloc::vec::Vec<u8>,
@@ -407,8 +410,8 @@ pub struct StatResponse {
     pub header: ::core::option::Option<super::protocol::Header>,
     /// Journals and offsets read through by the most recent completed consumer
     /// transaction.
-    #[prost(map = "string, int64", tag = "3")]
-    pub read_through: ::std::collections::HashMap<::prost::alloc::string::String, i64>,
+    #[prost(btree_map = "string, int64", tag = "3")]
+    pub read_through: ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, i64>,
     /// Journals and offsets this shard has published through, including
     /// acknowledgements, as-of the most recent completed consumer transaction.
     ///
@@ -420,8 +423,8 @@ pub struct StatResponse {
     /// to provide read-your-writes consistency, even if written events pass
     /// through multiple intermediate consumers and arbitrary transformations
     /// before arriving at the materialized view which is ultimately queried.
-    #[prost(map = "string, int64", tag = "4")]
-    pub publish_at: ::std::collections::HashMap<::prost::alloc::string::String, i64>,
+    #[prost(btree_map = "string, int64", tag = "4")]
+    pub publish_at: ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, i64>,
     /// Optional extension of the StatResponse.
     #[prost(bytes = "vec", tag = "100")]
     pub extension: ::prost::alloc::vec::Vec<u8>,
