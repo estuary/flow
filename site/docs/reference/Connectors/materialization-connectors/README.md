@@ -80,6 +80,9 @@ In the future, other open-source materialization connectors from third parties c
 * Google BigQuery
   * [Configuration](./BigQuery.md)
   * Package — ghcr.io/estuary/materialize-bigquery:v3
+* Google Cloud Bigtable
+  * [Configuration](./google-bigtable.md)
+  * Package — ghcr.io/estuary/materialize-bigtable:v1
 * Google Cloud MySQL
   * [Configuration](./MySQL/google-cloud-sql-mysql.md)
   * Package - ghcr.io/estuary/materialize-google-cloud-sql-mysql:v2
