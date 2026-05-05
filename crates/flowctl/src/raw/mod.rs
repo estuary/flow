@@ -15,6 +15,7 @@ mod alerts;
 mod discover;
 mod materialize_fixture;
 mod oauth;
+mod preview_next;
 mod shards;
 mod spec;
 
@@ -74,6 +75,8 @@ pub enum Command {
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
+    /// Locally run and preview a materialization using the V2 runtime.
+    PreviewNext(preview_next::Preview),
 }
 
 #[derive(Debug, clap::Args)]
@@ -237,6 +240,7 @@ impl Advanced {
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
+            Command::PreviewNext(preview) => preview.run(ctx).await,
         }
     }
 }
