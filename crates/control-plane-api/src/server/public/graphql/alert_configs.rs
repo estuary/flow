@@ -61,12 +61,12 @@ pub async fn resolve_effective_alert_config(
     catalog_prefix_or_name: &str,
 ) -> async_graphql::Result<EffectiveAlertConfig> {
     let env = ctx.data::<crate::Envelope>()?;
-    let defaults = ctx.data_opt::<models::AlertConfig>();
+    let defaults = ctx.data::<models::AlertConfig>()?;
 
     let (config, provenance_map) = crate::controllers::fetch_alert_config_with_provenance(
         catalog_prefix_or_name,
         &env.pg_pool,
-        defaults,
+        Some(defaults),
     )
     .await
     .map_err(|e| async_graphql::Error::new(e.to_string()))?;
@@ -498,10 +498,10 @@ mod test {
             }),
         };
 
-        let server = test_server::TestServer::start_with_defaults(
+        let server = test_server::TestServer::start_with_alert_defaults(
             pool.clone(),
             test_server::snapshot(pool.clone(), true).await,
-            Some(defaults),
+            defaults,
         )
         .await;
 

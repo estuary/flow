@@ -70,13 +70,13 @@ pub struct TestServer {
 
 impl TestServer {
     pub async fn start(pg_pool: sqlx::PgPool, snapshot: Arc<dyn tokens::Watch<Snapshot>>) -> Self {
-        Self::start_with_defaults(pg_pool, snapshot, None).await
+        Self::start_with_alert_defaults(pg_pool, snapshot, models::AlertConfig::default()).await
     }
 
-    pub async fn start_with_defaults(
+    pub async fn start_with_alert_defaults(
         pg_pool: sqlx::PgPool,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
-        alert_config_defaults: Option<models::AlertConfig>,
+        alert_config_defaults: models::AlertConfig,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         // TODO(johnny): Aggregate into a sink?
@@ -99,7 +99,6 @@ impl TestServer {
             pg_pool.clone(),
             publisher,
             snapshot,
-            alert_config_defaults,
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();
 
@@ -108,7 +107,8 @@ impl TestServer {
             .expect("failed to bind test server");
         let addr = listener.local_addr().expect("failed to get local addr");
 
-        let router = crate::server::build_router(app, &[addr.to_string()]).unwrap();
+        let router =
+            crate::server::build_router(app, &[addr.to_string()], alert_config_defaults).unwrap();
 
         tokio::spawn(async move {
             axum::serve(listener, router)

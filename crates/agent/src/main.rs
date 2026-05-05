@@ -319,9 +319,12 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         pg_pool.clone(),
         publisher.clone(),
         snapshot_watch,
-        Some(alert_config_defaults),
     ));
-    let api_router = control_plane_api::build_router(api_app.clone(), &args.allow_origin)?;
+    let api_router = control_plane_api::build_router(
+        api_app.clone(),
+        &args.allow_origin,
+        alert_config_defaults,
+    )?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 

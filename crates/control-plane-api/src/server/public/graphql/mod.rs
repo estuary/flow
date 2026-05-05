@@ -75,41 +75,37 @@ pub struct MutationRoot(
     invite_links::InviteLinksMutation,
 );
 
-pub fn create_schema() -> GraphQLSchema {
+pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {
     Schema::build(
         QueryRoot::default(),
         MutationRoot::default(),
         EmptySubscription,
     )
+    .data(alert_config_defaults)
     .finish()
 }
 
 /// Returns the GraphQL SDL (Schema Definition Language) as a string.
 /// This is used by the flow-client build script to generate types.
 pub fn schema_sdl() -> String {
-    let schema = create_schema();
+    let schema = create_schema(models::AlertConfig::default());
     schema.sdl()
 }
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub(crate) async fn graphql_handler(
     axum::Extension(schema): axum::Extension<GraphQLSchema>,
-    axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     env: crate::Envelope,
     axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
 ) -> axum::response::Response {
     let pg_pool = env.pg_pool.clone();
 
-    let mut request = req
+    let request = req
         .data(env)
         .data(async_graphql::dataloader::DataLoader::new(
             PgDataLoader(pg_pool),
             tokio::spawn,
         ));
-
-    if let Some(defaults) = &app.alert_config_defaults {
-        request = request.data(defaults.clone());
-    }
 
     let response = schema.execute(request).await;
 
