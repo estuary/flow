@@ -80,8 +80,8 @@ impl Binding {
     /// (e.g. on SliceActor) or discard them (e.g. SessionActor).
     pub fn from_task(
         task: &shuffle::Task,
-    ) -> anyhow::Result<(String, Vec<Self>, Vec<doc::Validator>, u64)> {
-        let (shard_prefix, pairs, disk_backlog_threshold) = match &task.task {
+    ) -> anyhow::Result<(String, Vec<Self>, Vec<doc::Validator>)> {
+        let (shard_prefix, pairs) = match &task.task {
             Some(shuffle::task::Task::Derivation(collection_spec)) => {
                 let derivation = collection_spec
                     .derivation
@@ -104,14 +104,7 @@ impl Binding {
                     .id
                     .as_str();
 
-                // TODO: extract from task spec.
-                let disk_backlog_threshold = 10 * 1024 * 1024 * 1024u64;
-
-                (
-                    format!("{shard_template_id}/"),
-                    pairs,
-                    disk_backlog_threshold,
-                )
+                (format!("{shard_template_id}/"), pairs)
             }
             Some(shuffle::task::Task::Materialization(materialization)) => {
                 let pairs = materialization
@@ -130,20 +123,12 @@ impl Binding {
                     .id
                     .as_str();
 
-                // TODO: extract from task spec.
-                let disk_backlog_threshold = 10 * 1024 * 1024 * 1024u64;
-
-                (
-                    format!("{shard_template_id}/"),
-                    pairs,
-                    disk_backlog_threshold,
-                )
+                (format!("{shard_template_id}/"), pairs)
             }
             Some(shuffle::task::Task::CollectionPartitions(collection_partitions)) => {
                 let shuffle::CollectionPartitions {
                     collection,
                     partition_selector,
-                    disk_backlog_threshold,
                 } = collection_partitions;
 
                 let collection_spec = collection
@@ -162,7 +147,6 @@ impl Binding {
                 (
                     String::new(), // No applicable shard prefix.
                     pairs,
-                    *disk_backlog_threshold,
                 )
             }
             None => anyhow::bail!("missing task variant"),
@@ -173,7 +157,7 @@ impl Binding {
 
         assign_cohorts(&mut bindings);
 
-        Ok((shard_prefix, bindings, validators, disk_backlog_threshold))
+        Ok((shard_prefix, bindings, validators))
     }
 
     fn from_derivation_transform(

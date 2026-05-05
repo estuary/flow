@@ -16,7 +16,6 @@ mod discover;
 mod materialize_fixture;
 mod oauth;
 mod shards;
-mod shuffle;
 mod spec;
 
 #[derive(Debug, clap::Args)]
@@ -75,9 +74,6 @@ pub enum Command {
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
-
-    #[clap(hide = true)]
-    Shuffle(shuffle::Shuffle),
 }
 
 #[derive(Debug, clap::Args)]
@@ -241,7 +237,6 @@ impl Advanced {
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
-            Command::Shuffle(shuffle) => shuffle.run(ctx).await,
         }
     }
 }

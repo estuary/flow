@@ -14,6 +14,9 @@ pub struct ServiceImpl {
     pub(crate) peer_endpoint: String,
     /// Factory for building Gazette journal Clients.
     pub(crate) journal_client_factory: gazette::journal::ClientFactory,
+    /// Disk backlog threshold in bytes before LogActor engages back-pressure.
+    /// Applied uniformly across every task served by this Service.
+    pub(crate) disk_backlog_threshold: u64,
     /// Transport channels to dialed peers.
     pub(crate) channels: std::sync::Mutex<HashMap<String, tonic::transport::Channel>>,
     /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
@@ -25,10 +28,12 @@ impl Service {
     pub fn new(
         peer_endpoint: String,
         journal_client_factory: gazette::journal::ClientFactory,
+        disk_backlog_threshold: u64,
     ) -> Self {
         Self(Arc::new(ServiceImpl {
             peer_endpoint,
             journal_client_factory,
+            disk_backlog_threshold,
             channels: std::sync::Mutex::new(HashMap::new()),
             log_joins: std::sync::Mutex::new(HashMap::new()),
         }))

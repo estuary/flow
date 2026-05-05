@@ -215,7 +215,7 @@ fn get_harness() -> &'static SharedHarness {
                     let journal_client = data_plane.journal_client.clone();
                     move |_authz_sub, _authz_obj| journal_client.clone()
                 });
-                let service = shuffle::Service::new(endpoint, factory);
+                let service = shuffle::Service::new(endpoint, factory, 10 * 1024 * 1024 * 1024);
 
                 let server = service.clone().build_tonic_server();
                 let server_handle = tokio::spawn(async move {

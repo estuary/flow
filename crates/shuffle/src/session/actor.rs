@@ -17,8 +17,8 @@ pub struct SessionActor {
     /// Buffered StartReads to be transmitted to their target Slice channel.
     /// Each entry is (shard_index, StartRead). Drained in FIFO order.
     pub start_reads: std::collections::VecDeque<(usize, shuffle::slice_request::StartRead)>,
-    /// Drain of the checkpoint frontier being transmitted as chunked responses.
-    pub checkpoint_drain: crate::frontier::Drain,
+    /// Drain of the checkpoint Frontier to be transmitted.
+    pub checkpoint_drain: Option<shuffle::Frontier>,
 }
 
 impl SessionActor {
@@ -56,7 +56,7 @@ impl SessionActor {
             tracing::debug!(
                 loop_count,
                 checkpoint = ?self.checkpoint,
-                drain_empty = ?self.checkpoint_drain,
+                drain_pending = self.checkpoint_drain.is_some(),
                 progress_ready = ?self.progress_ready,
                 start_reads = self.start_reads.len(),
                 "SessionActor::serve iteration"
@@ -167,25 +167,24 @@ impl SessionActor {
         // Future which represent an absence of an awake signal.
         let idle = future::Either::Right(std::future::ready(false));
 
-        if self.checkpoint_drain.is_empty() {
+        if self.checkpoint_drain.is_none() {
             if let Some(frontier) = self.checkpoint.take_ready() {
                 tracing::debug!(?frontier, "sending NextCheckpoint to client");
-                self.checkpoint_drain.start(frontier);
+                self.checkpoint_drain = Some(frontier.encode());
             }
         }
 
-        // Try to drain NextCheckpoint response chunks.
-        // Ensure channel capacity *before* next_chunk() to not lose it.
-        while !self.checkpoint_drain.is_empty() {
+        // Try to drain a NextCheckpoint response.
+        // Ensure channel capacity *before* take() to not lose it.
+        if self.checkpoint_drain.is_some() {
             let Ok(permit) = self.session_response_tx.try_reserve() else {
                 return Ok(future::Either::Left(
                     self.session_response_tx.clone().reserve_owned().map(ok),
                 ));
             };
-            let chunk = self.checkpoint_drain.next_chunk().unwrap();
 
             permit.send(Ok(shuffle::SessionResponse {
-                next_checkpoint_chunk: Some(chunk),
+                next_checkpoint: self.checkpoint_drain.take(),
                 ..Default::default()
             }));
         }
@@ -244,16 +243,15 @@ impl SessionActor {
             }
 
             shuffle::SliceResponse {
-                progressed: Some(chunk),
+                progressed: Some(proto),
                 ..
             } => {
-                if self.checkpoint.on_progressed_chunk(shard_index, chunk)? {
-                    tracing::debug!(
-                        shard_index,
-                        "Progressed sequence complete, sending next ProgressRequest"
-                    );
-                    self.progress_ready[shard_index] = true;
-                }
+                self.checkpoint.on_progressed(shard_index, proto)?;
+                tracing::debug!(
+                    shard_index,
+                    "Progressed received, sending next ProgressRequest"
+                );
+                self.progress_ready[shard_index] = true;
                 Ok(())
             }
 
