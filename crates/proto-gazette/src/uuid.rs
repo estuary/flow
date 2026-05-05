@@ -142,6 +142,15 @@ impl Clock {
         Some(pbjson_types::Timestamp { seconds, nanos })
     }
 
+    /// Saturating difference of `a - b` expressed as `Duration`.
+    pub fn delta(a: Self, b: Self) -> std::time::Duration {
+        let (a_s, a_n) = a.to_unix();
+        let (b_s, b_n) = b.to_unix();
+        let a = std::time::Duration::new(a_s, a_n);
+        let b = std::time::Duration::new(b_s, b_n);
+        a.saturating_sub(b)
+    }
+
     pub const UNIX_EPOCH: Self = Clock::from_unix(0, 0);
 }
 
