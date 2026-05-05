@@ -200,6 +200,10 @@ pub struct Rollout {
     pub target: usize,
     /// Maximum amount to increment or decrement `desired` towards `target`.
     pub step: usize,
+    /// When true, skip the next step and flip to false.
+    /// Used to give a sibling deployment a one-cycle head start before this one begins stepping.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub waiting: bool,
 }
 
 /// A Release is matched against a current Deployment of a data-plane.
@@ -508,6 +512,7 @@ impl DataPlane {
                 rollout: Some(Rollout {
                     step: release.step.abs() as usize,
                     target: last.desired,
+                    waiting: false,
                 }),
                 template: last.template.clone(),
                 tier: last.tier,
@@ -517,6 +522,7 @@ impl DataPlane {
             last.rollout = Some(Rollout {
                 step: release.step.abs() as usize,
                 target: 0,
+                waiting: false,
             });
 
             if release.step < 0 {
@@ -549,9 +555,13 @@ impl Deployment {
     }
 
     pub fn step_rollout(&mut self) -> bool {
-        let Some(rollout) = &self.rollout else {
+        let Some(rollout) = &mut self.rollout else {
             return false;
         };
+        if rollout.waiting {
+            rollout.waiting = false;
+            return true;
+        }
         if self.desired < rollout.target {
             self.desired += rollout.step.min(rollout.target - self.desired);
         } else {
@@ -753,7 +763,7 @@ mod test {
         deployments.push(Deployment {
             current: 0,
             desired: 0,
-            rollout: Some(Rollout { step: 1, target: 1 }),
+            rollout: Some(Rollout { step: 1, target: 1, waiting: false }),
             ..deployments[0].clone()
         });
 
