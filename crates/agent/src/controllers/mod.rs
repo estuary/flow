@@ -183,9 +183,13 @@ pub enum ResolvedDataMovementStalledConfig {
     Configured {
         stalled_for: chrono::Duration,
     },
-    /// No global default exists for this threshold. Until the migration is
-    /// complete, the evaluator must look for a per-task legacy row in
-    /// `alert_data_processing`.
+    /// No `dataMovementStalled` config exists anywhere in the alert_configs
+    /// hierarchy. The evaluator falls back to a per-task
+    /// `alert_data_processing.evaluation_interval` row if one exists;
+    /// otherwise the alert is inactive. This is a deferred-resolution
+    /// sentinel: the threshold is not yet known at the type level, so the
+    /// evaluator must still hit the DB. Compatibility behavior, retired
+    /// once the migration off `alert_data_processing` is complete.
     LegacyFallback,
 }
 
@@ -293,16 +297,15 @@ fn resolve_data_movement_stalled(
         return Ok(ResolvedDataMovementStalledConfig::Disabled);
     }
 
-    let stalled_for = match condition {
-        Some(condition) => {
-            let models::DataMovementStalledCondition { stalled_for } = condition;
-            optional_duration(stalled_for, "dataMovementStalled.condition.stalledFor")?
+    Ok(match condition {
+        Some(models::DataMovementStalledCondition { stalled_for }) => {
+            ResolvedDataMovementStalledConfig::Configured {
+                stalled_for: chrono_duration(
+                    stalled_for,
+                    "dataMovementStalled.condition.stalledFor",
+                )?,
+            }
         }
-        None => None,
-    };
-
-    Ok(match stalled_for {
-        Some(stalled_for) => ResolvedDataMovementStalledConfig::Configured { stalled_for },
         None => ResolvedDataMovementStalledConfig::LegacyFallback,
     })
 }
@@ -317,13 +320,6 @@ fn required_duration(
 ) -> anyhow::Result<chrono::Duration> {
     let value = required(value, path)?;
     chrono_duration(value, path)
-}
-
-fn optional_duration(
-    value: Option<std::time::Duration>,
-    path: &'static str,
-) -> anyhow::Result<Option<chrono::Duration>> {
-    value.map(|value| chrono_duration(value, path)).transpose()
 }
 
 fn chrono_duration(
@@ -1144,7 +1140,7 @@ mod test {
             data_movement_stalled: Some(models::DataMovementStalledConfig {
                 enabled: None,
                 condition: Some(models::DataMovementStalledCondition {
-                    stalled_for: Some(std::time::Duration::from_secs(3600)),
+                    stalled_for: std::time::Duration::from_secs(3600),
                 }),
             }),
             ..ControllerConfig::default().alert_config_defaults()
@@ -1155,6 +1151,19 @@ mod test {
             ResolvedDataMovementStalledConfig::Configured {
                 stalled_for: chrono::Duration::hours(1),
             },
+        );
+
+        let unconfigured = ResolvedAlertConfig::from_effective(models::AlertConfig {
+            data_movement_stalled: Some(models::DataMovementStalledConfig {
+                enabled: None,
+                condition: None,
+            }),
+            ..ControllerConfig::default().alert_config_defaults()
+        })
+        .expect("DataMovementStalled without a condition should resolve");
+        assert_eq!(
+            unconfigured.data_movement_stalled,
+            ResolvedDataMovementStalledConfig::LegacyFallback,
         );
     }
 }
