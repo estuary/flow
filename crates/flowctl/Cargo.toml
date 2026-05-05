@@ -33,7 +33,9 @@ proto-grpc = { path = "../proto-grpc", features = [
     "capture_client",
     "shuffle_client",
 ] }
+publisher = { path = "../publisher" }
 runtime = { path = "../runtime" }
+runtime-next = { path = "../runtime-next" }
 shuffle = { path = "../shuffle" }
 simd-doc = { path = "../simd-doc" }
 sources = { path = "../sources" }

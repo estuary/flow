@@ -44,8 +44,6 @@ pub fn new_journal_client(
 ///
 /// The partition template prefix of certain legacy collections were created
 /// without a "/{generation_id}/" suffix -- these are supported as well.
-///
-/// Panics if the partition template prefix is not in the expected format.
 pub fn new_journal_client_factory(
     api_client: crate::rest::Client,
     capability: models::Capability,
