@@ -32,13 +32,11 @@ pub struct DataMovementStalledConfig {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DataMovementStalledCondition {
     /// How long to wait for data movement before the alert fires.
-    #[serde(
-        default,
-        with = "humantime_serde",
-        skip_serializing_if = "Option::is_none"
-    )]
+    /// Required when `condition` is provided; opt out at the task level by
+    /// setting `enabled: false` rather than omitting the threshold.
+    #[serde(with = "humantime_serde")]
     #[schemars(schema_with = "crate::duration_schema")]
-    pub stalled_for: Option<Duration>,
+    pub stalled_for: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -124,7 +122,7 @@ mod test {
             data_movement_stalled: Some(DataMovementStalledConfig {
                 enabled: Some(true),
                 condition: Some(DataMovementStalledCondition {
-                    stalled_for: Some(Duration::from_secs(7200)),
+                    stalled_for: Duration::from_secs(7200),
                 }),
             }),
             shard_failed: Some(ShardFailedConfig {
@@ -239,6 +237,24 @@ mod test {
     }
 
     #[test]
+    fn stalled_for_must_be_present_in_condition() {
+        // Empty `condition` object: missing required `stalledFor` field.
+        let err =
+            serde_json::from_str::<AlertConfig>(r#"{"dataMovementStalled": {"condition": {}}}"#)
+                .expect_err("missing stalledFor should be rejected");
+        assert!(
+            err.to_string().contains("stalledFor"),
+            "expected error to mention stalledFor, got: {err}",
+        );
+
+        // `stalledFor: null`: humantime_serde rejects the null payload.
+        serde_json::from_str::<AlertConfig>(
+            r#"{"dataMovementStalled": {"condition": {"stalledFor": null}}}"#,
+        )
+        .expect_err("null stalledFor should be rejected");
+    }
+
+    #[test]
     fn humantime_formats_accepted() {
         let cfg: AlertConfig = serde_json::from_str(
             r#"{"dataMovementStalled": {"condition": {"stalledFor": "2h"}}, "shardFailed": {"condition": {"per": "8h"}}}"#,
@@ -250,7 +266,7 @@ mod test {
                 .condition
                 .unwrap()
                 .stalled_for,
-            Some(Duration::from_secs(7200))
+            Duration::from_secs(7200)
         );
         assert_eq!(
             cfg.shard_failed.unwrap().condition.unwrap().per,

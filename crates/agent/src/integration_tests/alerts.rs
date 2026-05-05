@@ -478,6 +478,12 @@ async fn test_data_movement_stalled_end_to_end() {
         chrono::Duration::hours(3),
     )
     .await;
+    insert_capture_for_controller(
+        &pool,
+        "acme/team-a/alert-disabled",
+        chrono::Duration::hours(3),
+    )
+    .await;
 
     // A subscriber so that the fired alert produces recipient rows in the
     // `arguments` JSON (needed for the parity snapshot).
@@ -505,15 +511,25 @@ async fn test_data_movement_stalled_end_to_end() {
             serde_json::json!({ "dataMovementStalled": { "condition": { "stalledFor": "4h" } } }),
         )
         .await;
+    harness
+        .upsert_alert_config(
+            "acme/team-a/alert-disabled",
+            serde_json::json!({ "dataMovementStalled": { "enabled": false } }),
+        )
+        .await;
 
     // Fallback threshold from `alert_data_processing` for `acme/legacy`.
+    // `acme/team-a/alert-disabled` also gets a legacy row to prove that
+    // `enabled: false` suppresses the legacy fallback path too.
     sqlx::query!(
         r#"insert into alert_data_processing (catalog_name, evaluation_interval)
-           values ('acme/legacy', '2 hours'::interval)"#,
+           values
+             ('acme/legacy', '2 hours'::interval),
+             ('acme/team-a/alert-disabled', '2 hours'::interval)"#,
     )
     .execute(&pool)
     .await
-    .expect("failed to insert alert_data_processing row");
+    .expect("failed to insert alert_data_processing rows");
 
     for name in [
         "acme/team-a/stalled",
@@ -525,6 +541,7 @@ async fn test_data_movement_stalled_end_to_end() {
         "acme/team-a/dekaf-mat",
         "acme/team-a/mat-stalled",
         "acme/team-a/disabled-cap",
+        "acme/team-a/alert-disabled",
     ] {
         harness.run_pending_controller(name).await;
     }
@@ -613,6 +630,16 @@ async fn test_data_movement_stalled_end_to_end() {
     assert!(
         !current_alerts(&disabled).contains_key(&AlertType::DataMovementStalled),
         "shards.disable=true must suppress DataMovementStalled"
+    );
+
+    // `enabled: false` suppresses the alert even when a legacy
+    // `alert_data_processing` row would otherwise supply a threshold.
+    let alert_disabled = harness
+        .get_controller_state("acme/team-a/alert-disabled")
+        .await;
+    assert!(
+        !current_alerts(&alert_disabled).contains_key(&AlertType::DataMovementStalled),
+        "enabled=false must suppress, even with a legacy alert_data_processing row present",
     );
 
     // Re-running the controller when the alert is already firing must
@@ -950,95 +977,6 @@ async fn test_alert_configs_hierarchical_merge() {
       }
     }
     "#);
-}
-
-/// `dataMovementStalled.enabled: false` at a deeper layer silences the
-/// alert even when a prefix supplies a threshold.
-#[tokio::test]
-async fn test_data_movement_stalled_disabled_overrides_prefix_threshold() {
-    let mut harness =
-        TestHarness::init("test_data_movement_stalled_disabled_overrides_prefix_threshold").await;
-    harness.setup_tenant("acme").await;
-    let pool = harness.pool.clone();
-
-    insert_capture_for_controller(&pool, "acme/other", chrono::Duration::hours(3)).await;
-    insert_capture_for_controller(&pool, "acme/batch", chrono::Duration::hours(3)).await;
-    insert_capture_for_controller(&pool, "acme/cleared-no-legacy", chrono::Duration::hours(3))
-        .await;
-    insert_capture_for_controller(&pool, "acme/cleared-legacy", chrono::Duration::hours(3)).await;
-
-    // Tenant-wide DataMovementStalled opt-in with a 1h threshold.
-    harness
-        .upsert_alert_config(
-            "acme/",
-            serde_json::json!({ "dataMovementStalled": { "condition": { "stalledFor": "1h" } } }),
-        )
-        .await;
-    // …but `acme/batch` explicitly opts out.
-    harness
-        .upsert_alert_config(
-            "acme/batch",
-            serde_json::json!({ "dataMovementStalled": { "enabled": false } }),
-        )
-        .await;
-    // Explicit null clears the inherited configured threshold. With no legacy
-    // row, that means no alert; with a legacy row, it means legacy fallback.
-    for name in ["acme/cleared-no-legacy", "acme/cleared-legacy"] {
-        harness
-            .upsert_alert_config(
-                name,
-                serde_json::json!({ "dataMovementStalled": { "condition": null } }),
-            )
-            .await;
-    }
-    sqlx::query!(
-        r#"insert into alert_data_processing (catalog_name, evaluation_interval)
-           values
-             ('acme/batch', '2 hours'::interval),
-             ('acme/cleared-legacy', '2 hours'::interval)"#,
-    )
-    .execute(&pool)
-    .await
-    .expect("failed to insert legacy alert_data_processing rows");
-
-    // No catalog_stats_hourly rows means zero bytes for everyone.
-    for name in [
-        "acme/other",
-        "acme/batch",
-        "acme/cleared-no-legacy",
-        "acme/cleared-legacy",
-    ] {
-        harness.run_pending_controller(name).await;
-    }
-
-    let other = harness.get_controller_state("acme/other").await;
-    assert!(
-        current_alerts(&other).contains_key(&AlertType::DataMovementStalled),
-        "acme/other inherits tenant threshold and must fire; got: {:?}",
-        current_alerts(&other).keys().collect::<Vec<_>>(),
-    );
-    let batch = harness.get_controller_state("acme/batch").await;
-    assert!(
-        !current_alerts(&batch).contains_key(&AlertType::DataMovementStalled),
-        "acme/batch opts out via enabled=false; must NOT fire despite inherited and legacy thresholds"
-    );
-    let cleared_no_legacy = harness.get_controller_state("acme/cleared-no-legacy").await;
-    assert!(
-        !current_alerts(&cleared_no_legacy).contains_key(&AlertType::DataMovementStalled),
-        "condition=null clears the inherited threshold; without legacy fallback it must not fire"
-    );
-    let cleared_legacy = harness.get_controller_state("acme/cleared-legacy").await;
-    let cleared_legacy_alert = current_alerts(&cleared_legacy)
-        .get(&AlertType::DataMovementStalled)
-        .expect("condition=null should fall back to the legacy threshold when present");
-    assert_eq!(
-        cleared_legacy_alert
-            .extra
-            .get("evaluation_interval")
-            .unwrap(),
-        "2h",
-        "legacy fallback threshold is 2h"
-    );
 }
 
 /// Once a DataMovementStalled alert resolves because bytes were written,
