@@ -34,7 +34,6 @@ pub enum Rejection {
 /// App is the wired application state of the control-plane API.
 pub struct App {
     pub _id_generator: std::sync::Mutex<models::IdGenerator>,
-    pub alert_config_defaults: Option<models::AlertConfig>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
@@ -49,11 +48,9 @@ impl App {
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
-        alert_config_defaults: Option<models::AlertConfig>,
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
-            alert_config_defaults,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,
@@ -127,7 +124,11 @@ where
 }
 
 /// Build the agent's API router.
-pub fn build_router(app: Arc<App>, allow_origin: &[String]) -> anyhow::Result<axum::Router<()>> {
+pub fn build_router(
+    app: Arc<App>,
+    allow_origin: &[String],
+    alert_config_defaults: models::AlertConfig,
+) -> anyhow::Result<axum::Router<()>> {
     use axum::routing::post;
 
     let allow_origin = allow_origin
@@ -161,7 +162,7 @@ pub fn build_router(app: Arc<App>, allow_origin: &[String]) -> anyhow::Result<ax
         .allow_origin(tower_http::cors::AllowOrigin::list(allow_origin))
         .allow_headers(allow_headers);
 
-    let public_api_router = public::api_v1_router(app.clone());
+    let public_api_router = public::api_v1_router(app.clone(), alert_config_defaults);
 
     let main_router = axum::Router::new()
         .route("/authorize/task", post(authorize_task::authorize_task))

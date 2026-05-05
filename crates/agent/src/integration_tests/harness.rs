@@ -1610,7 +1610,9 @@ impl TestHarness {
         };
 
         // Create GraphQL schema
-        let schema = control_plane_api::server::public::graphql::create_schema();
+        let schema = control_plane_api::server::public::graphql::create_schema(
+            models::AlertConfig::default(),
+        );
 
         // Create GraphQL request
         let request = async_graphql::Request::new(query)
@@ -1684,7 +1686,6 @@ impl TestHarness {
             self.pool.clone(),
             self.publisher.clone(),
             snapshot_watch.clone(),
-            None,
         ));
 
         self.control_plane_app = Some(app);
