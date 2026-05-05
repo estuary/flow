@@ -613,13 +613,17 @@ fn ex_materialize_request() -> materialize::Request {
             range: Some(ex_range()),
             state_json: json!({"connector": {"state": 42}}).to_string().into(),
         }),
-        acknowledge: Some(materialize::request::Acknowledge {}),
+        acknowledge: Some(materialize::request::Acknowledge {
+            connector_state_patches_json: json!([{"acked": true}]).to_string().into(),
+        }),
         load: Some(materialize::request::Load {
             binding: 12,
             key_packed: vec![86, 75, 30, 9].into(),
             key_json: json!([42, "hi"]).to_string().into(),
         }),
-        flush: Some(materialize::request::Flush {}),
+        flush: Some(materialize::request::Flush {
+            connector_state_patches_json: json!([{"flushed": 1}]).to_string().into(),
+        }),
         store: Some(materialize::request::Store {
             binding: 3,
             key_packed: vec![90, 21, 0].into(),
@@ -632,6 +636,7 @@ fn ex_materialize_request() -> materialize::Request {
         }),
         start_commit: Some(materialize::request::StartCommit {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),
+            connector_state_patches_json: json!([{"started": "commit"}]).to_string().into(),
         }),
         internal: ex_internal(),
     }

@@ -179,8 +179,18 @@ pub mod request {
     /// Flush loads. No further Loads will be sent in this transaction,
     /// and the runtime will await the connectors's remaining Loaded
     /// responses followed by one Flushed response.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Flush {}
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Flush {
+        /// Aggregated connector state patches from all shards'
+        /// prior-transaction C:Acknowledged responses, in State Update Wire
+        /// Format. Includes this shard's own patches (the runtime feeds the
+        /// shard's contribution back to it for symmetry with the scaled-out
+        /// case). Connectors participating in cooperative multi-shard
+        /// strategies use this to observe peers' state. The runtime forwards
+        /// it verbatim from the leader's L:Flush.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_state_patches_json: ::prost::bytes::Bytes,
+    }
     /// Store documents updated by the current transaction.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Store {
@@ -218,11 +228,29 @@ pub mod request {
         /// Flow runtime checkpoint to commit with this transaction.
         #[prost(message, optional, tag = "1")]
         pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
+        /// Aggregated connector state patches from all shards' current-transaction
+        /// C:Flushed responses, in State Update Wire Format. Includes this
+        /// shard's own patches (the runtime feeds the shard's contribution back
+        /// to it for symmetry with the scaled-out case). Connectors use this
+        /// to observe peers' Flushed state for cooperative strategies like
+        /// parallel file staging. The runtime forwards it verbatim from the
+        /// leader's L:StartCommit.
+        #[prost(bytes = "bytes", tag = "2")]
+        pub connector_state_patches_json: ::prost::bytes::Bytes,
     }
     /// Acknowledge to the connector that the previous transaction
     /// has committed to the Flow runtime's recovery log.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Acknowledge {}
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Acknowledge {
+        /// Aggregated connector state patches from all shards' just-committed
+        /// C:StartedCommit responses, in State Update Wire Format. Includes
+        /// this shard's own patches (the runtime feeds the shard's contribution
+        /// back to it for symmetry with the scaled-out case). Connectors use
+        /// this to observe peers' StartedCommit state. The runtime forwards
+        /// it verbatim from the leader's L:Acknowledge.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_state_patches_json: ::prost::bytes::Bytes,
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Response {

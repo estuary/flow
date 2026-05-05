@@ -76,7 +76,7 @@ pub async fn do_materialize_fixture(
         ..Default::default()
     });
     emit(Request {
-        acknowledge: Some(request::Acknowledge {}),
+        acknowledge: Some(request::Acknowledge::default()),
         ..Default::default()
     });
 
@@ -147,7 +147,7 @@ pub async fn do_materialize_fixture(
             emit(load)
         }
         emit(Request {
-            flush: Some(request::Flush {}),
+            flush: Some(request::Flush::default()),
             ..Default::default()
         });
         for store in stores {
@@ -171,7 +171,7 @@ pub async fn do_materialize_fixture(
             ..Default::default()
         });
         emit(Request {
-            acknowledge: Some(request::Acknowledge {}),
+            acknowledge: Some(request::Acknowledge::default()),
             ..Default::default()
         });
     }
