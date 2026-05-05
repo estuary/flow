@@ -161,7 +161,19 @@ message Request {
   // Flush loads. No further Loads will be sent in this transaction,
   // and the runtime will await the connectors's remaining Loaded
   // responses followed by one Flushed response.
-  message Flush {}
+  message Flush {
+    // Aggregated connector state patches from all shards'
+    // prior-transaction C:Acknowledged responses, in State Update Wire
+    // Format. Includes this shard's own patches (the runtime feeds the
+    // shard's contribution back to it for symmetry with the scaled-out
+    // case). Connectors participating in cooperative multi-shard
+    // strategies use this to observe peers' state. The runtime forwards
+    // it verbatim from the leader's L:Flush.
+    bytes connector_state_patches_json = 1 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "connectorStatePatches"
+    ];
+  }
   Flush flush = 6;
 
   // Store documents updated by the current transaction.
@@ -201,12 +213,34 @@ message Request {
   message StartCommit {
     // Flow runtime checkpoint to commit with this transaction.
     consumer.Checkpoint runtime_checkpoint = 1;
+    // Aggregated connector state patches from all shards' current-transaction
+    // C:Flushed responses, in State Update Wire Format. Includes this
+    // shard's own patches (the runtime feeds the shard's contribution back
+    // to it for symmetry with the scaled-out case). Connectors use this
+    // to observe peers' Flushed state for cooperative strategies like
+    // parallel file staging. The runtime forwards it verbatim from the
+    // leader's L:StartCommit.
+    bytes connector_state_patches_json = 2 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "connectorStatePatches"
+    ];
   }
   StartCommit start_commit = 8;
 
   // Acknowledge to the connector that the previous transaction
   // has committed to the Flow runtime's recovery log.
-  message Acknowledge {}
+  message Acknowledge {
+    // Aggregated connector state patches from all shards' just-committed
+    // C:StartedCommit responses, in State Update Wire Format. Includes
+    // this shard's own patches (the runtime feeds the shard's contribution
+    // back to it for symmetry with the scaled-out case). Connectors use
+    // this to observe peers' StartedCommit state. The runtime forwards
+    // it verbatim from the leader's L:Acknowledge.
+    bytes connector_state_patches_json = 1 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "connectorStatePatches"
+    ];
+  }
   Acknowledge acknowledge = 9;
 
   // Reserved for internal use.

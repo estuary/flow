@@ -164,7 +164,9 @@ async fn run_session(
     // Send initial Acknowledge of the session.
     request_tx
         .try_send(Ok(Request {
-            acknowledge: Some(request::Acknowledge {}),
+            acknowledge: Some(request::Acknowledge {
+                connector_state_patches_json: bytes::Bytes::new(), // Not implemented.
+            }),
             ..Default::default()
         }))
         .expect("sender is empty");
@@ -233,7 +235,9 @@ async fn run_session(
 
         // Send Flush.
         let flush = Request {
-            flush: Some(request::Flush {}),
+            flush: Some(request::Flush {
+                connector_state_patches_json: bytes::Bytes::new(), // Not implemented.
+            }),
             ..Default::default()
         };
         () = crate::exchange(Ok(flush), request_tx, response_rx)
@@ -253,6 +257,7 @@ async fn run_session(
             .try_send(Ok(Request {
                 start_commit: Some(request::StartCommit {
                     runtime_checkpoint: Some(checkpoint),
+                    connector_state_patches_json: bytes::Bytes::new(), // Not implemented.
                 }),
                 ..Default::default()
             }))
@@ -269,7 +274,9 @@ async fn run_session(
         // Send Acknowledge.
         request_tx
             .try_send(Ok(Request {
-                acknowledge: Some(request::Acknowledge {}),
+                acknowledge: Some(request::Acknowledge {
+                    connector_state_patches_json: bytes::Bytes::new(), // Not implemented.
+                }),
                 ..Default::default()
             }))
             .expect("sender is empty");
