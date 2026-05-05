@@ -155,16 +155,17 @@ impl JournalFrontier {
         (advanced, resolved)
     }
 
-    /// Decode a proto `FrontierChunk` into an iterator of `JournalFrontier`.
+    /// Decode a proto `Frontier`'s journals into an iterator of `JournalFrontier`.
     ///
-    /// Each chunk is self-contained: the first entry carries the full journal
-    /// name (truncate=0, suffix=full name), so decoding requires only
-    /// chunk-internal state. This is a pure mapping with no validation;
-    /// use `Frontier::new` to validate ordering invariants.
-    pub fn decode(chunk: shuffle::FrontierChunk) -> impl Iterator<Item = JournalFrontier> {
+    /// Journal names within the proto are delta-encoded, with the first entry
+    /// carrying the full journal name (truncate=0, suffix=full name) and
+    /// subsequent entries delta-encoded relative to their predecessor.
+    /// Decoding is a pure mapping with no validation; use `Frontier::decode`
+    /// or `Frontier::new` to validate ordering invariants.
+    pub fn decode(proto: shuffle::Frontier) -> impl Iterator<Item = JournalFrontier> {
         let mut journal_name = String::new();
 
-        chunk.journals.into_iter().map(move |jf| {
+        proto.journals.into_iter().map(move |jf| {
             gazette::delta::decode(
                 &mut journal_name,
                 jf.journal_name_truncate_delta,
@@ -189,12 +190,14 @@ impl JournalFrontier {
         })
     }
 
-    /// Encode a slice of `JournalFrontier` entries as a proto `FrontierChunk`.
+    /// Encode a slice of `JournalFrontier` entries as a proto `Frontier`.
     ///
-    /// The chunk is self-contained: the first entry carries the full journal
-    /// name (truncate=0, suffix=full name), and subsequent entries are
-    /// delta-encoded relative to their predecessor within the chunk.
-    pub fn encode(entries: &[Self]) -> shuffle::FrontierChunk {
+    /// The first entry carries the full journal name (truncate=0, suffix=full
+    /// name), and subsequent entries are delta-encoded relative to their
+    /// predecessor. The returned proto's `flushed_lsn` is empty; callers
+    /// needing it should populate the field directly, or use
+    /// `Frontier::encode`.
+    pub fn encode(entries: &[Self]) -> shuffle::Frontier {
         let mut prev_journal: &str = "";
 
         let journals = entries
@@ -224,7 +227,7 @@ impl JournalFrontier {
             })
             .collect();
 
-        shuffle::FrontierChunk {
+        shuffle::Frontier {
             journals,
             flushed_lsn: vec![],
         }
@@ -502,6 +505,22 @@ impl Frontier {
         (advanced, resolved)
     }
 
+    /// Encode this Frontier as a proto `shuffle::Frontier`, including
+    /// `flushed_lsn`. Journal names within the proto are delta-encoded —
+    /// see `JournalFrontier::encode` for the layout.
+    pub fn encode(&self) -> shuffle::Frontier {
+        let mut proto = JournalFrontier::encode(&self.journals);
+        proto.flushed_lsn = self.flushed_lsn.iter().map(|lsn| lsn.as_u64()).collect();
+        proto
+    }
+
+    /// Decode a proto `shuffle::Frontier` into a validated `Frontier`.
+    pub fn decode(mut proto: shuffle::Frontier) -> Result<Self, Error> {
+        let flushed_lsn = std::mem::take(&mut proto.flushed_lsn);
+        let journals: Vec<JournalFrontier> = JournalFrontier::decode(proto).collect();
+        Self::new(journals, flushed_lsn)
+    }
+
     /// Extract producers with unresolved causal hints (`hinted_commit > last_commit`)
     /// into a new Frontier, filtering out journals that have no such producers.
     /// Used at startup to project read-through state from `resume_checkpoint`.
@@ -547,97 +566,6 @@ fn count_unresolved_hints(journals: &[JournalFrontier]) -> usize {
         .flat_map(|jf| &jf.producers)
         .filter(|p| p.hinted_commit > p.last_commit)
         .count()
-}
-
-/// Drains a `Frontier` as a sequence of chunked `FrontierChunk` messages.
-///
-/// Call `start` to begin draining a frontier, `is_empty` to check
-/// whether chunks remain, and `next_chunk` to produce the next chunk.
-/// The final chunk is an empty terminator (no journals).
-///
-/// Callers must verify they can act on a chunk (e.g. channel capacity)
-/// *before* calling `next_chunk`, which advances internal state.
-pub struct Drain {
-    /// The frontier being drained. Replaced with `Default` once fully consumed.
-    frontier: Frontier,
-    /// Index of the next journal to encode. `usize::MAX` means no drain is in progress.
-    offset: usize,
-    /// Maximum number of journals per emitted `FrontierChunk`.
-    journals_per_chunk: usize,
-}
-
-impl Drain {
-    /// Default number of journals per chunk in production use.
-    pub const DEFAULT_JOURNALS_PER_CHUNK: usize = 64;
-
-    pub fn new() -> Self {
-        Self {
-            frontier: Default::default(),
-            offset: usize::MAX,
-            journals_per_chunk: Self::DEFAULT_JOURNALS_PER_CHUNK,
-        }
-    }
-
-    /// Create a Drain with a custom journals-per-chunk size, useful for testing.
-    pub fn with_journals_per_chunk(journals_per_chunk: usize) -> Self {
-        assert!(journals_per_chunk > 0, "journals_per_chunk must be > 0");
-        Self {
-            frontier: Default::default(),
-            offset: usize::MAX,
-            journals_per_chunk,
-        }
-    }
-
-    /// Begin draining the given frontier.
-    /// Panics if a drain is already in progress.
-    pub fn start(&mut self, frontier: Frontier) {
-        assert!(self.is_empty(), "cannot start while a drain is in progress");
-        self.frontier = frontier;
-        self.offset = 0;
-    }
-
-    /// Whether the drain is complete and has no chunks remaining.
-    pub fn is_empty(&self) -> bool {
-        self.offset == usize::MAX
-    }
-
-    /// Produce the next `FrontierChunk`, advancing the drain offset.
-    /// Returns `None` when no drain is in progress.
-    /// An empty chunk (no journals) is the end-of-sequence terminator.
-    pub fn next_chunk(&mut self) -> Option<shuffle::FrontierChunk> {
-        if self.offset == usize::MAX {
-            return None;
-        }
-
-        let end = (self.offset + self.journals_per_chunk).min(self.frontier.journals.len());
-        let mut chunk = JournalFrontier::encode(&self.frontier.journals[self.offset..end]);
-
-        if chunk.journals.is_empty() {
-            chunk.flushed_lsn = std::mem::take(&mut self.frontier.flushed_lsn)
-                .into_iter()
-                .map(|lsn| lsn.as_u64())
-                .collect();
-            self.frontier = Default::default(); // Release memory.
-            self.offset = usize::MAX;
-        } else {
-            self.offset += chunk.journals.len();
-        }
-
-        Some(chunk)
-    }
-}
-
-impl std::fmt::Debug for Drain {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.offset == usize::MAX {
-            f.write_str("empty")
-        } else {
-            f.debug_struct("Drain")
-                .field("offset", &self.offset)
-                .field("journals", &self.frontier.journals.len())
-                .finish()
-        }
-    }
 }
 
 #[cfg(test)]
@@ -822,7 +750,7 @@ mod test {
     }
 
     #[test]
-    fn test_encode_decode_round_trip() {
+    fn test_journal_frontier_encode_decode_round_trip() {
         let frontier = Frontier::new(
             vec![
                 jf_with_bytes(
@@ -859,10 +787,16 @@ mod test {
         )
         .unwrap();
 
-        // Single chunk round-trips correctly.
-        let chunk = JournalFrontier::encode(&frontier.journals);
-        assert_eq!(chunk.journals.len(), 5);
-        let decoded: Vec<_> = JournalFrontier::decode(chunk).collect();
+        let proto = JournalFrontier::encode(&frontier.journals);
+        assert_eq!(proto.journals.len(), 5);
+
+        // The first entry must have truncate=0 and the full journal name
+        // as suffix; subsequent entries are delta-encoded.
+        let first = &proto.journals[0];
+        assert_eq!(first.journal_name_truncate_delta, 0);
+        assert_eq!(first.journal_name_suffix, &*frontier.journals[0].journal);
+
+        let decoded: Vec<_> = JournalFrontier::decode(proto).collect();
         assert_eq!(decoded.len(), frontier.journals.len());
         for (a, b) in decoded.iter().zip(frontier.journals.iter()) {
             assert_eq!(&*a.journal, &*b.journal);
@@ -870,55 +804,12 @@ mod test {
             assert_eq!(a.bytes_read_delta, b.bytes_read_delta);
             assert_eq!(a.bytes_behind_delta, b.bytes_behind_delta);
         }
-
-        // Multi-chunk: each chunk is independently decodable.
-        for chunk_size in [1, 2, 3] {
-            let mut reassembled = Vec::new();
-            let mut offset = 0;
-            while offset < frontier.journals.len() {
-                let end = (offset + chunk_size).min(frontier.journals.len());
-                let chunk = JournalFrontier::encode(&frontier.journals[offset..end]);
-
-                // The first entry of each chunk must have truncate=0
-                // and the full journal name as suffix.
-                let first = &chunk.journals[0];
-                assert_eq!(
-                    first.journal_name_truncate_delta, 0,
-                    "chunk at offset {offset}: first entry must have truncate=0"
-                );
-                let expected_name = &*frontier.journals[offset].journal;
-                assert_eq!(
-                    first.journal_name_suffix, expected_name,
-                    "chunk at offset {offset}: first entry suffix must be the full journal name"
-                );
-
-                // Each chunk decodes independently (no external state).
-                reassembled.extend(JournalFrontier::decode(chunk));
-                offset = end;
-            }
-
-            // Reassembled frontier matches the original.
-            let reassembled = Frontier::new(reassembled, vec![]).unwrap();
-            assert_eq!(reassembled.journals.len(), frontier.journals.len());
-            for (a, b) in reassembled.journals.iter().zip(frontier.journals.iter()) {
-                assert_eq!(&*a.journal, &*b.journal, "chunk_size={chunk_size}");
-                assert_eq!(a.binding, b.binding, "chunk_size={chunk_size}");
-                assert_eq!(
-                    a.bytes_behind_delta, b.bytes_behind_delta,
-                    "chunk_size={chunk_size}"
-                );
-                assert_eq!(
-                    a.bytes_read_delta, b.bytes_read_delta,
-                    "chunk_size={chunk_size}"
-                );
-            }
-        }
     }
 
     #[test]
     fn test_encode_empty() {
-        let chunk = JournalFrontier::encode(&[]);
-        assert!(chunk.journals.is_empty());
+        let proto = JournalFrontier::encode(&[]);
+        assert!(proto.journals.is_empty());
     }
 
     #[test]
@@ -1176,79 +1067,8 @@ mod test {
         );
     }
 
-    fn drain_all(drain: &mut Drain) -> Vec<usize> {
-        std::iter::from_fn(|| drain.next_chunk())
-            .map(|c| c.journals.len())
-            .collect()
-    }
-
     #[test]
-    fn test_drain_chunking() {
-        // (journal_count, journals_per_chunk) => expected per-chunk journal counts.
-        // Every sequence ends with 0 (the empty terminator).
-        let cases: &[(usize, usize, &[usize])] = &[
-            (0, 2, &[0]),       // empty frontier
-            (1, 1, &[1, 0]),    // single journal, chunk size 1
-            (2, 2, &[2, 0]),    // exact boundary
-            (3, 2, &[2, 1, 0]), // overflow by one
-            (3, 100, &[3, 0]),  // chunk larger than frontier
-            (5, 2, &[2, 2, 1, 0]),
-        ];
-
-        let all_journals: Vec<_> = (0..5)
-            .map(|i| jf(&format!("journal/{i}"), 0, vec![pf(0x01, 100, 0, -500)]))
-            .collect();
-
-        for &(n, chunk_size, expected) in cases {
-            let mut drain = Drain::with_journals_per_chunk(chunk_size);
-            drain.start(Frontier {
-                journals: all_journals[..n].to_vec(),
-                flushed_lsn: vec![],
-                unresolved_hints: 0,
-            });
-            assert_eq!(
-                drain_all(&mut drain),
-                expected,
-                "n={n} chunk_size={chunk_size}"
-            );
-            assert!(drain.is_empty());
-        }
-    }
-
-    #[test]
-    fn test_drain_not_started() {
-        let mut drain = Drain::new();
-        assert!(drain.is_empty());
-        assert!(drain.next_chunk().is_none());
-    }
-
-    #[test]
-    fn test_drain_reuse() {
-        let mut drain = Drain::with_journals_per_chunk(10);
-        for _ in 0..3 {
-            drain.start(Frontier {
-                journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
-                flushed_lsn: vec![],
-                unresolved_hints: 0,
-            });
-            assert_eq!(drain_all(&mut drain), [1, 0]);
-        }
-    }
-
-    #[test]
-    #[should_panic(expected = "cannot start while a drain is in progress")]
-    fn test_drain_double_start_panics() {
-        let mut drain = Drain::with_journals_per_chunk(1);
-        drain.start(Frontier {
-            journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
-            flushed_lsn: vec![],
-            unresolved_hints: 0,
-        });
-        drain.start(Frontier::default());
-    }
-
-    #[test]
-    fn test_drain_round_trip() {
+    fn test_frontier_encode_decode_round_trip() {
         let original = Frontier::new(
             vec![
                 jf("journal/A", 0, vec![pf(0x01, 100, 0, -500)]),
@@ -1259,31 +1079,28 @@ mod test {
         )
         .unwrap();
 
-        for chunk_size in [1, 2, 3] {
-            let mut drain = Drain::with_journals_per_chunk(chunk_size);
-            drain.start(original.clone());
+        let proto = original.encode();
+        assert_eq!(proto.journals.len(), 3);
+        assert_eq!(proto.flushed_lsn, vec![100, 200, 300]);
 
-            let mut reassembled_journals = Vec::new();
-            let mut terminal_flushed_lsn = Vec::new();
-            for chunk in std::iter::from_fn(|| drain.next_chunk()) {
-                if chunk.journals.is_empty() {
-                    terminal_flushed_lsn = chunk.flushed_lsn;
-                } else {
-                    reassembled_journals.extend(JournalFrontier::decode(chunk));
-                }
-            }
-            let reassembled = Frontier::new(reassembled_journals, terminal_flushed_lsn).unwrap();
-
-            assert_eq!(reassembled.journals.len(), original.journals.len());
-            for (a, b) in reassembled.journals.iter().zip(original.journals.iter()) {
-                assert_eq!(&*a.journal, &*b.journal);
-                assert_eq!(a.binding, b.binding);
-                assert_eq!(a.producers.len(), b.producers.len());
-            }
-            assert_eq!(
-                reassembled.flushed_lsn, original.flushed_lsn,
-                "flushed_lsn round-trips through drain (chunk_size={chunk_size})"
-            );
+        let reassembled = Frontier::decode(proto).unwrap();
+        assert_eq!(reassembled.journals.len(), original.journals.len());
+        for (a, b) in reassembled.journals.iter().zip(original.journals.iter()) {
+            assert_eq!(&*a.journal, &*b.journal);
+            assert_eq!(a.binding, b.binding);
+            assert_eq!(a.producers.len(), b.producers.len());
         }
+        assert_eq!(reassembled.flushed_lsn, original.flushed_lsn);
+    }
+
+    #[test]
+    fn test_frontier_decode_validates() {
+        // An out-of-order journals proto should fail to decode (validation).
+        let proto = JournalFrontier::encode(&[
+            jf("journal/B", 0, vec![pf(0x01, 1, 0, -1)]),
+            jf("journal/A", 0, vec![pf(0x01, 1, 0, -1)]),
+        ]);
+        let err = Frontier::decode(proto).unwrap_err();
+        assert!(format!("{err}").contains("not ordered"));
     }
 }

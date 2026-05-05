@@ -153,8 +153,14 @@ impl Writer {
 impl Drop for Writer {
     fn drop(&mut self) {
         let path = super::segment_path(&self.directory, self.shard_index, self.next_lsn.segment());
-        if let Err(err) = std::fs::remove_file(&path) {
-            tracing::warn!(%err, ?path, "failed to unlink in-progress writer segment");
+        match std::fs::remove_file(&path) {
+            Ok(()) => tracing::debug!(?path, "unlinked in-progress writer segment"),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!(?path, "lost race to unlink in-progress writer segment");
+            }
+            Err(err) => {
+                tracing::warn!(%err, ?path, "failed to unlink in-progress writer segment");
+            }
         }
     }
 }

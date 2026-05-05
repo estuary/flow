@@ -33,8 +33,7 @@ where
         );
     }
     let task = task.context("Open must include task")?;
-    let (shard_prefix, bindings, validators, disk_backlog_threshold) =
-        crate::Binding::from_task(&task)?;
+    let (shard_prefix, bindings, validators) = crate::Binding::from_task(&task)?;
 
     tracing::info!(
         session_id,
@@ -52,7 +51,6 @@ where
                 slice_shard_index as u32,
                 &shards,
                 log_shard_index as u32,
-                disk_backlog_threshold,
             )
         }))
         .await;
@@ -123,7 +121,7 @@ where
         parser: simd_doc::SimdParser::new(1_000_000),
         ready_read_heap: ReadyReadHeap::new(),
         tailing_reads: 0,
-        progressed_drain: crate::frontier::Drain::new(),
+        progressed_drain: None,
     }
     .serve(slice_request_rx, log_response_rx)
     .await
@@ -137,7 +135,6 @@ async fn open_log_rpc(
     slice_shard_index: u32,
     shards: &[shuffle::Shard],
     log_shard_index: u32,
-    disk_backlog_threshold: u64,
 ) -> anyhow::Result<(
     mpsc::Sender<shuffle::LogRequest>,
     stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>,
@@ -178,7 +175,6 @@ async fn open_log_rpc(
                 shards: shards.to_vec(),
                 slice_shard_index,
                 log_shard_index,
-                disk_backlog_threshold,
             }),
             append: None,
             flush: None,

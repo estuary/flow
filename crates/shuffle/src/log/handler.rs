@@ -24,7 +24,6 @@ where
         shards,
         slice_shard_index,
         log_shard_index,
-        disk_backlog_threshold,
     } = open.open.context("first message must be Open")?;
 
     let directory = shards
@@ -38,7 +37,6 @@ where
         slice_shard_index,
         log_shard_index,
         %directory,
-        disk_backlog_threshold,
         "Log received Open"
     );
     let join_key = (directory.to_string(), log_shard_index);
@@ -120,7 +118,7 @@ where
             session_id,
             shards,
             log_shard_index,
-            disk_backlog_threshold,
+            disk_backlog_threshold: service.disk_backlog_threshold,
         },
         append_heap: super::heap::AppendHeap::new(),
         slice_prev_journal: vec![String::new(); shard_count],
