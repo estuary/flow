@@ -23,7 +23,6 @@ These materialization connectors support configuring a sync schedule:
 - [materialize-motherduck](/reference/Connectors/materialization-connectors/motherduck)
 - [materialize-redshift](/reference/Connectors/materialization-connectors/amazon-redshift)
 - [materialize-snowflake](/reference/Connectors/materialization-connectors/Snowflake)
-- [materialize-starburst](/reference/Connectors/materialization-connectors/starburst)
 
 ## How transactions are used to sync data to a destination
 
