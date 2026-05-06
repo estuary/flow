@@ -19,14 +19,17 @@ collections:
         key: { type: string }
         value: { type: number }
       required: [key]
-      # Use oneOf to express a tagged union over "action".
+      # Use oneOf to express a tagged union over "action". Each branch
+      # declares `required: [action]` — see the pitfall section below for why.
       oneOf:
         # When action = reset, reduce by taking this document.
-        - properties: { action: { const: reset } }
+        - required: [action]
+          properties: { action: { const: reset } }
           reduce: { strategy: lastWriteWins }
         # When action = sum, reduce by summing "value". Keep the LHS "action",
         # preserving a LHS "reset", so that resets are properly associative.
-        - properties:
+        - required: [action]
+          properties:
             action:
               const: sum
               reduce: { strategy: firstWriteWins }
@@ -56,3 +59,39 @@ tests:
           - { key: "key", value: 1.3 }
 ```
 
+## Pitfall: pin `required` on the discriminator
+
+JSON Schema's `properties` keyword only constrains a property *when it is present* — a document missing the property still validates. So `properties: { action: { const: "reset" } }` matches both documents where `action == "reset"` *and* documents where `action` is absent.
+
+In a tagged-union reduction this silently routes every document missing the discriminator down the wrong branch. A delete-by-`_meta/op` reduction is one case to watch for:
+
+```yaml
+# WRONG — `if` matches when _meta/op = "d" *or* when _meta/op is absent.
+if:
+  properties:
+    _meta:
+      properties:
+        op: { const: "d" }
+then:
+  reduce: { strategy: merge, delete: true }
+else:
+  reduce: { strategy: merge }
+```
+
+Any document without `_meta/op` satisfies the `if` and takes the `then` branch with `delete: true`. Fix it by declaring the discriminator path as `required` at every level:
+
+```yaml
+if:
+  required: ["_meta"]
+  properties:
+    _meta:
+      required: ["op"]
+      properties:
+        op: { const: "d" }
+then:
+  reduce: { strategy: merge, delete: true }
+else:
+  reduce: { strategy: merge }
+```
+
+The same rule applies to every branch of `oneOf` and `anyOf`: any property a branch matches on must also appear in the branch's `required` list.
