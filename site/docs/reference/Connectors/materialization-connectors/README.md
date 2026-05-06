@@ -143,9 +143,6 @@ In the future, other open-source materialization connectors from third parties c
 * SQL Server
   * [Configuration](./SQLServer/)
   * Package - ghcr.io/estuary/materialize-sqlserver:v2
-* Starburst
-  * [Configuration](./starburst.md)
-  * Package - ghcr.io/estuary/materialize-starburst:v1
 * Startree
   * [Configuration](./Dekaf/startree.md)
 * Supabase
