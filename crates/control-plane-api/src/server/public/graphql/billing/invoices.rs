@@ -1,20 +1,16 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use super::super::filters;
+use super::loaders::{ChargeDataLoader, CustomerDataLoader, StripeInvoiceKey, StripeInvoiceLoader};
 use super::payment_methods::{CardPaymentMethodDetails, UsBankAccountPaymentMethodDetails};
-use crate::billing::{self, BillingProvider, InvoiceCursorKey, InvoiceQuery, InvoiceType};
+use crate::billing::{DbInvoiceRow, InvoiceCursor, InvoiceQuery, InvoiceType};
 use anyhow::Context as _;
 use async_graphql::{
     ComplexObject, Context, InputObject, Result, SimpleObject,
     connection::{self},
-    dataloader::{DataLoader, Loader},
+    dataloader::DataLoader,
 };
 use chrono::NaiveDate;
 
-pub(super) type InvoiceCursor = InvoiceCursorKey;
-
-impl connection::CursorType for InvoiceCursorKey {
+impl connection::CursorType for InvoiceCursor {
     type Error = anyhow::Error;
 
     fn decode_cursor(s: &str) -> std::result::Result<Self, Self::Error> {
@@ -33,7 +29,7 @@ impl connection::CursorType for InvoiceCursorKey {
             NaiveDate::parse_from_str(date_end, "%Y-%m-%d").context("invalid invoice cursor")?;
         let date_start =
             NaiveDate::parse_from_str(date_start, "%Y-%m-%d").context("invalid invoice cursor")?;
-        let invoice_type = InvoiceType::from_str(invoice_type).ok_or_else(|| {
+        let invoice_type = invoice_type.parse::<InvoiceType>().map_err(|()| {
             anyhow::anyhow!("invalid invoice cursor, unknown invoice type: '{invoice_type}'")
         })?;
 
@@ -94,22 +90,49 @@ pub struct Invoice {
     tenant: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum ChargeStatus {
+    Failed,
+    Pending,
+    Succeeded,
+}
+
+impl From<&stripe::ChargeStatus> for ChargeStatus {
+    fn from(s: &stripe::ChargeStatus) -> Self {
+        match s {
+            stripe::ChargeStatus::Failed => Self::Failed,
+            stripe::ChargeStatus::Pending => Self::Pending,
+            stripe::ChargeStatus::Succeeded => Self::Succeeded,
+        }
+    }
+}
+
 #[derive(Debug, Clone, SimpleObject)]
 pub struct InvoicePaymentDetails {
+    pub status: ChargeStatus,
+    pub receipt_url: Option<String>,
     pub card: Option<CardPaymentMethodDetails>,
     pub us_bank_account: Option<UsBankAccountPaymentMethodDetails>,
 }
 
 impl InvoicePaymentDetails {
-    fn from_charge(charge: &stripe::Charge) -> Option<Self> {
-        let details = charge.payment_method_details.as_ref()?;
-        Some(Self {
-            card: details.card.as_ref().map(CardPaymentMethodDetails::from),
-            us_bank_account: details
-                .us_bank_account
-                .as_ref()
-                .map(UsBankAccountPaymentMethodDetails::from),
-        })
+    fn from_charge(charge: &stripe::Charge) -> Self {
+        let (card, us_bank_account) = match charge.payment_method_details {
+            Some(ref details) => (
+                details.card.as_ref().map(CardPaymentMethodDetails::from),
+                details
+                    .us_bank_account
+                    .as_ref()
+                    .map(UsBankAccountPaymentMethodDetails::from),
+            ),
+            None => (None, None),
+        };
+        Self {
+            status: ChargeStatus::from(&charge.status),
+            receipt_url: charge.receipt_url.clone(),
+            card,
+            us_bank_account,
+        }
     }
 }
 
@@ -117,54 +140,47 @@ impl InvoicePaymentDetails {
 impl Invoice {
     async fn amount_due(&self, ctx: &Context<'_>) -> Result<Option<i64>> {
         Ok(self
-            .stripe_data(ctx)
+            .stripe_invoice(ctx)
             .await?
-            .and_then(|data| data.invoice.amount_due))
+            .and_then(|inv| inv.amount_due))
     }
 
     async fn status(&self, ctx: &Context<'_>) -> Result<Option<String>> {
-        Ok(self.stripe_data(ctx).await?.and_then(|data| {
-            data.invoice
-                .status
-                .as_ref()
-                .and_then(|s| serde_json::to_value(s).ok())
-                .and_then(|v| v.as_str().map(str::to_string))
-        }))
+        Ok(self
+            .stripe_invoice(ctx)
+            .await?
+            .and_then(|inv| inv.status.as_ref().map(|s| s.as_str().to_string())))
     }
 
     async fn invoice_pdf(&self, ctx: &Context<'_>) -> Result<Option<String>> {
         Ok(self
-            .stripe_data(ctx)
+            .stripe_invoice(ctx)
             .await?
-            .and_then(|data| data.invoice.invoice_pdf.clone()))
+            .and_then(|inv| inv.invoice_pdf.clone()))
     }
 
     async fn hosted_invoice_url(&self, ctx: &Context<'_>) -> Result<Option<String>> {
         Ok(self
-            .stripe_data(ctx)
+            .stripe_invoice(ctx)
             .await?
-            .and_then(|data| data.invoice.hosted_invoice_url.clone()))
-    }
-
-    async fn receipt_url(&self, ctx: &Context<'_>) -> Result<Option<String>> {
-        Ok(self
-            .stripe_data(ctx)
-            .await?
-            .and_then(|data| data.charge)
-            .and_then(|charge| charge.receipt_url))
+            .and_then(|inv| inv.hosted_invoice_url.clone()))
     }
 
     async fn payment_details(&self, ctx: &Context<'_>) -> Result<Option<InvoicePaymentDetails>> {
-        Ok(self
-            .stripe_data(ctx)
-            .await?
-            .and_then(|data| data.charge)
-            .and_then(|ref charge| InvoicePaymentDetails::from_charge(charge)))
+        let Some(invoice) = self.stripe_invoice(ctx).await? else {
+            return Ok(None);
+        };
+        let Some(ref pi) = invoice.payment_intent else {
+            return Ok(None);
+        };
+        let loader = ctx.data::<DataLoader<ChargeDataLoader>>()?;
+        let charge = loader.load_one(pi.id()).await?;
+        Ok(charge.map(|ref c| InvoicePaymentDetails::from_charge(c)))
     }
 }
 
 impl Invoice {
-    pub(super) fn from_row(row: billing::DbInvoiceRow) -> Self {
+    pub(super) fn from_row(row: DbInvoiceRow) -> Self {
         Self {
             date_start: row.date_start.to_string(),
             date_end: row.date_end.to_string(),
@@ -176,107 +192,20 @@ impl Invoice {
         }
     }
 
-    async fn stripe_data(&self, ctx: &Context<'_>) -> Result<Option<StripeInvoiceData>> {
-        let loader = ctx.data::<DataLoader<StripeDataLoader>>()?;
+    async fn stripe_invoice(&self, ctx: &Context<'_>) -> Result<Option<stripe::Invoice>> {
+        let customer_loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
+        let Some(customer) = customer_loader.load_one(self.tenant.clone()).await? else {
+            return Ok(None);
+        };
+        let loader = ctx.data::<DataLoader<StripeInvoiceLoader>>()?;
         loader
             .load_one(StripeInvoiceKey {
-                tenant: self.tenant.clone(),
+                customer_id: customer.id,
                 date_start: self.date_start.clone(),
                 date_end: self.date_end.clone(),
                 invoice_type: self.invoice_type,
             })
             .await
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(in crate::server::public::graphql) struct StripeInvoiceData {
-    invoice: stripe::Invoice,
-    charge: Option<stripe::Charge>,
-}
-
-/// DataLoader key for fetching a `stripe::Invoice` identified by the tenant,
-/// billing period, and invoice type that locate it in Stripe's metadata.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(in crate::server::public::graphql) struct StripeInvoiceKey {
-    tenant: String,
-    date_start: String,
-    date_end: String,
-    invoice_type: InvoiceType,
-}
-
-/// Request-scoped loader that resolves Stripe-backed records through the
-/// shared `BillingProvider`.
-pub(in crate::server::public::graphql) struct StripeDataLoader(pub Arc<dyn BillingProvider>);
-
-impl StripeDataLoader {
-    async fn resolve_charge(
-        &self,
-        invoice: &stripe::Invoice,
-    ) -> std::result::Result<Option<stripe::Charge>, async_graphql::Error> {
-        let Some(ref pi_expandable) = invoice.payment_intent else {
-            return Ok(None);
-        };
-        let pi_id = pi_expandable.id();
-        let pi = self
-            .0
-            .retrieve_payment_intent(&pi_id)
-            .await
-            .map_err(|err| async_graphql::Error::new(err.to_string()))?;
-        let charge = match pi.latest_charge {
-            Some(stripe::Expandable::Object(charge)) => Some(*charge),
-            _ => None,
-        };
-        Ok(charge)
-    }
-}
-
-impl Loader<StripeInvoiceKey> for StripeDataLoader {
-    type Value = StripeInvoiceData;
-    type Error = async_graphql::Error;
-
-    async fn load(
-        &self,
-        keys: &[StripeInvoiceKey],
-    ) -> Result<HashMap<StripeInvoiceKey, Self::Value>> {
-        let mut out = HashMap::with_capacity(keys.len());
-        let mut customer_ids: HashMap<String, Option<stripe::CustomerId>> = HashMap::new();
-        for key in keys {
-            let customer_id = if let Some(customer_id) = customer_ids.get(&key.tenant) {
-                customer_id.clone()
-            } else {
-                let customer_id = self
-                    .0
-                    .find_customer(&key.tenant)
-                    .await
-                    .map_err(|err| async_graphql::Error::new(err.to_string()))?
-                    .map(|customer| customer.id);
-                customer_ids.insert(key.tenant.clone(), customer_id.clone());
-                customer_id
-            };
-
-            let Some(customer_id) = customer_id else {
-                continue;
-            };
-            let query = billing_types::InvoiceSearch {
-                customer_id: Some(customer_id.as_str()),
-                invoice_type: Some(key.invoice_type),
-                period_start: Some(&key.date_start),
-                period_end: Some(&key.date_end),
-                status: billing_types::StatusFilter::Exclude(stripe::InvoiceStatus::Draft),
-            }
-            .to_query();
-            let fetched = self
-                .0
-                .search_invoices(&query)
-                .await
-                .map_err(|err| async_graphql::Error::new(err.to_string()))?;
-            if let Some(invoice) = fetched.into_iter().next() {
-                let charge = self.resolve_charge(&invoice).await?;
-                out.insert(key.clone(), StripeInvoiceData { invoice, charge });
-            }
-        }
-        Ok(out)
     }
 }
 
@@ -396,6 +325,7 @@ mod tests {
         mock.add_payment_intent(stripe::PaymentIntent {
             id: "pi_test_123".parse().unwrap(),
             latest_charge: Some(stripe::Expandable::Object(Box::new(stripe::Charge {
+                status: stripe::ChargeStatus::Succeeded,
                 receipt_url: Some("https://example.test/receipt".to_string()),
                 payment_method_details: Some(stripe::PaymentMethodDetails {
                     card: Some(stripe::PaymentMethodDetailsCard {
@@ -434,8 +364,9 @@ mod tests {
                                     status
                                     invoicePdf
                                     hostedInvoiceUrl
-                                    receiptUrl
                                     paymentDetails {
+                                      status
+                                      receiptUrl
                                       card { brand last4 expMonth expYear }
                                       usBankAccount { bankName last4 accountHolderType }
                                     }

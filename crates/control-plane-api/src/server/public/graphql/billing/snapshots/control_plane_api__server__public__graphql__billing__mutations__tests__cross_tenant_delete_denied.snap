@@ -13,7 +13,7 @@ expression: cross_tenant_delete_response
           "line": 3
         }
       ],
-      "message": "payment method is not attached to the tenant's Stripe customer",
+      "message": "payment method not found",
       "path": [
         "deleteBillingPaymentMethod"
       ]
