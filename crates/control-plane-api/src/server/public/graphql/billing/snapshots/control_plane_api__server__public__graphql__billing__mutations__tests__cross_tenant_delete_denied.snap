@@ -1,0 +1,22 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/mutations.rs
+assertion_line: 337
+expression: cross_tenant_delete_response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 27,
+          "line": 3
+        }
+      ],
+      "message": "payment method is not attached to the tenant's Stripe customer",
+      "path": [
+        "deleteBillingPaymentMethod"
+      ]
+    }
+  ]
+}
