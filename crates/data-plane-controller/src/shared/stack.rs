@@ -763,7 +763,11 @@ mod test {
         deployments.push(Deployment {
             current: 0,
             desired: 0,
-            rollout: Some(Rollout { step: 1, target: 1, waiting: false }),
+            rollout: Some(Rollout {
+                step: 1,
+                target: 1,
+                waiting: false,
+            }),
             ..deployments[0].clone()
         });
 
@@ -1016,15 +1020,22 @@ mod test {
         let old_desired = stack.config.model.deployments[0].desired;
         let template = stack.config.model.deployments[0].clone();
 
-        stack.config.model.deployments[0].rollout =
-            Some(Rollout { target: 0, step: 1, waiting: false });
+        stack.config.model.deployments[0].rollout = Some(Rollout {
+            target: 0,
+            step: 1,
+            waiting: false,
+        });
 
         let new_deployment = Deployment {
             current: 0,
             desired: 0,
             oci_image: "quay.io/coreos/etcd:next".to_string(),
             oci_image_override: None,
-            rollout: Some(Rollout { target: old_desired, step: 1, waiting: true }),
+            rollout: Some(Rollout {
+                target: old_desired,
+                step: 1,
+                waiting: true,
+            }),
             ..template
         };
         stack.config.model.deployments.push(new_deployment);
