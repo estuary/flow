@@ -1000,6 +1000,38 @@ mod test {
         insta::assert_json_snapshot!(&outcomes);
     }
 
+    #[test]
+    fn simulate_waiting_rollout() {
+        let State { mut stack, .. } =
+            serde_json::from_str(include_str!("state_fixture.json")).unwrap();
+
+        stack
+            .config
+            .model
+            .deployments
+            .retain(|d| d.role == Role::Etcd);
+
+        // Manually configure a replace-style rollout using `waiting` directly,
+        // without going through a Release.
+        let old_desired = stack.config.model.deployments[0].desired;
+        let template = stack.config.model.deployments[0].clone();
+
+        stack.config.model.deployments[0].rollout =
+            Some(Rollout { target: 0, step: 1, waiting: false });
+
+        let new_deployment = Deployment {
+            current: 0,
+            desired: 0,
+            oci_image: "quay.io/coreos/etcd:next".to_string(),
+            oci_image_override: None,
+            rollout: Some(Rollout { target: old_desired, step: 1, waiting: true }),
+            ..template
+        };
+        stack.config.model.deployments.push(new_deployment);
+
+        insta::assert_json_snapshot!(&simulate_rollout(&mut stack.config.model, &[]));
+    }
+
     fn simulate_rollout(model: &mut DataPlane, releases: &[Release]) -> Vec<Vec<Deployment>> {
         let mut outcomes = Vec::new();
         outcomes.push(model.deployments.clone());
