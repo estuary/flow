@@ -70,12 +70,33 @@ pub struct TestServer {
 
 impl TestServer {
     pub async fn start(pg_pool: sqlx::PgPool, snapshot: Arc<dyn tokens::Watch<Snapshot>>) -> Self {
-        Self::start_with_alert_defaults(pg_pool, snapshot, models::AlertConfig::default()).await
+        Self::start_with_config(
+            pg_pool,
+            snapshot,
+            Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            models::AlertConfig::default(),
+        )
+        .await
     }
 
     pub async fn start_with_alert_defaults(
         pg_pool: sqlx::PgPool,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        alert_config_defaults: models::AlertConfig,
+    ) -> Self {
+        Self::start_with_config(
+            pg_pool,
+            snapshot,
+            Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            alert_config_defaults,
+        )
+        .await
+    }
+
+    pub async fn start_with_config(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
         alert_config_defaults: models::AlertConfig,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -95,6 +116,7 @@ impl TestServer {
 
         let app = Arc::new(crate::App::new(
             models::IdGenerator::new(0),
+            billing_provider,
             b"test-jwt-secret-for-integration-tests",
             pg_pool.clone(),
             publisher,
