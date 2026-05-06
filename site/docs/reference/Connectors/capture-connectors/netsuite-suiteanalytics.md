@@ -239,10 +239,10 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | --- | --- | --- | --- | --- |
 | `/advanced` | Advanced | Advanced options to customize your binding. | object |  |
 | `/advanced/initial_backfill_cursor` | Initial Backfill Cursor | Manually set the starting cursor value for backfill operations. If specified, the backfill will start from this cursor value instead of the table's minimum value. Useful for partial backfills or resuming from a specific point. Only applies to the initial backfill. | int |  |
-| `/advanced/exclude_calculated` | Exclude Calculated Columns | Exclude calculated columns from queries. Keys and cursors are never excluded. | boolean | `false` |
-| `/advanced/exclude_custom` | Exclude Custom Columns | Exclude custom columns from queries. Keys and cursors are never excluded. | boolean | `false`|
-| `/advanced/exclude_hidden` | Exclude Hidden Columns | Exclude hidden columns from queries. Keys and cursors are never excluded. | boolean | `false` |
-| `/advanced/exclude_non_display` | Exclude Non-Display Columns | Exclude non-display columns from queries. Keys and cursors are never excluded. | boolean | `false` |
+| `/advanced/exclude_calculated` | Exclude Calculated Columns | Exclude calculated columns from queries. Keys and cursors are never excluded. | boolean | `true` for newly discovered bindings; `false` for bindings from tasks predating column filtering |
+| `/advanced/exclude_custom` | Exclude Custom Columns | Exclude custom columns from queries. Keys and cursors are never excluded. | boolean | `true` for newly discovered bindings; `false` for bindings from tasks predating column filtering |
+| `/advanced/exclude_hidden` | Exclude Hidden Columns | Exclude hidden columns from queries. Keys and cursors are never excluded. | boolean | `true` for newly discovered bindings; `false` for bindings from tasks predating column filtering |
+| `/advanced/exclude_non_display` | Exclude Non-Display Columns | Exclude non-display columns from queries. Keys and cursors are never excluded. Defaults to `false` because too many useful columns are flagged non-display in NetSuite metadata. | boolean | `false` |
 | `/advanced/extra_columns` | Additional Columns | Columns to include even if they match exclusion criteria. Useful for selectively re-including specific columns that would otherwise be filtered out. Cannot be used with 'Manually Selected Columns'. | string array | `[]` |
 
 ### Sample
