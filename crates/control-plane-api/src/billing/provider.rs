@@ -74,29 +74,6 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
 
         self.create_customer(tenant, email, full_name).await
     }
-
-    async fn fetch_invoice(
-        &self,
-        tenant: &str,
-        date_start: &str,
-        date_end: &str,
-        invoice_type: billing_types::InvoiceType,
-    ) -> anyhow::Result<Option<stripe::Invoice>> {
-        let Some(customer) = self.find_customer(tenant).await? else {
-            return Ok(None);
-        };
-
-        let query = billing_types::InvoiceSearch {
-            customer_id: Some(customer.id.as_str()),
-            invoice_type: Some(invoice_type),
-            period_start: Some(date_start),
-            period_end: Some(date_end),
-            status: billing_types::StatusFilter::Exclude(stripe::InvoiceStatus::Draft),
-        }
-        .to_query();
-        let mut invoices = self.search_invoices(&query).await?;
-        Ok(invoices.drain(..).next())
-    }
 }
 
 pub fn default_payment_method_id(customer: &stripe::Customer) -> Option<String> {

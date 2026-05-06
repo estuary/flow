@@ -21,9 +21,10 @@ expression: response
                     "expYear": 2025,
                     "last4": "4242"
                   },
+                  "receiptUrl": "https://example.test/receipt",
+                  "status": "SUCCEEDED",
                   "usBankAccount": null
                 },
-                "receiptUrl": "https://example.test/receipt",
                 "status": "paid"
               }
             }

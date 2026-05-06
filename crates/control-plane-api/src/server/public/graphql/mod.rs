@@ -113,12 +113,20 @@ pub(crate) async fn graphql_handler(
         ));
 
     if let Some(ref billing_provider) = app.billing_provider {
-        request = request.data(billing_provider.clone()).data(
-            async_graphql::dataloader::DataLoader::new(
-                billing::StripeDataLoader(billing_provider.clone()),
+        request = request
+            .data(billing_provider.clone())
+            .data(async_graphql::dataloader::DataLoader::new(
+                billing::StripeInvoiceLoader(billing_provider.clone()),
                 tokio::spawn,
-            ),
-        );
+            ))
+            .data(async_graphql::dataloader::DataLoader::new(
+                billing::ChargeDataLoader(billing_provider.clone()),
+                tokio::spawn,
+            ))
+            .data(async_graphql::dataloader::DataLoader::new(
+                billing::CustomerDataLoader(billing_provider.clone()),
+                tokio::spawn,
+            ));
     }
 
     let response = schema.execute(request).await;

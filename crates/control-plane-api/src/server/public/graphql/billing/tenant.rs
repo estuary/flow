@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use super::super::tenant::{Tenant, verify_tenant};
 use super::billing_provider;
-use super::invoices::{Invoice, InvoiceCursor, InvoiceFilter};
+use super::invoices::{Invoice, InvoiceFilter};
+use super::loaders::CustomerDataLoader;
 use super::payment_methods::PaymentMethod;
-use crate::billing::{self, BillingProvider};
+use crate::billing::{self, BillingProvider, InvoiceCursor};
 use async_graphql::{
     ComplexObject, Context, Result,
     connection::{self, Connection},
+    dataloader::DataLoader,
 };
 
 #[ComplexObject]
@@ -34,14 +36,9 @@ impl TenantBilling {
 
 #[async_graphql::Object]
 impl TenantBilling {
-    async fn payment_methods(&self) -> Result<Vec<PaymentMethod>> {
-        let Some(customer) = self
-            .provider
-            .as_ref()
-            .find_customer(&self.tenant)
-            .await
-            .map_err(|err| async_graphql::Error::new(err.to_string()))?
-        else {
+    async fn payment_methods(&self, ctx: &Context<'_>) -> Result<Vec<PaymentMethod>> {
+        let loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
+        let Some(customer) = loader.load_one(self.tenant.clone()).await? else {
             return Ok(Vec::new());
         };
         let methods = self
@@ -52,14 +49,9 @@ impl TenantBilling {
         Ok(methods.iter().map(PaymentMethod::from).collect())
     }
 
-    async fn primary_payment_method(&self) -> Result<Option<PaymentMethod>> {
-        let Some(customer) = self
-            .provider
-            .as_ref()
-            .find_customer(&self.tenant)
-            .await
-            .map_err(|err| async_graphql::Error::new(err.to_string()))?
-        else {
+    async fn primary_payment_method(&self, ctx: &Context<'_>) -> Result<Option<PaymentMethod>> {
+        let loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
+        let Some(customer) = loader.load_one(self.tenant.clone()).await? else {
             return Ok(None);
         };
         let Some(primary_id) = billing::default_payment_method_id(&customer) else {

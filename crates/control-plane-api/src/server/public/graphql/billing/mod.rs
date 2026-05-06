@@ -4,11 +4,12 @@ use crate::billing::BillingProvider;
 use async_graphql::Context;
 
 mod invoices;
+mod loaders;
 mod mutations;
 mod payment_methods;
 mod tenant;
 
-pub(super) use invoices::StripeDataLoader;
+pub(super) use loaders::{ChargeDataLoader, CustomerDataLoader, StripeInvoiceLoader};
 pub use mutations::BillingMutation;
 
 fn billing_provider(ctx: &Context<'_>) -> async_graphql::Result<Arc<dyn BillingProvider>> {
