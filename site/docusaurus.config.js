@@ -157,6 +157,10 @@ const config = {
             from: '/reference/Connectors/capture-connectors/netsuite-suitetalk/',
             to: '/reference/Connectors/capture-connectors/netsuite-suiteql/',
           },
+          {
+            from: '/reference/Connectors/capture-connectors/bigquery-ga4-native/',
+            to: '/reference/Connectors/capture-connectors/google-analytics-4-bigquery-native/',
+          },
         ],
       },
     ],
