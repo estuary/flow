@@ -18,24 +18,25 @@ Estuary discovers all of the tables to which you grant access during [setup](#se
 
 ## Sync modes and data loading
 
-Each table binding uses one of two sync modes, determined by the cursor fields available on the table.
+Each table binding uses one of three sync modes. The connector picks a mode automatically during discovery based on the cursor and key columns it finds for each table; you can override the choice in the binding configuration.
 
-### Incremental sync
+### Incremental
 
-Tables with a date-time column suitable for change tracking (configured via [`log_cursor`](#bindings)) are synced **incrementally**. Most base record tables — such as `Transaction`, `Account`, `Customer`, `Employee`, `Item`, `Subsidiary`, and `Vendor` — have a `lastmodifieddate` column that the connector discovers automatically.
+Tables with a date-time column suitable for change tracking (configured via [`log_cursor`](#bindings)) are synced **incrementally**. Most base record tables — such as `Transaction`, `Account`, `Customer`, `Employee`, `Item`, `Subsidiary`, and `Vendor` — have a `lastmodifieddate` column that the connector discovers automatically. Some linking tables, including `TransactionLine`, `NextTransactionLineLink`, `PreviousTransactionLineLink`, `NextTransactionAccountingLineLink`, and `PreviousTransactionAccountingLineLink`, also use `lastmodifieddate` (or `linelastmodifieddate`) for incremental capture.
 
 During incremental sync, the connector queries only for rows modified since the last checkpoint. The polling frequency is controlled by the [`interval`](#bindings) setting (default: 1 hour).
 
-**How to tell if a table is incremental:** Check the binding's `log_cursor` field. If it's set (e.g., `lastmodifieddate`), the table is incremental.
+**How to tell if a table is incremental:** check the binding's `log_cursor` field. If it's set (for example, `lastmodifieddate`), the table is incremental.
 
-### Full refresh
+### Paginated backfill
 
-Tables without a `log_cursor` are synced via **full refresh** — the connector re-reads the entire table on each sync. This is common for linking and junction tables (e.g., `TransactionLine`, `NextTransactionLineLink`) that lack a `lastmodifieddate` column.
+Tables that have a `page_cursor` but no `log_cursor` are loaded by **paginated backfill** — the connector reads the entire table in ordered pages using the [`page_cursor`](#bindings). To re-read the table on a recurring basis, set a [`schedule`](#setting-a-schedule) cron expression. `TransactionAccountingLine` is an example of a table that defaults to this mode.
 
-There are two full refresh modes:
+### Snapshot
 
-- **Paginated backfill** — Uses the [`page_cursor`](#bindings) to read the table in ordered pages. Pair this with a [`schedule`](#setting-a-schedule) cron expression to control how often the full refresh runs (e.g., daily).
-- **Snapshot backfill** — Set [`snapshot_backfill: true`](#bindings) when no good page cursor exists and the table is small enough for a single query. Snapshot mode manages its own schedule via the `interval` field. Do **not** combine `snapshot_backfill` with a cron `schedule` — this will cause issues with delete emission.
+Tables with no usable page cursor are loaded by **snapshot** — the connector executes a single query that returns the entire table, then diffs the result against the previous run's row set to detect deletions. Snapshots run on the binding's [`interval`](#bindings) (rather than on a cron `schedule`) and use `/_meta/row_id` as the collection key. Set [`snapshot_backfill: true`](#bindings) to force this mode for a binding that would otherwise default to paginated backfill.
+
+Do **not** combine `snapshot_backfill` with a cron `schedule` — snapshots manage their own cadence via `interval`, and pairing them with `schedule` will break delete emission.
 
 :::tip Switching from full refresh to incremental
 If a table has a `lastmodifieddate` column (or similar date-time field) that isn't currently configured as the `log_cursor`, you can add it to enable incremental sync. After updating the binding, trigger a backfill to re-read the table from the new cursor's starting point.
@@ -43,17 +44,10 @@ If a table has a `lastmodifieddate` column (or similar date-time field) that isn
 
 ### Delete handling
 
-Estuary captures deletions from NetSuite using the **DeletedRecord** system table, which NetSuite maintains to track when records are removed.
+Estuary captures deletions in two ways:
 
-**Base record tables** (such as `Transaction`, `Account`, `Customer`, `Subsidiary`, `Currency`, `CurrencyRate`, `Department`, `Employee`, `Item`, `Vendor`, etc.) support delete tracking. When a record is deleted in NetSuite, it appears in the `DeletedRecord` table, and Estuary emits a deletion event to the corresponding collection.
-
-**Linking and junction tables** (such as `TransactionLine`, `TransactionAccountingLine`, `NextTransactionLineLink`, `NextTransactionAccountingLineLink`) do **not** support delete tracking via `DeletedRecord`. NetSuite does not track deletions for these table types. If a linking table is configured for full refresh (snapshot mode), rows that no longer appear in the source are detected as removals during the next full read.
-
-### Table associations
-
-Linking tables can optionally be loaded as **associations** of a parent table instead of — or in addition to — standalone bindings. For example, `TransactionAccountingLine` can be associated with `Transaction` so that when a transaction is modified, its related accounting lines are also loaded.
-
-See the [`associations`](#table-associations) binding property for configuration details.
+- **Via the `DeletedRecord` system table.** For base record tables (such as `Transaction`, `Account`, `Customer`, `Subsidiary`, `Currency`, `Department`, `Employee`, `Item`, and `Vendor`), Estuary reads NetSuite's `DeletedRecord` system table and emits a deletion event to the corresponding collection for each row that appears there. **The `DeletedRecord` binding must itself be enabled in your capture for these events to be emitted.** NetSuite does not record deletions in `DeletedRecord` for many linking and junction tables (notably `transactionLine` and `TransactionAccountingLine`).
+- **Via snapshot diffing.** Snapshot bindings detect deletions by comparing each run's `/_meta/row_id` set to the previous run's. Any row that disappears is emitted as a deletion. This is the only built-in mechanism for capturing deletions on tables that aren't covered by `DeletedRecord`. For paginated-backfill bindings on those tables (for example, `transactionLine`), the connector cannot infer deletions on its own — schedule periodic backfills and run a downstream cleanup query that removes rows older than the most recent backfill start time.
 
 ## Prerequisites
 

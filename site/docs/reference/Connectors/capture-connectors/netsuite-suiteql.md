@@ -25,23 +25,32 @@ Estuary support will be able to confirm availability and, if needed, add the tab
 
 ## Sync modes and data loading
 
-### Incremental sync
+The SuiteQL connector is **full-refresh only** — it does not support incremental change capture. The SuiteQL REST API does not expose the metadata required for incremental replication (no equivalent of SuiteAnalytics' `OA_TABLES`/`OA_COLUMNS`/`OA_FKEYS`), so each binding is re-read from scratch on every run. Use the [`schedule`](#bindings) cron expression to control how often a binding re-runs and picks up new and changed rows.
 
-Tables with a date-time column suitable for change tracking are synced **incrementally** — only rows modified since the last checkpoint are captured. Most base record tables (such as `Transaction`, `Account`, `Customer`, `Item`) have a `lastmodifieddate` column that enables this.
+If incremental sync is required, use the [SuiteAnalytics connector](./netsuite-suiteanalytics.md) instead.
 
-The polling frequency is controlled by the [`interval`](#bindings) setting (default: 1 hour).
+### Paginated backfill vs. snapshot
 
-### Full refresh
+The connector picks a mode per binding based on whether the table has a configured key:
 
-Tables without a suitable date-time cursor are synced via **full refresh** — the connector re-reads the entire table on each poll. This is common for linking tables like `TransactionLine` that lack a `lastmodifieddate` column. Use the [`schedule`](#bindings) field to set a cron expression controlling how often full refreshes run.
+- **Paginated backfill** — Tables with a key (specified in the endpoint's `tables` config) are read in ordered pages using a `page_cursor` (defaults to the first key field). Each scheduled run starts a new full backfill.
+- **Snapshot** — Tables with no key (for example, `Account`, `DeletedRecord`, `transactionHistory`, `TransactionStatus`) are read as a single query that returns the entire table. Snapshots run on the binding's `interval` (defaulting to once a day) and use `/_meta/row_id` as the collection key.
 
 ### Delete handling
 
-Estuary captures deletions using the `DeletedRecord` table (listed in [supported data resources](#supported-data-resources) above). NetSuite maintains this system table to track when base records are removed.
+The SuiteQL connector does **not** read NetSuite's `DeletedRecord` table to correlate deletions to other collections. (You can capture `DeletedRecord` itself as a snapshot table for raw access to the deletion log, but the connector won't apply those deletions to other bindings.)
 
-**Base record tables** (such as `Transaction`, `Account`, `Customer`, `Item`, etc.) support delete tracking. When a record is deleted in NetSuite, it appears in the `DeletedRecord` table, and Estuary emits a deletion event.
+- **Snapshot bindings** detect deletions automatically by comparing each run's `/_meta/row_id` set to the previous run's. Any row that disappears is emitted as a deletion.
+- **Paginated-backfill bindings** do not infer deletions. Rows that are removed from NetSuite remain in the destination until the next scheduled backfill runs, and even then are not deleted automatically — schedule periodic backfills and run a downstream cleanup query that removes rows older than the most recent backfill start time.
 
-**Linking and junction tables** (such as `TransactionLine`, `TransactionShippingAddress`) are **not** tracked in `DeletedRecord`. NetSuite does not record deletions for these table types.
+## API constraints
+
+SuiteQL has several hard API limits that shape how the connector operates. Plan your bindings with these in mind:
+
+- **No metadata introspection.** Unlike the SuiteAnalytics ODBC driver, SuiteQL has no way to programmatically discover table schemas, primary keys, or foreign keys. The connector relies on a static list of supported tables and keys; if you need a table that isn't supported, [contact support](mailto:support@estuary.dev).
+- **100-column limit.** SuiteQL silently returns zero rows for any query that selects more than 100 columns. To capture wide tables, set the binding's [`columns`](#bindings) field to an explicit list of 100 or fewer columns.
+- **100,000-row result limit.** SuiteQL caps query results at 100,000 rows. The connector works around this with paginated subqueries, but each successive page re-scans previously read rows, so very large tables (tens of millions of rows or more) become impractical.
+- **Date-only timestamps.** SuiteQL returns date-time columns as date-only strings. The connector emits these as-is — hour, minute, and second information is not available.
 
 ## Prerequisites
 
