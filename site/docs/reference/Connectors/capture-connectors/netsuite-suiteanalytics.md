@@ -252,7 +252,7 @@ captures:
    ${PREFIX}/${CAPTURE_NAME}:
       endpoint:
          connector:
-            image: ghcr.io/estuary/source-netsuite-v2:v3
+            image: ghcr.io/estuary/source-netsuite-v2:v4
                config:
                   account: "12345678"
                   authentication:
@@ -310,12 +310,6 @@ You can find out whether a specific column falls under one of these special type
 
 ## Setting a Schedule
 
-Certain bindings may not be able to load data incrementally. You can instead use the `schedule` field for these bindings.
-This allows you to specify a cron expression to rebackfill the binding.
+The `schedule` field accepts a cron expression that triggers a periodic re-backfill of the binding. It applies only to **paginated backfill** bindings (those with a key and `page_cursor` but no `log_cursor`). Newly discovered paginated bindings default to `0 0 * * *` (daily at midnight UTC).
 
-This is helpful when performing periodic full refreshes using the paginated backfill mode.
-Schedules are only needed when a binding has a key and page cursor, but no log cursor.
-
-The `schedule` setting should **not** be used in conjunction with **snapshot mode**.
-Snapshots manage their own state and run on a schedule set by the `interval` field.
-Attempting to backfill a snapshot using a cron `schedule` will cause issues with emitting deletions.
+Incremental and snapshot bindings should not use `schedule` — incremental bindings keep up via `log_cursor`, and snapshots manage their own cadence via `interval`. See [Sync modes and data loading](#sync-modes-and-data-loading) for details.

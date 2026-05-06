@@ -201,8 +201,8 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | Property | Title | Description | Type | Required/Default |
 | --- | --- | --- | --- | --- |
 | `/name` | Name | The name of the table this binding refers to | string | Required |
-| `/interval` | Interval | How frequently to check for incremental changes | [`ISO8601` Duration](https://www.digi.com/resources/documentation/digidocs/90001488-13/reference/r_iso_8601_duration_format.htm) | `PT1H` (1 Hour) |
-| `/schedule` | Schedule | Schedule to automatically rebackfill this binding. Accepts a cron expression. | string |  |
+| `/interval` | Interval | How often to re-run the binding. Applies to **snapshot** bindings only — paginated-backfill bindings ignore `interval` and run on `schedule` instead. | [`ISO8601` Duration](https://www.digi.com/resources/documentation/digidocs/90001488-13/reference/r_iso_8601_duration_format.htm) | `P1D` (1 day) for snapshots; ignored for paginated bindings |
+| `/schedule` | Schedule | Cron expression that triggers a periodic re-backfill. Applies to **paginated-backfill** bindings only — snapshots manage their own cadence via `interval`. | string | `0 0 * * *` (daily at midnight UTC) for paginated bindings; empty for snapshots |
 | `/page_cursor` | Page Cursor | Cursor field for paginated backfills | string | Defaults to first key field |
 | `/columns` | Columns | List of columns to select. Empty means `SELECT *` (fails silently if >100 columns). | string array | `[]` |
 | `/query_limit` | Query Limit | Number of rows to fetch per query page | int | `10000` |
@@ -230,7 +230,7 @@ captures:
       bindings:
          - resource:
             name: transaction
-            interval: PT1H
+            schedule: "0 0 * * *"
             page_cursor: id
             columns: []
             query_limit: 10000
