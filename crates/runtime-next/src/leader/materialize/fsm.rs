@@ -644,7 +644,7 @@ impl HeadStore {
         }
 
         // Compose the trigger payload now that we have a complete txn-wide view.
-        if task.triggers.is_some() {
+        if task.triggers.is_some() && !extents.bindings.is_empty() {
             let collection_names: Vec<String> = extents
                 .bindings
                 .keys()
