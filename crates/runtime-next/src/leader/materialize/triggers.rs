@@ -1,7 +1,5 @@
-use super::{Task, Transaction};
 use anyhow::Context;
 use models::TriggerVariables;
-use proto_gazette::uuid::Clock;
 
 /// Pre-compiled trigger templates and their associated configs.
 pub struct CompiledTriggers {
@@ -37,66 +35,6 @@ impl CompiledTriggers {
     }
 }
 
-/// Compute trigger variables from the current transaction state and task metadata.
-pub fn trigger_variables(
-    task: &Task,
-    txn: &Transaction,
-    connector_image: &str,
-) -> TriggerVariables {
-    // Collect collection names from bindings that have received documents.
-    let collection_names: Vec<String> = txn
-        .stats
-        .iter()
-        .map(|(index, _)| task.bindings[*index as usize].collection_name.clone())
-        .collect();
-
-    let materialization_name = task.shard_ref.name.clone();
-
-    // Compute min of first_source_clock and max of last_source_clock across bindings.
-    let first_clocks = txn
-        .stats
-        .values()
-        .map(|s| s.first_source_clock)
-        .filter(|c| *c != Clock::default());
-    let last_clocks = txn
-        .stats
-        .values()
-        .map(|s| s.last_source_clock)
-        .filter(|c| *c != Clock::default());
-
-    let flow_published_at_min = first_clocks
-        .min()
-        .map(|c| clock_to_rfc3339(&c))
-        .unwrap_or_default();
-
-    let flow_published_at_max = last_clocks
-        .max()
-        .map(|c| clock_to_rfc3339(&c))
-        .unwrap_or_default();
-
-    let run_id = time::OffsetDateTime::from(txn.started_at)
-        .format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_default();
-
-    TriggerVariables {
-        collection_names,
-        connector_image: connector_image.to_string(),
-        materialization_name,
-        flow_published_at_min,
-        flow_published_at_max,
-        run_id,
-    }
-}
-
-fn clock_to_rfc3339(clock: &Clock) -> String {
-    let (seconds, nanos) = clock.to_unix();
-    let ts = time::OffsetDateTime::from_unix_timestamp(seconds as i64)
-        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
-    let ts = ts + time::Duration::nanoseconds(nanos as i64);
-    ts.format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
-}
-
 /// Fire all configured triggers using the given variables.
 pub async fn fire_pending_triggers(
     compiled: &CompiledTriggers,
@@ -112,10 +50,6 @@ pub async fn fire_pending_triggers(
         std::time::Duration::from_secs(1),
     )
     .await
-    .map_err(|err| {
-        tracing::error!(%err, "trigger webhook delivery failed");
-        err
-    })
     .context("trigger webhook delivery failed")?;
 
     tracing::info!(
@@ -322,59 +256,6 @@ mod test {
         let rendered = compiled.render(0, &context).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
         insta::assert_json_snapshot!("rendered-template", parsed);
-    }
-
-    use super::{Task, Transaction};
-    use crate::materialize::Binding;
-    use proto_gazette::uuid::Clock;
-
-    fn mock_task(binding_names: &[&str]) -> Task {
-        Task {
-            bindings: binding_names
-                .iter()
-                .map(|name| Binding {
-                    collection_name: name.to_string(),
-                    delta_updates: false,
-                    journal_read_suffix: String::new(),
-                    key_extractors: Vec::new(),
-                    read_schema_json: bytes::Bytes::new(),
-                    ser_policy: doc::SerPolicy::noop(),
-                    state_key: String::new(),
-                    store_document: false,
-                    value_plan: doc::ExtractorPlan::new(&[]),
-                    uuid_ptr: json::Pointer::empty(),
-                })
-                .collect(),
-            shard_ref: ops::ShardRef {
-                kind: ops::TaskType::Materialization as i32,
-                name: "acmeCo/my-materialization".to_string(),
-                key_begin: "00000000".to_string(),
-                r_clock_begin: "00000000".to_string(),
-                build: "test-build".to_string(),
-            },
-        }
-    }
-
-    #[test]
-    fn trigger_variables_snapshot() {
-        let task = mock_task(&["acmeCo/collection-a", "acmeCo/collection-b"]);
-        let mut txn = Transaction::new();
-        txn.started = true;
-
-        let stats = txn.stats.entry(0).or_default();
-        stats.right.docs_total = 5;
-        stats.first_source_clock = Clock::from_unix(1000, 0);
-        stats.last_source_clock = Clock::from_unix(3000, 0);
-
-        let stats = txn.stats.entry(1).or_default();
-        stats.right.docs_total = 3;
-        stats.first_source_clock = Clock::from_unix(500, 0);
-        stats.last_source_clock = Clock::from_unix(4000, 0);
-
-        let mut vars = trigger_variables(&task, &txn, "ghcr.io/estuary/materialize-postgres:dev");
-        vars.run_id = "2024-06-15T12:30:00.000Z".to_string();
-
-        insta::assert_json_snapshot!("trigger-variables", vars);
     }
 
     #[tokio::test]

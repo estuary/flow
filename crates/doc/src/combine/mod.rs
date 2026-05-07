@@ -159,6 +159,13 @@ impl Accumulator {
         Ok(self.memtable.as_ref().unwrap())
     }
 
+    /// Segment ranges of the spill file written by this Accumulator so far.
+    /// Ranges are append-only, non-overlapping, and monotonic within an
+    /// Accumulator's lifetime.
+    pub fn ranges(&self) -> &[std::ops::Range<u64>] {
+        self.spill.segment_ranges()
+    }
+
     /// Map this combine Accumulator into a Drainer, which will drain directly
     /// from the inner MemTable (if no spill occurred) or from an inner SpillDrainer.
     pub fn into_drainer(self) -> Result<Drainer, Error> {

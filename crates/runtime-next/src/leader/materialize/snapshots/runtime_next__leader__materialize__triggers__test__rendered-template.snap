@@ -1,0 +1,17 @@
+---
+source: crates/runtime-next/src/leader/materialize/triggers.rs
+assertion_line: 262
+expression: parsed
+---
+{
+  "auth": "Bearer my-secret",
+  "collections": [
+    "acmeCo/example/collection"
+  ],
+  "connector": "ghcr.io/estuary/materialize-example:v1",
+  "event": "materialization_transaction_completed",
+  "flow_published_at_max": "2024-01-01T00:01:00Z",
+  "flow_published_at_min": "2024-01-01T00:00:00Z",
+  "materialization": "acmeCo/example/materialization",
+  "run_id": "2024-01-01T00:00:00.000Z"
+}
