@@ -31,10 +31,5 @@ async fn fetch_latest_tag() -> anyhow::Result<String> {
         .json()
         .await?;
 
-    let tag = release
-        .tag_name
-        .strip_prefix('v')
-        .unwrap_or(&release.tag_name);
-
-    Ok(tag.to_owned())
+    Ok(release.tag_name)
 }
