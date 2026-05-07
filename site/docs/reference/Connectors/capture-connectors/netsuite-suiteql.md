@@ -34,7 +34,7 @@ If incremental sync is required, use the [SuiteAnalytics connector](./netsuite-s
 The connector picks a mode per binding based on whether the table has a configured key:
 
 - **Paginated backfill** — Tables with a key (specified in the endpoint's `tables` config) are read in ordered pages using a `page_cursor` (defaults to the first key field). Each scheduled run starts a new full backfill.
-- **Snapshot** — Tables with no key (for example, `Account`, `DeletedRecord`, `transactionHistory`, `TransactionStatus`) are read as a single query that returns the entire table. Snapshots run on the binding's `interval` (defaulting to once a day) and use `/_meta/row_id` as the collection key.
+- **Snapshot** — Tables with no key (for example, `DeletedRecord`, `transactionHistory`, `TransactionStatus`) are read as a single query that returns the entire table. Snapshots run on the binding's `interval` (defaulting to once a day) and use `/_meta/row_id` as the collection key.
 
 ### Delete handling
 
@@ -49,7 +49,7 @@ SuiteQL has several hard API limits that shape how the connector operates. Plan 
 
 - **No metadata introspection.** Unlike the SuiteAnalytics ODBC driver, SuiteQL has no way to programmatically discover table schemas, primary keys, or foreign keys. The connector relies on a static list of supported tables and keys; if you need a table that isn't supported, [contact support](mailto:support@estuary.dev).
 - **100-column limit.** SuiteQL silently returns zero rows for any query that selects more than 100 columns. To capture wide tables, set the binding's [`columns`](#bindings) field to an explicit list of 100 or fewer columns.
-- **100,000-row result limit.** SuiteQL caps query results at 100,000 rows. The connector works around this with paginated subqueries, but each successive page re-scans previously read rows, so very large tables (tens of millions of rows or more) become impractical.
+- **100,000-row result limit.** SuiteQL caps query results at 100,000 rows. For tables with keys, this is not a practical concern: the connector pages through results using the key's sort order, and each page fetches only unread rows. For tables without keys on the other hand, the connector uses a limit-offset strategy. Each subquery must re-examine the full table scan to locate its window of rows, so performance degrades as the table grows. Snapshot bindings are best suited to small reference/lookup tables.
 - **Date-only timestamps.** SuiteQL returns date-time columns as date-only strings. The connector emits these as-is — hour, minute, and second information is not available.
 
 ## Prerequisites
