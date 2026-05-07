@@ -24,6 +24,18 @@ expression: errors
         error: `block` redact strategy cannot be applied at '/int' because it must exist,
     },
     Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: the document root has a `redact` strategy in the read schema but the write schema has no `redact` at this location; redaction is applied at capture time using the write schema, so this annotation does not protect stored data. Move the annotation to the write schema.,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: location /int has a `redact` strategy in the read schema but the write schema has no `redact` at this location; redaction is applied at capture time using the write schema, so this annotation does not protect stored data. Move the annotation to the write schema.,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: location /str has a `redact` strategy in the read schema but the write schema has no `redact` at this location; redaction is applied at capture time using the write schema, so this annotation does not protect stored data. Move the annotation to the write schema.,
+    },
+    Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
         error: location /int has a `redact` strategy, which is disallowed because the location is used as a key,
     },
