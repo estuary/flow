@@ -208,13 +208,20 @@ async fn test_publication_spec_updates() {
     harness.run_pending_controllers(None).await;
     let pub_specs = harness.get_publication_specs("moths/disableBinding").await;
     assert_eq!(2, pub_specs.len());
+    let detail = &pub_specs[1].detail;
+    assert!(
+        detail.contains("backfilled binding of reset collection caterpillars/leaves"),
+        "unexpected detail: {}",
+        detail
+    );
     let state = harness.get_controller_state("moths/disableBinding").await;
     let model = state
         .live_spec
         .as_ref()
         .and_then(|ls| ls.as_materialization())
         .unwrap();
-    assert!(model.bindings[0].disable);
+    assert!(!model.bindings[0].disable);
+    assert_eq!(1, model.bindings[0].backfill);
 
     let pub_specs = harness.get_publication_specs("moths/abort").await;
     assert_eq!(

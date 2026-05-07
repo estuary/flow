@@ -253,7 +253,7 @@ async fn walk_materialization<C: Connectors>(
         })
         .collect();
 
-    // Do we need to disable the whole task due to a reset source collection?
+    // Disable the whole task if any binding requested it (group-by change with onIncompatibleSchemaChange: disableTask).
     if let Some(reason) = bindings
         .iter()
         .filter_map(|(_, _, disable_task, _)| disable_task.as_ref())
@@ -784,19 +784,9 @@ fn walk_materialization_binding<'a>(
             .push(scope, errors);
             return (model_path, model, None, None);
         }
-        (true, models::OnIncompatibleSchemaChange::Backfill) => {
+        (true, _) => {
             model_fixes.push(format!("backfilled binding of reset collection {source}"));
             model.backfill += 1;
-        }
-        (true, models::OnIncompatibleSchemaChange::DisableBinding) => {
-            model_fixes.push(format!("disabling binding of reset collection {source}"));
-            model.disable = true;
-            return (model_path, model, None, None);
-        }
-        (true, models::OnIncompatibleSchemaChange::DisableTask) => {
-            // Caller handles disabling the task.
-            let reason = format!("reset of collection {source}");
-            return (model_path, model, Some(reason), None);
         }
     }
 
