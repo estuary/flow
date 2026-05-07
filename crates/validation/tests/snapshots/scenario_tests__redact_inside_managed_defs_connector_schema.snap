@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/testing~1redact-in-defs/writeSchema,
+        error: `redact` annotation at /$defs/flow://connector-schema/properties/email/redact is inside `$defs/flow://connector-schema`, which is a system-managed schema subtree that is overwritten by discover or validation-time inlining. Move the annotation to the top level of the schema.,
+    },
+]

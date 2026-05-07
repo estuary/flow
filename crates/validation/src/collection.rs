@@ -191,6 +191,46 @@ fn walk_collection(
         check_uuid_ptr_not_redacted(scope.push_prop("schema"), &write_spec.spec, errors);
     }
 
+    // Redaction runs at capture time using the write schema. Annotations
+    // placed only in the read schema do not protect stored documents.
+    if let Some(read) = &read_spec {
+        check_read_schema_redact_in_write_schema(
+            scope.push_prop("readSchema"),
+            &read.spec,
+            &write_spec.spec,
+            errors,
+        );
+    }
+
+    // Annotations placed inside `$defs/flow://*` subtrees are silently
+    // overwritten by discover or validation-time inlining. Scan the user-
+    // authored models (not the post-inlining `read_spec.model`, which carries
+    // a verbatim copy of the write schema in `$defs/flow://write-schema`).
+    if let Some(read) = read_model.as_ref() {
+        let write = write_model.as_ref().expect("split schemas have write_model");
+        check_redact_in_managed_defs(
+            scope.push_prop("writeSchema"),
+            write,
+            &write_spec.spec.curi,
+            errors,
+        );
+        if let Some(read_spec) = &read_spec {
+            check_redact_in_managed_defs(
+                scope.push_prop("readSchema"),
+                read,
+                &read_spec.spec.curi,
+                errors,
+            );
+        }
+    } else if let Some(schema) = schema_model.as_ref() {
+        check_redact_in_managed_defs(
+            scope.push_prop("schema"),
+            schema,
+            &write_spec.spec.curi,
+            errors,
+        );
+    }
+
     let effective_read_spec = read_spec
         .as_ref()
         .map(|Schema { spec, .. }| spec)
@@ -804,6 +844,104 @@ fn check_uuid_ptr_not_redacted(scope: Scope, spec: &schema::Schema, errors: &mut
             }
             .push(scope, errors);
         }
+    }
+}
+
+// For each location in `read_spec` that has a `redact` strategy, emit an
+// error if the same location in `write_spec` does not also have a `redact`
+// strategy. Locations introduced through patternProperties are skipped,
+// because they cannot be matched precisely against the write shape.
+fn check_read_schema_redact_in_write_schema(
+    scope: Scope,
+    read_spec: &schema::Schema,
+    write_spec: &schema::Schema,
+    errors: &mut tables::Errors,
+) {
+    for (ptr, is_pattern, shape, _exists) in read_spec.shape.locations() {
+        if is_pattern {
+            continue;
+        }
+        if matches!(shape.redact, doc::shape::Redact::Unset) {
+            continue;
+        }
+        let (write_shape, write_exists) = write_spec.shape.locate(&ptr);
+        if matches!(write_exists, doc::shape::location::Exists::Cannot) {
+            continue;
+        }
+        if matches!(write_shape.redact, doc::shape::Redact::Unset) {
+            Error::ReadSchemaRedactNotInWriteSchema {
+                ptr: ptr.to_string(),
+                schema: read_spec.curi.clone(),
+                strategy: shape.redact.clone(),
+            }
+            .push(scope, errors);
+        }
+    }
+}
+
+// Scan `$defs` entries whose key starts with `flow://` for any nested
+// `redact` keyword. These subtrees are owned by the system: discover
+// overwrites `flow://connector-schema`, and validation-time inlining
+// replaces `flow://inferred-schema`, `flow://write-schema`, and
+// `flow://relaxed-write-schema`. Annotations placed inside them are
+// silently lost on the next publication.
+fn check_redact_in_managed_defs(
+    scope: Scope,
+    model: &models::Schema,
+    curi: &url::Url,
+    errors: &mut tables::Errors,
+) {
+    let raw: serde_json::Value = match serde_json::from_str(model.get()) {
+        Ok(v) => v,
+        Err(_) => return, // Parse errors are reported elsewhere.
+    };
+    let Some(defs) = raw.get("$defs").and_then(|v| v.as_object()) else {
+        return;
+    };
+    for (def_id, def_value) in defs {
+        if !def_id.starts_with("flow://") {
+            continue;
+        }
+        let mut findings = Vec::new();
+        find_redact_keys(def_value, &mut String::new(), &mut findings);
+        for finding in findings {
+            Error::RedactInsideManagedDefs {
+                json_ptr: format!("/$defs/{}{}", def_id, finding),
+                def_id: def_id.clone(),
+                schema: curi.clone(),
+            }
+            .push(scope, errors);
+        }
+    }
+}
+
+// Recursively walks `value`, appending the JSON pointer of each `redact`
+// keyword found to `out`. Pointer tokens follow RFC 6901 escaping for `/`
+// and `~`.
+fn find_redact_keys(value: &serde_json::Value, path: &mut String, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                let prior_len = path.len();
+                path.push('/');
+                path.push_str(&k.replace('~', "~0").replace('/', "~1"));
+                if k == "redact" {
+                    out.push(path.clone());
+                }
+                find_redact_keys(v, path, out);
+                path.truncate(prior_len);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (i, item) in items.iter().enumerate() {
+                let prior_len = path.len();
+                path.push('/');
+                path.push_str(&i.to_string());
+                find_redact_keys(item, path, out);
+                path.truncate(prior_len);
+            }
+        }
+        _ => {}
     }
 }
 

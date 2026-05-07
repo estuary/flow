@@ -1925,6 +1925,115 @@ test://example/int-string.schema:
 }
 
 #[test]
+fn test_read_schema_redact_not_in_write_schema() {
+    // A redact annotation in the read schema with no corresponding annotation
+    // in the write schema is non-functional: redaction runs at capture time
+    // against the write schema, so stored data is not protected.
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/redact-read-only:
+      key: [/id]
+      writeSchema:
+        type: object
+        properties:
+          id: { type: string }
+          email: { type: string }
+        required: [id]
+      readSchema:
+        type: object
+        properties:
+          id: { type: string }
+          email:
+            type: string
+            redact: { strategy: sha256 }
+        required: [id]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_redact_inside_managed_defs_connector_schema() {
+    // A redact annotation placed inside $defs/flow://connector-schema is
+    // silently overwritten on the next discover.
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/redact-in-defs:
+      key: [/id]
+      writeSchema:
+        $defs:
+          "flow://connector-schema":
+            $id: "flow://connector-schema"
+            type: object
+            properties:
+              id: { type: string }
+              email:
+                type: string
+                redact: { strategy: sha256 }
+            required: [id]
+        $ref: "flow://connector-schema"
+      readSchema:
+        $defs:
+          flow://inferred-schema:
+            $id: flow://inferred-schema
+            type: object
+            properties:
+              id: { type: string }
+              _meta:
+                type: object
+                properties:
+                  uuid: { type: string }
+                required: [uuid]
+            required: [id, _meta]
+            x-collection-generation-id: 0000000000000001
+        allOf:
+          - $ref: flow://relaxed-write-schema
+          - $ref: flow://inferred-schema
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_redact_at_top_level_passes() {
+    // A redact annotation at the top level of writeSchema (outside $defs),
+    // also present in readSchema, is the supported placement and produces
+    // no errors.
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/redact-supported:
+      key: [/id]
+      writeSchema:
+        type: object
+        properties:
+          id: { type: string }
+          email:
+            type: string
+            redact: { strategy: sha256 }
+        required: [id]
+      readSchema:
+        type: object
+        properties:
+          id: { type: string }
+          email:
+            type: string
+            redact: { strategy: sha256 }
+        required: [id]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors, @"[]");
+}
+
+#[test]
 fn test_materialization_too_many_bindings() {
     let bindings_count = validation::MAX_BINDINGS + 1;
 
