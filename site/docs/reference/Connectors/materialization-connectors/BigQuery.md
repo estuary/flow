@@ -200,19 +200,7 @@ drop table <your_dataset>.<your_schema>.<your_table>_copy;
 6. Re-enable the materialization to continue materializing data to the now partitioned table.
 
 :::info
-A routine [dataflow reset](/reference/backfilling-data/#dataflow-reset) or [materialization backfill](/reference/backfilling-data/#materialization-backfill) with no schema changes runs `TRUNCATE TABLE`, which preserves partitioning, clustering, and all other table-level metadata. In that case you do **not** need to re-apply table partitioning.
+A routine [dataflow reset](/reference/backfilling-data/#dataflow-reset) or [materialization backfill](/reference/backfilling-data/#materialization-backfill) preserves your custom partitioning — the connector runs `TRUNCATE TABLE` and keeps all table-level DDL.
 
-The table is dropped and recreated — losing custom partitioning and any other DDL applied outside of Estuary — only when the backfill is coupled with an incompatible schema change in the same publication. Cases that trigger drop + recreate:
-
-- A selected field's type changes incompatibly (e.g., string → integer)
-- The source collection's primary key changes
-- The materialization has the `always_drop_tables_on_backfill` feature flag set
-
-To protect custom partitioning when an incompatible schema change is detected, configure [`onIncompatibleSchemaChange`](/concepts/advanced/evolutions/) on the binding (or the materialization). The default is `backfill`, which is what triggers the drop + recreate above. Other options:
-
-- `abort` — fail the publication so the change is never applied
-- `disableBinding` — disable the affected binding instead of backfilling it
-- `disableTask` — disable the entire materialization
-
-If you need to keep existing rows during a backfill, use an [incremental capture backfill](/reference/backfilling-data/#incremental-backfill), or set the `retain_existing_data_on_backfill` feature flag on the materialization.
+The table is only dropped and recreated — losing custom partitioning — when the backfill is paired with an incompatible schema change in the same publication. See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill) for the full list of triggers and the [`onIncompatibleSchemaChange`](/concepts/advanced/evolutions/) options that can prevent it.
 :::
