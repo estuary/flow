@@ -3,24 +3,24 @@ sidebar_position: 2
 slug: /guides/prefix-access-control/
 ---
 
-# Prefix-based access control
+# Prefix-Based Access Control
 
 Estuary's authorization model is built around **prefixes**. By default, your organization gets a single top-level prefix (e.g. `acmeCo/`) and all users and tasks operate within it with broad access. For organizations that need stronger isolation — between environments, regions, or teams — you can configure access at sub-prefix granularity.
 
 This guide explains the four layers that control access, and walks through three common configurations.
 
-## The four layers
+## The four access layers
 
 Full isolation between sub-prefixes requires configuring all four layers:
 
 | Layer | What it controls | Configured via |
 |---|---|---|
-| **User grants** | Which prefixes a user can create, modify, or view tasks in | Web app (Admin > Access Grants > Organization Membership) or CLI |
-| **Role grants** | Which collections a task can read from or write to | Web app (Admin > Access Grants > Data Sharing) or CLI |
-| **Storage mappings** | Where collection data is physically stored | Web app (Admin > Storage Mappings) |
+| **User grants** | Which prefixes a user can create, modify, or view tasks in | Organization Membership in [Admin Settings](/guides/dashboard/admin) or CLI |
+| **Role grants** | Which collections a task can read from or write to | Data Sharing in [Admin Settings](/guides/dashboard/admin) or CLI |
+| **Storage mappings** | Where collection data is physically stored | [Storage Mappings](/getting-started/installation) |
 | **Data plane access** | Which data planes tasks can run on | Estuary support (no self-service UI) |
 
-### A note on grants
+### Grants are additive
 
 User and role grants are **additive** — a more specific grant cannot restrict a broader one. If `acmeCo/` has write access to `acmeCo/`, then a user or task in `acmeCo/staging/` inherits that access regardless of what grants you add at the sub-prefix level. To restrict access, you must **delete** the broader grant and replace it with narrower ones.
 
@@ -75,5 +75,5 @@ Data plane visibility for sub-prefix-only users is currently limited in some par
 
 ## Limitations
 
-- **Private links cannot be restricted to sub-prefixes.** Preventing `acmeCo/prod/` and `acmeCo/dev/` tasks from connecting to the same private database requires separate data planes — there is no per-prefix private link scoping.
-- **Data plane grants have no self-service UI** — contact Estuary support to configure them.
+- **Private links cannot be restricted to sub-prefixes.** Preventing `acmeCo/prod/` and `acmeCo/dev/` tasks from connecting to the same private database requires separate data planes. There is no per-prefix private link scoping.
+- **Data plane grants have no self-service UI.** Contact Estuary support to configure them.
