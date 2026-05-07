@@ -68,7 +68,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/key-end",
-                "value": "3fffffff"
+                "value": "55555554"
               },
               {
                 "name": "estuary.dev/log-level",
@@ -151,7 +151,7 @@ expression: "(partition_changes, task_changes)"
     {
       "Shard": {
         "upsert": {
-          "id": "derivation/example/derivation/2020202020202020/40000000-00000000",
+          "id": "derivation/example/derivation/2020202020202020/55555555-00000000",
           "recoveryLogPrefix": "recovery",
           "hintPrefix": "/estuary/flow/hints",
           "hintBackups": 2,
@@ -170,11 +170,11 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/key-begin",
-                "value": "40000000"
+                "value": "55555555"
               },
               {
                 "name": "estuary.dev/key-end",
-                "value": "7fffffff"
+                "value": "aaaaaaa9"
               },
               {
                 "name": "estuary.dev/log-level",
@@ -214,7 +214,7 @@ expression: "(partition_changes, task_changes)"
     {
       "Journal": {
         "upsert": {
-          "name": "recovery/derivation/example/derivation/2020202020202020/40000000-00000000",
+          "name": "recovery/derivation/example/derivation/2020202020202020/55555555-00000000",
           "replication": 3,
           "labels": {
             "labels": [
@@ -257,7 +257,7 @@ expression: "(partition_changes, task_changes)"
     {
       "Shard": {
         "upsert": {
-          "id": "derivation/example/derivation/2020202020202020/80000000-00000000",
+          "id": "derivation/example/derivation/2020202020202020/aaaaaaaa-00000000",
           "recoveryLogPrefix": "recovery",
           "hintPrefix": "/estuary/flow/hints",
           "hintBackups": 2,
@@ -276,113 +276,7 @@ expression: "(partition_changes, task_changes)"
               },
               {
                 "name": "estuary.dev/key-begin",
-                "value": "80000000"
-              },
-              {
-                "name": "estuary.dev/key-end",
-                "value": "bfffffff"
-              },
-              {
-                "name": "estuary.dev/log-level",
-                "value": "info"
-              },
-              {
-                "name": "estuary.dev/logs-journal",
-                "value": "ops/tasks/BASE_NAME/logs/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
-              },
-              {
-                "name": "estuary.dev/rclock-begin",
-                "value": "00000000"
-              },
-              {
-                "name": "estuary.dev/rclock-end",
-                "value": "ffffffff"
-              },
-              {
-                "name": "estuary.dev/stats-journal",
-                "value": "ops/tasks/BASE_NAME/stats/2020202020202020/kind=derivation/name=example%2Fderivation/pivot=00"
-              },
-              {
-                "name": "estuary.dev/task-name",
-                "value": "example/derivation"
-              },
-              {
-                "name": "estuary.dev/task-type",
-                "value": "derivation"
-              }
-            ]
-          },
-          "ringBufferSize": 65536,
-          "readChannelSize": 4096
-        }
-      }
-    },
-    {
-      "Journal": {
-        "upsert": {
-          "name": "recovery/derivation/example/derivation/2020202020202020/80000000-00000000",
-          "replication": 3,
-          "labels": {
-            "labels": [
-              {
-                "name": "app.gazette.dev/managed-by",
-                "value": "estuary.dev/flow"
-              },
-              {
-                "name": "content-type",
-                "value": "application/x-gazette-recoverylog"
-              },
-              {
-                "name": "estuary.dev/build",
-                "value": "0101010101010101"
-              },
-              {
-                "name": "estuary.dev/task-name",
-                "value": "example/derivation"
-              },
-              {
-                "name": "estuary.dev/task-type",
-                "value": "derivation"
-              }
-            ]
-          },
-          "fragment": {
-            "length": "268435456",
-            "compressionCodec": "SNAPPY",
-            "stores": [
-              "gs://example-bucket/"
-            ],
-            "refreshInterval": "300s",
-            "flushInterval": "172800s"
-          },
-          "flags": 4,
-          "maxAppendRate": "4194304"
-        }
-      }
-    },
-    {
-      "Shard": {
-        "upsert": {
-          "id": "derivation/example/derivation/2020202020202020/c0000000-00000000",
-          "recoveryLogPrefix": "recovery",
-          "hintPrefix": "/estuary/flow/hints",
-          "hintBackups": 2,
-          "maxTxnDuration": "60s",
-          "minTxnDuration": "0s",
-          "hotStandbys": 3,
-          "labels": {
-            "labels": [
-              {
-                "name": "app.gazette.dev/managed-by",
-                "value": "estuary.dev/flow"
-              },
-              {
-                "name": "estuary.dev/build",
-                "value": "0101010101010101"
-              },
-              {
-                "name": "estuary.dev/key-begin",
-                "value": "c0000000"
+                "value": "aaaaaaaa"
               },
               {
                 "name": "estuary.dev/key-end",
@@ -426,7 +320,7 @@ expression: "(partition_changes, task_changes)"
     {
       "Journal": {
         "upsert": {
-          "name": "recovery/derivation/example/derivation/2020202020202020/c0000000-00000000",
+          "name": "recovery/derivation/example/derivation/2020202020202020/aaaaaaaa-00000000",
           "replication": 3,
           "labels": {
             "labels": [
