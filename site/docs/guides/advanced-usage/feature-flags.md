@@ -132,6 +132,17 @@ Skips truncating destination tables when a backfill is triggered.
   - If collection keys or the destination table schema change in incompatible ways, the connector will still drop and recreate the table even with this flag enabled.
 - **Applies to:** Most SQL and warehouse materialization connectors.
 
+### always_drop_tables_on_backfill
+
+Forces destination tables to be dropped and recreated on every backfill instead of truncated.
+
+- **Default:** Disabled. Routine backfills run `TRUNCATE TABLE`, preserving partitioning, clustering, and other table-level DDL applied outside of Estuary.
+- **Use case:** Forcing a clean rebuild of the destination table — for example, to drop columns no longer in the selected fields or to reset table-level configuration.
+- **Caveats:**
+  - Removes any custom partitioning, clustering, indexes, or other DDL applied to the destination table outside of Estuary. You will need to re-apply that DDL after the backfill.
+  - See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill) for the full picture of when tables are dropped versus truncated.
+- **Applies to:** Relational SQL and warehouse materialization connectors (for example, PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, Databricks). Connectors whose destinations don't support an in-place truncate — such as MongoDB, DynamoDB, Elasticsearch, and Iceberg — always drop and recreate on backfill regardless of this flag.
+
 ### datetime_keys_as_string
 
 Converts datetime columns used as collection keys to string representation instead of native datetime types.

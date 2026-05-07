@@ -83,16 +83,20 @@ result in duplicate records in your destination.
 
 ### Materialization backfill
 
-A materialization backfill drops and recreates your destination tables using the data currently stored
-in your Estuary collections. This is useful when you need to refresh destination tables without
-rereading from the source.
+A materialization backfill empties your destination tables and repopulates them using the data
+currently stored in your Estuary collections. This is useful when you need to refresh destination
+tables without rereading from the source.
 
 When you perform a materialization backfill:
 
-* Destination tables are dropped and recreated
+* Destination tables are truncated, preserving table-level metadata such as partitioning, clustering, and other DDL applied outside of Estuary
 * Data is read from existing Estuary collections
 * No new data is pulled from the source
 * Tables are repopulated with data from collections
+
+If the backfill is published alongside an incompatible schema change — such as a column type
+change or a change to the collection's primary key — the destination tables are dropped and
+recreated instead, losing any custom DDL.
 
 To perform a materialization backfill:
 
@@ -137,7 +141,7 @@ Or you can select individual collections to backfill:
 </Tabs>
 
 :::tip
-Dropping destination tables may create downtime for your destination table consumers while data is backfilled.
+Refreshing destination tables may create downtime for your destination table consumers while data is backfilled.
 :::
 
 This option is best when you need to refresh destination tables but are confident your collections
@@ -146,17 +150,21 @@ contain all the necessary historical data.
 ### Dataflow reset
 
 A dataflow reset is the most comprehensive option, refreshing the entire pipeline from source to
-destination. This option drops destination tables, rereads data from the source into collections, and
+destination. This option empties destination tables, rereads data from the source into collections, and
 then materializes that data to the destination.
 
 When you perform a dataflow reset:
 
 * Data is reread from the source system
 * Inferred schemas are reset
-* Destination tables are dropped and recreated
+* Destination tables are truncated, preserving table-level metadata such as partitioning and clustering
 * Collections are replaced with fresh source data
 * Derivations are dropped and recreated
 * Destination tables are repopulated with the refreshed data
+
+As with a materialization backfill, if the reset is published alongside an incompatible schema
+change, destination tables are dropped and recreated rather than truncated, losing any custom DDL
+applied outside of Estuary.
 
 To perform a dataflow reset:
 
@@ -201,6 +209,39 @@ You do not need to modify other specifications: resetting from the collection up
 This option is ideal when you need a complete refresh of your entire data pipeline, especially when
 you suspect data inconsistencies between source, collections, and destinations.
 
+### Schema changes during backfill
+
+Materialization backfills and dataflow resets refresh destination tables in one of two ways, depending on whether the publication also contains incompatible schema changes:
+
+- **Truncate and repopulate** (default for routine backfills) — the connector runs `TRUNCATE TABLE`, preserving partitioning, clustering, and any other table-level DDL applied outside of Estuary.
+- **Drop and recreate** — the connector drops the existing table and recreates it from the current selected fields, losing any custom DDL.
+
+A backfill drops and recreates the table when any of the following is true:
+
+- A selected field's type changes incompatibly (for example, string → integer).
+- The source collection's primary key changes.
+- The materialization has the [`always_drop_tables_on_backfill`](/guides/advanced-usage/feature-flags) feature flag set.
+
+Truncate-and-repopulate is the default for relational SQL and warehouse destinations (for example, PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, and Databricks). Some materialization connectors — including those targeting MongoDB, DynamoDB, Elasticsearch, and Iceberg — always drop and recreate on backfill, because the underlying system doesn't support an in-place truncate.
+
+#### Controlling behavior with onIncompatibleSchemaChange
+
+When an incompatible schema change is detected, you can override the default drop-and-recreate behavior by configuring [`onIncompatibleSchemaChange`](/concepts/advanced/evolutions/) on the materialization or per binding:
+
+- `backfill` (default) — drop and recreate the table, then backfill.
+- `abort` — fail the publication so the change is never applied.
+- `disableBinding` — disable the affected binding instead of backfilling it.
+- `disableTask` — disable the entire materialization.
+
+#### Preserving existing data during a backfill
+
+To keep existing rows when a backfill is triggered, either:
+
+- Use an [incremental backfill](#incremental-backfill), or
+- Set the [`retain_existing_data_on_backfill`](/guides/advanced-usage/feature-flags) feature flag on the materialization.
+
+Both options skip the truncate step, but neither prevents the drop-and-recreate path: if the schema change requires a different table structure, the table is still dropped.
+
 ### Backfill Selection
 
 Backfills can be a powerful tool to recover data, but can also result in unnecessary data costs if used incorrectly. This section will help you choose when to backfill and which backfill option to use.
@@ -210,9 +251,9 @@ When deciding which backfill type to use, consider:
 * **Data retention:** If using Estuary's trial buckets, data expires after approximately 20
 days. For full historical data, [configure your own storage bucket](/getting-started/installation).
 * **Table size:** For very large tables (TBs of data), consider the impact (time, data, cost) of
-dropping and recreating tables.
-* **Downtime tolerance:** Materialization and dataflow resets involve dropping destination
-tables, which creates downtime.
+emptying and repopulating tables.
+* **Downtime tolerance:** Materialization and dataflow resets refresh destination tables, which
+creates a window of incomplete data for downstream consumers.
 * **Update strategy:** Consider whether your materializations use standard (merge) or delta
 updates, as this affects how backfilled data is handled at the destination. Using incremental
 backfills (not dropping the destination tables) when you have materializations that use
@@ -224,8 +265,8 @@ consistency across your Estuary pipelines while minimizing disruption to your da
 | **If I want to...** | **Then I should...** |
 | --- | --- |
 | Refresh my collections with source data, without dropping destination tables | Use an **Incremental Backfill** to pull all source data into Estuary collections |
-| Rebuild destination tables using existing collection data | Use a **Materialization Backfill** to drop and recreate destination tables from collections |
-| Completely refresh my entire data pipeline from source to destination | Use a **Dataflow Reset** to drop destination tables and backfill from source |
+| Rebuild destination tables using existing collection data | Use a **Materialization Backfill** to empty and repopulate destination tables from collections |
+| Completely refresh my entire data pipeline from source to destination | Use a **Dataflow Reset** to empty destination tables and backfill from source |
 | Recover from a replication slot failure in PostgreSQL | Use an **Incremental Backfill** to re-establish consistency |
 | Add a new table to my existing data flow | Use an **Incremental Backfill** for just the new binding |
 | Ensure my own storage bucket contains complete historical data | Use an **Incremental Backfill** after setting up the new storage mapping |
