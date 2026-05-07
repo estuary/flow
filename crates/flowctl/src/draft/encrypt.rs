@@ -1,20 +1,27 @@
 use crate::Client;
+use crate::graphql::*;
 use anyhow::Context;
 use models::RawValue;
-use serde::Deserialize;
 use std::collections::HashMap;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/draft/fetch-connector-endpoint-schema.graphql",
+    response_derives = "Serialize,Clone",
+    variables_derives = "Clone"
+)]
+struct FetchConnectorEndpointSchema;
 
 /// Encrypts any task endpoint configurations that are not already encrypted.
 /// The encryption is performed by calling the config encryption service endpoint,
-/// passing the `connector_tags.endpoint_spec_schema` for the connector image. If
-/// no `connector_tags` row is found, then encryption will be skipped.
+/// passing the connector's `endpointSpecSchema` to identify secret fields.
 pub async fn encrypt_configs(
     draft: &mut tables::DraftCatalog,
     client: &Client,
 ) -> anyhow::Result<()> {
-    // Simple cache of `connector_tags.endpoint_spec_schema` values, keyed on
-    // the full image + tag. This is just to avoid repeated calls to fetch the
-    // schemas for catalogs with many tasks.
+    // Simple cache of endpoint spec schemas, keyed on the full image + tag.
+    // Avoids repeated GraphQL calls for catalogs with many tasks.
     let mut schema_cache: HashMap<String, Option<RawValue>> = HashMap::new();
 
     for capture in draft.captures.iter_mut() {
@@ -22,25 +29,17 @@ pub async fn encrypt_configs(
             capture.model.as_mut().map(|model| &mut model.endpoint)
         {
             if !is_encrypted(&connector.config) {
-                let schema =
+                let maybe_schema =
                     fetch_or_cache_schema(&connector.image, &mut schema_cache, client).await?;
-
-                if let Some(endpoint_spec_schema) = schema {
-                    connector.config = encrypt_config(
-                        client,
-                        capture.capture.as_str(),
-                        models::CatalogType::Capture,
-                        &connector.config,
-                        &endpoint_spec_schema,
-                    )
-                    .await?;
-                } else {
-                    tracing::warn!(
-                        capture = %capture.capture,
-                        image = %connector.image,
-                        "Unable to encrypt the endpoint configuration for this task because no endpoint spec schema was found, continuing with plain-text"
-                    );
-                }
+                let endpoint_spec_schema = require_schema(&capture.scope, maybe_schema)?;
+                connector.config = encrypt_config(
+                    client,
+                    capture.capture.as_str(),
+                    models::CatalogType::Capture,
+                    &connector.config,
+                    &endpoint_spec_schema,
+                )
+                .await?;
             }
         }
     }
@@ -55,25 +54,17 @@ pub async fn encrypt_configs(
         // Encrypt endpoint config if not already encrypted.
         if let models::MaterializationEndpoint::Connector(connector) = &mut model.endpoint {
             if !is_encrypted(&connector.config) {
-                let schema =
+                let maybe_schema =
                     fetch_or_cache_schema(&connector.image, &mut schema_cache, client).await?;
-
-                if let Some(endpoint_spec_schema) = schema {
-                    connector.config = encrypt_config(
-                        client,
-                        materialization.materialization.as_str(),
-                        models::CatalogType::Materialization,
-                        &connector.config,
-                        &endpoint_spec_schema,
-                    )
-                    .await?;
-                } else {
-                    tracing::warn!(
-                        materialization = %materialization.materialization,
-                        image = %connector.image,
-                        "Unable to encrypt the endpoint configuration for this task because no endpoint spec schema was found, continuing with plain-text"
-                    );
-                }
+                let endpoint_spec_schema = require_schema(&materialization.scope, maybe_schema)?;
+                connector.config = encrypt_config(
+                    client,
+                    materialization.materialization.as_str(),
+                    models::CatalogType::Materialization,
+                    &connector.config,
+                    &endpoint_spec_schema,
+                )
+                .await?;
             }
         }
 
@@ -152,6 +143,19 @@ fn is_encrypted(config: &RawValue) -> bool {
     false
 }
 
+fn require_schema(
+    scope: &url::Url,
+    schema: Option<models::RawValue>,
+) -> anyhow::Result<models::RawValue> {
+    if let Some(s) = schema {
+        Ok(s)
+    } else {
+        Err(anyhow::format_err!(
+            "Unable to encrypt the endpoint configuration for task {scope} because the connector is not known to Estuary. Please check the spelling of the image, or reach out to Estuary support"
+        ))
+    }
+}
+
 async fn fetch_or_cache_schema(
     image: &str,
     cache: &mut HashMap<String, Option<RawValue>>,
@@ -161,52 +165,29 @@ async fn fetch_or_cache_schema(
         return Ok(cached.clone());
     }
 
-    let (image_name, image_tag) = models::split_image_tag(image);
+    let (_image_name, image_tag) = models::split_image_tag(image);
+    anyhow::ensure!(
+        !image_tag.is_empty(),
+        "invalid connector image name '{image}', must be in the form of 'registry/name:version' or 'registry/name@sha256:hash'"
+    );
 
-    // Query the connector_tags table via PostgREST with a join
-    let response = client
-        .pg_client()
-        .from("connectors")
-        .select("connector_tags(endpoint_spec_schema)")
-        .eq("image_name", &image_name)
-        .eq("connector_tags.image_tag", &image_tag)
-        .single()
-        .execute()
-        .await?;
-
-    if response.status().is_success() {
-        let body = response.text().await?;
-        let row: ConnectorRow =
-            serde_json::from_str(&body).context("failed to parse connector response")?;
-
-        // Extract the endpoint_spec_schema from the first (and only) connector_tag
-        let schema = row
-            .connector_tags
-            .into_iter()
-            .next()
-            .and_then(|tag| tag.endpoint_spec_schema);
-
-        cache.insert(image.to_string(), schema.clone());
-        Ok(schema)
-    } else if response.status() == 404 {
-        // No schema found for this connector
-        cache.insert(image.to_string(), None);
-        Ok(None)
-    } else {
+    let vars = fetch_connector_endpoint_schema::Variables {
+        full_image_name: image.to_string(),
+    };
+    let resp = post_graphql::<FetchConnectorEndpointSchema>(client, vars)
+        .await
+        .context("failed to fetch connector endpoint schema")?;
+    let Some(spec) = resp.connector_spec else {
         anyhow::bail!(
-            "Failed to fetch connector schema: {} {}",
-            response.status(),
-            response.text().await?
-        )
+            "connector image '{image}' is unknown to Estuary, so the endpoint configuration cannot be encrypted. Use a different connector or reach out to Estuary support for help"
+        );
+    };
+
+    // This commonly happens when users use a `:dev` tag or a custom PR tag.
+    if spec.endpoint_spec_schema.is_some() && spec.image_tag != image_tag {
+        tracing::warn!(connector_image = %image, default_image_tag = %spec.image_tag, "connector image tag is unknown to Estuary, so the default image tag will be used to provide the schema for endpoint config encryption");
     }
-}
+    cache.insert(image.to_string(), spec.endpoint_spec_schema.clone());
 
-#[derive(Debug, Deserialize)]
-struct ConnectorRow {
-    connector_tags: Vec<ConnectorTagRow>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ConnectorTagRow {
-    endpoint_spec_schema: Option<RawValue>,
+    Ok(spec.endpoint_spec_schema)
 }

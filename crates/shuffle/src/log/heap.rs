@@ -3,15 +3,15 @@ use std::ops::{Deref, DerefMut};
 
 /// AppendEntry holds the ordering fields for a pending Append and
 /// the index of the slice that sent it. The actual Append and the slice's rx
-/// stream are stored in `LogActor::slice_appends` indexed by `member_index`.
+/// stream are stored in `LogActor::slice_appends` indexed by `shard_index`.
 /// We keep this struct small to optimize heap sift operations.
 pub struct AppendEntry {
     /// Binding priority (higher = more urgent).
     pub priority: u32,
     /// Adjusted clock of the document (publication + read_delay).
     pub adjusted_clock: uuid::Clock,
-    /// Index of the Slice member that sent this Append.
-    pub member_index: usize,
+    /// Index of the Slice shard that sent this Append.
+    pub shard_index: usize,
 }
 
 /// AppendHeap is a max-heap of AppendEntry. It yields the entry having
@@ -72,11 +72,11 @@ mod test {
     use std::cmp::Ordering;
     use std::collections::BinaryHeap;
 
-    fn test_entry(priority: u32, clock: u64, member_index: usize) -> AppendEntry {
+    fn test_entry(priority: u32, clock: u64, shard_index: usize) -> AppendEntry {
         AppendEntry {
             priority,
             adjusted_clock: uuid::Clock::from_u64(clock),
-            member_index,
+            shard_index,
         }
     }
 
@@ -99,7 +99,7 @@ mod test {
         assert_eq!(
             test_entry(1, 100, 0).cmp(&test_entry(1, 100, 1)),
             Ordering::Equal,
-            "member_index does not affect ordering"
+            "shard_index does not affect ordering"
         );
         assert_eq!(
             test_entry(1, 100, 0).cmp(&test_entry(2, 50, 0)),
@@ -115,10 +115,10 @@ mod test {
         heap.push(test_entry(2, 100, 1));
         heap.push(test_entry(1, 50, 2));
         heap.push(test_entry(2, 300, 3));
-        heap.push(test_entry(1, 50, 4)); // same priority+clock as member 2
+        heap.push(test_entry(1, 50, 4)); // same priority+clock as shard 2
 
         let pops: Vec<_> = std::iter::from_fn(|| heap.pop())
-            .map(|e| (e.priority, e.adjusted_clock.as_u64(), e.member_index))
+            .map(|e| (e.priority, e.adjusted_clock.as_u64(), e.shard_index))
             .collect();
 
         assert_eq!(
@@ -126,7 +126,7 @@ mod test {
             vec![
                 (2, 100, 1), // high priority, early clock
                 (2, 300, 3), // high priority, late clock
-                (1, 50, 2),  // low priority, early clock (either member 2 or 4)
+                (1, 50, 2),  // low priority, early clock (either shard 2 or 4)
                 (1, 50, 4),  // low priority, early clock (the other)
                 (1, 200, 0), // low priority, late clock
             ]
@@ -144,11 +144,11 @@ mod test {
 
         let top = heap.pop().unwrap();
         assert_eq!(top.priority, 2);
-        assert_eq!(top.member_index, 1);
+        assert_eq!(top.shard_index, 1);
 
         let next = heap.pop().unwrap();
         assert_eq!(next.priority, 1);
-        assert_eq!(next.member_index, 0);
+        assert_eq!(next.shard_index, 0);
 
         assert!(heap.pop().is_none());
     }

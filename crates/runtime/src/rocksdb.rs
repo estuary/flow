@@ -61,6 +61,15 @@ impl RocksDB {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
+        // The MANIFEST file is a WAL of database file state, including current live
+        // SST files and their begin & ending key ranges. A new MANIFEST-00XYZ is
+        // created at database start, where XYZ is the next available sequence number,
+        // and CURRENT is updated to point at the live MANIFEST. By default MANIFEST
+        // files may grow to 4GB, but they are typically written very slowly and thus
+        // artificially inflate the recovery log horizon. We use a much smaller limit
+        // to encourage more frequent compactions into new files.
+        opts.set_max_manifest_file_size(1 << 17); // 131072 bytes
+
         let db = rocksdb::DB::open_cf_descriptors(&opts, &path, cf_descriptors)
             .context("failed to open RocksDB")?;
 

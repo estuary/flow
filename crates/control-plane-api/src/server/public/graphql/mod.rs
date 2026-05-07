@@ -21,6 +21,7 @@ impl connection::CursorType for TimestampCursor {
     }
 }
 
+mod alert_configs;
 mod alert_subscriptions;
 mod alert_types;
 mod alerts;
@@ -28,6 +29,7 @@ mod authorized_prefixes;
 mod data_planes;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;
+mod connectors;
 pub mod id;
 mod invite_links;
 mod live_spec_refs;
@@ -36,6 +38,9 @@ mod prefixes;
 mod publication_history;
 pub mod status;
 mod storage_mappings;
+
+/// A JSON object, the shape of which is opaque to the graphql schema
+pub type JsonObject = async_graphql::Json<Box<serde_json::value::RawValue>>;
 
 // This type represents the complete graphql schema.
 pub type GraphQLSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
@@ -51,35 +56,39 @@ pub struct PgDataLoader(pub sqlx::PgPool);
 pub struct QueryRoot(
     live_spec_refs::LiveSpecsQuery,
     alerts::AlertsQuery,
+    alert_configs::AlertConfigsQuery,
     alert_types::AlertTypesQuery,
     prefixes::PrefixesQuery,
     alert_subscriptions::AlertSubscriptionsQuery,
     storage_mappings::StorageMappingsQuery,
     data_planes::DataPlanesQuery,
     invite_links::InviteLinksQuery,
+    connectors::ConnectorsQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
 #[derive(Debug, Default, async_graphql::MergedObject)]
 pub struct MutationRoot(
     storage_mappings::StorageMappingsMutation,
+    alert_configs::AlertConfigsMutation,
     alert_subscriptions::AlertSubscriptionsMutation,
     invite_links::InviteLinksMutation,
 );
 
-pub fn create_schema() -> GraphQLSchema {
+pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {
     Schema::build(
         QueryRoot::default(),
         MutationRoot::default(),
         EmptySubscription,
     )
+    .data(alert_config_defaults)
     .finish()
 }
 
 /// Returns the GraphQL SDL (Schema Definition Language) as a string.
 /// This is used by the flow-client build script to generate types.
 pub fn schema_sdl() -> String {
-    let schema = create_schema();
+    let schema = create_schema(models::AlertConfig::default());
     schema.sdl()
 }
 

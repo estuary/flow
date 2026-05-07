@@ -131,20 +131,6 @@ async fn test_abandoned_task_detection_and_resolution() {
     test_idle_fires_when_no_data_and_old(&mut harness, CatalogType::Capture, "pandas/capture")
         .await;
 
-    // Flag-isolation: verify that only the matching flag triggers auto-disable.
-    test_idle_flag_does_not_disable_failing_task(
-        &mut harness,
-        CatalogType::Capture,
-        "pandas/capture",
-    )
-    .await;
-    test_failing_flag_does_not_disable_idle_task(
-        &mut harness,
-        CatalogType::Materialization,
-        "pandas/materialize",
-    )
-    .await;
-
     // Auto-disable runs last because it leaves tasks disabled.
     test_auto_disable_idle(
         &mut harness,
@@ -219,136 +205,9 @@ async fn test_idle_fires_when_no_data_and_old(
     assert_within_minutes(wake_at, 25 * 60);
 }
 
-/// With only `disable_idle_tasks` enabled, a chronically failing task
-/// whose grace period has expired should NOT be auto-disabled.
-async fn test_idle_flag_does_not_disable_failing_task(
-    harness: &mut TestHarness,
-    task_type: CatalogType,
-    catalog_name: &str,
-) {
-    tracing::info!(%catalog_name, "idle flag does not disable a failing task");
-
-    let mut config = (*harness.control_plane().controller_config()).clone();
-    config.disable_idle_tasks = true;
-    config.disable_failing_tasks = false;
-    harness.control_plane().set_controller_config(config);
-
-    publish_and_await_ready(harness, task_type, catalog_name).await;
-
-    // Trigger ShardFailed > 30 days, fire TaskChronicallyFailing.
-    trigger_shard_failed_alert(catalog_name, chrono::Duration::days(35), harness).await;
-    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-    harness.run_pending_controller(catalog_name).await;
-    harness
-        .assert_alert_firing(catalog_name, AlertType::TaskChronicallyFailing)
-        .await;
-
-    // Expire the grace period.
-    set_alert_disable_at(
-        catalog_name,
-        AlertType::TaskChronicallyFailing,
-        (chrono::Utc::now() - chrono::Duration::days(1))
-            .format("%Y-%m-%d")
-            .to_string(),
-        harness,
-    )
-    .await;
-    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-
-    harness.run_pending_controller(catalog_name).await;
-
-    let state = harness.get_controller_state(catalog_name).await;
-    let spec = state.live_spec.as_ref().expect("spec should exist");
-    let is_disabled = match spec {
-        models::AnySpec::Capture(c) => c.shards.disable,
-        models::AnySpec::Collection(c) => c.derive.as_ref().map_or(false, |d| d.shards.disable),
-        models::AnySpec::Materialization(m) => m.shards.disable,
-        models::AnySpec::Test(_) => unreachable!(),
-    };
-    assert!(
-        !is_disabled,
-        "expected {catalog_name} to remain enabled when only disable_idle_tasks is set"
-    );
-
-    harness
-        .assert_alert_firing(catalog_name, AlertType::TaskChronicallyFailing)
-        .await;
-    // evaluate_alerts fires TaskAutoDisabledFailing when the grace period
-    // expires regardless of the config flag. This is intentional: the alert
-    // populates alert_history for observability, and emails only go out once
-    // alert subscriptions are explicitly updated (separate rollout step).
-    harness
-        .assert_alert_firing(catalog_name, AlertType::TaskAutoDisabledFailing)
-        .await;
-
-    clear_abandon_alerts(catalog_name, harness).await;
-}
-
-/// With only `disable_failing_tasks` enabled, an idle task whose grace
-/// period has expired should NOT be auto-disabled.
-async fn test_failing_flag_does_not_disable_idle_task(
-    harness: &mut TestHarness,
-    task_type: CatalogType,
-    catalog_name: &str,
-) {
-    tracing::info!(%catalog_name, "failing flag does not disable an idle task");
-
-    let mut config = (*harness.control_plane().controller_config()).clone();
-    config.disable_failing_tasks = true;
-    config.disable_idle_tasks = false;
-    harness.control_plane().set_controller_config(config);
-
-    publish_and_await_ready(harness, task_type, catalog_name).await;
-
-    // Make the task old enough and trigger TaskIdle.
-    push_back_created_at(catalog_name, chrono::Duration::days(45), harness).await;
-    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-    harness.run_pending_controller(catalog_name).await;
-    harness
-        .assert_alert_firing(catalog_name, AlertType::TaskIdle)
-        .await;
-
-    // Expire the grace period.
-    set_alert_disable_at(
-        catalog_name,
-        AlertType::TaskIdle,
-        (chrono::Utc::now() - chrono::Duration::days(1))
-            .format("%Y-%m-%d")
-            .to_string(),
-        harness,
-    )
-    .await;
-    override_shard_status_last_ts(catalog_name, chrono::Duration::minutes(5), harness).await;
-
-    harness.run_pending_controller(catalog_name).await;
-
-    let state = harness.get_controller_state(catalog_name).await;
-    let spec = state.live_spec.as_ref().expect("spec should exist");
-    let is_disabled = match spec {
-        models::AnySpec::Capture(c) => c.shards.disable,
-        models::AnySpec::Collection(c) => c.derive.as_ref().map_or(false, |d| d.shards.disable),
-        models::AnySpec::Materialization(m) => m.shards.disable,
-        models::AnySpec::Test(_) => unreachable!(),
-    };
-    assert!(
-        !is_disabled,
-        "expected {catalog_name} to remain enabled when only disable_failing_tasks is set"
-    );
-
-    harness
-        .assert_alert_firing(catalog_name, AlertType::TaskIdle)
-        .await;
-    // Same as above: auto-disabled alert fires for observability regardless
-    // of the config flag.
-    harness
-        .assert_alert_firing(catalog_name, AlertType::TaskAutoDisabledIdle)
-        .await;
-
-    clear_abandon_alerts(catalog_name, harness).await;
-}
-
-/// With `disable_idle_tasks` enabled, the controller publishes
-/// `shards.disable = true` when the idle grace period expires.
+/// With `taskIdle.autoDisable = true` configured on the task, the
+/// controller publishes `shards.disable = true` when the idle grace
+/// period expires.
 async fn test_auto_disable_idle(
     harness: &mut TestHarness,
     task_type: CatalogType,
@@ -356,9 +215,12 @@ async fn test_auto_disable_idle(
 ) {
     tracing::info!(%catalog_name, "idle auto-disable publishes shards.disable");
 
-    let mut config = (*harness.control_plane().controller_config()).clone();
-    config.disable_idle_tasks = true;
-    harness.control_plane().set_controller_config(config);
+    harness
+        .upsert_alert_config(
+            catalog_name,
+            serde_json::json!({ "taskIdle": { "autoDisable": true } }),
+        )
+        .await;
 
     publish_and_await_ready(harness, task_type, catalog_name).await;
 
@@ -406,8 +268,9 @@ async fn test_auto_disable_idle(
         .await;
 }
 
-/// With `disable_failing_tasks` enabled, the controller publishes
-/// `shards.disable = true` when the chronically-failing grace period expires.
+/// With `taskChronicallyFailing.autoDisable = true` configured on the
+/// task, the controller publishes `shards.disable = true` when the
+/// chronically-failing grace period expires.
 async fn test_auto_disable_failing(
     harness: &mut TestHarness,
     task_type: CatalogType,
@@ -415,9 +278,12 @@ async fn test_auto_disable_failing(
 ) {
     tracing::info!(%catalog_name, "failing auto-disable publishes shards.disable");
 
-    let mut config = (*harness.control_plane().controller_config()).clone();
-    config.disable_failing_tasks = true;
-    harness.control_plane().set_controller_config(config);
+    harness
+        .upsert_alert_config(
+            catalog_name,
+            serde_json::json!({ "taskChronicallyFailing": { "autoDisable": true } }),
+        )
+        .await;
 
     publish_and_await_ready(harness, task_type, catalog_name).await;
 
@@ -596,24 +462,4 @@ async fn set_alert_disable_at(
         result.rows_affected() > 0,
         "set_alert_disable_at for {catalog_name}/{alert_key} updated 0 rows"
     );
-}
-
-/// Removes all abandon-related alerts from controller status so subsequent
-/// tests on the same task start with a clean slate.
-async fn clear_abandon_alerts(catalog_name: &str, harness: &mut TestHarness) {
-    sqlx::query(
-        "UPDATE controller_jobs SET status = (
-            status::jsonb
-            #- '{alerts,shard_failed}'
-            #- '{alerts,task_chronically_failing}'
-            #- '{alerts,task_auto_disabled_failing}'
-            #- '{alerts,task_idle}'
-            #- '{alerts,task_auto_disabled_idle}'
-        )::json
-        WHERE live_spec_id = (SELECT id FROM live_specs WHERE catalog_name = $1)",
-    )
-    .bind(catalog_name)
-    .execute(&harness.pool)
-    .await
-    .expect("failed to clear abandon alerts");
 }

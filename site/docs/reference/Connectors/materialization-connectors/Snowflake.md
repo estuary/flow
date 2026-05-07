@@ -21,6 +21,7 @@ To use this connector, you'll need:
     * A virtual warehouse
     * A user with a role assigned that grants the appropriate access levels to these resources.
     * The correct timezone setting (see [Timestamp Data Type Mapping](#timestamp-data-type-mapping))
+    * The `QUOTED_IDENTIFIERS_IGNORE_CASE` parameter must not be enabled for the Estuary user.
 
     See the [script below](#setup) for details.
 * Know your Snowflake account's host URL. This is formatted using your [Snowflake account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used),
@@ -59,6 +60,8 @@ create user if not exists identifier($estuary_user)
 default_role = $estuary_role
 default_warehouse = $warehouse_name;
 grant role identifier($estuary_role) to user identifier($estuary_user);
+-- Estuary requires case-sensitive quoted identifiers (e.g. "_meta/op").
+alter user identifier($estuary_user) set QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE;
 grant all on schema identifier($estuary_schema) to identifier($estuary_role);
 -- create a warehouse for estuary
 create warehouse if not exists identifier($warehouse_name)
@@ -138,12 +141,13 @@ Use the below properties to configure a Snowflake materialization, which will di
 | **`/schema`**                | Schema              | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | Required         |
 | `/warehouse`                 | Warehouse           | Name of the data warehouse that contains the database                                                                                                           | string |                  |
 | `/role`                      | Role                | Role assigned to the user                                                                                                                                       | string |                  |
-| `/account`                   | Account             | The Snowflake account identifier                                                                                                                                | string |                  |
+| **`/timestamp_type`** | Snowflake Timestamp Type | Controls how timestamp columns are stored in Snowflake. See [Timestamp Data Type Mapping](#timestamp-data-type-mapping) for usage. | string | Required |
+| `/hardDelete` | Hard Delete | If this option is enabled, items deleted in the source will also be deleted from the destination. Otherwise, `_meta/op` in the destination will signify whether rows have been deleted (soft-delete). | boolean | `false` |
 | **`/credentials`**           | Credentials         | Credentials for authentication                                                                                                                                  | object | Required         |
 | **`/credentials/auth_type`** | Authentication type | `jwt` is the only supported authentication method currently                                                                                                     | string | Required         |
 | **`/credentials/user`**      | User                | Snowflake username                                                                                                                                              | string | Required         |
 | `/credentials/password`      | Password            | Deprecated                                                                                                                                                      | string | Deprecated       |
-| `/credentials/privateKey`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
+| `/credentials/private_key`    | Private Key         | Required if using jwt authentication                                                                                                                            | string | Required         |
 | `/advanced/disableFieldTruncation` | Disable Field Truncation | Disables truncation of large materialized fields | boolean | |
 
 #### Bindings
@@ -168,10 +172,11 @@ materializations:
               host: orgname-accountname.snowflakecomputing.com
               schema: acmeCo_flow_schema
               warehouse: acmeCo_warehouse
+              timestamp_type: TIMESTAMP_LTZ
               credentials:
                 auth_type: jwt
                 user: snowflake_user
-                privateKey: |
+                private_key: |
                   -----BEGIN PRIVATE KEY-----
                   MIIEv....
                   ...
@@ -201,6 +206,7 @@ materializations:
               host: orgname-accountname.snowflakecomputing.com
               schema: acmeCo_flow_schema
               warehouse: acmeCo_warehouse
+              timestamp_type: TIMESTAMP_LTZ
               credentials:
                 auth_type: user_pasword
                 user: snowflake_user

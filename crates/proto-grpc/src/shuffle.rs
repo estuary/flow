@@ -111,7 +111,7 @@ pub mod shuffle_client {
                 .insert(GrpcMethod::new("shuffle.Shuffle", "Session"));
             self.inner.streaming(req, path, codec).await
         }
-        /// Slice is opened by the Session to each member.
+        /// Slice is opened by the Session to each shard.
         /// Each Slice watches binding journals, reads from its assigned subset of journals, and routes documents to Logs.
         pub async fn slice(
             &mut self,
@@ -130,7 +130,7 @@ pub mod shuffle_client {
                 .insert(GrpcMethod::new("shuffle.Shuffle", "Slice"));
             self.inner.streaming(req, path, codec).await
         }
-        /// Log is opened by each Slice to each member.
+        /// Log is opened by each Slice to each shard.
         /// Documents flow from Slices through Log RPCs to on-disk log files.
         pub async fn log(
             &mut self,
@@ -182,7 +182,7 @@ pub mod shuffle_server {
                 Item = std::result::Result<::proto_flow::shuffle::SliceResponse, tonic::Status>,
             > + std::marker::Send
             + 'static;
-        /// Slice is opened by the Session to each member.
+        /// Slice is opened by the Session to each shard.
         /// Each Slice watches binding journals, reads from its assigned subset of journals, and routes documents to Logs.
         async fn slice(
             &self,
@@ -193,7 +193,7 @@ pub mod shuffle_server {
                 Item = std::result::Result<::proto_flow::shuffle::LogResponse, tonic::Status>,
             > + std::marker::Send
             + 'static;
-        /// Log is opened by each Slice to each member.
+        /// Log is opened by each Slice to each shard.
         /// Documents flow from Slices through Log RPCs to on-disk log files.
         async fn log(
             &self,

@@ -30,4 +30,5 @@ Frontier {
         0/200,
         0/300,
     ],
+    unresolved_hints: 0,
 }

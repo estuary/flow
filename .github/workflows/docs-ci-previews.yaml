@@ -82,14 +82,34 @@ jobs:
               const match = content.match(/^slug:\s*(.+)$/m);
               if (match) {
                 slug = match[1].trim().replace(/['"]/g, '');
+                // Relative slugs (no leading /) are resolved from the file's directory,
+                // matching Docusaurus behaviour. e.g. slug: installation in
+                // getting-started/installation.md → /getting-started/installation
+                if (!slug.startsWith('/')) {
+                  const parts = f.replace('site/docs/', '').split('/');
+                  parts.pop();
+                  const dir = parts.join('/');
+                  slug = dir ? `/${dir}/${slug}` : `/${slug}`;
+                }
               }
               if (!slug) {
-                slug = '/' + f
-                  .replace('site/docs/', '')
-                  .replace(/\/README\.md$/, '/')
-                  .replace(/\.md$/, '/');
+                // Docusaurus category index convention: README.md, index.md, or
+                // <folder_name>.md (case-insensitive) become the category's URL,
+                // served at the folder path rather than folder/filename.
+                // e.g. PostgreSQL/PostgreSQL.md → /PostgreSQL/, not /PostgreSQL/PostgreSQL/
+                const parts = f.replace('site/docs/', '').split('/');
+                const fileName = parts[parts.length - 1].replace(/\.md$/, '');
+                const parentDir = parts.length > 1 ? parts[parts.length - 2] : '';
+                const isCategoryIndex =
+                  /^(readme|index)$/i.test(fileName) ||
+                  (parentDir && fileName.toLowerCase() === parentDir.toLowerCase());
+                if (isCategoryIndex) {
+                  parts.pop();
+                  slug = '/' + (parts.length ? parts.join('/') + '/' : '');
+                } else {
+                  slug = '/' + parts.join('/').replace(/\.md$/, '/');
+                }
               }
-              if (!slug.startsWith('/')) slug = '/' + slug;
               return `- [${slug}](${base}${slug})`;
             });
 

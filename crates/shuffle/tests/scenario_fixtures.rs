@@ -19,6 +19,27 @@ use std::sync::Arc;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Loop `next_checkpoint` until a fully-resolved Frontier is obtained.
+async fn next_resolved_checkpoint(
+    session: &mut shuffle::SessionClient,
+    label: &str,
+) -> shuffle::Frontier {
+    let mut frontier = session
+        .next_checkpoint()
+        .await
+        .unwrap_or_else(|e| panic!("next_checkpoint ({label}): {e}"));
+
+    while frontier.unresolved_hints != 0 {
+        // We don't reduce because the resolved frontier is a full restatement
+        // of any partial progress (unresolved_hints != 0).
+        frontier = session
+            .next_checkpoint()
+            .await
+            .unwrap_or_else(|e| panic!("next_checkpoint follow-up ({label}): {e}"));
+    }
+    frontier
+}
+
 /// Build a Materialization task from a built MaterializationSpec.
 /// Exercises `shuffle::Binding::from_materialization_binding()`.
 fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
@@ -27,12 +48,12 @@ fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
     }
 }
 
-/// Build an N-member topology with all members sharing a single endpoint.
-fn build_members(
+/// Build an N-shard topology with all shards sharing a single endpoint.
+fn build_shards(
     count: u32,
     endpoint: &str,
     directory: &std::path::Path,
-) -> Vec<shuffle::proto::Member> {
+) -> Vec<shuffle::proto::Shard> {
     (0..count)
         .map(|i| {
             let key_begin = if i == 0 {
@@ -46,7 +67,7 @@ fn build_members(
                 (((i + 1) as u64 * (u32::MAX as u64 + 1)) / count as u64 - 1) as u32
             };
 
-            shuffle::proto::Member {
+            shuffle::proto::Shard {
                 range: Some(flow::RangeSpec {
                     key_begin,
                     key_end,
@@ -67,15 +88,21 @@ fn make_publisher(
     journal_client: &gazette::journal::Client,
     producer: uuid::Producer,
 ) -> publisher::Publisher {
-    let client_factory: publisher::JournalClientFactory = Arc::new({
+    let factory: gazette::journal::ClientFactory = Arc::new({
         let journal_client = journal_client.clone();
-        move |_collection, _task_name| journal_client.clone()
+        move |_authz_sub, _authz_obj| journal_client.clone()
     });
 
-    let bindings = publisher::Binding::from_capture_spec(spec, &client_factory)
+    let bindings = publisher::Binding::from_capture_spec(spec)
         .expect("should build bindings from capture spec");
 
-    publisher::Publisher::new(bindings, producer, uuid::Clock::default())
+    publisher::Publisher::new(
+        String::new(), // Empty AuthZ subject.
+        bindings,
+        factory,
+        producer,
+        uuid::Clock::default(),
+    )
 }
 
 /// A document read back from the on-disk log by a `FrontierScan`.
@@ -95,29 +122,29 @@ struct Checkpoint<'a> {
     read: Vec<ReadEntry>,
 }
 
-type MemberState = Vec<Option<(Reader, VecDeque<Remainder>)>>;
+type ShardState = Vec<Option<(Reader, VecDeque<Remainder>)>>;
 
-/// Drive `FrontierScan` for each member, collecting all committed entries.
+/// Drive `FrontierScan` for each shard, collecting all committed entries.
 /// Carries `(Reader, VecDeque<Remainder>)` state across calls.
 fn collect_read_entries(
     frontier: &shuffle::Frontier,
     log_dir: &std::path::Path,
-    member_state: &mut MemberState,
+    shard_state: &mut ShardState,
 ) -> Vec<ReadEntry> {
     let ser = doc::SerPolicy::noop();
     let mut entries = Vec::new();
 
-    for (member_index, state_slot) in member_state.iter_mut().enumerate() {
+    for (shard_index, state_slot) in shard_state.iter_mut().enumerate() {
         let (reader, remainders) = state_slot
             .take()
-            .unwrap_or_else(|| (Reader::new(log_dir, member_index as u32), VecDeque::new()));
+            .unwrap_or_else(|| (Reader::new(log_dir, shard_index as u32), VecDeque::new()));
 
         let mut scan = FrontierScan::new(frontier.clone(), reader, remainders)
-            .unwrap_or_else(|e| panic!("FrontierScan::new for member {member_index}: {e}"));
+            .unwrap_or_else(|e| panic!("FrontierScan::new for shard {shard_index}: {e}"));
 
         while scan
             .advance_block()
-            .unwrap_or_else(|e| panic!("advance_block for member {member_index}: {e}"))
+            .unwrap_or_else(|e| panic!("advance_block for shard {shard_index}: {e}"))
         {
             for entry in scan.block_iter() {
                 entries.push(ReadEntry {
@@ -176,20 +203,18 @@ async fn shuffle_scenarios() {
         .await
         .expect("DataPlane start");
 
-    // Start a shuffle gRPC server so that multi-member Slice/Log RPCs
+    // Start a shuffle gRPC server so that multi-shard Slice/Log RPCs
     // can dial back to us.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind shuffle server");
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
 
-    let service = {
+    let factory: gazette::journal::ClientFactory = Arc::new({
         let journal_client = data_plane.journal_client.clone();
-        shuffle::Service::new(
-            endpoint.clone(),
-            Box::new(move |_collection, _task| journal_client.clone()),
-        )
-    };
+        move |_authz_sub, _authz_obj| journal_client.clone()
+    });
+    let service = shuffle::Service::new(endpoint.clone(), factory);
 
     let server = service.clone().build_tonic_server();
     let server_handle = tokio::spawn(async move {
@@ -224,7 +249,7 @@ async fn shuffle_scenarios() {
     .await;
     data_plane.reset().await.expect("reset");
 
-    multi_member_routing(
+    multi_shard_routing(
         &materialization_spec,
         &capture_spec,
         &data_plane.journal_client,
@@ -305,7 +330,7 @@ async fn shuffle_scenarios() {
 // ---------------------------------------------------------------------------
 
 /// Publish several OUTSIDE_TXN documents (self-committing) to a single
-/// partition. Open a 1-member session, poll a checkpoint, and verify the
+/// partition. Open a 1-shard session, poll a checkpoint, and verify the
 /// frontier shows the producer committed at the correct clock and
 /// the reader yields all three documents.
 async fn single_producer_outside_txn(
@@ -344,15 +369,15 @@ async fn single_producer_outside_txn(
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint(), &scenario_dir),
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
         Default::default(),
     )
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
-    let mut member_state: MemberState = (0..1).map(|_| None).collect();
-    let read = collect_read_entries(&frontier, &scenario_dir, &mut member_state);
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "single_producer_outside_txn",
         Checkpoint {
@@ -403,20 +428,20 @@ async fn continue_then_ack(
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint(), &scenario_dir),
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
         Default::default(),
     )
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
-    let mut member_state: MemberState = (0..1).map(|_| None).collect();
-    let read = collect_read_entries(&frontier, &scenario_dir, &mut member_state);
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "continue_then_ack",
         Checkpoint {
@@ -428,24 +453,24 @@ async fn continue_then_ack(
     session.close().await.expect("close");
 }
 
-/// Open a session with 3 members (split key space). Publish documents with
+/// Open a session with 3 shards (split key space). Publish documents with
 /// varied /id values so they hash to different key ranges. Verify the
-/// frontier covers all journals and all documents are readable across members.
-async fn multi_member_routing(
+/// frontier covers all journals and all documents are readable across shards.
+async fn multi_shard_routing(
     materialization_spec: &flow::MaterializationSpec,
     capture_spec: &flow::CaptureSpec,
     journal_client: &gazette::journal::Client,
     service: &shuffle::Service,
     log_dir: &std::path::Path,
 ) {
-    let scenario_dir = log_dir.join("multi_member_routing");
+    let scenario_dir = log_dir.join("multi_shard_routing");
     std::fs::create_dir_all(&scenario_dir).unwrap();
 
     let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let mut pub_ = make_publisher(capture_spec, journal_client, producer);
 
     // Use varied IDs that will produce different key hashes, exercising
-    // routing across the 3-member topology.
+    // routing across the 3-shard topology.
     for id in ["m-aaa", "m-bbb", "m-ccc", "m-ddd", "m-eee"] {
         pub_.enqueue(
             |uuid| {
@@ -469,17 +494,17 @@ async fn multi_member_routing(
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(3, service.peer_endpoint(), &scenario_dir),
+        build_shards(3, service.peer_endpoint(), &scenario_dir),
         Default::default(),
     )
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
-    let mut member_state: MemberState = (0..3).map(|_| None).collect();
-    let read = collect_read_entries(&frontier, &scenario_dir, &mut member_state);
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    let mut shard_state: ShardState = (0..3).map(|_| None).collect();
+    let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
-        "multi_member_routing",
+        "multi_shard_routing",
         Checkpoint {
             frontier: &frontier,
             read,
@@ -552,16 +577,16 @@ async fn multiple_producers(
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint(), &scenario_dir),
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
         Default::default(),
     )
     .await
     .expect("SessionClient::open");
 
     // First checkpoint: P1 committed, P2 pending. Reader yields only P1's doc.
-    let frontier1 = session.next_checkpoint().await.expect("next_checkpoint 1");
-    let mut member_state: MemberState = (0..1).map(|_| None).collect();
-    let read1 = collect_read_entries(&frontier1, &scenario_dir, &mut member_state);
+    let frontier1 = next_resolved_checkpoint(&mut session, "next_checkpoint 1").await;
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read1 = collect_read_entries(&frontier1, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "multiple_producers_checkpoint1",
         Checkpoint {
@@ -574,11 +599,11 @@ async fn multiple_producers(
     let (producer, commit_clock, journals) = pub2.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub2.write_intents(&journal_acks).await.unwrap();
+    pub2.write_intents(journal_acks).await.unwrap();
 
     // Second checkpoint: P2 now committed. Reader yields P2's doc.
-    let frontier2 = session.next_checkpoint().await.expect("next_checkpoint 2");
-    let read2 = collect_read_entries(&frontier2, &scenario_dir, &mut member_state);
+    let frontier2 = next_resolved_checkpoint(&mut session, "next_checkpoint 2").await;
+    let read2 = collect_read_entries(&frontier2, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "multiple_producers_checkpoint2",
         Checkpoint {
@@ -607,18 +632,15 @@ async fn multiple_producers(
     let mut resumed_session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint(), &resume_dir),
+        build_shards(1, service.peer_endpoint(), &resume_dir),
         frontier1.clone(),
     )
     .await
     .expect("SessionClient::open resumed");
 
-    let frontier3 = resumed_session
-        .next_checkpoint()
-        .await
-        .expect("next_checkpoint resumed");
-    let mut resumed_member_state: MemberState = (0..1).map(|_| None).collect();
-    let read3 = collect_read_entries(&frontier3, &resume_dir, &mut resumed_member_state);
+    let frontier3 = next_resolved_checkpoint(&mut resumed_session, "next_checkpoint resumed").await;
+    let mut resumed_shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read3 = collect_read_entries(&frontier3, &resume_dir, &mut resumed_shard_state);
     insta::assert_debug_snapshot!(
         "multiple_producers_resumed",
         Checkpoint {
@@ -692,26 +714,30 @@ async fn resume_from_checkpoint(
     let (producer_id, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer_id, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint(), &phase1_dir),
+        build_shards(1, service.peer_endpoint(), &phase1_dir),
         Default::default(),
     )
     .await
     .expect("SessionClient::open phase 1");
 
-    let phase1_frontier = session.next_checkpoint().await.expect("phase 1 checkpoint");
-    let mut phase1_member_state: MemberState = (0..1).map(|_| None).collect();
-    let phase1_read = collect_read_entries(&phase1_frontier, &phase1_dir, &mut phase1_member_state);
-    insta::assert_debug_snapshot!(
-        "resume_from_checkpoint_phase1",
-        Checkpoint {
-            frontier: &phase1_frontier,
-            read: phase1_read,
-        }
+    let phase1_frontier = next_resolved_checkpoint(&mut session, "phase 1 checkpoint").await;
+    let mut phase1_shard_state: ShardState = (0..1).map(|_| None).collect();
+    let mut phase1_read =
+        collect_read_entries(&phase1_frontier, &phase1_dir, &mut phase1_shard_state);
+
+    // Journal creation / discovery / read races may interleave, so we assert content only.
+    phase1_read.sort_by_key(|e| e.binding);
+    assert_eq!(
+        phase1_read
+            .iter()
+            .map(|e| (e.binding, e.doc["id"].as_str().unwrap()))
+            .collect::<Vec<_>>(),
+        vec![(0, "r-apple"), (1, "r-banana")],
     );
     session.close().await.expect("close phase 1");
 
@@ -748,7 +774,7 @@ async fn resume_from_checkpoint(
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint(), &phase2_dir),
+        build_shards(1, service.peer_endpoint(), &phase2_dir),
         resume_frontier,
     )
     .await
@@ -756,13 +782,11 @@ async fn resume_from_checkpoint(
 
     // First checkpoint: recovery resolves the banana hint. New progress
     // (apple2) is held back by recovery_pending.
-    let recovery_frontier = session
-        .next_checkpoint()
-        .await
-        .expect("phase 2 recovery checkpoint");
-    let mut phase2_member_state: MemberState = (0..1).map(|_| None).collect();
+    let recovery_frontier =
+        next_resolved_checkpoint(&mut session, "phase 2 recovery checkpoint").await;
+    let mut phase2_shard_state: ShardState = (0..1).map(|_| None).collect();
     let recovery_read =
-        collect_read_entries(&recovery_frontier, &phase2_dir, &mut phase2_member_state);
+        collect_read_entries(&recovery_frontier, &phase2_dir, &mut phase2_shard_state);
     insta::assert_debug_snapshot!(
         "resume_from_checkpoint_recovery",
         Checkpoint {
@@ -772,12 +796,10 @@ async fn resume_from_checkpoint(
     );
 
     // Second checkpoint: picks up remaining progress (apples original + new).
-    let progress_frontier = session
-        .next_checkpoint()
-        .await
-        .expect("phase 2 progress checkpoint");
+    let progress_frontier =
+        next_resolved_checkpoint(&mut session, "phase 2 progress checkpoint").await;
     let progress_read =
-        collect_read_entries(&progress_frontier, &phase2_dir, &mut phase2_member_state);
+        collect_read_entries(&progress_frontier, &phase2_dir, &mut phase2_shard_state);
     insta::assert_debug_snapshot!(
         "resume_from_checkpoint_progress",
         Checkpoint {
@@ -846,20 +868,20 @@ async fn multi_partition_transaction(
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint(), &scenario_dir),
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
         Default::default(),
     )
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
-    let mut member_state: MemberState = (0..1).map(|_| None).collect();
-    let read = collect_read_entries(&frontier, &scenario_dir, &mut member_state);
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "multi_partition_transaction",
         Checkpoint {
@@ -948,20 +970,20 @@ async fn partition_filtered_hints(
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint(), &scenario_dir),
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
         Default::default(),
     )
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
-    let mut member_state: MemberState = (0..1).map(|_| None).collect();
-    let read = collect_read_entries(&frontier, &scenario_dir, &mut member_state);
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "partition_filtered_hints",
         Checkpoint {
@@ -1045,20 +1067,20 @@ async fn clock_window_filtering(
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
-    pub_.write_intents(&journal_acks).await.unwrap();
+    pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(&filtered_spec),
-        build_members(1, service.peer_endpoint(), &scenario_dir),
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
         Default::default(),
     )
     .await
     .expect("SessionClient::open");
 
-    let frontier = session.next_checkpoint().await.expect("next_checkpoint");
-    let mut member_state: MemberState = (0..1).map(|_| None).collect();
-    let read = collect_read_entries(&frontier, &scenario_dir, &mut member_state);
+    let frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "clock_window_filtering",
         Checkpoint {
@@ -1077,18 +1099,18 @@ fn build_rollback_ack(
     producer: uuid::Producer,
     clock: uuid::Clock,
     journals: &[String],
-) -> Vec<(String, Vec<serde_json::Value>)> {
+) -> Vec<(String, bytes::Bytes)> {
     journals
         .iter()
         .map(|journal| {
             let ack_uuid = uuid::build(producer, clock, uuid::Flags::ACK_TXN);
-            (
-                journal.clone(),
-                vec![serde_json::json!({
-                    "_meta": { "uuid": ack_uuid },
-                    "is_ack": true,
-                })],
-            )
+            let doc = serde_json::json!({
+                "_meta": { "uuid": ack_uuid },
+                "is_ack": true,
+            });
+            let mut buf = serde_json::to_vec(&doc).unwrap();
+            buf.push(b'\n');
+            (journal.clone(), bytes::Bytes::from(buf))
         })
         .collect()
 }
@@ -1156,7 +1178,7 @@ async fn rollback(
         commit_clock_p2,
         p2_journals.clone(),
     )]);
-    pub2.write_intents(&p2_acks).await.unwrap();
+    pub2.write_intents(p2_acks).await.unwrap();
 
     // P1 commits OUTSIDE_TXN docs.
     for id in ["rb-p1-a1", "rb-p1-a2"] {
@@ -1182,7 +1204,7 @@ async fn rollback(
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),
-        build_members(1, service.peer_endpoint(), &scenario_dir),
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
         Default::default(),
     )
     .await
@@ -1191,7 +1213,7 @@ async fn rollback(
     // Both producers committed. Await to read Reader yields all three docs.
     let mut frontier1 = shuffle::Frontier::default();
     loop {
-        let delta = session.next_checkpoint().await.expect("phase 1 checkpoint");
+        let delta = next_resolved_checkpoint(&mut session, "phase 1 checkpoint").await;
         frontier1 = frontier1.reduce(delta);
 
         if frontier1.journals[0].bytes_behind_delta == 0 {
@@ -1199,8 +1221,8 @@ async fn rollback(
         }
     }
 
-    let mut member_state: MemberState = (0..1).map(|_| None).collect();
-    let read1 = collect_read_entries(&frontier1, &scenario_dir, &mut member_state);
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read1 = collect_read_entries(&frontier1, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "rollback_phase1_committed",
         Checkpoint {
@@ -1235,11 +1257,11 @@ async fn rollback(
 
     // Roll back at P2's prior commit clock.
     let rollback_acks = build_rollback_ack(p2_id, commit_clock_p2, &p2_journals);
-    pub2.write_intents(&rollback_acks).await.unwrap();
+    pub2.write_intents(rollback_acks).await.unwrap();
 
     // P2's pending docs must NOT appear. Frontier advances (flush propagates).
-    let frontier2 = session.next_checkpoint().await.expect("phase 2 checkpoint");
-    let read2 = collect_read_entries(&frontier2, &scenario_dir, &mut member_state);
+    let frontier2 = next_resolved_checkpoint(&mut session, "phase 2 checkpoint").await;
+    let read2 = collect_read_entries(&frontier2, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "rollback_phase2_clean_rollback",
         Checkpoint {
@@ -1271,8 +1293,8 @@ async fn rollback(
     // Only P1's new doc appears. P2's rolled-back docs remain permanently
     // uncommitted — P2 is retired and no future ACK will advance its
     // last_commit past their clocks.
-    let frontier3 = session.next_checkpoint().await.expect("phase 3 checkpoint");
-    let read3 = collect_read_entries(&frontier3, &scenario_dir, &mut member_state);
+    let frontier3 = next_resolved_checkpoint(&mut session, "phase 3 checkpoint").await;
+    let read3 = collect_read_entries(&frontier3, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "rollback_phase3_p1_continues",
         Checkpoint {
@@ -1309,12 +1331,12 @@ async fn rollback(
 
     // Deep rollback ACK for P1 at Clock::default() (< P1's last_commit).
     let deep_rollback_acks = build_rollback_ack(p1, uuid::Clock::default(), &p2_journals);
-    pub1.write_intents(&deep_rollback_acks).await.unwrap();
+    pub1.write_intents(deep_rollback_acks).await.unwrap();
 
     // P1's pending CONTINUE docs are rolled back. P1's last_commit regresses
     // to Clock::default().
-    let frontier4 = session.next_checkpoint().await.expect("phase 4 checkpoint");
-    let read4 = collect_read_entries(&frontier4, &scenario_dir, &mut member_state);
+    let frontier4 = next_resolved_checkpoint(&mut session, "phase 4 checkpoint").await;
+    let read4 = collect_read_entries(&frontier4, &scenario_dir, &mut shard_state);
     insta::assert_debug_snapshot!(
         "rollback_phase4_deep_rollback",
         Checkpoint {

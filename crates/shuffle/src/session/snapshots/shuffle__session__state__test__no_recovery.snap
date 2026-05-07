@@ -22,14 +22,17 @@ PipelineSnapshot {
             },
         ],
         flushed_lsn: [],
+        unresolved_hints: 0,
     },
     unresolved: Frontier {
         journals: [],
         flushed_lsn: [],
+        unresolved_hints: 0,
     },
     unresolved_count: 0,
     progressed: Frontier {
         journals: [],
         flushed_lsn: [],
+        unresolved_hints: 0,
     },
 }

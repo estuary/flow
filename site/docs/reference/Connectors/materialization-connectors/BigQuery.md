@@ -198,3 +198,9 @@ create table <your_dataset>.<your_schema>.<your_table> copy <your_dataset>.<your
 drop table <your_dataset>.<your_schema>.<your_table>_copy;
 ```
 6. Re-enable the materialization to continue materializing data to the now partitioned table.
+
+:::info
+A routine [dataflow reset](/reference/backfilling-data/#dataflow-reset) or [materialization backfill](/reference/backfilling-data/#materialization-backfill) preserves your custom partitioning — the connector runs `TRUNCATE TABLE` and keeps all table-level DDL.
+
+The table is only dropped and recreated — losing custom partitioning — when the backfill is paired with an incompatible schema change in the same publication. See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill) for the full list of triggers and the [`onIncompatibleSchemaChange`](/concepts/advanced/evolutions/) options that can prevent it.
+:::

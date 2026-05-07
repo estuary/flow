@@ -19,15 +19,27 @@ const _: () = assert!(std::mem::size_of::<PartitionSplit>() == 32);
 ///
 /// Returns a `PendingWatch` that resolves once the first listing snapshot
 /// arrives. The watch continuously updates as partitions change.
-pub fn watch_partitions(
+pub(crate) fn watch_partitions(
     journal_client: gazette::journal::Client,
-    collection_name: &str,
+    journal_prefix_or_name: &str,
 ) -> tokens::PendingWatch<Vec<PartitionSplit>> {
     use futures::StreamExt;
 
-    let mut request = activate::list_partitions_request(collection_name);
-    request.watch = true;
-
+    let request = broker::ListRequest {
+        selector: Some(broker::LabelSelector {
+            include: Some(labels::build_set([(
+                if journal_prefix_or_name.ends_with('/') {
+                    "name:prefix"
+                } else {
+                    "name"
+                },
+                journal_prefix_or_name,
+            )])),
+            exclude: None,
+        }),
+        watch: true,
+        ..Default::default()
+    };
     let list_watch = journal_client.list_watch_with(request, PartitionSplitFold::default());
 
     // Adapt the RetryResult stream into a tonic::Result stream for StreamSource.

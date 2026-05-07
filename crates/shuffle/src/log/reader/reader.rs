@@ -11,8 +11,8 @@ use std::sync::Arc;
 pub struct Reader {
     // Base directory for all segment files of the log.
     directory: std::path::PathBuf,
-    // Index of the read member, used to name its files.
-    member_index: u32,
+    // Index of the read shard, used to name its files.
+    shard_index: u32,
     // Upper-bound reported flushed LSN (inclusive) that will not be read beyond.
     flushed_lsn: log::Lsn,
     // Next LSN to read from the head segment.
@@ -33,10 +33,10 @@ pub struct ReadBlock {
 
 impl Reader {
     /// Create a new Reader. No files are opened until `FrontierScan::new`.
-    pub fn new(directory: &std::path::Path, member_index: u32) -> Self {
+    pub fn new(directory: &std::path::Path, shard_index: u32) -> Self {
         Self {
             directory: directory.to_owned(),
-            member_index,
+            shard_index,
             flushed_lsn: log::Lsn::ZERO,
             head_lsn: log::Lsn::new(1, 0),
             head_segment: None,
@@ -44,8 +44,8 @@ impl Reader {
         }
     }
 
-    pub fn member_index(&self) -> u32 {
-        self.member_index
+    pub fn shard_index(&self) -> u32 {
+        self.shard_index
     }
 
     /// Set or update the high-watermark flushed LSN confirmed by the log writer.
@@ -111,7 +111,7 @@ impl Reader {
         if let Some(ref seg) = self.head_segment {
             return Ok(Arc::clone(seg));
         }
-        let path = log::segment_path(&self.directory, self.member_index, self.head_lsn.segment());
+        let path = log::segment_path(&self.directory, self.shard_index, self.head_lsn.segment());
         let segment = Arc::new(Segment::open(&path)?);
         self.head_segment = Some(segment.clone());
         Ok(segment)

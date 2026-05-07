@@ -94,6 +94,46 @@ pub fn new_journal_client(
     )
 }
 
+/// Build a Gazette journal ClientFactory which produces Clients using
+/// TaskCollectionAuth tokens, obtained using a data-plane FQDN principal
+/// and a signing key.
+///
+/// The AuthZ subject is interpreted as a shard ID or prefix thereof
+/// (e.g, a task shard template prefix).
+///
+/// The AuthZ object must be a collection partition template prefix
+/// or a concrete journal name.
+pub fn new_journal_client_factory(
+    api_client: crate::rest::Client,
+    capability: u32,
+    router: gazette::Router,
+    data_plane_fqdn: String,
+    data_plane_signing_key: tokens::jwt::EncodingKey,
+) -> gazette::journal::ClientFactory {
+    let fragment_client = gazette::journal::Client::new_fragment_client();
+
+    let factory: gazette::journal::ClientFactory = std::sync::Arc::new({
+        move |authz_sub: String, authz_obj: String| -> gazette::journal::Client {
+            let signed_source = new_signed_source(
+                authz_obj,
+                authz_sub,
+                capability,
+                data_plane_fqdn.clone(),
+                data_plane_signing_key.clone(),
+            );
+
+            let source = TaskCollectionAuth {
+                client: api_client.clone(),
+                signed_source,
+            };
+            let watch = tokens::watch(source);
+
+            new_journal_client(fragment_client.clone(), router.clone(), watch)
+        }
+    });
+    factory
+}
+
 impl tokens::RestSource for TaskCollectionAuth {
     type Model = models::authorizations::TaskAuthorization;
     type Token = models::authorizations::TaskAuthorization;

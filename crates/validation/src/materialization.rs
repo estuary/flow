@@ -114,6 +114,7 @@ async fn walk_materialization<C: Connectors>(
     let models::MaterializationDef {
         on_incompatible_schema_change,
         source: sources,
+        target_naming,
         endpoint,
         bindings: bindings_model,
         mut shards,
@@ -624,6 +625,7 @@ async fn walk_materialization<C: Connectors>(
     };
     let model = models::MaterializationDef {
         source: sources,
+        target_naming,
         on_incompatible_schema_change,
         endpoint,
         bindings: bindings_model,

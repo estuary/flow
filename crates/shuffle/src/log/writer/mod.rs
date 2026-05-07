@@ -25,8 +25,8 @@ pub use sealed::SealedSegment;
 pub struct Writer {
     // Base directory for all segment files of the log.
     directory: std::path::PathBuf,
-    // Index of this member, used to name its files.
-    member_index: u32,
+    // Index of this shard, used to name its files.
+    shard_index: u32,
     // The LSN of the next block to be appended.
     next_lsn: Lsn,
     // The current segment being written.
@@ -41,10 +41,10 @@ pub struct Writer {
 
 impl Writer {
     /// Create a new Writer, opening the first segment file.
-    pub fn new(directory: &std::path::Path, member_index: u32) -> anyhow::Result<Self> {
+    pub fn new(directory: &std::path::Path, shard_index: u32) -> anyhow::Result<Self> {
         Self::with_thresholds(
             directory,
-            member_index,
+            shard_index,
             usize::MAX,
             DEFAULT_SEGMENT_THRESHOLD,
         )
@@ -53,14 +53,14 @@ impl Writer {
     /// Create a Writer with explicit compression and segment-roll thresholds.
     pub fn with_thresholds(
         directory: &std::path::Path,
-        member_index: u32,
+        shard_index: u32,
         compress_threshold: usize,
         segment_threshold: u64,
     ) -> anyhow::Result<Self> {
-        let file = create_segment(directory, member_index, 1)?;
+        let file = create_segment(directory, shard_index, 1)?;
         Ok(Self {
             directory: directory.to_owned(),
-            member_index,
+            shard_index,
             next_lsn: Lsn::new(1, 0),
             segment_file: file,
             segment_bytes: 0,
@@ -130,11 +130,11 @@ impl Writer {
         // cache without ever writing them to the block device.
         drop(std::mem::replace(
             &mut self.segment_file,
-            create_segment(&self.directory, self.member_index, self.next_lsn.segment())?,
+            create_segment(&self.directory, self.shard_index, self.next_lsn.segment())?,
         ));
 
         let sealed = SealedSegment::new(
-            super::segment_path(&self.directory, self.member_index, block_lsn.segment()),
+            super::segment_path(&self.directory, self.shard_index, block_lsn.segment()),
             std::mem::take(&mut self.segment_bytes),
         );
 
@@ -152,7 +152,7 @@ impl Writer {
 
 impl Drop for Writer {
     fn drop(&mut self) {
-        let path = super::segment_path(&self.directory, self.member_index, self.next_lsn.segment());
+        let path = super::segment_path(&self.directory, self.shard_index, self.next_lsn.segment());
         if let Err(err) = std::fs::remove_file(&path) {
             tracing::warn!(%err, ?path, "failed to unlink in-progress writer segment");
         }
@@ -162,10 +162,10 @@ impl Drop for Writer {
 /// Open a new segment file with exclusive creation.
 fn create_segment(
     directory: &std::path::Path,
-    member_index: u32,
+    shard_index: u32,
     segment: u64,
 ) -> anyhow::Result<std::fs::File> {
-    let path = super::segment_path(directory, member_index, segment);
+    let path = super::segment_path(directory, shard_index, segment);
 
     std::fs::OpenOptions::new()
         .write(true)

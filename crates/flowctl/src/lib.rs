@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use clap::Parser;
 
-mod alert_subscriptions;
+mod alerts;
 mod auth;
 mod catalog;
 mod collection;
@@ -17,6 +17,7 @@ mod output;
 mod poll;
 mod preview;
 mod raw;
+mod version;
 
 pub(crate) use flow_client::client::Client;
 use flow_client::client::refresh_authorizations;
@@ -47,8 +48,12 @@ pub struct Cli {
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
-    /// View and manage subscriptions to alerts and notifications
-    AlertSubscriptions(alert_subscriptions::AlertSubscriptions),
+    /// View and manage alert subscriptions and per-prefix alert configuration
+    Alerts(alerts::Alerts),
+    /// View and manage subscriptions to alerts and notifications.
+    /// (Deprecated: use `flowctl alerts subscriptions` instead.)
+    #[clap(hide = true)]
+    AlertSubscriptions(alerts::subscriptions::AlertSubscriptions),
     /// Authenticate with Flow.
     Auth(auth::Auth),
     /// Work with the current Flow catalog.
@@ -186,8 +191,12 @@ impl Cli {
             output,
         };
 
-        match &self.cmd {
-            Command::AlertSubscriptions(alerts) => alerts.run(&mut context).await,
+        // Version check runs concurrently with the command
+        let version_check = tokio::spawn(version::check_latest());
+
+        let result = match &self.cmd {
+            Command::Alerts(alerts) => alerts.run(&mut context).await,
+            Command::AlertSubscriptions(subs) => subs.run(&mut context).await,
             Command::Auth(auth) => auth.run(&mut context).await,
             Command::Catalog(catalog) => catalog.run(&mut context).await,
             Command::Collections(collection) => collection.run(&mut context).await,
@@ -197,8 +206,16 @@ impl Cli {
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
-        }?;
+        };
 
+        // Print before `result?` so the warning is visible even when the command fails
+        if let Ok(Some(latest)) = version_check.await {
+            tracing::warn!(
+                "You're running an outdated version of flowctl — please update to {latest}",
+            );
+        }
+
+        result?;
         context.config.write(&self.profile)?;
 
         Ok(())

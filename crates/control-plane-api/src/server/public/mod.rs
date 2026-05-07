@@ -34,7 +34,10 @@ pub mod status;
 /// returns JSON, which is all of them. Just ensure that `T` implements
 /// `serde::Serialize` and `schemars::JsonSchema`. See the `crate::server::error` module
 /// docs for more information on error handling.
-pub(crate) fn api_v1_router(app: Arc<crate::App>) -> axum::Router<Arc<crate::App>> {
+pub(crate) fn api_v1_router(
+    app: Arc<crate::App>,
+    alert_config_defaults: models::AlertConfig,
+) -> axum::Router<Arc<crate::App>> {
     // When errors occur during the process of generating an openapi spec, aide
     // will call this function with the error so we can log it. They have a note
     // in their docs warning about false positives where it logs errors even
@@ -47,7 +50,7 @@ pub(crate) fn api_v1_router(app: Arc<crate::App>) -> axum::Router<Arc<crate::App
         }
     });
 
-    let graphql_schema = graphql::create_schema();
+    let graphql_schema = graphql::create_schema(alert_config_defaults);
     let router = aide::axum::ApiRouter::new()
         .api_route(
             "/api/v1/catalog/status",

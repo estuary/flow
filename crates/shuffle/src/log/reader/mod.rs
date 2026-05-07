@@ -65,7 +65,7 @@ pub(crate) mod test_support {
         lsn
     }
 
-    /// Build a Frontier with the given journals and per-member flushed LSNs.
+    /// Build a Frontier with the given journals and per-shard flushed LSNs.
     pub fn make_frontier(
         flushed_lsns: &[log::Lsn],
         journals: Vec<crate::JournalFrontier>,

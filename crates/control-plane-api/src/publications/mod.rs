@@ -174,7 +174,7 @@ impl UncommittedBuild {
     }
 
     pub fn errors(&self) -> impl Iterator<Item = &tables::Error> {
-        self.output.errors()
+        self.output.errors().chain(self.test_errors.iter())
     }
 
     pub fn build_failed(self) -> PublicationResult {
@@ -376,13 +376,13 @@ impl Publisher {
                 .await
                 .context("checking connector images")?
         };
-        let forbidden_source_capture = specs::check_source_capture_annotations(&draft, &self.db)
+        let forbidden_annotations = specs::check_connector_annotations(&draft, &self.db)
             .await
-            .context("checking source capture")?;
-        if !forbidden_images.is_empty() || !forbidden_source_capture.is_empty() {
+            .context("checking connector annotations")?;
+        if !forbidden_images.is_empty() || !forbidden_annotations.is_empty() {
             let mut built = tables::Validations::default();
             built.errors = forbidden_images;
-            built.errors.extend(forbidden_source_capture.into_iter());
+            built.errors.extend(forbidden_annotations.into_iter());
             let output = build::Output {
                 draft,
                 built,
@@ -757,7 +757,12 @@ mod test {
             .collect(),
             retry_count: 0,
         };
+
+        assert_eq!(1, build.errors().count());
+        assert!(build.has_errors());
+
         let result = build.build_failed();
         assert_eq!(StatusType::TestFailed, result.status.r#type);
+        assert_eq!(1, result.test_errors.len());
     }
 }

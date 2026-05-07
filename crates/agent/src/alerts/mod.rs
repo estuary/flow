@@ -51,7 +51,6 @@ mod notifier;
 pub use self::notifier::{AlertNotifications, EmailSender, NotifierState, Sender};
 
 pub use evaluator::{
-    AlertEvaluator, AlertView, AlertViewRow, DataMovementStalledAlerts, EvaluatorMessage,
-    EvaluatorState, TenantAlerts, evaluate_alert_actions, new_data_movement_alerts_executor,
-    new_tenant_alerts_executor,
+    AlertEvaluator, AlertView, AlertViewRow, EvaluatorMessage, EvaluatorState, TenantAlerts,
+    evaluate_alert_actions, new_tenant_alerts_executor,
 };

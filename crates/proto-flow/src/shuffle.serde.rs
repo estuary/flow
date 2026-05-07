@@ -961,13 +961,13 @@ impl serde::Serialize for log_request::Open {
         if self.session_id != 0 {
             len += 1;
         }
-        if !self.members.is_empty() {
+        if !self.shards.is_empty() {
             len += 1;
         }
-        if self.slice_member_index != 0 {
+        if self.slice_shard_index != 0 {
             len += 1;
         }
-        if self.log_member_index != 0 {
+        if self.log_shard_index != 0 {
             len += 1;
         }
         if self.disk_backlog_threshold != 0 {
@@ -977,14 +977,14 @@ impl serde::Serialize for log_request::Open {
         if self.session_id != 0 {
             struct_ser.serialize_field("sessionId", &self.session_id)?;
         }
-        if !self.members.is_empty() {
-            struct_ser.serialize_field("members", &self.members)?;
+        if !self.shards.is_empty() {
+            struct_ser.serialize_field("shards", &self.shards)?;
         }
-        if self.slice_member_index != 0 {
-            struct_ser.serialize_field("sliceMemberIndex", &self.slice_member_index)?;
+        if self.slice_shard_index != 0 {
+            struct_ser.serialize_field("sliceShardIndex", &self.slice_shard_index)?;
         }
-        if self.log_member_index != 0 {
-            struct_ser.serialize_field("logMemberIndex", &self.log_member_index)?;
+        if self.log_shard_index != 0 {
+            struct_ser.serialize_field("logShardIndex", &self.log_shard_index)?;
         }
         if self.disk_backlog_threshold != 0 {
             #[allow(clippy::needless_borrow)]
@@ -1003,11 +1003,11 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
         const FIELDS: &[&str] = &[
             "session_id",
             "sessionId",
-            "members",
-            "slice_member_index",
-            "sliceMemberIndex",
-            "log_member_index",
-            "logMemberIndex",
+            "shards",
+            "slice_shard_index",
+            "sliceShardIndex",
+            "log_shard_index",
+            "logShardIndex",
             "disk_backlog_threshold",
             "diskBacklogThreshold",
         ];
@@ -1015,9 +1015,9 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             SessionId,
-            Members,
-            SliceMemberIndex,
-            LogMemberIndex,
+            Shards,
+            SliceShardIndex,
+            LogShardIndex,
             DiskBacklogThreshold,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1041,9 +1041,9 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                     {
                         match value {
                             "sessionId" | "session_id" => Ok(GeneratedField::SessionId),
-                            "members" => Ok(GeneratedField::Members),
-                            "sliceMemberIndex" | "slice_member_index" => Ok(GeneratedField::SliceMemberIndex),
-                            "logMemberIndex" | "log_member_index" => Ok(GeneratedField::LogMemberIndex),
+                            "shards" => Ok(GeneratedField::Shards),
+                            "sliceShardIndex" | "slice_shard_index" => Ok(GeneratedField::SliceShardIndex),
+                            "logShardIndex" | "log_shard_index" => Ok(GeneratedField::LogShardIndex),
                             "diskBacklogThreshold" | "disk_backlog_threshold" => Ok(GeneratedField::DiskBacklogThreshold),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -1065,9 +1065,9 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut session_id__ = None;
-                let mut members__ = None;
-                let mut slice_member_index__ = None;
-                let mut log_member_index__ = None;
+                let mut shards__ = None;
+                let mut slice_shard_index__ = None;
+                let mut log_shard_index__ = None;
                 let mut disk_backlog_threshold__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -1079,25 +1079,25 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::Members => {
-                            if members__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("members"));
+                        GeneratedField::Shards => {
+                            if shards__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("shards"));
                             }
-                            members__ = Some(map_.next_value()?);
+                            shards__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::SliceMemberIndex => {
-                            if slice_member_index__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("sliceMemberIndex"));
+                        GeneratedField::SliceShardIndex => {
+                            if slice_shard_index__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sliceShardIndex"));
                             }
-                            slice_member_index__ = 
+                            slice_shard_index__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::LogMemberIndex => {
-                            if log_member_index__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("logMemberIndex"));
+                        GeneratedField::LogShardIndex => {
+                            if log_shard_index__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("logShardIndex"));
                             }
-                            log_member_index__ = 
+                            log_shard_index__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -1113,9 +1113,9 @@ impl<'de> serde::Deserialize<'de> for log_request::Open {
                 }
                 Ok(log_request::Open {
                     session_id: session_id__.unwrap_or_default(),
-                    members: members__.unwrap_or_default(),
-                    slice_member_index: slice_member_index__.unwrap_or_default(),
-                    log_member_index: log_member_index__.unwrap_or_default(),
+                    shards: shards__.unwrap_or_default(),
+                    slice_shard_index: slice_shard_index__.unwrap_or_default(),
+                    log_shard_index: log_shard_index__.unwrap_or_default(),
                     disk_backlog_threshold: disk_backlog_threshold__.unwrap_or_default(),
                 })
             }
@@ -1417,131 +1417,6 @@ impl<'de> serde::Deserialize<'de> for log_response::Opened {
             }
         }
         deserializer.deserialize_struct("shuffle.LogResponse.Opened", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for Member {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.range.is_some() {
-            len += 1;
-        }
-        if !self.endpoint.is_empty() {
-            len += 1;
-        }
-        if !self.directory.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("shuffle.Member", len)?;
-        if let Some(v) = self.range.as_ref() {
-            struct_ser.serialize_field("range", v)?;
-        }
-        if !self.endpoint.is_empty() {
-            struct_ser.serialize_field("endpoint", &self.endpoint)?;
-        }
-        if !self.directory.is_empty() {
-            struct_ser.serialize_field("directory", &self.directory)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for Member {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "range",
-            "endpoint",
-            "directory",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Range,
-            Endpoint,
-            Directory,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "range" => Ok(GeneratedField::Range),
-                            "endpoint" => Ok(GeneratedField::Endpoint),
-                            "directory" => Ok(GeneratedField::Directory),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = Member;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct shuffle.Member")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Member, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut range__ = None;
-                let mut endpoint__ = None;
-                let mut directory__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Range => {
-                            if range__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("range"));
-                            }
-                            range__ = map_.next_value()?;
-                        }
-                        GeneratedField::Endpoint => {
-                            if endpoint__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("endpoint"));
-                            }
-                            endpoint__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Directory => {
-                            if directory__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("directory"));
-                            }
-                            directory__ = Some(map_.next_value()?);
-                        }
-                    }
-                }
-                Ok(Member {
-                    range: range__,
-                    endpoint: endpoint__.unwrap_or_default(),
-                    directory: directory__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("shuffle.Member", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ProducerFrontier {
@@ -1913,15 +1788,15 @@ impl serde::Serialize for session_request::Open {
         if self.task.is_some() {
             len += 1;
         }
-        if !self.members.is_empty() {
+        if !self.shards.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("shuffle.SessionRequest.Open", len)?;
         if let Some(v) = self.task.as_ref() {
             struct_ser.serialize_field("task", v)?;
         }
-        if !self.members.is_empty() {
-            struct_ser.serialize_field("members", &self.members)?;
+        if !self.shards.is_empty() {
+            struct_ser.serialize_field("shards", &self.shards)?;
         }
         struct_ser.end()
     }
@@ -1934,13 +1809,13 @@ impl<'de> serde::Deserialize<'de> for session_request::Open {
     {
         const FIELDS: &[&str] = &[
             "task",
-            "members",
+            "shards",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Task,
-            Members,
+            Shards,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1963,7 +1838,7 @@ impl<'de> serde::Deserialize<'de> for session_request::Open {
                     {
                         match value {
                             "task" => Ok(GeneratedField::Task),
-                            "members" => Ok(GeneratedField::Members),
+                            "shards" => Ok(GeneratedField::Shards),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1984,7 +1859,7 @@ impl<'de> serde::Deserialize<'de> for session_request::Open {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut task__ = None;
-                let mut members__ = None;
+                let mut shards__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Task => {
@@ -1993,17 +1868,17 @@ impl<'de> serde::Deserialize<'de> for session_request::Open {
                             }
                             task__ = map_.next_value()?;
                         }
-                        GeneratedField::Members => {
-                            if members__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("members"));
+                        GeneratedField::Shards => {
+                            if shards__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("shards"));
                             }
-                            members__ = Some(map_.next_value()?);
+                            shards__ = Some(map_.next_value()?);
                         }
                     }
                 }
                 Ok(session_request::Open {
                     task: task__,
-                    members: members__.unwrap_or_default(),
+                    shards: shards__.unwrap_or_default(),
                 })
             }
         }
@@ -2190,6 +2065,131 @@ impl<'de> serde::Deserialize<'de> for session_response::Opened {
         deserializer.deserialize_struct("shuffle.SessionResponse.Opened", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for Shard {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.range.is_some() {
+            len += 1;
+        }
+        if !self.endpoint.is_empty() {
+            len += 1;
+        }
+        if !self.directory.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("shuffle.Shard", len)?;
+        if let Some(v) = self.range.as_ref() {
+            struct_ser.serialize_field("range", v)?;
+        }
+        if !self.endpoint.is_empty() {
+            struct_ser.serialize_field("endpoint", &self.endpoint)?;
+        }
+        if !self.directory.is_empty() {
+            struct_ser.serialize_field("directory", &self.directory)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Shard {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "range",
+            "endpoint",
+            "directory",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Range,
+            Endpoint,
+            Directory,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "range" => Ok(GeneratedField::Range),
+                            "endpoint" => Ok(GeneratedField::Endpoint),
+                            "directory" => Ok(GeneratedField::Directory),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Shard;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct shuffle.Shard")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Shard, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut range__ = None;
+                let mut endpoint__ = None;
+                let mut directory__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Range => {
+                            if range__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("range"));
+                            }
+                            range__ = map_.next_value()?;
+                        }
+                        GeneratedField::Endpoint => {
+                            if endpoint__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("endpoint"));
+                            }
+                            endpoint__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Directory => {
+                            if directory__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("directory"));
+                            }
+                            directory__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(Shard {
+                    range: range__,
+                    endpoint: endpoint__.unwrap_or_default(),
+                    directory: directory__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("shuffle.Shard", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for SliceRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -2347,10 +2347,10 @@ impl serde::Serialize for slice_request::Open {
         if self.task.is_some() {
             len += 1;
         }
-        if !self.members.is_empty() {
+        if !self.shards.is_empty() {
             len += 1;
         }
-        if self.member_index != 0 {
+        if self.shard_index != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("shuffle.SliceRequest.Open", len)?;
@@ -2360,11 +2360,11 @@ impl serde::Serialize for slice_request::Open {
         if let Some(v) = self.task.as_ref() {
             struct_ser.serialize_field("task", v)?;
         }
-        if !self.members.is_empty() {
-            struct_ser.serialize_field("members", &self.members)?;
+        if !self.shards.is_empty() {
+            struct_ser.serialize_field("shards", &self.shards)?;
         }
-        if self.member_index != 0 {
-            struct_ser.serialize_field("memberIndex", &self.member_index)?;
+        if self.shard_index != 0 {
+            struct_ser.serialize_field("shardIndex", &self.shard_index)?;
         }
         struct_ser.end()
     }
@@ -2379,17 +2379,17 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
             "session_id",
             "sessionId",
             "task",
-            "members",
-            "member_index",
-            "memberIndex",
+            "shards",
+            "shard_index",
+            "shardIndex",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             SessionId,
             Task,
-            Members,
-            MemberIndex,
+            Shards,
+            ShardIndex,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2413,8 +2413,8 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
                         match value {
                             "sessionId" | "session_id" => Ok(GeneratedField::SessionId),
                             "task" => Ok(GeneratedField::Task),
-                            "members" => Ok(GeneratedField::Members),
-                            "memberIndex" | "member_index" => Ok(GeneratedField::MemberIndex),
+                            "shards" => Ok(GeneratedField::Shards),
+                            "shardIndex" | "shard_index" => Ok(GeneratedField::ShardIndex),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2436,8 +2436,8 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
             {
                 let mut session_id__ = None;
                 let mut task__ = None;
-                let mut members__ = None;
-                let mut member_index__ = None;
+                let mut shards__ = None;
+                let mut shard_index__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SessionId => {
@@ -2454,17 +2454,17 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
                             }
                             task__ = map_.next_value()?;
                         }
-                        GeneratedField::Members => {
-                            if members__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("members"));
+                        GeneratedField::Shards => {
+                            if shards__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("shards"));
                             }
-                            members__ = Some(map_.next_value()?);
+                            shards__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::MemberIndex => {
-                            if member_index__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("memberIndex"));
+                        GeneratedField::ShardIndex => {
+                            if shard_index__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("shardIndex"));
                             }
-                            member_index__ = 
+                            shard_index__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -2473,8 +2473,8 @@ impl<'de> serde::Deserialize<'de> for slice_request::Open {
                 Ok(slice_request::Open {
                     session_id: session_id__.unwrap_or_default(),
                     task: task__,
-                    members: members__.unwrap_or_default(),
-                    member_index: member_index__.unwrap_or_default(),
+                    shards: shards__.unwrap_or_default(),
+                    shard_index: shard_index__.unwrap_or_default(),
                 })
             }
         }

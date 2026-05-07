@@ -124,7 +124,11 @@ where
 }
 
 /// Build the agent's API router.
-pub fn build_router(app: Arc<App>, allow_origin: &[String]) -> anyhow::Result<axum::Router<()>> {
+pub fn build_router(
+    app: Arc<App>,
+    allow_origin: &[String],
+    alert_config_defaults: models::AlertConfig,
+) -> anyhow::Result<axum::Router<()>> {
     use axum::routing::post;
 
     let allow_origin = allow_origin
@@ -158,7 +162,7 @@ pub fn build_router(app: Arc<App>, allow_origin: &[String]) -> anyhow::Result<ax
         .allow_origin(tower_http::cors::AllowOrigin::list(allow_origin))
         .allow_headers(allow_headers);
 
-    let public_api_router = public::api_v1_router(app.clone());
+    let public_api_router = public::api_v1_router(app.clone(), alert_config_defaults);
 
     let main_router = axum::Router::new()
         .route("/authorize/task", post(authorize_task::authorize_task))

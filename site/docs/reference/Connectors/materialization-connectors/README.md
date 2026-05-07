@@ -59,6 +59,9 @@ In the future, other open-source materialization connectors from third parties c
 * Bytewax
   * [Configuration](./Dekaf/bytewax.md)
 * ClickHouse
+  * [Configuration](./ClickHouse.md)
+  * Package - ghcr.io/estuary/materialize-clickhouse:v1
+* ClickHouse (Dekaf)
   * [Configuration](./Dekaf/clickhouse.md)
 * CSV Files in GCS
   * [Configuration](./google-gcs-csv.md)
@@ -74,12 +77,12 @@ In the future, other open-source materialization connectors from third parties c
 * Elasticsearch
   * [Configuration](./Elasticsearch.md)
   * Package — ghcr.io/estuary/materialize-elasticsearch:v3
-* Firebolt
-  * [Configuration](./Firebolt.md)
-  * Package - ghcr.io/estuary/materialize-firebolt:v1
 * Google BigQuery
   * [Configuration](./BigQuery.md)
   * Package — ghcr.io/estuary/materialize-bigquery:v3
+* Google Cloud Bigtable
+  * [Configuration](./google-bigtable.md)
+  * Package — ghcr.io/estuary/materialize-bigtable:v1
 * Google Cloud MySQL
   * [Configuration](./MySQL/google-cloud-sql-mysql.md)
   * Package - ghcr.io/estuary/materialize-google-cloud-sql-mysql:v2
@@ -140,9 +143,6 @@ In the future, other open-source materialization connectors from third parties c
 * SQL Server
   * [Configuration](./SQLServer/)
   * Package - ghcr.io/estuary/materialize-sqlserver:v2
-* Starburst
-  * [Configuration](./starburst.md)
-  * Package - ghcr.io/estuary/materialize-starburst:v1
 * Startree
   * [Configuration](./Dekaf/startree.md)
 * Supabase

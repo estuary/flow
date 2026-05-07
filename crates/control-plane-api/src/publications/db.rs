@@ -249,6 +249,13 @@ pub async fn update_live_specs(
             delete from alert_data_processing where catalog_name in (
                 select catalog_name from inputs where inputs.spec is null
             )
+        ),
+        delete_alert_configs as (
+            -- Only exact-name rows match; prefix rows end in '/' and can
+            -- never equal a catalog_name.
+            delete from alert_configs where catalog_prefix_or_name::text in (
+                select catalog_name from inputs where inputs.spec is null
+            )
         )
         select
             joined.catalog_name as "catalog_name!: String",

@@ -22,4 +22,5 @@ Frontier {
     flushed_lsn: [
         0/1000,
     ],
+    unresolved_hints: 0,
 }

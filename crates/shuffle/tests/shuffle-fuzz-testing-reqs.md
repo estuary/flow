@@ -13,7 +13,7 @@ DataPlane with real Gazette journals.
 ### Shuffle architecture
 
 A shuffle session reads committed documents from Gazette journals, routes them
-by key hash to Log members, and presents them to a downstream consumer
+by key hash to Log shards, and presents them to a downstream consumer
 (e.g., a materialization) via `FrontierScan`. The hierarchy is:
 
 ```
@@ -21,15 +21,15 @@ Coordinator (the fuzz test driver, playing the role of a materialization reactor
     ↓
 Session (one per task, aggregates progress from Slices)
     ↓
-Slice (one per member, reads from Gazette journals)
+Slice (one per shard, reads from Gazette journals)
     ↓
-Log (one per member, writes entries to on-disk segments)
+Log (one per shard, writes entries to on-disk segments)
 ```
 
-The fuzz test parameterizes the member count (`N=1..3`). With `N=1` there is
+The fuzz test parameterizes the shard count (`N=1..3`). With `N=1` there is
 one Slice and one Log; with `N>1`, documents are routed by key hash to
-different members' Logs. This exercises both transactional correctness and
-multi-member document routing within the same test cases.
+different shards' Logs. This exercises both transactional correctness and
+multi-shard document routing within the same test cases.
 
 ### Transaction framing
 
@@ -143,7 +143,7 @@ deleted. This means:
   `flushed_lsn` values are meaningless. The recovery frontier's `flushed_lsn`
   must be reset to `vec![]` before opening the new session.
 - The `Reader` and `Remainders` state from the old session is invalid and must
-  be discarded (fresh `member_state`).
+  be discarded (fresh `shard_state`).
 
 A single log directory can be reused across session restarts because the clean
 close deletes old segments, and the new session creates fresh ones.
@@ -195,10 +195,10 @@ fuzz input generator must enforce this constraint.
 
 ### Configuration
 
-- **Members**: 1–3 (randomized per test case). The key range `[0, u32::MAX]`
-  is split evenly across members; all share the full r_clock range, the same
+- **Shards**: 1–3 (randomized per test case). The key range `[0, u32::MAX]`
+  is split evenly across shards; all share the full r_clock range, the same
   gRPC endpoint, and the same log directory (segment files are isolated by
-  member index in the filename: `mem-{index:03}-seg-{…}.flog`).
+  shard index in the filename: `mem-{index:03}-seg-{…}.flog`).
 - **Bindings**: A single binding with multiple partitions, giving multiple
   journals under one binding index. The number of partitions should be
   sufficient to exercise cross-journal transactions (at least 4-5).
@@ -328,7 +328,7 @@ For each round:
         log segments.
      b. recovery.flushed_lsn = vec![] — old session's LSNs are invalid.
      c. Open new session with recovery as resume checkpoint.
-     d. Discard old member_state for all members (Reader, Remainders).
+     d. Discard old shard_state for all shards (Reader, Remainders).
      e. Re-initialize round_frontier:
         round_frontier = Frontier {
             journals: vec![],
@@ -339,8 +339,8 @@ For each round:
         the new session. This is the recovery checkpoint — it replaces
         round_frontier. (See "Why only with hints" below.)
 
-  7. SCAN: For each member (0..N), drive FrontierScan with round_frontier
-     and a member-specific Reader. Collect all entries across members into
+  7. SCAN: For each shard (0..N), drive FrontierScan with round_frontier
+     and a shard-specific Reader. Collect all entries across shards into
      a single flat list. Assert against oracle expectations for this round.
 
   8. ACCUMULATE: recovery = recovery.reduce(round_frontier)

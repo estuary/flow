@@ -1,44 +1,5 @@
 use proto_gazette::uuid::{Clock, Producer};
 
-/// A `BuildHasher` for `Producer`-keyed maps that passes through the
-/// raw bytes as the hash value. Producer IDs are already uniformly
-/// distributed random values, so rehashing them with SipHash is wasted work.
-#[derive(Clone, Default)]
-pub struct ProducerHasher;
-
-impl std::hash::BuildHasher for ProducerHasher {
-    type Hasher = ProducerHasherState;
-
-    #[inline]
-    fn build_hasher(&self) -> Self::Hasher {
-        ProducerHasherState(0)
-    }
-}
-
-/// Hasher state for [`ProducerHasher`]. Packs written bytes into a `u64`.
-pub struct ProducerHasherState(u64);
-
-impl std::hash::Hasher for ProducerHasherState {
-    #[inline]
-    fn write_u64(&mut self, i: u64) {
-        self.0 = i;
-    }
-
-    #[inline]
-    fn write(&mut self, _bytes: &[u8]) {
-        unreachable!("ProducerHasherState may only be used with Producer");
-    }
-
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0
-    }
-}
-
-/// Map keyed by `Producer` using a passthrough hasher. Producer IDs are
-/// already uniformly distributed random values, so we skip rehashing.
-pub type ProducerMap<V> = std::collections::HashMap<Producer, V, ProducerHasher>;
-
 /// Per-producer sequencing state.
 ///
 /// It's scoped to a single (binding, journal) tuple because an ACK_TXN in
@@ -89,7 +50,7 @@ const _: () = assert!(std::mem::size_of::<ProducerState>() == 24);
 pub fn build_flush_frontier(
     reads: &mut [super::read::ReadState],
     hints: impl Iterator<Item = ((Box<str>, u16), Vec<(Producer, Clock)>)>,
-    member_count: usize,
+    shard_count: usize,
 ) -> crate::Frontier {
     // Walk all journal reads to build their JournalFrontier.
     let mut journals: Vec<crate::JournalFrontier> = Vec::new();
@@ -109,7 +70,7 @@ pub fn build_flush_frontier(
             .map(|(producer, ps)| crate::ProducerFrontier {
                 producer: *producer,
                 last_commit: ps.last_commit,
-                hinted_commit: Clock::from_u64(0),
+                hinted_commit: Clock::zero(),
                 offset: ps.offset,
             })
             .collect();
@@ -136,8 +97,9 @@ pub fn build_flush_frontier(
     journals.sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
 
     let reads_frontier = crate::Frontier {
+        unresolved_hints: 0, // By construction: only `last_commit` set.
         journals,
-        flushed_lsn: vec![crate::log::Lsn::ZERO; member_count],
+        flushed_lsn: vec![crate::log::Lsn::ZERO; shard_count],
     };
 
     // Build a Frontier from causal hints via single-pass iteration.
@@ -147,7 +109,7 @@ pub fn build_flush_frontier(
                 .into_iter()
                 .map(|(producer, hinted_clock)| crate::ProducerFrontier {
                     producer,
-                    last_commit: Clock::from_u64(0),
+                    last_commit: Clock::zero(),
                     hinted_commit: hinted_clock,
                     offset: 0,
                 })
@@ -175,7 +137,10 @@ pub fn build_flush_frontier(
     // (entries must be unique since they come from HashMap keys).
     hint_journals.sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
 
+    // By construction every producer has `last_commit: zero` and a non-zero `hinted_commit`.
+    let unresolved_hints = hint_journals.iter().map(|jf| jf.producers.len()).sum();
     reads_frontier.reduce(crate::Frontier {
+        unresolved_hints,
         journals: hint_journals,
         flushed_lsn: vec![],
     })
@@ -184,6 +149,7 @@ pub fn build_flush_frontier(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ProducerMap;
 
     fn producer(id: u8) -> Producer {
         Producer::from_bytes([id | 0x01, 0, 0, 0, 0, 0])

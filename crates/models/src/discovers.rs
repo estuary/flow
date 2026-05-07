@@ -10,6 +10,8 @@ pub struct Changed {
     pub target: crate::Collection,
     /// Whether the binding is disabled.
     pub disable: bool,
+    /// Optional reason describing a non-obvious change that was made.
+    pub reason: Option<String>,
 }
 /// Represents a set of changes resulting from a discover.
 pub type Changes = BTreeMap<ResourcePath, Changed>;

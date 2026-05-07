@@ -7320,28 +7320,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "schemalate"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "bytes",
- "clap",
- "doc",
- "flow_cli_common",
- "itertools 0.14.0",
- "json",
- "lazy_static",
- "prost",
- "proto-flow",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tracing",
- "url",
-]
-
-[[package]]
 name = "schemars"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

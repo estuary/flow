@@ -1,0 +1,24 @@
+fragment SelectAlertConfig on AlertConfigEntry {
+    id
+    catalogPrefixOrName
+    config
+    detail
+    createdAt
+    updatedAt
+    lastModifiedBy
+}
+
+query ListAlertConfigs($filter: AlertConfigsFilter, $after: String, $first: Int) {
+    alertConfigs(filter: $filter, after: $after, first: $first) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            cursor
+            node {
+                ...SelectAlertConfig
+            }
+        }
+    }
+}

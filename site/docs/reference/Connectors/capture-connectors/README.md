@@ -53,6 +53,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Apple App Store
   - [Configuration](./apple-app-store.md)
   - Package - ghcr.io/estuary/source-apple-app-store:v1
+- AppsFlyer
+  - [Configuration](./appsflyer.md)
+  - Package - ghcr.io/estuary/source-appsflyer:v1
 - Asana
   - [Configuration](./asana.md)
   - Package - ghcr.io/estuary/source-asana:v1
@@ -77,6 +80,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Brevo
   - [Configuration](./brevo.md)
   - Package - ghcr.io/estuary/source-brevo:v1
+- Calendly
+  - [Configuration](./calendly.md)
+  - Package - ghcr.io/estuary/source-calendly:v1
 - Chargebee
   - [Configuration](./chargebee-native.md)
   - Package - ghcr.io/estuary/source-chargebee-native:v1

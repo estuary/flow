@@ -19,9 +19,33 @@ curl https://mise.run | sh
 ```
 
 Add mise to your shell (bash example):
+
 ```bash
 echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
 source ~/.bashrc
+```
+
+### 1a. Install pre-reqs on your host (MacOS)
+
+Enable Git LFS if you haven't already
+
+```bash
+brew install git-lfs
+git lfs install
+```
+
+Lima/Mise
+
+```bash
+brew install lima
+brew install mise
+```
+
+Add mise to your shell (zsh example):
+
+```bash
+echo 'eval "$(mise activate zsh)"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 ### 2. Create a VM
@@ -29,12 +53,14 @@ source ~/.bashrc
 Choose based on your needs:
 
 **[Lima](https://lima-vm.io/) VM** (local, uses host resources):
+
 ```bash
 # Share a parent directory of your checkout (NOT your home directory)
 mise run vm:create-lima tiger ~/work
 ```
 
 **GCP VM** (remote, more hardware available):
+
 ```bash
 mise run vm:create-gcp panther
 # Optionally specify machine type for more resources:
@@ -48,6 +74,7 @@ GCP VMs have an idle timer that automatically shuts down the instance when no SS
 ### 3. Connect to the VM
 
 **Lima:**
+
 ```bash
 cd ~/work/path/to/shared/repo
 limactl shell tiger
@@ -59,6 +86,7 @@ ssh lima-tiger
 Note: Lima VMs use `/<vm-name>` as the home directory (e.g., `/tiger`) to avoid ambiguity with the host share, which is typically under `/home/<user>` or `/Users/<user>`.
 
 **GCP:**
+
 ```bash
 ssh dev-<you>-panther
 cd ~/estuary/flow
@@ -75,18 +103,21 @@ mise run local:stack
 ```
 
 This starts:
+
 - Supabase (database, auth, edge functions)
 - Control plane agent and config-encryption service
 - A `local-cluster` data plane with 4 gazette brokers and 1 reactor
 - Links the data plane to the control plane
 
 Check service status:
+
 ```bash
 systemctl --user list-dependencies flow-control-plane.target
 systemctl --user list-dependencies flow-plane@local-cluster.target
 ```
 
 View logs:
+
 ```bash
 journalctl --user -u flow-control-agent -f
 journalctl --user -u flow-gazette@local-cluster-8000 -f
@@ -113,6 +144,7 @@ This stops all services and cleans up generated state. Advanced users can stop i
 ### Deleting VMs
 
 **Lima:**
+
 ```bash
 limactl stop tiger
 limactl delete tiger
@@ -121,6 +153,7 @@ limactl delete tiger
 **GCP:**
 
 Delete the instance in the [GCP Console](https://console.cloud.google.com/compute/instances?project=estuary-theatre), then remove the SSH config:
+
 ```bash
 rm ~/.ssh/gcp-vms/dev-<you>-panther.config
 ```
@@ -138,6 +171,7 @@ mise run vm:port-forward dev-<you>-panther  # GCP instance
 ```
 
 This forwards:
+
 - Supabase (PostgREST, Postgres, Studio, Mailpit) on ports 5431-5434
 - Control plane agent (8675) and config-encryption (8765)
 - Data plane brokers (8000-8003) and reactors (8098-8099)
@@ -159,7 +193,6 @@ Then inside the VM, run `claude` normally.
 
 This copies your Claude Code access token (not refresh token) into the VM. Since refresh tokens are single-use, refreshes happen on the host - run a fresh session on your host if the VM token expires.
 
-
 ### Cockpit Web UI
 
 VMs are provisioned with the [Cockpit](https://cockpit-project.org/) tool for remote web management.
@@ -170,15 +203,17 @@ Access Cockpit by using the `vm:port-forward` task and connecting to [http://loc
 The login is your username with password `admin`.
 
 To focus on components of a local stack:
- * Navigate to "Services"
- * Toggle to "User" (vs "System")
- * Enter `flow-` into the filter box.
+
+- Navigate to "Services"
+- Toggle to "User" (vs "System")
+- Enter `flow-` into the filter box.
 
 ### SOPS
 
 For development we use an [age](https://github.com/FiloSottile/age) key for
-encryption, defined in `mise/tasks/local/reactor`.  To decrypt you will need to
+encryption, defined in `mise/tasks/local/reactor`. To decrypt you will need to
 provide the key to sops:
+
 ```
 export SOPS_AGE_KEY=AGE-SECRET-KEY-1AHW9QTMUTGWDZAC6JDXWC796K0NNDZDKLN8CXPYZM67F2DQVVTHQT3PCD4
 ```
@@ -193,6 +228,7 @@ Use VS Code's [Remote - SSH](https://marketplace.visualstudio.com/items?itemName
 - **Go extension** - Proper GOROOT and CGO flags for cgo builds
 
 To connect:
+
 1. Install the Remote - SSH extension in VS Code
 2. Open the command palette and select "Remote-SSH: Connect to Host..."
 3. Enter your VM hostname (e.g., `lima-tiger` for Lima, `dev-<you>-panther` for GCP)
@@ -224,56 +260,61 @@ Zed editor support is TODO - requires updating `bootstrap:ide-settings` to write
 ## Task Reference
 
 List all available tasks:
+
 ```bash
 mise tasks
 ```
 
 ### Bootstrap Tasks
-| Task | Description |
-|------|-------------|
-| `bootstrap:apt-packages-ci-base` | Install packages matching GitHub Actions runners |
-| `bootstrap:apt-packages-ci-extra` | Install additional required packages |
-| `bootstrap:ide-settings` | Configure VS Code Remote SSH settings |
+
+| Task                              | Description                                      |
+| --------------------------------- | ------------------------------------------------ |
+| `bootstrap:apt-packages-ci-base`  | Install packages matching GitHub Actions runners |
+| `bootstrap:apt-packages-ci-extra` | Install additional required packages             |
+| `bootstrap:ide-settings`          | Configure VS Code Remote SSH settings            |
 
 ### Build Tasks
-| Task | Description |
-|------|-------------|
-| `build:rocksdb` | Compile and install RocksDB static library |
-| `build:go-protobufs` | Generate Go protobuf bindings |
-| `build:rust-protobufs` | Generate Rust protobuf bindings |
-| `build:gazette` | Build gazette binaries |
-| `build:flowctl-go` | Build flowctl-go binary |
+
+| Task                   | Description                                |
+| ---------------------- | ------------------------------------------ |
+| `build:rocksdb`        | Compile and install RocksDB static library |
+| `build:go-protobufs`   | Generate Go protobuf bindings              |
+| `build:rust-protobufs` | Generate Rust protobuf bindings            |
+| `build:gazette`        | Build gazette binaries                     |
+| `build:flowctl-go`     | Build flowctl-go binary                    |
 
 ### Local Stack Tasks
 
-| Task                             | Description                                         |
-| -------------------------------- | --------------------------------------------------- |
-| `local:stack`                    | Start full control plane + data plane               |
-| `local:control-plane`            | Start control plane only                            |
-| `local:data-plane <name> <port>` | Start a data plane                                  |
+| Task                             | Description                                                 |
+| -------------------------------- | ----------------------------------------------------------- |
+| `local:stack`                    | Start full control plane + data plane                       |
+| `local:control-plane`            | Start control plane only                                    |
+| `local:data-plane <name> <port>` | Start a data plane                                          |
 | `local:data-plane-controller`    | Start data-plane-controller (service + job) in dry-run mode |
-| `local:seed-controller-job`      | Seed a controller job to trigger data plane converge |
-| `local:supabase`                 | Start Supabase only                                 |
-| `local:stop`                     | Stop all services and clean up                      |
-| `local:dekaf`                    | Start Dekaf against local stack                     |
-| `local:dekaf-kafka`              | Start local Kafka for Dekaf testing                 |
+| `local:seed-controller-job`      | Seed a controller job to trigger data plane converge        |
+| `local:supabase`                 | Start Supabase only                                         |
+| `local:stop`                     | Stop all services and clean up                              |
+| `local:dekaf`                    | Start Dekaf against local stack                             |
+| `local:dekaf-kafka`              | Start local Kafka for Dekaf testing                         |
 
 ### CI Tasks
-| Task | Description |
-|------|-------------|
-| `ci:platform-test` | Run full test suite (mirrors CI) |
+
+| Task                | Description                       |
+| ------------------- | --------------------------------- |
+| `ci:platform-test`  | Run full test suite (mirrors CI)  |
 | `ci:platform-build` | Run full build suite (mirrors CI) |
-| `ci:sql-tap` | Run pgTAP SQL tests |
-| `ci:nextest-run` | Run Rust tests via nextest |
-| `ci:gotest` | Run Go tests |
-| `ci:dekaf-e2e` | Run Dekaf E2E tests |
+| `ci:sql-tap`        | Run pgTAP SQL tests               |
+| `ci:nextest-run`    | Run Rust tests via nextest        |
+| `ci:gotest`         | Run Go tests                      |
+| `ci:dekaf-e2e`      | Run Dekaf E2E tests               |
 
 ### VM Tasks
-| Task | Description |
-|------|-------------|
-| `vm:create-lima <name> <share_dir>` | Create a Lima VM |
-| `vm:create-gcp <project>` | Create a GCP VM |
-| `vm:port-forward <hostname>` | Forward ports from VM to host |
-| `vm:claude <vm_name>` | Copy Claude Code token into VM |
+
+| Task                                   | Description                                             |
+| -------------------------------------- | ------------------------------------------------------- |
+| `vm:create-lima <name> <share_dir>`    | Create a Lima VM                                        |
+| `vm:create-gcp <project>`              | Create a GCP VM                                         |
+| `vm:port-forward <hostname>`           | Forward ports from VM to host                           |
+| `vm:claude <vm_name>`                  | Copy Claude Code token into VM                          |
 | `vm:copy-gcloud-credentials <vm_name>` | Copy gcloud CLI and credentials for sops/KMS encryption |
-| `vm:copy-ssh-credentials <vm_name>` | Copy SSH credentials for git repository access |
+| `vm:copy-ssh-credentials <vm_name>`    | Copy SSH credentials for git repository access          |

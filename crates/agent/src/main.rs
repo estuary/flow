@@ -146,11 +146,6 @@ struct Args {
     #[arg(value_parser = humantime::parse_duration)]
     tenant_alert_interval: std::time::Duration,
 
-    /// How frequently to evaluate `data_movement_stalled` alert conditions
-    #[clap(long, env, default_value = "10m")]
-    #[arg(value_parser = humantime::parse_duration)]
-    data_movement_alert_interval: std::time::Duration,
-
     #[command(flatten)]
     controller_config: agent::controllers::ControllerConfig,
 }
@@ -304,6 +299,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     let controller_publication_cooldown =
         chrono::Duration::from_std(args.controller_publication_cooldown)?;
+    let alert_config_defaults = args.controller_config.alert_config_defaults();
     let control_plane = agent::PGControlPlane::new(
         pg_pool.clone(),
         system_user_id,
@@ -324,7 +320,11 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         publisher.clone(),
         snapshot_watch,
     ));
-    let api_router = control_plane_api::build_router(api_app.clone(), &args.allow_origin)?;
+    let api_router = control_plane_api::build_router(
+        api_app.clone(),
+        &args.allow_origin,
+        alert_config_defaults,
+    )?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
@@ -347,9 +347,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(migrate::automation::MigrationExecutor)
             .register(agent::alerts::new_tenant_alerts_executor(
                 args.tenant_alert_interval,
-            ))
-            .register(agent::alerts::new_data_movement_alerts_executor(
-                args.data_movement_alert_interval,
             ));
 
         if args.serve_alert_notifications {

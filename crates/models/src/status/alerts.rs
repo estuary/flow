@@ -83,7 +83,7 @@ impl AlertType {
     pub fn view_name(&self) -> Option<&'static str> {
         match *self {
             AlertType::AutoDiscoverFailed => None,
-            AlertType::DataMovementStalled => Some("alert_data_movement_stalled"),
+            AlertType::DataMovementStalled => None,
             AlertType::FreeTrial => Some("tenant_alerts"),
             AlertType::FreeTrialEnding => Some("tenant_alerts"),
             AlertType::FreeTrialStalled => Some("tenant_alerts"),

@@ -125,12 +125,12 @@ mod test {
             (42, 0xABCDEF, "mem-042-seg-000000abcdef.flog"),
             (999, 0, "mem-999-seg-000000000000.flog"),
         ];
-        for (member, segment, expected_name) in cases {
-            let path = log::segment_path(std::path::Path::new("/tmp"), member, segment);
+        for (shard, segment, expected_name) in cases {
+            let path = log::segment_path(std::path::Path::new("/tmp"), shard, segment);
             assert_eq!(
                 path.file_name().unwrap().to_str().unwrap(),
                 expected_name,
-                "member={member}, segment={segment}"
+                "shard={shard}, segment={segment}"
             );
         }
     }

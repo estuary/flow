@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+mod alert_config;
 pub mod authorizations;
 mod captures;
 mod catalogs;
@@ -29,6 +30,11 @@ pub mod status;
 mod tests;
 pub mod triggers;
 
+pub use crate::alert_config::{
+    AlertConfig, DataMovementStalledCondition, DataMovementStalledConfig, ShardFailedCondition,
+    ShardFailedConfig, TaskChronicallyFailingCondition, TaskChronicallyFailingConfig,
+    TaskIdleCondition, TaskIdleConfig,
+};
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
@@ -49,7 +55,7 @@ pub use journals::{
 };
 pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
-    RecommendedDepth,
+    RecommendedDepth, TargetNamingStrategy,
 };
 pub use raw_value::RawValue;
 pub use references::{

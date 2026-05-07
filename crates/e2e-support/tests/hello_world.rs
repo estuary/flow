@@ -53,23 +53,22 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
         .as_ref()
         .expect("built collection should have a spec");
 
-    // Start watching partitions, and build a Publisher Binding.
-    let partitions =
-        publisher::watch::watch_partitions(journal_client.clone(), &collection_spec.name);
-    let binding = publisher::Binding::from_collection_spec(
-        0,
-        collection_spec,
-        Box::new({
-            let journal_client = journal_client.clone();
-            let partitions = partitions.clone();
-            move || (journal_client, partitions)
-        }),
-    )
-    .expect("should build binding from collection spec");
+    let binding = publisher::Binding::from_collection_spec(collection_spec, None)
+        .expect("should build binding from collection spec");
+
+    let factory: gazette::journal::ClientFactory = Arc::new({
+        let journal_client = journal_client.clone();
+        move |_authz_sub, _authz_obj| journal_client.clone()
+    });
 
     // Create a Publisher with deterministic identity for reproducible snapshots.
-    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let mut publisher = publisher::Publisher::new(vec![binding], producer, uuid::Clock::default());
+    let mut publisher = publisher::Publisher::new(
+        String::new(), // No AuthZ subject.
+        vec![binding],
+        factory,
+        uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]),
+        uuid::Clock::default(),
+    );
 
     // Enqueue data documents across logical partitions.
     publisher
@@ -114,11 +113,12 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
         publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
 
     publisher
-        .write_intents(&journal_acks)
+        .write_intents(journal_acks)
         .await
         .expect("ACK write should succeed");
 
-    // Snapshot the partition listing from the watch.
+    // Snapshot the partition listing from the Publisher's own watch.
+    let (_client, partitions) = publisher.binding_client(0);
     let partitions_watch = partitions.ready().await;
     let splits = partitions_watch.token();
     let splits = splits.result().expect("partitions should be available");

@@ -18,7 +18,7 @@ impl SessionClient {
     pub async fn open(
         service: &crate::Service,
         task: shuffle::Task,
-        members: Vec<shuffle::Member>,
+        shards: Vec<shuffle::Shard>,
         resume_checkpoint: crate::Frontier,
     ) -> anyhow::Result<Self> {
         let verify = crate::verify("SessionResponse", "Opened", "(in-process)", 0);
@@ -34,7 +34,7 @@ impl SessionClient {
             shuffle::SessionRequest {
                 open: Some(shuffle::session_request::Open {
                     task: Some(task),
-                    members,
+                    shards,
                 }),
                 ..Default::default()
             },

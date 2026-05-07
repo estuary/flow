@@ -270,6 +270,48 @@ async fn resolve_alert(
     Ok(())
 }
 
+/// Cleans up all open alerts for a catalog name: sets `resolved_at` and deletes
+/// the associated notification tasks. Unlike `resolve_alert`, this does not send
+/// resolution notifications. Used when a spec is being deleted.
+pub async fn cleanup_open_alerts(
+    catalog_name: &str,
+    txn: &mut sqlx::PgConnection,
+) -> anyhow::Result<()> {
+    // Resolve open alerts and collect their IDs for notification task cleanup.
+    let resolved_ids: Vec<models::Id> = sqlx::query_scalar!(
+        r#"
+        update alert_history
+        set resolved_at = now()
+        where catalog_name = $1
+          and resolved_at is null
+        returning id as "id: models::Id"
+        "#,
+        catalog_name as &str,
+    )
+    .fetch_all(&mut *txn)
+    .await?;
+
+    if resolved_ids.is_empty() {
+        return Ok(());
+    }
+
+    let count = resolved_ids.len();
+
+    // Delete the associated notification tasks so they don't sit suspended.
+    sqlx::query!(
+        r#"
+        delete from internal.tasks t
+        where t.task_id = any($1::flowid[])
+        "#,
+        resolved_ids as Vec<models::Id>,
+    )
+    .execute(&mut *txn)
+    .await?;
+
+    tracing::info!(%catalog_name, %count, "silently resolved alerts for deleted spec");
+    Ok(())
+}
+
 pub async fn fetch_open_alerts_by_type(
     alert_types: &[AlertType],
     pool: &sqlx::PgPool,

@@ -1,13 +1,13 @@
 # Shuffle
 
 Shuffle coordinates reading documents from Gazette journals across distributed
-task members, routing read documents to correct members based on a document key,
-merging documents into processing-order logs hosted at each task member,
+task shards, routing read documents to correct shards based on a document key,
+merging documents into processing-order logs hosted at each task shard,
 and reporting available transactional progress back upwards to an external coordinator.
 
-Then, once each task member is told by the coordinator of a specific checkpoint to
+Then, once each task shard is told by the coordinator of a specific checkpoint to
 process (through a messaging mechanism which is NOT part of this crate),
-members are able to efficiently identify and extract transaction-visible documents
+shards are able to efficiently identify and extract transaction-visible documents
 already available in their local log, as part of processing a distributed transaction.
 
 Shuffles serve derivation transforms, materialization bindings,
@@ -17,8 +17,8 @@ and ad-hoc collection reads.
 
 The system is built from three layered gRPC RPCs, defined in
 `go/protocols/shuffle/shuffle.proto`, each implemented as an async actor
-and forming a hierarchy. For M members, the system uses M Slice
-streams and M² Log streams (each Slice opens one Log RPC to every member):
+and forming a hierarchy. For M shards, the system uses M Slice
+streams and M² Log streams (each Slice opens one Log RPC to every shard):
 
 ```
 Coordinator (external caller, typically runs on shard-000)
@@ -42,36 +42,36 @@ external coordinator (e.g. shard-000 of a derivation or materialization).
 Manages the session lifecycle, routes discovered journals to Slices,
 and aggregates progress into checkpoints.
 
-**Slice** (`slice/`): Per-member RPC opened by the Session. Each Slice
+**Slice** (`slice/`): Per-shard RPC opened by the Session. Each Slice
 watches journal listings for its assigned bindings, reads documents from
 journals, sequences them, validates them, extracts shuffle keys, and routes
 documents to the appropriate Log RPC(s) based on key hash.
 
-**Log** (`log/`): Per-member RPC opened by each Slice. All Slices
-targeting the same member join into a single LogActor, which merges
+**Log** (`log/`): Per-shard RPC opened by each Slice. All Slices
+targeting the same shard join into a single LogActor, which merges
 documents across Slices in (priority DESC, adjusted_clock ASC) order
 and writes them to local on-disk storage.
 
 Once started, the distributed shuffle runs continuously to read journals,
-transcode documents, map them to members, and write them into on-disk log segments.
+transcode documents, map them to shards, and write them into on-disk log segments.
 At the same time progress frontiers are reported upwards and aggregated at the
 Session, which seeks to maintain a frequently-updated checkpoint of progress
 available right now.
 
 The Coordinator, an external application using a shuffled read, will then choose
 its own cadence for polling the Session to fetch the next ready checkpoint.
-It distributes the checkpoint amongst its member workers, and each consumes
+It distributes the checkpoint amongst its shard workers, and each consumes
 from its local log for downstream processing and reclaims space.
 
 The recovery model is fail-fast: if a terminal error occurs with a component of
-any member, the entire topology is torn down and all logs are discarded,
+any shard, the entire topology is torn down and all logs are discarded,
 to be rebuilt anew on a next Session.
 
 ### Concepts
 
-**Member Topology**: A session has N **members**, each owning a disjoint range of the 2D
-(key_hash, r_clock) space. Members tile the full `[0, 0xFFFFFFFF]` range
-in both dimensions. Each member runs one Slice RPC actor and one Log RPC actor.
+**Shard Topology**: A session has N **shards**, each owning a disjoint range of the 2D
+(key_hash, r_clock) space. Shards tile the full `[0, 0xFFFFFFFF]` range
+in both dimensions. Each shard runs one Slice RPC actor and one Log RPC actor.
 
 **Causal Hints**: ACKs are documents written to journals by a producer, and contain
 a clock that acknowledges or rolls back preceding lesser-clock documents from that
@@ -105,7 +105,7 @@ committed data on startup if producers have long-running uncommitted transaction
 journals, that's up to M×N = 1M concurrent RPCs, and each ACK is broadcast
 to every shard. This implementation uses M + M² streams total (M Slice RPCs + M²
 Log RPCs), independent of journal count. At M=10 with N=100k, that's 110 streams
-instead of 1M. Listing watches are also distributed across members (each
+instead of 1M. Listing watches are also distributed across shards (each
 watches ~B/M bindings) rather than duplicated on every shard.
 
 **In-memory staging → disk-backed logs**: The legacy system holds shuffled
@@ -122,19 +122,19 @@ transactions with idempotent recovery.
 ## Linear Walkthrough
 
 What follows is a trace of a document's journey through the
-shuffle system, from reading journals to appending to local member log,
+shuffle system, from reading journals to appending to local shard log,
 and back upwards through progress reporting.
 
 ### 1. Session Open
 
 The coordinator opens a Session RPC, providing the task spec (derivation,
-materialization, or collection partitions), the member topology, and a
+materialization, or collection partitions), the shard topology, and a
 resume checkpoint frontier. The Session:
 
 1. Parses the task into `Binding` structs — one per transform/binding —
    capturing the shuffle key, partition selector, priority, read delay,
    UUID pointer, and schema validator.
-2. Opens a Slice RPC to every member (member 0 is in-process; others are
+2. Opens a Slice RPC to every shard (shard 0 is in-process; others are
    remote gRPC calls).
 3. Sends `Opened` to the coordinator, then reads the resume checkpoint
    (streamed as chunked `FrontierChunk` messages).
@@ -143,26 +143,26 @@ resume checkpoint frontier. The Session:
 ### 2. Journal Discovery
 
 Each Slice watches Gazette journal listings for its assigned bindings
-(round-robin by `binding.index % member_count`). When a journal appears,
+(round-robin by `binding.index % shard_count`). When a journal appears,
 the Slice sends a `ListingAdded` response to the Session.
 
 ### 3. Read Routing
 
-The Session receives `ListingAdded` and routes the journal to a member.
+The Session receives `ListingAdded` and routes the journal to a shard.
 This routing is designed to minimize data movement by maximizing the likelihood
-that the selected member will *also* be responsible for storing the document in its local log.
+that the selected shard will *also* be responsible for storing the document in its local log.
 Exact routing depends on the binding's shuffle configuration:
 
 - **Partition-field routing**: If the shuffle key is fully covered by
   partition fields, the key hash is computed statically from the
-  journal's partition labels. The hash determines a single member.
+  journal's partition labels. The hash determines a single shard.
 - **Source-key routing**: If shuffling on the source collection key,
-  the journal's key range narrows the candidate member set.
-- **Lambda routing**: If the key is computed by a lambda, all members
+  the journal's key range narrows the candidate shard set.
+- **Lambda routing**: If the key is computed by a lambda, all shards
   are candidates.
 
 Within the candidate set, a stable hash of `(journal_name, read_suffix)`
-selects the target member. The Session constructs a `StartRead` message
+selects the target shard. The Session constructs a `StartRead` message
 containing the journal spec, binding index, and the per-journal producer
 checkpoint extracted from the resume frontier, then sends it to the
 target Slice.
@@ -211,10 +211,10 @@ The top document is sequenced against per-producer state using
 ### 7. Key Extraction and Append Routing
 
 For Appended documents, the Slice extracts the packed shuffle key,
-computes its hash, and routes to target Log member(s) using
-`route_to_members()`. For read-only derivation transforms,
+computes its hash, and routes to target Log shard(s) using
+`route_to_shards()`. For read-only derivation transforms,
 `filter_r_clocks` additionally filters by the rotated clock value,
-distributing reads across members in the r_clock dimension.
+distributing reads across shards in the r_clock dimension.
 
 The document, its packed key, metadata, and journal context are sent
 as an `Append` message to each target Log. Journal names are
@@ -240,7 +240,7 @@ in-flight), the Slice:
 
 1. Builds a `Frontier` from pending producer state and accumulated
    causal hints, then drains pending into settled.
-2. Sends `Flush { cycle }` to all Log members.
+2. Sends `Flush { cycle }` to all Log shards.
 3. Each Log performs its durability IO and responds `Flushed { cycle }`.
 4. When all Logs respond, the flush cycle completes and the frontier
    is reduced into the Slice's accumulated progress.
@@ -269,6 +269,11 @@ Progress stays in `unresolved` until all hinted journals confirm the
 producer committed — this prevents the checkpoint from advancing past
 transactions that are only partially visible.
 
+`progressed` is held back behind `unresolved` (rather than reducing
+directly) so that newer progress — which may itself add fresh hints —
+can't indefinitely starve `unresolved` from fully resolving. Sequencing
+guarantees forward progress.
+
 Once all hints resolve, the frontier promotes to `ready`. When the
 coordinator sends `NextCheckpoint` and `ready` is non-empty, the Session
 drains it as chunked `FrontierChunk` messages.
@@ -278,13 +283,33 @@ previous session. The `recovery_pending` flag gates promotion until the
 coordinator consumes this recovery checkpoint, so that the very first
 checkpoint is exactly the hinted frontier and no more (or less).
 
+#### Peeks of partial progress
+
+In the recovery case, `unresolved` can carry hints whose resolution
+requires reading tens of GB before `ready` becomes available. To avoid
+keeping the coordinator idle (and log segments unscannable) during that
+window, `take_ready` may emit a *peek* of `unresolved` instead: a
+`Frontier` carrying `unresolved_hints == true` and zeroed byte deltas.
+A peek is emitted only when `unresolved` has made progress — any
+producer's `last_commit` advancing — since the last emission.
+
+The same "did `unresolved` make progress?" signal disarms the `on_tick`
+stall timeout: it fires only when no progress at all occurs between
+two consecutive ticks.
+
 ### 12. Coordinator Receives Checkpoint
 
-The coordinator receives `NextCheckpoint` chunks, reassembles the
-frontier, and processes the transaction: reading documents from Log
-files up to each producer's `last_commit` clock. After completing
-downstream processing, it merges the delta into its base checkpoint and
-requests the next one.
+The coordinator receives `NextCheckpoint` chunks and reassembles a
+`Frontier`. It may process the frontier (e.g. log scanning up to each
+producer's `last_commit`) regardless of `unresolved_hints`. But for a
+**transactional boundary** the coordinator must keep calling
+`next_checkpoint()` until it receives a `Frontier` with
+`unresolved_hints == false` — only then has the pipeline produced a
+fully-resolved checkpoint.
+
+After completing downstream processing on a fully-resolved frontier, the
+coordinator merges the delta into its base checkpoint and requests the
+next one.
 
 ## Key Types
 
@@ -311,7 +336,7 @@ requests the next one.
   - `producer.rs`: Per-producer state tracking and flush frontier
     construction.
   - `read.rs`: ReadState, document metadata extraction, journal probing.
-  - `routing.rs`: Clock rotation and member routing.
+  - `routing.rs`: Clock rotation and shard routing.
   - `heap.rs`: Priority heap for ready reads.
 - `log/`: Log actor, append merge heap, flush IO.
   - `log/block/`: Zero-copy types for working with segmented log blocks.

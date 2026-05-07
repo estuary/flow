@@ -33,7 +33,7 @@ type PartitionId = u8;
 
 #[derive(Clone, Debug)]
 struct TestCase {
-    num_members: usize,
+    num_shards: usize,
     num_producers: usize,
     rounds: Vec<Round>,
 }
@@ -60,7 +60,7 @@ enum Action {
 
 impl Arbitrary for TestCase {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        let num_members = 1 + usize::arbitrary(g) % 3;
+        let num_shards = 1 + usize::arbitrary(g) % 3;
         let num_producers = 1 + usize::arbitrary(g) % MAX_PRODUCERS;
         let num_rounds = 1 + usize::arbitrary(g) % MAX_ROUNDS;
         let mut retired: HashSet<ProducerId> = HashSet::new();
@@ -113,7 +113,7 @@ impl Arbitrary for TestCase {
         }
 
         TestCase {
-            num_members,
+            num_shards,
             num_producers,
             rounds,
         }
@@ -211,13 +211,11 @@ fn get_harness() -> &'static SharedHarness {
                     .expect("bind shuffle server");
                 let endpoint = format!("http://{}", listener.local_addr().unwrap());
 
-                let service = {
+                let factory: gazette::journal::ClientFactory = Arc::new({
                     let journal_client = data_plane.journal_client.clone();
-                    shuffle::Service::new(
-                        endpoint,
-                        Box::new(move |_collection, _task| journal_client.clone()),
-                    )
-                };
+                    move |_authz_sub, _authz_obj| journal_client.clone()
+                });
+                let service = shuffle::Service::new(endpoint, factory);
 
                 let server = service.clone().build_tonic_server();
                 let server_handle = tokio::spawn(async move {
@@ -273,11 +271,11 @@ fn build_task(spec: &flow::MaterializationSpec) -> shuffle::proto::Task {
     }
 }
 
-fn build_members(
+fn build_shards(
     count: u32,
     endpoint: &str,
     directory: &std::path::Path,
-) -> Vec<shuffle::proto::Member> {
+) -> Vec<shuffle::proto::Shard> {
     (0..count)
         .map(|i| {
             let key_begin = if i == 0 {
@@ -291,7 +289,7 @@ fn build_members(
                 (((i + 1) as u64 * (u32::MAX as u64 + 1)) / count as u64 - 1) as u32
             };
 
-            shuffle::proto::Member {
+            shuffle::proto::Shard {
                 range: Some(flow::RangeSpec {
                     key_begin,
                     key_end,
@@ -315,15 +313,21 @@ fn make_publisher(
     journal_client: &gazette::journal::Client,
     producer: uuid::Producer,
 ) -> publisher::Publisher {
-    let client_factory: publisher::JournalClientFactory = Arc::new({
+    let factory: gazette::journal::ClientFactory = Arc::new({
         let journal_client = journal_client.clone();
-        move |_collection, _task_name| journal_client.clone()
+        move |_authz_sub, _authz_obj| journal_client.clone()
     });
 
-    let bindings = publisher::Binding::from_capture_spec(capture_spec, &client_factory)
+    let bindings = publisher::Binding::from_capture_spec(capture_spec)
         .expect("build bindings from capture spec");
 
-    publisher::Publisher::new(bindings, producer, uuid::Clock::default())
+    publisher::Publisher::new(
+        String::new(), // Empty AuthZ subject.
+        bindings,
+        factory,
+        producer,
+        uuid::Clock::default(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -511,13 +515,13 @@ async fn write_actions(
                     commit_clock,
                     journals,
                 )]);
-                state.publisher.write_intents(&intents).await.unwrap();
-                state.last_committed_clock = commit_clock;
                 for (journal, _) in &intents {
                     state
                         .journal_committed_clocks
                         .insert(journal.clone(), commit_clock);
                 }
+                state.publisher.write_intents(intents).await.unwrap();
+                state.last_committed_clock = commit_clock;
                 commit_clocks.insert(prod_id, commit_clock);
             }
             Action::ContinueRollback { continues } => {
@@ -553,21 +557,21 @@ async fn write_actions(
                 // times. Using the wrong clock causes AckPartialCommit errors
                 // when the global clock falls between a journal's last_commit
                 // and its pending max_continue.
-                let rollback_acks: Vec<(String, Vec<serde_json::Value>)> = journals
+                let rollback_acks: Vec<(String, bytes::Bytes)> = journals
                     .iter()
                     .filter_map(|journal| {
                         let clock = state.journal_committed_clocks.get(journal)?;
                         let ack_uuid = uuid::build(state.producer, *clock, uuid::Flags::ACK_TXN);
-                        Some((
-                            journal.clone(),
-                            vec![serde_json::json!({
-                                "_meta": { "uuid": ack_uuid },
-                                "is_ack": true,
-                            })],
-                        ))
+                        let doc = serde_json::json!({
+                            "_meta": { "uuid": ack_uuid },
+                            "is_ack": true,
+                        });
+                        let mut buf = serde_json::to_vec(&doc).unwrap();
+                        buf.push(b'\n');
+                        Some((journal.clone(), bytes::Bytes::from(buf)))
                     })
                     .collect();
-                state.publisher.write_intents(&rollback_acks).await.unwrap();
+                state.publisher.write_intents(rollback_acks).await.unwrap();
             }
         }
     }
@@ -632,7 +636,7 @@ fn polling_complete(
 
 /// Client-side hints projection: project last_commit → hinted_commit.
 fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
-    let journals = round_frontier
+    let journals: Vec<shuffle::JournalFrontier> = round_frontier
         .journals
         .iter()
         .map(|jf| shuffle::JournalFrontier {
@@ -643,7 +647,7 @@ fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
                 .iter()
                 .map(|pf| shuffle::ProducerFrontier {
                     producer: pf.producer,
-                    last_commit: uuid::Clock::default(),
+                    last_commit: uuid::Clock::zero(),
                     hinted_commit: pf.last_commit,
                     offset: 0,
                 })
@@ -653,7 +657,11 @@ fn project_hints(round_frontier: &shuffle::Frontier) -> shuffle::Frontier {
         })
         .collect();
 
+    // Each producer has `last_commit: zero` and a non-zero `hinted_commit`,
+    // so the unresolved count is the total producer count across journals.
+    let unresolved_hints = journals.iter().map(|jf| jf.producers.len()).sum();
     shuffle::Frontier {
+        unresolved_hints,
         journals,
         flushed_lsn: vec![],
     }
@@ -691,21 +699,21 @@ fn parse_entry(entry: &shuffle::log::reader::Entry) -> (ProducerId, u64, Partiti
 fn collect_scanned_entries(
     frontier: &shuffle::Frontier,
     log_dir: &std::path::Path,
-    member_state: &mut Vec<Option<(Reader, VecDeque<Remainder>)>>,
+    shard_state: &mut Vec<Option<(Reader, VecDeque<Remainder>)>>,
 ) -> Vec<(ProducerId, u64, PartitionId)> {
     let mut entries = Vec::new();
 
-    for (member_index, state_slot) in member_state.iter_mut().enumerate() {
+    for (shard_index, state_slot) in shard_state.iter_mut().enumerate() {
         let (reader, remainders) = state_slot
             .take()
-            .unwrap_or_else(|| (Reader::new(log_dir, member_index as u32), VecDeque::new()));
+            .unwrap_or_else(|| (Reader::new(log_dir, shard_index as u32), VecDeque::new()));
 
         let mut scan = FrontierScan::new(frontier.clone(), reader, remainders)
-            .unwrap_or_else(|e| panic!("FrontierScan::new for member {member_index}: {e}"));
+            .unwrap_or_else(|e| panic!("FrontierScan::new for shard {shard_index}: {e}"));
 
         while scan
             .advance_block()
-            .unwrap_or_else(|e| panic!("advance_block for member {member_index}: {e}"))
+            .unwrap_or_else(|e| panic!("advance_block for shard {shard_index}: {e}"))
         {
             for entry in scan.block_iter() {
                 entries.push(parse_entry(&entry));
@@ -766,8 +774,8 @@ async fn run_test_case_inner(
 
     let mut oracle = Oracle::new();
     let task = build_task(&harness.materialization_spec);
-    let members = build_members(
-        test_case.num_members as u32,
+    let shards = build_shards(
+        test_case.num_shards as u32,
         harness.service.peer_endpoint(),
         log_dir,
     );
@@ -777,15 +785,15 @@ async fn run_test_case_inner(
     let mut session = shuffle::SessionClient::open(
         &harness.service,
         task.clone(),
-        members.clone(),
+        shards.clone(),
         recovery.clone(),
     )
     .await
     .map_err(|e| format!("SessionClient::open: {e}"))?;
     tracing::debug!("  session opened");
 
-    let mut member_state: Vec<Option<(Reader, VecDeque<Remainder>)>> =
-        (0..test_case.num_members).map(|_| None).collect();
+    let mut shard_state: Vec<Option<(Reader, VecDeque<Remainder>)>> =
+        (0..test_case.num_shards).map(|_| None).collect();
     let mut next_round_pre_written = false;
 
     for (round_idx, round) in test_case.rounds.iter().enumerate() {
@@ -841,6 +849,7 @@ async fn run_test_case_inner(
         let mut round_frontier = shuffle::Frontier {
             journals: vec![],
             flushed_lsn: recovery.flushed_lsn.clone(),
+            unresolved_hints: 0,
         };
 
         // STEP 3: POLL CHECKPOINTS.
@@ -861,7 +870,9 @@ async fn run_test_case_inner(
                     "updated round_frontier after reducing delta"
                 );
 
-                if polling_complete(&round_frontier, &commit_clocks) {
+                if round_frontier.unresolved_hints == 0
+                    && polling_complete(&round_frontier, &commit_clocks)
+                {
                     tracing::debug!("polling is complete");
                     break;
                 }
@@ -893,12 +904,12 @@ async fn run_test_case_inner(
                 jf.bytes_behind_delta = 0;
             });
 
-            member_state = (0..test_case.num_members).map(|_| None).collect();
+            shard_state = (0..test_case.num_shards).map(|_| None).collect();
 
             session = shuffle::SessionClient::open(
                 &harness.service,
                 task.clone(),
-                members.clone(),
+                shards.clone(),
                 recovery.clone(),
             )
             .await
@@ -907,25 +918,34 @@ async fn run_test_case_inner(
             round_frontier = shuffle::Frontier {
                 journals: vec![],
                 flushed_lsn: recovery.flushed_lsn.clone(),
+                unresolved_hints: 0,
             };
 
-            if recovery.count_unresolved_hints() > 0 {
-                let recovery_delta = session
-                    .next_checkpoint()
-                    .await
-                    .map_err(|e| format!("recovery next_checkpoint: {e}"))?;
-                round_frontier = recovery_delta;
+            if recovery.unresolved_hints != 0 {
+                // Loop past peeks until the recovery checkpoint fully resolves.
+                loop {
+                    let recovery_delta = session
+                        .next_checkpoint()
+                        .await
+                        .map_err(|e| format!("recovery next_checkpoint: {e}"))?;
+
+                    round_frontier = round_frontier.reduce(recovery_delta);
+
+                    if round_frontier.unresolved_hints == 0 {
+                        break;
+                    }
+                }
             }
         }
 
         // STEP 7: SCAN.
         // Skip scanning when there's no log data yet (flushed_lsn is empty before
         // any checkpoint has been received). FrontierScan::new requires flushed_lsn
-        // to contain an entry for our member_index.
+        // to contain an entry for our shard_index.
         let scanned = if round_frontier.flushed_lsn.is_empty() {
             vec![]
         } else {
-            collect_scanned_entries(&round_frontier, log_dir, &mut member_state)
+            collect_scanned_entries(&round_frontier, log_dir, &mut shard_state)
         };
         oracle.verify_round(&scanned).map_err(|e| {
             format!("Round {round_idx} verification failed: {e}\n  Test case: {test_case:?}")

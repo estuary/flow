@@ -497,6 +497,9 @@ impl TestHarness {
             del_processing_alerts as (
                 delete from alert_data_processing
             ),
+            del_alert_configs as (
+                delete from alert_configs
+            ),
             del_alert_history as (
                 delete from alert_history
             ),
@@ -596,7 +599,7 @@ impl TestHarness {
 
     pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
         let mut txn = self.pool.begin().await.unwrap();
-        control_plane_api::directives::grant::upsert_user_grant(
+        control_plane_api::grants::upsert_user_grant(
             user_id,
             role,
             capability,
@@ -1149,9 +1152,6 @@ impl TestHarness {
                 handler: self.discover_handler.clone(),
             }),
             task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
-            task_types::DATA_MOVEMENT_ALERT_EVALS => Server::new().register(
-                crate::alerts::new_data_movement_alerts_executor(std::time::Duration::from_mins(5)),
-            ),
             task_types::TENANT_ALERT_EVALS => Server::new().register(
                 crate::alerts::new_tenant_alerts_executor(std::time::Duration::from_mins(5)),
             ),
@@ -1606,10 +1606,13 @@ impl TestHarness {
             refresh: app.snapshot.token(),
             retry_after: tokens::DateTime::UNIX_EPOCH,
             started: tokens::now(),
+            locale: control_plane_api::Locale::EnUS,
         };
 
         // Create GraphQL schema
-        let schema = control_plane_api::server::public::graphql::create_schema();
+        let schema = control_plane_api::server::public::graphql::create_schema(
+            models::AlertConfig::default(),
+        );
 
         // Create GraphQL request
         let request = async_graphql::Request::new(query)
@@ -1686,6 +1689,30 @@ impl TestHarness {
         ));
 
         self.control_plane_app = Some(app);
+    }
+
+    /// Inserts or updates an `alert_configs` row with the given
+    /// `catalog_prefix_or_name` and JSON config. Used by tests exercising
+    /// per-task / per-prefix alert threshold overrides.
+    pub async fn upsert_alert_config(
+        &self,
+        catalog_prefix_or_name: &str,
+        config: serde_json::Value,
+    ) {
+        sqlx::query!(
+            r#"
+            insert into alert_configs (catalog_prefix_or_name, config)
+            values ($1, $2)
+            on conflict (catalog_prefix_or_name) do update set
+                config = excluded.config,
+                updated_at = now()
+            "#,
+            catalog_prefix_or_name,
+            sqlx::types::Json(&config) as sqlx::types::Json<&serde_json::Value>,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to upsert alert_configs row");
     }
 }
 
@@ -2004,6 +2031,32 @@ impl ControlPlane for TestControlPlane {
         catalog_name: String,
     ) -> anyhow::Result<Option<DateTime<Utc>>> {
         self.inner.fetch_last_data_movement_ts(catalog_name).await
+    }
+
+    async fn resolved_alert_config(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<crate::controllers::ResolvedAlertConfig> {
+        self.inner.resolved_alert_config(catalog_name).await
+    }
+
+    async fn fetch_legacy_data_movement_stalled_threshold(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<Option<chrono::Duration>> {
+        self.inner
+            .fetch_legacy_data_movement_stalled_threshold(catalog_name)
+            .await
+    }
+
+    async fn fetch_bytes_processed_since(
+        &self,
+        catalog_name: String,
+        since: DateTime<Utc>,
+    ) -> anyhow::Result<i64> {
+        self.inner
+            .fetch_bytes_processed_since(catalog_name, since)
+            .await
     }
 
     async fn delete_shard_failures(

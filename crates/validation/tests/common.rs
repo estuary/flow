@@ -296,6 +296,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             expect_pub_id: None,
             shards: models::ShardTemplate::default(),
             source: None,
+            target_naming: None,
             triggers: None,
             delete: false,
             reset: false,

@@ -66,11 +66,12 @@ Use the below properties to configure a Databricks materialization, which will d
 
 #### Bindings
 
-| Property         | Title              | Description                                                | Type    | Required/Default |
-|------------------|--------------------|------------------------------------------------------------|---------|------------------|
-| **`/table`**     | Table              | Table name                                                 | string  | Required         |
-| `/schema`        | Alternative Schema | Alternative schema for this table                          | string  | Required         |
-| `/delta_updates` | Delta updates      | Whether to use standard or [delta updates](#delta-updates) | boolean | `false`          |
+| Property                       | Title                       | Description                                                  | Type    | Required/Default |
+|--------------------------------|-----------------------------|--------------------------------------------------------------|---------|------------------|
+| **`/table`**                   | Table                       | Table name                                                   | string  | Required         |
+| `/schema`                      | Alternative Schema          | Alternative schema for this table                            | string  | Required         |
+| `/delta_updates`               | Delta updates               | Whether to use standard or [delta updates](#delta-updates)   | boolean | `false`          |
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run after table is created. See [Additional Table Create SQL](./PostgreSQL/PostgreSQL.md#additional-table-create-sql) for usage examples. | string |                  |
 
 ### Sample
 

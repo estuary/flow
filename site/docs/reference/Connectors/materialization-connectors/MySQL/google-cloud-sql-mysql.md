@@ -141,10 +141,11 @@ authorize the client.
 
 #### Bindings
 
-| Property         | Title        | Description                                                                                                        | Type    | Required/Default |
-| ---------------- | ------------ | ------------------------------------------------------------------------------------------------------------------ | ------- | ---------------- |
-| **`/table`**     | Table        | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string  | Required         |
-| `/delta_updates` | Delta Update | Should updates to this table be done via delta updates.                                                            | boolean | `false`          |
+| Property                       | Title                       | Description                                                                                                        | Type    | Required/Default |
+| ------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------- | ---------------- |
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run after the table is created.                                                  | string  |                  |
+| `/delta_updates`               | Delta Update                | Should updates to this table be done via delta updates.                                                            | boolean | `false`          |
+| **`/table`**                   | Table                       | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string  | Required         |
 
 ### Sample
 

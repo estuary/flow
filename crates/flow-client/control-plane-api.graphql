@@ -80,6 +80,60 @@ type Alert {
 	resolvedArguments: JSON
 }
 
+"""
+A single row from `public.alert_configs`.
+"""
+type AlertConfigEntry {
+	id: Id!
+	catalogPrefixOrName: String!
+	config: JSON!
+	detail: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	lastModifiedBy: UUID
+	"""
+	The fully-resolved effective config at this scope, merging all
+	ancestor prefix layers and controller defaults.
+	"""
+	effective: EffectiveAlertConfig!
+}
+
+type AlertConfigEntryConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [AlertConfigEntryEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type AlertConfigEntryEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: AlertConfigEntry!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+Optional filter for the `alertConfigs` query. When omitted, all accessible
+rows are returned.
+"""
+input AlertConfigsFilter {
+	"""
+	Filter on the `catalog_prefix_or_name` column.
+	"""
+	catalogPrefixOrName: PrefixFilter
+}
+
 type AlertConnection {
 	"""
 	Information to aid in pagination.
@@ -302,6 +356,146 @@ type ConnectionHealthTestResult {
 }
 
 """
+A connector from the Estuary connector catalog, identified by its OCI image
+name (e.g. "ghcr.io/estuary/source-postgres"). Use `defaultSpec` to get the
+configuration schemas for the blessed image tag, or `spec(imageTag)` for a
+specific version.
+"""
+type Connector {
+	"""
+	Unique id of the connector
+	"""
+	id: Id!
+	"""
+	Timestamp of when the connector was first created
+	"""
+	createdAt: DateTime!
+	"""
+	Link to an external site with more information about the endpoint
+	"""
+	externalUrl: String!
+	"""
+	Name of the connector's OCI (Docker) container image, for example "ghcr.io/estuary/source-postgres"
+	"""
+	imageName: String!
+	"""
+	Whether this connector should appear in a promoted position in connector listings
+	"""
+	recommended: Boolean!
+	"""
+	The title, a few words at most
+	"""
+	title: String
+	"""
+	The connector's logo image, represented as a URL per locale
+	"""
+	logoUrl: String
+	"""
+	A string that contains a list of connector details (latency, batch, etc.)
+	"""
+	detail: String
+	"""
+	The protocol of this connector (capture or materialization).
+	"""
+	protocol: ConnectorProto
+	"""
+	Look up the spec for a specific image tag of this connector.
+	"""
+	spec(
+		"""
+		the OCI Image tag, including the leading ':', e.g. ':v1'
+		"""
+		imageTag: String!
+	): ConnectorSpec
+	"""
+	The spec for this connector's default (blessed) image tag. This is the
+	spec that should be used when configuring newly created tasks.
+	"""
+	defaultSpec: ConnectorSpec
+	"""
+	The blessed image tag for newly created tasks using this connector.
+	Resolved as the lexicographically highest image tag among tags with
+	a complete spec, e.g. `:v2` wins over `:v1`, `:v1` wins over `:dev`.
+	"""
+	defaultImageTag: String
+}
+
+type ConnectorConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [ConnectorEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type ConnectorEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Connector!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+The type of task that the connector is used for. Derivation connectors
+exist but are not yet represented in this API.
+"""
+enum ConnectorProto {
+	capture
+	materialization
+}
+
+"""
+The resolved specification for a connector at a particular image tag.
+Includes the JSON schemas needed to configure the connector's endpoint
+and resources.
+"""
+type ConnectorSpec {
+	"""
+	The database ID of the connector_tags row backing this spec.
+	"""
+	id: Id! @deprecated(reason: "Not intended to be part of the public API. To be removed once downstream components no longer depend on this field.")
+	"""
+	The OCI Image tag this spec was resolved from, including the leading `:`. For example `:v1`.
+	This may differ from the requested tag if the request fell back to the default.
+	"""
+	imageTag: String!
+	"""
+	The protocol of the connector (capture or materialization)
+	"""
+	protocol: ConnectorProto
+	"""
+	URL pointing to the documentation page for this connector
+	"""
+	documentationUrl: String
+	"""
+	Endpoint configuration JSON Schema. Returned as raw JSON because JSON Schema is a recursive format that cannot be meaningfully decomposed into GraphQL fields.
+	"""
+	endpointSpecSchema: JSON
+	"""
+	Resource configuration JSON Schema. Returned as raw JSON because JSON Schema is a recursive format that cannot be meaningfully decomposed into GraphQL fields.
+	"""
+	resourceSpecSchema: JSON
+	"""
+	Whether backfill should be disabled for this connector
+	"""
+	disableBackfill: Boolean!
+	"""
+	The default interval between invocations of a capture using this connector. Formatted as HH:MM:SS. Only applicable to non-streaming (polling) capture connectors.
+	"""
+	defaultCaptureInterval: String
+}
+
+"""
 The shape of a connector status, which matches that of an ops::Log.
 """
 type ConnectorStatus {
@@ -322,6 +516,20 @@ type ConnectorStatus {
 	specific fields and their meanings are entirely up to the connector.
 	"""
 	fields: JSONObject!
+}
+
+"""
+Filters for the paginated `connectors` query.
+"""
+input ConnectorsFilter {
+	"""
+	Filter by connector protocol. Only connectors with at least one version matching this protocol will be returned.
+	"""
+	protocol: ProtocolFilter
+	"""
+	Filter by whether the connector is recommended.
+	"""
+	recommended: Boolean
 }
 
 """
@@ -493,6 +701,11 @@ type DiscoverChange {
 	disable: Boolean!
 }
 
+type EffectiveAlertConfig {
+	config: JSON!
+	provenance: [FieldProvenance!]!
+}
+
 """
 A generic error that can be associated with a particular draft spec for a given operation.
 """
@@ -500,6 +713,11 @@ type Error {
 	catalogName: String!
 	scope: String
 	detail: String!
+}
+
+type FieldProvenance {
+	path: String!
+	source: String
 }
 
 scalar Id
@@ -645,6 +863,11 @@ type LiveSpec {
 	be empty if this spec is a not a collection.
 	"""
 	readBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection
+	"""
+	The fully-resolved effective alert config for this task, merging all
+	ancestor prefix layers and controller defaults.
+	"""
+	effectiveAlertConfig: EffectiveAlertConfig!
 }
 
 """
@@ -807,6 +1030,22 @@ type MutationRoot {
 	"""
 	testConnectionHealth(catalogPrefix: Prefix!, spec: JSON!): ConnectionHealthTestResult!
 	"""
+	Creates or replaces the alert config at `catalogPrefixOrName`.
+	
+	`catalogPrefixOrName` is either a catalog prefix ending in `/`
+	(applies to all tasks under that prefix) or an exact catalog name
+	with no trailing slash (applies to that single task). Exact catalog
+	names must refer to a task that currently exists in `live_specs`;
+	prefixes have no such constraint.
+	
+	To clear all configured overrides while keeping the row, pass an empty
+	`{}` config.
+	
+	If `detail` is omitted or `null` on update, the existing `detail`
+	value is preserved.
+	"""
+	updateAlertConfig(catalogPrefixOrName: String!, config: JSON!, detail: String): UpdateAlertConfigResult!
+	"""
 	Creates a new alert subscription. Returns an error if there is already
 	an existing subscription for the same prefix and email address.
 	"""
@@ -929,6 +1168,16 @@ input PrefixesBy {
 }
 
 """
+Filter connectors by their protocol (capture or materialization).
+"""
+input ProtocolFilter {
+	"""
+	Match connectors that have at least one version with this protocol.
+	"""
+	eq: ConnectorProto!
+}
+
+"""
 Summary of a publication that was attempted by a controller.
 """
 type PublicationInfo {
@@ -1018,6 +1267,15 @@ type QueryRoot {
 	"""
 	alerts(by: AlertsBy!, before: String, last: Int, after: String, first: Int): AlertConnection!
 	"""
+	Lists alert-config rows visible to the caller.
+	
+	Results are limited to readable prefixes and sorted by
+	`catalog_prefix_or_name`. `filter.catalogPrefixOrName.startsWith` can
+	narrow the results further. Passing a full catalog name returns at
+	most one exact-name row.
+	"""
+	alertConfigs(filter: AlertConfigsFilter, after: String, first: Int): AlertConfigEntryConnection!
+	"""
 	Returns all possible alert types with their user-facing metadata.
 	"""
 	alertTypes: [AlertTypeInfo!]!
@@ -1047,6 +1305,37 @@ type QueryRoot {
 	capability, optionally narrowed by a prefix filter.
 	"""
 	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
+	"""
+	Resolve the spec for a full OCI image name (e.g.
+	"ghcr.io/estuary/source-postgres:v1"). If the requested tag is not
+	available, falls back to the default tag. Check the returned `imageTag`
+	field to see which tag was actually resolved.
+	"""
+	connectorSpec(
+		"""
+		the full OCI image name, including the version tag, e.g. 'ghcr.io/estuary/source-foo:v1'
+		"""
+		fullImageName: String!
+	): ConnectorSpec
+	"""
+	Returns information about a single connector. At least one parameter
+	must be provided. If both are provided, the connector must match both
+	the image name and id in order to be returned.
+	"""
+	connector(
+		"""
+		the OCI image name, without a version tag, e.g. 'ghcr.io/estuary/source-foo'
+		"""
+		imageName: String,
+		"""
+		the id of the connector, with or without ':' separators, e.g. '1122334455aabbcc'
+		"""
+		id: Id
+	): Connector
+	"""
+	Returns a paginated list of connectors, optionally filtered by protocol.
+	"""
+	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 }
 
 """
@@ -1436,6 +1725,15 @@ entities without requiring a central allocating authority.
 scalar UUID
 
 """
+Result of the `updateAlertConfig` mutation.
+"""
+type UpdateAlertConfigResult {
+	id: Id!
+	catalogPrefixOrName: String!
+	created: Boolean!
+}
+
+"""
 Result of updating a storage mapping.
 """
 type UpdateStorageMappingResult {
@@ -1454,6 +1752,10 @@ URL is a String implementing the [URL Standard](http://url.spec.whatwg.org/)
 """
 scalar Url
 
+"""
+Marks an element of a GraphQL schema as no longer supported.
+"""
+directive @deprecated(reason: String = "No longer supported") on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | ENUM_VALUE
 """
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """

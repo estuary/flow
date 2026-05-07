@@ -453,12 +453,9 @@ pub fn send_connector_store(
     .expect("document serialization cannot fail");
     let mut doc_json = buf.split().freeze();
 
-    doc::Extractor::extract_all_owned_indicate_truncation(
-        &root,
-        &binding.value_extractors,
-        buf,
-        &truncation_indicator,
-    );
+    binding
+        .value_plan
+        .extract_all_owned_indicate_truncation(&root, buf, &truncation_indicator);
     let values_packed = buf.split().freeze();
 
     // Accumulate metrics over reads for our transforms.

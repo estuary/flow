@@ -1,0 +1,57 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/connectors.rs
+expression: "serde_json::json!({\n    \"noTagDelimiter\": no_tag, \"noConnectorParams\": no_params,\n    \"unauthenticated\": unauthed,\n})"
+---
+{
+  "noConnectorParams": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 3,
+            "line": 1
+          }
+        ],
+        "message": "must provide at least one of 'imageName' or 'id' parameters",
+        "path": [
+          "connector"
+        ]
+      }
+    ]
+  },
+  "noTagDelimiter": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 3,
+            "line": 1
+          }
+        ],
+        "message": "image name must be in the form of 'registry/name:version' or 'registry/name@sha256:hash'",
+        "path": [
+          "connectorSpec"
+        ]
+      }
+    ]
+  },
+  "unauthenticated": {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 3,
+            "line": 1
+          }
+        ],
+        "message": "status: 'The request does not have valid authentication credentials', self: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+        "path": [
+          "connectors"
+        ]
+      }
+    ]
+  }
+}
