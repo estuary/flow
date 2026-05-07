@@ -154,6 +154,30 @@ pub enum Error {
         schema: Url,
         strategy: doc::shape::Redact,
     },
+    #[error(
+        "{location} has a `redact` strategy in the read schema but the write schema has \
+         no `redact` at this location; redaction is applied at capture time using the write \
+         schema, so this annotation does not protect stored data. Move the annotation to the \
+         write schema."
+    )]
+    ReadSchemaRedactNotInWriteSchema {
+        location: String,
+        ptr: String,
+        schema: Url,
+        strategy: doc::shape::Redact,
+    },
+    #[error(
+        "{location} inside `$defs/{def_id}` has a `redact` strategy, but `$defs/{def_id}` is a \
+         system-managed schema subtree that is overwritten by discover or validation-time \
+         inlining. Move the annotation to the top level of the schema."
+    )]
+    RedactInsideManagedDefs {
+        location: String,
+        ptr: String,
+        def_id: String,
+        schema: Url,
+        strategy: doc::shape::Redact,
+    },
     #[error("{category} projection {field} does not exist in collection {collection}")]
     NoSuchProjection {
         category: String,
