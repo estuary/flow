@@ -55,9 +55,9 @@ Estuary collections to your bucket.
 
 #### Bindings
 
-| Property    | Title | Description                                    | Type   | Required/Default |
-|-------------|-------|------------------------------------------------|--------|------------------|
-| **`/path`** | Path  | The path that objects will be materialized to. | string | Required         |
+| Property    | Title | Description                                                                                  | Type   | Required/Default |
+|-------------|-------|----------------------------------------------------------------------------------------------|--------|------------------|
+| **`/path`** | Path  | The path that objects will be materialized to.  May contain [date patterns](#date-patterns). | string | Required         |
 
 ### Sample
 
@@ -122,8 +122,9 @@ starting back over from 0.
 
 ### Date Patterns
 
-The **prefix** option of the endpoint configuration can contain patterns that
-are expanded using the time of the start of the transaction.
+The **prefix** option of the endpoint configuration and the **path** of the
+binding configuration can contain patterns that are expanded using the time of
+the start of the transaction.
 
 :::note The transaction time is always represented as UTC.
 :::
