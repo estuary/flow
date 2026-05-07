@@ -1,84 +1,64 @@
-use super::triggers::CompiledTriggers;
-use crate::{LogHandler, Runtime};
 use anyhow::Context;
-use futures::{FutureExt, StreamExt, TryStreamExt, channel::mpsc, stream::BoxStream};
-use proto_flow::{
-    flow::materialization_spec::ConnectorType,
-    materialize::{Request, Response},
-};
+use futures::{FutureExt, StreamExt, TryStreamExt, stream::BoxStream};
+use proto_flow::{flow, materialize};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use unseal;
 use zeroize::Zeroize;
-
-/// Ancillary data extracted during connector start for Open requests.
-pub struct OpenExtras {
-    /// Pre-compiled trigger configurations, if any were specified.
-    pub compiled_triggers: Option<CompiledTriggers>,
-    /// The OCI image name of the connector (empty for non-image connectors).
-    pub connector_image: String,
-}
 
 // Start a materialization connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses,
 // plus OpenExtras with decrypted trigger configs and connector metadata.
-pub async fn start<L: LogHandler>(
-    runtime: &Runtime<L>,
-    mut initial: Request,
+pub async fn start<L: crate::LogHandler>(
+    service: &crate::shard::Service<L>,
+    mut initial: materialize::Request,
 ) -> anyhow::Result<(
-    mpsc::Sender<Request>,
-    BoxStream<'static, anyhow::Result<Response>>,
-    OpenExtras,
+    mpsc::Sender<materialize::Request>,
+    BoxStream<'static, tonic::Result<materialize::Response>>,
+    Option<crate::proto::Container>,
 )> {
     let log_level = initial.get_internal()?.log_level();
     let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
-    let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
-
-    fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
-        response.set_internal(|internal| {
-            internal.container = Some(container);
-        });
-    }
+    let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
     fn start_rpc(
         channel: tonic::transport::Channel,
-        rx: mpsc::Receiver<Request>,
-    ) -> crate::image_connector::StartRpcFuture<Response> {
+        rx: mpsc::Receiver<materialize::Request>,
+    ) -> crate::image_connector::StartRpcFuture<materialize::Response> {
         async move {
             proto_grpc::materialize::connector_client::ConnectorClient::new(channel)
                 .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
                 .max_encoding_message_size(usize::MAX)
-                .materialize(rx)
+                .materialize(ReceiverStream::new(rx))
                 .await
         }
         .boxed()
     }
 
-    let (mut connector_rx, connector_image) = match endpoint {
+    let (mut connector_rx, container) = match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
         }) => {
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
-            let rx = crate::image_connector::serve(
-                attach_container,
-                1, // Skip first (internal) Spec response.
+            let (rx, container) = crate::image_connector::serve(
                 image.clone(),
-                runtime.log_handler.clone(),
+                service.log_handler.clone(),
                 log_level,
-                &runtime.container_network,
+                &service.container_network,
                 connector_rx,
                 start_rpc,
-                &runtime.task_name,
+                &service.task_name,
                 ops::TaskType::Materialization,
-                runtime.plane,
+                service.plane,
             )
-            .await?
-            .boxed();
+            .await?;
 
-            (rx, image)
+            (rx.boxed(), Some(container))
         }
         models::MaterializationEndpoint::Local(_)
-            if !matches!(runtime.plane, crate::Plane::Local) =>
+            if !matches!(service.plane, crate::Plane::Local) =>
         {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
@@ -96,36 +76,37 @@ pub async fn start<L: LogHandler>(
             let rx = crate::local_connector::serve(
                 command,
                 env,
-                runtime.log_handler.clone(),
+                service.log_handler.clone(),
                 log_level,
                 protobuf,
                 connector_rx,
             )?
             .boxed();
 
-            (rx, String::new())
+            (rx, None)
         }
-        models::MaterializationEndpoint::Dekaf(_) => (
-            dekaf_connector::connector(connector_rx).boxed(),
-            String::new(),
-        ),
+        models::MaterializationEndpoint::Dekaf(_) => {
+            let rx = dekaf_connector::connector(ReceiverStream::new(connector_rx))
+                .map_err(crate::anyhow_to_status)
+                .boxed();
+
+            (rx, None)
+        }
     };
 
     // Send an initial Spec request which may direct us to perform an IAM token exchange.
-    connector_tx
-        .try_send(Request {
-            spec: Some(proto_flow::materialize::request::Spec {
-                config_json: "{}".into(),
-                connector_type: connector_type,
-            }),
-            ..Default::default()
-        })
-        .unwrap();
+    _ = connector_tx.try_send(materialize::Request {
+        spec: Some(materialize::request::Spec {
+            config_json: "{}".into(),
+            connector_type: connector_type,
+        }),
+        ..Default::default()
+    });
 
-    let verify = crate::verify("connector", "spec response");
-    let spec_response = match verify.not_eof(connector_rx.try_next().await?)? {
-        Response { spec: Some(r), .. } => r,
-        response => return verify.fail(response),
+    let verify = crate::verify("Materialize", "spec response", "connector");
+    let spec_response = match verify.not_eof(connector_rx.next().await)? {
+        materialize::Response { spec: Some(r), .. } => r,
+        response => return Err(verify.fail_msg(response)),
     };
 
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
@@ -143,57 +124,13 @@ pub async fn start<L: LogHandler>(
             tokens.zeroize();
         }
     }
+    _ = connector_tx.try_send(initial);
 
-    // Decrypt trigger configs and pre-compile their Handlebars templates.
-    let triggers_json = initial
-        .open
-        .as_ref()
-        .and_then(|open| open.materialization.as_ref())
-        .map(|s| &s.triggers_json)
-        .filter(|b| !b.is_empty());
-
-    let compiled_triggers = match triggers_json {
-        None => None,
-        Some(triggers_json) => {
-            let mut triggers: models::Triggers =
-                serde_json::from_slice(triggers_json).context("parsing triggers JSON")?;
-
-            // Strip HMAC-excluded fields before decryption (they were stripped
-            // during encryption so SOPS HMAC doesn't cover them), then restore.
-            let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
-            let stripped = models::RawValue::from_value(
-                &serde_json::to_value(&triggers).context("serializing stripped triggers")?,
-            );
-
-            let mut decrypted: models::Triggers = serde_json::from_str(
-                unseal::decrypt_sops(&stripped)
-                    .await
-                    .context("decrypting triggers_json")?
-                    .get(),
-            )
-            .context("parsing decrypted triggers JSON")?;
-
-            models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
-
-            Some(
-                CompiledTriggers::compile(decrypted.config)
-                    .context("compiling trigger templates")?,
-            )
-        }
-    };
-
-    let open_extras = OpenExtras {
-        compiled_triggers,
-        connector_image,
-    };
-
-    connector_tx.try_send(initial).unwrap();
-
-    Ok((connector_tx, connector_rx, open_extras))
+    Ok((connector_tx, connector_rx, container))
 }
 
 fn extract_endpoint<'r>(
-    request: &'r mut Request,
+    request: &'r mut materialize::Request,
 ) -> anyhow::Result<(
     models::MaterializationEndpoint,
     &'r mut bytes::Bytes,
@@ -201,10 +138,10 @@ fn extract_endpoint<'r>(
     Option<String>,
 )> {
     let (connector_type, config_json, catalog_name) = match request {
-        Request {
+        materialize::Request {
             spec: Some(spec), ..
         } => (spec.connector_type, &mut spec.config_json, None),
-        Request {
+        materialize::Request {
             validate: Some(validate),
             ..
         } => (
@@ -212,7 +149,7 @@ fn extract_endpoint<'r>(
             &mut validate.config_json,
             Some(validate.name.clone()),
         ),
-        Request {
+        materialize::Request {
             apply: Some(apply), ..
         } => {
             let catalog_name = apply.materialization.as_ref().map(|m| m.name.clone());
@@ -223,7 +160,7 @@ fn extract_endpoint<'r>(
 
             (inner.connector_type, &mut inner.config_json, catalog_name)
         }
-        Request {
+        materialize::Request {
             open: Some(open), ..
         } => {
             let catalog_name = open.materialization.as_ref().map(|m| m.name.clone());
@@ -234,10 +171,14 @@ fn extract_endpoint<'r>(
 
             (inner.connector_type, &mut inner.config_json, catalog_name)
         }
-        request => return crate::verify("client", "valid first request").fail(request),
+        request => {
+            return Err(
+                crate::verify("Materialize", "valid first request", "controller").fail_msg(request),
+            );
+        }
     };
 
-    if connector_type == ConnectorType::Image as i32 {
+    if connector_type == flow::materialization_spec::ConnectorType::Image as i32 {
         Ok((
             models::MaterializationEndpoint::Connector(
                 serde_json::from_slice(config_json).context("parsing connector config")?,
@@ -246,7 +187,7 @@ fn extract_endpoint<'r>(
             connector_type,
             catalog_name,
         ))
-    } else if connector_type == ConnectorType::Local as i32 {
+    } else if connector_type == flow::materialization_spec::ConnectorType::Local as i32 {
         Ok((
             models::MaterializationEndpoint::Local(
                 serde_json::from_slice(config_json).context("parsing local config")?,
@@ -255,7 +196,7 @@ fn extract_endpoint<'r>(
             connector_type,
             catalog_name,
         ))
-    } else if connector_type == ConnectorType::Dekaf as i32 {
+    } else if connector_type == flow::materialization_spec::ConnectorType::Dekaf as i32 {
         Ok((
             models::MaterializationEndpoint::Dekaf(
                 serde_json::from_slice(config_json).context("parsing local config")?,

@@ -1,18 +1,20 @@
-use super::{Runtime, TokioContext};
+//! CGO entry point: binds a UDS, registers the `Shard` gRPC service, and
+//! serves until cancellation.
+use crate::{proto, shard};
 use anyhow::Context;
+use base64::Engine;
 use futures::FutureExt;
 use futures::channel::oneshot;
-use proto_flow::runtime::TaskServiceConfig;
 
 pub struct TaskService {
     cancel_tx: oneshot::Sender<()>,
-    tokio_context: TokioContext,
+    tokio_context: crate::TokioContext,
     server: tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
 }
 
 impl TaskService {
-    pub fn new(config: TaskServiceConfig, log_file: std::fs::File) -> anyhow::Result<Self> {
-        let TaskServiceConfig {
+    pub fn new(config: proto::TaskServiceConfig, log_file: std::fs::File) -> anyhow::Result<Self> {
+        let proto::TaskServiceConfig {
             log_file_fd: _,
             task_name,
             uds_path,
@@ -24,27 +26,45 @@ impl TaskService {
             anyhow::bail!("uds_path must be an absolute filesystem path");
         }
 
-        // We'll gather logs from tokio-tracing events of our TaskRuntime,
-        // as well as logs which are forwarded from connector container delegates,
-        // and sequence & dispatch them into this task-level `log_handler`.
-        // These are read on the Go side and written to the task ops collection.
+        // Data-plane configuration variables:
+        let data_plane_fqdn =
+            std::env::var("FLOW_DATA_PLANE_FQDN").context("FLOW_DATA_PLANE_FQDN not set")?;
+        let control_api_endpoint =
+            std::env::var("FLOW_CONTROL_API").context("FLOW_CONTROL_API not set")?;
+        let availability_zone = std::env::var("ZONE").unwrap_or_else(|_| "local".to_string());
+        let data_plane_signing_key = first_consumer_auth_key()?;
+
         let log_handler = ::ops::new_encoded_json_write_handler(std::sync::Arc::new(
             std::sync::Mutex::new(log_file),
         ));
-        let tokio_context = TokioContext::new(
+        let tokio_context = crate::TokioContext::new(
             ops::LogLevel::Warn,
             log_handler.clone(),
             task_name.clone(),
             1,
         );
 
-        // Instantiate selected task service definitions.
-        let runtime = Runtime::new(
-            crate::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?,
+        let control_api_endpoint: url::Url =
+            url::Url::parse(&control_api_endpoint).context("invalid control API endpoint URL")?;
+
+        let publisher_factory =
+            flow_client_next::workflows::task_collection_auth::new_journal_client_factory(
+                flow_client_next::rest::Client::new(&control_api_endpoint, "task-service"),
+                proto_gazette::capability::APPEND | proto_gazette::capability::APPLY,
+                gazette::Router::new(&availability_zone),
+                data_plane_fqdn,
+                tokens::jwt::EncodingKey::from_secret(&data_plane_signing_key),
+            );
+
+        std::mem::drop(data_plane_signing_key);
+
+        let shard_svc = shard::Service::new(
+            crate::proto::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?,
             container_network,
             log_handler,
             Some(tokio_context.set_log_level_fn()),
             task_name,
+            publisher_factory,
         );
 
         let uds = tokio_context
@@ -52,24 +72,17 @@ impl TaskService {
             .context("failed to bind task service unix domain socket")?;
         let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
 
-        // Construct a futures::Stream of io::Result<UnisStream>
         let uds_stream = futures::stream::try_unfold(uds, move |uds| async move {
             let (conn, addr) = uds.accept().await?;
             tracing::debug!(?addr, "accepted new unix socket connection");
             Ok::<_, std::io::Error>(Some((conn, uds)))
         });
 
-        // Serve our bound unix domain socket until cancellation.
-        // Upon cancellation, the server will wait until all client RPCs have
-        // completed, and will then immediately tear down client transports.
-        // This means we MUST mask SIGPIPE, because it's quite common for us or our
-        // peer to attempt to send messages over a transport that the other side has torn down.
-        let server =
-            runtime
-                .build_tonic_server()
-                .serve_with_incoming_shutdown(uds_stream, async move {
-                    _ = cancel_rx.await;
-                });
+        let server = tonic::transport::Server::builder()
+            .add_service(shard_svc.into_tonic_service())
+            .serve_with_incoming_shutdown(uds_stream, async move {
+                _ = cancel_rx.await;
+            });
         let server = tokio_context.spawn(server);
 
         Ok(Self {
@@ -102,9 +115,20 @@ impl TaskService {
             }
             .boxed(),
         };
-        // Spawn to log from a runtime thread, then block the current thread awaiting it.
         let () = tokio_context.block_on(tokio_context.spawn(log)).unwrap();
-
-        // TokioContext implements Drop for shutdown.
     }
+}
+
+// Decode the first key from `CONSUMER_AUTH_KEYS`, matching Gazette's
+// `auth.NewKeyedAuth` parsing: comma- or whitespace-separated, base64-encoded
+// keys; the first key signs.
+fn first_consumer_auth_key() -> anyhow::Result<Vec<u8>> {
+    let raw = std::env::var("CONSUMER_AUTH_KEYS").context("CONSUMER_AUTH_KEYS not set")?;
+    let first = raw
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .find(|s| !s.is_empty())
+        .context("CONSUMER_AUTH_KEYS is empty")?;
+    base64::engine::general_purpose::STANDARD
+        .decode(first)
+        .context("CONSUMER_AUTH_KEYS first key is not valid base64")
 }

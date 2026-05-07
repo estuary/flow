@@ -1,5 +1,6 @@
-use futures::{Stream, StreamExt, channel::mpsc};
+use futures::{Stream, StreamExt};
 use std::collections::BTreeMap;
+use tokio::sync::mpsc;
 
 /// Serve a local connector by starting its program and adapting its stdin and stdout.
 pub fn serve<Request, Response>(
@@ -9,7 +10,7 @@ pub fn serve<Request, Response>(
     log_level: ops::LogLevel,            // Log-level of the container, if known.
     protobuf: bool,                      // Whether to use protobuf codec.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
-) -> anyhow::Result<impl Stream<Item = anyhow::Result<Response>> + Send>
+) -> anyhow::Result<impl Stream<Item = tonic::Result<Response>> + Send>
 where
     Request: serde::Serialize + prost::Message + Send + Sync + 'static,
     Response: prost::Message + for<'de> serde::Deserialize<'de> + Default + 'static,
@@ -24,15 +25,15 @@ where
     let mut connector = connector_init::rpc::new_command(&command);
     connector.envs(&env);
 
+    connector.env("LOG_FORMAT", "json");
     connector.env("LOG_LEVEL", log_level.or(ops::LogLevel::Info).as_str_name());
 
     let container_rx = connector_init::rpc::bidi::<Request, Response, _, _>(
         connector,
         codec,
-        request_rx.map(Result::Ok),
+        tokio_stream::wrappers::ReceiverStream::new(request_rx).map(Result::Ok),
         log_handler.clone().as_fn(),
     )?;
-    let container_rx = crate::stream_status_to_error(container_rx);
 
     Ok(container_rx)
 }
