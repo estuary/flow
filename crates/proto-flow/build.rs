@@ -28,6 +28,7 @@ fn main() {
             ".derive",
             ".materialize",
             ".ops",
+            ".runtime",
             ".shuffle",
         ])
         .expect("building pbjson");
@@ -70,6 +71,7 @@ fn main() {
         "./flow.serde.rs",
         "./materialize.serde.rs",
         "./ops.serde.rs",
+        "./runtime.serde.rs",
     ] {
         let root = &b.src_dir;
         let mut buf = std::fs::read_to_string(&root.join(path)).unwrap();
