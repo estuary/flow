@@ -1,0 +1,13 @@
+---
+source: crates/validation/tests/materialization_collection_resets.rs
+expression: "(selections, errors)"
+---
+(
+    [],
+    [
+        Error {
+            scope: test://example/catalog.yaml#/materializations/testing~1materialize/bindings/1,
+            error: raising an error because testing/materialize specifies `onIncompatibleSchemaChange: abort`: this binding must backfill because its source collection testing/reset/b was reset,
+        },
+    ],
+)
