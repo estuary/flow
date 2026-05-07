@@ -13,6 +13,39 @@ However, if you don't have SuiteAnalytics, see the [SuiteQL connector](./netsuit
 
 Estuary discovers all of the tables to which you grant access during [setup](#setup), including `Transactions`, `Reports`, `Lists`, and `Setup`.
 
+## Sync modes and data loading
+
+Each table binding uses one of three sync modes. The connector picks a mode automatically during discovery based on the cursor and key columns it finds for each table; you can override the choice in the binding configuration.
+
+### Incremental
+
+Tables with a date-time column suitable for change tracking (configured via [`log_cursor`](#bindings)) are synced **incrementally**. Most base record tables — such as `Transaction`, `Account`, `Customer`, `Employee`, `Item`, `Subsidiary`, and `Vendor` — have a `lastmodifieddate` column that the connector discovers automatically. Some linking tables, including `TransactionLine`, `NextTransactionLineLink`, `PreviousTransactionLineLink`, `NextTransactionAccountingLineLink`, and `PreviousTransactionAccountingLineLink`, also use `lastmodifieddate` (or `linelastmodifieddate`) for incremental capture.
+
+During incremental sync, the connector queries only for rows modified since the last checkpoint. The polling frequency is controlled by the [`interval`](#bindings) setting (default: 1 hour).
+
+**How to tell if a table is incremental:** check the binding's `log_cursor` field. If it's set (for example, `lastmodifieddate`), the table is incremental.
+
+### Paginated backfill
+
+Tables that have a `page_cursor` but no `log_cursor` are loaded by **paginated backfill** — the connector reads the entire table in ordered pages using the [`page_cursor`](#bindings). To re-read the table on a recurring basis, set a [`schedule`](#setting-a-schedule) cron expression. `TransactionAccountingLine` is an example of a table that defaults to this mode.
+
+### Snapshot
+
+Tables with no usable page cursor are loaded by **snapshot** — the connector executes a single query that returns the entire table, then diffs the result against the previous run's row set to detect deletions. Snapshots run on the binding's [`interval`](#bindings) (rather than on a cron `schedule`) and use `/_meta/row_id` as the collection key. Set [`snapshot_backfill: true`](#bindings) to force this mode for a binding that would otherwise default to paginated backfill.
+
+Do **not** combine `snapshot_backfill` with a cron `schedule` — snapshots manage their own cadence via `interval`, and pairing them with `schedule` will break delete emission.
+
+:::tip Switching from full refresh to incremental
+If a table has a `lastmodifieddate` column (or similar date-time field) that isn't currently configured as the `log_cursor`, you can add it to enable incremental sync. After updating the binding, trigger a backfill to re-read the table from the new cursor's starting point.
+:::
+
+### Delete handling
+
+Estuary captures deletions in two ways:
+
+- **Via the `DeletedRecord` system table.** For base record tables (such as `Transaction`, `Account`, `Customer`, `Subsidiary`, `Currency`, `Department`, `Employee`, `Item`, and `Vendor`), Estuary reads NetSuite's `DeletedRecord` system table and emits a deletion event to the corresponding collection for each row that appears there. **The `DeletedRecord` binding must itself be enabled in your capture for these events to be emitted.** NetSuite does not record deletions in `DeletedRecord` for many linking and junction tables (notably `transactionLine` and `TransactionAccountingLine`).
+- **Via snapshot diffing.** Snapshot bindings detect deletions by comparing each run's `/_meta/row_id` set to the previous run's. Any row that disappears is emitted as a deletion. This is the only built-in mechanism for capturing deletions on tables that aren't covered by `DeletedRecord`. For paginated-backfill bindings on those tables (for example, `transactionLine`), the connector cannot infer deletions on its own — as a workaround, schedule periodic backfills and run a downstream cleanup query that removes rows older than the most recent backfill start time. First-party support for truncations, which would automate this end-to-end, is on the roadmap.
+
 ## Prerequisites
 
 - Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
@@ -203,10 +236,10 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | --- | --- | --- | --- | --- |
 | `/advanced` | Advanced | Advanced options to customize your binding. | object |  |
 | `/advanced/initial_backfill_cursor` | Initial Backfill Cursor | Manually set the starting cursor value for backfill operations. If specified, the backfill will start from this cursor value instead of the table's minimum value. Useful for partial backfills or resuming from a specific point. Only applies to the initial backfill. | int |  |
-| `/advanced/exclude_calculated` | Exclude Calculated Columns | Exclude calculated columns from queries. Keys and cursors are never excluded. | boolean | `false` |
-| `/advanced/exclude_custom` | Exclude Custom Columns | Exclude custom columns from queries. Keys and cursors are never excluded. | boolean | `false`|
-| `/advanced/exclude_hidden` | Exclude Hidden Columns | Exclude hidden columns from queries. Keys and cursors are never excluded. | boolean | `false` |
-| `/advanced/exclude_non_display` | Exclude Non-Display Columns | Exclude non-display columns from queries. Keys and cursors are never excluded. | boolean | `false` |
+| `/advanced/exclude_calculated` | Exclude Calculated Columns | Exclude calculated columns from queries. Keys and cursors are never excluded. | boolean | `true` for newly discovered bindings; `false` for bindings from tasks predating column filtering |
+| `/advanced/exclude_custom` | Exclude Custom Columns | Exclude custom columns from queries. Keys and cursors are never excluded. | boolean | `true` for newly discovered bindings; `false` for bindings from tasks predating column filtering |
+| `/advanced/exclude_hidden` | Exclude Hidden Columns | Exclude hidden columns from queries. Keys and cursors are never excluded. | boolean | `true` for newly discovered bindings; `false` for bindings from tasks predating column filtering |
+| `/advanced/exclude_non_display` | Exclude Non-Display Columns | Exclude non-display columns from queries. Keys and cursors are never excluded. Defaults to `false` because too many useful columns are flagged non-display in NetSuite metadata. | boolean | `false` |
 | `/advanced/extra_columns` | Additional Columns | Columns to include even if they match exclusion criteria. Useful for selectively re-including specific columns that would otherwise be filtered out. Cannot be used with 'Manually Selected Columns'. | string array | `[]` |
 
 ### Sample
@@ -274,12 +307,6 @@ You can find out whether a specific column falls under one of these special type
 
 ## Setting a Schedule
 
-Certain bindings may not be able to load data incrementally. You can instead use the `schedule` field for these bindings.
-This allows you to specify a cron expression to rebackfill the binding.
+The `schedule` field accepts a cron expression that triggers a periodic re-backfill of the binding. It applies only to **paginated backfill** bindings (those with a key and `page_cursor` but no `log_cursor`). Newly discovered paginated bindings default to `0 0 * * *` (daily at midnight UTC).
 
-This is helpful when performing periodic full refreshes using the paginated backfill mode.
-Schedules are only needed when a binding has a key and page cursor, but no log cursor.
-
-The `schedule` setting should **not** be used in conjunction with **snapshot mode**.
-Snapshots manage their own state and run on a schedule set by the `interval` field.
-Attempting to backfill a snapshot using a cron `schedule` will cause issues with emitting deletions.
+Incremental and snapshot bindings should not use `schedule` — incremental bindings keep up via `log_cursor`, and snapshots manage their own cadence via `interval`. See [Sync modes and data loading](#sync-modes-and-data-loading) for details.

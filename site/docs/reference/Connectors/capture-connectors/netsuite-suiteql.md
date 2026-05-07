@@ -23,6 +23,35 @@ Currently, this connector supports a subset of NetSuite tables, such as:
 If you need to capture a table that is not yet supported, [contact support](mailto:support@estuary.dev) with the table name(s).
 Estuary support will be able to confirm availability and, if needed, add the table(s) to the connector.
 
+## Sync modes and data loading
+
+The SuiteQL connector is **full-refresh only** — it does not support incremental change capture. The SuiteQL REST API does not expose the metadata required for incremental replication (no equivalent of SuiteAnalytics' `OA_TABLES`/`OA_COLUMNS`/`OA_FKEYS`), so each binding is re-read from scratch on every run. Use the [`schedule`](#bindings) cron expression to control how often a binding re-runs and picks up new and changed rows.
+
+If incremental sync is required, use the [SuiteAnalytics connector](./netsuite-suiteanalytics.md) instead.
+
+### Paginated backfill vs. snapshot
+
+The connector picks a mode per binding based on whether the table has a configured key:
+
+- **Paginated backfill** — Tables with a key (specified in the endpoint's `tables` config) are read in ordered pages using a `page_cursor` (defaults to the first key field). Each scheduled run starts a new full backfill.
+- **Snapshot** — Tables with no key (for example, `DeletedRecord`, `transactionHistory`, `TransactionStatus`) are read as a single query that returns the entire table. Snapshots run on the binding's `interval` (defaulting to once a day) and use `/_meta/row_id` as the collection key.
+
+### Delete handling
+
+The SuiteQL connector does **not** read NetSuite's `DeletedRecord` table to correlate deletions to other collections. (You can capture `DeletedRecord` itself as a snapshot table for raw access to the deletion log, but the connector won't apply those deletions to other bindings.)
+
+- **Snapshot bindings** detect deletions automatically by comparing each run's `/_meta/row_id` set to the previous run's. Any row that disappears is emitted as a deletion.
+- **Paginated-backfill bindings** do not infer deletions. Rows that are removed from NetSuite remain in the destination until the next scheduled backfill runs, and even then are not deleted automatically — schedule periodic backfills and run a downstream cleanup query that removes rows older than the most recent backfill start time.
+
+## API constraints
+
+SuiteQL has several hard API limits that shape how the connector operates. Plan your bindings with these in mind:
+
+- **No metadata introspection.** Unlike the SuiteAnalytics ODBC driver, SuiteQL has no way to programmatically discover table schemas, primary keys, or foreign keys. The connector relies on a static list of supported tables and keys; if you need a table that isn't supported, [contact support](mailto:support@estuary.dev).
+- **100-column limit.** SuiteQL silently returns zero rows for any query that selects more than 100 columns. To capture wide tables, set the binding's [`columns`](#bindings) field to an explicit list of 100 or fewer columns.
+- **100,000-row result limit.** SuiteQL caps query results at 100,000 rows. For tables with keys, this is not a practical concern: the connector pages through results using the key's sort order, and each page fetches only unread rows. For tables without keys on the other hand, the connector uses a limit-offset strategy. Each subquery must re-examine the full table scan to locate its window of rows, so performance degrades as the table grows. Snapshot bindings are best suited to small reference/lookup tables.
+- **Date-only timestamps.** SuiteQL returns date-time columns as date-only strings. The connector emits these as-is — hour, minute, and second information is not available.
+
 ## Prerequisites
 
 - Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
@@ -172,8 +201,8 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | Property | Title | Description | Type | Required/Default |
 | --- | --- | --- | --- | --- |
 | `/name` | Name | The name of the table this binding refers to | string | Required |
-| `/interval` | Interval | How frequently to check for incremental changes | [`ISO8601` Duration](https://www.digi.com/resources/documentation/digidocs/90001488-13/reference/r_iso_8601_duration_format.htm) | `PT1H` (1 Hour) |
-| `/schedule` | Schedule | Schedule to automatically rebackfill this binding. Accepts a cron expression. | string |  |
+| `/interval` | Interval | How often to re-run the binding. Applies to **snapshot** bindings only — paginated-backfill bindings ignore `interval` and run on `schedule` instead. | [`ISO8601` Duration](https://www.digi.com/resources/documentation/digidocs/90001488-13/reference/r_iso_8601_duration_format.htm) | `P1D` (1 day) for snapshots; ignored for paginated bindings |
+| `/schedule` | Schedule | Cron expression that triggers a periodic re-backfill. Applies to **paginated-backfill** bindings only — snapshots manage their own cadence via `interval`. | string | `0 0 * * *` (daily at midnight UTC) for paginated bindings; empty for snapshots |
 | `/page_cursor` | Page Cursor | Cursor field for paginated backfills | string | Defaults to first key field |
 | `/columns` | Columns | List of columns to select. Empty means `SELECT *` (fails silently if >100 columns). | string array | `[]` |
 | `/query_limit` | Query Limit | Number of rows to fetch per query page | int | `10000` |
@@ -201,7 +230,7 @@ captures:
       bindings:
          - resource:
             name: transaction
-            interval: PT1H
+            schedule: "0 0 * * *"
             page_cursor: id
             columns: []
             query_limit: 10000
