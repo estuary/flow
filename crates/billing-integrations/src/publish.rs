@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use billing_types::{
     InvoiceMetadata, InvoiceSearch, InvoiceType, SearchParams, TENANT_METADATA_KEY,
-    customer_search_query, stripe_search,
+    customer_create_idempotency_key, customer_search_query, stripe_search,
 };
 use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
@@ -785,8 +785,16 @@ async fn get_or_create_customer_for_tenant(
         customer
     } else if create {
         tracing::debug!("Creating new customer");
+        // Match the deterministic Idempotency-Key used by the GraphQL path so
+        // a setup-intent flow racing against billing automation can't produce
+        // a second customer for the same tenant. See `stripe_impl.rs`.
+        let create_client = client
+            .clone()
+            .with_strategy(stripe::RequestStrategy::Idempotent(
+                customer_create_idempotency_key(&tenant),
+            ));
         let new_customer = stripe::Customer::create(
-            client,
+            &create_client,
             stripe::CreateCustomer {
                 name: Some(tenant.as_str()),
                 description: Some(

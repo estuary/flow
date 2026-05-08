@@ -1,5 +1,7 @@
 use super::BillingProvider;
-use billing_types::{SearchParams, TENANT_METADATA_KEY, stripe_search};
+use billing_types::{
+    SearchParams, TENANT_METADATA_KEY, customer_create_idempotency_key, stripe_search,
+};
 use std::collections::HashMap;
 
 /// Production `BillingProvider` backed by the Stripe API.
@@ -56,8 +58,18 @@ impl BillingProvider for StripeBillingProvider {
         }
 
         let description = format!("Represents the billing entity for Flow tenant '{tenant}'");
+        // Stripe's customer-search index lags writes by seconds, so two near-
+        // simultaneous `find_or_create_customer` calls can both miss in search
+        // and both create. Pinning a deterministic Idempotency-Key per tenant
+        // collapses retries inside Stripe's 24h idempotency window.
+        let client = self
+            .client
+            .clone()
+            .with_strategy(stripe::RequestStrategy::Idempotent(
+                customer_create_idempotency_key(tenant),
+            ));
         let customer = stripe::Customer::create(
-            &self.client,
+            &client,
             stripe::CreateCustomer {
                 email: Some(user_email),
                 name: Some(tenant),

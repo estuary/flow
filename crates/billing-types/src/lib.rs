@@ -77,6 +77,14 @@ pub fn customer_search_query(tenant: &str) -> String {
     format!(r#"metadata["{TENANT_METADATA_KEY}"]:"{tenant}""#)
 }
 
+/// Deterministic Stripe Idempotency-Key for `Customer::create` calls. Using the
+/// tenant name collapses concurrent or retried creations across processes within
+/// Stripe's 24-hour idempotency window, so a search-index lag race can't produce
+/// duplicate customer rows for the same tenant.
+pub fn customer_create_idempotency_key(tenant: &str) -> String {
+    format!("flow-customer-create:{tenant}")
+}
+
 /// These 4 pieces of metadata link an invoice in Stripe to a row in `invoices_ext`. This is
 /// an area that could be improved in the future if needed, but presently `invoices_ext` does not
 /// model a single "primary key", which is why we need to use this compound identity. It composes:
@@ -170,6 +178,21 @@ mod tests {
         assert_eq!(
             customer_search_query("acme/widgets"),
             r#"metadata["estuary.dev/tenant_name"]:"acme/widgets""#
+        );
+    }
+
+    #[test]
+    fn customer_create_idempotency_key_format() {
+        // Same input must produce the same key across processes for cross-call
+        // idempotency to work; the prefix namespaces it from future deterministic
+        // keys for other Stripe writes.
+        assert_eq!(
+            customer_create_idempotency_key("acme/widgets"),
+            "flow-customer-create:acme/widgets"
+        );
+        assert_eq!(
+            customer_create_idempotency_key("acme/widgets"),
+            customer_create_idempotency_key("acme/widgets"),
         );
     }
 
