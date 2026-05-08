@@ -314,9 +314,9 @@ Consider this example specification:
 materializations:
   Artificial-Industries/ci-cd/materialize-snowflake:
     endpoint:
-  	  connector:
+      connector:
         image: ghcr.io/estuary/materialize-snowflake:v4
-    	  config:
+        config:
           host: orgname-accountname.snowflakecomputing.com
           database: estuary_db
           schema: estuary_schema

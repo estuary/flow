@@ -68,9 +68,9 @@ Sync schedule properties are nested under a materialization's `config` stanza. F
 materializations:
   your-org/mat-name/materialize-snowflake:
     endpoint:
-  	  connector:
+      connector:
         image: ghcr.io/estuary/materialize-snowflake:v4
-    	  config:
+        config:
           host: orgname-accountname.snowflakecomputing.com
           database: estuary_db
           credentials:
