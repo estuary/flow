@@ -1,5 +1,5 @@
 use anyhow::Context;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // SnapshotData encapsulates all data required to construct a Snapshot.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -341,6 +341,28 @@ impl Snapshot {
             })
     }
 
+    pub fn effective_capabilities(
+        &self,
+        role_grants: &[tables::RoleGrant],
+        user_grants: &[tables::UserGrant],
+        user_id: uuid::Uuid,
+        prefix: &str,
+    ) -> HashSet<models::OrthogonalCapability> {
+        let mut bfs_nodes = 0usize;
+        let result = tables::UserGrant::reachable_nodes(role_grants, user_grants, user_id)
+            .inspect(|_| bfs_nodes += 1)
+            .filter(|node| prefix.starts_with(node.object_role))
+            .flat_map(|node| node.capabilities)
+            .collect();
+
+        // bfs_nodes tracks how many grant-graph nodes the BFS expanded.
+        // If a tenant has deep cross-tenant role grants, this number can
+        // grow combinatorially — filter logs on "orthogonal capability BFS"
+        // and watch for spikes to know when to optimize the traversal.
+        tracing::debug!(%user_id, %prefix, bfs_nodes, "orthogonal capability BFS");
+        result
+    }
+
     // Minimal interval between Snapshot refreshes.
     // We will postpone a requested refresh prior to this interval.
     pub const MIN_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(20);
@@ -480,7 +502,8 @@ pub async fn try_fetch(
         SELECT
             g.subject_role AS "subject_role: models::Prefix",
             g.object_role AS "object_role: models::Prefix",
-            g.capability AS "capability: models::Capability"
+            g.capability AS "capability: models::Capability",
+            g.capabilities AS "capabilities: Vec<models::OrthogonalCapability>"
         FROM role_grants g
         "#,
     )
@@ -494,13 +517,14 @@ pub async fn try_fetch(
         SELECT
             g.user_id AS "user_id: uuid::Uuid",
             g.object_role AS "object_role: models::Prefix",
-            g.capability AS "capability: models::Capability"
+            g.capability AS "capability: models::Capability",
+            g.capabilities AS "capabilities: Vec<models::OrthogonalCapability>"
         FROM user_grants g
         "#,
     )
     .fetch_all(pg_pool)
     .await
-    .context("failed to fetch role_grants")?;
+    .context("failed to fetch user_grants")?;
 
     let tasks = sqlx::query_as!(
         SnapshotTask,

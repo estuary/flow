@@ -68,17 +68,57 @@ impl super::RoleGrant {
         .skip(1) // Skip `seed`.
     }
 
+    /// Given a role or name, enumerate all reachable nodes and their orthogonal capabilities.
+    pub fn reachable_nodes<'a>(
+        role_grants: &'a [super::RoleGrant],
+        role_or_name: &'a str,
+    ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
+        let seed = super::NodeRef {
+            object_role: role_or_name,
+            // Seed with Assume so the first expansion assumes all capabilities
+            // through unfiltered — the role itself is the trust root.
+            capabilities: vec![models::OrthogonalCapability::Assume],
+        };
+        pathfinding::directed::bfs::bfs_reach(seed, move |f| {
+            next_neighbors(f.clone(), role_grants, &[], uuid::Uuid::nil())
+        })
+        .skip(1)
+    }
+
     /// Given a role or name, determine if it's authorized to the object name for the given capability.
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         subject_role_or_name: &'a str,
         object_role_or_name: &'a str,
-        capability: models::Capability,
+        capability: impl Into<models::AnyCapability>,
     ) -> bool {
-        Self::transitive_roles(role_grants, subject_role_or_name).any(|role_grant| {
-            object_role_or_name.starts_with(role_grant.object_role)
-                && role_grant.capability >= capability
-        })
+        match capability.into() {
+            models::AnyCapability::Legacy(cap) => {
+                Self::transitive_roles(role_grants, subject_role_or_name).any(|role_grant| {
+                    object_role_or_name.starts_with(role_grant.object_role)
+                        && role_grant.capability >= cap
+                })
+            }
+            models::AnyCapability::Orthogonal(required) => {
+                if required.is_empty() {
+                    debug_assert!(
+                        false,
+                        "is_authorized called with empty orthogonal capabilities"
+                    );
+                    return false;
+                }
+                let mut remaining = required;
+                for node in Self::reachable_nodes(role_grants, subject_role_or_name) {
+                    if object_role_or_name.starts_with(node.object_role) {
+                        remaining.retain(|cap| !node.capabilities.contains(cap));
+                        if remaining.is_empty() {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+        }
     }
 
     fn to_ref<'a>(&'a self) -> super::GrantRef<'a> {
@@ -86,6 +126,23 @@ impl super::RoleGrant {
             subject_role: self.subject_role.as_str(),
             object_role: self.object_role.as_str(),
             capability: self.capability,
+        }
+    }
+
+    fn to_node_ref<'a>(
+        &'a self,
+        delegatable: &[models::OrthogonalCapability],
+    ) -> super::NodeRef<'a> {
+        let mut capabilities: Vec<_> = self
+            .capabilities
+            .iter()
+            .filter(|c| delegatable.contains(c))
+            .copied()
+            .collect();
+        capabilities.sort();
+        super::NodeRef {
+            object_role: self.object_role.as_str(),
+            capabilities,
         }
     }
 }
@@ -108,6 +165,24 @@ impl super::UserGrant {
         .skip(1) // Skip `seed`.
     }
 
+    /// Given a user, enumerate all reachable nodes and their orthogonal capabilities.
+    pub fn reachable_nodes<'a>(
+        role_grants: &'a [super::RoleGrant],
+        user_grants: &'a [super::UserGrant],
+        user_id: uuid::Uuid,
+    ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
+        let seed = super::NodeRef {
+            object_role: "",
+            // Seed with Assume so the first expansion delegates all capabilities
+            // through unfiltered — user_grants are the trust root.
+            capabilities: vec![models::OrthogonalCapability::Assume],
+        };
+        pathfinding::directed::bfs::bfs_reach(seed, move |f| {
+            next_neighbors(f.clone(), role_grants, user_grants, user_id)
+        })
+        .skip(1)
+    }
+
     pub fn get_user_capability<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
@@ -126,12 +201,41 @@ impl super::UserGrant {
         user_grants: &'a [super::UserGrant],
         subject_user_id: uuid::Uuid,
         object_role_or_name: &'a str,
-        capability: models::Capability,
+        capability: impl Into<models::AnyCapability>,
     ) -> bool {
-        Self::transitive_roles(role_grants, user_grants, subject_user_id).any(|role_grant| {
-            object_role_or_name.starts_with(role_grant.object_role)
-                && role_grant.capability >= capability
-        })
+        match capability.into() {
+            models::AnyCapability::Legacy(cap) => {
+                Self::transitive_roles(role_grants, user_grants, subject_user_id).any(
+                    |role_grant| {
+                        object_role_or_name.starts_with(role_grant.object_role)
+                            && role_grant.capability >= cap
+                    },
+                )
+            }
+            models::AnyCapability::Orthogonal(required) => {
+                if required.is_empty() {
+                    debug_assert!(
+                        false,
+                        "is_authorized called with empty orthogonal capabilities"
+                    );
+                    return false;
+                }
+                // Capabilities may be split across multiple covering nodes
+                // (e.g. read via one path, write via another). Collect the
+                // union across all nodes whose object_role is a prefix of
+                // the target, bailing early once all required caps are found.
+                let mut remaining = required;
+                for node in Self::reachable_nodes(role_grants, user_grants, subject_user_id) {
+                    if object_role_or_name.starts_with(node.object_role) {
+                        remaining.retain(|cap| !node.capabilities.contains(cap));
+                        if remaining.is_empty() {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+        }
     }
 
     fn to_ref<'a>(&'a self) -> super::GrantRef<'a> {
@@ -139,6 +243,23 @@ impl super::UserGrant {
             subject_role: "",
             object_role: self.object_role.as_str(),
             capability: self.capability,
+        }
+    }
+
+    fn to_node_ref<'a>(
+        &'a self,
+        delegatable: &[models::OrthogonalCapability],
+    ) -> super::NodeRef<'a> {
+        let mut capabilities: Vec<_> = self
+            .capabilities
+            .iter()
+            .filter(|c| delegatable.contains(c))
+            .copied()
+            .collect();
+        capabilities.sort();
+        super::NodeRef {
+            object_role: self.object_role.as_str(),
+            capabilities,
         }
     }
 }
@@ -209,6 +330,89 @@ fn grant_edges<'a>(
     p1.chain(p2).chain(p3)
 }
 
+// Expand a BFS node into its neighbors. A node is terminal (no expansion)
+// unless it carries Delegate or Assume. Delegate passes only the node's own
+// capabilities through to neighbors; Assume passes all capabilities.
+//
+// Perf note: bfs_reach keys on (object_role, capabilities), so the same prefix
+// with different capability subsets produces distinct BFS nodes — up to 2^N per
+// prefix where N is the number of capabilities. If deep grant graphs cause
+// latency, replace bfs_reach with a manual BFS that keys visited state on
+// object_role alone and prunes dominated capability subsets.
+fn next_neighbors<'a>(
+    from: super::NodeRef<'a>,
+    role_edges: &'a [super::RoleGrant],
+    user_edges: &'a [super::UserGrant],
+    user_id: uuid::Uuid,
+) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
+    let has_delegate = from
+        .capabilities
+        .contains(&models::OrthogonalCapability::Delegate);
+    let has_assume = from
+        .capabilities
+        .contains(&models::OrthogonalCapability::Assume);
+    let is_terminal = !has_delegate && !has_assume;
+    let delegatable = std::sync::Arc::new(if has_assume {
+        models::OrthogonalCapability::all()
+    } else if has_delegate {
+        from.capabilities
+    } else {
+        vec![]
+    });
+
+    let (user_edges, role_edges, prefixes) = match (is_terminal, from.object_role) {
+        // the from node is terminal: no further exploration.
+        (true, _) => (&user_edges[..0], &role_edges[..0], None),
+        // This is the seed: traverse through user_grants to kick off exploration.
+        (_, "") => {
+            let range = user_edges.equal_range_by(|user_grant| user_grant.user_id.cmp(&user_id));
+            (&user_edges[range], &role_edges[..0], None)
+        }
+
+        // Expand downward (grants whose subject is under role_or_name)
+        // and upward (grants on parent prefixes of role_or_name).
+        (_, role_or_name) => {
+            let range = role_edges.equal_range_by(|role_grant| {
+                if role_grant.subject_role.starts_with(role_or_name) {
+                    std::cmp::Ordering::Equal
+                } else {
+                    role_grant.subject_role.as_str().cmp(role_or_name)
+                }
+            });
+            // Decompose into parent prefixes and binary-search each one
+            // (instead of a linear scan for role_or_name.starts_with(subject))
+            let prefixes = role_or_name.char_indices().filter_map(|(ind, chr)| {
+                if chr == '/' {
+                    Some(&role_or_name[..ind + 1])
+                } else {
+                    None
+                }
+            });
+            let edges = prefixes
+                .map(|prefix| {
+                    role_edges
+                        .equal_range_by(|role_grant| role_grant.subject_role.as_str().cmp(prefix))
+                })
+                .map(|range| role_edges[range].into_iter())
+                .flatten();
+
+            (&user_edges[..0], &role_edges[range], Some(edges))
+        }
+    };
+
+    let a1 = delegatable.clone();
+    let a2 = delegatable.clone();
+
+    let p1 = user_edges.iter().map(move |g| g.to_node_ref(&delegatable));
+    let p2 = role_edges.iter().map(move |g| g.to_node_ref(&a1));
+    let p3 = prefixes
+        .into_iter()
+        .flatten()
+        .map(move |g| g.to_node_ref(&a2));
+
+    p1.chain(p2).chain(p3)
+}
+
 impl super::StorageMapping {
     pub fn scope(&self) -> url::Url {
         crate::synthetic_scope("storageMapping", &self.catalog_prefix)
@@ -273,6 +477,7 @@ mod test {
                 subject_role: models::Prefix::new(sub),
                 object_role: models::Prefix::new(obj),
                 capability: cap,
+                capabilities: vec![],
             }),
         );
         let user_grants = UserGrants::from_iter(
@@ -287,12 +492,13 @@ mod test {
                 user_id,
                 object_role: models::Prefix::new(obj),
                 capability: cap,
+                capabilities: vec![],
             }),
         );
 
         insta::assert_json_snapshot!(
             RoleGrant::transitive_roles(&role_grants, "aliceCo/anvils/thing").collect::<Vec<_>>(),
-            @r###"
+            @r#"
         [
           {
             "subject_role": "aliceCo/anvils/",
@@ -300,12 +506,12 @@ mod test {
             "capability": "write"
           }
         ]
-        "###,
+        "#,
         );
 
         insta::assert_json_snapshot!(
             RoleGrant::transitive_roles(&role_grants, "daveCo/hidden/task").collect::<Vec<_>>(),
-            @r###"
+            @r#"
         [
           {
             "subject_role": "daveCo/hidden/",
@@ -318,7 +524,7 @@ mod test {
             "capability": "read"
           }
         ]
-        "###,
+        "#,
         );
 
         assert!(RoleGrant::is_authorized(
@@ -342,7 +548,7 @@ mod test {
 
         insta::assert_json_snapshot!(
             UserGrant::transitive_roles(&role_grants, &user_grants, uuid::Uuid::nil()).collect::<Vec<_>>(),
-            @r###"
+            @r#"
         [
           {
             "subject_role": "",
@@ -365,12 +571,12 @@ mod test {
             "capability": "read"
           }
         ]
-        "###,
+        "#,
         );
 
         insta::assert_json_snapshot!(
             UserGrant::transitive_roles(&role_grants, &user_grants, uuid::Uuid::max()).collect::<Vec<_>>(),
-            @r###"
+            @r#"
         [
           {
             "subject_role": "",
@@ -393,7 +599,7 @@ mod test {
             "capability": "read"
           }
         ]
-        "###,
+        "#,
         );
     }
 
@@ -403,47 +609,56 @@ mod test {
           {
             "subject_role": "acmeCo/",
             "object_role": "acmeCo/",
-            "capability": "write"
+            "capability": "write",
+            "capabilities": []
           },
           {
             "subject_role": "other_tenant/",
             "object_role": "acmeCo/",
-            "capability": "admin"
+            "capability": "admin",
+            "capabilities": []
           },
           {
             "subject_role": "acmeCo-૨/",
             "object_role": "acmeCo-૨/",
-            "capability": "write"
+            "capability": "write",
+            "capabilities": []
           },
           {
             "subject_role": "other_tenant/",
             "object_role": "acmeCo-૨/",
-            "capability": "admin"
+            "capability": "admin",
+            "capabilities": []
           },
           {
             "subject_role": "acmeCo-૨/ssss/",
             "object_role": "acmeCo-૨/",
-            "capability": "admin"
+            "capability": "admin",
+            "capabilities": []
           },
           {
             "subject_role": "acmeCo-૨/aaaa/",
             "object_role": "acmeCo-૨/",
-            "capability": "admin"
+            "capability": "admin",
+            "capabilities": []
           },
           {
             "subject_role": "acmeCo-૨/dddd/",
             "object_role": "acmeCo-૨/",
-            "capability": "admin"
+            "capability": "admin",
+            "capabilities": []
           },
           {
             "subject_role": "acmeCo-૨/",
             "object_role": "ops/dp/public/",
-            "capability": "read"
+            "capability": "read",
+            "capabilities": []
           },
           {
             "subject_role": "acmeCo/",
             "object_role": "ops/dp/public/",
-            "capability": "read"
+            "capability": "read",
+            "capabilities": []
           }
         ]))
         .unwrap();
@@ -451,7 +666,7 @@ mod test {
 
         insta::assert_json_snapshot!(
             RoleGrant::transitive_roles(&role_grants, "acmeCo-૨/acme-prod-tables/materialize-snowflake").collect::<Vec<_>>(),
-            @r###"
+            @r#"
         [
           {
             "subject_role": "acmeCo-૨/",
@@ -464,7 +679,7 @@ mod test {
             "capability": "read"
           }
         ]
-        "###,
+        "#,
         );
 
         assert!(crate::RoleGrant::is_authorized(
@@ -488,6 +703,7 @@ mod test {
                 subject_role: models::Prefix::new(sub),
                 object_role: models::Prefix::new(obj),
                 capability: cap,
+                capabilities: vec![],
             }),
         );
 
@@ -504,6 +720,7 @@ mod test {
                 user_id,
                 object_role: models::Prefix::new(obj),
                 capability: cap,
+                capabilities: vec![],
             }),
         );
 
@@ -550,6 +767,7 @@ mod test {
                 subject_role: models::Prefix::new(sub),
                 object_role: models::Prefix::new(obj),
                 capability: cap,
+                capabilities: vec![],
             }),
         );
         let user_grants = UserGrants::from_iter(
@@ -562,12 +780,13 @@ mod test {
                 user_id,
                 object_role: models::Prefix::new(obj),
                 capability: cap,
+                capabilities: vec![],
             }),
         );
 
         insta::assert_json_snapshot!(
             UserGrant::transitive_roles(&role_grants, &user_grants, uuid::Uuid::from_bytes([1;16])).collect::<Vec<_>>(),
-            @r###"
+            @r#"
         [
           {
             "subject_role": "",
@@ -585,12 +804,12 @@ mod test {
             "capability": "read"
           }
         ]
-        "###,
+        "#,
         );
 
         insta::assert_json_snapshot!(
             UserGrant::transitive_roles(&role_grants, &user_grants, uuid::Uuid::from_bytes([2;16])).collect::<Vec<_>>(),
-            @r###"
+            @r#"
         [
           {
             "subject_role": "",
@@ -608,7 +827,671 @@ mod test {
             "capability": "read"
           }
         ]
-        "###,
+        "#,
         );
+    }
+
+    fn build_orthogonal_scenario(
+        user_edges: Vec<(&str, Vec<models::OrthogonalCapability>)>,
+        role_edges: Vec<(&str, &str, Vec<models::OrthogonalCapability>)>,
+    ) -> (RoleGrants, UserGrants, uuid::Uuid) {
+        let user_id = uuid::Uuid::from_bytes([1; 16]);
+        let user_grants =
+            UserGrants::from_iter(user_edges.into_iter().map(|(obj, caps)| UserGrant {
+                user_id,
+                object_role: models::Prefix::new(obj),
+                capability: models::Capability::Admin,
+                capabilities: caps,
+            }));
+        let role_grants =
+            RoleGrants::from_iter(role_edges.into_iter().map(|(sub, obj, caps)| RoleGrant {
+                subject_role: models::Prefix::new(sub),
+                object_role: models::Prefix::new(obj),
+                capability: models::Capability::Admin,
+                capabilities: caps,
+            }));
+        (role_grants, user_grants, user_id)
+    }
+
+    fn assert_reachable(
+        role_grants: &RoleGrants,
+        user_grants: &UserGrants,
+        user_id: uuid::Uuid,
+        expected: Vec<(&str, Vec<models::OrthogonalCapability>)>,
+    ) {
+        let mut nodes: Vec<_> = UserGrant::reachable_nodes(role_grants, user_grants, user_id)
+            .map(|n| (n.object_role.to_string(), n.capabilities))
+            .collect();
+        nodes.sort();
+        nodes.dedup();
+
+        let expected: Vec<(String, Vec<models::OrthogonalCapability>)> = expected
+            .into_iter()
+            .map(|(prefix, caps)| (prefix.to_string(), caps))
+            .collect();
+
+        assert_eq!(nodes, expected);
+    }
+
+    fn assert_authorized(
+        role_grants: &RoleGrants,
+        user_grants: &UserGrants,
+        user_id: uuid::Uuid,
+        name: &str,
+        required: Vec<models::OrthogonalCapability>,
+    ) {
+        assert!(
+            UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                user_id,
+                name,
+                models::AnyCapability::Orthogonal(required.clone()),
+            ),
+            "expected {user_id} to have {required:?} on {name}",
+        );
+    }
+
+    fn assert_not_authorized(
+        role_grants: &RoleGrants,
+        user_grants: &UserGrants,
+        user_id: uuid::Uuid,
+        name: &str,
+        required: Vec<models::OrthogonalCapability>,
+    ) {
+        assert!(
+            !UserGrant::is_authorized(
+                role_grants,
+                user_grants,
+                user_id,
+                name,
+                models::AnyCapability::Orthogonal(required.clone()),
+            ),
+            "expected {user_id} NOT to have {required:?} on {name}",
+        );
+    }
+
+    #[test]
+    fn test_reachable_nodes_delegate_propagation() {
+        use models::OrthogonalCapability::*;
+
+        // Given: user has [read, billing, delegate] on acmeCo/
+        // And cross-tenant role grants:
+        //   acmeCo/ -[read, billing, delegate]-> bobCo/shared/
+        //   bobCo/shared/ -[read, delegate]-> carolCo/data/
+        //   carolCo/data/ -[read, billing]-> daveCo/sink/   (no delegate — terminal)
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Billing, Delegate])],
+            vec![
+                ("acmeCo/", "bobCo/shared/", vec![Read, Billing, Delegate]),
+                ("bobCo/shared/", "carolCo/data/", vec![Read, Delegate]),
+                ("carolCo/data/", "daveCo/sink/", vec![Read, Billing]),
+            ],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Read, Billing, Delegate]),
+                ("bobCo/shared/", vec![Read, Billing, Delegate]),
+                ("carolCo/data/", vec![Read, Delegate]),
+                ("daveCo/sink/", vec![Read]),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_reachable_nodes_no_delegate_is_terminal() {
+        use models::OrthogonalCapability::*;
+
+        // Given: user has [read, delegate] on acmeCo/
+        // And cross-tenant role grants:
+        //   acmeCo/ -[read]-> bobCo/shared/          (no delegate — terminal)
+        //   bobCo/shared/ -[read]-> carolCo/          (unreachable from user)
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Delegate])],
+            vec![
+                ("acmeCo/", "bobCo/shared/", vec![Read]),
+                ("bobCo/shared/", "carolCo/", vec![Read]),
+            ],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Read, Delegate]),
+                ("bobCo/shared/", vec![Read]),
+                // carolCo/ is NOT reachable — bobCo/shared/ has no delegate
+            ],
+        );
+
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read])],
+            vec![
+                ("acmeCo/", "bobCo/shared/", vec![Read, Delegate]),
+                ("bobCo/shared/", "carolCo/", vec![Read]),
+            ],
+        );
+
+        assert_reachable(&rg, &ug, uid, vec![("acmeCo/", vec![Read])]);
+        assert_not_authorized(&rg, &ug, uid, "bobCo/shared/", vec![Read]);
+        assert_not_authorized(&rg, &ug, uid, "carolCo/", vec![Read]);
+    }
+
+    #[test]
+    fn test_assume_behavior() {
+        use models::OrthogonalCapability::*;
+
+        // Assume does not grant anything to the object itself
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Assume])],
+            vec![("acmeCo/", "bobCo/shared/", vec![Read, Billing, TeamAdmin])],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Assume]),
+                ("bobCo/shared/", vec![Read, Billing, TeamAdmin]),
+            ],
+        );
+
+        assert_authorized(
+            &rg,
+            &ug,
+            uid,
+            "bobCo/shared/nested/",
+            vec![Read, Billing, TeamAdmin],
+        );
+        assert_not_authorized(&rg, &ug, uid, "acmeCo/", vec![Read]);
+
+        // Assume does not add capabilities to the following edge
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Write, Assume])],
+            vec![("acmeCo/", "bobCo/shared/", vec![Read, Billing, TeamAdmin])],
+        );
+        assert_authorized(&rg, &ug, uid, "acmeCo/", vec![Write]);
+        assert_not_authorized(&rg, &ug, uid, "bobCo/shared/", vec![Write]);
+    }
+
+    #[test]
+    fn test_assume_supersedes_delegate() {
+        use models::OrthogonalCapability::*;
+
+        // Given: user has [read, delegate, assume] on acmeCo/
+        // And cross-tenant role grants:
+        //   acmeCo/ -[read, billing, team_admin]-> bobCo/shared/
+        //
+        // With delegate alone, bobCo/shared/ would only receive [read]
+        // (the intersection of the parent's caps with the edge's caps).
+        // With assume, bobCo/shared/ receives the full edge: [billing, read, team_admin].
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Delegate, Assume])],
+            vec![("acmeCo/", "bobCo/shared/", vec![Billing, Read, TeamAdmin])],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Assume, Delegate, Read]),
+                ("bobCo/shared/", vec![Read, Billing, TeamAdmin]),
+            ],
+        );
+
+        // Contrast: delegate alone attenuates to the intersection.
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Delegate])],
+            vec![("acmeCo/", "bobCo/shared/", vec![Read, Billing, TeamAdmin])],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Delegate, Read]),
+                ("bobCo/shared/", vec![Read]),
+            ],
+        );
+
+        // Assume does not add capabilities to the following edge
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Write, Assume])],
+            vec![("acmeCo/", "bobCo/shared/", vec![Read, Billing, TeamAdmin])],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Write, Assume]),
+                ("bobCo/shared/", vec![Billing, Read, TeamAdmin]),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_inherited_capabilities() {
+        use models::OrthogonalCapability::*;
+
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![
+                ("acmeCo/", vec![Read]),
+                ("acmeCo/interns/", vec![Write, Delegate]),
+            ],
+            vec![("acmeCo/", "betaCo/shareable/", vec![Read, Write])],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Read]),
+                ("acmeCo/interns/", vec![Write, Delegate]),
+                ("betaCo/shareable/", vec![Write]),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_descendent_capabilities() {
+        use models::OrthogonalCapability::*;
+
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![
+                ("acmeCo/", vec![Read]),
+                ("acmeCo/interns/", vec![Write, Delegate]),
+            ],
+            vec![(
+                "acmeCo/interns/betaCo/",
+                "betaCo/shareable/",
+                vec![Read, Write],
+            )],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Read]),
+                ("acmeCo/interns/", vec![Write, Delegate]),
+                ("betaCo/shareable/", vec![Write]),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_parent_child_capabilities() {
+        use models::OrthogonalCapability::*;
+
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/interns/", vec![Read, Write, Delegate])],
+            vec![
+                ("acmeCo/", "betaCo/shareable/", vec![Read]),
+                ("acmeCo/interns/betaCo/", "betaCo/shareable/", vec![Write]),
+            ],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/interns/", vec![Read, Write, Delegate]),
+                ("betaCo/shareable/", vec![Read]),
+                ("betaCo/shareable/", vec![Write]),
+            ],
+        );
+
+        assert_authorized(&rg, &ug, uid, "betaCo/shareable/", vec![Read, Write]);
+        assert_not_authorized(&rg, &ug, uid, "betaCo/shareable/", vec![Delegate]);
+    }
+
+    #[test]
+    fn test_multi_path() {
+        use models::OrthogonalCapability::*;
+
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![
+                ("acmeCo/", vec![Read, Delegate]),
+                ("betaCo/", vec![Write, Delegate]),
+            ],
+            vec![
+                ("acmeCo/", "charlieCo/shareable/", vec![Read]),
+                ("betaCo/", "charlieCo/", vec![Write]),
+            ],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Read, Delegate]),
+                ("betaCo/", vec![Write, Delegate]),
+                ("charlieCo/", vec![Write]),
+                ("charlieCo/shareable/", vec![Read]),
+            ],
+        );
+
+        assert_authorized(&rg, &ug, uid, "charlieCo/shareable/", vec![Read, Write]);
+        assert_not_authorized(&rg, &ug, uid, "charlieCo/", vec![Read]);
+    }
+
+    #[test]
+    fn test_orthogonal_is_authorized() {
+        use models::OrthogonalCapability::*;
+
+        // Given: user has [read, delegate] on acmeCo/
+        // And cross-tenant role grants:
+        //   acmeCo/ -[read, billing, delegate]-> bobCo/shared/
+        //   bobCo/shared/ -[read]-> carolCo/data/   (no delegate — terminal)
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Delegate])],
+            vec![
+                ("acmeCo/", "bobCo/shared/", vec![Read, Billing, Delegate]),
+                ("bobCo/shared/", "carolCo/data/", vec![Read]),
+            ],
+        );
+
+        // Direct grant: user has read on acmeCo/
+        assert_authorized(&rg, &ug, uid, "acmeCo/thing", vec![Read]);
+        // User grant doesn't include billing
+        assert_not_authorized(&rg, &ug, uid, "acmeCo/thing", vec![Billing]);
+
+        // bobCo/shared/: delegatable [read] ∩ grant [read, billing, delegate] = [read] + delegate
+        assert_authorized(&rg, &ug, uid, "bobCo/shared/thing", vec![Read]);
+        assert_not_authorized(&rg, &ug, uid, "bobCo/shared/thing", vec![Billing]);
+        assert_not_authorized(&rg, &ug, uid, "bobCo/shared/thing", vec![Read, Billing]);
+
+        // carolCo/data/: delegatable [read] ∩ grant [read] = [read], terminal
+        assert_authorized(&rg, &ug, uid, "carolCo/data/thing", vec![Read]);
+
+        // Unknown user has nothing
+        let unknown = uuid::Uuid::from_bytes([9; 16]);
+        assert_not_authorized(&rg, &ug, unknown, "acmeCo/thing", vec![Read]);
+    }
+
+    #[test]
+    fn test_assume_propagates_full_capability_set() {
+        use models::OrthogonalCapability::*;
+
+        // User has [Read, Assume] on acmeCo/.
+        // Role grant acmeCo/ -> bobCo/ carries [Read, Billing, Delegate].
+        // Assume means all capabilities are delegatable, so bobCo/ gets the
+        // full edge set [Read, Billing, Delegate] — not just the intersection
+        // with the user's own capabilities.
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Assume])],
+            vec![("acmeCo/", "bobCo/", vec![Read, Billing, Delegate])],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Read, Assume]),
+                ("bobCo/", vec![Read, Billing, Delegate]),
+            ],
+        );
+
+        assert_authorized(&rg, &ug, uid, "bobCo/thing", vec![Read]);
+        assert_authorized(&rg, &ug, uid, "bobCo/thing", vec![Billing]);
+        assert_authorized(&rg, &ug, uid, "bobCo/thing", vec![Read, Billing]);
+    }
+
+    #[test]
+    fn test_assume_vs_delegate_capability_filtering() {
+        use models::OrthogonalCapability::*;
+
+        // With regular Delegate, only the user's own capabilities pass through.
+        // User has [Read, Delegate] — Billing is NOT delegatable.
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Delegate])],
+            vec![("acmeCo/", "bobCo/", vec![Read, Billing, Delegate])],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Read, Delegate]),
+                ("bobCo/", vec![Read, Delegate]),
+            ],
+        );
+        assert_not_authorized(&rg, &ug, uid, "bobCo/thing", vec![Billing]);
+
+        // Same topology but with Assume — Billing passes through.
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Assume])],
+            vec![("acmeCo/", "bobCo/", vec![Read, Billing, Delegate])],
+        );
+
+        assert_authorized(&rg, &ug, uid, "bobCo/thing", vec![Billing]);
+    }
+
+    #[test]
+    fn test_assume_chains_through_edges() {
+        use models::OrthogonalCapability::*;
+
+        // Assume on the user grant opens the first hop.
+        // The edge to bobCo/ carries Assume, so bobCo/ also propagates everything.
+        // The edge to carolCo/ carries only [Read, Billing] (no delegate) — terminal.
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Assume])],
+            vec![
+                ("acmeCo/", "bobCo/", vec![Read, Billing, Assume]),
+                ("bobCo/", "carolCo/", vec![Read, Billing]),
+            ],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Read, Assume]),
+                ("bobCo/", vec![Read, Billing, Assume]),
+                ("carolCo/", vec![Read, Billing]),
+            ],
+        );
+
+        assert_authorized(&rg, &ug, uid, "carolCo/thing", vec![Billing]);
+    }
+
+    #[test]
+    fn test_assume_does_not_chain_without_edge_delegate() {
+        use models::OrthogonalCapability::*;
+
+        // Assume on user grant, but the edge to bobCo/ only carries
+        // [Read, Delegate] (not Assume). bobCo/ gets [Read, Delegate] and
+        // can continue traversal, but only propagates its own caps (Read, Delegate).
+        // The edge to carolCo/ carries [Read, Billing] — bobCo/ can only
+        // delegate [Read, Delegate], so carolCo/ gets [Read] (Billing filtered out).
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![Read, Assume])],
+            vec![
+                ("acmeCo/", "bobCo/", vec![Read, Delegate]),
+                ("bobCo/", "carolCo/", vec![Read, Billing]),
+            ],
+        );
+
+        assert_reachable(
+            &rg,
+            &ug,
+            uid,
+            vec![
+                ("acmeCo/", vec![Read, Assume]),
+                ("bobCo/", vec![Read, Delegate]),
+                ("carolCo/", vec![Read]),
+            ],
+        );
+
+        assert_not_authorized(&rg, &ug, uid, "carolCo/thing", vec![Billing]);
+    }
+
+    fn build_role_scenario(
+        role_edges: Vec<(&str, &str, Vec<models::OrthogonalCapability>)>,
+    ) -> RoleGrants {
+        RoleGrants::from_iter(role_edges.into_iter().map(|(sub, obj, caps)| RoleGrant {
+            subject_role: models::Prefix::new(sub),
+            object_role: models::Prefix::new(obj),
+            capability: models::Capability::Admin,
+            capabilities: caps,
+        }))
+    }
+
+    fn assert_role_reachable(
+        role_grants: &RoleGrants,
+        role_or_name: &str,
+        expected: Vec<(&str, Vec<models::OrthogonalCapability>)>,
+    ) {
+        let mut nodes: Vec<_> = RoleGrant::reachable_nodes(role_grants, role_or_name)
+            .map(|n| (n.object_role.to_string(), n.capabilities))
+            .collect();
+        nodes.sort();
+        nodes.dedup();
+
+        let expected: Vec<(String, Vec<models::OrthogonalCapability>)> = expected
+            .into_iter()
+            .map(|(prefix, caps)| (prefix.to_string(), caps))
+            .collect();
+
+        assert_eq!(nodes, expected);
+    }
+
+    fn assert_role_authorized(
+        role_grants: &RoleGrants,
+        subject: &str,
+        object: &str,
+        required: Vec<models::OrthogonalCapability>,
+    ) {
+        assert!(
+            RoleGrant::is_authorized(
+                role_grants,
+                subject,
+                object,
+                models::AnyCapability::Orthogonal(required.clone()),
+            ),
+            "expected {subject} to have {required:?} on {object}",
+        );
+    }
+
+    fn assert_role_not_authorized(
+        role_grants: &RoleGrants,
+        subject: &str,
+        object: &str,
+        required: Vec<models::OrthogonalCapability>,
+    ) {
+        assert!(
+            !RoleGrant::is_authorized(
+                role_grants,
+                subject,
+                object,
+                models::AnyCapability::Orthogonal(required.clone()),
+            ),
+            "expected {subject} NOT to have {required:?} on {object}",
+        );
+    }
+
+    #[test]
+    fn test_role_reachable_nodes_delegate_propagation() {
+        use models::OrthogonalCapability::*;
+
+        let rg = build_role_scenario(vec![
+            ("acmeCo/", "bobCo/shared/", vec![Read, Billing, Delegate]),
+            ("bobCo/shared/", "carolCo/data/", vec![Read, Delegate]),
+            ("carolCo/data/", "daveCo/sink/", vec![Read, Billing]),
+        ]);
+
+        assert_role_reachable(
+            &rg,
+            "acmeCo/",
+            vec![
+                ("bobCo/shared/", vec![Read, Billing, Delegate]),
+                ("carolCo/data/", vec![Read, Delegate]),
+                ("daveCo/sink/", vec![Read]),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_role_reachable_nodes_no_delegate_is_terminal() {
+        use models::OrthogonalCapability::*;
+
+        let rg = build_role_scenario(vec![
+            ("acmeCo/", "bobCo/shared/", vec![Read]),
+            ("bobCo/shared/", "carolCo/", vec![Read]),
+        ]);
+
+        assert_role_reachable(&rg, "acmeCo/", vec![("bobCo/shared/", vec![Read])]);
+    }
+
+    #[test]
+    fn test_role_assume_propagates_all_capabilities() {
+        use models::OrthogonalCapability::*;
+
+        // Assume on the first edge opens up the full capability set,
+        // so the second edge's Billing passes through even though the
+        // first edge doesn't carry Billing.
+        let rg = build_role_scenario(vec![
+            ("acmeCo/", "bobCo/", vec![Read, Assume]),
+            ("bobCo/", "carolCo/", vec![Read, Billing, Delegate]),
+        ]);
+
+        assert_role_reachable(
+            &rg,
+            "acmeCo/",
+            vec![
+                ("bobCo/", vec![Read, Assume]),
+                ("carolCo/", vec![Read, Billing, Delegate]),
+            ],
+        );
+
+        assert_role_authorized(&rg, "acmeCo/", "carolCo/thing", vec![Read, Billing]);
+    }
+
+    #[test]
+    fn test_role_is_authorized_orthogonal() {
+        use models::OrthogonalCapability::*;
+
+        let rg = build_role_scenario(vec![
+            ("acmeCo/", "bobCo/shared/", vec![Read, Billing, Delegate]),
+            ("bobCo/shared/", "carolCo/data/", vec![Read]),
+        ]);
+
+        assert_role_authorized(&rg, "acmeCo/", "bobCo/shared/thing", vec![Read]);
+        assert_role_authorized(&rg, "acmeCo/", "bobCo/shared/thing", vec![Billing]);
+        assert_role_authorized(&rg, "acmeCo/", "bobCo/shared/thing", vec![Read, Billing]);
+
+        // carolCo/data/ is reachable but only with Read (Billing filtered by delegatable)
+        assert_role_authorized(&rg, "acmeCo/", "carolCo/data/thing", vec![Read]);
+        assert_role_not_authorized(&rg, "acmeCo/", "carolCo/data/thing", vec![Billing]);
+
+        // Unreachable prefix
+        assert_role_not_authorized(&rg, "acmeCo/", "unknown/thing", vec![Read]);
+    }
+
+    #[test]
+    fn test_empty_orthogonal_capabilities_returns_false() {
+        let (rg, ug, uid) = build_orthogonal_scenario(
+            vec![("acmeCo/", vec![models::OrthogonalCapability::Read])],
+            vec![],
+        );
+
+        assert_not_authorized(&rg, &ug, uid, "acmeCo/", vec![]);
     }
 }

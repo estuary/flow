@@ -1082,6 +1082,26 @@ type MutationRoot {
 scalar Name
 
 """
+Unified capability enum covering both the legacy hierarchical capabilities
+(read/write/admin) and the new orthogonal capabilities (billing, team_admin).
+
+The legacy variants mirror `Capability` and exist so that authorization
+checks can be written against a single type. Today, read/write/admin are
+checked via BFS traversal of the old `capability` column, while
+billing/team_admin are checked via the `capabilities` array on
+`user_grants`. A future migration will consolidate both into the array.
+"""
+enum OrthogonalCapability {
+	READ
+	WRITE
+	ADMIN
+	BILLING
+	TEAM_ADMIN
+	DELEGATE
+	ASSUME
+}
+
+"""
 Information about pagination in a connection
 """
 type PageInfo {
@@ -1133,6 +1153,12 @@ type PrefixRef {
 	The capability granted to the user for this prefix.
 	"""
 	userCapability: Capability!
+	"""
+	Orthogonal capabilities the user has at this prefix, independent of
+	the read/write/admin hierarchy. Empty when no orthogonal capabilities
+	are granted.
+	"""
+	capabilities: [OrthogonalCapability!]!
 }
 
 type PrefixRefConnection {

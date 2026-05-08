@@ -100,6 +100,95 @@ impl std::fmt::Display for Capability {
     }
 }
 
+/// Unified capability enum covering both the legacy hierarchical capabilities
+/// (read/write/admin) and the new orthogonal capabilities (billing, team_admin).
+///
+/// The legacy variants mirror `Capability` and exist so that authorization
+/// checks can be written against a single type. Today, read/write/admin are
+/// checked via BFS traversal of the old `capability` column, while
+/// billing/team_admin are checked via the `capabilities` array on
+/// `user_grants`. A future migration will consolidate both into the array.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    feature = "sqlx-support",
+    derive(sqlx::Type),
+    sqlx(type_name = "orthogonal_capability", rename_all = "snake_case")
+)]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "SCREAMING_SNAKE_CASE")
+)]
+pub enum OrthogonalCapability {
+    Read,
+    Write,
+    Admin,
+    Billing,
+    TeamAdmin,
+    Delegate,
+    Assume,
+}
+
+impl OrthogonalCapability {
+    pub fn all() -> Vec<Self> {
+        use OrthogonalCapability::*;
+        vec![Read, Write, Admin, Billing, TeamAdmin, Delegate, Assume]
+    }
+}
+
+/// Accepts either a single legacy `Capability` or a set of
+/// `OrthogonalCapability`s, letting authorization functions dispatch
+/// to the appropriate graph traversal.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum AnyCapability {
+    Legacy(Capability),
+    Orthogonal(Vec<OrthogonalCapability>),
+}
+
+impl std::fmt::Display for OrthogonalCapability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read => f.write_str("read"),
+            Self::Write => f.write_str("write"),
+            Self::Admin => f.write_str("admin"),
+            Self::Billing => f.write_str("billing"),
+            Self::TeamAdmin => f.write_str("team_admin"),
+            Self::Delegate => f.write_str("delegate"),
+            Self::Assume => f.write_str("assume"),
+        }
+    }
+}
+
+impl std::fmt::Display for AnyCapability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Legacy(cap) => cap.fmt(f),
+            Self::Orthogonal(caps) => {
+                for (i, cap) in caps.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    cap.fmt(f)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl From<Capability> for AnyCapability {
+    fn from(cap: Capability) -> Self {
+        Self::Legacy(cap)
+    }
+}
+
+impl From<Vec<OrthogonalCapability>> for AnyCapability {
+    fn from(caps: Vec<OrthogonalCapability>) -> Self {
+        Self::Orthogonal(caps)
+    }
+}
+
 impl Catalog {
     /// Build a root JSON schema for the Catalog model.
     pub fn root_json_schema() -> schemars::Schema {

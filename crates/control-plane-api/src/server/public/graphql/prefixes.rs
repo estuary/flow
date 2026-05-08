@@ -7,6 +7,10 @@ pub struct PrefixRef {
     pub prefix: models::Prefix,
     /// The capability granted to the user for this prefix.
     pub user_capability: models::Capability,
+    /// Orthogonal capabilities the user has at this prefix, independent of
+    /// the read/write/admin hierarchy. Empty when no orthogonal capabilities
+    /// are granted.
+    pub capabilities: Vec<models::OrthogonalCapability>,
 }
 
 #[derive(Debug, Clone, async_graphql::InputObject)]
@@ -40,16 +44,32 @@ impl PrefixesQuery {
         let env = ctx.data::<crate::Envelope>()?;
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
+            let snapshot = env.snapshot();
+            let user_id = env.claims()?.sub;
+
             let mut all_roles: Vec<PrefixRef> = tables::UserGrant::transitive_roles(
-                &env.snapshot().role_grants,
-                &env.snapshot().user_grants,
-                env.claims()?.sub,
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
             )
             .filter(|grant| grant.capability >= by.min_capability)
             .filter(|grant| after.as_deref().is_none_or(|min| grant.object_role > min))
-            .map(|grant| PrefixRef {
-                prefix: models::Prefix::new(grant.object_role),
-                user_capability: grant.capability,
+            .map(|grant| {
+                let mut capabilities: Vec<models::OrthogonalCapability> = snapshot
+                    .effective_capabilities(
+                        &snapshot.role_grants,
+                        &snapshot.user_grants,
+                        user_id,
+                        grant.object_role,
+                    )
+                    .into_iter()
+                    .collect();
+                capabilities.sort();
+                PrefixRef {
+                    prefix: models::Prefix::new(grant.object_role),
+                    user_capability: grant.capability,
+                    capabilities,
+                }
             })
             .collect();
 
@@ -110,6 +130,7 @@ mod tests {
                                 node {
                                     prefix
                                     userCapability
+                                    capabilities
                                 }
                             }
                         }
@@ -128,18 +149,21 @@ mod tests {
               "edges": [
                 {
                   "node": {
+                    "capabilities": [],
                     "prefix": "aliceCo/",
                     "userCapability": "admin"
                   }
                 },
                 {
                   "node": {
+                    "capabilities": [],
                     "prefix": "aliceCo/data/",
                     "userCapability": "write"
                   }
                 },
                 {
                   "node": {
+                    "capabilities": [],
                     "prefix": "ops/dp/public/",
                     "userCapability": "read"
                   }
