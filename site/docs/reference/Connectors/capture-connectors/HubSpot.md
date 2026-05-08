@@ -1,9 +1,11 @@
 
-# HubSpot
+# HubSpot (Deprecated)
 
 This connector captures data from a Hubspot account.
 
-Estuary offers a in-house real time version of this connector. For more information take a look at our [HubSpot Real-Time](/reference/Connectors/capture-connectors/HubSpot-real-time.md) docs.
+:::warning
+This connector is deprecated. It is recommended that you use the new native [HubSpot connector](/reference/Connectors/capture-connectors/HubSpot-real-time) instead.
+:::
 
 ## Supported data resources
 
