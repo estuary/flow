@@ -122,6 +122,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Google Ads
   - [Configuration](./google-ads.md)
   - Package - ghcr.io/estuary/source-google-ads:v2
+- Google Analytics BigQuery Exports
+  - [Configuration](./google-analytics-4-bigquery-exports.md)
+  - Package - ghcr.io/estuary/source-ga4-bigquery:v1
 - Google Analytics Data API
   - [Configuration](./google-analytics-data-api-native.md)
   - Package - ghcr.io/estuary/source-google-analytics-data-api-native:v1
