@@ -113,49 +113,58 @@
     {
       "subject_role": "acmeCo/",
       "object_role": "acmeCo/",
-      "capability": "write"
+      "capability": "write",
+      "capabilities": []
     },
     {
       "subject_role": "bobCo/",
       "object_role": "bobCo/",
-      "capability": "write"
+      "capability": "write",
+      "capabilities": []
     },
     {
       "subject_role": "bobCo/tires/",
       "object_role": "acmeCo/shared/",
-      "capability": "read"
+      "capability": "read",
+      "capabilities": []
     },
     {
       "subject_role": "bobCo/",
       "object_role": "ops/dp/public/",
-      "capability": "read"
+      "capability": "read",
+      "capabilities": []
     },
     {
       "subject_role": "aliceCo/",
       "object_role": "ops/dp/public/",
-      "capability": "read"
+      "capability": "read",
+      "capabilities": []
     }
   ],
   "user_grants": [
     {
       "user_id": "20202020-2020-2020-2020-202020202020",
       "object_role": "bobCo/",
-      "capability": "write"
+      "capability": "write",
+      "capabilities": []
     },
     {
       "user_id": "20202020-2020-2020-2020-202020202020",
       "object_role": "bobCo/tires/",
-      "capability": "admin"
+      "capability": "admin",
+      "capabilities": []
     },
     {
       "user_id": "40404040-4040-4040-4040-404040404040",
       "object_role": "aliceCo/",
-      "capability": "admin"
+      "capability": "admin",
+      "capabilities": []
     },
     {
       "user_id": "40404040-4040-4040-4040-404040404040",
       "object_role": "estuary_support/",
-      "capability": "admin"
+      "capability": "admin",
+      "capabilities": []
     }
   ],
   "tasks": [

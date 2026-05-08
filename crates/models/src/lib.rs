@@ -37,7 +37,7 @@ pub use crate::alert_config::{
 };
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
-pub use catalogs::{Capability, Catalog, CatalogType};
+pub use catalogs::{AnyCapability, Capability, Catalog, CatalogType, OrthogonalCapability};
 pub use collections::{CollectionDef, Projection};
 pub use connector::{
     ConnectorConfig, DEKAF_IMAGE_NAME_PREFIX, DEKAF_IMAGE_TAG, DekafConfig, LocalConfig,

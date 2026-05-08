@@ -110,6 +110,7 @@ tables!(
         key object_role: models::Prefix,
         // Capability of the subject with respect to the object.
         val capability: models::Capability,
+        val capabilities: Vec<models::OrthogonalCapability>,
     }
 
     table UserGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] UserGrant, sql "user_grants") {
@@ -119,6 +120,7 @@ tables!(
         key object_role: models::Prefix,
         // Capability of the subject with respect to the object.
         val capability: models::Capability,
+        val capabilities: Vec<models::OrthogonalCapability>,
     }
 
     table DraftCaptures (row #[derive(Clone)] DraftCapture, sql "draft_captures") {
@@ -412,6 +414,12 @@ pub struct GrantRef<'a> {
     pub capability: models::Capability,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NodeRef<'a> {
+    pub object_role: &'a str,
+    pub capabilities: Vec<models::OrthogonalCapability>,
+}
+
 /// Attempts to parse a catalog type and name from a URL in the form of:
 /// `flow://<catalog-type>/<catalog-name>`. Returns None if the URL doesn't
 /// have a valid `CatalogType`, or if the scheme doesn't match.
@@ -479,6 +487,7 @@ string_wrapper_types!(
 json_sql_types!(
     Vec<String>,
     Vec<models::Store>,
+    Vec<models::OrthogonalCapability>,
     models::Capability,
     models::CaptureDef,
     models::CatalogType,

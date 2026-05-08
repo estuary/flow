@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            g.subject_role AS \"subject_role: models::Prefix\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\"\n        FROM role_grants g\n        ",
+  "query": "\n        SELECT\n            g.subject_role AS \"subject_role: models::Prefix\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\",\n            g.capabilities AS \"capabilities: Vec<models::OrthogonalCapability>\"\n        FROM role_grants g\n        ",
   "describe": {
     "columns": [
       {
@@ -56,6 +56,33 @@
             }
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "capabilities: Vec<models::OrthogonalCapability>",
+        "type_info": {
+          "Custom": {
+            "name": "orthogonal_capability[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "orthogonal_capability",
+                  "kind": {
+                    "Enum": [
+                      "read",
+                      "write",
+                      "admin",
+                      "billing",
+                      "team_admin",
+                      "delegate",
+                      "assume"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     ],
     "parameters": {
@@ -64,8 +91,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "40735247033c2693395184471553db708524cfc3b6f4c1095c2ae63f377b8800"
+  "hash": "75cb5e46c0fa1f6c711fc9fdbe487e26c54cebdd3c875e5bf47f088775311cdf"
 }

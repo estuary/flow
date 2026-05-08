@@ -57,6 +57,7 @@ mod tests {
                 user_id: *id,
                 object_role: models::Prefix::new(*obj),
                 capability: *cap,
+                capabilities: vec![],
             }
         }));
         let rg = tables::RoleGrants::from_iter(role_grants.iter().map(|(sub, obj, cap)| {
@@ -64,6 +65,7 @@ mod tests {
                 subject_role: models::Prefix::new(*sub),
                 object_role: models::Prefix::new(*obj),
                 capability: *cap,
+                capabilities: vec![],
             }
         }));
         (ug, rg)
