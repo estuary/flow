@@ -72,7 +72,7 @@ Google Cloud IAM authentication uses a Workload Identity Pool, which lets the co
 
 ## Usage
 
-The connector polls daily by default, at noon UTC. On each polling cycle it inspects the dataset's available daily tables and decides what to read:
+The connector polls daily by default, at noon UTC. There is also an advanced option to set your own polling schedule. On each polling cycle it inspects the dataset's available daily tables and decides what to read:
 
 - Tables outside the **live window** (the most recent N days, four by default)
   are captured exactly once and never re-queried.
