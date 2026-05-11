@@ -24,6 +24,7 @@ The following data resources are supported through the Zendesk API:
 * [Post votes](https://developer.zendesk.com/api-reference/help_center/help-center-api/votes/#list-votes)
 * [Satisfaction ratings](https://developer.zendesk.com/api-reference/ticketing/ticket-management/satisfaction_ratings/)
 * [Schedules](https://developer.zendesk.com/api-reference/ticketing/ticket-management/schedules/)
+* [Side conversations](https://developer.zendesk.com/api-reference/ticketing/side_conversation/side_conversation/#list-side-conversations)
 * [SLA policies](https://developer.zendesk.com/api-reference/ticketing/business-rules/sla_policies/)
 * [Tags](https://developer.zendesk.com/api-reference/ticketing/ticket-management/tags/)
 * [Ticket activities](https://developer.zendesk.com/api-reference/ticketing/tickets/activity_stream/#list-activities)
