@@ -6,7 +6,7 @@
 go = { version = "1.25" }
 # `rust` is required, but installation via mise is incompatible with Swatim/rust-cache
 
-"github:drager/wasm-pack" = { version = "0.13.1" }
+"github:wasm-bindgen/wasm-pack" = { version = "0.13.1" }
 "github:etcd-io/etcd" = { version = "3.5.24" }
 "github:getsops/sops" = { version = "3.11.0", bin = "sops" }
 "github:jdx/usage" = { version = "2.6.0" }
