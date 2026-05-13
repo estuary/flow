@@ -867,7 +867,10 @@ mod test {
 
         let expected: Vec<(String, Vec<models::OrthogonalCapability>)> = expected
             .into_iter()
-            .map(|(prefix, caps)| (prefix.to_string(), caps))
+            .map(|(prefix, mut caps)| {
+                caps.sort();
+                (prefix.to_string(), caps)
+            })
             .collect();
 
         assert_eq!(nodes, expected);
@@ -1367,7 +1370,10 @@ mod test {
 
         let expected: Vec<(String, Vec<models::OrthogonalCapability>)> = expected
             .into_iter()
-            .map(|(prefix, caps)| (prefix.to_string(), caps))
+            .map(|(prefix, mut caps)| {
+                caps.sort();
+                (prefix.to_string(), caps)
+            })
             .collect();
 
         assert_eq!(nodes, expected);
@@ -1486,7 +1492,8 @@ mod test {
     }
 
     #[test]
-    fn test_empty_orthogonal_capabilities_returns_false() {
+    #[should_panic(expected = "is_authorized called with empty orthogonal capabilities")]
+    fn test_empty_orthogonal_capabilities_panics_in_debug() {
         let (rg, ug, uid) = build_orthogonal_scenario(
             vec![("acmeCo/", vec![models::OrthogonalCapability::Read])],
             vec![],
