@@ -36,8 +36,12 @@ insert into public.role_grants (subject_role, object_role, capability) values
   ('ops/rollups/L1/', 'ops/rollups/L1/', 'write'),
   -- L2 roll-ups can read L1 roll-ups.
   ('ops.us-central1.v1/', 'ops/rollups/L1/', 'read'),
+  ('ops/rollups/L2/', 'ops/rollups/L1/', 'read'),
   -- L2 roll-ups can write to themselves.
-  ('ops.us-central1.v1/', 'ops.us-central1.v1/', 'write')
+  ('ops.us-central1.v1/', 'ops.us-central1.v1/', 'write'),
+  ('ops/rollups/L2/', 'ops/rollups/L2/', 'write'),
+  -- The local stats-view materialization reads L2 catalog-stats.
+  ('ops/views/', 'ops/rollups/L2/', 'read')
   ;
 
 -- Ops collections are directed to estuary-flow-poc and not estuary-trial for $reasons.

@@ -99,3 +99,52 @@ materializations:
           exclude:
             - event_type
             - error
+
+  ops/views/stats:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-bigtable:dev
+        config: local-bigtable.config.yaml
+    bindings:
+      - source:
+          name: ops/rollups/L2/catalog-stats
+          partitions:
+            include:
+              grain: ["hourly"]
+        resource:
+          table: catalog_stats_hourly
+        fields:
+          recommended: false
+          groupBy: [catalog_name, ts]
+          require:
+            catalog_name: {}
+            ts: {}
+            flow_document: {}
+      - source:
+          name: ops/rollups/L2/catalog-stats
+          partitions:
+            include:
+              grain: ["daily"]
+        resource:
+          table: catalog_stats_daily
+        fields:
+          recommended: false
+          groupBy: [catalog_name, ts]
+          require:
+            catalog_name: {}
+            ts: {}
+            flow_document: {}
+      - source:
+          name: ops/rollups/L2/catalog-stats
+          partitions:
+            include:
+              grain: ["monthly"]
+        resource:
+          table: catalog_stats_monthly
+        fields:
+          recommended: false
+          groupBy: [catalog_name, ts]
+          require:
+            catalog_name: {}
+            ts: {}
+            flow_document: {}

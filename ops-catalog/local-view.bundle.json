@@ -145,6 +145,94 @@
           }
         }
       ]
+    },
+    "ops/views/stats": {
+      "endpoint": {
+        "connector": {
+          "image": "ghcr.io/estuary/materialize-bigtable:dev",
+          "config": {"project_id":"estuary-local","instance_id":"estuary-local","credentials":{"auth_type":"CredentialsJSON","credentials_json":"{}"},"advanced":{"endpoint":"172.17.0.1:8086","feature_flags":"allow_existing_tables_for_new_bindings"}}
+        }
+      },
+      "bindings": [
+        {
+          "resource": {"table":"catalog_stats_hourly"},
+          "source": {
+            "name": "ops/rollups/L2/catalog-stats",
+            "partitions": {
+              "include": {
+                "grain": [
+                  "hourly"
+                ]
+              },
+              "exclude": {}
+            }
+          },
+          "fields": {
+            "groupBy": [
+              "catalog_name",
+              "ts"
+            ],
+            "require": {
+              "catalog_name": {},
+              "flow_document": {},
+              "ts": {}
+            },
+            "recommended": false
+          }
+        },
+        {
+          "resource": {"table":"catalog_stats_daily"},
+          "source": {
+            "name": "ops/rollups/L2/catalog-stats",
+            "partitions": {
+              "include": {
+                "grain": [
+                  "daily"
+                ]
+              },
+              "exclude": {}
+            }
+          },
+          "fields": {
+            "groupBy": [
+              "catalog_name",
+              "ts"
+            ],
+            "require": {
+              "catalog_name": {},
+              "flow_document": {},
+              "ts": {}
+            },
+            "recommended": false
+          }
+        },
+        {
+          "resource": {"table":"catalog_stats_monthly"},
+          "source": {
+            "name": "ops/rollups/L2/catalog-stats",
+            "partitions": {
+              "include": {
+                "grain": [
+                  "monthly"
+                ]
+              },
+              "exclude": {}
+            }
+          },
+          "fields": {
+            "groupBy": [
+              "catalog_name",
+              "ts"
+            ],
+            "require": {
+              "catalog_name": {},
+              "flow_document": {},
+              "ts": {}
+            },
+            "recommended": false
+          }
+        }
+      ]
     }
   }
 }
