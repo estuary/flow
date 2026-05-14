@@ -294,6 +294,7 @@ mise tasks
 | `local:runtime-sidecar`          | Start runtime-v2 sidecar for a local data plane             |
 | `local:seed-controller-job`      | Seed a controller job to trigger data plane converge        |
 | `local:supabase`                 | Start Supabase only                                         |
+| `local:bigtable`                 | Start BigTable emulator only                                |
 | `local:stop`                     | Stop all services and clean up                              |
 | `local:dekaf`                    | Start Dekaf against local stack                             |
 | `local:dekaf-kafka`              | Start local Kafka for Dekaf testing                         |

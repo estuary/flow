@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Start the BigTable emulator via systemd"
+#MISE depends=["local:common"]
+
+UNIT_FILE="${HOME}/.config/systemd/user/flow-bigtable.service"
+if [ ! -f "$UNIT_FILE" ]; then
+    ln -sf "$(pwd)/local/systemd/flow-bigtable.service" "$UNIT_FILE"
+    systemctl --user daemon-reload
+fi
+
+systemctl --user start flow-bigtable
+
+host="localhost:8086"
+
+# Wait for the emulator's TCP port. The gRPC server may still need a moment
+# beyond this — the ensure_table retry loop below covers that gap.
+for _ in $(seq 1 30); do
+    # Subshell so bash's own "connect: Connection refused" diagnostic for a
+    # failed /dev/tcp redirection is captured by 2>/dev/null.
+    if (exec 3<>"/dev/tcp/${host/:/\/}") 2>/dev/null; then
+        break
+    fi
+    sleep 1
+done
+
+# Create expected tables per stats grain. This is needed for tests that seed
+# rows directly. `cbt` has no createtable-if-not-exists, so we tolerate the
+# "AlreadyExists" error from re-runs and retry transient failures (e.g. gRPC
+# not yet accepting requests right after the TCP port opens).
+ensure_table() {
+    local table="$1"
+    local out
+    for _ in $(seq 1 10); do
+        if out=$(docker run --rm --network host \
+            -e BIGTABLE_EMULATOR_HOST="${host}" \
+            google/cloud-sdk:latest \
+            cbt -project estuary-local -instance estuary-local \
+                createtable "${table}" families=f 2>&1); then
+            return 0
+        fi
+        if grep -q 'AlreadyExists' <<<"${out}"; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Failed to create BigTable table ${table}:" >&2
+    echo "${out}" >&2
+    return 1
+}
+
+for grain in hourly daily monthly; do
+    ensure_table "catalog_stats_${grain}"
+done
+
+echo "BigTable emulator ready at ${host}."

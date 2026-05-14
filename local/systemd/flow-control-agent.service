@@ -3,6 +3,8 @@ Description=Flow Control Plane Agent
 Documentation=https://github.com/estuary/flow
 After=flow-supabase.service
 Requires=flow-supabase.service
+After=flow-bigtable.service
+Requires=flow-bigtable.service
 PartOf=flow-control-plane.target
 
 [Service]
