@@ -21,6 +21,12 @@ updated documents:
 * ITEM
 * TASK
 
+:::info
+The incremental strategy for the above objects captures deletions by querying the AUDITHISTORY object.
+If the credentials provided to the connector do not have permission to query the AUDITHISTORY object,
+deletions will not be captured.
+:::
+
 These objects support capturing via periodic snapshotting:
 * COMPANYPREF
 
