@@ -2123,6 +2123,7 @@ dependencies = [
  "tables",
  "tempfile",
  "thiserror 2.0.17",
+ "time",
  "tokens",
  "tokio",
  "tokio-util",
