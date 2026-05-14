@@ -61,7 +61,8 @@ expression: json_test(msg)
               "const-two"
             ],
             "reduce": "REDUCE_MERGE",
-            "redact": "REDACT_SHA256"
+            "redact": "REDACT_SHA256",
+            "contentMediaType": "typ"
           }
         }
       ],
@@ -149,7 +150,8 @@ expression: json_test(msg)
                   "const-two"
                 ],
                 "reduce": "REDUCE_MERGE",
-                "redact": "REDACT_SHA256"
+                "redact": "REDACT_SHA256",
+                "contentMediaType": "typ"
               }
             }
           ],
@@ -250,7 +252,8 @@ expression: json_test(msg)
               "const-two"
             ],
             "reduce": "REDUCE_MERGE",
-            "redact": "REDACT_SHA256"
+            "redact": "REDACT_SHA256",
+            "contentMediaType": "typ"
           }
         }
       ],

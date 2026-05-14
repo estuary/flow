@@ -19,6 +19,7 @@ fn ex_projections() -> Vec<flow::Projection> {
             title: "title".to_string(),
             exists: inference::Exists::Must as i32,
             secret: false,
+            content_media_type: "typ".to_string(),
             string: Some(inference::String {
                 content_encoding: "enc".to_string(),
                 content_type: "typ".to_string(),

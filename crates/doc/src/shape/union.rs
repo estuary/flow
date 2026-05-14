@@ -52,7 +52,6 @@ impl StringShape {
 
         StringShape {
             content_encoding: union_option(lhs.content_encoding, rhs.content_encoding),
-            content_type: union_option(lhs.content_type, rhs.content_type),
             format: Self::union_format(lhs.format, rhs.format),
             max_length,
             min_length: lhs.min_length.min(rhs.min_length),
@@ -270,6 +269,7 @@ impl Shape {
         let provenance = lhs.provenance.union(rhs.provenance);
         let default = union_option(lhs.default, rhs.default);
         let secret = union_option(lhs.secret, rhs.secret);
+        let content_media_type = union_option(lhs.content_media_type, rhs.content_media_type);
 
         // Union of annotations is actually an _intersection_, which yields only
         // the annotations that are guaranteed to apply at a given location.
@@ -319,6 +319,7 @@ impl Shape {
             provenance,
             default,
             secret,
+            content_media_type,
             annotations,
             string,
             array,

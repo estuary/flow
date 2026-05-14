@@ -2595,6 +2595,9 @@ impl serde::Serialize for Inference {
         if self.redact != 0 {
             len += 1;
         }
+        if !self.content_media_type.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.Inference", len)?;
         if !self.types.is_empty() {
             struct_ser.serialize_field("types", &self.types)?;
@@ -2640,6 +2643,9 @@ impl serde::Serialize for Inference {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.redact)))?;
             struct_ser.serialize_field("redact", &v)?;
         }
+        if !self.content_media_type.is_empty() {
+            struct_ser.serialize_field("contentMediaType", &self.content_media_type)?;
+        }
         struct_ser.end()
     }
 }
@@ -2664,6 +2670,8 @@ impl<'de> serde::Deserialize<'de> for Inference {
             "enum",
             "reduce",
             "redact",
+            "content_media_type",
+            "contentMediaType",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2680,6 +2688,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
             EnumJsonVec,
             Reduce,
             Redact,
+            ContentMediaType,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2713,6 +2722,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
                             "enum" | "enum_json_vec" => Ok(GeneratedField::EnumJsonVec),
                             "reduce" => Ok(GeneratedField::Reduce),
                             "redact" => Ok(GeneratedField::Redact),
+                            "contentMediaType" | "content_media_type" => Ok(GeneratedField::ContentMediaType),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2744,6 +2754,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
                 let mut enum_json_vec__ = None;
                 let mut reduce__ = None;
                 let mut redact__ = None;
+                let mut content_media_type__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Types => {
@@ -2823,6 +2834,12 @@ impl<'de> serde::Deserialize<'de> for Inference {
                             }
                             redact__ = Some(map_.next_value::<inference::Redact>()? as i32);
                         }
+                        GeneratedField::ContentMediaType => {
+                            if content_media_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contentMediaType"));
+                            }
+                            content_media_type__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(Inference {
@@ -2838,6 +2855,7 @@ impl<'de> serde::Deserialize<'de> for Inference {
                     enum_json_vec: enum_json_vec__.unwrap_or_default(),
                     reduce: reduce__.unwrap_or_default(),
                     redact: redact__.unwrap_or_default(),
+                    content_media_type: content_media_type__.unwrap_or_default(),
                 })
             }
         }

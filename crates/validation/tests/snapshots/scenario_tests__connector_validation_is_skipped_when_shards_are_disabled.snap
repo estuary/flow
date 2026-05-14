@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 43
 expression: outcome
 ---
 Outcome {
@@ -216,6 +215,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -241,6 +241,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -273,6 +274,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -305,6 +307,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -337,6 +340,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },

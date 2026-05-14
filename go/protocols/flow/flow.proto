@@ -119,6 +119,7 @@ message Inference {
   message String {
     reserved 1, 2, 5;
     // Annotated Content-Type when the projection is of "string" type.
+    // Deprecated for non-string projections; prefer `Inference.content_media_type`.
     string content_type = 3;
     // Annotated format when the projection is of "string" type.
     string format = 4;
@@ -186,6 +187,12 @@ message Inference {
   Reduce reduce = 12;
   // Applied `redact` strategy.
   Redact redact = 13;
+  // Annotated `contentMediaType` of the schema. The JSON-Schema spec
+  // defines this annotation only for strings; Flow extends it to apply
+  // to any type, so it surfaces at the top level. For backward
+  // compatibility, `Inference.String.content_type` continues to be populated
+  // whenever this projection includes the "string" type.
+  string content_media_type = 14;
 }
 
 message NetworkPort {

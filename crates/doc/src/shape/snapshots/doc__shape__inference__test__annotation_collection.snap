@@ -12,6 +12,7 @@ Shape {
     provenance: Inline,
     default: None,
     secret: None,
+    content_media_type: None,
     annotations: {
         "x-test-top-level": Bool(true),
     },
@@ -43,6 +44,7 @@ Shape {
                     provenance: Inline,
                     default: None,
                     secret: None,
+                    content_media_type: None,
                     annotations: {
                         "X-bar-top-level": Bool(true),
                         "x-bar-two": String("twoVal"),
@@ -64,7 +66,6 @@ Shape {
                     },
                     string: StringShape {
                         content_encoding: None,
-                        content_type: None,
                         format: None,
                         max_length: None,
                         min_length: 0,
@@ -87,6 +88,7 @@ Shape {
                     provenance: Inline,
                     default: None,
                     secret: None,
+                    content_media_type: None,
                     annotations: {
                         "x-conflicting-ann": String("yes please"),
                     },
@@ -107,7 +109,6 @@ Shape {
                     },
                     string: StringShape {
                         content_encoding: None,
-                        content_type: None,
                         format: None,
                         max_length: None,
                         min_length: 0,
@@ -128,6 +129,7 @@ Shape {
                     provenance: Inline,
                     default: None,
                     secret: None,
+                    content_media_type: None,
                     annotations: {
                         "X-foo-top-level": Bool(false),
                         "x-foo-one": String("oneVal"),
@@ -150,7 +152,6 @@ Shape {
                     },
                     string: StringShape {
                         content_encoding: None,
-                        content_type: None,
                         format: None,
                         max_length: None,
                         min_length: 0,
@@ -161,7 +162,6 @@ Shape {
     },
     string: StringShape {
         content_encoding: None,
-        content_type: None,
         format: None,
         max_length: None,
         min_length: 0,

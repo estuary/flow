@@ -39,7 +39,6 @@ impl StringShape {
         };
         StringShape {
             content_encoding: lhs.content_encoding.or(rhs.content_encoding),
-            content_type: lhs.content_type.or(rhs.content_type),
             format: lhs.format.or(rhs.format),
             min_length: lhs.min_length.max(rhs.min_length),
             max_length,
@@ -256,6 +255,8 @@ impl Shape {
         let default = lhs.default.or(rhs.default);
         let secret = lhs.secret.or(rhs.secret);
 
+        let content_media_type = lhs.content_media_type.or(rhs.content_media_type);
+
         let mut annotations = rhs.annotations;
         annotations.extend(lhs.annotations.into_iter());
 
@@ -298,6 +299,7 @@ impl Shape {
             provenance,
             default,
             secret,
+            content_media_type,
             annotations,
             string,
             array,

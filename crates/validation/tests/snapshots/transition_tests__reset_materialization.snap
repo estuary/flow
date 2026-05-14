@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/transition_tests.rs
-assertion_line: 488
 expression: outcome.built_materializations
 ---
 [
@@ -126,6 +125,7 @@ expression: outcome.built_materializations
                                             enum_json_vec: [],
                                             reduce: Unset,
                                             redact: Unset,
+                                            content_media_type: "",
                                         },
                                     ),
                                 },
@@ -158,6 +158,7 @@ expression: outcome.built_materializations
                                             enum_json_vec: [],
                                             reduce: Unset,
                                             redact: Unset,
+                                            content_media_type: "",
                                         },
                                     ),
                                 },
@@ -181,6 +182,7 @@ expression: outcome.built_materializations
                                             enum_json_vec: [],
                                             reduce: Unset,
                                             redact: Unset,
+                                            content_media_type: "",
                                         },
                                     ),
                                 },
@@ -206,6 +208,7 @@ expression: outcome.built_materializations
                                             enum_json_vec: [],
                                             reduce: Unset,
                                             redact: Unset,
+                                            content_media_type: "",
                                         },
                                     ),
                                 },
@@ -238,6 +241,7 @@ expression: outcome.built_materializations
                                             enum_json_vec: [],
                                             reduce: Unset,
                                             redact: Unset,
+                                            content_media_type: "",
                                         },
                                     ),
                                 },
@@ -270,6 +274,7 @@ expression: outcome.built_materializations
                                             enum_json_vec: [],
                                             reduce: Unset,
                                             redact: Unset,
+                                            content_media_type: "",
                                         },
                                     ),
                                 },
@@ -293,6 +298,7 @@ expression: outcome.built_materializations
                                             enum_json_vec: [],
                                             reduce: Unset,
                                             redact: Unset,
+                                            content_media_type: "",
                                         },
                                     ),
                                 },
@@ -318,6 +324,7 @@ expression: outcome.built_materializations
                                             enum_json_vec: [],
                                             reduce: Unset,
                                             redact: Unset,
+                                            content_media_type: "",
                                         },
                                     ),
                                 },
@@ -350,6 +357,7 @@ expression: outcome.built_materializations
                                             enum_json_vec: [],
                                             reduce: Unset,
                                             redact: Unset,
+                                            content_media_type: "",
                                         },
                                     ),
                                 },

@@ -219,7 +219,7 @@ impl Shape {
                         shape.string.content_encoding = Some((&**enc).into());
                     }
                     Annotation::Core(CoreAnnotation::ContentMediaType(mt)) => {
-                        shape.string.content_type = Some((&**mt).into());
+                        shape.content_media_type = Some((&**mt).into());
                     }
                     Annotation::Core(CoreAnnotation::Format(format)) => {
                         shape.string.format = Some(*format);
@@ -476,6 +476,9 @@ mod test {
                 - reduce: {strategy: firstWriteWins}
                 - redact: {strategy: sha256}
                 - default: john.doe@gmail.com
+                - oneOf:
+                  - contentMediaType: some/thing
+                  - contentMediaType: some/thing
                 anyOf:
                 - contentEncoding: base64
                 - type: object # Elided (impossible).
@@ -547,9 +550,9 @@ mod test {
                     None,
                 ))),
                 secret: Some(true),
+                content_media_type: Some("some/thing".into()),
                 string: StringShape {
                     content_encoding: Some("base64".into()),
-                    content_type: Some("some/thing".into()),
                     format: Some(Format::Email),
                     max_length: None,
                     min_length: 0,
@@ -557,6 +560,25 @@ mod test {
                 ..Shape::nothing()
             },
         );
+    }
+
+    #[test]
+    fn test_one_of_branch_elided_by_outer_type_constraint() {
+        // A `oneOf` branch whose type is incompatible with the outer
+        // `$ref`-imposed type set must not leak that type into the final
+        // shape. Here the `null` branch is impossible given the $ref
+        // restricts to [string, array].
+        let shape = shape_from(
+            r#"
+            $defs:
+              aDef: {type: [string, array]}
+            oneOf:
+            - type: array
+            - type: 'null'
+            $ref: '#/$defs/aDef'
+            "#,
+        );
+        assert_eq!(shape.type_, types::ARRAY);
     }
 
     #[test]
@@ -742,6 +764,7 @@ mod test {
                 provenance: Inline,
                 default: None,
                 secret: None,
+                content_media_type: None,
                 annotations: {},
                 array: ArrayShape {
                     additional_items: None,
@@ -760,7 +783,6 @@ mod test {
                 },
                 string: StringShape {
                     content_encoding: None,
-                    content_type: None,
                     format: None,
                     max_length: None,
                     min_length: 0,
@@ -888,6 +910,7 @@ mod test {
                         shape: enum_fixture(json!(["b"])),
                     }],
                     additional_properties: None,
+                    ..ObjShape::new()
                 },
                 ..Shape::anything()
             },
@@ -933,6 +956,7 @@ mod test {
                     }],
                     pattern_properties: Vec::new(),
                     additional_properties: Some(Box::new(enum_fixture(json!(["a", "b"])))),
+                    ..ObjShape::new()
                 },
                 ..Shape::anything()
             },
@@ -1133,6 +1157,7 @@ mod test {
                 numeric: NumericShape {
                     minimum: Some(5u64.into()),
                     maximum: Some(10u64.into()),
+                    ..NumericShape::new()
                 },
                 ..Shape::anything()
             },
@@ -1244,6 +1269,7 @@ mod test {
                         shape: enum_fixture(json!(["c", "d"])),
                     }],
                     additional_properties: Some(Box::new(enum_fixture(json!([1, 2])))),
+                    ..ObjShape::new()
                 },
                 ..Shape::anything()
             },
@@ -1276,6 +1302,7 @@ mod test {
                         shape: enum_fixture(json!(["c", "d"])),
                     }],
                     additional_properties: Some(Box::new(Shape::nothing())),
+                    ..ObjShape::new()
                 },
                 ..Shape::anything()
             },
