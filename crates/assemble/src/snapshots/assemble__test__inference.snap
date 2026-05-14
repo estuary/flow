@@ -30,6 +30,7 @@ expression: "&[out1, out2, out3, out4]"
         ],
         reduce: Sum,
         redact: Sha256,
+        content_media_type: "a/type",
     },
     Inference {
         types: [
@@ -50,6 +51,7 @@ expression: "&[out1, out2, out3, out4]"
         ],
         reduce: Sum,
         redact: Sha256,
+        content_media_type: "a/type",
     },
     Inference {
         types: [
@@ -85,6 +87,7 @@ expression: "&[out1, out2, out3, out4]"
         ],
         reduce: Sum,
         redact: Sha256,
+        content_media_type: "a/type",
     },
     Inference {
         types: [
@@ -116,5 +119,6 @@ expression: "&[out1, out2, out3, out4]"
         ],
         reduce: Sum,
         redact: Sha256,
+        content_media_type: "a/type",
     },
 ]

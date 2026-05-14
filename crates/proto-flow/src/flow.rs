@@ -93,6 +93,13 @@ pub struct Inference {
     /// Applied `redact` strategy.
     #[prost(enumeration = "inference::Redact", tag = "13")]
     pub redact: i32,
+    /// Annotated `contentMediaType` of the schema. The JSON-Schema spec
+    /// defines this annotation only for strings; Flow extends it to apply
+    /// to any type, so it surfaces at the top level. For backward
+    /// compatibility, `Inference.String.content_type` continues to be populated
+    /// whenever this projection includes the "string" type.
+    #[prost(string, tag = "14")]
+    pub content_media_type: ::prost::alloc::string::String,
 }
 /// Nested message and enum types in `Inference`.
 pub mod inference {
@@ -100,6 +107,7 @@ pub mod inference {
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct String {
         /// Annotated Content-Type when the projection is of "string" type.
+        /// Deprecated for non-string projections; prefer `Inference.content_media_type`.
         #[prost(string, tag = "3")]
         pub content_type: ::prost::alloc::string::String,
         /// Annotated format when the projection is of "string" type.

@@ -18,6 +18,7 @@ fn to_sub_schema(shape: Shape) -> Schema {
         provenance: _, // Not mapped to a schema.
         default,
         secret,
+        content_media_type,
         annotations,
         array,
         numeric,
@@ -51,6 +52,16 @@ fn to_sub_schema(shape: Shape) -> Schema {
     }
     if let Some(d) = default {
         out.insert("default".to_string(), d.0);
+    }
+
+    // The JSON-Schema spec defines `contentMediaType` only for strings;
+    // Flow extends it to apply to any type, so it lives at the top level
+    // of Shape.
+    if let Some(ct) = content_media_type {
+        out.insert(
+            keywords::CONTENT_MEDIA_TYPE.to_string(),
+            serde_json::json!(ct),
+        );
     }
 
     // Object keywords.
@@ -136,7 +147,6 @@ fn to_sub_schema(shape: Shape) -> Schema {
     if type_.overlaps(types::STRING) {
         let StringShape {
             content_encoding,
-            content_type,
             format,
             max_length,
             min_length,
@@ -146,12 +156,6 @@ fn to_sub_schema(shape: Shape) -> Schema {
             out.insert(
                 keywords::CONTENT_ENCODING.to_string(),
                 serde_json::json!(encoding),
-            );
-        }
-        if let Some(content_type) = content_type {
-            out.insert(
-                keywords::CONTENT_MEDIA_TYPE.to_string(),
-                serde_json::json!(content_type),
             );
         }
         if let Some(f) = format {

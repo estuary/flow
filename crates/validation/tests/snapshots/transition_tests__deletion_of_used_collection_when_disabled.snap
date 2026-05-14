@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/transition_tests.rs
-assertion_line: 446
 expression: outcome
 ---
 Outcome {
@@ -390,6 +389,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -422,6 +422,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -454,6 +455,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -479,6 +481,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -511,6 +514,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },

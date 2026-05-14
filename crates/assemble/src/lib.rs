@@ -55,6 +55,12 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         shape::Redact::Unset => flow::inference::Redact::Unset,
     };
 
+    let content_media_type = shape
+        .content_media_type
+        .as_deref()
+        .unwrap_or_default()
+        .to_string();
+
     flow::Inference {
         types: shape.type_.to_vec(),
         exists: exists as i32,
@@ -66,14 +72,12 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
             .unwrap_or_default(),
         default_json,
         secret: shape.secret.unwrap_or_default(),
+        // `content_media_type` lives at the top level. For back-compat,
+        // `Inference.String.content_type` (below) carries the same value
+        // whenever the projection's type includes "string".
         string: if shape.type_.overlaps(types::STRING) {
             Some(flow::inference::String {
-                content_type: shape
-                    .string
-                    .content_type
-                    .clone()
-                    .map(Into::into)
-                    .unwrap_or_default(),
+                content_type: content_media_type.clone(),
                 format: shape
                     .string
                     .format
@@ -135,6 +139,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         enum_json_vec,
         reduce: reduce as i32,
         redact: redact as i32,
+        content_media_type,
     }
 }
 
@@ -601,10 +606,10 @@ mod test {
             description: Some("the description".into()),
             title: Some("the title".into()),
             secret: Some(true),
+            content_media_type: Some("a/type".into()),
             string: StringShape {
                 content_encoding: Some("BaSE64".into()),
                 format: Some(json::schema::formats::Format::DateTime),
-                content_type: Some("a/type".into()),
                 min_length: 10,
                 max_length: Some(123),
             },

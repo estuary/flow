@@ -36,6 +36,11 @@ pub struct Shape {
     pub default: Option<Box<(Value, Option<super::FailedValidation>)>>,
     /// Is this location sensitive? For example, a password or credential.
     pub secret: Option<bool>,
+    /// Annotated `contentMediaType`. The JSON-Schema specification defines
+    /// this annotation only for strings; Flow extends it to apply to any
+    /// type, so it lives at the top level rather than nested in a typed
+    /// sub-shape.
+    pub content_media_type: Option<Box<str>>,
     /// Annotations are any keywords starting with `X-` or `x-`.
     /// Their keys and values are collected here, without performing any
     /// normalization of prefix case. Technically both `x-foo` and `X-foo` may be
@@ -52,7 +57,6 @@ pub struct Shape {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StringShape {
     pub content_encoding: Option<Box<str>>,
-    pub content_type: Option<Box<str>>,
     pub format: Option<Format>,
     pub max_length: Option<u32>,
     pub min_length: u32,
@@ -135,7 +139,6 @@ impl StringShape {
     pub const fn new() -> Self {
         Self {
             content_encoding: None,
-            content_type: None,
             format: None,
             max_length: None,
             min_length: 0,
@@ -187,6 +190,7 @@ impl Shape {
             provenance: Provenance::Unset,
             default: None,
             secret: None,
+            content_media_type: None,
             annotations: BTreeMap::new(),
             array: ArrayShape::new(),
             numeric: NumericShape::new(),
@@ -208,6 +212,7 @@ impl Shape {
             provenance: Provenance::Inline,
             default: None,
             secret: None,
+            content_media_type: None,
             annotations: BTreeMap::new(),
             array: ArrayShape::new(),
             numeric: NumericShape::new(),
@@ -286,7 +291,7 @@ mod test {
     fn shape_size_regression() {
         use super::{ArrayShape, ObjShape, Shape, StringShape};
         assert_eq!(std::mem::size_of::<ObjShape>(), 56);
-        assert_eq!(std::mem::size_of::<StringShape>(), 48);
+        assert_eq!(std::mem::size_of::<StringShape>(), 32);
         assert_eq!(std::mem::size_of::<ArrayShape>(), 48);
         assert_eq!(std::mem::size_of::<Shape>(), 328);
     }
