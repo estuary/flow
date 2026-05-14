@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Start control plane agent via systemd"
-#MISE depends=["local:common", "local:tls-cert", "local:supabase"]
+#MISE depends=["local:common", "local:tls-cert", "local:supabase", "local:bigtable"]
 
 FLOW_LOCAL="${HOME}/flow-local"
 mkdir -p "${FLOW_LOCAL}/env"
@@ -25,6 +25,10 @@ RUST_LOG=info
 SERVE_HANDLERS=true
 SKIP_CONNECTOR_TABLE_CHECK=true
 SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
+
+BIGTABLE_PROJECT=estuary-local
+BIGTABLE_INSTANCE=estuary-local
+BIGTABLE_EMULATOR_HOST=localhost:8086
 
 EOF
 

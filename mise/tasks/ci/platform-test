@@ -17,6 +17,7 @@ mise run ci:gnu-dev
 mise run build:gazette
 mise run build:flowctl-go
 mise run ci:nextest-build
+mise run local:bigtable
 mise run ci:nextest-run
 mise run ci:doctest
 mise run ci:gotest
