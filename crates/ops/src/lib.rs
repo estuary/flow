@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize, de::Error};
 use std::collections::BTreeMap;
 use std::io::Write;
 
+pub mod catalog_stats;
 pub mod decode;
 pub mod tracing;
 
