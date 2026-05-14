@@ -60,7 +60,7 @@ impl super::RoleGrant {
         let seed = super::GrantRef {
             subject_role: role_or_name,
             object_role: role_or_name,
-            capability: models::Capability::Admin,
+            capability: models::Capability::Admin, // Seed search.
         };
         pathfinding::directed::bfs::bfs_reach(seed, |f| {
             grant_edges(*f, role_grants, &[], uuid::Uuid::nil())
@@ -77,7 +77,7 @@ impl super::RoleGrant {
     ) -> bool {
         Self::transitive_roles(role_grants, subject_role_or_name).any(|role_grant| {
             object_role_or_name.starts_with(role_grant.object_role)
-                && role_grant.capability >= capability
+                && role_grant.capability.is_sufficient_for(capability)
         })
     }
 
@@ -100,7 +100,7 @@ impl super::UserGrant {
         let seed = super::GrantRef {
             subject_role: "",
             object_role: "", // Empty role causes us to map through user_grants.
-            capability: models::Capability::Admin,
+            capability: models::Capability::Admin, // Seed search.
         };
         pathfinding::directed::bfs::bfs_reach(seed, move |f| {
             grant_edges(*f, role_grants, user_grants, user_id)
@@ -108,6 +108,8 @@ impl super::UserGrant {
         .skip(1) // Skip `seed`.
     }
 
+    // TODO(johnny): This routine presumes a singular "max" capability which is no longer
+    // a reasonable assumption. Callers must be updated to account for multiple capabilities.
     pub fn get_user_capability<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
@@ -116,8 +118,8 @@ impl super::UserGrant {
     ) -> Option<models::Capability> {
         Self::transitive_roles(role_grants, user_grants, user_id)
             .filter(|grant| object_role_or_name.starts_with(grant.object_role))
-            .max_by_key(|grant| grant.capability)
             .map(|grant| grant.capability)
+            .next()
     }
 
     /// Given a user, determine if they're authorized to the object name for the given capability.
@@ -130,7 +132,7 @@ impl super::UserGrant {
     ) -> bool {
         Self::transitive_roles(role_grants, user_grants, subject_user_id).any(|role_grant| {
             object_role_or_name.starts_with(role_grant.object_role)
-                && role_grant.capability >= capability
+                && role_grant.capability.is_sufficient_for(capability)
         })
     }
 
@@ -149,20 +151,20 @@ fn grant_edges<'a>(
     user_grants: &'a [super::UserGrant],
     user_id: uuid::Uuid,
 ) -> impl Iterator<Item = super::GrantRef<'a>> + 'a {
-    let (user_grants, role_grants, prefixes) = match (from.capability, from.object_role) {
+    let transitive = from.capability.is_transitive();
+    let (user_grants, role_grants, prefixes) = match (transitive, from.object_role) {
         // `from` is a place-holder which kicks of exploration through `user_grants` for `user_id`.
-        (models::Capability::Admin, "") => {
+        (true, "") => {
             let range = user_grants.equal_range_by(|user_grant| user_grant.user_id.cmp(&user_id));
             (&user_grants[range], &role_grants[..0], None)
         }
-        // We're an admin of `role_or_name`, and are projecting through
-        // role_grants to identify other roles and capabilities we take on.
-        (models::Capability::Admin, role_or_name) => {
+        // Transitive capabilities perform a recursive graph search,
+        // projecting capabilities of the object back on to the subject.
+        // We explore here, then filter to sufficient capabilities below.
+        (true, role_or_name) => {
             // Expand to all roles having a subject_role prefixed by role_or_name.
-            // In other words, an admin of `acmeCo/org/` may use a role with
-            // subject `acmeCo/org/team/`. Intuitively, this is because the root
-            // subject is authorized to create any name under `acmeCo/org/`,
-            // which implies an ability to create a name under `acmeCo/org/team/`.
+            // Intuitively, a granted capability to a prefix also bestows that
+            // capability to all catalog roles (prefixes) and names beneath it.
             let range = role_grants.equal_range_by(|role_grant| {
                 if role_grant.subject_role.starts_with(role_or_name) {
                     std::cmp::Ordering::Equal
@@ -171,10 +173,8 @@ fn grant_edges<'a>(
                 }
             });
             // Expand to all roles having a subject_role which prefixes role_or_name.
-            // In other words, a task `acmeCo/org/task` or admin of `acmeCo/org/`
-            // may use a role with subject `acmeCo/`. Intuitively, this is because
-            // the role granted to `acmeCo/` is also granted to any name underneath
-            // `acmeCo/`, which includes the present role or name.
+            // This is the correlary of the above projection: role_or_name inherits
+            // capabilities granted to roles which it's a prefix of.
             //
             // First split the source object role into its prefixes:
             // "acmeCo/one/two/three" => ["acmeCo/one/two/", "acmeCo/one/", "acmeCo/"].
@@ -196,8 +196,8 @@ fn grant_edges<'a>(
 
             (&user_grants[..0], &role_grants[range], Some(edges))
         }
-        (_not_admin, _) => {
-            // We perform no expansion through grants which are not Admin.
+        (false, _) => {
+            // We perform no expansion through non-transitive capabilities.
             (&user_grants[..0], &role_grants[..0], None)
         }
     };
@@ -206,7 +206,14 @@ fn grant_edges<'a>(
     let p2 = role_grants.iter().map(super::RoleGrant::to_ref);
     let p3 = prefixes.into_iter().flatten();
 
-    p1.chain(p2).chain(p3)
+    // Filter projected edges where the inbound capability is not sufficient
+    // for the outbound capability. For example, Edit is transitive, but it
+    // does not inherit a Reporting capability of the object.
+    let p2 = p2
+        .chain(p3)
+        .filter(move |role_grant| from.capability.is_sufficient_for(role_grant.capability));
+
+    p1.chain(p2)
 }
 
 impl super::StorageMapping {

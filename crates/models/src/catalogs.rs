@@ -63,9 +63,8 @@ pub enum CatalogType {
 }
 
 /// Capability within the Estuary role-based access control (RBAC) authorization system.
-#[derive(
-    Serialize, Deserialize, Clone, Copy, Debug, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
+/// Note that the discriminants here align with those in the database type.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, JsonSchema, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 #[cfg_attr(
     feature = "sqlx-support",
@@ -78,18 +77,65 @@ pub enum CatalogType {
     graphql(rename_items = "lowercase")
 )]
 pub enum Capability {
-    /// Note that the discriminants here align with those in the database type.
+    /// Read allows a subject to list and read collection journals.
     Read = 10,
+    /// Write allows a subject to list, read, create, and append to collection journals.
     Write = 20,
+    /// Edit allows a subject to create, modify, and delete collection and task definitions.
+    /// Sufficient for Read and Write. Transitive.
+    Edit = 40,
+    /// Reporting allows a subject to query reporting and billing,
+    /// including granular prefix rollups under the granted object role.
+    Reporting = 50,
+    /// Owner allows a subject to manage other subjects and their capabilities,
+    /// or to make administrative changes to tenants and data-planes.
+    Owner = 60,
+    /// Capability which bestows all other capabilities.
+    /// Widly deployed today, but being phased out in actual usage.
+    /// Also used as a "seed" capability to initialize graph search.
+    /// Transitive.
     Admin = 30,
+}
+
+impl Capability {
+    /// Is this capability sufficient to grant AuthZ to a requested capability?
+    /// A Capability variant is always sufficient for itself, but may also be
+    /// sufficient for other capabilities (for example, Edit grants Read).
+    #[inline]
+    pub fn is_sufficient_for(&self, requested: Capability) -> bool {
+        match (self, requested) {
+            (Capability::Admin, _) => true,
+            (Capability::Edit, Capability::Read | Capability::Write | Capability::Edit) => true,
+            (Capability::Write, Capability::Read | Capability::Write) => true,
+            _ => *self == requested,
+        }
+    }
+
+    /// Transitive capabilites chain from one subject to another,
+    /// allowing for projection of an object's own capability
+    /// back to the subject.
+    ///
+    /// Such projections are filtered such that the inbound capability
+    /// to an object, must be sufficient for the outbound capbility of
+    /// the object to other objects.
+    #[inline]
+    pub fn is_transitive(&self) -> bool {
+        match self {
+            Capability::Admin | Capability::Edit => true,
+            _ => false,
+        }
+    }
 }
 
 impl AsRef<str> for Capability {
     fn as_ref(&self) -> &str {
         match self {
-            Capability::Read => "read",
-            Capability::Write => "write",
             Capability::Admin => "admin",
+            Capability::Edit => "edit",
+            Capability::Owner => "owner",
+            Capability::Read => "read",
+            Capability::Reporting => "reporting",
+            Capability::Write => "write",
         }
     }
 }
