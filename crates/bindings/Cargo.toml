@@ -18,6 +18,7 @@ derive = { path = "../derive" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 runtime = { path = "../runtime" }
+runtime-next = { path = "../runtime-next" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }

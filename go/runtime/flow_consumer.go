@@ -42,6 +42,7 @@ type FlowConsumerConfig struct {
 		DataPlaneFQDN string      `long:"data-plane-fqdn" env:"DATA_PLANE_FQDN" description:"Fully-qualified domain name of the data-plane to which this reactor belongs"`
 		Network       string      `long:"network" env:"NETWORK" description:"The Docker network that connector containers are given access to. Defaults to the bridge network"`
 		ProxyRuntimes int         `long:"proxy-runtimes" default:"2" description:"The number of proxy connector runtimes that may run concurrently"`
+		SidecarPort   uint16      `long:"sidecar-port" env:"SIDECAR_PORT" description:"Port of the runtime-sidecar co-located on every reactor machine (fleet-wide, fixed). Required when any task uses the runtime-v2 feature flag."`
 		TestAPIs      bool        `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
@@ -56,6 +57,19 @@ func (c *FlowConsumerConfig) Execute(args []string) error {
 		App:          app,
 		WrapListener: app.tap.Wrap,
 	}.Execute(args)
+}
+
+// SidecarEndpoint maps a reactor's `ProcessSpec.Endpoint` to the dial-able URL
+// of the runtime-sidecar co-located with that reactor. The sidecar listens on a
+// fixed fleet-wide port (--sidecar-port); we preserve the reactor URL's scheme
+// (TLS choice mirrors the reactor) and substitute the host's port.
+func (c *FlowConsumerConfig) SidecarEndpoint(reactor pb.Endpoint) (string, error) {
+	if c.Flow.SidecarPort == 0 {
+		return "", fmt.Errorf("--sidecar-port (or env SIDECAR_PORT) is required for runtime-v2 tasks")
+	}
+	var u = reactor.URL()
+	u.Host = fmt.Sprintf("%s:%d", u.Hostname(), c.Flow.SidecarPort)
+	return u.String(), nil
 }
 
 // Plane returns the data-plane context in which this FlowConsumerConfig is running.
@@ -152,14 +166,30 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 			return d, nil
 		}
 	case ops.TaskType_materialization.String():
-		if m, err := newMaterializeApp(f, shard, rec); err != nil {
-			return nil, err
+		if useRuntimeV2(shard.Spec().LabelSet) {
+			if m, err := newMaterializeAppV2(f, shard, rec); err != nil {
+				return nil, err
+			} else {
+				return m, nil
+			}
 		} else {
-			return m, nil
+			if m, err := newMaterializeApp(f, shard, rec); err != nil {
+				return nil, err
+			} else {
+				return m, nil
+			}
 		}
 	default:
 		return nil, fmt.Errorf("don't know how to serve catalog task type %q", taskType)
 	}
+}
+
+// runtimeV2Flag is the shard-label flag selecting the runtime-next (V2) path.
+const runtimeV2Flag = labels.FlagPrefix + "enable-runtime-v2"
+
+// useRuntimeV2 reports whether the shard's labels select the runtime-next path.
+func useRuntimeV2(set pf.LabelSet) bool {
+	return set.ValueOf(runtimeV2Flag) == "true"
 }
 
 // NewMessage panics if called.
