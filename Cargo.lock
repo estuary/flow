@@ -7163,6 +7163,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime-sidecar"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "flow-client-next",
+ "futures",
+ "gazette",
+ "proto-gazette",
+ "runtime-next",
+ "rustls 0.23.32",
+ "shuffle",
+ "tokens",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "rusqlite"
 version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
