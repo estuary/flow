@@ -22,6 +22,8 @@ pub extern "C" fn new_task_service_v2(
     config_ptr: *const u8,
     config_len: u32,
 ) -> *mut TaskServiceV2 {
+    crate::install_crypto_provider();
+
     let config = unsafe { std::slice::from_raw_parts(config_ptr, config_len as usize) };
     let config = proto_flow::runtime::TaskServiceConfig::decode(config).unwrap();
 
