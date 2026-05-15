@@ -7,6 +7,9 @@
 //! `(key, value)` pair from a full `rocksdb::DB` scan on session startup,
 //! folding singleton state directly into a `proto::Recover` while collecting
 //! frontier entries separately for final sort and proto encoding.
+//! [`prune_committed_frontier`] then drops stale `FC:` entries (conservatively;
+//! see [`FRONTIER_PRUNE_CLOCK_HORIZON`] / [`FRONTIER_PRUNE_BYTE_HORIZON`]) so
+//! `shard::rocksdb` can delete them from the DB before returning `Recover`.
 //!
 //! `{state_key}` below is the binding-stable `state_key` field of
 //! `flow::MaterializationSpec.Binding` — distinct from `journal_read_suffix`,
@@ -59,6 +62,23 @@ pub const KEY_HINTED_CLOSE: &[u8] = b"hinted-close";
 pub const KEY_LAST_APPLIED: &[u8] = b"last-applied";
 /// Trigger parameters (JSON `models::TriggerVariables`).
 pub const KEY_TRIGGER_PARAMS: &[u8] = b"trigger-params";
+
+/// Minimum clock distance between a committed-frontier producer and the most
+/// recent committing producer of the same `(journal, state_key)` before the
+/// stale producer becomes a pruning candidate. Time protects high-volume
+/// journals from eager cleanup: when one producer quickly writes far ahead of
+/// another, the byte-distance horizon alone would prune the laggard even though
+/// little wall-clock time has actually passed. See [`prune_committed_frontier`].
+pub const FRONTIER_PRUNE_CLOCK_HORIZON: std::time::Duration =
+    std::time::Duration::from_secs(2 * 60 * 60);
+
+/// Minimum journal byte distance between a committed-frontier producer's read
+/// offset and the furthest-along read offset of the same `(journal, state_key)`
+/// before the stale producer becomes a pruning candidate. Byte distance is the
+/// real operational cost of keeping an old pending span replayable: a retained
+/// positive-offset entry forces the next session to re-read from that offset.
+/// See [`prune_committed_frontier`].
+pub const FRONTIER_PRUNE_BYTE_HORIZON: i64 = 8 * 1024 * 1024 * 1024;
 
 /// A single write effect contributed by a `Persist`. Values are carried as
 /// [`Bytes`] so shared allocations (e.g. a proto-decoded
@@ -304,6 +324,21 @@ fn append_frontier_key(
     out.extend_from_slice(producer);
 }
 
+/// Build a `FC:{journal}\0{state_key}\0{producer}` committed-frontier key.
+/// Used by `shard::rocksdb` to delete entries chosen by
+/// [`prune_committed_frontier`].
+pub fn committed_frontier_key(journal: &str, state_key: &str, producer: &uuid::Producer) -> Bytes {
+    let mut buf = BytesMut::new();
+    append_frontier_key(
+        &mut buf,
+        PREFIX_COMMITTED_FRONTIER,
+        journal,
+        state_key,
+        producer.as_bytes(),
+    );
+    buf.freeze()
+}
+
 // ---------------------------------------------------------------------------
 // Decoder
 // ---------------------------------------------------------------------------
@@ -480,6 +515,78 @@ fn decode_frontier_entry(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Frontier pruning
+// ---------------------------------------------------------------------------
+
+/// Drop stale committed-frontier producers from `committed` in place, returning
+/// the `(journal, binding, producer)` of each removed entry so the caller can
+/// issue the matching RocksDB deletes. `JournalFrontier`s left without any
+/// producers are removed from `committed`.
+///
+/// Pruning is conservative: within a `(journal, binding)` group — equivalently a
+/// `(journal, state_key)` group, since each state_key maps to a single binding —
+/// a producer `P` is pruned only when **all** of:
+///
+/// 1. No `FH:` (hinted) entry exists for the same `(journal, binding, producer)`
+///    — a hinted producer's committed entry is its idempotent-replay baseline
+///    and must be retained.
+/// 2. `P.last_commit` trails the group's newest `last_commit` by at least
+///    [`FRONTIER_PRUNE_CLOCK_HORIZON`].
+/// 3. `P`'s read offset (`offset.abs()`) trails the group's furthest-along read
+///    offset by at least [`FRONTIER_PRUNE_BYTE_HORIZON`].
+///
+/// `committed` and `hinted` are the per-`(journal, binding)` chunks collected by
+/// [`decode_recover_key_value`]; both are grouped (consecutive RocksDB key
+/// order) but neither need be globally sorted.
+pub fn prune_committed_frontier(
+    committed: &mut Vec<shuffle::JournalFrontier>,
+    hinted: &[shuffle::JournalFrontier],
+) -> Vec<(Box<str>, u16, uuid::Producer)> {
+    // Protected set: `(journal, binding, producer)` of every hinted entry.
+    let protected: std::collections::HashSet<(&str, u16, uuid::Producer)> = hinted
+        .iter()
+        .flat_map(|jf| {
+            jf.producers
+                .iter()
+                .map(move |p| (jf.journal.as_ref(), jf.binding, p.producer))
+        })
+        .collect();
+
+    let mut pruned = Vec::new();
+
+    committed.retain_mut(|jf| {
+        let group_clock = jf
+            .producers
+            .iter()
+            .map(|p| p.last_commit)
+            .max()
+            .unwrap_or_default();
+        let group_offset = jf
+            .producers
+            .iter()
+            .map(|p| p.offset.unsigned_abs())
+            .max()
+            .unwrap_or(0);
+
+        jf.producers.retain(|p| {
+            let stale = !protected.contains(&(jf.journal.as_ref(), jf.binding, p.producer))
+                && uuid::Clock::delta(group_clock, p.last_commit) >= FRONTIER_PRUNE_CLOCK_HORIZON
+                && group_offset.saturating_sub(p.offset.unsigned_abs())
+                    >= FRONTIER_PRUNE_BYTE_HORIZON as u64;
+
+            if stale {
+                pruned.push((jf.journal.clone(), jf.binding, p.producer));
+            }
+            !stale
+        });
+
+        !jf.producers.is_empty()
+    });
+
+    pruned
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -488,11 +595,7 @@ mod test {
         [0x01, tag, 0, 0, 0, 0]
     }
 
-    fn producer_frontier(
-        tag: u8,
-        last_commit: u64,
-        offset: i64,
-    ) -> shuffle::proto::ProducerFrontier {
+    fn proto_pf(tag: u8, last_commit: u64, offset: i64) -> shuffle::proto::ProducerFrontier {
         shuffle::proto::ProducerFrontier {
             producer: uuid::Producer::from_bytes(producer_id(tag)).as_i64(),
             last_commit,
@@ -509,17 +612,14 @@ mod test {
                 shuffle::proto::JournalFrontier {
                     journal_name_suffix: "acme/events/000".into(),
                     binding: 0,
-                    producers: vec![
-                        producer_frontier(0xaa, 100, 250),
-                        producer_frontier(0xbb, 90, -300),
-                    ],
+                    producers: vec![proto_pf(0xaa, 100, 250), proto_pf(0xbb, 90, -300)],
                     ..Default::default()
                 },
                 shuffle::proto::JournalFrontier {
                     journal_name_truncate_delta: 3,
                     journal_name_suffix: "001".into(),
                     binding: 1,
-                    producers: vec![producer_frontier(0xcc, 50, -50)],
+                    producers: vec![proto_pf(0xcc, 50, -50)],
                     ..Default::default()
                 },
             ],
@@ -756,8 +856,8 @@ mod test {
 
     #[test]
     fn decode_recover_classifies_ranges() {
-        let fh_value = producer_frontier(0xaa, 777, 12345).encode_to_vec();
-        let fc_value = producer_frontier(0xbb, 999, 4242).encode_to_vec();
+        let fh_value = proto_pf(0xaa, 777, 12345).encode_to_vec();
+        let fc_value = proto_pf(0xbb, 999, 4242).encode_to_vec();
 
         let pairs = vec![
             (
@@ -822,7 +922,7 @@ mod test {
         // FH:/FC: and MK-v2: entries whose state_key is not in the
         // current binding mapping are silently discarded — they belong
         // to backfilled or removed bindings.
-        let fh = producer_frontier(0xaa, 1, 0).encode_to_vec();
+        let fh = proto_pf(0xaa, 1, 0).encode_to_vec();
         let pairs = vec![
             (
                 frontier_key(
@@ -845,7 +945,7 @@ mod test {
 
     #[test]
     fn decode_recover_errors() {
-        let valid_value = Bytes::from(producer_frontier(0xaa, 1, 0).encode_to_vec());
+        let valid_value = Bytes::from(proto_pf(0xaa, 1, 0).encode_to_vec());
 
         // FH:/FC: layout: rest = journal \0 state_key \0 producer[6].
         #[allow(clippy::type_complexity)]
@@ -928,6 +1028,94 @@ mod test {
                 "{label}: expected {want}, got {err:?}"
             );
         }
+    }
+
+    fn pf(tag: u8, last_commit_secs: u64, offset: i64) -> shuffle::ProducerFrontier {
+        shuffle::ProducerFrontier {
+            producer: uuid::Producer::from_bytes(producer_id(tag)),
+            last_commit: uuid::Clock::from_unix(last_commit_secs, 0),
+            hinted_commit: uuid::Clock::zero(),
+            offset,
+        }
+    }
+
+    fn jf(
+        journal: &str,
+        binding: u16,
+        producers: Vec<shuffle::ProducerFrontier>,
+    ) -> shuffle::JournalFrontier {
+        shuffle::JournalFrontier {
+            journal: journal.into(),
+            binding,
+            producers,
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        }
+    }
+
+    const GIB: i64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn prune_committed_frontier_policy() {
+        // `j/old` exists only on binding 0; `j/two` exists on bindings 0 and 1.
+        // Within `(j/old, binding 0)`, 0xff is the "fresh" producer pinning the
+        // group's latest clock (~11.5 days) and read offset (20 GiB); the other
+        // producers each exercise one prune predicate.
+        let mut committed = vec![
+            jf(
+                "j/old",
+                0,
+                vec![
+                    pf(0xff, 1_000_000, -20 * GIB), // group clock/offset leader
+                    pf(0xaa, 0, 5 * GIB),           // old clock AND 15 GiB behind -> prune
+                    pf(0xbb, 0, 8 * GIB),           // old clock AND 12 GiB behind -> prune
+                    pf(0xcc, 0, 13 * GIB), // old clock but only 7 GiB behind (< 8 GiB) -> retain
+                    pf(0xdd, 999_000, 0),  // 20 GiB behind but only 1000s old (< 2h) -> retain
+                    pf(0xee, 0, GIB),      // old + 19 GiB behind, but FH-protected -> retain
+                ],
+            ),
+            jf("j/two", 0, vec![pf(0xff, 5, -GIB)]), // group's only producer (the leader) -> retain
+            jf("j/two", 1, vec![pf(0xaa, 0, GIB)]),  // group's only producer (the leader) -> retain
+        ];
+        // 0xee on (j/old, binding 0) is hinted: its committed entry is the
+        // idempotent-replay baseline and must survive pruning.
+        let hinted = vec![jf("j/old", 0, vec![pf(0xee, 0, 0)])];
+
+        let pruned = prune_committed_frontier(&mut committed, &hinted);
+
+        let mut pruned_tags: Vec<_> = pruned
+            .iter()
+            .map(|(j, b, p)| (j.to_string(), *b, p.as_bytes()[1]))
+            .collect();
+        pruned_tags.sort();
+        assert_eq!(
+            pruned_tags,
+            vec![
+                ("j/old".to_string(), 0, 0xaa),
+                ("j/old".to_string(), 0, 0xbb),
+            ],
+        );
+
+        // Surviving producers of (j/old, binding 0): ff, cc, dd, ee.
+        let old0 = &committed[0];
+        assert_eq!(old0.journal.as_ref(), "j/old");
+        let mut survivors: Vec<u8> = old0
+            .producers
+            .iter()
+            .map(|p| p.producer.as_bytes()[1])
+            .collect();
+        survivors.sort();
+        assert_eq!(survivors, vec![0xcc, 0xdd, 0xee, 0xff]);
+
+        // Both (j/two, _) journals retained intact.
+        assert_eq!(committed.len(), 3);
+        assert_eq!(committed[1].journal.as_ref(), "j/two");
+        assert_eq!(committed[1].binding, 0);
+        assert_eq!(committed[2].journal.as_ref(), "j/two");
+        assert_eq!(committed[2].binding, 1);
+
+        // Pruning an already-pruned frontier is a no-op.
+        assert!(prune_committed_frontier(&mut committed, &hinted).is_empty());
     }
 
     // Apply a KeyOp to an in-memory sorted store, respecting DeleteRange.

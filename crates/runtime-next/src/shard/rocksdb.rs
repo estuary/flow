@@ -107,6 +107,10 @@ impl RocksDB {
     ///
     /// `binding_state_keys` is a sorted slice of `(state_key, binding_index)`
     /// tuples used to map from stable `state_key` to current binding index.
+    ///
+    /// As a side effect, stale committed-frontier (`FC:`) entries identified by
+    /// [`recovery::prune_committed_frontier`] are deleted from the DB before
+    /// `Recover` is returned, so the leader never observes them.
     pub async fn scan(
         self,
         binding_state_keys: Vec<(String, u32)>,
@@ -138,6 +142,37 @@ impl RocksDB {
                 // Check final status for iteration errors.
                 () = it.status()?;
                 std::mem::drop(it);
+
+                // Drop stale committed-frontier (`FC:`) entries: remove them
+                // from the recovered frontier and delete them from RocksDB so
+                // the leader never sees them and they stop costing scan time.
+                let pruned =
+                    recovery::prune_committed_frontier(&mut committed_frontier, &hinted_frontier);
+                if !pruned.is_empty() {
+                    // Invert `(state_key, binding)` → `binding → state_key`.
+                    let state_key_of: std::collections::HashMap<u32, &str> = binding_state_keys
+                        .iter()
+                        .map(|(sk, idx)| (*idx, sk.as_str()))
+                        .collect();
+
+                    let mut wb = rocksdb::WriteBatch::default();
+                    for (journal, binding, producer) in &pruned {
+                        let state_key = state_key_of
+                            .get(&(*binding as u32))
+                            .expect("pruned binding is present in the binding mapping");
+                        wb.delete(recovery::committed_frontier_key(
+                            journal, state_key, producer,
+                        ));
+                    }
+                    // `wo` is not sync because this is GC, not a commit.
+                    let wo = rocksdb::WriteOptions::new();
+                    self.db.write_opt(wb, &wo)?;
+
+                    tracing::info!(
+                        producers = pruned.len(),
+                        "pruned stale committed-frontier entries during recovery scan"
+                    );
+                }
 
                 for (frontier, slot) in [
                     (&mut committed_frontier, &mut recover.committed_frontier),
@@ -592,6 +627,83 @@ mod test {
         assert_eq!(committed[1].binding, 1);
         assert_eq!(hinted[0].binding, 0);
         assert_eq!(hinted[1].binding, 1);
+    }
+
+    /// `scan` drops stale `FC:` producers (old clock AND far behind in bytes)
+    /// from both the recovered frontier and the DB, but never an `FH:`-protected
+    /// producer's committed baseline.
+    #[tokio::test]
+    async fn scan_prunes_stale_committed_frontier() {
+        let db = RocksDB::open(None).await.unwrap();
+        let producer = |tag: u8| proto_gazette::uuid::Producer::from_bytes([0x01, tag, 0, 0, 0, 0]);
+        let clock_secs = |s: u64| proto_gazette::uuid::Clock::from_unix(s, 0);
+        const GIB: i64 = 1024 * 1024 * 1024;
+
+        let pf = |tag: u8, last_commit_secs: u64, offset: i64| shuffle::ProducerFrontier {
+            producer: producer(tag),
+            last_commit: clock_secs(last_commit_secs),
+            hinted_commit: proto_gazette::uuid::Clock::zero(),
+            offset,
+        };
+        let committed = shuffle::JournalFrontier::encode(&[shuffle::JournalFrontier {
+            journal: "j/s".into(),
+            binding: 0,
+            producers: vec![
+                pf(0x11, 1_000_000, -20 * GIB), // fresh leader: pins group clock + 20 GiB read offset
+                pf(0x22, 0, 0),                 // old clock + 20 GiB behind -> pruned
+                pf(0x33, 0, 0),                 // same, but FH-protected below -> retained
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        }]);
+        let hinted = shuffle::JournalFrontier::encode(&[shuffle::JournalFrontier {
+            journal: "j/s".into(),
+            binding: 0,
+            producers: vec![pf(0x33, 42, 7)],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        }]);
+
+        let db = db
+            .persist(
+                &proto::Persist {
+                    committed_frontier: Some(committed),
+                    hinted_frontier: Some(hinted),
+                    ..Default::default()
+                },
+                &["sk0"],
+            )
+            .await
+            .unwrap();
+
+        let mapping = vec![("sk0".to_string(), 0)];
+        let (db, recover) = db.scan(mapping.clone()).await.unwrap();
+
+        let tags = |f: Option<shuffle::proto::Frontier>| -> Vec<Vec<u8>> {
+            f.into_iter()
+                .flat_map(shuffle::JournalFrontier::decode)
+                .map(|jf| {
+                    jf.producers
+                        .iter()
+                        .map(|p| p.producer.as_bytes()[1])
+                        .collect()
+                })
+                .collect()
+        };
+        assert_eq!(
+            tags(recover.committed_frontier),
+            vec![vec![0x11_u8, 0x33]],
+            "0x22 pruned from recovered committed frontier"
+        );
+        assert_eq!(
+            tags(recover.hinted_frontier),
+            vec![vec![0x33_u8]],
+            "hinted frontier untouched"
+        );
+
+        // A second scan confirms 0x22's FC: key was actually deleted.
+        let (_db, recover2) = db.scan(mapping).await.unwrap();
+        assert_eq!(tags(recover2.committed_frontier), vec![vec![0x11_u8, 0x33]]);
     }
 
     /// Verify merge batching handles many operands that would exceed memory
