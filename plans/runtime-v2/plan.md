@@ -38,10 +38,10 @@ Reactor machine
   │         │    (RocksDB + Go Recorder on the shard hosting the recovery log)
   │         └─ Capture: per-shard RocksDB with Go Recorder
   │
-  └─ shuffle sidecar process (Rust, one per machine, systemd-supervised)
+  └─ runtime sidecar process (Rust, one per machine, systemd-supervised)
        ├─ Shuffle Leader service (per-task, via join pattern)
        ├─ Shuffle service (Session/Slice/Log RPCs)
-       └─ Listens on the fixed shuffle port (same across the fleet)
+       └─ Listens on the fixed sidecar port (same across the fleet)
 ```
 
 Three layers interact:
@@ -75,7 +75,7 @@ Three layers interact:
    - For captures: each shard manages its own state independently,
      persisting to its own RocksDB via its own recovery log.
 
-3. **Shuffle sidecar process** (pure Rust), one per reactor machine,
+3. **Runtime sidecar process** (pure Rust), one per reactor machine,
    supervised by systemd with the same lifetime as the reactor
    process(es). Hosts two gRPC services for *all* tasks on the machine:
 
@@ -85,7 +85,7 @@ Three layers interact:
    - **Shuffle** (`crates/shuffle/`, Session/Slice/Log RPCs): accepts
      shuffle RPCs from any reactor participating in a task.
 
-   Both listen on the **shuffle port**: a fixed CLI argument, shared
+   Both listen on the **sidecar port**: a fixed CLI argument, shared
    fleet-wide. A reactor reaches any peer sidecar by replacing the
    port of that peer's `ProcessSpec.endpoint`. One sidecar serves
    multiple co-located reactor processes on the same machine (used
@@ -101,6 +101,15 @@ Three layers interact:
    logical one. Separation buys an independent monitoring domain and
    a smaller reactor Rust + CGO surface. A sidecar crash fail-stops
    every joined session on the machine.
+
+   **Local stack exception.** Production continues to run one sidecar
+   per reactor machine. Local development runs one sidecar per data
+   plane on a deterministic port inside that plane's 100-port block:
+   `base_port + 60`. The local sidecar advertises
+   `https://reactor-${DATA_PLANE}.flow.localhost:${SIDECAR_PORT}` and
+   uses the same per-data-plane HMAC key and FQDN as the local reactor.
+   This preserves per-plane auth isolation without teaching the
+   sidecar to multiplex credentials for multiple local data planes.
 
 The sidecar and per-shard TaskServices communicate only via the
 Shuffle Leader protocol and the shuffle Session/Slice/Log RPCs over
@@ -229,7 +238,7 @@ complete runtime in stages of increasing blast radius.
 - **Per-task**: feature flags on shard labels select old vs new runtime.
   All shards of a task use the same runtime.
 - **Coexistence**: old-runtime and new-runtime tasks run on the same
-  reactor. The shuffle sidecar runs uniformly on every reactor
+  reactor. The runtime sidecar runs uniformly on every reactor
   machine regardless of which tasks are assigned; old-runtime tasks
   simply don't talk to it. The only change to the existing `runtime`
   crate is Frontier-aware rollback (the migration swap on startup,
