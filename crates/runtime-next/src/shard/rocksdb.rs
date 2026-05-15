@@ -828,21 +828,21 @@ mod test {
 
         for persist in [
             crate::proto::Persist {
-                nonce: 1,
+                seq_no: 1,
                 ack_intents: [("j/A".to_string(), bytes::Bytes::from_static(b"INTENT-A"))]
                     .into_iter()
                     .collect(),
                 ..Default::default()
             },
             crate::proto::Persist {
-                nonce: 2,
+                seq_no: 2,
                 ack_intents: [("j/B".to_string(), bytes::Bytes::from_static(b"INTENT-B"))]
                     .into_iter()
                     .collect(),
                 ..Default::default()
             },
             crate::proto::Persist {
-                nonce: 99,
+                seq_no: 99,
                 last_applied: bytes::Bytes::from_static(b"v9"),
                 ..Default::default()
             },

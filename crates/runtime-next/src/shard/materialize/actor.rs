@@ -348,7 +348,7 @@ impl Actor {
                 ..Default::default()
             });
         } else if let Some(persist) = msg.persist {
-            let nonce = persist.nonce;
+            let seq_no = persist.seq_no;
 
             let (db, binding_state_keys) = self
                 .db
@@ -358,7 +358,7 @@ impl Actor {
             self.db_persist_fut = Some(
                 async move {
                     let db = db.persist(&persist, &binding_state_keys).await?;
-                    Ok(((db, binding_state_keys), proto::Persisted { nonce }))
+                    Ok(((db, binding_state_keys), proto::Persisted { seq_no }))
                 }
                 .boxed(),
             );
@@ -755,11 +755,11 @@ mod tests {
         let resp = actor_to_leader_rx.recv().await.unwrap();
         assert!(resp.started_commit.is_some());
 
-        // 5) L:Persist → RocksDB write → L:Persisted echoes nonce.
+        // 5) L:Persist → RocksDB write → L:Persisted echoes seq_no.
         leader_to_actor_tx
             .send(Ok(proto::Materialize {
                 persist: Some(proto::Persist {
-                    nonce: 42,
+                    seq_no: 42,
                     last_applied: Bytes::from_static(b"persisted-spec-bytes"),
                     ..Default::default()
                 }),
@@ -768,7 +768,7 @@ mod tests {
             .unwrap();
 
         let resp = actor_to_leader_rx.recv().await.unwrap();
-        assert_eq!(resp.persisted.unwrap().nonce, 42);
+        assert_eq!(resp.persisted.unwrap().seq_no, 42);
 
         // 6) Controller Stop + CloseNow → forwarded to the leader.
         controller_to_actor_tx

@@ -515,7 +515,7 @@ impl HeadFlush {
 
         // Persist extents for idempotent transaction replay.
         let persist = proto::Persist {
-            nonce: now.as_u64(),
+            seq_no: now.as_u64(),
             connector_patches_json: take_patches(&mut pending.persist_patches),
             delete_hinted_frontier: true,
             hinted_close_clock: extents.close.as_u64(),
@@ -531,7 +531,7 @@ impl HeadFlush {
             shard_stored: vec![false; task.n_shards],
         };
         let persist_state = HeadPersist {
-            nonce: persist.nonce,
+            seq_no: persist.seq_no,
             next_action: Action::Store,
             next_state: Box::new(Head::Store(store_state)),
         };
@@ -544,7 +544,7 @@ impl HeadFlush {
 /// and chains its contained action and state.
 #[derive(Debug)]
 pub struct HeadPersist {
-    pub nonce: u64,
+    pub seq_no: u64,
     pub next_action: Action,
     pub next_state: Box<Head>,
 }
@@ -554,16 +554,16 @@ impl HeadPersist {
         if let Some((
             0,
             proto::Materialize {
-                persisted: Some(proto::Persisted { nonce }),
+                persisted: Some(proto::Persisted { seq_no }),
                 ..
             },
         )) = shard_rx
-            && *nonce == self.nonce
+            && *seq_no == self.seq_no
         {
             shard_rx.take();
 
             let Self {
-                nonce: _,
+                seq_no: _,
                 next_action,
                 next_state,
             } = self;
@@ -826,7 +826,7 @@ impl HeadStartCommit {
             .map(|(_full_frontier, full_checkpoint)| full_checkpoint.clone());
 
         let persist = proto::Persist {
-            nonce: now.as_u64(),
+            seq_no: now.as_u64(),
             ack_intents: pending.ack_intents.clone(),
             committed_close_clock: close.as_u64(),
             committed_frontier: Some(shuffle::JournalFrontier::encode(&frontier.journals)),
@@ -860,7 +860,7 @@ impl HeadStartCommit {
         };
 
         let state = HeadPersist {
-            nonce: persist.nonce,
+            seq_no: persist.seq_no,
             next_action,
             next_state: Box::new(next_state),
         };
@@ -987,16 +987,16 @@ impl TailAcknowledge {
 
         // If Acknowledged returned patches, wrap with a Persist that runs first.
         if !persist_patches.is_empty() {
-            let nonce = now.as_u64();
+            let seq_no = now.as_u64();
 
             state = Tail::Persist(TailPersist {
-                nonce,
+                seq_no,
                 next_action: action,
                 next_state: Box::new(state),
             });
             action = Action::Persist {
                 persist: proto::Persist {
-                    nonce,
+                    seq_no,
                     connector_patches_json: persist_patches,
                     ..Default::default()
                 },
@@ -1043,16 +1043,16 @@ impl TailTrigger {
 
         let Self { shard_patches } = self;
 
-        let nonce = now.as_u64();
+        let seq_no = now.as_u64();
         let action = Action::Persist {
             persist: proto::Persist {
-                nonce,
+                seq_no,
                 delete_trigger_params: true,
                 ..Default::default()
             },
         };
         let state = TailPersist {
-            nonce,
+            seq_no,
             next_action: Action::Idle,
             next_state: Box::new(Tail::Done(TailDone { shard_patches })),
         };
@@ -1065,7 +1065,7 @@ impl TailTrigger {
 /// and chains its contained action and state.
 #[derive(Debug)]
 pub struct TailPersist {
-    pub nonce: u64,
+    pub seq_no: u64,
     pub next_action: Action,
     pub next_state: Box<Tail>,
 }
@@ -1075,16 +1075,16 @@ impl TailPersist {
         if let Some((
             0,
             proto::Materialize {
-                persisted: Some(proto::Persisted { nonce }),
+                persisted: Some(proto::Persisted { seq_no }),
                 ..
             },
         )) = shard_rx
-            && *nonce == self.nonce
+            && *seq_no == self.seq_no
         {
             shard_rx.take();
 
             let Self {
-                nonce: _,
+                seq_no: _,
                 next_action,
                 next_state,
             } = self;
@@ -1393,28 +1393,28 @@ mod tests {
     }
 
     fn mk_head_persisted(head: &Head) -> (usize, proto::Materialize) {
-        let nonce = match head {
-            Head::Persist(p) => p.nonce,
+        let seq_no = match head {
+            Head::Persist(p) => p.seq_no,
             other => panic!("expected Head::Persist, got {other:?}"),
         };
         (
             0,
             proto::Materialize {
-                persisted: Some(proto::Persisted { nonce }),
+                persisted: Some(proto::Persisted { seq_no }),
                 ..Default::default()
             },
         )
     }
 
     fn mk_tail_persisted(tail: &Tail) -> (usize, proto::Materialize) {
-        let nonce = match tail {
-            Tail::Persist(p) => p.nonce,
+        let seq_no = match tail {
+            Tail::Persist(p) => p.seq_no,
             other => panic!("expected Tail::Persist, got {other:?}"),
         };
         (
             0,
             proto::Materialize {
-                persisted: Some(proto::Persisted { nonce }),
+                persisted: Some(proto::Persisted { seq_no }),
                 ..Default::default()
             },
         )
@@ -1952,12 +1952,12 @@ mod tests {
         use rand::{Rng, SeedableRng, rngs::SmallRng};
 
         // Synthesize a Materialize message of a randomly chosen variant. The
-        // `expected_nonce` is plumbed through so Persisted occasionally matches
-        // the in-progress nonce and lets HeadPersist / TailPersist actually
+        // `expected_seq_no` is plumbed through so Persisted occasionally matches
+        // the in-progress seq_no and lets HeadPersist / TailPersist actually
         // chain forward — without it, fuzz traces would rarely leave Persist.
         fn random_message(
             shard: usize,
-            expected_nonce: u64,
+            expected_seq_no: u64,
             rng: &mut SmallRng,
         ) -> (usize, proto::Materialize) {
             let mut msg = proto::Materialize::default();
@@ -2007,28 +2007,28 @@ mod tests {
                     });
                 }
                 _ => {
-                    // Most of the time, target the in-progress Persist's nonce so
+                    // Most of the time, target the in-progress Persist's seq_no so
                     // the FSM can actually chain forward; otherwise emit garbage.
-                    let nonce = if rng.random_bool(0.9) {
-                        expected_nonce
+                    let seq_no = if rng.random_bool(0.9) {
+                        expected_seq_no
                     } else {
                         rng.random()
                     };
-                    msg.persisted = Some(proto::Persisted { nonce });
+                    msg.persisted = Some(proto::Persisted { seq_no });
                 }
             }
             (shard, msg)
         }
 
-        // Pick a "best-guess" nonce to hand to `random_message`. When Head or
-        // Tail is awaiting Persisted we surface its nonce so the message is
+        // Pick a "best-guess" seq_no to hand to `random_message`. When Head or
+        // Tail is awaiting Persisted we surface its seq_no so the message is
         // sometimes accepted; otherwise return random noise.
-        fn pick_nonce(head: &Head, tail: &Tail, rng: &mut SmallRng) -> u64 {
+        fn pick_seq_no(head: &Head, tail: &Tail, rng: &mut SmallRng) -> u64 {
             if let Head::Persist(p) = head {
-                return p.nonce;
+                return p.seq_no;
             }
             if let Tail::Persist(p) = tail {
-                return p.nonce;
+                return p.seq_no;
             }
             rng.random()
         }
@@ -2075,8 +2075,8 @@ mod tests {
             // (sometimes out-of-range) to exercise bounds handling.
             if rng.random_bool(0.50) {
                 let shard = rng.random_range(0..=ctx.task.n_shards);
-                let nonce = pick_nonce(head, tail, rng);
-                ctx.shard_rx = Some(random_message(shard, nonce, rng));
+                let seq_no = pick_seq_no(head, tail, rng);
+                ctx.shard_rx = Some(random_message(shard, seq_no, rng));
             }
 
             // Add an ACK intent occasionally; HeadWriteStats drains them.

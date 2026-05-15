@@ -401,7 +401,7 @@ async fn apply_loop(
 
             let _ = tx.send(Ok(proto::Materialize {
                 persist: Some(proto::Persist {
-                    nonce: iteration,
+                    seq_no: iteration,
                     last_applied: next_applied.clone(),
                     ..Default::default()
                 }),
@@ -410,9 +410,9 @@ async fn apply_loop(
 
             match verify_persisted.not_eof(rx.next().await)? {
                 proto::Materialize {
-                    persisted: Some(proto::Persisted { nonce }),
+                    persisted: Some(proto::Persisted { seq_no }),
                     ..
-                } if nonce == iteration => {}
+                } if seq_no == iteration => {}
                 other => return Err(verify_persisted.fail_msg(other)),
             }
 
@@ -427,7 +427,7 @@ async fn apply_loop(
         // Persist the iteration's patches to shard zero.
         let _ = tx.send(Ok(proto::Materialize {
             persist: Some(proto::Persist {
-                nonce: iteration, // End-of-sequence.
+                seq_no: iteration, // End-of-sequence.
                 connector_patches_json: applied_patches_json,
                 ..Default::default()
             }),
@@ -437,9 +437,9 @@ async fn apply_loop(
         // Receive Persisted.
         match verify_persisted.not_eof(rx.next().await)? {
             proto::Materialize {
-                persisted: Some(proto::Persisted { nonce }),
+                persisted: Some(proto::Persisted { seq_no }),
                 ..
-            } if nonce == iteration => {}
+            } if seq_no == iteration => {}
             other => return Err(verify_persisted.fail_msg(other)),
         }
     }
@@ -516,9 +516,9 @@ mod tests {
         }
     }
 
-    fn persisted(nonce: u64) -> proto::Materialize {
+    fn persisted(seq_no: u64) -> proto::Materialize {
         proto::Materialize {
-            persisted: Some(proto::Persisted { nonce }),
+            persisted: Some(proto::Persisted { seq_no }),
             ..Default::default()
         }
     }
@@ -550,7 +550,7 @@ mod tests {
     #[tokio::test]
     async fn apply_loop_persists_last_applied_when_no_patches_but_spec_changed() {
         // No patches but next != last: loop sends Apply, then Persist
-        // marking next_applied as the new last_applied with matching nonce.
+        // marking next_applied as the new last_applied with matching seq_no.
         let (mut rx, peer_tx, leader_tx, mut leader_rx) = channel_pair();
         peer_tx.send(Ok(applied(b""))).unwrap();
         peer_tx.send(Ok(persisted(1))).unwrap();
@@ -570,7 +570,7 @@ mod tests {
 
         let m2 = leader_rx.try_recv().unwrap().unwrap();
         let p = m2.persist.unwrap();
-        assert_eq!(p.nonce, 1);
+        assert_eq!(p.seq_no, 1);
         assert_eq!(p.last_applied, next);
         assert!(p.connector_patches_json.is_empty());
 
@@ -610,7 +610,7 @@ mod tests {
         );
         // Persist iter 1 carries the connector's patches but no last_applied.
         let p1 = leader_rx.try_recv().unwrap().unwrap().persist.unwrap();
-        assert_eq!(p1.nonce, 1);
+        assert_eq!(p1.seq_no, 1);
         assert!(p1.last_applied.is_empty());
         assert_eq!(p1.connector_patches_json.as_ref(), patch1);
 
@@ -622,7 +622,7 @@ mod tests {
             serde_json::json!({"nested":{"a":1},"keep":"v1","drop":"x"}),
         );
         let p2 = leader_rx.try_recv().unwrap().unwrap().persist.unwrap();
-        assert_eq!(p2.nonce, 2);
+        assert_eq!(p2.seq_no, 2);
         assert!(p2.last_applied.is_empty());
         assert_eq!(p2.connector_patches_json.as_ref(), patch2);
 
@@ -635,7 +635,7 @@ mod tests {
         );
         // Final Persist promotes spec and carries no patches.
         let p3 = leader_rx.try_recv().unwrap().unwrap().persist.unwrap();
-        assert_eq!(p3.nonce, 3);
+        assert_eq!(p3.seq_no, 3);
         assert_eq!(p3.last_applied, next);
         assert!(p3.connector_patches_json.is_empty());
 
@@ -660,16 +660,16 @@ mod tests {
                 // Connector returns patches forever; we cap at MAX_APPLY_ITERATIONS.
                 name: "no_convergence",
                 seed: |tx| {
-                    for nonce in 1..=4 {
+                    for seq_no in 1..=4 {
                         tx.send(Ok(applied(b"[{\"x\":1}\n]"))).unwrap();
-                        tx.send(Ok(persisted(nonce))).unwrap();
+                        tx.send(Ok(persisted(seq_no))).unwrap();
                     }
                 },
                 expect: "did not converge",
             },
             Case {
-                // Peer returns Persisted with a wrong nonce — protocol error.
-                name: "persisted_nonce_mismatch",
+                // Peer returns Persisted with a wrong seq_no — protocol error.
+                name: "persisted_seq_no_mismatch",
                 seed: |tx| {
                     tx.send(Ok(applied(b"[{\"x\":1}\n]"))).unwrap();
                     tx.send(Ok(persisted(99))).unwrap();

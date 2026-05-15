@@ -219,7 +219,7 @@ where
 
                 _ = leader_tx.send(proto::Materialize {
                     persisted: Some(proto::Persisted {
-                        nonce: persist.nonce,
+                        seq_no: persist.seq_no,
                     }),
                     ..Default::default()
                 });
