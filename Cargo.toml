@@ -169,7 +169,7 @@ sqlx = { version = "0", features = [
 ] }
 
 tokio-rustls = "0"
-rustls = { version = "0" }
+rustls = { version = "0", features = ["aws_lc_rs"] }
 rustls-pemfile = "2"
 webpki = "0"
 tempfile = "3"
