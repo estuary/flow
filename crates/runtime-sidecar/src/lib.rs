@@ -86,20 +86,22 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let api_client = flow_client_next::rest::Client::new(&args.agent_endpoint, "runtime-sidecar");
     let router = gazette::Router::new(&args.gazette_zone);
 
-    // Two journal client factories: LIST|READ (shuffle reads source journals)
-    // and LIST|APPEND (leader publishes stats and ACK intents).
+    use proto_gazette::capability::{APPEND, APPLY, LIST, READ};
+    // Shuffle read factory watches (LIST) and reads (READ) source journals.
     let read_factory =
         flow_client_next::workflows::task_collection_auth::new_journal_client_factory(
             api_client.clone(),
-            proto_gazette::capability::LIST | proto_gazette::capability::READ,
+            LIST | READ,
             router.clone(),
             args.data_plane_fqdn.clone(),
             signing_key.clone(),
         );
-    let append_factory =
+    // Publisher factory watches (LIST), creates partitions (APPLY),
+    // and appends (APPEND) to dest journals.
+    let publisher_factory =
         flow_client_next::workflows::task_collection_auth::new_journal_client_factory(
             api_client,
-            proto_gazette::capability::LIST | proto_gazette::capability::APPEND,
+            APPEND | APPLY | LIST,
             router,
             args.data_plane_fqdn,
             signing_key,
@@ -110,7 +112,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         read_factory,
         args.disk_backlog_threshold,
     );
-    let runtime_svc = runtime_next::Service::new(shuffle_svc.clone(), append_factory);
+    let runtime_svc = runtime_next::Service::new(shuffle_svc.clone(), publisher_factory);
 
     // Build a TLS identity if both files were given.
     // clap `requires` enforces both-or-neither.

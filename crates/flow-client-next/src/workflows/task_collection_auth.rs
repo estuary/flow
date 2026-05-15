@@ -28,9 +28,8 @@ pub struct TaskCollectionAuth {
 ///
 /// `capability` is the requested capability level of the authorization.
 /// This is NOT a models::Capability. Rather, it's a bit-mask in the u32
-/// Gazette capability namespace and is restricted to:
-/// - proto_gazette::capability::READ
-/// - proto_gazette::capability::APPEND
+/// Gazette capability namespace and is restricted to
+/// proto_gazette::capability::{APPEND, APPLY, LIST, READ}.
 ///
 /// `data_plane_fqdn` is the FQDN of the data-plane hosting the task.
 ///

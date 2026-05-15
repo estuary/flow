@@ -39,20 +39,14 @@ pub async fn authorize_task(
     // checking that the requested capability contains a particular grant isn't enough.
     // For example, we wouldn't want to allow a request for `REPLICATE` just
     // because it also requests `READ`.
+    use proto_gazette::capability::{APPEND, APPLY, LIST, READ};
     let required_role = match cap {
-        cap if (cap == proto_gazette::capability::LIST)
-            || (cap == proto_gazette::capability::READ)
-            || (cap == (proto_gazette::capability::LIST | proto_gazette::capability::READ)) =>
-        {
-            models::Capability::Read
-        }
-        // We're intentionally rejecting requests for both APPLY and APPEND, as those two
-        // grants authorize wildly different capabilities, and no sane logic should
-        // need both at the same time. So as a sanity check/defense-in-depth measure
-        // we won't grant you a token that has both, even if we technically could.
-        cap if (cap == proto_gazette::capability::APPLY)
-            || (cap == proto_gazette::capability::APPEND) =>
-        {
+        // Legacy go shuffle module obtains LIST and READ separately.
+        // The `shuffle` crate and `dekaf` obtain LIST | READ jointly.
+        cap if (cap == LIST) || (cap == READ) || (cap == (LIST | READ)) => models::Capability::Read,
+        // Legacy publisher separately obtains APPLY vs APPEND tokens.
+        // The `publisher` crates obtains APPEND | APPLY | LIST jointly.
+        cap if (cap == APPLY) || (cap == APPEND) || (cap == (APPEND | APPLY | LIST)) => {
             models::Capability::Write
         }
         cap => {
