@@ -215,6 +215,8 @@ struct RelaxedSchemaObj {
     _min_length: Option<serde_json::Value>,
     #[serde(rename = "maxLength", default, skip_serializing)]
     _max_length: Option<serde_json::Value>,
+    #[serde(rename = "redact", default, skip_serializing)]
+    _redact: Option<serde_json::Value>,
 
     // Other keywords are passed-through.
     #[serde(flatten)]
@@ -410,6 +412,33 @@ mod test {
                 "properties": {
                     "name": {
                         "description": "A name field"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_relaxation_drops_redact() {
+        let schema = schema!({
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "redact": { "strategy": "sha256" },
+                    "description": "Sensitive key component"
+                }
+            }
+        });
+
+        let relaxed = schema.to_relaxed_schema().unwrap().to_value();
+
+        assert_eq!(
+            relaxed,
+            json!({
+                "properties": {
+                    "email": {
+                        "description": "Sensitive key component"
                     }
                 }
             })
