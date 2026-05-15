@@ -1,31 +1,145 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Provision test/ tenant for integration tests"
+#MISE description="Provision a tenant via the onboarding API and emit flowctl credentials"
+#MISE depends=["local:control-plane"]
+#USAGE flag "--tenant <tenant>" help="Tenant name without trailing slash (default: test)"
+#USAGE flag "--user <user>" help="Email of an auth.users row to own the tenant (default: alice@example.com). NOTE: onboarding API rejects users that already hold any grants, so each seeded user (alice/bob/carol/dave from seed.sql) can own at most one tenant."
 
+TENANT="${usage_tenant:-test}"
+USER_EMAIL="${usage_user:-alice@example.com}"
 PGURL="postgresql://postgres:postgres@localhost:5432/postgres"
-DATA_PLANE_NAME="ops/dp/public/local-cluster"
+ENV_FILE="${HOME}/flow-local/test-tenant.env"
+AGENT_PORT=8675
 
-echo "Provisioning test/ tenant..."
+# Onboarding rejects names that don't satisfy the catalog_tenant regex.
+if [[ ! "${TENANT}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "Error: --tenant '${TENANT}' must match [A-Za-z0-9._-]+ (no trailing slash, no '/')" >&2
+    exit 1
+fi
+# Guard against SQL injection through unquoted interpolations below.
+if [[ ! "${USER_EMAIL}" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]]; then
+    echo "Error: --user '${USER_EMAIL}' is not a valid email address" >&2
+    exit 1
+fi
 
-psql "${PGURL}" -c "
-INSERT INTO public.storage_mappings (catalog_prefix, spec)
-VALUES
-  ('test/', '{\"stores\": [{\"provider\": \"GCS\", \"bucket\": \"estuary-trial\", \"prefix\": \"collection-data/\"}], \"data_planes\": [\"${DATA_PLANE_NAME}\"]}'),
-  ('recovery/test/', '{\"stores\": [{\"provider\": \"GCS\", \"bucket\": \"estuary-trial\"}]}')
-ON CONFLICT (catalog_prefix) DO NOTHING;
-"
+echo "Waiting for agent on :${AGENT_PORT}..."
+ELAPSED=0
+TIMEOUT=120
+until nc -z localhost "${AGENT_PORT}" 2>/dev/null; do
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+        echo "Error: agent did not start within ${TIMEOUT}s" >&2
+        exit 1
+    fi
+done
 
-# Grant admin access to support@estuary.dev for test/ prefix
-psql "${PGURL}" -c "
-INSERT INTO public.user_grants (user_id, object_role, capability)
-VALUES ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'test/', 'admin')
-ON CONFLICT (user_id, object_role) DO NOTHING;
-"
+USER_ID=$(psql "${PGURL}" -tAqc \
+    "SELECT id FROM auth.users WHERE email = '${USER_EMAIL}'")
+if [ -z "${USER_ID}" ]; then
+    echo "Error: no auth.users row with email '${USER_EMAIL}'" >&2
+    echo "Hint: seed.sql provisions alice/bob/carol/dave@example.com" >&2
+    exit 1
+fi
 
-# Grant role permissions so tasks within test/ can read/write to each other
-psql "${PGURL}" -c "
-INSERT INTO public.role_grants (subject_role, object_role, capability)
-VALUES ('test/', 'test/', 'admin')
-ON CONFLICT (subject_role, object_role) DO NOTHING;
-"
+PREFIX="${TENANT}/"
+TENANT_EXISTS=$(psql "${PGURL}" -tAqc \
+    "SELECT 1 FROM public.tenants WHERE tenant = '${PREFIX}'")
+
+if [ -z "${TENANT_EXISTS}" ]; then
+    # Onboarding snapshots the set of `ops/dp/public/*` data planes into
+    # storage_mappings.data_planes at provisioning time. Adding a data plane
+    # later and re-running this task will NOT update that snapshot — bring up
+    # every data plane the tenant should use before provisioning.
+    echo "Provisioning tenant ${PREFIX} owned by ${USER_EMAIL} via onboarding API..."
+
+    # Insert with the default queued status; the create_directive_task trigger
+    # enqueues an agent task and applied_directives_agent_notifications wakes
+    # the agent. user_claims must be set or the trigger won't fire.
+    APPLIED_ID=$(psql "${PGURL}" -tAqc "
+        INSERT INTO public.applied_directives (directive_id, user_id, user_claims)
+        SELECT id, '${USER_ID}'::uuid, '{\"requestedTenant\":\"${TENANT}\"}'::json_obj
+        FROM public.directives
+        WHERE token = '453e00cd-e12a-4ce5-b12d-3837aa385751'
+        RETURNING id
+    ")
+    if [ -z "${APPLIED_ID}" ]; then
+        echo "Error: betaOnboard directive (token 453e00cd-...) not found in directives table" >&2
+        exit 1
+    fi
+
+    echo "Waiting for agent to apply directive ${APPLIED_ID}..."
+    ELAPSED=0
+    TIMEOUT=60
+    while true; do
+        STATUS=$(psql "${PGURL}" -tAqc \
+            "SELECT job_status->>'type' FROM public.applied_directives WHERE id = '${APPLIED_ID}'")
+        case "${STATUS}" in
+            success)
+                break
+                ;;
+            queued)
+                ;;
+            *)
+                ERR=$(psql "${PGURL}" -tAqc \
+                    "SELECT job_status->>'error' FROM public.applied_directives WHERE id = '${APPLIED_ID}'")
+                echo "Error: betaOnboard returned status '${STATUS}': ${ERR}" >&2
+                exit 1
+                ;;
+        esac
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+        if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+            echo "Error: directive did not apply within ${TIMEOUT}s (still ${STATUS})" >&2
+            exit 1
+        fi
+    done
+    echo "Tenant ${PREFIX} provisioned."
+else
+    echo "Tenant ${PREFIX} already exists; skipping provisioning."
+fi
+
+# Onboarding stamps the default per-tenant quotas (10 tasks / 500 collections).
+# Raise the ceiling well above anything a test run could reach.
+psql "${PGURL}" -tAqc \
+    "UPDATE public.tenants SET tasks_quota = 1000, collections_quota = 1000 WHERE tenant = '${PREFIX}'" >/dev/null
+
+echo "Minting multi-use refresh token for ${USER_EMAIL}..."
+# Insert directly (bypassing create_refresh_token's SECURITY DEFINER + auth_uid())
+# so we don't need to fake JWT claims. We control the DB here.
+TOKEN_JSON=$(psql "${PGURL}" -tAqc "
+    WITH gen AS (
+        SELECT gen_random_uuid()::text AS secret
+    ),
+    ins AS (
+        INSERT INTO public.refresh_tokens (user_id, multi_use, valid_for, hash, detail)
+        SELECT '${USER_ID}'::uuid, true, interval '90 days', crypt(gen.secret, gen_salt('bf')),
+               'local:test-tenant'
+        FROM gen
+        RETURNING id
+    )
+    SELECT json_build_object('id', ins.id, 'secret', gen.secret)::text
+    FROM ins, gen
+")
+if [ -z "${TOKEN_JSON}" ]; then
+    echo "Error: failed to mint refresh token" >&2
+    exit 1
+fi
+
+FLOW_AUTH_TOKEN=$(printf '%s' "${TOKEN_JSON}" | base64 -w0)
+
+mkdir -p "$(dirname "${ENV_FILE}")"
+cat > "${ENV_FILE}" <<EOF
+# Generated by mise run local:test-tenant.
+# Source this to authenticate flowctl --profile local as ${USER_EMAIL}
+# against tenant ${PREFIX}.
+export FLOW_AUTH_TOKEN='${FLOW_AUTH_TOKEN}'
+export FLOW_TEST_TENANT='${TENANT}'
+export FLOW_TEST_USER_EMAIL='${USER_EMAIL}'
+export FLOW_TEST_USER_ID='${USER_ID}'
+EOF
+
+echo "Wrote credentials to ${ENV_FILE}"
+echo "  source ${ENV_FILE}"
+echo "  flowctl --profile local catalog list"

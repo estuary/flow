@@ -3,9 +3,12 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-/// Prefix for test namespaces. Requires storage mappings and user grants
-/// provisioned by `mise run local:test-tenant`.
-const TEST_NAMESPACE_PREFIX: &str = "test/dekaf";
+/// Prefix for test namespaces, provisioned by `mise run local:test-tenant`,
+/// which must match FLOW_AUTH_TOKEN credential.
+fn test_namespace_prefix() -> String {
+    let tenant = std::env::var("FLOW_TEST_TENANT").expect("FLOW_TEST_TENANT must be set");
+    format!("{tenant}/dekaf")
+}
 
 pub fn init_tracing() {
     let _ = tracing_subscriber::fmt()
@@ -19,7 +22,7 @@ pub fn init_tracing() {
 }
 
 /// Create a flowctl command configured for local stack.
-/// Requires FLOW_ACCESS_TOKEN environment variable to be set.
+/// Requires FLOW_AUTH_TOKEN environment variable to be set.
 fn flowctl_command() -> anyhow::Result<async_process::Command> {
     // Try to find flowctl in cargo-target/debug first (where `cargo build` puts it),
     // falling back to locate_bin (which checks alongside the test binary and PATH).
@@ -36,11 +39,10 @@ fn flowctl_command() -> anyhow::Result<async_process::Command> {
     let home = std::env::var("HOME").unwrap();
     let ca_cert =
         std::env::var("SSL_CERT_FILE").unwrap_or_else(|_| format!("{}/flow-local/ca.crt", home));
-    let access_token = std::env::var("FLOW_ACCESS_TOKEN")
-        .context("FLOW_ACCESS_TOKEN environment variable must be set for e2e tests")?;
+    let auth_token = std::env::var("FLOW_AUTH_TOKEN").context("FLOW_AUTH_TOKEN must be set")?;
 
     let mut cmd = async_process::Command::new(flowctl);
-    cmd.env("FLOW_ACCESS_TOKEN", access_token);
+    cmd.env("FLOW_AUTH_TOKEN", auth_token);
     cmd.env("SSL_CERT_FILE", ca_cert);
     cmd.arg("--profile").arg("local");
     Ok(cmd)
@@ -61,7 +63,7 @@ impl DekafTestEnv {
     /// rewritten to include a unique test namespace.
     pub async fn setup(test_name: &str, fixture_yaml: &str) -> anyhow::Result<Self> {
         let suffix = format!("{:04x}", rand::random::<u16>());
-        let namespace = format!("{TEST_NAMESPACE_PREFIX}/{test_name}/{suffix}");
+        let namespace = format!("{}/{test_name}/{suffix}", test_namespace_prefix());
 
         tracing::info!(%namespace, "Setting up test environment");
 

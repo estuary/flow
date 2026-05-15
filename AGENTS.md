@@ -1,5 +1,3 @@
-# CLAUDE.md
-
 Estuary is a real-time data platform with:
 - Control plane: user-facing catalog management APIs
 - Data planes: distributed runtime execution
@@ -38,17 +36,18 @@ mise run ci:sql-tap
 
 # E2E tests over derivation examples (SLOW)
 mise run ci:catalog-test
-```
 
-### Development
-
-A development Supabase instance is available:
-```bash
+# Start (just) local Supabase.
+mise run local:supabase
 # Reset with current migrations as needed
 supabase db reset
-
 # Interact directly with dev DB
 psql postgresql://postgres:postgres@localhost:5432/postgres -c 'SELECT 1;'
+
+# Start a complete local stack (see local/README.md)
+mise run local:stack
+# CLI for interacting with the platform.
+cargo run -p flowctl -- --profile local --help
 ```
 
 ## Architecture Overview
@@ -69,6 +68,13 @@ The control plane compiles the user's catalog model into
 **built specs** that have extra specifics required by the runtime,
 and activates specs into their associated data plane.
 
+Collections and tasks live in a unified, hierarchical namespace.
+`/`-delimited prefixes act as "roles" and are the unit of AuthZ.
+Users are granted capabilities to roles (`user_grants` table),
+and roles are granted capabilities to other roles (`role_grants`).
+A top-level prefix like `acmeCo/` homes an organization and
+is called a "tenant".
+
 ### Control-plane components
 - **Supabase**: catalog and platform config DB
 - **Agent**: APIs and background automation
@@ -83,9 +89,9 @@ and activates specs into their associated data plane.
 ### Protocols
 
 - `go/protocols/flow/flow.proto` - core types and built specs
-- `go/protocols/capture/capture.proto` - protocol for capture tasks
-- `go/protocols/derive/derive.proto` - for derivation tasks
-- `go/protocols/materialize/materialize.proto` - for materialization tasks
+- `go/protocols/capture/capture.proto`
+- `go/protocols/derive/derive.proto`
+- `go/protocols/materialize/materialize.proto`
 
 ## README.md
 
@@ -115,8 +121,8 @@ Keep READMEs current - update with code changes.
   The exception is state machines: structs and enums that encapsulate fine-grain
   POD state into higher-order transitions that are easier to reason about.
   DO seek to decompose problems into state machines.
-- Avoid trivial impl routines which could be inlined by the caller.
-  Indirection is harder to read; routines must buy us something.
+- Avoid routines with trivial bodies that could be inlined into the caller.
+  Indirection has cost (hard to read): each routine must buy us something.
 - Decompose IO and POD processing into separate routines where possible.
   Routines should gravitate towards IO or processing, and not mix both.
 

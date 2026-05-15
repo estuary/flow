@@ -2,7 +2,6 @@
 set -euo pipefail
 
 #MISE description="Run Dekaf E2E tests"
-#MISE depends=["local:test-tenant"]
 #USAGE flag "--filter <filter>" help="Test filter pattern for nextest"
 #USAGE flag "--update-snapshots" help="Update insta snapshots"
 #USAGE flag "--concurrency <concurrency>" help="How many tests to run at once"
@@ -20,36 +19,18 @@ CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${HOME}/cargo-target}"
 DEKAF1_KAFKA_PORT=8050  # 8000 + 50
 DEKAF2_KAFKA_PORT=8250  # 8200 + 50
 
-SYSTEM_USER_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU"
-
-# Wait for agent to be ready by checking if it's listening
-echo "Waiting for agent..."
-TIMEOUT=120
-ELAPSED=0
-until nc -z localhost 8675 2>/dev/null; do
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
-    if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
-        echo "Error: Agent failed to start within ${TIMEOUT} seconds"
-        exit 1
-    fi
-done
-echo "Agent is ready"
-
 echo "Building flowctl..."
 cargo build -p flowctl --quiet
 
-# local-cluster with Dekaf is expected to already be running from local:stack
-# Only set up local-cluster-2 for migration tests
+# local-cluster with Dekaf is expected to already be running from local:stack.
+# Bring up local-cluster-2 BEFORE provisioning the tenant so that its
+# initialized storage mapping picks up both public planes.
 echo "Setting up local-cluster-2 dataplane with Dekaf..."
 mise run local:data-plane local-cluster-2 8200 --num-brokers 4 --num-reactors 1 --link --dekaf
 
-echo "Updating storage mappings for migration tests..."
-psql "postgresql://postgres:postgres@localhost:5432/postgres" -c "
-    UPDATE storage_mappings
-    SET spec = jsonb_set(spec::jsonb, '{data_planes}', '[\"ops/dp/public/local-cluster\", \"ops/dp/public/local-cluster-2\"]')
-    WHERE catalog_prefix = 'test/';
-"
+echo "Provisioning test tenant..."
+mise run local:test-tenant
+source "${FLOW_LOCAL}/test-tenant.env"
 
 echo "Waiting for Dekaf instances..."
 TIMEOUT=60
@@ -72,7 +53,6 @@ echo "Running Dekaf E2E tests..."
 export DEKAF_BROKER="localhost:${DEKAF1_KAFKA_PORT}"
 export DEKAF_REGISTRY="http://localhost:$((DEKAF1_KAFKA_PORT + 1))"
 export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
-export FLOW_ACCESS_TOKEN="${SYSTEM_USER_TOKEN}"
 export DEKAF_UPSTREAM_BROKER_URLS="tcp://localhost:29092"
 export DEKAF_ENCRYPTION_SECRET="test-encryption-secret-32-bytes!"
 
