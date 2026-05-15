@@ -47,10 +47,11 @@ impl TaskService {
         let control_api_endpoint: url::Url =
             url::Url::parse(&control_api_endpoint).context("invalid control API endpoint URL")?;
 
+        use proto_gazette::capability::{APPEND, APPLY, LIST};
         let publisher_factory =
             flow_client_next::workflows::task_collection_auth::new_journal_client_factory(
                 flow_client_next::rest::Client::new(&control_api_endpoint, "task-service"),
-                proto_gazette::capability::APPEND | proto_gazette::capability::APPLY,
+                APPEND | APPLY | LIST,
                 gazette::Router::new(&availability_zone),
                 data_plane_fqdn,
                 tokens::jwt::EncodingKey::from_secret(&data_plane_signing_key),
