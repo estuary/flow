@@ -30,7 +30,15 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
+	"google.golang.org/grpc"
 )
+
+// taskService is the subset of bindings.TaskService / bindings.TaskServiceV2
+// behavior consumed by taskBase, so a single struct can host either runtime.
+type taskService interface {
+	Conn() *grpc.ClientConn
+	Drop()
+}
 
 type taskBase[TaskSpec pf.Task] struct {
 	container    atomic.Pointer[pr.Container]            // Current Container of this shard, or nil.
@@ -39,7 +47,7 @@ type taskBase[TaskSpec pf.Task] struct {
 	opsCancel    context.CancelFunc                      // Cancels ops.Publisher context.
 	opsPublisher *OpsPublisher                           // ops.Publisher of task ops.Logs and ops.Stats.
 	recorder     *recoverylog.Recorder                   // Recorder of the shard's recovery log.
-	svc          *bindings.TaskService                   // Associated Rust runtime service.
+	svc          taskService                             // Associated Rust runtime service (legacy or V2).
 	term         taskTerm[TaskSpec]                      // Current task term.
 	termCount    int                                     // Number of initialized task terms.
 }
@@ -75,6 +83,7 @@ func newTaskBase[TaskSpec pf.Task](
 
 	term, err := newTaskTerm[TaskSpec](nil, extractFn, host, opsPublisher, shard)
 	if err != nil {
+		opsCancel()
 		return nil, err
 	}
 
@@ -88,7 +97,56 @@ func newTaskBase[TaskSpec pf.Task](
 		opsPublisher.PublishLog,
 	)
 	if err != nil {
+		opsCancel()
 		return nil, fmt.Errorf("creating task service: %w", err)
+	}
+
+	return &taskBase[TaskSpec]{
+		container:    atomic.Pointer[pr.Container]{},
+		extractFn:    extractFn,
+		host:         host,
+		opsCancel:    opsCancel,
+		opsPublisher: opsPublisher,
+		recorder:     recorder,
+		svc:          svc,
+		term:         *term,
+	}, nil
+}
+
+// newTaskBaseV2 mirrors newTaskBase but instantiates the runtime-next
+// (V2) TaskService. The legacy and V2 services are independently linked
+// CGO services with distinct gRPC surfaces; only the constructor differs.
+func newTaskBaseV2[TaskSpec pf.Task](
+	host *FlowConsumer,
+	shard consumer.Shard,
+	recorder *recoverylog.Recorder,
+	extractFn func(*sql.DB, string) (TaskSpec, error),
+) (*taskBase[TaskSpec], error) {
+
+	var opsCtx, opsCancel = context.WithCancel(host.opsContext)
+	opsCtx = pprof.WithLabels(opsCtx, pprof.Labels(
+		"shard", shard.Spec().Id.String(),
+	))
+	var opsPublisher = NewOpsPublisher(message.NewPublisher(
+		client.NewAppendService(opsCtx, host.service.Journals), nil))
+
+	term, err := newTaskTerm[TaskSpec](nil, extractFn, host, opsPublisher, shard)
+	if err != nil {
+		opsCancel()
+		return nil, err
+	}
+
+	svc, err := bindings.NewTaskServiceV2(
+		pr.TaskServiceConfig{
+			ContainerNetwork: host.config.Flow.Network,
+			TaskName:         term.labels.TaskName,
+			Plane:            host.config.Plane(),
+		},
+		opsPublisher.PublishLog,
+	)
+	if err != nil {
+		opsCancel()
+		return nil, fmt.Errorf("creating V2 task service: %w", err)
 	}
 
 	return &taskBase[TaskSpec]{

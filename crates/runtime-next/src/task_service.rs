@@ -31,7 +31,7 @@ impl TaskService {
             std::env::var("FLOW_DATA_PLANE_FQDN").context("FLOW_DATA_PLANE_FQDN not set")?;
         let control_api_endpoint =
             std::env::var("FLOW_CONTROL_API").context("FLOW_CONTROL_API not set")?;
-        let availability_zone = std::env::var("ZONE").unwrap_or_else(|_| "local".to_string());
+        let availability_zone = std::env::var("CONSUMER_ZONE").context("CONSUMER_ZONE not set")?;
         let data_plane_signing_key = first_consumer_auth_key()?;
 
         let log_handler = ::ops::new_encoded_json_write_handler(std::sync::Arc::new(
