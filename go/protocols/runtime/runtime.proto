@@ -538,13 +538,13 @@ message Recover {
 // zero's RocksDB. Absent fields are inert.
 //
 // All fields of a Persist land together in a single WriteBatch.
-// `nonce` is echoed back by the shard's Persisted response, allowing
+// `seq_no` is echoed back by the shard's Persisted response, allowing
 // the leader to match a Persisted response to its originating request.
 message Persist {
   // Request ID picked by the leader and echoed verbatim in the shard's
   // `Persisted` response. The leader chooses any value and the shard
   // does not interpret it.
-  uint64 nonce = 1;
+  uint64 seq_no = 1;
   // Delete previously-persisted ACK intents. Applies ahead of `ack_intents`.
   // Effect: DeleteRange("AI:")
   bool delete_ack_intents = 2;
@@ -591,8 +591,8 @@ message Persist {
 // Persisted is sent by shard zero to the leader after the state is durable
 // in the recovery log.
 message Persisted {
-  // Echoed back from the originating `Persist.nonce` request.
-  uint64 nonce = 1;
+  // Echoed back from the originating `Persist.seq_no` request.
+  uint64 seq_no = 1;
 }
 
 // Apply asks shard zero to invoke its connector's Apply action, both for

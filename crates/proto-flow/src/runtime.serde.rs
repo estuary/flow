@@ -5921,7 +5921,7 @@ impl serde::Serialize for Persist {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.nonce != 0 {
+        if self.seq_no != 0 {
             len += 1;
         }
         if self.delete_ack_intents {
@@ -5964,10 +5964,10 @@ impl serde::Serialize for Persist {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("runtime.Persist", len)?;
-        if self.nonce != 0 {
+        if self.seq_no != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("nonce", ToString::to_string(&self.nonce).as_str())?;
+            struct_ser.serialize_field("seqNo", ToString::to_string(&self.seq_no).as_str())?;
         }
         if self.delete_ack_intents {
             struct_ser.serialize_field("deleteAckIntents", &self.delete_ack_intents)?;
@@ -6032,7 +6032,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "nonce",
+            "seq_no",
+            "seqNo",
             "delete_ack_intents",
             "deleteAckIntents",
             "ack_intents",
@@ -6063,7 +6064,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Nonce,
+            SeqNo,
             DeleteAckIntents,
             AckIntents,
             CommittedCloseClock,
@@ -6098,7 +6099,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
                         E: serde::de::Error,
                     {
                         match value {
-                            "nonce" => Ok(GeneratedField::Nonce),
+                            "seqNo" | "seq_no" => Ok(GeneratedField::SeqNo),
                             "deleteAckIntents" | "delete_ack_intents" => Ok(GeneratedField::DeleteAckIntents),
                             "ackIntents" | "ack_intents" => Ok(GeneratedField::AckIntents),
                             "committedCloseClock" | "committed_close_clock" => Ok(GeneratedField::CommittedCloseClock),
@@ -6131,7 +6132,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut nonce__ = None;
+                let mut seq_no__ = None;
                 let mut delete_ack_intents__ = None;
                 let mut ack_intents__ = None;
                 let mut committed_close_clock__ = None;
@@ -6147,11 +6148,11 @@ impl<'de> serde::Deserialize<'de> for Persist {
                 let mut trigger_params_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Nonce => {
-                            if nonce__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("nonce"));
+                        GeneratedField::SeqNo => {
+                            if seq_no__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("seqNo"));
                             }
-                            nonce__ = 
+                            seq_no__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -6252,7 +6253,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
                     }
                 }
                 Ok(Persist {
-                    nonce: nonce__.unwrap_or_default(),
+                    seq_no: seq_no__.unwrap_or_default(),
                     delete_ack_intents: delete_ack_intents__.unwrap_or_default(),
                     ack_intents: ack_intents__.unwrap_or_default(),
                     committed_close_clock: committed_close_clock__.unwrap_or_default(),
@@ -6280,14 +6281,14 @@ impl serde::Serialize for Persisted {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.nonce != 0 {
+        if self.seq_no != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("runtime.Persisted", len)?;
-        if self.nonce != 0 {
+        if self.seq_no != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("nonce", ToString::to_string(&self.nonce).as_str())?;
+            struct_ser.serialize_field("seqNo", ToString::to_string(&self.seq_no).as_str())?;
         }
         struct_ser.end()
     }
@@ -6299,12 +6300,13 @@ impl<'de> serde::Deserialize<'de> for Persisted {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "nonce",
+            "seq_no",
+            "seqNo",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Nonce,
+            SeqNo,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -6326,7 +6328,7 @@ impl<'de> serde::Deserialize<'de> for Persisted {
                         E: serde::de::Error,
                     {
                         match value {
-                            "nonce" => Ok(GeneratedField::Nonce),
+                            "seqNo" | "seq_no" => Ok(GeneratedField::SeqNo),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -6346,21 +6348,21 @@ impl<'de> serde::Deserialize<'de> for Persisted {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut nonce__ = None;
+                let mut seq_no__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Nonce => {
-                            if nonce__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("nonce"));
+                        GeneratedField::SeqNo => {
+                            if seq_no__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("seqNo"));
                             }
-                            nonce__ = 
+                            seq_no__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                     }
                 }
                 Ok(Persisted {
-                    nonce: nonce__.unwrap_or_default(),
+                    seq_no: seq_no__.unwrap_or_default(),
                 })
             }
         }

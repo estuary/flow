@@ -572,7 +572,7 @@ pub struct Recover {
 /// zero's RocksDB. Absent fields are inert.
 ///
 /// All fields of a Persist land together in a single WriteBatch.
-/// `nonce` is echoed back by the shard's Persisted response, allowing
+/// `seq_no` is echoed back by the shard's Persisted response, allowing
 /// the leader to match a Persisted response to its originating request.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Persist {
@@ -580,7 +580,7 @@ pub struct Persist {
     /// `Persisted` response. The leader chooses any value and the shard
     /// does not interpret it.
     #[prost(uint64, tag = "1")]
-    pub nonce: u64,
+    pub seq_no: u64,
     /// Delete previously-persisted ACK intents. Applies ahead of `ack_intents`.
     /// Effect: DeleteRange("AI:")
     #[prost(bool, tag = "2")]
@@ -643,9 +643,9 @@ pub struct Persist {
 /// in the recovery log.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Persisted {
-    /// Echoed back from the originating `Persist.nonce` request.
+    /// Echoed back from the originating `Persist.seq_no` request.
     #[prost(uint64, tag = "1")]
-    pub nonce: u64,
+    pub seq_no: u64,
 }
 /// Apply asks shard zero to invoke its connector's Apply action, both for
 /// the initial application of a new spec and for re-application after a
