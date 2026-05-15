@@ -31,6 +31,7 @@ async fn test_private_links() {
             az_ids: vec!["a".to_string(), "b".to_string()],
             region: "us-west-2".to_string(),
             service_name: "service".to_string(),
+            service_region: None,
         })];
 
     inbox.push_back((
@@ -76,6 +77,7 @@ async fn test_private_links() {
             az_ids: vec!["b".to_string(), "c".to_string()],
             region: "us-west-2".to_string(),
             service_name: "service-2".to_string(),
+            service_region: None,
         }));
 
     inbox.push_back((models::Id::zero(), Some(Message::Converge)));
