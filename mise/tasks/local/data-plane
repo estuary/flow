@@ -25,7 +25,7 @@ fi
 
 # Cap brokers and reactors at 10 each. Brokers occupy base_port+0..+9 and
 # reactors occupy base_port+90..+99, leaving the +50/+51/+52 Dekaf ports
-# and the +60 runtime-sidecar port reserved.
+# and the +60 runtime-sidecar gRPC / +61 runtime-sidecar admin ports reserved.
 if [ "${N_BROKERS}" -gt 10 ]; then
     echo "Error: --num-brokers ${N_BROKERS} exceeds the per-data-plane limit of 10" >&2
     exit 1

@@ -3,11 +3,31 @@ use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::shuffle;
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 pub(crate) async fn serve_log<R>(
     service: crate::Service,
+    request_rx: R,
+    response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
+) -> anyhow::Result<()>
+where
+    R: futures::Stream<Item = tonic::Result<shuffle::LogRequest>> + Send + Unpin + 'static,
+{
+    // Run the whole handler inside its span so operator trace overrides (see
+    // `service_kit::trace`) reach every log line — the actor loop's periodic
+    // instrumentation included.
+    let handler = service.registry.register("shuffle.log");
+    let span = handler.span();
+    serve_log_inner(service, request_rx, response_tx, handler)
+        .instrument(span)
+        .await
+}
+
+async fn serve_log_inner<R>(
+    service: crate::Service,
     mut request_rx: R,
     response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
+    mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<()>
 where
     R: futures::Stream<Item = tonic::Result<shuffle::LogRequest>> + Send + Unpin + 'static,
@@ -26,20 +46,32 @@ where
         log_shard_index,
     } = open.open.context("first message must be Open")?;
 
-    let directory = shards
+    // Identity and directory of the shard hosting this Log instance.
+    let (shard_id, directory) = shards
         .get(log_shard_index as usize)
-        .map(|m| m.directory.as_str())
-        .unwrap_or_default();
+        .map(|s| (&s.id, &s.directory))
+        .context("Open log_shard_index out of range")?;
 
-    tracing::info!(
+    handler.set_label(shard_id);
+    handler.set_field("session_id", session_id);
+    handler.set_field("log_shard_index", log_shard_index);
+    handler.set_field("shards", shards.len());
+    handler.set_field("directory", directory);
+    handler.set_phase("joining");
+
+    let metrics = super::Metrics::new(shard_id);
+
+    service_kit::event!(
+        tracing::Level::INFO,
+        "slice",
         session_id,
         shards = shards.len(),
         slice_shard_index,
         log_shard_index,
-        %directory,
-        "Log received Open"
+        directory = directory.clone(),
+        "received Open from Slice",
     );
-    let join_key = (directory.to_string(), log_shard_index);
+    let join_key = (directory.clone(), log_shard_index);
 
     // Scope `guard` to prove it's not held across await points.
     let connections = {
@@ -81,6 +113,9 @@ where
 
         // Are there still more Slices that need to connect?
         if connected != shards.len() as usize {
+            // This invocation only contributed its streams to the rendezvous;
+            // the invocation that completes it runs the LogActor.
+            handler.finish_ok();
             return Ok(());
         }
         // All Slices have connected to this Log.
@@ -111,9 +146,11 @@ where
     }
 
     let shard_count = shards.len();
-    let writer = Writer::new(std::path::Path::new(directory), log_shard_index)?;
+    let writer = Writer::new(std::path::Path::new(&directory), log_shard_index)?;
 
-    super::actor::LogActor {
+    handler.set_phase("running");
+
+    let result = super::actor::LogActor {
         topology: super::state::Topology {
             session_id,
             shards,
@@ -127,7 +164,14 @@ where
         block: state::BlockState::new(),
         flush: state::FlushState::new(),
         log_response_tx,
+        metrics,
     }
     .serve(log_request_rx)
-    .await
+    .await;
+
+    match &result {
+        Ok(()) => handler.finish_ok(),
+        Err(err) => handler.finish_err(&format!("{err:#}")),
+    }
+    result
 }

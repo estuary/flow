@@ -20,8 +20,9 @@ impl Client {
     ) -> impl futures::Stream<Item = crate::RetryResult<broker::ReadResponse>> + Send + 'static
     {
         coroutines::coroutine(move |mut co| async move {
-            let mut write_head = i64::MAX;
             let mut attempt = 0;
+            let mut write_head = i64::MAX;
+            let metrics = Metrics::new(&req.journal);
 
             loop {
                 // Have we read through requested `end_offset`?
@@ -33,7 +34,10 @@ impl Client {
                     return;
                 }
 
-                let err = match self.read_some(&mut co, &mut req, &mut write_head).await {
+                let err = match self
+                    .read_some(&mut co, metrics.clone(), &mut req, &mut write_head)
+                    .await
+                {
                     Ok(()) => {
                         attempt = 0;
                         continue;
@@ -62,6 +66,7 @@ impl Client {
     async fn read_some(
         &self,
         co: &mut coroutines::Suspend<crate::RetryResult<broker::ReadResponse>, ()>,
+        metrics: Metrics,
         req: &mut broker::ReadRequest,
         write_head: &mut i64,
     ) -> crate::Result<()> {
@@ -95,7 +100,10 @@ impl Client {
         {
             *write_head = metadata.write_head;
             req.offset = metadata.write_head;
+
             () = co.yield_(Ok(metadata)).await;
+            metrics.tick(req.offset, *write_head);
+
             return Ok(());
         } else if metadata.status() != broker::Status::Ok {
             // Note: we used to fall through and retry below on !Ok. That was
@@ -115,11 +123,22 @@ impl Client {
                 tracing::info!(req.journal, req.offset, metadata.offset, "offset jump");
                 req.offset = metadata.offset;
             }
-
             *write_head = metadata.write_head;
+
             let (fragment, fragment_url) = (fragment.clone(), metadata.fragment_url.clone());
             () = co.yield_(Ok(metadata)).await;
-            return read_fragment_url(co, fragment, &self.fragment_client, fragment_url, req).await;
+            metrics.tick(req.offset, *write_head);
+
+            return read_fragment_url(
+                co,
+                metrics,
+                fragment,
+                &self.fragment_client,
+                fragment_url,
+                req,
+                *write_head,
+            )
+            .await;
         }
 
         // We skipped the direct-fragment path. If the broker returned a
@@ -158,12 +177,16 @@ impl Client {
                         req.offset = resp.offset;
                     }
                     *write_head = resp.write_head;
+
                     () = co.yield_(Ok(resp)).await;
+                    metrics.tick(req.offset, *write_head);
                 }
                 // Content response.
                 (broker::Status::Ok, None, false) => {
                     req.offset += resp.content.len() as i64;
+
                     () = co.yield_(Ok(resp)).await;
+                    metrics.tick(req.offset, *write_head);
                 }
                 // All other statuses end the stream, and are handled by the caller.
                 (status, _, _) => return Err(Error::BrokerStatus(status)),
@@ -176,10 +199,12 @@ impl Client {
 
 async fn read_fragment_url(
     co: &mut coroutines::Suspend<crate::RetryResult<broker::ReadResponse>, ()>,
+    metrics: Metrics,
     fragment: broker::Fragment,
     fragment_client: &reqwest::Client,
     fragment_url: String,
     req: &mut broker::ReadRequest,
+    write_head: i64,
 ) -> crate::Result<()> {
     let mut get = fragment_client.get(fragment_url);
 
@@ -211,16 +236,16 @@ async fn read_fragment_url(
 
     match fragment.compression_codec() {
         broker::CompressionCodec::None | broker::CompressionCodec::GzipOffloadDecompression => {
-            read_fragment_url_body(co, fragment, raw_reader, req).await
+            read_fragment_url_body(co, metrics, fragment, raw_reader, req, write_head).await
         }
         broker::CompressionCodec::Gzip => {
             let mut decoder = async_compression::futures::bufread::GzipDecoder::new(raw_reader);
             decoder.multiple_members(true);
-            read_fragment_url_body(co, fragment, decoder, req).await
+            read_fragment_url_body(co, metrics, fragment, decoder, req, write_head).await
         }
         broker::CompressionCodec::Zstandard => {
             let decoder = async_compression::futures::bufread::ZstdDecoder::new(raw_reader);
-            read_fragment_url_body(co, fragment, decoder, req).await
+            read_fragment_url_body(co, metrics, fragment, decoder, req, write_head).await
         }
         broker::CompressionCodec::Snappy => Err(Error::Protocol(
             "snappy compression is not yet implemented by this client",
@@ -233,9 +258,11 @@ async fn read_fragment_url(
 
 async fn read_fragment_url_body(
     co: &mut coroutines::Suspend<crate::RetryResult<broker::ReadResponse>, ()>,
+    metrics: Metrics,
     fragment: broker::Fragment,
     r: impl futures::io::AsyncRead,
     req: &mut broker::ReadRequest,
+    write_head: i64,
 ) -> crate::Result<()> {
     use bytes::Buf;
     use tokio_util::compat::FuturesAsyncReadCompatExt;
@@ -285,7 +312,53 @@ async fn read_fragment_url_body(
             .await;
 
         req.offset += content_len;
+        metrics.tick(req.offset, write_head);
+        metrics.fragment.increment(content_len as u64);
     }
 
     Ok(())
+}
+
+#[derive(Clone)]
+struct Metrics {
+    offset: metrics::Gauge,
+    remainder: metrics::Gauge,
+    fragment: metrics::Counter,
+}
+
+impl Metrics {
+    fn new(journal: &str) -> Self {
+        static DESCRIBE: std::sync::Once = std::sync::Once::new();
+        DESCRIBE.call_once(|| {
+            metrics::describe_gauge!(
+                "gazette_read_offset",
+                metrics::Unit::Bytes,
+                "current read offset for a journal",
+            );
+            metrics::describe_gauge!(
+                "gazette_read_remainder",
+                metrics::Unit::Bytes,
+                "distance from current read offset to write head for a journal",
+            );
+            metrics::describe_counter!(
+                "gazette_read_fragment",
+                metrics::Unit::Bytes,
+                "number of bytes directly read from journal fragment files",
+            );
+        });
+        let offset = metrics::gauge!("gazette_read_offset", "journal" => journal.to_string());
+        let remainder = metrics::gauge!("gazette_read_remainder", "journal" => journal.to_string());
+        let fragment = metrics::counter!("gazette_read_fragment", "journal" => journal.to_string());
+
+        Self {
+            offset,
+            remainder,
+            fragment,
+        }
+    }
+
+    fn tick(&self, offset: i64, write_head: i64) {
+        self.offset.set(offset as f64);
+        self.remainder.set((write_head - offset) as f64);
+    }
 }

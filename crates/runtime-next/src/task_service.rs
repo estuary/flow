@@ -66,6 +66,9 @@ impl TaskService {
             Some(tokio_context.set_log_level_fn()),
             task_name,
             publisher_factory,
+            // Inert registry: TaskService is the CGO entry point and does not
+            // serve an admin surface; event! tracks still capture per-handler.
+            service_kit::Registry::default(),
         );
 
         let uds = tokio_context

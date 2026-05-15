@@ -18,18 +18,22 @@ pub struct ServiceImpl {
     pub(crate) publisher_factory: gazette::journal::ClientFactory,
     /// Process-wide HTTP client used by the actor to deliver trigger webhooks.
     pub(crate) http_client: reqwest::Client,
+    /// Registry of in-flight Leader session handlers, for the admin surface.
+    pub(crate) registry: service_kit::Registry,
 }
 
 impl Service {
     pub fn new(
         shuffle_service: shuffle::Service,
         publisher_factory: gazette::journal::ClientFactory,
+        registry: service_kit::Registry,
     ) -> Self {
         Self(Arc::new(ServiceImpl {
             materialize_joins: std::sync::Mutex::new(HashMap::new()),
             shuffle_service,
             publisher_factory,
             http_client: reqwest::Client::new(),
+            registry,
         }))
     }
 

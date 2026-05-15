@@ -37,6 +37,7 @@ proto-grpc = { path = "../proto-grpc", features = [
     "runtime_server",
 ] }
 publisher = { path = "../publisher" }
+service-kit = { path = "../service-kit" }
 shuffle = { path = "../shuffle" }
 simd-doc = { path = "../simd-doc" }
 tables = { path = "../tables" }
@@ -56,6 +57,7 @@ handlebars = { workspace = true }
 json-patch = { workspace = true }
 jsonwebtoken = { workspace = true }
 librocksdb-sys = { workspace = true }
+metrics = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }

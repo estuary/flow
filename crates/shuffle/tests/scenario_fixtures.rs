@@ -68,6 +68,7 @@ fn build_shards(
             };
 
             shuffle::proto::Shard {
+                id: format!("scenario-fixtures/shard-{i:03}"),
                 range: Some(flow::RangeSpec {
                     key_begin,
                     key_end,
@@ -214,7 +215,12 @@ async fn shuffle_scenarios() {
         let journal_client = data_plane.journal_client.clone();
         move |_authz_sub, _authz_obj| journal_client.clone()
     });
-    let service = shuffle::Service::new(endpoint.clone(), factory, 10 * 1024 * 1024 * 1024);
+    let service = shuffle::Service::new(
+        endpoint.clone(),
+        factory,
+        10 * 1024 * 1024 * 1024,
+        service_kit::Registry::new(),
+    );
 
     let server = service.clone().build_tonic_server();
     let server_handle = tokio::spawn(async move {

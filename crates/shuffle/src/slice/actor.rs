@@ -45,8 +45,8 @@ pub struct SliceActor {
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
     pub ready_read_heap: ReadyReadHeap,
-    /// Drain of the next Progressed response to transmit.
-    pub progressed_drain: Option<shuffle::Frontier>,
+    /// Per-task metrics counters and gauges.
+    pub metrics: super::Metrics,
 }
 
 struct Buffers {
@@ -63,7 +63,7 @@ impl SliceActor {
         skip_all,
         fields(
             session = self.topology.session_id,
-            shard = self.topology.slice_shard_index,
+            shard_id = %self.topology.shards[self.topology.slice_shard_index as usize].id,
         )
     )]
     pub async fn serve<R>(
@@ -129,7 +129,6 @@ impl SliceActor {
                 ready_heap = self.ready_read_heap.len(),
                 flush = ?self.flush,
                 progress = ?self.progress,
-                progressed_drain = ?self.progressed_drain,
                 "SliceActor::serve iteration"
             );
             // First, attempt non-blocking sends.
@@ -172,7 +171,9 @@ impl SliceActor {
             }
         }
 
-        tracing::debug!(
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "session",
             loop_count,
             total_reads = self.reads.len(),
             flush_cycle = self.flush.cycle,
@@ -250,7 +251,11 @@ impl SliceActor {
                 progress: Some(shuffle::slice_request::Progress {}),
                 ..
             } => {
-                tracing::debug!("received Progress request from Session");
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "session",
+                    "received Progress request"
+                );
                 self.progress.request()
             }
 
@@ -282,21 +287,14 @@ impl SliceActor {
             .get(binding_index as usize)
             .context("StartRead invalid binding")?;
 
+        let binding_state_key = binding.state_key().to_string();
+        let client = (*self.topology.journal_clients[binding.index as usize]).clone();
         let spec = spec.context("StartRead missing spec")?;
         let journal = spec.name.into_boxed_str();
-        let client = (*self.topology.journal_clients[binding.index as usize]).clone();
+        let read_id = self.reads.len() as u32;
 
         // Resolve the checkpoint into producer state and start offset.
         let (offset, producers) = state::resolve_checkpoint(checkpoint);
-
-        tracing::debug!(
-            binding = binding.state_key(),
-            %journal,
-            offset,
-            create_revision,
-            ?producers,
-            "starting journal read"
-        );
 
         let mut request = broker::ReadRequest {
             // Add `journal_read_suffix` as a metadata component to the journal name.
@@ -319,8 +317,19 @@ impl SliceActor {
             }),
         };
 
-        let binding_state_key = binding.state_key().to_string();
-        let read_id = self.reads.len() as u32;
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "read",
+            read_id,
+            binding = binding.index,
+            journal = journal.to_string(),
+            begin_mod_time = request.begin_mod_time,
+            n_producers = producers.len(),
+            offset,
+            "starting journal read",
+        );
+        self.metrics.reads_started.increment(1);
+
         self.reads.push(ReadState {
             binding_index: binding_index as u16,
             journal,
@@ -346,12 +355,16 @@ impl SliceActor {
             let tailing = offset >= write_head;
             request.header = probe_header;
 
-            tracing::debug!(
-                journal = %request.journal,
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "read",
+                read_id,
+                binding = binding_index,
+                journal = request.journal.clone(),
                 offset,
-                write_head,
                 tailing,
-                "probed journal write head for started read"
+                write_head,
+                "probed journal write head",
             );
 
             Ok(Box::pin(gazette::journal::read::ReadLines::new(
@@ -371,6 +384,7 @@ impl SliceActor {
         let read = probe_result?;
         if read.tailing() {
             self.tailing_reads += 1;
+            self.metrics.tailing_reads.set(self.tailing_reads as f64);
         }
         self.pending_reads.push(read.into_future());
         Ok(())
@@ -385,16 +399,22 @@ impl SliceActor {
     ) -> anyhow::Result<()> {
         let read_state = &mut self.reads[read.id() as usize];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
+        let journal = read.fragment().journal.clone();
 
         let Some(result) = result else {
-            tracing::info!(
-                binding = binding.state_key(),
-                journal = %read.fragment().journal,
-                "stopping journal read due to EOF"
-            );
             if read.tailing() {
                 self.tailing_reads = self.tailing_reads.strict_sub(1);
+                self.metrics.tailing_reads.set(self.tailing_reads as f64);
             }
+            service_kit::event!(
+                tracing::Level::INFO,
+                "read",
+                read_id = read.id(),
+                binding = binding.index,
+                journal,
+                "stopped journal read (EOF)",
+            );
+            self.metrics.reads_stopped.increment(1);
             return Ok(());
         };
 
@@ -404,34 +424,47 @@ impl SliceActor {
                 inner: err,
             }) => match err {
                 gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
-                    tracing::info!(
-                        binding = binding.state_key(),
-                        journal = %read.fragment().journal,
-                        "stopping journal read due to its deletion"
-                    );
                     if read.tailing() {
                         self.tailing_reads = self.tailing_reads.strict_sub(1);
+                        self.metrics.tailing_reads.set(self.tailing_reads as f64);
                     }
+                    service_kit::event!(
+                        tracing::Level::INFO,
+                        "read",
+                        read_id = read.id(),
+                        binding = binding.index,
+                        journal,
+                        "stopped journal read (JOURNAL_NOT_FOUND)",
+                    );
+                    self.metrics.reads_stopped.increment(1);
                     return Ok(());
                 }
                 gazette::Error::BrokerStatus(broker::Status::Suspended) => {
-                    tracing::info!(
-                        binding = binding.state_key(),
-                        journal = %read.fragment().journal,
-                        "stopping journal read due to its full suspension"
-                    );
                     if read.tailing() {
                         self.tailing_reads = self.tailing_reads.strict_sub(1);
+                        self.metrics.tailing_reads.set(self.tailing_reads as f64);
                     }
+                    service_kit::event!(
+                        tracing::Level::INFO,
+                        "read",
+                        read_id = read.id(),
+                        binding = binding.index,
+                        journal,
+                        "stopped journal read (SUSPENDED)",
+                    );
+                    self.metrics.reads_stopped.increment(1);
                     return Ok(());
                 }
                 err if err.is_transient() => {
-                    tracing::warn!(
-                        binding = %binding.state_key(),
-                        journal = %read_state.journal,
-                        attempt = attempt,
-                        %err,
-                        "transient error reading from journal (will retry)"
+                    service_kit::event!(
+                        tracing::Level::WARN,
+                        "read",
+                        read_id = read.id(),
+                        binding = binding.index,
+                        journal,
+                        attempt,
+                        err = service_kit::event::debug(err),
+                        "transient error reading from journal (will retry)",
                     );
                     self.pending_reads.push(read.into_future());
                     return Ok(());
@@ -451,8 +484,22 @@ impl SliceActor {
         // Pending read has now resolved. Update tailing aggregate and write_head.
         if lines_batch.tailing {
             self.tailing_reads = self.tailing_reads.strict_sub(1);
+            self.metrics.tailing_reads.set(self.tailing_reads as f64);
         }
         read_state.write_head = read.write_head();
+
+        service_kit::event!(
+            tracing::Level::TRACE,
+            "read",
+            read_id = read.id(),
+            binding = binding.index,
+            journal,
+            offset = lines_batch.offset,
+            length = lines_batch.content.len(),
+            tailing = lines_batch.tailing,
+            n_tailing = self.tailing_reads,
+            "received LinesBatch",
+        );
 
         let transcoded = match simd_doc::transcode_many(
             &mut self.parser,
@@ -680,6 +727,7 @@ impl SliceActor {
                 (None, None) => {
                     if read.tailing() {
                         self.tailing_reads += 1;
+                        self.metrics.tailing_reads.set(self.tailing_reads as f64);
                     }
                     self.pending_reads.push(read.into_future());
                 }
@@ -725,11 +773,13 @@ impl SliceActor {
             });
         }
 
-        tracing::debug!(
-            shards = self.log_request_tx.len(),
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "log",
             cycle = flush_cycle,
-            "sent Flush to all logs"
+            "broadcast Flush request",
         );
+        self.metrics.flushes.increment(1);
 
         Ok(())
     }
@@ -848,27 +898,38 @@ impl SliceActor {
         // Future which represent an absence of an awake signal.
         let idle = future::Either::Right(std::future::ready(false));
 
-        if self.progressed_drain.is_none() {
-            let Some(frontier) = self.progress.take_progressed() else {
-                return Ok(idle);
-            };
-            tracing::debug!(?frontier, "sending Progressed to Session");
-            self.progressed_drain = Some(frontier.encode());
+        if !self.progress.has_progressed() {
+            return Ok(idle);
         }
+        // Reserve capacity *before* taking the Frontier — otherwise an absent
+        // permit would discard progress that hasn't been emitted yet.
+        let Ok(permit) = self.slice_response_tx.try_reserve() else {
+            return Ok(future::Either::Left(
+                self.slice_response_tx.clone().reserve_owned().map(|_| true),
+            ));
+        };
 
-        // Drain a Progressed response.
-        // Ensure channel capacity *before* take() to not lose it.
-        if self.progressed_drain.is_some() {
-            let Ok(permit) = self.slice_response_tx.try_reserve() else {
-                return Ok(future::Either::Left(
-                    self.slice_response_tx.clone().reserve_owned().map(|_| true),
-                ));
-            };
-            permit.send(Ok(shuffle::SliceResponse {
-                progressed: self.progressed_drain.take(),
-                ..Default::default()
-            }));
-        }
+        let frontier = self.progress.take_progressed();
+        let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
+            frontier.measures();
+
+        permit.send(Ok(shuffle::SliceResponse {
+            progressed: Some(frontier.encode()),
+            ..Default::default()
+        }));
+
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "session",
+            bytes_behind_delta,
+            bytes_read_delta,
+            journal_producers,
+            journals,
+            "sent Progressed",
+        );
+        self.metrics
+            .bytes_read
+            .increment(bytes_read_delta.max(0) as u64);
 
         Ok(idle)
     }

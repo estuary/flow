@@ -143,12 +143,14 @@ pub async fn probe_write_head(
                 inner: err,
             })) => {
                 if err.is_transient() {
-                    tracing::warn!(
-                        binding = %binding_state_key,
-                        %journal,
+                    service_kit::event!(
+                        tracing::Level::WARN,
+                        "read",
+                        binding = binding_state_key.to_string(),
+                        journal = journal.to_string(),
                         attempt,
-                        %err,
-                        "transient error probing journal write head (will retry)"
+                        err = service_kit::event::debug(err),
+                        "transient error probing journal write head (will retry)",
                     );
                 } else {
                     return Err(map_read_error(

@@ -557,6 +557,27 @@ impl Frontier {
             unresolved_hints,
         }
     }
+
+    /// Return high-level measures of this Frontier for logging / diagnostics:
+    ///  (journals, journal_producers, bytes_read_delta, bytes_behind_delta)
+    #[inline]
+    pub fn measures(&self) -> (usize, usize, i64, i64) {
+        let (bytes_read_delta, bytes_behind_delta, journal_producers) =
+            self.journals.iter().fold((0, 0, 0), |(br, bb, jp), jf| {
+                (
+                    br + jf.bytes_read_delta,
+                    bb + jf.bytes_behind_delta,
+                    jp + jf.producers.len(),
+                )
+            });
+
+        (
+            self.journals.len(),
+            journal_producers,
+            bytes_read_delta,
+            bytes_behind_delta,
+        )
+    }
 }
 
 /// Walk a journal list and count producers with `hinted_commit > last_commit`.

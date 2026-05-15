@@ -70,6 +70,7 @@ pub fn pf_tuple(pf: &crate::ProducerFrontier) -> (u64, u64, i64) {
 pub fn test_shards_3() -> Vec<shuffle::Shard> {
     vec![
         shuffle::Shard {
+            id: "test/task/shard-0".to_string(),
             range: Some(flow::RangeSpec {
                 key_begin: 0x00000000,
                 key_end: 0x55555554,
@@ -80,6 +81,7 @@ pub fn test_shards_3() -> Vec<shuffle::Shard> {
             directory: "/test/log/shard-0".to_string(),
         },
         shuffle::Shard {
+            id: "test/task/shard-1".to_string(),
             range: Some(flow::RangeSpec {
                 key_begin: 0x55555555,
                 key_end: 0xaaaaaaa9,
@@ -90,6 +92,7 @@ pub fn test_shards_3() -> Vec<shuffle::Shard> {
             directory: "/test/log/shard-1".to_string(),
         },
         shuffle::Shard {
+            id: "test/task/shard-2".to_string(),
             range: Some(flow::RangeSpec {
                 key_begin: 0xaaaaaaaa,
                 key_end: 0xffffffff,

@@ -189,9 +189,11 @@ pub(super) async fn run(
         let clock = frontier_mapping::extract_committed_close(&legacy_checkpoint);
 
         if clock == Some(committed_close) {
-            tracing::debug!(
-                ?committed_close,
-                "legacy_checkpoint present but matches Recover::committed_close (ignoring)"
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "leader",
+                committed_close,
+                "legacy_checkpoint present but matches Recover::committed_close (ignoring)",
             );
         } else if let Some(clock) = clock {
             // Implementation error: these update together and should always sync.
@@ -199,10 +201,11 @@ pub(super) async fn run(
                 "legacy_checkpoint has clock {clock:?} that doesn't match Recover's committed_close ({committed_close:?})"
             );
         } else {
-            tracing::debug!(
-                ?committed_close,
-                ?legacy_checkpoint,
-                "legacy_checkpoint doesn't contain committed-close-clock; treating as authoritative"
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "leader",
+                committed_close,
+                "legacy_checkpoint doesn't contain committed-close-clock; treating as authoritative",
             );
             committed_frontier = frontier_mapping::checkpoint_to_frontier(
                 &legacy_checkpoint.sources,
@@ -213,7 +216,11 @@ pub(super) async fn run(
             pending_ack_intents = legacy_checkpoint.ack_intents;
         }
     } else {
-        tracing::debug!("no legacy_checkpoint present");
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "leader",
+            "no legacy_checkpoint present",
+        );
     }
 
     // Handle a `connector_checkpoint` from remote-authoritative connectors.
@@ -223,17 +230,20 @@ pub(super) async fn run(
         let clock = frontier_mapping::extract_committed_close(&connector_checkpoint);
 
         if clock == Some(committed_close) {
-            tracing::debug!(
-                ?committed_close,
-                "connector_checkpoint present but matches Recover::committed_close (ignoring)"
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "leader",
+                committed_close,
+                "connector_checkpoint present but matches Recover::committed_close (ignoring)",
             );
         } else if clock == Some(hinted_close) {
             // Connector declares that the hinted txn did in fact commit.
-            tracing::debug!(
-                ?committed_close,
-                ?hinted_close,
-                ?hinted_frontier,
-                "connector_checkpoint present and matches Recover::hinted_close; applying delta"
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "leader",
+                committed_close,
+                hinted_close,
+                "connector_checkpoint present and matches Recover::hinted_close; applying delta",
             );
             committed_close = hinted_close;
             committed_frontier = committed_frontier.reduce(std::mem::take(&mut hinted_frontier));
@@ -246,10 +256,11 @@ pub(super) async fn run(
                  committed_close ({committed_close:?}) or hinted_close ({hinted_close:?})"
             );
         } else {
-            tracing::debug!(
-                ?committed_close,
-                ?connector_checkpoint,
-                "connector_checkpoint doesn't contain committed-close-clock; treating as authoritative"
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "leader",
+                committed_close,
+                "connector_checkpoint doesn't contain committed-close-clock; treating as authoritative",
             );
 
             committed_frontier = frontier_mapping::checkpoint_to_frontier(
@@ -261,7 +272,11 @@ pub(super) async fn run(
             pending_ack_intents = connector_checkpoint.ack_intents;
         }
     } else {
-        tracing::debug!("no connector_checkpoint present");
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "leader",
+            "no connector_checkpoint present",
+        );
     }
 
     // Compose the session resume Frontier: project the recovered hinted
@@ -374,14 +389,14 @@ async fn apply_loop(
                     }),
                 ..
             } => {
-                tracing::info!(
+                let patches_clone: bytes::Bytes = connector_patches_json.clone();
+                service_kit::event!(
+                    tracing::Level::INFO,
+                    "leader",
                     iteration,
-                    action_description,
-                    patches = ?ops::DebugJson(
-                        serde_json::from_slice::<models::RawValue>(&connector_patches_json)
-                            .unwrap_or_default()
-                    ),
-                    "connector Apply completed"
+                    action_description = action_description.clone(),
+                    patches = service_kit::event::debug(patches_clone),
+                    "connector Apply completed",
                 );
                 connector_patches_json
             }
@@ -389,7 +404,12 @@ async fn apply_loop(
         };
 
         if applied_patches_json.is_empty() {
-            tracing::debug!(iteration, "apply loop complete");
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "leader",
+                iteration,
+                "apply loop complete",
+            );
 
             if last_applied == next_applied {
                 return Ok(());

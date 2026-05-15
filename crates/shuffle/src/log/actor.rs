@@ -47,6 +47,8 @@ pub struct LogActor {
     pub block: BlockState,
     /// Flush lifecycle state: pending requests, in-flight tracking, completed responses.
     pub flush: FlushState,
+    /// Per-task metrics counters and gauges.
+    pub metrics: super::Metrics,
 }
 
 impl LogActor {
@@ -57,7 +59,7 @@ impl LogActor {
         skip_all,
         fields(
             session = self.topology.session_id,
-            shard = self.topology.log_shard_index,
+            shard_id = %self.topology.shards[self.topology.log_shard_index as usize].id,
         )
     )]
     pub async fn serve(
@@ -138,7 +140,14 @@ impl LogActor {
                         Err(true) => {}, // `rx` is parked in self.slice_appends
                         Err(false) => {
                             connected -= 1;
-                            tracing::debug!(shard_index, connected, "Slice LogRequest stream EOF");
+
+                            service_kit::event!(
+                                tracing::Level::DEBUG,
+                                "slice",
+                                shard_index,
+                                connected,
+                                "received EOF from Slice"
+                            );
                         }
                     }
                 }
@@ -147,49 +156,35 @@ impl LogActor {
                 Some(result) = futures::future::OptionFuture::from(flush_handle.as_mut()) => {
                     flush_handle = None;
 
-                    let result = match result {
-                        Ok(r) => r,
+                    let (writer, flushed_lsn, sealed) = match result {
+                        Ok(r) => r?,
                         Err(err) if err.is_cancelled() => continue,
                         Err(err) => std::panic::resume_unwind(err.into_panic()),
                     };
 
-                    let (writer, flushed_lsn, sealed) = result?;
-                    self.writer = Some(writer);
-                    self.flush.on_flushed(flushed_lsn);
-
-                    // Did the flush seal its segment (the writer rolled to the next)?
-                    let Some(sealed) = sealed else {
-                        continue;
-                    };
-                    disk_backlog_bytes += sealed.size;
-
-                    if disk_backlog_bytes >= disk_backlog_threshold {
-                        tracing::debug!(
-                            disk_backlog_mib = disk_backlog_bytes / (1024 * 1024),
-                            "disk back-pressure engaged"
-                        );
-                        disk_back_pressure = true;
+                    self.on_flushed(
+                        writer,
+                        flushed_lsn,
+                        sealed.as_ref(),
+                        &mut disk_backlog_bytes,
+                        disk_backlog_threshold,
+                        &mut disk_back_pressure,
+                    );
+                    if let Some(sealed) = sealed {
+                        sealed_segments.push(Box::pin(sealed.serve()));
                     }
-                    sealed_segments.push(Box::pin(sealed.serve()));
                 }
 
                 // Read an update reclaiming disk from compression or unlink.
                 // This arm is deactivated if no `connected` shards remain,
                 // to allow the `else` arm below to fire and exit.
                 Some(reclaimed) = sealed_segments.next(), if connected != 0 => {
-                    disk_backlog_bytes = disk_backlog_bytes
-                        .checked_sub(reclaimed?)
-                        .expect("disk_backlog_bytes underflow");
-
-                    if disk_back_pressure
-                        && disk_backlog_bytes < disk_backlog_threshold / 2
-                    {
-                        tracing::debug!(
-                            disk_backlog_mib = disk_backlog_bytes / (1024 * 1024),
-                            "disk back-pressure released"
-                        );
-                        disk_back_pressure = false;
-                    }
+                    self.on_reclaimed(
+                        reclaimed?,
+                        &mut disk_backlog_bytes,
+                        disk_backlog_threshold,
+                        &mut disk_back_pressure,
+                    );
                 }
 
                 // Wake when a blocked log_response_tx has capacity.
@@ -248,11 +243,14 @@ impl LogActor {
                 }),
                 ..Default::default()
             }));
-            tracing::debug!(
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "slice",
                 shard_index,
                 cycle,
-                ?flushed_lsn,
-                "sent Flushed response to Slice"
+                flushed_lsn = flushed_lsn.as_u64(),
+                "sent Flushed response to Slice",
             );
         }
 
@@ -297,8 +295,16 @@ impl LogActor {
             } => {
                 let shuffle::log_request::Flush { cycle } = flush;
                 let empty = self.block.is_empty();
-                tracing::debug!(shard_index, cycle, empty, "received Flush from Slice");
                 self.flush.on_flush(shard_index, cycle, empty);
+
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "slice",
+                    shard_index,
+                    cycle,
+                    empty,
+                    "received Flush from Slice",
+                );
                 Ok(Ok(rx))
             }
 
@@ -366,6 +372,10 @@ impl LogActor {
             doc_bytes = append.doc_archived.len(),
             "drained Append from heap"
         );
+        self.metrics.appends.increment(1);
+        self.metrics
+            .bytes_appended
+            .increment(append.source_byte_length as u64);
 
         (shard_index, rx)
     }
@@ -387,10 +397,101 @@ impl LogActor {
 
         let (journals, producers, entries) = self.block.take();
 
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "writer",
+            journals = journals.len(),
+            producers = producers.len(),
+            entries = entries.len(),
+            "starting block flush"
+        );
+        self.metrics.flushes.increment(1);
+
         *flush_handle = Some(tokio::task::spawn_blocking(move || {
             let (flushed_lsn, sealed) = writer.append_block(journals, producers, entries)?;
             Ok((writer, flushed_lsn, sealed))
         }));
+    }
+
+    /// Handle the completion of a background block flush: restore the writer,
+    /// advance flush state, and bookkeep the disk-backlog measure (engaging
+    /// back-pressure if a new segment was sealed).
+    fn on_flushed(
+        &mut self,
+        writer: Writer,
+        flushed_lsn: Lsn,
+        sealed: Option<&SealedSegment>,
+        disk_backlog_bytes: &mut u64,
+        disk_backlog_threshold: u64,
+        disk_back_pressure: &mut bool,
+    ) {
+        self.writer = Some(writer);
+        self.flush.on_flushed(flushed_lsn);
+
+        // Did the flush seal its segment (the writer rolled to the next)?
+        let Some(sealed) = sealed else {
+            service_kit::event!(
+                tracing::Level::TRACE,
+                "writer",
+                disk_back_pressure = *disk_back_pressure,
+                disk_backlog_mib = *disk_backlog_bytes / (1024 * 1024),
+                next_pending = self.flush.has_pending_request(),
+                "log segment flushed (partial segment)"
+            );
+            return;
+        };
+
+        *disk_backlog_bytes += sealed.size;
+
+        if *disk_backlog_bytes >= disk_backlog_threshold {
+            *disk_back_pressure = true;
+        };
+
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "writer",
+            disk_back_pressure = *disk_back_pressure,
+            disk_backlog_mib = *disk_backlog_bytes / (1024 * 1024),
+            last_segment = service_kit::event::debug(sealed.path.to_owned()),
+            next_pending = self.flush.has_pending_request(),
+            sealed_mib = sealed.size / (1024 * 1024),
+            "log segment flushed (segment sealed)"
+        );
+        self.metrics.segments_sealed.increment(1);
+        self.metrics
+            .disk_backlog_bytes
+            .set(*disk_backlog_bytes as f64);
+    }
+
+    /// Handle a disk-space reclaim from a sealed segment's compress / unlink
+    /// stream: subtract from the backlog measure and release back-pressure
+    /// at the hysteresis threshold (half of `disk_backlog_threshold`).
+    fn on_reclaimed(
+        &mut self,
+        reclaimed: u64,
+        disk_backlog_bytes: &mut u64,
+        disk_backlog_threshold: u64,
+        disk_back_pressure: &mut bool,
+    ) {
+        *disk_backlog_bytes = disk_backlog_bytes
+            .checked_sub(reclaimed)
+            .expect("disk_backlog_bytes underflow");
+
+        if *disk_back_pressure && *disk_backlog_bytes < disk_backlog_threshold / 2 {
+            *disk_back_pressure = false;
+        }
+
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "writer",
+            disk_back_pressure = *disk_back_pressure,
+            disk_backlog_mib = *disk_backlog_bytes / (1024 * 1024),
+            reclaimed_mib = reclaimed / (1024 * 1024),
+            "log segment reclaimed",
+        );
+        self.metrics
+            .disk_backlog_bytes
+            .set(*disk_backlog_bytes as f64);
     }
 }
 

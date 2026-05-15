@@ -51,6 +51,8 @@ pub(super) struct Actor {
     // committed at transaction close (and not before; this lets us filter keys
     // above "committed" but below "current" during scans).
     max_keys: Vec<(Bytes, Bytes)>,
+    // Per-session metrics counters.
+    metrics: super::Metrics,
 }
 
 impl Actor {
@@ -62,6 +64,7 @@ impl Actor {
         disable_load_optimization: bool,
         leader_tx: mpsc::UnboundedSender<proto::Materialize>,
         max_keys: Vec<(Bytes, Bytes)>,
+        metrics: super::Metrics,
     ) -> Self {
         Self {
             bindings,
@@ -74,6 +77,7 @@ impl Actor {
             leader_tx,
             load_keys: Default::default(),
             max_keys,
+            metrics,
         }
     }
 
@@ -139,10 +143,20 @@ impl Actor {
                     let (accumulator, shuffle_reader, shuffle_remainders, active) =
                         scanner.into_parts();
 
+                    let combiner_bytes = accumulator.combiner_byte_usage();
+                    service_kit::event!(
+                        tracing::Level::DEBUG,
+                        "leader",
+                        active_bindings = active.len(),
+                        combiner_bytes,
+                        "sending L:Loaded after frontier scan",
+                    );
+                    self.metrics.scans_completed.increment(1);
+
                     _ = self.leader_tx.send(proto::Materialize {
                         loaded: Some(proto::materialize::Loaded {
                             bindings: active.into_values().collect(),
-                            combiner_usage_bytes: accumulator.combiner_byte_usage(),
+                            combiner_usage_bytes: combiner_bytes,
                         }),
                         ..Default::default()
                     });
@@ -160,6 +174,14 @@ impl Actor {
                 } else {
                     let (accumulator, shuffle_reader, shuffle_remainders, active) =
                         drainer.into_parts()?;
+
+                    service_kit::event!(
+                        tracing::Level::DEBUG,
+                        "leader",
+                        active_bindings = active.len(),
+                        "sending L:Stored after memtable drain",
+                    );
+                    self.metrics.drains_completed.increment(1);
 
                     _ = self.leader_tx.send(proto::Materialize {
                         stored: Some(proto::materialize::Stored { bindings: active }),
@@ -197,7 +219,16 @@ impl Actor {
                 // Next, a Persist completion.
                 result = maybe_fut(&mut self.db_persist_fut) => {
                     let (db, persisted) = result?;
+                    let seq_no = persisted.seq_no;
                     self.db = Some(db);
+
+                    service_kit::event!(
+                        tracing::Level::DEBUG,
+                        "leader",
+                        seq_no,
+                        "RocksDB persist completed; sending L:Persisted",
+                    );
+                    self.metrics.persists.increment(1);
 
                     _ = self.leader_tx.send(proto::Materialize {
                         persisted: Some(persisted),
@@ -388,6 +419,9 @@ impl Actor {
             active.loaded_docs_total += 1;
             active.loaded_bytes_total += doc_json.len() as u64;
 
+            self.metrics.loaded_docs.increment(1);
+            self.metrics.loaded_bytes.increment(doc_json.len() as u64);
+
             // C:Loaded responses arrive at the connector's pace, which may
             // straddle phase transitions:
             // * Phase::Scanning — a common case, mid-scan response.
@@ -520,6 +554,7 @@ mod tests {
                 load_keys: Default::default(),
                 flushed: HashMap::new(),
                 max_keys: Vec::new(),
+                metrics: super::super::Metrics::new("test/shard"),
             },
             leader_rx,
             connector_rx,
@@ -621,6 +656,7 @@ mod tests {
             load_keys: Default::default(),
             flushed: HashMap::new(),
             max_keys: Vec::new(),
+            metrics: super::super::Metrics::new("test/shard"),
         };
 
         let accumulator =

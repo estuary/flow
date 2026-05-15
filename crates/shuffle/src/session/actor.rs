@@ -11,14 +11,16 @@ pub struct SessionActor {
     /// Bits by-shard indicating whether to send a ProgressRequest.
     pub progress_ready: Vec<bool>,
     /// Channel for sending SessionResponse messages back to the coordinator.
-    pub session_response_tx: mpsc::Sender<tonic::Result<shuffle::SessionResponse>>,
+    /// Unbounded because the coordinator drives req/resp pairs (≤1 in flight),
+    /// so the queue depth is bounded by protocol — no back-pressure needed.
+    pub session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
     /// Per-shard channels for sending SliceRequest messages.
     pub slice_request_tx: Vec<mpsc::Sender<shuffle::SliceRequest>>,
     /// Buffered StartReads to be transmitted to their target Slice channel.
     /// Each entry is (shard_index, StartRead). Drained in FIFO order.
     pub start_reads: std::collections::VecDeque<(usize, shuffle::slice_request::StartRead)>,
-    /// Drain of the checkpoint Frontier to be transmitted.
-    pub checkpoint_drain: Option<shuffle::Frontier>,
+    /// Per-task metrics counters.
+    pub metrics: super::Metrics,
 }
 
 impl SessionActor {
@@ -29,7 +31,7 @@ impl SessionActor {
         skip_all,
         fields(
             session = self.topology.session_id,
-            shard_prefix = %self.topology.shard_prefix,
+            shard_id = %self.topology.shards[0].id,
         )
     )]
     pub async fn serve<R>(
@@ -56,7 +58,6 @@ impl SessionActor {
             tracing::debug!(
                 loop_count,
                 checkpoint = ?self.checkpoint,
-                drain_pending = self.checkpoint_drain.is_some(),
                 progress_ready = ?self.progress_ready,
                 start_reads = self.start_reads.len(),
                 "SessionActor::serve iteration"
@@ -64,7 +65,7 @@ impl SessionActor {
 
             // First, attempt non-blocking sends.
             let wake_slice_request_tx = self.try_slice_request_tx()?;
-            let wake_session_response_tx = self.try_session_response_tx()?;
+            self.try_session_response_tx();
 
             // Then, wait for a blocking future to resolve.
             tokio::select! {
@@ -84,7 +85,6 @@ impl SessionActor {
 
                 // Next priority is draining ready-to-send messages.
                 true = wake_slice_request_tx => {}
-                true = wake_session_response_tx => {}
 
                 // Periodic tick ensures tracing fires even when idle,
                 // and detects stalled causal hint resolution.
@@ -140,6 +140,13 @@ impl SessionActor {
                 progress: Some(shuffle::slice_request::Progress {}),
                 ..Default::default()
             });
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "slice",
+                shard_index,
+                "sent Progress request",
+            );
         }
 
         // Try to drain StartRead requests in FIFO order.
@@ -149,47 +156,47 @@ impl SessionActor {
             let Ok(permit) = tx.try_reserve() else {
                 return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
             };
-            let (_shard_index, start_read) = self.start_reads.pop_front().unwrap();
+            let (shard_index, start_read) = self.start_reads.pop_front().unwrap();
 
             permit.send(shuffle::SliceRequest {
                 start_read: Some(start_read),
                 ..Default::default()
             });
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "slice",
+                shard_index,
+                "sent StartRead request",
+            );
         }
 
         Ok(idle)
     }
 
-    fn try_session_response_tx(&mut self) -> anyhow::Result<impl Future<Output = bool> + 'static> {
-        // Closure for mapping an OwnedPermit Result to Ok (our "poll again" signal).
-        // On Err (channel closed), we don't wake and rely on rx of a causal error / fail-fast teardown.
-        let ok = |result: Result<_, _>| result.is_ok();
-        // Future which represent an absence of an awake signal.
-        let idle = future::Either::Right(std::future::ready(false));
+    /// Drain a ready checkpoint Frontier (if any) to the coordinator.
+    fn try_session_response_tx(&mut self) {
+        let Some(frontier) = self.checkpoint.take_ready() else {
+            return;
+        };
+        let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
+            frontier.measures();
 
-        if self.checkpoint_drain.is_none() {
-            if let Some(frontier) = self.checkpoint.take_ready() {
-                tracing::debug!(?frontier, "sending NextCheckpoint to client");
-                self.checkpoint_drain = Some(frontier.encode());
-            }
-        }
+        let _ = self.session_response_tx.send(Ok(shuffle::SessionResponse {
+            next_checkpoint: Some(frontier.encode()),
+            ..Default::default()
+        }));
 
-        // Try to drain a NextCheckpoint response.
-        // Ensure channel capacity *before* take() to not lose it.
-        if self.checkpoint_drain.is_some() {
-            let Ok(permit) = self.session_response_tx.try_reserve() else {
-                return Ok(future::Either::Left(
-                    self.session_response_tx.clone().reserve_owned().map(ok),
-                ));
-            };
-
-            permit.send(Ok(shuffle::SessionResponse {
-                next_checkpoint: self.checkpoint_drain.take(),
-                ..Default::default()
-            }));
-        }
-
-        Ok(idle)
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "coordinator",
+            bytes_behind_delta,
+            bytes_read_delta,
+            journal_producers,
+            journals,
+            "sent NextCheckpoint response",
+        );
+        self.metrics.checkpoints.increment(1);
     }
 
     fn on_session_request(
@@ -203,7 +210,11 @@ impl SessionActor {
                 next_checkpoint: Some(shuffle::session_request::NextCheckpoint {}),
                 ..
             } => {
-                tracing::debug!("received NextCheckpoint request from coordinator");
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "coordinator",
+                    "received NextCheckpoint request"
+                );
                 self.checkpoint.request()
             }
             request => Err(verify.fail(request)),
@@ -228,17 +239,17 @@ impl SessionActor {
                 listing_added: Some(added),
                 ..
             } => {
-                let routed = self.topology.route_read(&added)?;
-                tracing::debug!(
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "slice",
                     shard_index,
-                    binding = added.binding,
-                    journal = added.spec.as_ref().map(|s| s.name.as_str()).unwrap_or(""),
-                    target_shard = routed.shard_index,
-                    candidates = routed.shard_stop - routed.shard_start,
-                    "received ListingAdded, assigning read"
+                    "received ListingAdded",
                 );
-                let (shard_index, start_read) = self.topology.build_start_read(&routed, added);
-                self.start_reads.push_back((shard_index, start_read));
+
+                let routed = self.topology.route_read(&added)?;
+                let (routed_shard, start_read) = self.topology.build_start_read(&routed, added);
+                self.start_reads.push_back((routed_shard, start_read));
+
                 Ok(())
             }
 
@@ -246,11 +257,7 @@ impl SessionActor {
                 progressed: Some(proto),
                 ..
             } => {
-                self.checkpoint.on_progressed(shard_index, proto)?;
-                tracing::debug!(
-                    shard_index,
-                    "Progressed received, sending next ProgressRequest"
-                );
+                self.checkpoint.on_progressed(shard_index, proto)?; // Handles event! diagnostic.
                 self.progress_ready[shard_index] = true;
                 Ok(())
             }

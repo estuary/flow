@@ -38,3 +38,58 @@ pub type ReadLines = std::pin::Pin<
 /// Drained into the flush frontier each flush cycle.
 pub type CausalHints =
     std::collections::HashMap<(Box<str>, u16), Vec<(uuid::Producer, uuid::Clock)>>;
+
+#[derive(Clone)]
+pub(crate) struct Metrics {
+    /// Total bytes read from journals, accumulated from each progress flush.
+    bytes_read: metrics::Counter,
+    /// Total flush cycles started (broadcast Flush to Log shards).
+    flushes: metrics::Counter,
+    /// Total journal reads started over the session lifetime.
+    reads_started: metrics::Counter,
+    /// Total journal reads that terminated (EOF, JOURNAL_NOT_FOUND, SUSPENDED).
+    reads_stopped: metrics::Counter,
+    /// Number of active reads currently tailing their journal write head.
+    tailing_reads: metrics::Gauge,
+}
+
+impl Metrics {
+    fn new(shard_id: &str) -> Self {
+        static DESCRIBE: std::sync::Once = std::sync::Once::new();
+        DESCRIBE.call_once(|| {
+            metrics::describe_counter!(
+                "shuffle_slice_bytes_read",
+                metrics::Unit::Bytes,
+                "bytes read from journals, observed at each progress flush",
+            );
+            metrics::describe_counter!(
+                "shuffle_slice_flushes",
+                metrics::Unit::Count,
+                "flush cycles broadcast to Log shards",
+            );
+            metrics::describe_counter!(
+                "shuffle_slice_reads_started",
+                metrics::Unit::Count,
+                "journal reads started over the session lifetime",
+            );
+            metrics::describe_counter!(
+                "shuffle_slice_reads_stopped",
+                metrics::Unit::Count,
+                "journal reads that terminated (EOF, JOURNAL_NOT_FOUND, SUSPENDED)",
+            );
+            metrics::describe_gauge!(
+                "shuffle_slice_tailing_reads",
+                metrics::Unit::Count,
+                "active reads currently tailing their journal write head",
+            );
+        });
+
+        Self {
+            bytes_read: metrics::counter!("shuffle_slice_bytes_read", "shard_id" => shard_id.to_string()),
+            flushes: metrics::counter!("shuffle_slice_flushes", "shard_id" => shard_id.to_string()),
+            reads_started: metrics::counter!("shuffle_slice_reads_started", "shard_id" => shard_id.to_string()),
+            reads_stopped: metrics::counter!("shuffle_slice_reads_stopped", "shard_id" => shard_id.to_string()),
+            tailing_reads: metrics::gauge!("shuffle_slice_tailing_reads", "shard_id" => shard_id.to_string()),
+        }
+    }
+}

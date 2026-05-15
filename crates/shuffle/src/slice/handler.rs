@@ -3,11 +3,31 @@ use anyhow::Context;
 use futures::{StreamExt, stream};
 use proto_flow::shuffle;
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 pub(crate) async fn serve_slice<R>(
     service: crate::Service,
+    slice_request_rx: R,
+    slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
+) -> anyhow::Result<()>
+where
+    R: futures::Stream<Item = tonic::Result<shuffle::SliceRequest>> + Send + Unpin + 'static,
+{
+    // Run the whole handler inside its span so operator trace overrides (see
+    // `service_kit::trace`) reach every log line — the actor loop's periodic
+    // instrumentation included.
+    let handler = service.registry.register("shuffle.slice");
+    let span = handler.span();
+    serve_slice_inner(service, slice_request_rx, slice_response_tx, handler)
+        .instrument(span)
+        .await
+}
+
+async fn serve_slice_inner<R>(
+    service: crate::Service,
     mut slice_request_rx: R,
     slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
+    mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<()>
 where
     R: futures::Stream<Item = tonic::Result<shuffle::SliceRequest>> + Send + Unpin + 'static,
@@ -32,14 +52,29 @@ where
             service.peer_endpoint,
         );
     }
-    let task = task.context("Open must include task")?;
-    let (shard_prefix, bindings, validators) = crate::Binding::from_task(&task)?;
+    // Identity of the shard hosting this Slice RPC.
+    let shard_id = shards
+        .get(slice_shard_index as usize)
+        .map(|s| &s.id)
+        .context("Open shard_index out of range")?;
 
-    tracing::info!(
+    handler.set_label(shard_id);
+    handler.set_field("session_id", session_id);
+    handler.set_field("slice_shard_index", slice_shard_index);
+    handler.set_field("shards", shards.len());
+    handler.set_phase("opening");
+
+    let metrics = super::Metrics::new(shard_id);
+    let task = task.context("Open must include task")?;
+    let (bindings, validators) = crate::Binding::from_task(&task)?;
+
+    service_kit::event!(
+        tracing::Level::INFO,
+        "session",
         session_id,
-        slice_shard_index,
         shards = shards.len(),
-        "Slice received Open"
+        slice_shard_index,
+        "received Open from Session",
     );
 
     // Concurrently Open a Log RPC with every shard.
@@ -85,11 +120,11 @@ where
         .iter()
         .map(|binding| {
             let service = service.clone();
-            let shard_prefix = shard_prefix.clone();
+            let shard_id = shard_id.clone();
             let partition_prefix = binding.partition_prefix.clone().into();
 
             LazyJournalClient::new(Box::new(move || {
-                (service.journal_client_factory)(shard_prefix, partition_prefix)
+                (service.journal_client_factory)(shard_id, partition_prefix)
             }))
         })
         .collect();
@@ -100,13 +135,14 @@ where
         session_id,
         shards,
         slice_shard_index,
-        shard_prefix,
         bindings,
         journal_clients,
         hint_index,
     };
 
-    SliceActor {
+    handler.set_phase("running");
+
+    let result = SliceActor {
         topology,
         validators,
         reads: Vec::new(),
@@ -121,10 +157,16 @@ where
         parser: simd_doc::SimdParser::new(1_000_000),
         ready_read_heap: ReadyReadHeap::new(),
         tailing_reads: 0,
-        progressed_drain: None,
+        metrics,
     }
     .serve(slice_request_rx, log_response_rx)
-    .await
+    .await;
+
+    match &result {
+        Ok(()) => handler.finish_ok(),
+        Err(err) => handler.finish_err(&format!("{err:#}")),
+    }
+    result
 }
 
 /// Open Log RPCs to all shards and wait for Opened responses.

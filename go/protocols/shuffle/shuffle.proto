@@ -15,14 +15,19 @@ option (gogoproto.goproto_getters_all) = false;
 
 // Shard represents a participant in the shuffle topology (e.x. a task shard).
 message Shard {
+  // Fully-qualified identifier of this shard, e.g.
+  // `<task-type>/<task-name>/<key-range>_<rclock-range>`.
+  // Used to label metrics and diagnostics, and as an authorization subject
+  // for the shard's RPCs.
+  string id = 1;
   // Key and r-clock document range owned by this shard.
-  flow.RangeSpec range = 1;
+  flow.RangeSpec range = 2;
   // gRPC endpoint of this shard's shuffle service.
-  string endpoint = 2;
+  string endpoint = 3;
   // Filesystem path where the Log actor writes segment files for this shard.
   // The consumer joins over shuffle-produced log segments via this directory.
   // Multiple shard indices may share a single directory.
-  string directory = 3;
+  string directory = 4;
 }
 
 message CollectionPartitions {

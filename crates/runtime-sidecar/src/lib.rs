@@ -19,6 +19,11 @@ pub struct Args {
     #[arg(long, env = "LISTEN_PORT")]
     pub listen_port: u16,
 
+    /// When set, serve the admin surface (live gRPC handler inventory) on
+    /// `127.0.0.1:<port>`. Loopback-only: this surface has no authentication.
+    #[arg(long, env = "ADMIN_PORT")]
+    pub admin_port: Option<u16>,
+
     /// Externally-reachable URL of this sidecar, advertised to peer
     /// shuffle clients (e.g. `https://reactor-foo.flow.localhost:9100`).
     #[arg(long, env = "PEER_ENDPOINT")]
@@ -64,7 +69,7 @@ pub enum LogFormat {
     Json,
 }
 
-pub async fn run(args: Args) -> anyhow::Result<()> {
+pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<()> {
     // Parse comma/whitespace-separated base64 HMAC keys. First key signs
     // outgoing /authorize/task requests; the remaining keys are reserved
     // for future incoming-gRPC verification (see plan).
@@ -111,8 +116,10 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         args.peer_endpoint,
         read_factory,
         args.disk_backlog_threshold,
+        registry.clone(),
     );
-    let runtime_svc = runtime_next::Service::new(shuffle_svc.clone(), publisher_factory);
+    let runtime_svc =
+        runtime_next::Service::new(shuffle_svc.clone(), publisher_factory, registry.clone());
 
     // Build a TLS identity if both files were given.
     // clap `requires` enforces both-or-neither.
@@ -133,15 +140,36 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     // SIGTERM (systemd) and SIGINT (interactive Ctrl+C) both initiate graceful shutdown.
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel::<()>(1);
-    tokio::spawn(async move {
-        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("install SIGTERM handler");
-        tokio::select! {
-            _ = term.recv() => tracing::info!("SIGTERM received"),
-            _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received"),
-        }
-        let _ = shutdown_tx.send(());
-    });
+    {
+        let shutdown_tx = shutdown_tx.clone();
+        tokio::spawn(async move {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("install SIGTERM handler");
+            tokio::select! {
+                _ = term.recv() => tracing::info!("SIGTERM received"),
+                _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received"),
+            }
+            let _ = shutdown_tx.send(());
+        });
+    }
+
+    // Optionally serve the loopback admin surface (handler dashboard).
+    if let Some(admin_port) = args.admin_port {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], admin_port));
+        let registry = registry.clone();
+        let mut shutdown_rx = shutdown_rx.resubscribe();
+        tokio::spawn(async move {
+            let shutdown = async move {
+                let _ = shutdown_rx.recv().await;
+            };
+            if let Err(err) =
+                service_kit::admin::serve("runtime-sidecar", registry, addr, shutdown).await
+            {
+                tracing::error!(?err, "runtime-sidecar admin surface exited with error");
+            }
+        });
+    }
 
     let addr = format!("[::]:{}", args.listen_port);
     let tcp = tokio::net::TcpListener::bind(&addr)

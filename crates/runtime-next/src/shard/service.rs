@@ -22,6 +22,7 @@ pub struct Service<L: crate::LogHandler> {
     pub set_log_level: Option<std::sync::Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
     pub task_name: String,
     pub publisher_factory: gazette::journal::ClientFactory,
+    pub registry: service_kit::Registry,
 }
 
 impl<L: crate::LogHandler> Service<L> {
@@ -32,6 +33,7 @@ impl<L: crate::LogHandler> Service<L> {
     /// - `set_log_level`: callback for adjusting the log level implied by runtime requests.
     /// - `task_name`: name which is used to label any started connector containers.
     /// - `publisher_factory`: client factory for creating and appending to collection partitions.
+    /// - `registry`: in-flight handler registry, shared with any co-hosted admin surface.
     pub fn new(
         plane: crate::Plane,
         container_network: String,
@@ -39,6 +41,7 @@ impl<L: crate::LogHandler> Service<L> {
         set_log_level: Option<std::sync::Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
         task_name: String,
         publisher_factory: gazette::journal::ClientFactory,
+        registry: service_kit::Registry,
     ) -> Self {
         Self {
             plane,
@@ -47,6 +50,7 @@ impl<L: crate::LogHandler> Service<L> {
             set_log_level,
             task_name,
             publisher_factory,
+            registry,
         }
     }
 

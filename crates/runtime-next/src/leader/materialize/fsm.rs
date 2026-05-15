@@ -144,6 +144,25 @@ pub enum Action {
     },
 }
 
+impl Action {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Acknowledge { .. } => "Acknowledge",
+            Self::CallTrigger { .. } => "CallTrigger",
+            Self::Flush { .. } => "Flush",
+            Self::Idle => "Idle",
+            Self::Load { .. } => "Load",
+            Self::Persist { .. } => "Persist",
+            Self::Rotate { .. } => "Rotate",
+            Self::Sleep { .. } => "Sleep",
+            Self::StartCommit { .. } => "StartCommit",
+            Self::Store => "Store",
+            Self::WriteIntents { .. } => "WriteIntents",
+            Self::WriteStats { .. } => "WriteStats",
+        }
+    }
+}
+
 impl Head {
     /// Dispatch to the current sub-state's `step()`.
     pub fn step(
@@ -178,6 +197,19 @@ impl Head {
             Head::Stop => panic!("HeadFSM::Stop observed at step boundary"),
         }
     }
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Idle(_) => "Idle",
+            Self::Extend(_) => "Extend",
+            Self::Flush(_) => "Flush",
+            Self::Persist(_) => "Persist",
+            Self::Store(_) => "Store",
+            Self::WriteStats(_) => "WriteStats",
+            Self::StartCommit(_) => "StartCommit",
+            Self::Stop => "Stop",
+        }
+    }
 }
 
 impl Tail {
@@ -198,6 +230,17 @@ impl Tail {
             Tail::Trigger(s) => s.step(now, trigger_call_running),
             Tail::Persist(s) => s.step(shard_rx),
             Tail::Done(_) => (Action::Idle, self),
+        }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Begin(_) => "Begin",
+            Self::Acknowledge(_) => "Acknowledge",
+            Self::WriteIntents(_) => "WriteIntents",
+            Self::Trigger(_) => "Trigger",
+            Self::Persist(_) => "Persist",
+            Self::Done(_) => "Done",
         }
     }
 }
@@ -323,9 +366,8 @@ impl HeadExtend {
                 let max_source_clock = uuid::Clock::from_u64(max_source_clock);
                 let extent = self.extents.bindings.entry(index).or_default();
 
-                if !max_key_delta.is_empty() {
-                    extent.max_key_delta = max_key_delta;
-                }
+                extent.max_key_delta = std::mem::take(&mut extent.max_key_delta).max(max_key_delta);
+
                 if extent.sourced.docs_total == 0 {
                     extent.max_source_clock = max_source_clock;
                     extent.min_source_clock = min_source_clock;
@@ -1136,9 +1178,9 @@ pub struct CloseDecision {
 /// - `close_requested`, or `idempotent_replay && !unresolved_hints`: force close.
 /// - `unresolved_hints`: forces extend; suppresses close until hints resolve.
 /// - `idempotent_replay`: suppresses extend (replay is one-shot).
-/// - `stopping` with `may_close=true`: suppresses extend so Head can stop after
-///   the next commit. With Tail still draining, extend is permitted to keep the
-///   pipeline full.
+/// - `close_requested` or `stopping` with `may_close=true`: suppresses extend so
+///   the current txn closes promptly (and Head can stop after the next commit).
+///   With Tail still draining, extend is permitted to keep the pipeline full.
 /// - `!tail_done`: suppresses close (must hold open while Tail finishes).
 pub fn decide_close_policy(inputs: CloseInputs, task: &Task) -> CloseDecision {
     let CloseInputs {
@@ -1169,8 +1211,14 @@ pub fn decide_close_policy(inputs: CloseInputs, task: &Task) -> CloseDecision {
     policy_close |= close_requested;
 
     let may_close = policy_close && !unresolved_hints && tail_done;
+
+    // A requested or stopping close stops extending the current txn once
+    // we're actually able to close it, so the txn finishes promptly. While
+    // we cannot yet close (Tail still draining, or unresolved hints), we
+    // keep extending if policy allows — maximizing parallelism as Tail works.
+    let finishing = close_requested || stopping;
     let may_extend =
-        (!idempotent_replay && policy_extend && (!stopping || !may_close)) || unresolved_hints;
+        (!idempotent_replay && policy_extend && (!finishing || !may_close)) || unresolved_hints;
 
     CloseDecision {
         may_extend,
@@ -1213,6 +1261,13 @@ fn build_stats_doc(
                 .copied()
                 .unwrap_or_default(),
         );
+        // Note that this measure can be clobbered if multiple bindings source
+        // from the same collection. This is a little unfortunate, and implied by
+        // the stats data-model. It's tempting to put a max() here, but that
+        // doesn't fundamentally solve the problem (updates can arrive in distinct
+        // txns, and then be reduded LWW by reporting). This can happen only when
+        // two bindings share the *same* collection and *different* priorities
+        // (otherwise they're same-cohort and process in lock-step).
         entry.last_source_published_at = extents.max_source_clock.to_pb_json_timestamp();
 
         ops::merge_docs_and_bytes(&extents.sourced, &mut entry.right);
@@ -1333,6 +1388,14 @@ mod tests {
                 ..Default::default()
             },
         )
+    }
+
+    /// `mk_loaded` variant that overrides `max_key_delta` on the (sole)
+    /// binding, for tests that exercise its per-binding reduction.
+    fn mk_loaded_with_key(shard: usize, key: &'static [u8]) -> (usize, proto::Materialize) {
+        let (shard, mut msg) = mk_loaded(shard);
+        msg.loaded.as_mut().unwrap().bindings[0].max_key_delta = Bytes::from_static(key);
+        (shard, msg)
     }
 
     fn mk_flushed(shard: usize, patches: &'static [u8]) -> (usize, proto::Materialize) {
@@ -1505,7 +1568,7 @@ mod tests {
                 want: want(false, false),
             },
             Case {
-                name: "close_requested overrides policy floor",
+                name: "close_requested with may_close: extend suppressed, close",
                 inputs: CloseInputs {
                     open_age: Duration::ZERO,
                     last_age: Duration::ZERO,
@@ -1515,7 +1578,7 @@ mod tests {
                     close_requested: true,
                     ..mid
                 },
-                want: want(true, true),
+                want: want(false, true),
             },
             Case {
                 name: "close_requested but tail still busy: hold open",
@@ -1939,6 +2002,68 @@ mod tests {
         assert!(matches!(action, Action::Idle));
         assert!(matches!(head, Head::Stop));
         assert!(matches!(tail, Tail::Done(_)));
+    }
+
+    /// Verifies aggregation of L:Loaded `max_key_delta` across shards and Load cycles.
+    #[test]
+    fn loaded_max_key_delta_reduction() {
+        let task = mk_task(2);
+        let mut ctx = Ctx {
+            binding_bytes_behind: vec![0; task.binding_collection_names.len()],
+            close_requested: false,
+            intents_idle: true,
+            legacy_checkpoint: None,
+            now: uuid::Clock::from_unix(1_700_000_000, 0),
+            pending_ack_intents: BTreeMap::new(),
+            ready_frontier: None,
+            shard_rx: None,
+            stats_idle: false,
+            stopping: false,
+            task,
+            trigger_running: false,
+        };
+        let mut head = Head::Idle(HeadIdle::default());
+        let mut tail = Tail::Done(TailDone::default());
+
+        // Open the first transaction.
+        ctx.ready_frontier = Some(shuffle::Frontier::default());
+        let (_a, h) = ctx.step_head(head, &mut tail);
+        head = h;
+
+        // Each row is one Load cycle: per-shard Loaded values for `max_key_delta`
+        // and the expected aggregated value after the cycle. The cycles share
+        // a single open transaction, so reductions must compose across cycles.
+        let cycles: &[(&[&'static [u8]], &'static [u8])] = &[
+            // Cross-shard reduction: shard 1's "Z" beats shard 0's "M".
+            (&[b"M", b"Z"], b"Z"),
+            // Smaller "A" and an empty report must not clobber the prior "Z".
+            (&[b"", b"A"], b"Z"),
+            // Strictly-larger "Z9" ratchets the maximum forward.
+            (&[b"Z9", b""], b"Z9"),
+        ];
+
+        for (i, (per_shard_keys, expected)) in cycles.iter().enumerate() {
+            for (shard, key) in per_shard_keys.iter().enumerate() {
+                // Queue the next frontier alongside the last Loaded so the FSM
+                // extends back into a fresh Load cycle rather than closing.
+                // Mirrors the actor's pre-fetch pattern in `happy_path`.
+                if shard + 1 == per_shard_keys.len() {
+                    ctx.ready_frontier = Some(shuffle::Frontier::default());
+                }
+                ctx.shard_rx = Some(mk_loaded_with_key(shard, *key));
+                let (_a, h) = ctx.step_head(head, &mut tail);
+                head = h;
+            }
+            let aggregated = match &head {
+                Head::Extend(s) => s.extents.bindings[&0].max_key_delta.clone(),
+                other => panic!("expected Head::Extend after cycle {i}, got {other:?}"),
+            };
+            assert_eq!(
+                aggregated,
+                Bytes::from_static(expected),
+                "after cycle {i} keys={per_shard_keys:?}",
+            );
+        }
     }
 
     /// Fuzz Head and Tail by perturbing every Ctx field at each step.

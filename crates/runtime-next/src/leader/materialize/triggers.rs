@@ -52,7 +52,9 @@ pub async fn fire_pending_triggers(
     .await
     .context("trigger webhook delivery failed")?;
 
-    tracing::info!(
+    service_kit::event!(
+        tracing::Level::INFO,
+        "leader",
         num_triggers = compiled.configs.len(),
         elapsed_ms = started_at.elapsed().as_millis() as u64,
         "trigger webhooks delivered successfully",
@@ -174,24 +176,28 @@ async fn send_single_webhook(
                     );
                 }
 
-                tracing::warn!(
+                service_kit::event!(
+                    tracing::Level::WARN,
+                    "trigger",
                     trigger_index = index,
-                    url = %trigger.url,
-                    %status,
-                    attempt = attempt + 1,
+                    url = trigger.url.clone(),
+                    status = status.as_u16(),
+                    attempt,
                     total_attempts,
-                    "trigger webhook received non-success response, will retry"
+                    "trigger webhook received non-success response, will retry",
                 );
             }
             Err(err) => {
                 last_err = err.to_string();
-                tracing::warn!(
+                service_kit::event!(
+                    tracing::Level::WARN,
+                    "trigger",
                     trigger_index = index,
-                    url = %trigger.url,
-                    error = %err,
-                    attempt = attempt + 1,
+                    url = trigger.url.clone(),
+                    error = service_kit::event::lazy(move || err.to_string()),
+                    attempt,
                     total_attempts,
-                    "trigger webhook request failed, will retry"
+                    "trigger webhook request failed, will retry",
                 );
             }
         }

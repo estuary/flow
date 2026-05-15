@@ -65,6 +65,13 @@ systemctl --user list-dependencies flow-plane@local-cluster.target
 systemctl --user list-units 'flow-*'
 journalctl --user -u flow-gazette@local-cluster-8000 -f
 journalctl --user -u flow-runtime-sidecar@local-cluster -f
+
+# Sidecar admin surface (loopback only): live Leader/Shuffle handlers, plus a
+# runtime trace-level control. E.g. raise handler 0 to TRACE, then clear it
+# (the level route is a POST — it mutates process state):
+curl -s localhost:8061/debug/handlers.json | jq
+curl -s -X POST localhost:8061/debug/handlers/0/level/trace
+curl -s -X POST localhost:8061/debug/handlers/0/level/off
 ```
 
 ## You don't have to run the whole stack

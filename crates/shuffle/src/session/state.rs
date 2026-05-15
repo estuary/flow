@@ -10,8 +10,6 @@ pub struct Topology {
     pub session_id: u32,
     /// Ordered shard topology: each shard owns a disjoint key range.
     pub shards: Vec<shuffle::Shard>,
-    /// Shard Template ID prefix of the task that owns this session.
-    pub shard_prefix: String,
     /// Per-binding shuffle configuration extracted from the task spec.
     pub bindings: Vec<crate::Binding>,
     /// Checkpoint frontier restored from the previous session.
@@ -99,15 +97,30 @@ impl Topology {
 
         // Pick a shard within [start, stop). Use a stable hash for test stability.
         // Our intent is merely to balance read assignments across shards.
-        let hash = doc::Extractor::packed_hash(
-            format!("{};{}", spec.name, binding.journal_read_suffix).as_bytes(),
-        ) as usize;
+        let full_name = format!("{};{}", spec.name, binding.journal_read_suffix);
+        let hash = doc::Extractor::packed_hash(full_name.as_bytes()) as usize;
         let shard_index = hash % (stop - start) + start;
 
         let shard_range = self.shards[shard_index]
             .range
             .as_ref()
             .expect("shard must have a RangeSpec");
+
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "topology",
+            full_name,
+            hash,
+            key_begin,
+            key_end,
+            shard_index,
+            shard_key_begin = shard_range.key_begin,
+            shard_key_end = shard_range.key_end,
+            shard_start = start,
+            shard_stop = stop,
+            shuffle_key_hash = shuffle_key_hash.unwrap_or_default(),
+            "routed read",
+        );
 
         Ok(RoutedRead {
             journal_key_begin: key_begin,
@@ -245,11 +258,13 @@ impl CheckpointPipeline {
             .max()
             .map_or(0, |m| m as usize + 1);
 
-        tracing::debug!(
-            unresolved_hints = unresolved.unresolved_hints,
-            recovery_pending = unresolved.unresolved_hints != 0,
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "pipeline",
             num_cohorts,
-            "CheckpointPipeline initialized"
+            recovery_pending = unresolved.unresolved_hints != 0,
+            unresolved_hints = unresolved.unresolved_hints,
+            "CheckpointPipeline initialized",
         );
 
         let mut completed_clocks = vec![crate::ProducerMap::default(); num_cohorts];
@@ -296,10 +311,11 @@ impl CheckpointPipeline {
             self.ready.flushed_lsn = ready.flushed_lsn.clone();
             self.requested = false;
 
-            tracing::debug!(
-                journals = ready.journals.len(),
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
                 was_recovery = self.recovery_pending,
-                "checkpoint ready, taken by coordinator"
+                "taking `ready` frontier"
             );
 
             // Clearing recovery_pending may unblock accumulated progress that was
@@ -343,10 +359,11 @@ impl CheckpointPipeline {
             self.requested = false;
             self.unresolved_peek_progress = false;
 
-            tracing::debug!(
-                journals = peek.journals.len(),
-                unresolved_count = self.unresolved.unresolved_hints,
-                "peek of unresolved frontier, taken by coordinator"
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
+                unresolved_hints = peek.unresolved_hints,
+                "taking peek of `unresolved` frontier"
             );
 
             return Some(peek);
@@ -365,39 +382,42 @@ impl CheckpointPipeline {
         let mut progressed =
             crate::Frontier::decode(proto).context("validating Progressed frontier delta")?;
 
-        tracing::debug!(shard_index, ?progressed, "received Progressed response");
+        let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
+            progressed.measures();
 
         // Resolve causal hints in `unresolved` using the incoming progress.
         // `advanced_count` includes producers whose `last_commit` advanced by
-        // any amount (toward but possibly below `hinted_commit`); `resolved_count`
+        // any amount (toward but possibly below `hinted_commit`); `resolved_hints`
         // is the strict subset that reached `hinted_commit`.
-        let (advanced_count, resolved_count) = self.unresolved.resolve_hints(&progressed);
+        let (advanced_count, resolved_hints) = self.unresolved.resolve_hints(&progressed);
 
         // Causal hints can have cyclic cycles, where journal A hints at B,
         // and B hints at A, but are reported in distinct Progressed responses.
         // `progressed` resolves hints in `unresolved`, but `unresolved` may also
         // resolve hints in `progressed`.
-        let (_, progressed_resolved) = progressed.resolve_hints(&self.unresolved);
+        let (_, _resolved_hints_progressed) = progressed.resolve_hints(&self.unresolved);
 
-        if progressed_resolved != 0 {
-            tracing::debug!(
-                progressed_resolved,
-                "unresolved resolved hints of progressed"
-            );
-        }
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "slice",
+            shard_index,
+            bytes_behind_delta,
+            bytes_read_delta,
+            journal_producers,
+            journals,
+            "received Progressed response",
+        );
 
-        // Any progress in `unresolved` (partial or full) disarms the timeout
-        // and arms the peek emission path.
+        // Was there any progress against `unresolved` (partial or full)?
         if advanced_count != 0 {
+            // Disarm the timeout and arm the peek emission path.
             self.unresolved_armed = false;
             self.unresolved_peek_progress = true;
-        }
 
-        // When progress resolves causal hints, fold its flushed_lsn into
-        // unresolved. Even though progressed is held back to a later checkpoint,
-        // the fact that it resolved a hint means `unresolved`'s consumer must
-        // read through these LSNs to observe the resolving documents.
-        if advanced_count != 0 {
+            // When progress advances causal hints, fold its flushed_lsn into
+            // unresolved. Even though `progressed` is held back to a later checkpoint,
+            // the fact that it resolved a hint means `unresolved`'s consumer must
+            // read through these LSNs to observe the resolving documents.
             self.unresolved.flushed_lsn = crate::Frontier::merge_flushed_lsn(
                 std::mem::take(&mut self.unresolved.flushed_lsn),
                 progressed.flushed_lsn.clone(),
@@ -406,23 +426,26 @@ impl CheckpointPipeline {
 
         // Promote unresolved → ready if all its hints were just resolved.
         // `Frontier::resolve_hints` already decremented `self.unresolved.unresolved_hints`
-        // by `resolved_count`, so a zero count here means everything resolved.
-        if resolved_count != 0 && self.unresolved.unresolved_hints == 0 {
-            tracing::debug!(
-                resolved_count,
-                unresolved_journals = self.unresolved.journals.len(),
-                "all causal hints resolved, promoting unresolved to ready"
+        // by `resolved_hints`, so a zero count here means everything resolved.
+        if resolved_hints != 0 && self.unresolved.unresolved_hints == 0 {
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
+                resolved_hints,
+                "promoting `unresolved` to `ready` (all hints resolved)"
             );
             let resolved = std::mem::take(&mut self.unresolved);
 
             update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
             self.ready = std::mem::take(&mut self.ready).reduce(resolved);
         } else if advanced_count != 0 {
-            tracing::debug!(
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
                 advanced_count,
-                resolved_count,
-                remaining = self.unresolved.unresolved_hints,
-                "partially advanced causal hints"
+                resolved_hints,
+                unresolved_hints = self.unresolved.unresolved_hints,
+                "partially advanced `unresolved` hints"
             );
         }
 
@@ -446,9 +469,11 @@ impl CheckpointPipeline {
             return Ok(());
         }
         if !self.unresolved_armed {
-            tracing::debug!(
-                unresolved_count = self.unresolved.unresolved_hints,
-                "causal hint resolution armed; will error if no progress by next tick"
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
+                unresolved_hints = self.unresolved.unresolved_hints,
+                "causal hint resolution timeout armed"
             );
             self.unresolved_armed = true;
             return Ok(());
@@ -491,8 +516,7 @@ impl CheckpointPipeline {
         if self.recovery_pending || !self.unresolved.journals.is_empty() {
             return;
         }
-        let journals = self.progressed.journals.len();
-        if journals == 0 {
+        if self.progressed.journals.is_empty() {
             return;
         }
 
@@ -533,19 +557,21 @@ impl CheckpointPipeline {
         self.unresolved_peek_progress = self.unresolved.unresolved_hints != 0;
 
         if self.unresolved.unresolved_hints == 0 {
-            tracing::debug!(
-                journals,
-                "promoted progressed directly to ready (no unresolved hints)"
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
+                "promoted `progressed` directly to `ready`"
             );
             let resolved = std::mem::take(&mut self.unresolved);
 
             update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
             self.ready = std::mem::take(&mut self.ready).reduce(resolved);
         } else {
-            tracing::debug!(
-                journals,
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
                 unresolved_hints = self.unresolved.unresolved_hints,
-                "promoted progressed to unresolved (awaiting hint resolution)"
+                "promoted `progressed` to `unresolved`"
             );
         }
     }
@@ -712,7 +738,6 @@ mod test {
         Topology {
             session_id: 1,
             shards,
-            shard_prefix: "materialize/test/task/".to_string(),
             bindings,
             resume_checkpoint: Default::default(),
         }
@@ -1532,6 +1557,7 @@ mod test {
 
         // Valid single shard covering the full 2D space.
         let full = shuffle::Shard {
+            id: "test/full".to_string(),
             range: Some(flow::RangeSpec {
                 key_begin: 0,
                 key_end: u32::MAX,
@@ -1544,6 +1570,7 @@ mod test {
         assert!(validate_shard_ranges(&[full]).is_ok());
 
         let shard = |kb: u32, ke: u32, rb: u32, re: u32| shuffle::Shard {
+            id: "test/shard".to_string(),
             range: Some(flow::RangeSpec {
                 key_begin: kb,
                 key_end: ke,
