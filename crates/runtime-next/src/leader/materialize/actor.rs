@@ -16,6 +16,8 @@ pub struct Actor {
     intents_write_fut: Option<BoxFuture<'static, tonic::Result<crate::Publisher>>>,
     // Optional full Frontier and Checkpoint, used for V1 rollback support.
     legacy_checkpoint: Option<(shuffle::Frontier, consumer::Checkpoint)>,
+    // Per-task metrics counters and gauges.
+    metrics: super::Metrics,
     // Publisher for stats and ACK intents, parked while no async operation is in-flight.
     parked_publisher: Option<crate::Publisher>,
     // ACK intents to persist and append at later transaction stages.
@@ -37,6 +39,7 @@ impl Actor {
     pub fn new(
         http_client: reqwest::Client,
         legacy_checkpoint: Option<shuffle::Frontier>,
+        metrics: super::Metrics,
         publisher: crate::Publisher,
         shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
         task: Task,
@@ -45,6 +48,7 @@ impl Actor {
             http_client,
             intents_write_fut: None,
             legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
+            metrics,
             parked_publisher: Some(publisher),
             pending_ack_intents: BTreeMap::new(),
             shard_tx,
@@ -62,7 +66,12 @@ impl Actor {
         session: shuffle::SessionClient,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
     ) -> anyhow::Result<()> {
-        tracing::info!(self.task.n_shards, "materialize actor started");
+        service_kit::event!(
+            tracing::Level::INFO,
+            "leader",
+            n_shards = self.task.n_shards,
+            "materialize Actor::serve started",
+        );
         assert_eq!(self.task.n_shards, shard_rx.len());
         assert_eq!(self.task.n_shards, self.shard_tx.len());
 
@@ -119,6 +128,7 @@ impl Actor {
 
             // Drive `tail` to idle.
             let action: fsm::Action;
+            let prev_kind = tail.kind();
             (action, tail) = tail.step(
                 self.intents_write_fut.is_none(),
                 now,
@@ -127,6 +137,17 @@ impl Actor {
                 &self.task,
                 self.trigger_fut.is_some(),
             );
+
+            if prev_kind != tail.kind() {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "tail",
+                    prev = prev_kind,
+                    action = action.kind(),
+                    next = tail.kind(),
+                    "transition",
+                );
+            }
 
             match action {
                 fsm::Action::Idle => (),
@@ -140,6 +161,7 @@ impl Actor {
 
             // Drive `head` to idle or stop.
             let action: fsm::Action;
+            let prev_kind = head.kind();
             (action, head) = head.step(
                 &mut binding_bytes_behind,
                 &mut close_requested,
@@ -155,6 +177,17 @@ impl Actor {
                 &self.task,
             );
 
+            if prev_kind != head.kind() {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "head",
+                    prev = prev_kind,
+                    action = action.kind(),
+                    next = head.kind(),
+                    "transition",
+                );
+            }
+
             match action {
                 fsm::Action::Idle => (),
                 fsm::Action::Sleep { wake_after: w } => wake_after = w,
@@ -165,6 +198,7 @@ impl Actor {
                         &mut transactions_completed,
                         &mut stopping,
                     );
+                    self.metrics.transactions.increment(1);
                     tail = fsm::Tail::Begin(fsm::TailBegin { pending });
                     continue;
                 }
@@ -198,6 +232,15 @@ impl Actor {
                     self.parked_publisher = Some(publisher);
                     self.pending_ack_intents = intents;
                     self.stats_write_fut = None;
+
+                    service_kit::event!(
+                        tracing::Level::DEBUG,
+                        "leader",
+                        "completed ops stats publish",
+                    );
+                    // Having just written stats, we know this measure is fresh.
+                    let total: i64 = binding_bytes_behind.iter().copied().sum();
+                    self.metrics.bytes_behind.set(total as f64);
                 }
                 Some(result) = maybe_fut(&mut self.intents_write_fut) => {
                     let publisher = result.map_err(crate::status_to_anyhow)
@@ -205,10 +248,22 @@ impl Actor {
 
                     self.parked_publisher = Some(publisher);
                     self.intents_write_fut = None;
+
+                    service_kit::event!(
+                        tracing::Level::DEBUG,
+                        "leader",
+                        "completed ACK intents write",
+                    );
                 }
                 Some(result) = maybe_fut(&mut self.trigger_fut) => {
                     () = result?;
                     self.trigger_fut = None;
+
+                    service_kit::event!(
+                        tracing::Level::DEBUG,
+                        "leader",
+                        "completed trigger dispatch",
+                    );
                 }
                 // Process shard messages next.
                 Some((shard_index, msg, rx)) = shard_rx.next() => {
@@ -224,7 +279,21 @@ impl Actor {
                 }
                 // Poll for a next frontier when otherwise idle.
                 Some(result) = frontier_rx.next(), if ready_frontier.is_none() => {
-                    ready_frontier = Some(result?);
+                    let frontier = result?;
+                    let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) = frontier.measures();
+                    let unresolved_hints = frontier.unresolved_hints;
+                    ready_frontier = Some(frontier);
+
+                    service_kit::event!(
+                        tracing::Level::DEBUG,
+                        "leader",
+                        bytes_behind_delta,
+                        bytes_read_delta,
+                        journal_producers,
+                        journals,
+                        unresolved_hints,
+                        "received Frontier from shuffle Session",
+                    );
                 }
 
                 // Lowest priority.
@@ -234,7 +303,11 @@ impl Actor {
             now.update(now_clock()); // Resync after blocking IO.
         }
 
-        tracing::info!("materialize actor exiting");
+        service_kit::event!(
+            tracing::Level::INFO,
+            "leader",
+            "materialize Actor::serve exiting; broadcasting Stopped",
+        );
 
         for tx in &self.shard_tx {
             let _ = tx.send(Ok(proto::Materialize {
@@ -255,7 +328,7 @@ impl Actor {
             }
 
             fsm::Action::Load { frontier } => {
-                tracing::debug!(journals = frontier.journals.len(), "broadcasting L:Load");
+                service_kit::event!(tracing::Level::DEBUG, "shard", "broadcasting L:Load");
                 self.broadcast(proto::Materialize {
                     load: Some(proto::materialize::Load {
                         frontier: Some(frontier.encode()),
@@ -265,10 +338,7 @@ impl Actor {
             }
 
             fsm::Action::Flush { connector_patches } => {
-                tracing::debug!(
-                    patches_bytes = connector_patches.len(),
-                    "broadcasting L:Flush"
-                );
+                service_kit::event!(tracing::Level::DEBUG, "shard", "broadcasting L:Flush");
                 self.broadcast(proto::Materialize {
                     flush: Some(proto::materialize::Flush {
                         connector_patches_json: connector_patches,
@@ -278,7 +348,7 @@ impl Actor {
             }
 
             fsm::Action::Store => {
-                tracing::debug!("broadcasting L:Store");
+                service_kit::event!(tracing::Level::DEBUG, "shard", "broadcasting L:Store");
                 self.broadcast(proto::Materialize {
                     store: Some(proto::materialize::Store {}),
                     ..Default::default()
@@ -289,11 +359,7 @@ impl Actor {
                 connector_checkpoint,
                 connector_patches,
             } => {
-                tracing::debug!(
-                    patches_bytes = connector_patches.len(),
-                    "broadcasting L:StartCommit"
-                );
-
+                service_kit::event!(tracing::Level::DEBUG, "shard", "broadcasting L:StartCommit");
                 self.broadcast(proto::Materialize {
                     start_commit: Some(proto::materialize::StartCommit {
                         connector_checkpoint: Some(connector_checkpoint),
@@ -304,10 +370,7 @@ impl Actor {
             }
 
             fsm::Action::Acknowledge { connector_patches } => {
-                tracing::debug!(
-                    patches_bytes = connector_patches.len(),
-                    "broadcasting L:Acknowledge"
-                );
+                service_kit::event!(tracing::Level::DEBUG, "shard", "broadcasting L:Acknowledge");
                 self.broadcast(proto::Materialize {
                     acknowledge: Some(proto::materialize::Acknowledge {
                         connector_patches_json: connector_patches,
@@ -317,8 +380,7 @@ impl Actor {
             }
 
             fsm::Action::Persist { persist } => {
-                tracing::debug!("dispatching L:Persist to shard zero");
-
+                service_kit::event!(tracing::Level::DEBUG, "shard", "sending L:Persist");
                 let _ = self.shard_tx[0].send(Ok(proto::Materialize {
                     persist: Some(persist),
                     ..Default::default()
@@ -326,6 +388,11 @@ impl Actor {
             }
 
             fsm::Action::WriteStats { stats } => {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "leader",
+                    "starting ops stats publish"
+                );
                 let mut publisher = self
                     .parked_publisher
                     .take()
@@ -349,6 +416,11 @@ impl Actor {
             }
 
             fsm::Action::WriteIntents { ack_intents } => {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "leader",
+                    "starting ACK intents write"
+                );
                 let mut publisher = self
                     .parked_publisher
                     .take()
@@ -364,10 +436,17 @@ impl Actor {
             }
 
             fsm::Action::CallTrigger { trigger_params } => {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "leader",
+                    "starting trigger execution"
+                );
                 let Some(compiled) = self.task.triggers.clone() else {
-                    tracing::info!(
+                    service_kit::event!(
+                        tracing::Level::INFO,
+                        "leader",
                         trigger_params_bytes = trigger_params.len(),
-                        "discarding recovered trigger parameters for materialization without triggers"
+                        "discarding recovered trigger parameters for materialization without triggers",
                     );
                     return Ok(());
                 };
@@ -377,6 +456,7 @@ impl Actor {
                 let client = self.http_client.clone();
                 self.trigger_fut = Some(
                     async move {
+                        // TODO(johnny): Periodic writes into task ops logs if it takes a while.
                         super::triggers::fire_pending_triggers(&compiled, &variables, &client).await
                     }
                     .boxed(),
@@ -433,7 +513,13 @@ impl Actor {
         } else {
             "(other)"
         };
-        tracing::debug!(shard_index, kind, "received from shard");
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "shard",
+            shard_index,
+            kind,
+            "received from shard",
+        );
 
         Ok(Some(msg))
     }
@@ -460,8 +546,10 @@ fn on_transaction_completed(
 
     *transactions_completed = transactions_completed.saturating_add(1);
     if *transactions_completed >= max_transactions {
-        tracing::info!(
-            transactions_completed,
+        service_kit::event!(
+            tracing::Level::INFO,
+            "leader",
+            transactions_completed = *transactions_completed,
             max_transactions,
             "materialize transaction limit reached; stopping gracefully",
         );
@@ -527,6 +615,7 @@ mod tests {
         let actor = Actor::new(
             reqwest::Client::new(),
             None,
+            super::super::Metrics::new("test/task/shard"),
             crate::Publisher::new_preview(),
             shard_tx,
             task,

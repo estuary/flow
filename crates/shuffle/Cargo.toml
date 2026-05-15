@@ -23,6 +23,7 @@ proto-grpc = { path = "../proto-grpc", features = [
     "shuffle_server",
 ] }
 publisher = { path = "../publisher" }
+service-kit = { path = "../service-kit" }
 simd-doc = { path = "../simd-doc" }
 tables = { path = "../tables" }
 tokens = { path = "../tokens" }
@@ -36,6 +37,7 @@ libc = { workspace = true }
 lz4 = { workspace = true }
 md5 = { workspace = true }
 memchr = { workspace = true }
+metrics = { workspace = true }
 pbjson-types = { workspace = true }
 pin-project-lite = { workspace = true }
 rkyv = { workspace = true }

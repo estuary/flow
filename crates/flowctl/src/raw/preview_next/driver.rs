@@ -108,6 +108,7 @@ async fn drive_one_shard(
         None,
         task_name,
         publisher_factory,
+        Default::default(), // Inert service_kit::Registry.
     );
 
     let mut response_rx = shard_svc.spawn_materialize(UnboundedReceiverStream::new(request_rx));

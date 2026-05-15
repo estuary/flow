@@ -127,3 +127,60 @@ pub(crate) struct LogJoin {
         )>,
     >,
 }
+
+#[derive(Clone)]
+pub(crate) struct Metrics {
+    /// Total Append messages drained from the heap into the current block.
+    appends: metrics::Counter,
+    /// Total source bytes of those Appends (sum of `source_byte_length`),
+    /// approximating the bytes of input that resulted in log entries.
+    bytes_appended: metrics::Counter,
+    /// Total block flushes started (encoded and written, partial or sealed).
+    flushes: metrics::Counter,
+    /// Total log segments sealed and rolled over.
+    segments_sealed: metrics::Counter,
+    /// Current on-disk backlog across all living sealed segments. Set on each
+    /// segment seal and on each reclaim from compression / unlink.
+    disk_backlog_bytes: metrics::Gauge,
+}
+
+impl Metrics {
+    fn new(shard_id: &str) -> Self {
+        static DESCRIBE: std::sync::Once = std::sync::Once::new();
+        DESCRIBE.call_once(|| {
+            metrics::describe_counter!(
+                "shuffle_log_appends",
+                metrics::Unit::Count,
+                "Append messages drained from the heap into the current block",
+            );
+            metrics::describe_counter!(
+                "shuffle_log_bytes_appended",
+                metrics::Unit::Bytes,
+                "source bytes of drained Appends (sum of source_byte_length)",
+            );
+            metrics::describe_counter!(
+                "shuffle_log_flushes",
+                metrics::Unit::Count,
+                "block flushes started",
+            );
+            metrics::describe_counter!(
+                "shuffle_log_segments_sealed",
+                metrics::Unit::Count,
+                "log segments sealed and rolled over",
+            );
+            metrics::describe_gauge!(
+                "shuffle_log_disk_backlog_bytes",
+                metrics::Unit::Bytes,
+                "current on-disk backlog across all living sealed segments",
+            );
+        });
+
+        Self {
+            appends: metrics::counter!("shuffle_log_appends", "shard_id" => shard_id.to_string()),
+            bytes_appended: metrics::counter!("shuffle_log_bytes_appended", "shard_id" => shard_id.to_string()),
+            flushes: metrics::counter!("shuffle_log_flushes", "shard_id" => shard_id.to_string()),
+            segments_sealed: metrics::counter!("shuffle_log_segments_sealed", "shard_id" => shard_id.to_string()),
+            disk_backlog_bytes: metrics::gauge!("shuffle_log_disk_backlog_bytes", "shard_id" => shard_id.to_string()),
+        }
+    }
+}

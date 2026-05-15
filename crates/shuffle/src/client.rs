@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 /// Spawns an in-process Session actor via the shuffle Service.
 pub struct SessionClient {
     request_tx: mpsc::Sender<shuffle::SessionRequest>,
-    response_rx: mpsc::Receiver<tonic::Result<shuffle::SessionResponse>>,
+    response_rx: mpsc::UnboundedReceiver<tonic::Result<shuffle::SessionResponse>>,
 }
 
 impl SessionClient {

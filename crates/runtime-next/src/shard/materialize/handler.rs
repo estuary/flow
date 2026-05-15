@@ -4,6 +4,7 @@ use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::materialize;
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 pub(crate) async fn serve<R, L: crate::LogHandler>(
     service: crate::shard::Service<L>,
@@ -160,6 +161,27 @@ async fn serve_session<R, L: crate::LogHandler>(
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
 {
+    // Run the whole session inside its handler span so operator trace overrides
+    // (see `service_kit::trace`) reach every log line — the actor loop's
+    // periodic instrumentation included.
+    let handler = service.registry.register("shard.materialize");
+    let span = handler.span();
+    serve_session_inner(service, controller_rx, controller_tx, db, join, handler)
+        .instrument(span)
+        .await
+}
+
+async fn serve_session_inner<R, L: crate::LogHandler>(
+    service: &crate::shard::Service<L>,
+    controller_rx: &mut R,
+    controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
+    db: crate::shard::RocksDB,
+    join: proto::Join,
+    mut handler: service_kit::HandlerGuard,
+) -> anyhow::Result<crate::shard::RocksDB>
+where
+    R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
+{
     let proto::join::Shard {
         etcd_create_revision: _,
         id: shard_id,
@@ -178,6 +200,21 @@ where
 
     service.set_log_level(log_level);
 
+    handler.set_label(&shard_id);
+    handler.set_field("shard_index", shard_index);
+    handler.set_field("etcd_mod_revision", join.etcd_mod_revision);
+    handler.set_phase("joining");
+
+    let metrics = super::Metrics::new(&shard_id);
+
+    service_kit::event!(
+        tracing::Level::INFO,
+        "leader",
+        shard_index,
+        leader_endpoint = join.leader_endpoint.clone(),
+        "dialing leader and sending Join",
+    );
+
     let (joined, leader_stream) = startup::dial_and_join(join).await?;
 
     // Forward Joined to controller.
@@ -186,8 +223,17 @@ where
         ..Default::default()
     }));
     let Some((leader_tx, leader_rx)) = leader_stream else {
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "leader",
+            "leader returned non-zero max_etcd_revision; controller must retry Join",
+        );
+        handler.set_phase("awaiting-retry");
+        handler.finish_ok();
         return Ok(db); // Controller must retry Join/Joined.
     };
+
+    handler.set_phase("starting");
 
     let startup::Startup {
         accumulator,
@@ -216,7 +262,9 @@ where
     )
     .await?;
 
-    let db = super::actor::Actor::new(
+    handler.set_phase("running");
+
+    let result = super::actor::Actor::new(
         bindings,
         binding_state_keys,
         connector_tx,
@@ -224,6 +272,7 @@ where
         disable_load_optimization,
         leader_tx,
         max_keys,
+        metrics,
     )
     .serve(
         accumulator,
@@ -232,7 +281,18 @@ where
         &mut leader_rx,
         shuffle_reader,
     )
-    .await?;
+    .await;
+
+    let db = match result {
+        Ok(db) => {
+            handler.finish_ok();
+            db
+        }
+        Err(err) => {
+            handler.finish_err(&format!("{err:#}"));
+            return Err(err);
+        }
+    };
 
     _ = controller_tx.send(Ok(proto::Materialize {
         stopped: Some(proto::Stopped {}),

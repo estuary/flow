@@ -17,6 +17,7 @@ flow-client-next = { path = "../flow-client-next" }
 gazette = { path = "../gazette" }
 proto-gazette = { path = "../proto-gazette" }
 runtime-next = { path = "../runtime-next" }
+service-kit = { path = "../service-kit" }
 shuffle = { path = "../shuffle" }
 tokens = { path = "../tokens" }
 

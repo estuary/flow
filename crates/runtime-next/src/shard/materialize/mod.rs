@@ -8,6 +8,77 @@ mod task;
 
 pub(crate) use handler::serve;
 
+#[derive(Clone)]
+pub(crate) struct Metrics {
+    /// RocksDB persists committed by this session.
+    persists: metrics::Counter,
+    /// Connector C:Loaded responses received.
+    loaded_docs: metrics::Counter,
+    /// Total bytes of C:Loaded document JSON received.
+    loaded_bytes: metrics::Counter,
+    /// Frontier scans completed (one per leader L:Load).
+    scans_completed: metrics::Counter,
+    /// Memtable drains completed (one per leader L:Store).
+    drains_completed: metrics::Counter,
+}
+
+impl Metrics {
+    pub(crate) fn new(shard_id: &str) -> Self {
+        static DESCRIBE: std::sync::Once = std::sync::Once::new();
+        DESCRIBE.call_once(|| {
+            metrics::describe_counter!(
+                "runtime_shard_materialize_persists",
+                metrics::Unit::Count,
+                "RocksDB persists committed by this session",
+            );
+            metrics::describe_counter!(
+                "runtime_shard_materialize_loaded_docs",
+                metrics::Unit::Count,
+                "connector C:Loaded responses received",
+            );
+            metrics::describe_counter!(
+                "runtime_shard_materialize_loaded_bytes",
+                metrics::Unit::Bytes,
+                "total bytes of C:Loaded document JSON received",
+            );
+            metrics::describe_counter!(
+                "runtime_shard_materialize_scans_completed",
+                metrics::Unit::Count,
+                "frontier scans completed (one per leader L:Load)",
+            );
+            metrics::describe_counter!(
+                "runtime_shard_materialize_drains_completed",
+                metrics::Unit::Count,
+                "memtable drains completed (one per leader L:Store)",
+            );
+        });
+
+        let shard_id = || shard_id.to_string();
+        Self {
+            persists: metrics::counter!(
+                "runtime_shard_materialize_persists",
+                "shard_id" => shard_id(),
+            ),
+            loaded_docs: metrics::counter!(
+                "runtime_shard_materialize_loaded_docs",
+                "shard_id" => shard_id(),
+            ),
+            loaded_bytes: metrics::counter!(
+                "runtime_shard_materialize_loaded_bytes",
+                "shard_id" => shard_id(),
+            ),
+            scans_completed: metrics::counter!(
+                "runtime_shard_materialize_scans_completed",
+                "shard_id" => shard_id(),
+            ),
+            drains_completed: metrics::counter!(
+                "runtime_shard_materialize_drains_completed",
+                "shard_id" => shard_id(),
+            ),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Binding {
     collection_name: String,             // Source collection.

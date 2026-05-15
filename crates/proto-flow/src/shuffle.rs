@@ -2,16 +2,22 @@
 /// Shard represents a participant in the shuffle topology (e.x. a task shard).
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Shard {
+    /// Fully-qualified identifier of this shard, e.g.
+    /// `<task-type>/<task-name>/<key-range>_<rclock-range>`.
+    /// Used to label metrics and diagnostics, and as an authorization subject
+    /// for the shard's RPCs.
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
     /// Key and r-clock document range owned by this shard.
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag = "2")]
     pub range: ::core::option::Option<super::flow::RangeSpec>,
     /// gRPC endpoint of this shard's shuffle service.
-    #[prost(string, tag = "2")]
+    #[prost(string, tag = "3")]
     pub endpoint: ::prost::alloc::string::String,
     /// Filesystem path where the Log actor writes segment files for this shard.
     /// The consumer joins over shuffle-produced log segments via this directory.
     /// Multiple shard indices may share a single directory.
-    #[prost(string, tag = "3")]
+    #[prost(string, tag = "4")]
     pub directory: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

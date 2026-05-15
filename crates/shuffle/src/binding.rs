@@ -75,13 +75,11 @@ pub struct Binding {
 }
 
 impl Binding {
-    /// Extract the shard prefix, bindings, and per-binding validators of a shuffle::Task.
+    /// Extract the bindings and per-binding validators of a shuffle::Task.
     /// Validators are returned separately so that callers can store them independently
     /// (e.g. on SliceActor) or discard them (e.g. SessionActor).
-    pub fn from_task(
-        task: &shuffle::Task,
-    ) -> anyhow::Result<(String, Vec<Self>, Vec<doc::Validator>)> {
-        let (shard_prefix, pairs) = match &task.task {
+    pub fn from_task(task: &shuffle::Task) -> anyhow::Result<(Vec<Self>, Vec<doc::Validator>)> {
+        let pairs = match &task.task {
             Some(shuffle::task::Task::Derivation(collection_spec)) => {
                 let derivation = collection_spec
                     .derivation
@@ -97,14 +95,7 @@ impl Binding {
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
-                let shard_template_id = derivation
-                    .shard_template
-                    .as_ref()
-                    .context("Derivation missing ShardTemplate")?
-                    .id
-                    .as_str();
-
-                (format!("{shard_template_id}/"), pairs)
+                pairs
             }
             Some(shuffle::task::Task::Materialization(materialization)) => {
                 let pairs = materialization
@@ -116,14 +107,7 @@ impl Binding {
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
-                let shard_template_id = materialization
-                    .shard_template
-                    .as_ref()
-                    .context("Materialization missing ShardTemplate")?
-                    .id
-                    .as_str();
-
-                (format!("{shard_template_id}/"), pairs)
+                pairs
             }
             Some(shuffle::task::Task::CollectionPartitions(collection_partitions)) => {
                 let shuffle::CollectionPartitions {
@@ -144,10 +128,7 @@ impl Binding {
                     partition_selector,
                 )?];
 
-                (
-                    String::new(), // No applicable shard prefix.
-                    pairs,
-                )
+                pairs
             }
             None => anyhow::bail!("missing task variant"),
         };
@@ -157,7 +138,7 @@ impl Binding {
 
         assign_cohorts(&mut bindings);
 
-        Ok((shard_prefix, bindings, validators))
+        Ok((bindings, validators))
     }
 
     fn from_derivation_transform(

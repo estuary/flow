@@ -8,6 +8,44 @@ mod triggers;
 
 pub(crate) use handler::serve;
 
+#[derive(Clone)]
+pub(crate) struct Metrics {
+    /// Total transactions completed by this leader session.
+    transactions: metrics::Counter,
+    /// Aggregate bytes-behind across all bindings, observed at each frontier.
+    bytes_behind: metrics::Gauge,
+}
+
+impl Metrics {
+    pub(crate) fn new(shard_zero: &str) -> Self {
+        static DESCRIBE: std::sync::Once = std::sync::Once::new();
+        DESCRIBE.call_once(|| {
+            metrics::describe_counter!(
+                "runtime_leader_transactions",
+                metrics::Unit::Count,
+                "transactions completed by this leader session",
+            );
+            metrics::describe_gauge!(
+                "runtime_leader_behind",
+                metrics::Unit::Bytes,
+                "aggregate bytes-behind across all bindings, observed when writing stats",
+            );
+        });
+
+        let shard_zero = || shard_zero.to_string();
+        Self {
+            transactions: metrics::counter!(
+                "runtime_leader_transactions",
+                "shard_zero" => shard_zero(),
+            ),
+            bytes_behind: metrics::gauge!(
+                "runtime_leader_behind",
+                "shard_zero" => shard_zero(),
+            ),
+        }
+    }
+}
+
 // Task configuration, as understood by the leader.
 //
 // Several fields express "close" vs "extend" policy thresholds:

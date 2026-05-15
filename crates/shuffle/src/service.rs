@@ -22,6 +22,8 @@ pub struct ServiceImpl {
     /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
     /// Keyed by (directory, log_shard_index).
     pub(crate) log_joins: std::sync::Mutex<HashMap<(String, u32), log::LogJoin>>,
+    /// Registry of in-flight Session/Slice/Log handlers, for the admin surface.
+    pub(crate) registry: service_kit::Registry,
 }
 
 impl Service {
@@ -29,6 +31,7 @@ impl Service {
         peer_endpoint: String,
         journal_client_factory: gazette::journal::ClientFactory,
         disk_backlog_threshold: u64,
+        registry: service_kit::Registry,
     ) -> Self {
         Self(Arc::new(ServiceImpl {
             peer_endpoint,
@@ -36,6 +39,7 @@ impl Service {
             disk_backlog_threshold,
             channels: std::sync::Mutex::new(HashMap::new()),
             log_joins: std::sync::Mutex::new(HashMap::new()),
+            registry,
         }))
     }
 
@@ -61,17 +65,18 @@ impl Service {
     pub fn spawn_session<R>(
         &self,
         request_rx: R,
-    ) -> mpsc::Receiver<tonic::Result<shuffle::SessionResponse>>
+    ) -> mpsc::UnboundedReceiver<tonic::Result<shuffle::SessionResponse>>
     where
         R: futures::Stream<Item = tonic::Result<shuffle::SessionRequest>> + Send + Unpin + 'static,
     {
         let service = self.clone();
-        let (response_tx, response_rx) = new_channel::<tonic::Result<shuffle::SessionResponse>>();
+        let (response_tx, response_rx) =
+            mpsc::unbounded_channel::<tonic::Result<shuffle::SessionResponse>>();
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
             if let Err(e) = session::serve_session(service, request_rx, response_tx).await {
-                let _ = error_tx.send(Err(anyhow_to_status(e))).await;
+                let _ = error_tx.send(Err(anyhow_to_status(e)));
             }
         });
         response_rx
@@ -156,7 +161,7 @@ impl std::ops::Deref for Service {
 #[tonic::async_trait]
 impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
     type SessionStream =
-        tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::SessionResponse>>;
+        tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<shuffle::SessionResponse>>;
     type SliceStream =
         tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::SliceResponse>>;
     type LogStream = tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::LogResponse>>;
@@ -166,7 +171,9 @@ impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
         request: tonic::Request<tonic::Streaming<shuffle::SessionRequest>>,
     ) -> tonic::Result<tonic::Response<Self::SessionStream>> {
         Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(self.spawn_session(request.into_inner())),
+            tokio_stream::wrappers::UnboundedReceiverStream::new(
+                self.spawn_session(request.into_inner()),
+            ),
         ))
     }
 

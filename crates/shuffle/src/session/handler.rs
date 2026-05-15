@@ -2,11 +2,31 @@ use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::shuffle;
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 pub(crate) async fn serve_session<R>(
     service: crate::Service,
+    request_rx: R,
+    session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
+) -> anyhow::Result<()>
+where
+    R: futures::Stream<Item = tonic::Result<shuffle::SessionRequest>> + Send + Unpin + 'static,
+{
+    // Run the whole handler inside its span so operator trace overrides (see
+    // `service_kit::trace`) reach every log line — the actor loop's periodic
+    // instrumentation included.
+    let handler = service.registry.register("shuffle.session");
+    let span = handler.span();
+    serve_session_inner(service, request_rx, session_response_tx, handler)
+        .instrument(span)
+        .await
+}
+
+async fn serve_session_inner<R>(
+    service: crate::Service,
     mut request_rx: R,
-    session_response_tx: mpsc::Sender<tonic::Result<shuffle::SessionResponse>>,
+    session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
+    mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<()>
 where
     R: futures::Stream<Item = tonic::Result<shuffle::SessionRequest>> + Send + Unpin + 'static,
@@ -34,13 +54,21 @@ where
     }
     super::state::validate_shard_ranges(&shards)?;
 
-    let task = task.context("Open must include task")?;
-    let (shard_prefix, bindings, _validators) = crate::Binding::from_task(&task)?;
+    handler.set_label(&shards[0].id);
+    handler.set_field("session_id", session_id);
+    handler.set_field("shards", shards.len());
+    handler.set_phase("opening");
 
-    tracing::info!(
+    let metrics = super::Metrics::new(&shards[0].id);
+    let task = task.context("Open must include task")?;
+    let (bindings, _validators) = crate::Binding::from_task(&task)?;
+
+    service_kit::event!(
+        tracing::Level::INFO,
+        "coordinator",
         session_id,
-        shard_count = shards.len(),
-        "Session received Open"
+        shards = shards.len(),
+        "received Open from Coordinator"
     );
 
     // Concurrently Open a Slice RPC with every shard.
@@ -67,14 +95,10 @@ where
     );
 
     // Send Opened response to Session client.
-    // Non-blocking capacity: first message of `session_response_tx`.
-    crate::verify_send(
-        &session_response_tx,
-        Ok(shuffle::SessionResponse {
-            opened: Some(shuffle::session_response::Opened {}),
-            ..Default::default()
-        }),
-    )?;
+    let _ = session_response_tx.send(Ok(shuffle::SessionResponse {
+        opened: Some(shuffle::session_response::Opened {}),
+        ..Default::default()
+    }));
 
     // Read the resume-checkpoint frontier.
     let verify = crate::verify("SessionRequest", "resume_checkpoint", "coordinator", 0);
@@ -107,7 +131,6 @@ where
     let topology = super::state::Topology {
         session_id,
         shards,
-        shard_prefix,
         bindings,
         resume_checkpoint,
     };
@@ -115,17 +138,25 @@ where
     let checkpoint =
         super::state::CheckpointPipeline::new(&topology.resume_checkpoint, binding_cohorts);
 
-    super::actor::SessionActor {
+    handler.set_phase("running");
+
+    let result = super::actor::SessionActor {
         topology,
         checkpoint,
         progress_ready: vec![true; shard_count],
         session_response_tx: session_response_tx.clone(),
         slice_request_tx,
         start_reads: std::collections::VecDeque::new(),
-        checkpoint_drain: None,
+        metrics,
     }
     .serve(request_rx, response_rx)
-    .await
+    .await;
+
+    match &result {
+        Ok(()) => handler.finish_ok(),
+        Err(err) => handler.finish_err(&format!("{err:#}")),
+    }
+    result
 }
 
 #[tracing::instrument(

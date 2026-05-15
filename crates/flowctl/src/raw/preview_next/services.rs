@@ -59,15 +59,20 @@ impl Run {
             user_tokens,
         );
         // 2 GiB matches the runtime-next default for sidecar-hosted shuffle services.
-        let shuffle_svc =
-            shuffle::Service::new(peer_endpoint.clone(), factory, 2 * 1024 * 1024 * 1024);
+        let shuffle_svc = shuffle::Service::new(
+            peer_endpoint.clone(),
+            factory,
+            2 * 1024 * 1024 * 1024,
+            Default::default(), // Inert service_kit::Registry.
+        );
 
         let publisher_factory: gazette::journal::ClientFactory = std::sync::Arc::new({
             move |_authz_sub: String, _authz_obj: String| -> gazette::journal::Client {
                 unreachable!("live Publisher is not used by preview ({_authz_sub}, {_authz_obj})")
             }
         });
-        let runtime_svc = runtime_next::Service::new(shuffle_svc.clone(), publisher_factory);
+        let runtime_svc =
+            runtime_next::Service::new(shuffle_svc.clone(), publisher_factory, Default::default());
 
         let router = tonic::transport::Server::builder()
             .add_service(runtime_svc.into_tonic_service())

@@ -2029,6 +2029,9 @@ impl serde::Serialize for Shard {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if !self.id.is_empty() {
+            len += 1;
+        }
         if self.range.is_some() {
             len += 1;
         }
@@ -2039,6 +2042,9 @@ impl serde::Serialize for Shard {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("shuffle.Shard", len)?;
+        if !self.id.is_empty() {
+            struct_ser.serialize_field("id", &self.id)?;
+        }
         if let Some(v) = self.range.as_ref() {
             struct_ser.serialize_field("range", v)?;
         }
@@ -2058,6 +2064,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "id",
             "range",
             "endpoint",
             "directory",
@@ -2065,6 +2072,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            Id,
             Range,
             Endpoint,
             Directory,
@@ -2089,6 +2097,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
                         E: serde::de::Error,
                     {
                         match value {
+                            "id" => Ok(GeneratedField::Id),
                             "range" => Ok(GeneratedField::Range),
                             "endpoint" => Ok(GeneratedField::Endpoint),
                             "directory" => Ok(GeneratedField::Directory),
@@ -2111,11 +2120,18 @@ impl<'de> serde::Deserialize<'de> for Shard {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut id__ = None;
                 let mut range__ = None;
                 let mut endpoint__ = None;
                 let mut directory__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::Id => {
+                            if id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("id"));
+                            }
+                            id__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::Range => {
                             if range__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("range"));
@@ -2137,6 +2153,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
                     }
                 }
                 Ok(Shard {
+                    id: id__.unwrap_or_default(),
                     range: range__,
                     endpoint: endpoint__.unwrap_or_default(),
                     directory: directory__.unwrap_or_default(),

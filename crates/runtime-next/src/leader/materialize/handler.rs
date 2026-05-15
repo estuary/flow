@@ -2,11 +2,31 @@ use super::{actor, fsm, startup};
 use crate::{leader, proto};
 use futures::StreamExt;
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 pub(crate) async fn serve<R>(
     service: crate::Service,
+    request_rx: R,
+    response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
+) -> anyhow::Result<()>
+where
+    R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
+{
+    // Run the whole handler inside its span so operator trace overrides (see
+    // `service_kit::trace`) reach every log line — the actor loop's periodic
+    // instrumentation included.
+    let handler = service.registry.register("leader.materialize");
+    let span = handler.span();
+    serve_inner(service, request_rx, response_tx, handler)
+        .instrument(span)
+        .await
+}
+
+async fn serve_inner<R>(
+    service: crate::Service,
     mut request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
+    mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<()>
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
@@ -22,13 +42,17 @@ where
     };
     let task_name = leader::validate_join(&join)?.to_string();
 
-    tracing::info!(
-        %task_name,
-        shards = join.shards.len(),
+    handler.set_label(&join.shards[0].id);
+    handler.set_field("shards", join.shards.len());
+    handler.set_field("etcd_mod_revision", join.etcd_mod_revision);
+    handler.set_phase("joining");
+
+    service_kit::event!(
+        tracing::Level::INFO,
+        "shard",
         shard_index = join.shard_index,
         etcd_mod_revision = join.etcd_mod_revision,
-        shuffle_directory = %join.shuffle_directory,
-        "received Join",
+        "received Join from shard",
     );
 
     // Scope `guard` to prove it's not held across await points.
@@ -48,12 +72,15 @@ where
 
     let slots = match outcome {
         leader::JoinOutcome::Pending { filled, target } => {
-            tracing::debug!(
-                %task_name,
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "leader",
                 filled,
                 target,
-                "registered pending Join",
+                "registered pending Join (awaiting consensus)",
             );
+            handler.set_phase("awaiting-consensus");
+            handler.finish_ok();
             return Ok(());
         }
         leader::JoinOutcome::Disagreement(slots) => {
@@ -63,8 +90,9 @@ where
                 .max()
                 .unwrap();
 
-            tracing::info!(
-                %task_name,
+            service_kit::event!(
+                tracing::Level::INFO,
+                "leader",
                 max_etcd_revision,
                 retrying = slots.len(),
                 "broadcasting retry due to topology disagreement",
@@ -76,15 +104,20 @@ where
             for slot in slots {
                 let _ = slot.response_tx.send(Ok(retry.clone()));
             }
+            handler.set_phase("topology-disagreement");
+            handler.finish_ok();
             return Ok(());
         }
 
         leader::JoinOutcome::Consensus(slots) => slots,
     };
 
-    tracing::info!(
-        task_name,
-        shards = slots.len(),
+    handler.set_phase("starting");
+    let metrics = super::Metrics::new(&slots[0].join.shards[0].id);
+
+    service_kit::event!(
+        tracing::Level::INFO,
+        "leader",
         "consensus reached; starting session",
     );
 
@@ -123,8 +156,9 @@ where
         reactors.push(reactor.unwrap_or_default().suffix);
         shard_rx.push(slot_rx);
         shard_tx.push(slot_tx);
-        shard_ids.push(id);
+        shard_ids.push(id.clone());
         shard_shuffles.push(shuffle::proto::Shard {
+            id,
             range: labeling.range,
             directory,
             endpoint,
@@ -136,8 +170,10 @@ where
 
     let error_tx = shard_tx.clone();
 
-    // Run startup, and then the Actor transaction loop.
-    let result = async move {
+    // Run startup, and then the Actor transaction loop. The inner block is a
+    // try-scope: an error from either gets a best-effort broadcast to all shards
+    // below before propagating.
+    let result = async {
         let startup::Startup {
             committed_close,
             committed_frontier,
@@ -176,17 +212,24 @@ where
         let mut actor = actor::Actor::new(
             service.http_client.clone(),
             legacy_checkpoint,
+            metrics,
             publisher,
             shard_tx,
             task,
         );
+        handler.set_phase("running");
         actor.serve(head, tail, session, shard_rx).await
     }
     .await;
 
-    let Err(err) = result else {
-        return Ok(());
+    let err = match result {
+        Ok(()) => {
+            handler.finish_ok();
+            return Ok(());
+        }
+        Err(err) => err,
     };
+    handler.finish_err(&format!("{err:#}"));
 
     // Best-effort broadcast of terminal error to all shards.
     let status = match err.downcast_ref::<tonic::Status>() {

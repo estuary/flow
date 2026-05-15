@@ -18,8 +18,6 @@ pub struct Topology {
     pub shards: Vec<shuffle::Shard>,
     /// Index of this Slice RPC within `shards`.
     pub slice_shard_index: u32,
-    /// Shard Template ID prefix of the task that owns this session.
-    pub shard_prefix: String,
     /// Per-binding shuffle configuration extracted from the task spec.
     pub bindings: Vec<crate::Binding>,
     /// Lazily-initialized Gazette clients for listing and reading journals, indexed by binding.
@@ -103,12 +101,22 @@ impl FlushState {
         };
 
         *in_flight = false;
+        let n_pending = self.in_flight.iter().filter(|pending| **pending).count();
         self.flushing.flushed_lsn[shard_index] = flushed_lsn;
 
-        if self.in_flight.iter().any(|pending| *pending) {
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "log",
+            shard_index,
+            cycle = self.cycle,
+            flushed_lsn = flushed_lsn.as_u64(),
+            n_pending,
+            "received Flushed response",
+        );
+
+        if n_pending != 0 {
             return Ok(None);
         }
-        tracing::debug!(cycle = self.cycle, "all shards Flushed");
 
         // We increment `cycle` now to ensure we'll clearly reject a duplicate
         // Flushed from a Log (which would be a protocol violation).
@@ -147,17 +155,34 @@ impl ProgressState {
 
     /// Reduce a completed flush frontier into accumulated progress.
     pub fn on_flush_completed(&mut self, frontier: crate::Frontier) {
+        let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
+            frontier.measures();
+
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "log",
+            bytes_behind_delta,
+            bytes_read_delta,
+            journal_producers,
+            journals,
+            "gathered Flushed responses",
+        );
+
         self.flushed = std::mem::take(&mut self.flushed).reduce(frontier);
     }
 
-    /// If progress was requested and we have flushed progress to report,
-    /// take the flushed frontier and clear both flags.
-    pub fn take_progressed(&mut self) -> Option<crate::Frontier> {
-        if !self.requested || self.flushed.journals.is_empty() {
-            return None;
-        }
+    /// Is progress ready to report? True iff a request is outstanding AND
+    /// we've accumulated flushed progress. Idempotent — gate `take_progressed()`
+    /// on this so a failed permit reservation can be retried.
+    pub fn has_progressed(&self) -> bool {
+        self.requested && !self.flushed.journals.is_empty()
+    }
+
+    /// Unconditionally clear the outstanding request and accumulated flushed
+    /// progress, returning the latter. Callers should gate on `has_progressed()`.
+    pub fn take_progressed(&mut self) -> crate::Frontier {
         self.requested = false;
-        Some(std::mem::take(&mut self.flushed))
+        std::mem::take(&mut self.flushed)
     }
 }
 
@@ -784,12 +809,12 @@ mod test {
     fn test_progress_reporting() {
         let mut progress = ProgressState::new();
 
-        // No request + no flushed → None.
-        assert!(progress.take_progressed().is_none());
+        // No request + no flushed → not ready.
+        assert!(!progress.has_progressed());
 
-        // Request but no flushed → None.
+        // Request but no flushed → not ready.
         progress.request().unwrap();
-        assert!(progress.take_progressed().is_none());
+        assert!(!progress.has_progressed());
         // requested should remain true.
         assert!(progress.requested);
 
@@ -811,8 +836,9 @@ mod test {
             unresolved_hints: 0,
         };
 
-        // Request + flushed → Some(frontier), both cleared.
-        let frontier = progress.take_progressed().expect("request + flushed");
+        // Request + flushed → has_progressed gates, take_progressed consumes.
+        assert!(progress.has_progressed());
+        let frontier = progress.take_progressed();
         assert!(!progress.requested, "requested cleared");
         assert!(progress.flushed.journals.is_empty(), "flushed cleared");
         assert_eq!(frontier.journals.len(), 1);
