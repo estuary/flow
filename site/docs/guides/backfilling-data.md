@@ -379,4 +379,6 @@ To configure this option:
 
 6. Save and publish your changes.
 
+7. After the backfill completes, edit the capture again and clear the "Minimum Backfill XID" / "Maximum Backfill XID" field, then save and publish. The XID is only applied when a backfill is triggered, so it has no effect during normal CDC operation — but leaving it in place means that any future backfill (intentional or otherwise) will be silently limited to rows above/below the old transaction ID, potentially missing data. Clearing it ensures future backfills start from a clean state.
+
 In rare cases, this method may not work as expected, as in situations where a database has already filled up its entire `xmin` space. In such cases of `xmin` wrapping, using both Minimum and Maximum Backfill XID fields can help narrow down a specific range to backfill.
