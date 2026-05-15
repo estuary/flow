@@ -1793,6 +1793,49 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_redacted_key_with_connector_and_relaxed_write_schema() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r##"
+driver:
+  liveInferredSchemas:
+    testing/foobar:
+      properties:
+        key:
+          type: string
+          minimum: null
+          maximum: null
+      required: [key]
+
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      writeSchema:
+        $defs:
+          "flow://connector-schema":
+            $id: "flow://connector-schema"
+            type: object
+            properties:
+              key:
+                type: string
+            required: [key]
+            additionalProperties: true
+            x-infer-schema: true
+        allOf:
+          - $ref: "flow://connector-schema"
+        properties:
+          key:
+            type: string
+            minimum: null
+            maximum: null
+            redact: { strategy: sha256 }
+"##,
+    );
+
+    insta::assert_debug_snapshot!(outcome.errors, @"[]");
+}
+
+#[test]
 fn test_collection_inferred_schema_add_blocking() {
     // A redact annotation on a required write schema property raises an error.
     let outcome = common::run_errors(
