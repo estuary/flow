@@ -1,5 +1,4 @@
 use anyhow::Context;
-use base64::Engine;
 use std::path::PathBuf;
 
 use flow_client::{
@@ -158,24 +157,24 @@ impl Config {
             config.user_refresh_token = refresh_token;
         }
 
-        // If a refresh token is not defined, attempt to parse one from the environment.
-        if config.user_refresh_token.is_none() {
-            if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
-                let decoded = base64::engine::general_purpose::STANDARD
-                    .decode(env_token)
+        // FLOW_AUTH_TOKEN, if present, overrides a refresh or access token
+        // loaded from disk. A value with three dot-delimited segments is a JWT
+        // access token; anything else is a base64-encoded refresh token JSON.
+        if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
+            if env_token.split('.').count() == 3 {
+                tracing::info!("using FLOW_AUTH_TOKEN environment access token");
+                config.user_refresh_token = None;
+                config.user_access_token = Some(env_token);
+            } else {
+                let decoded = tokens::jwt::parse_base64(&env_token)
                     .context("FLOW_AUTH_TOKEN is not base64")?;
                 let token: RefreshToken =
                     serde_json::from_slice(&decoded).context("FLOW_AUTH_TOKEN is invalid JSON")?;
 
-                tracing::info!("using refresh token from environment variable {FLOW_AUTH_TOKEN}");
+                tracing::info!("using FLOW_AUTH_TOKEN environment refresh token");
                 config.user_refresh_token = Some(token);
+                config.user_access_token = None;
             }
-        }
-
-        // Allow overriding access token via environment variable for CI/automation.
-        if let Ok(token) = std::env::var(FLOW_ACCESS_TOKEN) {
-            tracing::info!("using access token from environment variable {FLOW_ACCESS_TOKEN}");
-            config.user_access_token = Some(token);
         }
 
         config.is_local = profile == "local";
@@ -231,7 +230,6 @@ impl Config {
     }
 }
 
-// Environment variable which is inspected for a base64-encoded refresh token.
+// Environment variable inspected for an auth credential: either a JWT access
+// token, or a base64-encoded refresh token JSON.
 const FLOW_AUTH_TOKEN: &str = "FLOW_AUTH_TOKEN";
-// Environment variable which is inspected for an access token (for CI/automation).
-const FLOW_ACCESS_TOKEN: &str = "FLOW_ACCESS_TOKEN";
