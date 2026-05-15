@@ -23,20 +23,26 @@ if [ $((PORT_BLOCK % 100)) -ne 0 ]; then
     exit 1
 fi
 
-# Validate that we don't exceed the 100-port block limit
-TOTAL_INSTANCES=$((N_BROKERS + N_REACTORS))
-if [ "${TOTAL_INSTANCES}" -gt 100 ]; then
-    echo "Error: Total instances (${N_BROKERS} brokers + ${N_REACTORS} reactors = ${TOTAL_INSTANCES}) exceeds 100-port block limit" >&2
+# Cap brokers and reactors at 10 each. Brokers occupy base_port+0..+9 and
+# reactors occupy base_port+90..+99, leaving the +50/+51/+52 Dekaf ports
+# and the +60 runtime-sidecar port reserved.
+if [ "${N_BROKERS}" -gt 10 ]; then
+    echo "Error: --num-brokers ${N_BROKERS} exceeds the per-data-plane limit of 10" >&2
+    exit 1
+fi
+if [ "${N_REACTORS}" -gt 10 ]; then
+    echo "Error: --num-reactors ${N_REACTORS} exceeds the per-data-plane limit of 10" >&2
     exit 1
 fi
 
 FLOW_LOCAL="${HOME}/flow-local"
 HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
 
-# Deterministic Dekaf port allocation within the 100-port block
+# Deterministic port allocations within the 100-port block
 DEKAF_KAFKA_PORT=$((PORT_BLOCK + 50))
 DEKAF_REGISTRY_PORT=$((PORT_BLOCK + 51))
 DEKAF_METRICS_PORT=$((PORT_BLOCK + 52))
+SIDECAR_PORT=$((PORT_BLOCK + 60))
 
 # Start broker instances if requested
 if [ "${N_BROKERS}" -gt 0 ] 2>/dev/null; then

@@ -10,6 +10,11 @@ DATA_PLANE="${usage_data_plane}"
 BASE_PORT="${usage_base_port}"
 COUNT="${usage_count}"
 
+if [ "${COUNT}" -gt 10 ]; then
+    echo "Error: --count ${COUNT} exceeds the per-data-plane broker limit of 10" >&2
+    exit 1
+fi
+
 FLOW_LOCAL="${HOME}/flow-local"
 HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
 

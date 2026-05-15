@@ -12,8 +12,16 @@ BASE_PORT="${usage_base_port}"
 BROKER_PORT="${usage_broker_port}"
 COUNT="${usage_count}"
 
+if [ "${COUNT}" -gt 10 ]; then
+    echo "Error: --count ${COUNT} exceeds the per-data-plane reactor limit of 10" >&2
+    exit 1
+fi
+
 FLOW_LOCAL="${HOME}/flow-local"
 HMAC_KEY=$(echo -n "key-${DATA_PLANE}" | base64 | tr -d '\n')
+SIDECAR_PORT=$((BROKER_PORT + 60))
+
+mise run local:runtime-sidecar "${DATA_PLANE}" "${BROKER_PORT}"
 
 # Configure all reactor instances
 for i in $(seq 0 $((COUNT - 1))); do
@@ -29,7 +37,7 @@ for i in $(seq 0 $((COUNT - 1))); do
 
 # Note the local cert is signed with a wildcard of *.flow.localhost,
 # and CONSUMER_HOST must match for the connector networking feature to function.
-# SSL_CERT_FILE is required for calls to the control agent API.
+# SSL_CERT_FILE is required for calls to the runtime sidecar and agent API.
 
 BROKER_ADDRESS=https://broker-${DATA_PLANE}.flow.localhost:${BROKER_PORT}
 BROKER_AUTH_KEYS=${HMAC_KEY}
@@ -44,6 +52,7 @@ CONSUMER_PEER_CA_FILE=${FLOW_LOCAL}/ca.crt
 CONSUMER_PORT=${REACTOR_PORT}
 CONSUMER_SERVER_CERT_FILE=${FLOW_LOCAL}/server.crt
 CONSUMER_SERVER_CERT_KEY_FILE=${FLOW_LOCAL}/server.key
+CONSUMER_ZONE=local
 ETCD_ADDRESS=http://etcd.flow.localhost:2379
 ETCD_PREFIX=/flow/${DATA_PLANE}
 FLOW_ALLOW_LOCAL=true
@@ -52,8 +61,9 @@ FLOW_CONTROL_API=http://agent.flow.localhost:8675
 FLOW_DASHBOARD=http://localhost:3000
 FLOW_DATA_PLANE_FQDN=${DATA_PLANE}.dp.estuary-data.com
 FLOW_NETWORK=supabase_network_flow
+FLOW_SIDECAR_PORT=${SIDECAR_PORT}
 LOG_LEVEL=info
-SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt # Required for agent API calls.
+SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
 
 # Test (non-production) key for local development.
 # This matches KMS_KEY in the control-plane development task.
@@ -67,6 +77,7 @@ EOF
 [Unit]
 PartOf=flow-plane@${DATA_PLANE}.target
 After=flow-plane@${DATA_PLANE}.target
+After=flow-runtime-sidecar@${DATA_PLANE}.service
 EOF
 
     DROPIN_DIR="${HOME}/.config/systemd/user/flow-plane@${DATA_PLANE}.target.d"
