@@ -6,34 +6,55 @@ pub mod publisher;
 pub mod watch;
 
 pub use appender::{Appender, AppenderGroup};
-pub use binding::Binding;
+pub use binding::{Binding, FixedBinding, MappedBinding};
 pub use publisher::Publisher;
 
-/// Boxed closure for lazy initialization of a partitions watch and journal Client.
-/// Callers of `Binding::from_collection_spec` provide this to control how the
-/// journal Client and partitions watch are created.
-type PartitionsClientInit = Box<
+/// Boxed closure for lazy initialization of a Mapped binding's partitions
+/// watch and journal Client.
+type MappedClientInit = Box<
     dyn FnOnce() -> (
             gazette::journal::Client,
             tokens::PendingWatch<Vec<watch::PartitionSplit>>,
         ) + Send,
 >;
 
-/// LazyPartitionsClient uses a LazyCell to defer initialization of a partitions
-/// watch and a paired journal Client for List, Apply, and Append RPCs.
+/// Boxed closure for lazy initialization of a Fixed binding's journal Client.
+type FixedClientInit = Box<dyn FnOnce() -> gazette::journal::Client + Send>;
+
+/// LazyBindingClient defers initialization of per-binding journal resources
+/// until first use.
+///
+/// Mapped bindings need both a journal Client and a long-lived list-watch
+/// stream of partitions. Fixed bindings only need a Client (the journal is
+/// known by name; no listing is required).
 ///
 /// An instantiated client and watch each consume background resources:
-/// periodic token refreshes for the client, and a long-lived list RPC for the watch.
-/// However, many (most?) bindings and collections are infrequently written and
-/// a Publisher instance may never interact with the binding during its lifetime,
-/// so avoid paying this cost until we know it's needed.
-type LazyPartitionsClient = std::sync::LazyLock<
-    (
-        gazette::journal::Client,
-        tokens::PendingWatch<Vec<watch::PartitionSplit>>,
+/// periodic token refreshes for the client, and a long-lived list RPC for the
+/// watch. However, many (most?) bindings and collections are infrequently
+/// written and a Publisher instance may never interact with the binding during
+/// its lifetime, so avoid paying this cost until we know it's needed.
+pub(crate) enum LazyBindingClient {
+    Mapped(
+        std::sync::LazyLock<
+            (
+                gazette::journal::Client,
+                tokens::PendingWatch<Vec<watch::PartitionSplit>>,
+            ),
+            MappedClientInit,
+        >,
     ),
-    PartitionsClientInit,
->;
+    Fixed(std::sync::LazyLock<gazette::journal::Client, FixedClientInit>),
+}
+
+impl LazyBindingClient {
+    /// Force initialization and return the underlying journal Client.
+    pub(crate) fn client(&self) -> &gazette::journal::Client {
+        match self {
+            Self::Mapped(lazy) => &lazy.0,
+            Self::Fixed(lazy) => &**lazy,
+        }
+    }
+}
 
 /// Sanity-check that `intents` is non-empty NDJSON: terminated by a newline,
 /// with every line a syntactically-valid JSON document.

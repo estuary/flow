@@ -485,17 +485,16 @@ pub struct Joined {
 /// Task which is being processed by the runtime.
 /// Sent from Controller to Shard, and from Shard zero (only) to Leader
 /// after Joined. Other shards do not forward Task.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Task {
     /// Task specification (protobuf-encoded bytes).
     #[prost(bytes = "bytes", tag = "1")]
     pub spec: ::prost::bytes::Bytes,
-    /// Collection journal partition to which task states are written.
+    /// Collection journal partition to which task stats are written.
+    /// The journal is pre-created by activate; the runtime appends directly
+    /// without consulting the partitions watch or creating new partitions.
     #[prost(string, tag = "2")]
     pub ops_stats_journal: ::prost::alloc::string::String,
-    /// Collection to which task stats are written.
-    #[prost(message, optional, tag = "3")]
-    pub ops_stats_spec: ::core::option::Option<super::flow::CollectionSpec>,
     /// When true, documents and stats are written to output and not directed to collections.
     #[prost(bool, tag = "4")]
     pub preview: bool,

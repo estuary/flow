@@ -78,7 +78,6 @@ pub(super) async fn run(
     // Build task definition.
     let proto::Task {
         ops_stats_journal,
-        ops_stats_spec,
         preview,
         max_transactions,
         spec: spec_bytes,
@@ -94,13 +93,10 @@ pub(super) async fn run(
     let publisher = if preview {
         crate::Publisher::new_preview()
     } else {
-        let ops_stats_spec = ops_stats_spec.as_ref().context("missing ops stats spec")?;
-
         crate::Publisher::new_real(
             shard_ids[0].clone(), // Shard zero is AuthZ subject.
             &service.publisher_factory,
             &ops_stats_journal,
-            ops_stats_spec,
             [], // No additional bindings.
         )
         .context("creating publisher")?

@@ -470,10 +470,10 @@ message Joined {
 message Task {
   // Task specification (protobuf-encoded bytes).
   bytes spec = 1;
-  // Collection journal partition to which task states are written.
+  // Collection journal partition to which task stats are written.
+  // The journal is pre-created by activate; the runtime appends directly
+  // without consulting the partitions watch or creating new partitions.
   string ops_stats_journal = 2;
-  // Collection to which task stats are written.
-  flow.CollectionSpec ops_stats_spec = 3;
   // When true, documents and stats are written to output and not directed to collections.
   bool preview = 4;
   // Preview / harness control. Zero means unlimited.

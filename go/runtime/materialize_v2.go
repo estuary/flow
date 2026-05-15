@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
@@ -170,10 +168,6 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 
 	// 1. Load and marshal everything that doesn't depend on Etcd topology.
 	var opsStatsJournal = m.term.labels.StatsJournal
-	var opsStatsSpec *pf.CollectionSpec
-	if opsStatsSpec, err = m.loadOpsCollectionSpec(opsStatsJournal); err != nil {
-		return err
-	}
 	var specBytes []byte
 	if specBytes, err = m.term.taskSpec.Marshal(); err != nil {
 		return fmt.Errorf("marshaling MaterializationSpec: %w", err)
@@ -219,7 +213,6 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 		Task: &pr.Task{
 			Spec:            specBytes,
 			OpsStatsJournal: string(opsStatsJournal),
-			OpsStatsSpec:    opsStatsSpec,
 			Preview:         false,
 			MaxTransactions: 0,
 		},
@@ -266,29 +259,6 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 			}).Panic("unexpected Rust runtime message after Opened")
 		}
 	}
-}
-
-// loadOpsCollectionSpec resolves an ops CollectionSpec for `journal` from
-// the current term's build DB. catalog.LoadCollectionForJournal inverts the
-// `<collection>/<field>=<value>/...` shape produced by
-// activate::ops_partition_spec via SQL prefix match against
-// built_collections.
-func (m *materializeAppV2) loadOpsCollectionSpec(journal pb.Journal) (*pf.CollectionSpec, error) {
-	var spec *pf.CollectionSpec
-	var build = m.host.builds.Open(m.term.labels.Build)
-	defer build.Close()
-
-	if err := build.Extract(func(db *sql.DB) error {
-		var s, err = catalog.LoadCollectionForJournal(db, string(journal))
-		if err != nil {
-			return err
-		}
-		spec = s
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("loading ops CollectionSpec for %q: %w", journal, err)
-	}
-	return spec, nil
 }
 
 func (m *materializeAppV2) Destroy() {

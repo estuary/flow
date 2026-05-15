@@ -14,8 +14,14 @@ use proto_gazette::broker;
 ///
 /// Port of Go's `Mapper.Map` (`go/flow/mapping.go`).
 pub(crate) async fn map_partition<N: json::AsNode>(
-    binding: &super::Binding,
-    client: &super::LazyPartitionsClient,
+    binding: &super::MappedBinding,
+    lazy: &std::sync::LazyLock<
+        (
+            gazette::journal::Client,
+            tokens::PendingWatch<Vec<watch::PartitionSplit>>,
+        ),
+        crate::MappedClientInit,
+    >,
     doc: &N,
     prefix: String,
     packed_key: bytes::BytesMut,
@@ -23,7 +29,7 @@ pub(crate) async fn map_partition<N: json::AsNode>(
     let (mut prefix, packed_key, key_hash) =
         extract_mapping_context(binding, doc, prefix, packed_key)?;
 
-    let (client, partitions) = &(**client);
+    let (client, partitions) = &(**lazy);
     let partitions = partitions.ready().await;
 
     loop {
@@ -72,7 +78,7 @@ pub(crate) async fn map_partition<N: json::AsNode>(
 }
 
 fn extract_mapping_context<N: json::AsNode>(
-    binding: &super::Binding,
+    binding: &super::MappedBinding,
     doc: &N,
     mut prefix: String,
     mut packed_key: bytes::BytesMut,
@@ -150,7 +156,7 @@ fn pick_partition(
 // Panics if field extraction fails, as build_logical_prefix() should have
 // already been called.
 fn build_partition_apply<N: json::AsNode>(
-    binding: &super::Binding,
+    binding: &super::MappedBinding,
     doc: &N,
 ) -> tonic::Result<(String, broker::ApplyRequest)> {
     let mut spec = binding.partitions_template.clone();
@@ -172,13 +178,6 @@ fn build_partition_apply<N: json::AsNode>(
     let name = labels::partition::full_name(&spec.name, &labels).unwrap();
     spec.name = name.clone();
     spec.labels = Some(labels);
-
-    if !name.starts_with(&binding.partitions_prefix_or_name) {
-        return Err(tonic::Status::invalid_argument(format!(
-            "candidate partition to create is {name}, but this publisher is restricted to {}",
-            binding.partitions_prefix_or_name
-        )));
-    }
 
     Ok((
         name,
@@ -287,8 +286,8 @@ mod test {
         assert_eq!(pick_partition(&p, "coll/a=1/", 0), None);
     }
 
-    /// Build a test Binding from a built CollectionSpec.
-    fn test_binding(spec: &flow::CollectionSpec) -> super::super::Binding {
+    /// Build a test MappedBinding from a built CollectionSpec.
+    fn test_binding(spec: &flow::CollectionSpec) -> super::super::MappedBinding {
         let flow::CollectionSpec {
             name,
             partition_template,
@@ -299,21 +298,21 @@ mod test {
         } = spec;
 
         let partition_template = partition_template.clone().unwrap();
-        let partitions_prefix_or_name = format!("{}/", &partition_template.name);
+        let partitions_prefix = format!("{}/", &partition_template.name);
         let policy = doc::SerPolicy::noop();
 
         let key_extractors = extractors::for_key(key, projections, &policy).unwrap();
         let partition_extractors =
             extractors::for_fields(partition_fields, projections, &policy).unwrap();
 
-        super::super::Binding {
+        super::super::MappedBinding {
             collection: models::Collection::new(name),
             key_extractors,
             partition_fields: partition_fields.clone(),
             partition_extractors,
             partitions_template: partition_template,
             partitions_limit: 100,
-            partitions_prefix_or_name,
+            partitions_prefix,
         }
     }
 
@@ -331,7 +330,7 @@ mod test {
             .unwrap();
 
         let spec = spec.as_ref().unwrap();
-        let mut binding = test_binding(spec);
+        let binding = test_binding(spec);
 
         // extract_mapping_context encodes partition field values into a logical prefix.
         let (prefix_1, _, _) = extract_mapping_context(
@@ -375,25 +374,5 @@ mod test {
                 "change": request.changes.into_iter().next().unwrap(),
             })
         );
-
-        // A more-specific prefix that still covers the candidate partition is OK.
-        binding.partitions_prefix_or_name =
-            "example/collection/2020202020202020/a_bool=%_true/".to_string();
-        build_partition_apply(
-            &binding,
-            &json!({"a_key": "k", "a_bool": true, "a_str": "hello"}),
-        )
-        .unwrap();
-
-        // A sibling prefix that does NOT cover the candidate partition is rejected.
-        binding.partitions_prefix_or_name =
-            "example/collection/2020202020202020/a_bool=%_false/".to_string();
-        let err = build_partition_apply(
-            &binding,
-            &json!({"a_key": "k", "a_bool": true, "a_str": "hello"}),
-        )
-        .unwrap_err();
-        assert_eq!(err.code(), tonic::Code::InvalidArgument);
-        insta::assert_snapshot!(err.message(), @"candidate partition to create is example/collection/2020202020202020/a_bool=%_true/a_str=hello/pivot=00, but this publisher is restricted to example/collection/2020202020202020/a_bool=%_false/");
     }
 }

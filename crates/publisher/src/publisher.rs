@@ -10,8 +10,9 @@ pub struct Publisher {
     authz_subject: String,
     // Bindings of this Publisher.
     bindings: Vec<super::Binding>,
-    // Lazily-initialized journal Client and partitions watch for each `bindings` entry.
-    binding_clients: Vec<super::LazyPartitionsClient>,
+    // Lazily-initialized journal Client (and, for Mapped bindings, partitions
+    // watch) for each `bindings` entry.
+    binding_clients: Vec<super::LazyBindingClient>,
     // Factory for building journal Clients on demand.
     client_factory: gazette::journal::ClientFactory,
     // Clock used to stamp published document UUIDs.
@@ -31,7 +32,7 @@ impl Publisher {
     /// (one per entry of `bindings`), and to build ephemeral clients inside
     /// `write_intents` for ACK intents that do not match any current binding.
     /// `authz_subject` is passed through to this factory without modification,
-    /// and `Binding::partitions_prefix_or_name` is the AuthZ object.
+    /// and a binding's `authz_object()` is the AuthZ object.
     ///
     /// The `producer` identifies this Publisher as a distinct writer and is
     /// embedded in every UUID it generates. The `clock` provides a monotonic
@@ -46,17 +47,26 @@ impl Publisher {
         let binding_clients = bindings
             .iter()
             .map(|b| {
-                let client_factory = client_factory.clone();
+                let factory = client_factory.clone();
                 let authz_subject = authz_subject.clone();
-                let authz_object = b.partitions_prefix_or_name.clone();
+                let authz_object = b.authz_object().to_string();
 
-                let init: crate::PartitionsClientInit = Box::new(move || {
-                    let client = client_factory(authz_subject, authz_object.clone());
-                    let partitions = crate::watch::watch_partitions(client.clone(), &authz_object);
-                    (client, partitions)
-                });
-
-                std::sync::LazyLock::new(init)
+                match b {
+                    super::Binding::Mapped(_) => {
+                        let init: crate::MappedClientInit = Box::new(move || {
+                            let client = factory(authz_subject, authz_object.clone());
+                            let partitions =
+                                crate::watch::watch_partitions(client.clone(), &authz_object);
+                            (client, partitions)
+                        });
+                        super::LazyBindingClient::Mapped(std::sync::LazyLock::new(init))
+                    }
+                    super::Binding::Fixed(_) => {
+                        let init: crate::FixedClientInit =
+                            Box::new(move || factory(authz_subject, authz_object));
+                        super::LazyBindingClient::Fixed(std::sync::LazyLock::new(init))
+                    }
+                }
             })
             .collect();
 
@@ -89,11 +99,13 @@ impl Publisher {
     /// Enqueue a document for publication to the appropriate journal partition.
     ///
     /// Assigns a UUID with the given `flags` and passes it to `doc`, which
-    /// returns `(binding_index, document)`. The document is mapped to a physical
-    /// partition (creating one if needed, which may issue an Apply RPC), serialized
-    /// as newline-delimited JSON into the partition's Appender buffer, and
-    /// checkpoint'd. The checkpoint may start a background Append RPC if the
-    /// buffer exceeds the flush threshold.
+    /// returns `(binding_index, document)`. For Mapped bindings the document
+    /// is mapped to a physical partition (creating one if needed, which may
+    /// issue an Apply RPC). For Fixed bindings the binding's journal is used
+    /// directly, with no key extraction or partition mapping. The document is
+    /// serialized as newline-delimited JSON into the partition's Appender
+    /// buffer, and checkpoint'd. The checkpoint may start a background Append
+    /// RPC if the buffer exceeds the flush threshold.
     pub async fn enqueue<N: json::AsNode>(
         &mut self,
         doc: impl FnOnce(uuid::Uuid) -> (usize, N),
@@ -105,18 +117,24 @@ impl Publisher {
 
         // Sequence the document.
         let uuid = proto_gazette::uuid::build(self.producer, self.clock.tick(), flags);
-        let (binding, doc) = doc(uuid);
+        let (binding_idx, doc) = doc(uuid);
 
-        let (mut journal, mut packed_key) = super::mapping::map_partition(
-            &self.bindings[binding],
-            &self.binding_clients[binding],
-            &doc,
-            prefix,
-            packed_key,
-        )
-        .await?;
+        let (mut journal, mut packed_key) = match &self.bindings[binding_idx] {
+            super::Binding::Mapped(mapped) => {
+                let super::LazyBindingClient::Mapped(lazy) = &self.binding_clients[binding_idx]
+                else {
+                    unreachable!("Mapped binding has Mapped lazy client");
+                };
+                super::mapping::map_partition(mapped, lazy, &doc, prefix, packed_key).await?
+            }
+            super::Binding::Fixed(fixed) => {
+                let mut prefix = prefix;
+                prefix.push_str(&fixed.journal);
+                (prefix, packed_key)
+            }
+        };
 
-        let (client, _partitions) = &(*self.binding_clients[binding]);
+        let client = self.binding_clients[binding_idx].client();
         let appender = self.appenders.activate(&journal, client);
 
         // Enqueue the serialization to the Appender's buffer, then checkpoint.
@@ -167,8 +185,9 @@ impl Publisher {
     /// Takes the output of `intents::build_transaction_intents()` — per-journal
     /// NDJSON `Bytes` — and appends each to its journal in parallel. For each
     /// journal, this uses a hybrid client strategy:
-    /// - If the journal is a prefix-match of an existing binding's
-    ///   `auth_prefix_or_name`, reuse that binding's client.
+    /// - If the journal matches a binding, reuse that binding's client.
+    ///   For Mapped bindings the match is a prefix-match on the binding's
+    ///   partitions prefix; for Fixed bindings it's an exact name match.
     /// - Otherwise, build an ephemeral client. This supports recovered ACK
     ///   intents that may reference journals no longer bound to the current
     ///   task (e.g. from a prior published task). For this class of journals,
@@ -192,8 +211,11 @@ impl Publisher {
             let binding_client = self
                 .bindings
                 .iter()
-                .position(|b| journal.starts_with(&b.partitions_prefix_or_name))
-                .map(|i| &(*self.binding_clients[i]).0);
+                .position(|b| match b {
+                    super::Binding::Mapped(m) => journal.starts_with(&m.partitions_prefix),
+                    super::Binding::Fixed(f) => journal == f.journal,
+                })
+                .map(|i| self.binding_clients[i].client());
 
             let appender = if let Some(client) = binding_client {
                 self.appenders.activate(&journal, client)
@@ -226,15 +248,20 @@ impl Publisher {
         Ok(())
     }
 
-    /// Access the lazy Client and partitions watch for the binding at `index`.
-    /// Primarily used by tests.
-    pub fn binding_client(
+    /// Access the lazy Client and partitions watch for the Mapped binding at
+    /// `index`. Panics if the binding is Fixed. Primarily used by tests.
+    pub fn mapped_binding_client(
         &self,
         index: usize,
     ) -> &(
         gazette::journal::Client,
         tokens::PendingWatch<Vec<super::watch::PartitionSplit>>,
     ) {
-        &*self.binding_clients[index]
+        match &self.binding_clients[index] {
+            super::LazyBindingClient::Mapped(lazy) => &**lazy,
+            super::LazyBindingClient::Fixed(_) => {
+                panic!("binding {index} is Fixed, not Mapped")
+            }
+        }
     }
 }

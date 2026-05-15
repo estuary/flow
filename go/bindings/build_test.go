@@ -75,22 +75,6 @@ func TestBuildCatalog(t *testing.T) {
 			require.NoError(t, err)
 			cupaloy.SnapshotT(t, out)
 		})
-		t.Run("collection-for-journal", func(t *testing.T) {
-			// Prefix match: a partitioned journal of `a/collection`.
-			out, err := catalog.LoadCollectionForJournal(db,
-				"a/collection/ffffffffffffffff/foo=bar/pivot=00")
-			require.NoError(t, err)
-			require.Equal(t, "a/collection", out.Name.String())
-
-			// Exact-match without trailing partition path is not supported.
-			_, err = catalog.LoadCollectionForJournal(db, "a/collection")
-			require.ErrorIs(t, err, sql.ErrNoRows)
-
-			// No prefix match.
-			_, err = catalog.LoadCollectionForJournal(db, "no/such/journal")
-			require.ErrorIs(t, err, sql.ErrNoRows)
-		})
-
 		return nil
 	}))
 }
