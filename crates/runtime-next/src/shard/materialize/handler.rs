@@ -34,25 +34,34 @@ where
             }
 
             proto::Materialize {
-                spec: Some(spec), ..
+                spec: Some(spec),
+                log_level,
+                ..
             } => {
+                let log_level =
+                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
+                service.set_log_level(log_level);
                 let request = materialize::Request {
                     spec: Some(spec),
                     ..Default::default()
                 };
-                let response = serve_unary(&service, request).await?;
+                let response = serve_unary(&service, request, log_level).await?;
                 _ = controller_tx.send(Ok(response));
             }
 
             proto::Materialize {
                 validate: Some(validate),
+                log_level,
                 ..
             } => {
+                let log_level =
+                    ops::LogLevel::try_from(log_level).unwrap_or(ops::LogLevel::UndefinedLevel);
+                service.set_log_level(log_level);
                 let request = materialize::Request {
                     validate: Some(validate),
                     ..Default::default()
                 };
-                let response = serve_unary(&service, request).await?;
+                let response = serve_unary(&service, request, log_level).await?;
                 _ = controller_tx.send(Ok(response));
             }
 
@@ -65,12 +74,14 @@ where
 pub async fn serve_unary<L: crate::LogHandler>(
     service: &crate::shard::Service<L>,
     request: materialize::Request,
+    log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Materialize> {
     let is_spec = request.spec.is_some();
     let is_validate = request.validate.is_some();
     let is_apply = request.apply.is_some();
 
-    let (connector_tx, mut connector_rx, _container) = connector::start(service, request).await?;
+    let (connector_tx, mut connector_rx, _container) =
+        connector::start(service, log_level, request).await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     // Read connector response, and verify it matches the request type.
@@ -160,9 +171,12 @@ where
         .context("missing shard for shard index")?;
 
     let labeling = labeling.as_ref().context("missing shard labeling")?.clone();
+    let log_level = labeling.log_level();
     let shard_id = shard_id.clone();
     let shard_index = join.shard_index;
     let shuffle_directory = join.shuffle_directory.clone();
+
+    service.set_log_level(log_level);
 
     let (joined, leader_stream) = startup::dial_and_join(join).await?;
 
@@ -194,6 +208,7 @@ where
         labeling,
         leader_rx,
         leader_tx,
+        log_level,
         service,
         shard_id,
         shard_index,

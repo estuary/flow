@@ -166,14 +166,12 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 		close(ch)
 	}()
 
-	// 1. Load and marshal everything that doesn't depend on Etcd topology.
-	var opsStatsJournal = m.term.labels.StatsJournal
 	var specBytes []byte
 	if specBytes, err = m.term.taskSpec.Marshal(); err != nil {
 		return fmt.Errorf("marshaling MaterializationSpec: %w", err)
 	}
 
-	// 2. Build & send Join, repeating on disagreement until consensus.
+	// Run the Join/Joined protocol loop until consensus is met.
 	var waitForRevision int64
 	for {
 		var ks = m.host.service.State.KS
@@ -183,52 +181,50 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 		if err != nil {
 			return fmt.Errorf("awaiting Etcd revision %d: %w", waitForRevision, err)
 		}
+
+		// Build Join from the current topology view, and send.
 		var join, rev, err = m.buildJoin()
 		if err != nil {
 			return fmt.Errorf("building Join: %w", err)
-		}
-		if join == nil {
+		} else if join == nil {
 			waitForRevision = rev + 1
 			continue
 		}
-		if err := m.client.Send(&pr.Materialize{Join: join}); err != nil {
-			return fmt.Errorf("sending Join: %w", err)
-		}
+		_ = m.client.Send(&pr.Materialize{Join: join})
+
+		// Receive Joined and check consensus.
 		var resp *pr.Materialize
 		if resp, err = m.recv(); err != nil {
 			return fmt.Errorf("receiving Joined: %w", pf.UnwrapGRPCError(err))
-		}
-		if resp.Joined == nil {
+		} else if resp.Joined == nil {
 			return fmt.Errorf("expected Joined, got %#v", resp)
-		}
-		if resp.Joined.MaxEtcdRevision == 0 {
+		} else if resp.Joined.MaxEtcdRevision == 0 {
 			break // Consensus.
+		} else {
+			// Disagreement: await the indicated revision, then re-poll topology.
+			waitForRevision = resp.Joined.MaxEtcdRevision
 		}
-		// Disagreement: await the indicated revision, then re-poll topology.
-		waitForRevision = resp.Joined.MaxEtcdRevision
 	}
 
-	// 3. Send Task and wait for Opened.
-	if err := m.client.Send(&pr.Materialize{
+	// Send Task.
+	_ = m.client.Send(&pr.Materialize{
 		Task: &pr.Task{
 			Spec:            specBytes,
-			OpsStatsJournal: string(opsStatsJournal),
 			Preview:         false,
 			MaxTransactions: 0,
 		},
-	}); err != nil {
-		return fmt.Errorf("sending Task: %w", err)
-	}
-	resp, err := m.recv()
-	if err != nil {
+	})
+
+	// Receive Opened.
+	var resp *pr.Materialize
+	if resp, err = m.recv(); err != nil {
 		return fmt.Errorf("receiving Opened: %w", pf.UnwrapGRPCError(err))
-	}
-	if resp.Opened == nil {
+	} else if resp.Opened == nil {
 		return fmt.Errorf("expected Opened, got %#v", resp)
 	}
 	m.container.Store(resp.Opened.Container)
 
-	// 4. Steady-state: drive teardown signals and surface stream errors.
+	// Steady-state: drive teardown signals and surface stream errors.
 	// termDone is nil-ed once we've sent Stop, so the case stops firing.
 	// Future CloseNow plumbing slots in as another case alongside termDone.
 	var termDone = m.term.ctx.Done()

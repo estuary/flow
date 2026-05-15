@@ -490,16 +490,11 @@ pub struct Task {
     /// Task specification (protobuf-encoded bytes).
     #[prost(bytes = "bytes", tag = "1")]
     pub spec: ::prost::bytes::Bytes,
-    /// Collection journal partition to which task stats are written.
-    /// The journal is pre-created by activate; the runtime appends directly
-    /// without consulting the partitions watch or creating new partitions.
-    #[prost(string, tag = "2")]
-    pub ops_stats_journal: ::prost::alloc::string::String,
     /// When true, documents and stats are written to output and not directed to collections.
-    #[prost(bool, tag = "4")]
+    #[prost(bool, tag = "2")]
     pub preview: bool,
     /// Preview / harness control. Zero means unlimited.
-    #[prost(uint32, tag = "5")]
+    #[prost(uint32, tag = "3")]
     pub max_transactions: u32,
 }
 /// Recover is sent by each shard to the leader after Joined, and carries
@@ -743,6 +738,12 @@ pub struct Materialize {
     /// Shard → Controller. Connector's reply to `validate`.
     #[prost(message, optional, tag = "4")]
     pub validated: ::core::option::Option<super::materialize::response::Validated>,
+    /// Controller → Shard. Effective only on unary `spec` / `validate`
+    /// messages, which never see the Join-time labeling that supplies the
+    /// log level for session-bound work. Ignored on all other variants
+    /// (the leader → shard messages MUST NOT set this).
+    #[prost(enumeration = "super::ops::log::Level", tag = "5")]
+    pub log_level: i32,
     /// Controller → Shard. First message of a session-loop stream;
     /// never sent to the Leader.
     #[prost(message, optional, tag = "20")]

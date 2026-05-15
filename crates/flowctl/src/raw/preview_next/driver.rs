@@ -161,7 +161,6 @@ async fn drive_one_shard(
                 .send(Ok(proto::Materialize {
                     task: Some(proto::Task {
                         spec: spec_bytes.clone(),
-                        ops_stats_journal: String::new(),
                         preview: true,
                         max_transactions: target_txns,
                     }),
