@@ -1,0 +1,167 @@
+use anyhow::Context;
+use clap::Parser;
+use std::path::PathBuf;
+
+/// Command-line arguments for the runtime-sidecar process.
+///
+/// Naming aligns with sibling Rust services (`dekaf`) for unprefixed
+/// `DATA_PLANE_*`, `CERTIFICATE_*`, and `AGENT_ENDPOINT` envs. The
+/// reactor (Go consumer) uses `FLOW_*` and `CONSUMER_*` namespaced
+/// envs because that's `go-flags`/gazette `mainboilerplate` convention;
+/// we follow the unprefixed form here.
+#[derive(Debug, Parser)]
+#[command(about, version)]
+pub struct Args {
+    #[arg(long = "log-format", env = "LOG_FORMAT", default_value = "text")]
+    pub log_format: LogFormat,
+
+    /// TCP port to listen on, binding `[::]:<port>`.
+    #[arg(long, env = "LISTEN_PORT")]
+    pub listen_port: u16,
+
+    /// Externally-reachable URL of this sidecar, advertised to peer
+    /// shuffle clients (e.g. `https://reactor-foo.flow.localhost:9100`).
+    #[arg(long, env = "PEER_ENDPOINT")]
+    pub peer_endpoint: String,
+
+    /// Fully-qualified domain name of the data-plane that this sidecar
+    /// belongs to; used as the issuer claim of authorization tokens.
+    #[arg(long, env = "DATA_PLANE_FQDN")]
+    pub data_plane_fqdn: String,
+
+    /// Whitespace- or comma-separated base64 HMAC keys recognized by
+    /// the data plane. The first key signs outgoing `/authorize/task`
+    /// requests; all keys are accepted as verifiers for incoming
+    /// gRPC traffic (incoming verification is wired in a follow-up).
+    #[arg(long, env = "DATA_PLANE_AUTH_KEYS")]
+    pub data_plane_auth_keys: String,
+
+    /// TLS server certificate PEM. Both `--certificate-file` and
+    /// `--certificate-key-file` must be provided together.
+    #[arg(long, env = "CERTIFICATE_FILE", requires = "certificate_key_file")]
+    pub certificate_file: Option<PathBuf>,
+
+    /// TLS server private key PEM. Required iff `--certificate-file` is set.
+    #[arg(long, env = "CERTIFICATE_KEY_FILE", requires = "certificate_file")]
+    pub certificate_key_file: Option<PathBuf>,
+
+    /// Estuary agent REST base URL used to issue `/authorize/task` calls.
+    #[arg(long, env = "AGENT_ENDPOINT")]
+    pub agent_endpoint: url::Url,
+
+    /// Broker zone passed to `gazette::Router::new`.
+    #[arg(long, env = "GAZETTE_ZONE", default_value = "local")]
+    pub gazette_zone: String,
+
+    /// On-disk shuffle log overflow threshold in bytes. Default is 2 GiB.
+    #[arg(long, env = "DISK_BACKLOG_THRESHOLD", default_value_t = 2 * 1024 * 1024 * 1024)]
+    pub disk_backlog_threshold: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
+pub enum LogFormat {
+    Text,
+    Json,
+}
+
+pub async fn run(args: Args) -> anyhow::Result<()> {
+    // Parse comma/whitespace-separated base64 HMAC keys. First key signs
+    // outgoing /authorize/task requests; the remaining keys are reserved
+    // for future incoming-gRPC verification (see plan).
+    let keys: Vec<String> = args
+        .data_plane_auth_keys
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    anyhow::ensure!(
+        !keys.is_empty(),
+        "--data-plane-auth-keys must contain at least one key"
+    );
+    let signing_key = tokens::jwt::EncodingKey::from_base64_secret(&keys[0])
+        .context("parsing first data-plane auth key (base64)")?;
+    let _verification_keys = keys; // TODO(runtime-v2): wire up incoming-gRPC verification.
+
+    // Build REST + Router.
+    let api_client = flow_client_next::rest::Client::new(&args.agent_endpoint, "runtime-sidecar");
+    let router = gazette::Router::new(&args.gazette_zone);
+
+    // Two journal client factories: LIST|READ (shuffle reads source journals)
+    // and LIST|APPEND (leader publishes stats and ACK intents).
+    let read_factory =
+        flow_client_next::workflows::task_collection_auth::new_journal_client_factory(
+            api_client.clone(),
+            proto_gazette::capability::LIST | proto_gazette::capability::READ,
+            router.clone(),
+            args.data_plane_fqdn.clone(),
+            signing_key.clone(),
+        );
+    let append_factory =
+        flow_client_next::workflows::task_collection_auth::new_journal_client_factory(
+            api_client,
+            proto_gazette::capability::LIST | proto_gazette::capability::APPEND,
+            router,
+            args.data_plane_fqdn,
+            signing_key,
+        );
+
+    let shuffle_svc = shuffle::Service::new(
+        args.peer_endpoint,
+        read_factory,
+        args.disk_backlog_threshold,
+    );
+    let runtime_svc = runtime_next::Service::new(shuffle_svc.clone(), append_factory);
+
+    // Build a TLS identity if both files were given.
+    // clap `requires` enforces both-or-neither.
+    let tls_identity = if let (Some(cert), Some(key)) = (
+        args.certificate_file.as_ref(),
+        args.certificate_key_file.as_ref(),
+    ) {
+        let cert_bytes = tokio::fs::read(cert)
+            .await
+            .with_context(|| format!("reading {}", cert.display()))?;
+        let key_bytes = tokio::fs::read(key)
+            .await
+            .with_context(|| format!("reading {}", key.display()))?;
+        Some(tonic::transport::Identity::from_pem(cert_bytes, key_bytes))
+    } else {
+        None
+    };
+
+    // SIGTERM (systemd) and SIGINT (interactive Ctrl+C) both initiate graceful shutdown.
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel::<()>(1);
+    tokio::spawn(async move {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("install SIGTERM handler");
+        tokio::select! {
+            _ = term.recv() => tracing::info!("SIGTERM received"),
+            _ = tokio::signal::ctrl_c() => tracing::info!("SIGINT received"),
+        }
+        let _ = shutdown_tx.send(());
+    });
+
+    let addr = format!("[::]:{}", args.listen_port);
+    let tcp = tokio::net::TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("binding TCP {addr}"))?;
+    tracing::info!(%addr, tls = tls_identity.is_some(), "runtime-sidecar listening on TCP");
+
+    let mut builder = tonic::transport::Server::builder();
+    if let Some(identity) = tls_identity {
+        builder = builder
+            .tls_config(tonic::transport::ServerTlsConfig::new().identity(identity))
+            .context("configuring TCP TLS")?;
+    }
+    builder
+        .add_service(runtime_svc.into_tonic_service())
+        .add_service(shuffle_svc.into_tonic_service())
+        .serve_with_incoming_shutdown(
+            tokio_stream::wrappers::TcpListenerStream::new(tcp),
+            async move {
+                let _ = shutdown_rx.recv().await;
+            },
+        )
+        .await
+        .context("serving runtime-sidecar TCP")
+}
