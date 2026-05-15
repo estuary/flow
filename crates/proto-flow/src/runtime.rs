@@ -15,9 +15,8 @@ pub struct TaskServiceConfig {
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,
 /// where a journal is read and each document is mapped into:
-///
-/// * An extracted, packed, and hashed composite key (a "shuffle key").
-/// * A rotated Clock value (an "r-clock").
+///    - An extracted, packed, and hashed composite key (a "shuffle key").
+///    - A rotated Clock value (an "r-clock").
 ///
 /// The packed key and r-clock can then be compared to individual reader
 /// RangeSpec's.
@@ -103,7 +102,7 @@ pub struct ShuffleResponse {
     #[prost(message, repeated, tag = "7")]
     pub docs: ::prost::alloc::vec::Vec<super::flow::Slice>,
     /// The journal offsets of each document within the requested journal.
-    /// For a document at index i, its offsets are \[ offsets\[2*i\], offsets\[2*i+1\]
+    /// For a document at index i, its offsets are \[ offsets[2*i\], offsets\[2*i+1\]
     /// ).
     #[prost(int64, repeated, packed = "false", tag = "8")]
     pub offsets: ::prost::alloc::vec::Vec<i64>,
@@ -398,7 +397,6 @@ pub struct CombineResponse {
     pub values_packed: ::prost::bytes::Bytes,
 }
 /// No requests are sent by the client in a ProxyConnectors RPC. However:
-///
 /// * The client should leave its stream open while the proxy is in use.
 /// * Then, it sends EOF to begin a graceful stop of the proxy.
 /// * The response stream will EOF only after all logs have been yielded.

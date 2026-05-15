@@ -58,9 +58,8 @@ pub struct ProducerFrontier {
     #[prost(fixed64, tag = "3")]
     pub hinted_commit: u64,
     /// Journal byte offset, sign-encoded:
-    ///
-    /// * Non-negative: begin offset of first pending CONTINUE_TXN.
-    /// * Negative: negation of end offset of last committing ACK_TXN / OUTSIDE_TXN.
+    /// - Non-negative: begin offset of first pending CONTINUE_TXN.
+    /// - Negative: negation of end offset of last committing ACK_TXN / OUTSIDE_TXN.
     #[prost(int64, tag = "4")]
     pub offset: i64,
 }
@@ -72,7 +71,7 @@ pub struct ProducerFrontier {
 /// However, Producer IDs come and go over time, and the historical set of producers
 /// who have EVER written to a journal may be large.
 ///
-/// Most JournalFrontier focuses on *deltas* of frontier state, and have few producers.
+/// Most JournalFrontier focuses on _deltas_ of frontier state, and have few producers.
 /// The exception is when a Coordinator client is streaming in a resume checkpoint.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct JournalFrontier {
@@ -383,7 +382,7 @@ pub mod log_request {
         #[prost(bytes = "bytes", tag = "10")]
         pub doc_archived: ::prost::bytes::Bytes,
         /// Byte length of this document in its source journal (end_offset - begin_offset).
-        /// Always fits in uint32 because a single document is always \< 4 GiB.
+        /// Always fits in uint32 because a single document is always < 4 GiB.
         #[prost(uint32, tag = "11")]
         pub source_byte_length: u32,
     }

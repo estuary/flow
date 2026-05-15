@@ -264,7 +264,7 @@ pub mod stats {
         pub uptime_seconds: u32,
         /// Usage rate adjustment which accompanies and adjusts `uptime_seconds`.
         /// The effective number of "used" task seconds is:
-        /// round(uptime_seconds * usage_rate)
+        ///    round(uptime_seconds * usage_rate)
         ///
         /// At present, capture and materialization tasks always use a fixed value of 1.0,
         /// while derivation tasks use a fixed value of 0.0.
