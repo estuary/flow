@@ -32,10 +32,10 @@ Reactor machine
   │         │    (RocksDB + Go Recorder on the shard hosting the recovery log)
   │         └─ Capture: per-shard RocksDB with Go Recorder
   │
-  └─ shuffle sidecar process (Rust, one per machine)
+  └─ runtime sidecar process (Rust, one per machine)
        ├─ Shuffle Leader service (this crate, per-task via Join)
        ├─ Shuffle service (`crates/shuffle`, Session/Slice/Log RPCs)
-       └─ Listens on the fixed shuffle port, shared fleet-wide
+       └─ Listens on the fixed sidecar port, shared fleet-wide
 ```
 
 The Gazette consumer framework's transaction lifecycle is **bypassed
@@ -92,7 +92,7 @@ src/
   signing key), constructs a `shard::Service`, and serves it over a per-shard
   Unix domain socket.
 - **`leader::Service::new`** (`leader/service.rs`) — sidecar process builds
-  one of these and registers it on the shuffle port alongside `shuffle::Service`.
+  one of these and registers it on the sidecar port alongside `shuffle::Service`.
 - **`shard::Service`** (`shard/service.rs`) — implements the controller-facing
   `Shard` trait. Each bidi stream terminates *both* the controller-bound
   protocol and the leader-bound protocol, translating between them and the
@@ -136,7 +136,7 @@ documented inline in the proto.
 This crate ships **deployed inert** alongside the existing `runtime` crate;
 both coexist on the same reactor. Per-task feature flags on shard labels
 select which runtime serves a given task — all shards of a task use the
-same runtime. The shuffle sidecar runs uniformly on every reactor machine
+same runtime. The runtime sidecar runs uniformly on every reactor machine
 regardless of which tasks are assigned; old-runtime tasks simply don't talk
 to it. Rollback for any task is a feature-flag flip.
 
