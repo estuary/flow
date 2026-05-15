@@ -108,7 +108,6 @@ where
     let proto::Task {
         max_transactions: _,
         ops_stats_journal,
-        ops_stats_spec,
         preview,
         spec: spec_bytes,
     } = l_task;
@@ -126,13 +125,10 @@ where
     let publisher = if preview {
         crate::Publisher::new_preview()
     } else {
-        let ops_stats_spec = ops_stats_spec.as_ref().context("missing ops stats spec")?;
-
         crate::Publisher::new_real(
             shard_id, // Shard ID is AuthZ subject.
             &service.publisher_factory,
             &ops_stats_journal,
-            ops_stats_spec,
             [], // No additional bindings.
         )
         .context("creating publisher")?

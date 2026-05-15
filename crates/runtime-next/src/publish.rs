@@ -11,12 +11,11 @@
 //!   print to stdout in the `["{collection}",{...doc...}]` format used by
 //!   `flowctl preview`.
 //!
-//! Construction is decided in `startup::run` based on the presence of
-//! ops_logs / ops_stats specs in `L:Open`: present ⇒ `Real`, absent ⇒
-//! `Preview`. The leader actor parks the `Publisher` across IO futures.
+//! Construction is decided in `startup::run` based on the `preview` flag in
+//! `L:Task`: `false` ⇒ `Real`, `true` ⇒ `Preview`. The leader actor parks the
+//! `Publisher` across IO futures.
 
 use bytes::Bytes;
-use proto_flow::flow;
 use proto_gazette::uuid;
 use std::collections::BTreeMap;
 
@@ -36,28 +35,24 @@ pub enum Publisher {
 }
 
 impl Publisher {
-    /// Build a real `Publisher` backed by a `publisher::Publisher` for
-    /// `ops_logs_spec` / `ops_stats_spec` journals plus any additional
-    /// supplied collection specs.
+    /// Build a real `Publisher` backed by a `publisher::Publisher` for the
+    /// pre-created `ops_stats_journal` plus any additional supplied collection
+    /// specs.
     pub fn new_real<'a, I>(
         authz_subject: String,
         client_factory: &gazette::journal::ClientFactory,
         ops_stats_journal: &str,
-        ops_stats_spec: &flow::CollectionSpec,
         collection_specs: I,
     ) -> anyhow::Result<Self>
     where
-        I: IntoIterator<Item = &'a flow::CollectionSpec>,
+        I: IntoIterator<Item = &'a proto_flow::flow::CollectionSpec>,
     {
         let mut bindings = Vec::new();
 
-        bindings.push(publisher::Binding::from_collection_spec(
-            ops_stats_spec,
-            Some(ops_stats_journal),
-        )?);
+        bindings.push(publisher::Binding::for_fixed_journal(ops_stats_journal));
 
         for spec in collection_specs {
-            bindings.push(publisher::Binding::from_collection_spec(spec, None)?);
+            bindings.push(publisher::Binding::from_collection_spec(spec)?);
         }
 
         let mut producer: [u8; 6] = rand::random();
@@ -101,7 +96,7 @@ impl Publisher {
             Self::Real(p) => {
                 p.enqueue(
                     |uuid| {
-                        // Binding index 0 is ops_stats_spec.
+                        // Binding index 0 is the fixed ops_stats journal.
                         stats.meta.as_mut().unwrap().uuid = uuid.to_string();
                         (0, serde_json::to_value(&stats).unwrap())
                     },

@@ -81,17 +81,6 @@ func LoadCollection(db *sql.DB, name string) (*pf.CollectionSpec, error) {
 	return out, loadOneSpec(db, `SELECT spec FROM built_collections WHERE collection = ?;`, out, name)
 }
 
-// LoadCollectionForJournal loads the CollectionSpec whose name is the
-// slash-delimited prefix of `journal`.
-func LoadCollectionForJournal(db *sql.DB, journal string) (*pf.CollectionSpec, error) {
-	var out = new(pf.CollectionSpec)
-	return out, loadOneSpec(db,
-		`SELECT spec FROM built_collections
-		 WHERE substr(?, 1, length(collection) + 1) = collection || '/'
-		 ORDER BY length(collection) DESC LIMIT 1;`,
-		out, journal)
-}
-
 // LoadAllCaptures loads all captures.
 func LoadAllCaptures(db *sql.DB) ([]*pf.CaptureSpec, error) {
 	var out []*pf.CaptureSpec

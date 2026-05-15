@@ -53,7 +53,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
         .as_ref()
         .expect("built collection should have a spec");
 
-    let binding = publisher::Binding::from_collection_spec(collection_spec, None)
+    let binding = publisher::Binding::from_collection_spec(collection_spec)
         .expect("should build binding from collection spec");
 
     let factory: gazette::journal::ClientFactory = Arc::new({
@@ -118,7 +118,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
         .expect("ACK write should succeed");
 
     // Snapshot the partition listing from the Publisher's own watch.
-    let (_client, partitions) = publisher.binding_client(0);
+    let (_client, partitions) = publisher.mapped_binding_client(0);
     let partitions_watch = partitions.ready().await;
     let splits = partitions_watch.token();
     let splits = splits.result().expect("partitions should be available");
