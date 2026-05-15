@@ -80,12 +80,11 @@ impl Task {
 
         // Close-policy thresholds, many with placeholder defaults.
         // TODO: thread these through from the spec once they're supported there.
-        let open_duration: std::ops::Range<std::time::Duration> =
-            min_txn_duration..max_txn_duration;
-        let last_close_age = std::time::Duration::ZERO..std::time::Duration::from_secs(300);
         let combiner_usage_bytes = 0..(30 * 1024 * 1024 * 1024);
-        let read_docs = 0..u64::MAX;
+        let last_close_age = std::time::Duration::ZERO..std::time::Duration::MAX;
+        let open_duration = min_txn_duration..max_txn_duration;
         let read_bytes = 0..u64::MAX;
+        let read_docs = 0..u64::MAX;
 
         Ok(Self {
             binding_collection_names,

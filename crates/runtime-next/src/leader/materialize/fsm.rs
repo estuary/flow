@@ -1160,11 +1160,11 @@ pub fn decide_close_policy(inputs: CloseInputs, task: &Task) -> CloseDecision {
         && read_bytes < task.read_bytes.end
         && read_docs < task.read_docs.end;
 
-    let mut policy_close = open_age > task.open_duration.start
-        && last_age > task.last_close_age.start
-        && (!policy_extend || max_combiner > task.combiner_usage_bytes.start)
-        && (!policy_extend || read_bytes > task.read_bytes.start)
-        && (!policy_extend || read_docs > task.read_docs.start);
+    let mut policy_close = open_age >= task.open_duration.start
+        && last_age >= task.last_close_age.start
+        && (!policy_extend || max_combiner >= task.combiner_usage_bytes.start)
+        && (!policy_extend || read_bytes >= task.read_bytes.start)
+        && (!policy_extend || read_docs >= task.read_docs.start);
     policy_close |= idempotent_replay && !unresolved_hints;
     policy_close |= close_requested;
 
@@ -1215,8 +1215,8 @@ fn build_stats_doc(
         );
         entry.last_source_published_at = extents.max_source_clock.to_pb_json_timestamp();
 
-        ops::merge_docs_and_bytes(&extents.sourced, &mut entry.left);
-        ops::merge_docs_and_bytes(&extents.loaded, &mut entry.right);
+        ops::merge_docs_and_bytes(&extents.sourced, &mut entry.right);
+        ops::merge_docs_and_bytes(&extents.loaded, &mut entry.left);
         ops::merge_docs_and_bytes(&extents.stored, &mut entry.out);
     }
 
@@ -1637,32 +1637,33 @@ mod tests {
         assert!(matches!(action, Action::Load { .. }));
         assert!(matches!(head, Head::Extend(_)));
 
-        // Loaded responses arrive from each shard. After both have landed
-        // HeadExtend rests (policy allows extend-or-close, neither input is
-        // provided) — the action is Sleep/Idle, which we don't assert.
-        for s in 0..2 {
-            ctx.shard_rx = Some(mk_loaded(s));
-            let (_action, h) = ctx.step_head(head, &mut tail);
-            head = h;
-            assert!(ctx.shard_rx.is_none(), "Loaded was consumed");
-        }
+        // Loaded(0) lands; HeadExtend still awaits Loaded(1) and rests.
+        ctx.shard_rx = Some(mk_loaded(0));
+        let (_action, h) = ctx.step_head(head, &mut tail);
+        head = h;
         assert!(matches!(head, Head::Extend(_)));
 
-        // Extend the open transaction with a second ready Frontier.
+        // A second ready Frontier becomes available before Loaded(1) arrives —
+        // simulating the actor's loop pre-fetching the next frontier while
+        // awaiting the prior round's Loaded responses.
         ctx.ready_frontier = Some(shuffle::Frontier::default());
+        ctx.shard_rx = Some(mk_loaded(1));
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
+        // With both inputs available the FSM extends rather than closes.
         assert!(matches!(action, Action::Load { .. }));
+        assert!(matches!(head, Head::Extend(_)));
 
-        for s in 0..2 {
-            ctx.shard_rx = Some(mk_loaded(s));
-            let (_action, h) = ctx.step_head(head, &mut tail);
-            head = h;
-        }
+        // Second Load round: Loaded x2 arrive without another frontier queued.
+        // After the final Loaded the close-policy fires: ready_frontier is
+        // None and may_close is true (Tail::Done), so
+        // HeadExtend transitions straight into HeadFlush.
+        ctx.shard_rx = Some(mk_loaded(0));
+        let (_action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        assert!(matches!(head, Head::Extend(_)));
 
-        // Close: with Tail::Done and no unresolved hints, `close_requested`
-        // forces may_close and we begin L:Flush.
-        ctx.close_requested = true;
+        ctx.shard_rx = Some(mk_loaded(1));
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
         assert!(matches!(action, Action::Flush { .. }));
@@ -1721,17 +1722,17 @@ mod tests {
           "_meta": {},
           "shard": {},
           "ts": "2023-11-14T22:13:20.000000004+00:00",
-          "openSecondsTotal": 0.000000024,
+          "openSecondsTotal": 0.000000016,
           "txnCount": 1,
           "materialize": {
             "test/collection": {
               "left": {
-                "docsTotal": 12,
-                "bytesTotal": 1200
-              },
-              "right": {
                 "docsTotal": 4,
                 "bytesTotal": 400
+              },
+              "right": {
+                "docsTotal": 12,
+                "bytesTotal": 1200
               },
               "out": {
                 "docsTotal": 8,
