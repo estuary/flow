@@ -102,8 +102,9 @@ lz4 = "1"
 lz4_flex = "0"
 mime = "0"
 memchr = "2"
-metrics = "0"
-metrics-exporter-prometheus = "0"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.18"
+metrics-util = "0.20"
 prometheus = "0"
 md5 = "0"
 num-bigint = "0"
@@ -234,7 +235,7 @@ aws-sdk-sts = "1"
 
 # Used for the agent http server
 axum = { version = "0", features = ["macros"] }
-axum-server = { version = "0", features = ["tls-rustls"] }
+axum-server = { version = "0.7.3", features = ["tls-rustls"] }
 axum-extra = { version = "0", features = ["typed-header", "query"] }
 async-graphql = { version = "7", features = [
     "chrono",

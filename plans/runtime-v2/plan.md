@@ -95,6 +95,24 @@ Three layers interact:
    logs, not task logs. Captures don't use the Shuffle Leader or
    shuffle services, but the sidecar runs uniformly regardless.
 
+   - **Admin surface** (`crates/service-kit/`): when `--admin-port` is
+     set, the sidecar serves a loopback-only HTTP page (and
+     `/debug/handlers.json`) listing every in-flight Leader / Shuffle
+     handler with a coarse lifecycle phase, and a `POST
+     /debug/handlers/{id}/level/{level}` control that raises one
+     handler's `tracing` verbosity at runtime — useful for inspecting a
+     wedged handler whose actor loops emit `trace!`-level instrumentation
+     on a ticker. Each handler runs inside a `service_kit::handler` span;
+     `service_kit::trace::layer_filter` composes the sidecar's base
+     `EnvFilter` with a per-handler override filter that admits events at
+     or above an enclosing handler span's override level. Both gRPC
+     services register their spawned handlers in a shared
+     `service_kit::Registry`. `runtime-next` and `shuffle` both depend on
+     `service-kit` (it's a leaf, service-agnostic crate; `shuffle` can't
+     depend on `runtime-next`). Local stacks bind the admin surface at
+     `base_port + 61`. `service-kit` is also the intended home for a
+     future Prometheus `/metrics` handler.
+
    *Why a sidecar rather than in-process via CGO.* The shuffle stack
    and per-shard TaskService already communicate solely by gRPC with
    no shared memory, so the process boundary aligns with an existing
