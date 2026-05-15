@@ -1,11 +1,11 @@
-# Local Stack
+# Local Stack Architecture & Operations
 
 This directory holds the systemd units and helper scripts that `mise run local:*`
 glues together into a working Estuary stack. The interesting machinery is in
 `local/systemd/` (unit files) and `mise/tasks/local/` (drivers that emit env
 files and dropins, then `systemctl --user start`).
 
-## Topology at a glance
+## Topology
 
 ```
 flow-supabase.service ──┐
@@ -17,7 +17,7 @@ flow-etcd.service  (single-node, http://etcd.flow.localhost:2379)
 flow-plane@<dp>.target ───────────  one per data plane
   ├─ flow-gazette@<dp>-<port>            broker(s),  base_port + 0..9
   ├─ flow-reactor@<dp>-<port>            reactor(s), base_port + 99..90
-  ├─ flow-runtime-sidecar@<dp>           Rust sidecar, base_port + 60
+  ├─ flow-runtime-sidecar@<dp>           Rust sidecar, base_port + 60 (gRPC) / +61 (admin HTTP)
   ├─ flow-dekaf@<dp>                     Kafka shim,  base_port + 50/51/52
   └─ flow-plane-link@<dp>                oneshot: POSTs to agent to register
 
@@ -30,21 +30,16 @@ port-block 8000 with 4 brokers, 1 reactor, dekaf, and link, and then publishes
 
 ## The port scheme is load-bearing
 
-Each data plane gets a 100-wide block starting on a multiple of 100. Within the
-block:
+Each data plane gets a 100-wide block starting on a multiple of 100; the
+per-service offsets within it (annotated in the topology diagram above) are
+fixed by the mise tasks, and the data-plane script rejects a base port that
+isn't `% 100 == 0`. One surprising consequence worth internalizing:
+reactors count *down* from the end of the block, so a "single reactor"
+lands on `block+99` — `local-cluster`'s sole reactor is at **8099**, not 8004.
 
-| Offset | Service |
-| --- | --- |
-| +0..+9 | brokers (count up from block start) |
-| +50, +51, +52 | dekaf kafka / registry / metrics |
-| +60 | runtime-sidecar |
-| +90..+99 | reactors (count down from block end) |
-
-So a "single reactor" lands on `block+99` — `local-cluster` puts its sole
-reactor at **8099**, not 8004. The data-plane script enforces `% 100 == 0` on
-the base port. `mise/tasks/vm/port-forward` hardcodes three reserved blocks:
-**8000–8099**, **10000–10099**, **10100–10199** — those are your three
-forwardable data planes from a VM.
+`mise/tasks/vm/port-forward` hardcodes three reserved blocks — **8000–8099**,
+**10000–10099**, **10100–10199** — so those are your three forwardable data
+planes from a VM.
 
 The dockerized Kafka that backs Dekaf consumer groups lives outside any block,
 on **:29092**, and is shared across all data planes.
@@ -195,6 +190,16 @@ swaps every URL to a localhost equivalent:
 
 The `--profile` flag also controls which config file in
 `~/.config/flowctl/` is loaded.
+
+## Connectors run on the Supabase Docker network
+
+Reactor and agent set `FLOW_NETWORK=supabase_network_flow` (see
+`mise/tasks/local/reactor`), so connector containers — at build/discover time
+and at runtime — run on that Docker network, not the default bridge. The handy
+consequence: a connector endpoint config can point straight at the Supabase
+Postgres, which sits on the same network as `supabase_db_flow` and answers to
+`db:5432`. Any *other* service a connector needs has to be `docker network
+connect supabase_network_flow`'d first, and then addressed by container name.
 
 ## What `local:stack` is actually publishing
 

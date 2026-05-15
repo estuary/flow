@@ -9,6 +9,18 @@ branch is checked out and built.
 crate; the runtime-next harness lives under `raw` while the new stack
 is in development. They share most flags and the same test spec format.
 
+**Scope.** `preview-next` runs `runtime-next` + `leader` + `shuffle`
+*in-process inside flowctl* (its own tonic server, inert
+`service_kit::Registry`). It does **not** go through the reactor, the
+runtime-sidecar process, or the sidecar admin surface. To exercise
+those, publish a real materialization to a local data plane with
+`shards: { flags: { enable-runtime-v2: "true" } }` (the
+`estuary.dev/flag/enable-runtime-v2` shard label that `useRuntimeV2` in
+`go/runtime/flow_consumer.go` checks); the sidecar's handler dashboard
+is then at `http://127.0.0.1:<base_port+61>/`. Note connectors on the
+local stack run on the `supabase_network_flow` Docker network — see
+`local/README.md` for the endpoint-address implications.
+
 ## One-time setup
 
 Done once per workstation. Skip the steps you've already completed.

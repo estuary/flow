@@ -291,6 +291,7 @@ mise tasks
 | `local:control-plane`            | Start control plane only                                    |
 | `local:data-plane <name> <port>` | Start a data plane                                          |
 | `local:data-plane-controller`    | Start data-plane-controller (service + job) in dry-run mode |
+| `local:runtime-sidecar`          | Start runtime-v2 sidecar for a local data plane             |
 | `local:seed-controller-job`      | Seed a controller job to trigger data plane converge        |
 | `local:supabase`                 | Start Supabase only                                         |
 | `local:stop`                     | Stop all services and clean up                              |
