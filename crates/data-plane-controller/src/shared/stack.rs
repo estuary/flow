@@ -158,6 +158,8 @@ pub struct AWSPrivateLink {
     pub region: String,
     pub az_ids: Vec<String>,
     pub service_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_region: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -587,6 +589,7 @@ mod test {
                 az_ids: vec!["a".to_string(), "b".to_string()],
                 region: "us-west-2".to_string(),
                 service_name: "service".to_string(),
+                service_region: None,
             }),
         );
 
