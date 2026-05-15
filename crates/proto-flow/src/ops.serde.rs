@@ -1353,7 +1353,7 @@ impl serde::Serialize for stats::derive::Transform {
         if self.bytes_behind != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("bytesBehind", ToString::to_string(&self.bytes_behind).as_str())?;
+            struct_ser.serialize_field("bytesBehind", &self.bytes_behind)?;
         }
         struct_ser.end()
     }
@@ -1739,7 +1739,7 @@ impl serde::Serialize for stats::MaterializeBinding {
         if self.bytes_behind != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("bytesBehind", ToString::to_string(&self.bytes_behind).as_str())?;
+            struct_ser.serialize_field("bytesBehind", &self.bytes_behind)?;
         }
         struct_ser.end()
     }

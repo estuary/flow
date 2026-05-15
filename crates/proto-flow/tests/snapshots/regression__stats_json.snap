@@ -39,7 +39,7 @@ expression: json_test(msg)
           "bytesTotal": 369
         },
         "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00",
-        "bytesBehind": "1000"
+        "bytesBehind": 1000
       },
       "otherTransform": {
         "source": "other/collection",
@@ -48,7 +48,7 @@ expression: json_test(msg)
           "bytesTotal": 2389
         },
         "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00",
-        "bytesBehind": "2000"
+        "bytesBehind": 2000
       }
     },
     "published": {
@@ -76,7 +76,7 @@ expression: json_test(msg)
         "bytesTotal": 300
       },
       "lastSourcePublishedAt": "1970-01-01T00:00:06.000000007+00:00",
-      "bytesBehind": "5000"
+      "bytesBehind": 5000
     }
   },
   "interval": {
