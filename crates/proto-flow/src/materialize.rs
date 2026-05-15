@@ -136,7 +136,7 @@ pub mod request {
     ///
     /// If the remote store is authoritative:
     /// The driver MUST fence off other streams of this materialization that
-    /// overlap the provided \[key_begin, key_end) range, such that those streams
+    /// overlap the provided [key_begin, key_end) range, such that those streams
     /// cannot issue further commits. The driver MUST return its stored runtime
     /// checkpoint for this materialization and range \[key_begin, key_end\]
     /// in its Opened response.
@@ -288,10 +288,9 @@ pub mod response {
         /// JSON schema of the connector's resource configuration.
         /// Schemas must use specific annotations to communicate the expected
         /// locations of injected platform variables:
-        ///
-        /// * `x-collection-name: true`, a string location for a resource name (required).
-        /// * `x-schema-name: true`, a string location for a resource schema (optional).
-        /// * `x-delta-updates: true`, a boolean location for enabling delta-updates mode (optional).
+        /// - `x-collection-name: true`, a string location for a resource name (required).
+        /// - `x-schema-name: true`, a string location for a resource schema (optional).
+        /// - `x-delta-updates: true`, a boolean location for enabling delta-updates mode (optional).
         #[prost(bytes = "bytes", tag = "3")]
         pub resource_config_schema_json: ::prost::bytes::Bytes,
         /// URL for connector's documentation.
@@ -325,10 +324,9 @@ pub mod response {
             /// technical limitations on length, character set, or case sensitivity.
             /// For these cases, the connector should provide a "folded" field name to
             /// be used instead. Examples of folds include:
-            ///
-            /// * Lower-casing
-            /// * Replacing `/` with `_`
-            /// * Mapping Unicode to ASCII via <https://en.wikipedia.org/wiki/Punycode>
+            /// - Lower-casing
+            /// - Replacing `/` with `_`
+            /// - Mapping Unicode to ASCII via <https://en.wikipedia.org/wiki/Punycode>
             ///
             /// Folds may be lossy and result in duplicated folded field values.
             /// That's okay. The control plane will ensure at most one field is
@@ -445,10 +443,9 @@ pub mod response {
                 ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, Constraint>,
             /// Components of the resource path which fully qualify the resource
             /// identified by this binding.
-            ///
-            /// * For an RDBMS, this might be \[\]{dbname, schema, table}.
-            /// * For Kafka, this might be \[\]{topic}.
-            /// * For Redis, this might be \[\]{key_prefix}.
+            /// - For an RDBMS, this might be \[\]{dbname, schema, table}.
+            /// - For Kafka, this might be \[\]{topic}.
+            /// - For Redis, this might be \[\]{key_prefix}.
             #[prost(string, repeated, tag = "2")]
             pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
             /// Materialize combined delta updates of documents rather than full
@@ -547,7 +544,7 @@ pub mod response {
     /// On receipt, the runtime may begin to flush, store, and commit a
     /// next (pipelined) transaction.
     ///
-    /// Acknowledged is *not* a direct response to Request.Acknowledge,
+    /// Acknowledged is _not_ a direct response to Request.Acknowledge,
     /// and Acknowledge vs Acknowledged may be written in either order.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Acknowledged {

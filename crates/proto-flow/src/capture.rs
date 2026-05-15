@@ -201,7 +201,7 @@ pub mod response {
         /// One or more JSON pointers, which are used to extract resource paths
         /// from resource configurations of this connector. For example,
         /// a database connector might have a resource config like:
-        /// {"schema": "foo", "table": "bar", "other": "config", "answer": 42}
+        ///    {"schema": "foo", "table": "bar", "other": "config", "answer": 42}
         /// The connector would specify `resource_path_pointers: \["/schema", "/table"\]`,
         /// which would result in a `resource_path` of `\["foo", "bar"\]`.
         #[prost(string, repeated, tag = "6")]
@@ -240,10 +240,9 @@ pub mod response {
             pub disable: bool,
             /// Components of the resource path which fully qualify the resource
             /// identified by this binding.
-            ///
-            /// * For an RDBMS, this might be \[\]{dbname, schema, table}.
-            /// * For Kafka, this might be \[\]{topic}.
-            /// * For Redis, this might be \[\]{key_prefix}.
+            /// - For an RDBMS, this might be \[\]{dbname, schema, table}.
+            /// - For Kafka, this might be \[\]{topic}.
+            /// - For Redis, this might be \[\]{key_prefix}.
             #[prost(string, repeated, tag = "6")]
             pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
             /// Discovered bindings should reflect the natural identifiers of the
@@ -256,17 +255,15 @@ pub mod response {
             /// If the answer is "yes", the key is NOT a fallback.
             ///
             /// For regular (non-fallback) keys:
-            ///
-            /// * The Estuary control-plane will update collection keys to reflect
-            ///   the latest discovered keys from the source endpoint.
-            /// * Users should not change such collection keys (they'll be overwritten).
+            /// - The Estuary control-plane will update collection keys to reflect
+            ///    the latest discovered keys from the source endpoint.
+            /// - Users should not change such collection keys (they'll be overwritten).
             ///
             /// For fallback keys:
-            ///
-            /// * The Estuary control-plane will initialize a new collection with the
-            ///   fallback key.
-            /// * Users may change the collection key, and it will not be overwritten
-            ///   by future discoveries.
+            /// - The Estuary control-plane will initialize a new collection with the
+            ///    fallback key.
+            /// - Users may change the collection key, and it will not be overwritten
+            ///    by future discoveries.
             #[prost(bool, tag = "7")]
             pub is_fallback_key: bool,
         }
@@ -285,10 +282,9 @@ pub mod response {
         pub struct Binding {
             /// Components of the resource path which fully qualify the resource
             /// identified by this binding.
-            ///
-            /// * For an RDBMS, this might be \[\]{dbname, schema, table}.
-            /// * For Kafka, this might be \[\]{topic}.
-            /// * For Redis, this might be \[\]{key_prefix}.
+            /// - For an RDBMS, this might be \[\]{dbname, schema, table}.
+            /// - For Kafka, this might be \[\]{topic}.
+            /// - For Redis, this might be \[\]{key_prefix}.
             #[prost(string, repeated, tag = "1")]
             pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         }
