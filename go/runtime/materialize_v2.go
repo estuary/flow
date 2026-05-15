@@ -136,6 +136,17 @@ func (m *materializeAppV2) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoin
 	// STANDBY to PRIMARY: the shard is updated to PRIMARY only after its
 	// return, and before StartReadingMessages.
 
+	// Fail the shard if its runtime-v2 flag has been turned off. NewStore is
+	// invoked only on the initial PRIMARY transition, so a publish that
+	// flips the flag on a running shard cannot otherwise reroute it. We
+	// surface a functional error so the controller restarts the shard,
+	// at which point NewStore re-evaluates the flag and selects V1.
+	if !useRuntimeV2(shard.Spec().LabelSet) {
+		m.term.cancel()
+		return pf.Checkpoint{}, fmt.Errorf(
+			"runtime-v2 feature flag is unset but this shard is running the V2 materialize runtime; failing to force a restart")
+	}
+
 	// The Rust runtime owns checkpoint persistence, recovery, ACK intent
 	// publishing, and the core transaction loop. Nothing to recover here.
 	return pf.Checkpoint{}, nil
