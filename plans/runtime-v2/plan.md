@@ -192,6 +192,35 @@ new code must continue to honor:
   the task still has per-shard committed state, and startup fails
   explicitly instead of proceeding with an unsafe consolidation.
 
+## Frontier pruning
+
+Long-lived tasks can accumulate committed frontier entries for producers
+that have stopped writing, including producers that wrote `CONTINUE_TXN`
+documents but never later committed them. V2 should eventually retain
+only enough producer frontier state to preserve exactly-once recovery for
+plausibly active producers, while bounding startup cost, RocksDB size, and
+the replay distance implied by abandoned transactions.
+
+Pruning should be conservative. A producer is a candidate only after both
+the clock horizon and byte-distance horizon say that enough newer activity
+has passed within the same source journal and binding. Time protects
+high-volume journals from eager cleanup when another producer quickly
+writes far ahead; byte distance captures the real operational cost of
+keeping an old pending span replayable. Frontier
+entries that participate in recovered hinted state are not ordinary stale
+state and must not be silently removed.
+
+The cleanup point is recovery scan, not `Persist`. `Persist` writes
+frontiers as fine-grained `FC:{journal}\0{state_key}\0{producer}` and
+`FH:{journal}\0{state_key}\0{producer}` key updates, and the leader should
+not need to hold or rewrite a fully reduced committed frontier after V1
+migration is complete. During RocksDB scan, shard zero can group recovered
+`FC:` entries by raw `(journal, state_key)`, compute the latest producer
+clock and read offset for the group, drop entries that satisfy the pruning
+policy, and write a small delete batch for the pruned `FC:` keys before
+returning `Recover`. `FH:` entries form a protected set: matching `FC:`
+entries are retained so idempotent replay has its committed baseline.
+
 ## Capture architecture
 
 Capture shards operate **independently** — each shard has its own

@@ -74,7 +74,7 @@ src/
 │
 └── shard/             # per-shard controller-facing service
     ├── service.rs       # gRPC entry, dispatches by task type
-    ├── recovery.rs      # Persist <-> RocksDB WriteBatch encode/decode + scan
+    ├── recovery.rs      # Persist <-> RocksDB WriteBatch encode/decode + scan-time FC: pruning
     ├── rocksdb.rs       # single Persist application path (capture will reuse)
     └── materialize/
         ├── handler.rs       # gRPC stream handler
