@@ -122,6 +122,16 @@ impl Client {
             return read_fragment_url(co, fragment, &self.fragment_client, fragment_url, req).await;
         }
 
+        // We skipped the direct-fragment path. If the broker returned a
+        // `file://` URL, the fragment is persisted but lives on the broker's
+        // local filesystem — we have no transport to read it ourselves, so
+        // we must ask the broker to proxy. With `do_not_proxy=true` and no
+        // open spool file, `serveRead` short-circuits after sending only the
+        // fragment metadata, EOFs the stream, and the outer loop spins.
+        if metadata.fragment_url.starts_with("file://") {
+            req.do_not_proxy = false;
+        }
+
         tracing::trace!(req.offset, write_head, "started direct journal read");
 
         // Restart as a regular (non-metadata) read, re-picking a routed subclient.
