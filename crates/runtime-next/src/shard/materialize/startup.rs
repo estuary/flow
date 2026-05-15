@@ -81,6 +81,7 @@ pub(super) async fn run<R, L: crate::LogHandler>(
     labeling: ops::proto::ShardLabeling,
     mut leader_rx: tonic::Streaming<proto::Materialize>,
     leader_tx: mpsc::UnboundedSender<proto::Materialize>,
+    log_level: ops::LogLevel,
     service: &crate::shard::Service<L>,
     shard_id: String,
     shard_index: u32,
@@ -107,7 +108,6 @@ where
 
     let proto::Task {
         max_transactions: _,
-        ops_stats_journal,
         preview,
         spec: spec_bytes,
     } = l_task;
@@ -128,7 +128,7 @@ where
         crate::Publisher::new_real(
             shard_id, // Shard ID is AuthZ subject.
             &service.publisher_factory,
-            &ops_stats_journal,
+            &labeling.stats_journal,
             [], // No additional bindings.
         )
         .context("creating publisher")?
@@ -200,6 +200,7 @@ where
                             apply: Some(apply),
                             ..Default::default()
                         },
+                        log_level,
                     )
                     .await?,
                 );
@@ -250,7 +251,7 @@ where
         ..Default::default()
     };
     let (connector_tx, mut connector_rx, container) =
-        super::connector::start(service, initial).await?;
+        super::connector::start(service, log_level, initial).await?;
 
     // Read C:Opened from the connector.
     let verify = crate::verify("Materialize", "Opened", "connector");

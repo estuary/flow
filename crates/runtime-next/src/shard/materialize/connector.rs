@@ -11,13 +11,13 @@ use zeroize::Zeroize;
 // plus OpenExtras with decrypted trigger configs and connector metadata.
 pub async fn start<L: crate::LogHandler>(
     service: &crate::shard::Service<L>,
+    log_level: ops::LogLevel,
     mut initial: materialize::Request,
 ) -> anyhow::Result<(
     mpsc::Sender<materialize::Request>,
     BoxStream<'static, tonic::Result<materialize::Response>>,
     Option<crate::proto::Container>,
 )> {
-    let log_level = initial.get_internal()?.log_level();
     let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
     let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 

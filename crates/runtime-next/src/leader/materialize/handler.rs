@@ -89,6 +89,7 @@ where
     );
 
     let mut build = String::new();
+    let mut ops_stats_journal = String::new();
     let mut reactors: Vec<String> = Vec::new();
     let mut shard_rx = Vec::with_capacity(slots.len());
     let mut shard_tx = Vec::with_capacity(slots.len());
@@ -128,7 +129,9 @@ where
             directory,
             endpoint,
         });
+
         build = labeling.build;
+        ops_stats_journal = labeling.stats_journal;
     }
 
     let error_tx = shard_tx.clone();
@@ -146,6 +149,7 @@ where
             task,
         } = startup::run(
             build,
+            ops_stats_journal,
             reactors,
             &mut shard_rx,
             &mut shard_tx,

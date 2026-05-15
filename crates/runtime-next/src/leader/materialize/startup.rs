@@ -37,6 +37,7 @@ pub(super) struct Startup {
 )]
 pub(super) async fn run(
     build: String,
+    ops_stats_journal: String,
     reactors: Vec<String>,
     shard_rx: &mut Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
     shard_tx: &Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
@@ -77,7 +78,6 @@ pub(super) async fn run(
 
     // Build task definition.
     let proto::Task {
-        ops_stats_journal,
         preview,
         max_transactions,
         spec: spec_bytes,

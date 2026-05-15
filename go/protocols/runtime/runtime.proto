@@ -470,14 +470,10 @@ message Joined {
 message Task {
   // Task specification (protobuf-encoded bytes).
   bytes spec = 1;
-  // Collection journal partition to which task stats are written.
-  // The journal is pre-created by activate; the runtime appends directly
-  // without consulting the partitions watch or creating new partitions.
-  string ops_stats_journal = 2;
   // When true, documents and stats are written to output and not directed to collections.
-  bool preview = 4;
+  bool preview = 2;
   // Preview / harness control. Zero means unlimited.
-  uint32 max_transactions = 5;
+  uint32 max_transactions = 3;
 }
 
 // Recover is sent by each shard to the leader after Joined, and carries
@@ -675,6 +671,12 @@ message Materialize {
   materialize.Request.Validate validate = 3;
   // Shard → Controller. Connector's reply to `validate`.
   materialize.Response.Validated validated = 4;
+
+  // Controller → Shard. Effective only on unary `spec` / `validate`
+  // messages, which never see the Join-time labeling that supplies the
+  // log level for session-bound work. Ignored on all other variants
+  // (the leader → shard messages MUST NOT set this).
+  ops.Log.Level log_level = 5;
 
   // ----- STARTUP -----
 

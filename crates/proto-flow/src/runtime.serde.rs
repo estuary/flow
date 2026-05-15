@@ -3330,6 +3330,9 @@ impl serde::Serialize for Materialize {
         if self.validated.is_some() {
             len += 1;
         }
+        if self.log_level != 0 {
+            len += 1;
+        }
         if self.session_loop.is_some() {
             len += 1;
         }
@@ -3414,6 +3417,11 @@ impl serde::Serialize for Materialize {
         }
         if let Some(v) = self.validated.as_ref() {
             struct_ser.serialize_field("validated", v)?;
+        }
+        if self.log_level != 0 {
+            let v = super::ops::log::Level::try_from(self.log_level)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.log_level)))?;
+            struct_ser.serialize_field("logLevel", &v)?;
         }
         if let Some(v) = self.session_loop.as_ref() {
             struct_ser.serialize_field("sessionLoop", v)?;
@@ -3502,6 +3510,8 @@ impl<'de> serde::Deserialize<'de> for Materialize {
             "specResponse",
             "validate",
             "validated",
+            "log_level",
+            "logLevel",
             "session_loop",
             "sessionLoop",
             "join",
@@ -3538,6 +3548,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
             SpecResponse,
             Validate,
             Validated,
+            LogLevel,
             SessionLoop,
             Join,
             Joined,
@@ -3587,6 +3598,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                             "specResponse" | "spec_response" => Ok(GeneratedField::SpecResponse),
                             "validate" => Ok(GeneratedField::Validate),
                             "validated" => Ok(GeneratedField::Validated),
+                            "logLevel" | "log_level" => Ok(GeneratedField::LogLevel),
                             "sessionLoop" | "session_loop" => Ok(GeneratedField::SessionLoop),
                             "join" => Ok(GeneratedField::Join),
                             "joined" => Ok(GeneratedField::Joined),
@@ -3634,6 +3646,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                 let mut spec_response__ = None;
                 let mut validate__ = None;
                 let mut validated__ = None;
+                let mut log_level__ = None;
                 let mut session_loop__ = None;
                 let mut join__ = None;
                 let mut joined__ = None;
@@ -3683,6 +3696,12 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                                 return Err(serde::de::Error::duplicate_field("validated"));
                             }
                             validated__ = map_.next_value()?;
+                        }
+                        GeneratedField::LogLevel => {
+                            if log_level__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("logLevel"));
+                            }
+                            log_level__ = Some(map_.next_value::<super::ops::log::Level>()? as i32);
                         }
                         GeneratedField::SessionLoop => {
                             if session_loop__.is_some() {
@@ -3835,6 +3854,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                     spec_response: spec_response__,
                     validate: validate__,
                     validated: validated__,
+                    log_level: log_level__.unwrap_or_default(),
                     session_loop: session_loop__,
                     join: join__,
                     joined: joined__,
@@ -7626,9 +7646,6 @@ impl serde::Serialize for Task {
         if !self.spec.is_empty() {
             len += 1;
         }
-        if !self.ops_stats_journal.is_empty() {
-            len += 1;
-        }
         if self.preview {
             len += 1;
         }
@@ -7640,9 +7657,6 @@ impl serde::Serialize for Task {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("spec", pbjson::private::base64::encode(&self.spec).as_str())?;
-        }
-        if !self.ops_stats_journal.is_empty() {
-            struct_ser.serialize_field("opsStatsJournal", &self.ops_stats_journal)?;
         }
         if self.preview {
             struct_ser.serialize_field("preview", &self.preview)?;
@@ -7661,8 +7675,6 @@ impl<'de> serde::Deserialize<'de> for Task {
     {
         const FIELDS: &[&str] = &[
             "spec",
-            "ops_stats_journal",
-            "opsStatsJournal",
             "preview",
             "max_transactions",
             "maxTransactions",
@@ -7671,7 +7683,6 @@ impl<'de> serde::Deserialize<'de> for Task {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Spec,
-            OpsStatsJournal,
             Preview,
             MaxTransactions,
         }
@@ -7696,7 +7707,6 @@ impl<'de> serde::Deserialize<'de> for Task {
                     {
                         match value {
                             "spec" => Ok(GeneratedField::Spec),
-                            "opsStatsJournal" | "ops_stats_journal" => Ok(GeneratedField::OpsStatsJournal),
                             "preview" => Ok(GeneratedField::Preview),
                             "maxTransactions" | "max_transactions" => Ok(GeneratedField::MaxTransactions),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -7719,7 +7729,6 @@ impl<'de> serde::Deserialize<'de> for Task {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut spec__ = None;
-                let mut ops_stats_journal__ = None;
                 let mut preview__ = None;
                 let mut max_transactions__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -7731,12 +7740,6 @@ impl<'de> serde::Deserialize<'de> for Task {
                             spec__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
-                        }
-                        GeneratedField::OpsStatsJournal => {
-                            if ops_stats_journal__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("opsStatsJournal"));
-                            }
-                            ops_stats_journal__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Preview => {
                             if preview__.is_some() {
@@ -7756,7 +7759,6 @@ impl<'de> serde::Deserialize<'de> for Task {
                 }
                 Ok(Task {
                     spec: spec__.unwrap_or_default(),
-                    ops_stats_journal: ops_stats_journal__.unwrap_or_default(),
                     preview: preview__.unwrap_or_default(),
                     max_transactions: max_transactions__.unwrap_or_default(),
                 })
