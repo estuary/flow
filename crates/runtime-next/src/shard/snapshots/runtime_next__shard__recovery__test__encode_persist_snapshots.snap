@@ -1,6 +1,5 @@
 ---
 source: crates/runtime-next/src/shard/recovery.rs
-assertion_line: 758
 expression: snapshot
 ---
 [
@@ -87,6 +86,18 @@ expression: snapshot
         ],
     ),
     (
+        "drop_legacy_checkpoint",
+        [
+            Put {
+                key: b"committed-close",
+                value: b"\x15\x03\0\0\0\0\0\0",
+            },
+            Delete {
+                key: b"checkpoint",
+            },
+        ],
+    ),
+    (
         "committed_no_acks",
         [
             Put {
@@ -100,6 +111,30 @@ expression: snapshot
             Put {
                 key: b"FC:acme/events/001\0materialize/mat/t2\0\x01\xcc\0\0\0\0",
                 value: b"\x112\0\0\0\0\0\0\0 \xce\xff\xff\xff\xff\xff\xff\xff\xff\x01",
+            },
+        ],
+    ),
+    (
+        "reconcile_committed_frontier",
+        [
+            DeleteRange {
+                from: b"FC:",
+                to: b"FC;",
+            },
+            Put {
+                key: b"FC:acme/events/000\0materialize/mat/t1\0\x01\xaa\0\0\0\0",
+                value: b"\x11d\0\0\0\0\0\0\0 \xfa\x01",
+            },
+            Put {
+                key: b"FC:acme/events/000\0materialize/mat/t1\0\x01\xbb\0\0\0\0",
+                value: b"\x11Z\0\0\0\0\0\0\0 \xd4\xfd\xff\xff\xff\xff\xff\xff\xff\x01",
+            },
+            Put {
+                key: b"FC:acme/events/001\0materialize/mat/t2\0\x01\xcc\0\0\0\0",
+                value: b"\x112\0\0\0\0\0\0\0 \xce\xff\xff\xff\xff\xff\xff\xff\xff\x01",
+            },
+            Delete {
+                key: b"checkpoint",
             },
         ],
     ),

@@ -44,6 +44,8 @@ pub const PREFIX_HINTED_FRONTIER_END: &[u8] = b"FH;";
 /// Key prefix for committed Frontier entries:
 /// `FC:{journal}\0{state_key}\0{producer}`.
 pub const PREFIX_COMMITTED_FRONTIER: &[u8] = b"FC:";
+/// Exclusive upper bound used for `DeleteRange` over `PREFIX_COMMITTED_FRONTIER`.
+pub const PREFIX_COMMITTED_FRONTIER_END: &[u8] = b"FC;";
 /// Key prefix for per-journal ACK intent entries: `AI:{journal}`.
 pub const PREFIX_ACK_INTENT: &[u8] = b"AI:";
 /// Exclusive upper bound used for `DeleteRange` over `PREFIX_ACK_INTENT`.
@@ -173,6 +175,12 @@ pub fn encode_persist<S: AsRef<str>>(
         });
     }
 
+    if persist.delete_committed_frontier {
+        emit(KeyOp::DeleteRange {
+            from: Bytes::from_static(PREFIX_COMMITTED_FRONTIER),
+            to: Bytes::from_static(PREFIX_COMMITTED_FRONTIER_END),
+        });
+    }
     if let Some(frontier) = &persist.committed_frontier {
         encode_frontier(
             PREFIX_COMMITTED_FRONTIER,
@@ -220,6 +228,11 @@ pub fn encode_persist<S: AsRef<str>>(
         });
     }
 
+    if persist.delete_legacy_checkpoint {
+        emit(KeyOp::Delete {
+            key: Bytes::from_static(KEY_LEGACY_CHECKPOINT),
+        });
+    }
     if let Some(checkpoint) = &persist.legacy_checkpoint {
         checkpoint
             .encode(&mut buf)
@@ -744,12 +757,34 @@ mod test {
                     ..Default::default()
                 },
             ),
+            // V1 rollback dropped: the leader deletes the legacy "checkpoint"
+            // key and persists no replacement.
+            (
+                "drop_legacy_checkpoint",
+                proto::Persist {
+                    committed_close_clock: 789,
+                    delete_legacy_checkpoint: true,
+                    ..Default::default()
+                },
+            ),
             // committed_frontier without the AI: prelude: the new proto
             // decouples delete_ack_intents from committed_frontier.
             (
                 "committed_no_acks",
                 proto::Persist {
                     committed_frontier: Some(frontier_fixture()),
+                    ..Default::default()
+                },
+            ),
+            // Startup checkpoint reconciliation: clear all FC: keys and rewrite
+            // the recovered baseline, also deleting the legacy "checkpoint" key.
+            // Pins the DeleteRange-before-Put ordering for committed_frontier.
+            (
+                "reconcile_committed_frontier",
+                proto::Persist {
+                    delete_committed_frontier: true,
+                    committed_frontier: Some(frontier_fixture()),
+                    delete_legacy_checkpoint: true,
                     ..Default::default()
                 },
             ),
@@ -831,6 +866,47 @@ mod test {
 
         let mapping = state_key_index(&[("materialize/mat/t1", 0), ("materialize/mat/t2", 1)]);
         insta::assert_debug_snapshot!(decode_pairs(store, &mapping).unwrap());
+    }
+
+    #[test]
+    fn delete_committed_frontier_clears_stale_keys() {
+        // A prior session left a stale/partial committed Frontier in `FC:`.
+        let stale = proto::Persist {
+            committed_frontier: Some(shuffle::proto::Frontier {
+                journals: vec![shuffle::proto::JournalFrontier {
+                    journal_name_suffix: "stale/journal".into(),
+                    binding: 0,
+                    producers: vec![proto_pf(0x99, 1, 1)],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        // The startup cleanup Persist clears every `FC:` key, then rewrites the
+        // recovered baseline.
+        let cleanup = proto::Persist {
+            delete_committed_frontier: true,
+            committed_frontier: Some(frontier_fixture()),
+            ..Default::default()
+        };
+
+        let binding_state_keys = &["materialize/mat/t1", "materialize/mat/t2"];
+        let mut store: Vec<(Bytes, Bytes)> = Vec::new();
+        for persist in [&stale, &cleanup] {
+            encode_persist(persist, binding_state_keys, |op| apply_op(&mut store, op)).unwrap();
+        }
+        store.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Only the rewritten baseline survives; the stale journal is gone.
+        let mapping = state_key_index(&[("materialize/mat/t1", 0), ("materialize/mat/t2", 1)]);
+        let decoded = decode_pairs(store, &mapping).unwrap();
+        let journals: Vec<&str> = decoded
+            .committed_frontier
+            .iter()
+            .map(|jf| jf.journal.as_ref())
+            .collect();
+        assert_eq!(journals, vec!["acme/events/000", "acme/events/001"]);
     }
 
     #[test]

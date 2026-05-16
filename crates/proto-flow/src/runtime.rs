@@ -591,46 +591,55 @@ pub struct Persist {
     /// Effect: Put under "committed-close-clock".
     #[prost(fixed64, tag = "4")]
     pub committed_close_clock: u64,
+    /// Delete all previously-persisted committed Frontier entries.
+    /// Applies ahead of `committed_frontier`.
+    /// Effect: DeleteRange("FC:")
+    #[prost(bool, tag = "5")]
+    pub delete_committed_frontier: bool,
     /// Committed Frontier entries.
     /// Effect: Put under "FC:..." keys.
-    #[prost(message, optional, tag = "5")]
+    #[prost(message, optional, tag = "6")]
     pub committed_frontier: ::core::option::Option<super::shuffle::Frontier>,
     /// Connector state patches. State Update Wire Format.
     /// Effect: Merge each patch under "connector-state".
-    #[prost(bytes = "bytes", tag = "6")]
+    #[prost(bytes = "bytes", tag = "7")]
     pub connector_patches_json: ::prost::bytes::Bytes,
     /// Clock at which the hinted transaction closed.
     /// Effect: Put under "hinted-close-clock".
-    #[prost(fixed64, tag = "7")]
+    #[prost(fixed64, tag = "8")]
     pub hinted_close_clock: u64,
     /// Delete a previously-persisted hinted frontier. Applies ahead of `hinted_frontier`.
     /// Effect: DeleteRange("FH:")
-    #[prost(bool, tag = "8")]
+    #[prost(bool, tag = "9")]
     pub delete_hinted_frontier: bool,
     /// Hinted Frontier entries.
     /// Effect: Put under "FH:" keys.
-    #[prost(message, optional, tag = "9")]
+    #[prost(message, optional, tag = "10")]
     pub hinted_frontier: ::core::option::Option<super::shuffle::Frontier>,
     /// Last-applied task specification (protobuf-encoded bytes), or empty.
     /// Effect: Put under "last-applied" key.
-    #[prost(bytes = "bytes", tag = "10")]
+    #[prost(bytes = "bytes", tag = "11")]
     pub last_applied: ::prost::bytes::Bytes,
-    /// Legacy checkpoint, required for rollback to legacy runtime.
+    /// Delete a previously-persisted legacy checkpoint.
+    /// Effect: Delete the "checkpoint" key.
+    #[prost(bool, tag = "12")]
+    pub delete_legacy_checkpoint: bool,
+    /// Legacy checkpoint, required for rollback to the V1 runtime.
     /// Effect: Put under "checkpoint" key.
-    #[prost(message, optional, tag = "11")]
+    #[prost(message, optional, tag = "13")]
     pub legacy_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
     /// Per-binding max-key updates, reduced to per-binding maximum across shards.
     /// Key: binding index; Value: packed composite key tuple.
     /// Effect: Put value under "MK-v2:{state_key}" (state_key resolved by the encoder).
-    #[prost(btree_map = "uint32, bytes", tag = "12")]
+    #[prost(btree_map = "uint32, bytes", tag = "14")]
     pub max_keys: ::prost::alloc::collections::BTreeMap<u32, ::prost::bytes::Bytes>,
     /// Delete previously-persisted trigger parameters. Applies ahead of `trigger_params_json`.
     /// Effect: Delete the "trigger-params" key.
-    #[prost(bool, tag = "13")]
+    #[prost(bool, tag = "15")]
     pub delete_trigger_params: bool,
     /// Materialization trigger parameters.
     /// Effect: Put under "trigger-params" key.
-    #[prost(bytes = "bytes", tag = "14")]
+    #[prost(bytes = "bytes", tag = "16")]
     pub trigger_params_json: ::prost::bytes::Bytes,
 }
 /// Persisted is sent by shard zero to the leader after the state is durable

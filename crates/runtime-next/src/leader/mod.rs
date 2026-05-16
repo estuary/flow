@@ -11,3 +11,13 @@ mod materialize;
 // mod capture; // TODO: implement.
 
 pub use service::Service;
+
+/// Shard-label feature flag (under the `estuary.dev/flag/` prefix) that, when
+/// set to `"true"`, tells the leader to drop V1 rollback support for the task.
+const DROP_V1_ROLLBACK_FLAG: &str = "drop-runtime-v1-rollback";
+
+/// Reports whether `flags` (an `ops::ShardLabeling.flags` map) sets `flag` to
+/// `"true"`, mirroring the Go runtime's feature-flag convention.
+fn flag_enabled(flags: &std::collections::BTreeMap<String, String>, flag: &str) -> bool {
+    flags.get(flag).map(String::as_str) == Some("true")
+}

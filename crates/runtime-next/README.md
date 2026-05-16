@@ -140,6 +140,27 @@ same runtime. The runtime sidecar runs uniformly on every reactor machine
 regardless of which tasks are assigned; old-runtime tasks simply don't talk
 to it. Rollback for any task is a feature-flag flip.
 
+Once a task has stably cut over, the per-task `drop-runtime-v1-rollback`
+shard-label flag tells the leader to stop maintaining the legacy V1
+`consumer.Checkpoint`; the leader deletes the persisted one during startup
+(see below), forfeiting rollback in exchange for shedding compatibility state.
+
+## Startup checkpoint reconciliation
+
+The legacy V1 `consumer.Checkpoint` holds a *complete* committed frontier,
+whereas the V2 `FC:` keys are written per-transaction as *deltas*. So at a
+V1→V2 cutover the recovered `FC:` keys are not yet a sound recovery baseline.
+`leader::materialize::startup` reconciles this synchronously: after the
+connector `Open`/`Opened` exchange, when the final status of the recovered V1
+checkpoint and any remote-authoritative connector checkpoint is known, it
+issues a single cleanup `Persist` to shard zero. If a checkpoint was
+*authoritative* (its mapped frontier replaced the recovered one), the cleanup
+clears all `FC:` keys and rewrites the complete baseline; if
+`drop-runtime-v1-rollback` is set, it also deletes the legacy `checkpoint`
+key. An authoritative (unmarked) checkpoint implies no V2 transaction has
+committed, so clearing `FC:` loses no V2 state. The transaction loop then
+only ever writes `FC:` deltas.
+
 ## Status
 
 - `leader::materialize` and `shard::materialize` are implemented.

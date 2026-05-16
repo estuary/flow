@@ -37,6 +37,7 @@ pub(super) struct Startup {
 )]
 pub(super) async fn run(
     build: String,
+    drop_v1_rollback: bool,
     ops_stats_journal: String,
     reactors: Vec<String>,
     shard_rx: &mut Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
@@ -120,7 +121,6 @@ pub(super) async fn run(
 
     let mut committed_close = uuid::Clock::from_u64(committed_close);
     let hinted_close = uuid::Clock::from_u64(hinted_close);
-    let legacy_checkpoint = legacy_checkpoint.unwrap_or_default();
 
     let mut hinted_frontier = shuffle::Frontier::decode(hinted_frontier.unwrap_or_default())
         .context("validating hinted Frontier")?;
@@ -184,8 +184,13 @@ pub(super) async fn run(
         .collect();
     journal_read_suffix_index.sort();
 
+    // Set when a recovered checkpoint (legacy V1 or connector) is authoritative
+    // and its mapped Frontier replaces `committed_frontier`.
+    let mut committed_frontier_rebuilt = false;
+
     // Handle migration from `legacy_checkpoint`.
-    if !legacy_checkpoint.sources.is_empty() {
+    let legacy_checkpoint_present = legacy_checkpoint.is_some();
+    if let Some(legacy_checkpoint) = legacy_checkpoint {
         let clock = frontier_mapping::extract_committed_close(&legacy_checkpoint);
 
         if clock == Some(committed_close) {
@@ -212,6 +217,7 @@ pub(super) async fn run(
                 &journal_read_suffix_index,
             )
             .context("mapping recovered legacy checkpoint into Frontier")?;
+            committed_frontier_rebuilt = true;
 
             pending_ack_intents = legacy_checkpoint.ack_intents;
         }
@@ -268,6 +274,7 @@ pub(super) async fn run(
                 &journal_read_suffix_index,
             )
             .context("mapping recovered connector checkpoint into Frontier")?;
+            committed_frontier_rebuilt = true;
 
             pending_ack_intents = connector_checkpoint.ack_intents;
         }
@@ -277,6 +284,37 @@ pub(super) async fn run(
             "leader",
             "no connector_checkpoint present",
         );
+    }
+
+    // Reconcile RocksDB now that the final status of the recovered V1 and
+    // connector checkpoints is known. If `committed_frontier_rebuilt`, then
+    // `committed_frontier` is not natively represented in RocksDB and must be
+    // persisted (clearing stale state). This establishes a baseline for future
+    // recoveries. Go-forward commits are deltas that apply atop this base.
+    let delete_legacy_checkpoint = drop_v1_rollback && legacy_checkpoint_present;
+    if committed_frontier_rebuilt || delete_legacy_checkpoint {
+        service_kit::event!(
+            tracing::Level::INFO,
+            "leader",
+            committed_frontier_rebuilt,
+            delete_legacy_checkpoint,
+            "reconciling recovered checkpoint state",
+        );
+        send_persist(
+            &mut shard_rx[0],
+            &shard_tx[0],
+            &task.peers[0],
+            proto::Persist {
+                seq_no: 0,
+                delete_committed_frontier: committed_frontier_rebuilt,
+                committed_frontier: committed_frontier_rebuilt
+                    .then(|| shuffle::JournalFrontier::encode(&committed_frontier.journals)),
+                delete_legacy_checkpoint,
+                ..Default::default()
+            },
+        )
+        .await
+        .context("sending startup cleanup Persist")?;
     }
 
     // Compose the session resume Frontier: project the recovered hinted
@@ -337,6 +375,31 @@ async fn recv_recovers(
     Ok(recovers.swap_remove(0))
 }
 
+/// Send a `Persist` to a shard and await the matching `Persisted` echo.
+async fn send_persist(
+    rx: &mut BoxStream<'static, tonic::Result<proto::Materialize>>,
+    tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
+    peer: &str,
+    persist: proto::Persist,
+) -> anyhow::Result<()> {
+    let verify = crate::verify("Materialize", "Persisted", peer);
+    let seq_no = persist.seq_no;
+
+    // Sends are best-effort: a closed peer surfaces on the next `rx`.
+    let _ = tx.send(Ok(proto::Materialize {
+        persist: Some(persist),
+        ..Default::default()
+    }));
+
+    match verify.not_eof(rx.next().await)? {
+        proto::Materialize {
+            persisted: Some(proto::Persisted { seq_no: got }),
+            ..
+        } if got == seq_no => Ok(()),
+        other => Err(verify.fail_msg(other)),
+    }
+}
+
 // The apply loop's persistent state machine is `(last_applied,
 // connector_state_json)`. Each iteration may persist new connector state
 // patches; `last_applied` is bumped only on the FINAL iteration once the
@@ -354,7 +417,6 @@ async fn apply_loop(
     connector_state_json: &mut Bytes,
 ) -> anyhow::Result<()> {
     let verify_applied = crate::verify("Materialize", "Applied", peer);
-    let verify_persisted = crate::verify("Materialize", "Persisted", peer);
     let last_version = if last_applied.is_empty() {
         String::new()
     } else {
@@ -415,22 +477,17 @@ async fn apply_loop(
                 return Ok(());
             }
 
-            let _ = tx.send(Ok(proto::Materialize {
-                persist: Some(proto::Persist {
+            send_persist(
+                rx,
+                tx,
+                peer,
+                proto::Persist {
                     seq_no: iteration,
                     last_applied: next_applied.clone(),
                     ..Default::default()
-                }),
-                ..Default::default()
-            }));
-
-            match verify_persisted.not_eof(rx.next().await)? {
-                proto::Materialize {
-                    persisted: Some(proto::Persisted { seq_no }),
-                    ..
-                } if seq_no == iteration => {}
-                other => return Err(verify_persisted.fail_msg(other)),
-            }
+                },
+            )
+            .await?;
 
             return Ok(());
         }
@@ -441,23 +498,17 @@ async fn apply_loop(
             crate::patches::apply_state_patches(connector_state_json, &applied_patches_json)?;
 
         // Persist the iteration's patches to shard zero.
-        let _ = tx.send(Ok(proto::Materialize {
-            persist: Some(proto::Persist {
+        send_persist(
+            rx,
+            tx,
+            peer,
+            proto::Persist {
                 seq_no: iteration, // End-of-sequence.
                 connector_patches_json: applied_patches_json,
                 ..Default::default()
-            }),
-            ..Default::default()
-        }));
-
-        // Receive Persisted.
-        match verify_persisted.not_eof(rx.next().await)? {
-            proto::Materialize {
-                persisted: Some(proto::Persisted { seq_no }),
-                ..
-            } if seq_no == iteration => {}
-            other => return Err(verify_persisted.fail_msg(other)),
-        }
+            },
+        )
+        .await?;
     }
 
     anyhow::bail!(

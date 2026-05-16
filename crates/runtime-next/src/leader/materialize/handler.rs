@@ -122,6 +122,7 @@ where
     );
 
     let mut build = String::new();
+    let mut drop_v1_rollback = false;
     let mut ops_stats_journal = String::new();
     let mut reactors: Vec<String> = Vec::new();
     let mut shard_rx = Vec::with_capacity(slots.len());
@@ -164,7 +165,9 @@ where
             endpoint,
         });
 
+        // Labels are identical across shards (enforced by Join equality check).
         build = labeling.build;
+        drop_v1_rollback = leader::flag_enabled(&labeling.flags, leader::DROP_V1_ROLLBACK_FLAG);
         ops_stats_journal = labeling.stats_journal;
     }
 
@@ -185,6 +188,7 @@ where
             task,
         } = startup::run(
             build,
+            drop_v1_rollback,
             ops_stats_journal,
             reactors,
             &mut shard_rx,
@@ -206,8 +210,14 @@ where
         };
         let tail = fsm::Tail::Begin(fsm::TailBegin { pending });
 
-        // TODO: Make this toggle-able for dropping rollback support.
-        let legacy_checkpoint = Some(committed_frontier);
+        // Maintain the legacy V1 `consumer.Checkpoint` from the recovered
+        // committed Frontier, unless the task has opted out of V1 rollback via
+        // `drop-runtime-v1-rollback`.
+        let legacy_checkpoint = if drop_v1_rollback {
+            None
+        } else {
+            Some(committed_frontier)
+        };
 
         let mut actor = actor::Actor::new(
             service.http_client.clone(),
