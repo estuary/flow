@@ -5953,6 +5953,9 @@ impl serde::Serialize for Persist {
         if self.committed_close_clock != 0 {
             len += 1;
         }
+        if self.delete_committed_frontier {
+            len += 1;
+        }
         if self.committed_frontier.is_some() {
             len += 1;
         }
@@ -5969,6 +5972,9 @@ impl serde::Serialize for Persist {
             len += 1;
         }
         if !self.last_applied.is_empty() {
+            len += 1;
+        }
+        if self.delete_legacy_checkpoint {
             len += 1;
         }
         if self.legacy_checkpoint.is_some() {
@@ -6002,6 +6008,9 @@ impl serde::Serialize for Persist {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("committedCloseClock", ToString::to_string(&self.committed_close_clock).as_str())?;
         }
+        if self.delete_committed_frontier {
+            struct_ser.serialize_field("deleteCommittedFrontier", &self.delete_committed_frontier)?;
+        }
         if let Some(v) = self.committed_frontier.as_ref() {
             struct_ser.serialize_field("committedFrontier", v)?;
         }
@@ -6025,6 +6034,9 @@ impl serde::Serialize for Persist {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("lastApplied", pbjson::private::base64::encode(&self.last_applied).as_str())?;
+        }
+        if self.delete_legacy_checkpoint {
+            struct_ser.serialize_field("deleteLegacyCheckpoint", &self.delete_legacy_checkpoint)?;
         }
         if let Some(v) = self.legacy_checkpoint.as_ref() {
             struct_ser.serialize_field("legacyCheckpoint", v)?;
@@ -6060,6 +6072,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
             "ackIntents",
             "committed_close_clock",
             "committedCloseClock",
+            "delete_committed_frontier",
+            "deleteCommittedFrontier",
             "committed_frontier",
             "committedFrontier",
             "connector_patches_json",
@@ -6072,6 +6086,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
             "hintedFrontier",
             "last_applied",
             "lastApplied",
+            "delete_legacy_checkpoint",
+            "deleteLegacyCheckpoint",
             "legacy_checkpoint",
             "legacyCheckpoint",
             "max_keys",
@@ -6088,12 +6104,14 @@ impl<'de> serde::Deserialize<'de> for Persist {
             DeleteAckIntents,
             AckIntents,
             CommittedCloseClock,
+            DeleteCommittedFrontier,
             CommittedFrontier,
             ConnectorPatchesJson,
             HintedCloseClock,
             DeleteHintedFrontier,
             HintedFrontier,
             LastApplied,
+            DeleteLegacyCheckpoint,
             LegacyCheckpoint,
             MaxKeys,
             DeleteTriggerParams,
@@ -6123,12 +6141,14 @@ impl<'de> serde::Deserialize<'de> for Persist {
                             "deleteAckIntents" | "delete_ack_intents" => Ok(GeneratedField::DeleteAckIntents),
                             "ackIntents" | "ack_intents" => Ok(GeneratedField::AckIntents),
                             "committedCloseClock" | "committed_close_clock" => Ok(GeneratedField::CommittedCloseClock),
+                            "deleteCommittedFrontier" | "delete_committed_frontier" => Ok(GeneratedField::DeleteCommittedFrontier),
                             "committedFrontier" | "committed_frontier" => Ok(GeneratedField::CommittedFrontier),
                             "connectorPatches" | "connector_patches_json" => Ok(GeneratedField::ConnectorPatchesJson),
                             "hintedCloseClock" | "hinted_close_clock" => Ok(GeneratedField::HintedCloseClock),
                             "deleteHintedFrontier" | "delete_hinted_frontier" => Ok(GeneratedField::DeleteHintedFrontier),
                             "hintedFrontier" | "hinted_frontier" => Ok(GeneratedField::HintedFrontier),
                             "lastApplied" | "last_applied" => Ok(GeneratedField::LastApplied),
+                            "deleteLegacyCheckpoint" | "delete_legacy_checkpoint" => Ok(GeneratedField::DeleteLegacyCheckpoint),
                             "legacyCheckpoint" | "legacy_checkpoint" => Ok(GeneratedField::LegacyCheckpoint),
                             "maxKeys" | "max_keys" => Ok(GeneratedField::MaxKeys),
                             "deleteTriggerParams" | "delete_trigger_params" => Ok(GeneratedField::DeleteTriggerParams),
@@ -6156,12 +6176,14 @@ impl<'de> serde::Deserialize<'de> for Persist {
                 let mut delete_ack_intents__ = None;
                 let mut ack_intents__ = None;
                 let mut committed_close_clock__ = None;
+                let mut delete_committed_frontier__ = None;
                 let mut committed_frontier__ = None;
                 let mut connector_patches_json__ = None;
                 let mut hinted_close_clock__ = None;
                 let mut delete_hinted_frontier__ = None;
                 let mut hinted_frontier__ = None;
                 let mut last_applied__ = None;
+                let mut delete_legacy_checkpoint__ = None;
                 let mut legacy_checkpoint__ = None;
                 let mut max_keys__ = None;
                 let mut delete_trigger_params__ = None;
@@ -6198,6 +6220,12 @@ impl<'de> serde::Deserialize<'de> for Persist {
                             committed_close_clock__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::DeleteCommittedFrontier => {
+                            if delete_committed_frontier__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("deleteCommittedFrontier"));
+                            }
+                            delete_committed_frontier__ = Some(map_.next_value()?);
                         }
                         GeneratedField::CommittedFrontier => {
                             if committed_frontier__.is_some() {
@@ -6241,6 +6269,12 @@ impl<'de> serde::Deserialize<'de> for Persist {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::DeleteLegacyCheckpoint => {
+                            if delete_legacy_checkpoint__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("deleteLegacyCheckpoint"));
+                            }
+                            delete_legacy_checkpoint__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::LegacyCheckpoint => {
                             if legacy_checkpoint__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("legacyCheckpoint"));
@@ -6277,12 +6311,14 @@ impl<'de> serde::Deserialize<'de> for Persist {
                     delete_ack_intents: delete_ack_intents__.unwrap_or_default(),
                     ack_intents: ack_intents__.unwrap_or_default(),
                     committed_close_clock: committed_close_clock__.unwrap_or_default(),
+                    delete_committed_frontier: delete_committed_frontier__.unwrap_or_default(),
                     committed_frontier: committed_frontier__,
                     connector_patches_json: connector_patches_json__.unwrap_or_default(),
                     hinted_close_clock: hinted_close_clock__.unwrap_or_default(),
                     delete_hinted_frontier: delete_hinted_frontier__.unwrap_or_default(),
                     hinted_frontier: hinted_frontier__,
                     last_applied: last_applied__.unwrap_or_default(),
+                    delete_legacy_checkpoint: delete_legacy_checkpoint__.unwrap_or_default(),
                     legacy_checkpoint: legacy_checkpoint__,
                     max_keys: max_keys__.unwrap_or_default(),
                     delete_trigger_params: delete_trigger_params__.unwrap_or_default(),

@@ -551,37 +551,44 @@ message Persist {
   // Clock at which the last-committed transaction closed.
   // Effect: Put under "committed-close-clock".
   fixed64 committed_close_clock = 4;
+  // Delete all previously-persisted committed Frontier entries.
+  // Applies ahead of `committed_frontier`.
+  // Effect: DeleteRange("FC:")
+  bool delete_committed_frontier = 5;
   // Committed Frontier entries.
   // Effect: Put under "FC:..." keys.
-  shuffle.Frontier committed_frontier = 5;
+  shuffle.Frontier committed_frontier = 6;
   // Connector state patches. State Update Wire Format.
   // Effect: Merge each patch under "connector-state".
-  bytes connector_patches_json = 6 [json_name = "connectorPatches"];
+  bytes connector_patches_json = 7 [json_name = "connectorPatches"];
   // Clock at which the hinted transaction closed.
   // Effect: Put under "hinted-close-clock".
-  fixed64 hinted_close_clock = 7;
+  fixed64 hinted_close_clock = 8;
   // Delete a previously-persisted hinted frontier. Applies ahead of `hinted_frontier`.
   // Effect: DeleteRange("FH:")
-  bool delete_hinted_frontier = 8;
+  bool delete_hinted_frontier = 9;
   // Hinted Frontier entries.
   // Effect: Put under "FH:" keys.
-  shuffle.Frontier hinted_frontier = 9;
+  shuffle.Frontier hinted_frontier = 10;
   // Last-applied task specification (protobuf-encoded bytes), or empty.
   // Effect: Put under "last-applied" key.
-  bytes last_applied = 10;
-  // Legacy checkpoint, required for rollback to legacy runtime.
+  bytes last_applied = 11;
+  // Delete a previously-persisted legacy checkpoint.
+  // Effect: Delete the "checkpoint" key.
+  bool delete_legacy_checkpoint = 12;
+  // Legacy checkpoint, required for rollback to the V1 runtime.
   // Effect: Put under "checkpoint" key.
-  consumer.Checkpoint legacy_checkpoint = 11;
+  consumer.Checkpoint legacy_checkpoint = 13;
   // Per-binding max-key updates, reduced to per-binding maximum across shards.
   // Key: binding index; Value: packed composite key tuple.
   // Effect: Put value under "MK-v2:{state_key}" (state_key resolved by the encoder).
-  map<uint32, bytes> max_keys = 12;
+  map<uint32, bytes> max_keys = 14;
   // Delete previously-persisted trigger parameters. Applies ahead of `trigger_params_json`.
   // Effect: Delete the "trigger-params" key.
-  bool delete_trigger_params = 13;
+  bool delete_trigger_params = 15;
   // Materialization trigger parameters.
   // Effect: Put under "trigger-params" key.
-  bytes trigger_params_json = 14 [ json_name = "triggerParams" ];
+  bytes trigger_params_json = 16 [ json_name = "triggerParams" ];
 }
 
 // Persisted is sent by shard zero to the leader after the state is durable

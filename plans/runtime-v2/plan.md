@@ -292,3 +292,19 @@ complete runtime in stages of increasing blast radius.
   using `runtime_next::leader::materialize::frontier_mapping`).
 - **Rollback**: switching a task's feature flag back to the old runtime
   is a per-task operation. No global rollback needed.
+- **Dropping rollback support**: while V1 rollback is retained, the leader
+  keeps maintaining a legacy `consumer.Checkpoint` (the `checkpoint` RocksDB
+  key) so the old runtime can resume from it. Once a task has stably cut
+  over, the per-task `estuary.dev/flag/drop-runtime-v1-rollback` shard label
+  tells the leader to stop maintaining it.
+- **Startup checkpoint reconciliation**: the legacy V1 checkpoint holds a
+  *complete* committed frontier, but V2 writes `FC:` keys as per-transaction
+  *deltas* — so at cutover the recovered `FC:` keys are not yet a sound
+  recovery baseline. After the connector `Open`/`Opened` exchange, once the
+  final status of the recovered V1 checkpoint and any remote-authoritative
+  connector checkpoint is known, `startup` issues one cleanup `Persist` to
+  shard zero: if a checkpoint was authoritative (its mapped frontier replaced
+  the recovered one) it clears all `FC:` keys and rewrites the complete
+  baseline; if `drop-runtime-v1-rollback` is set it also deletes the legacy
+  `checkpoint` key. An authoritative (unmarked) checkpoint implies no V2
+  transaction has committed, so clearing `FC:` loses no V2 state.
