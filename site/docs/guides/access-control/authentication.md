@@ -43,11 +43,12 @@ Your prefix is granted write access to itself and read access to its logs, which
 Using the same example, say user X signs up on behalf of their company, AcmeCo. User X is automatically granted `admin` access to the `acmeCo/` prefix.
 `acmeCo/`, in turn, has write access to `acmeCo/` and read access to `ops/acmeCo/`.
 
-As more users and prefixes are added, admins can [provision capabilities](#provisioning-capabilities) using the CLI.
+As more users and prefixes are added, admins can [provision capabilities](#provisioning-capabilities) using the CLI or [dashboard](/guides/dashboard/admin/#account-access).
+See [configuration guides](/guides/prefix-access-control) for additional scenarios as you add users.
 
 ## Authenticating Estuary in the web app
 
-You must sign in to begin a new session using the [Estuary web application](https://dashboard.estuary.dev).
+Sign into the [Estuary dashboard](https://dashboard.estuary.dev) to begin a new session.
 For the duration of the session, you'll be able to perform actions depending on the capabilities granted to the user profile.
 
 You can view the capabilities currently provisioned in your organization on the **Admin** tab.
@@ -58,13 +59,13 @@ You can use the [flowctl](/concepts/flowctl) CLI to work with your organization'
 
 To authenticate a local development session using the CLI, do the following:
 
-1. Ensure that you have an Estuary account and have signed into Estuary's web app before.
+1. Ensure that you have an Estuary account and have signed into the dashboard before.
 
 2. In the terminal of your local development environment, run:
    ``` console
    flowctl auth login
    ```
-   In a browser window, the web app opens to the CLI-API tab.
+   In a browser window, the dashboard opens to the CLI-API tab.
 
 3. Copy the access token.
 
@@ -74,7 +75,9 @@ The token will expire after a predetermined duration. Repeat this process to re-
 
 ## Provisioning capabilities
 
-As an admin, you can provision capabilities using the CLI with the subcommands of `flowctl auth roles`.
+Admins can provision capabilities from [Admin Settings](/guides/dashboard/admin) in the dashboard or using the `flowctl` CLI.
+
+`flowctl auth roles` subcommands allow you to manage capabilities programmatically.
 
 For example:
 
@@ -83,7 +86,7 @@ For example:
 * `flowctl auth roles grant --object-role=acmeCo/ --capability=admin --subject-user-id=userZ` grants user Z admin access to `acmeCo`
 
 * `flowctl auth roles revoke --object-role=outside-org/acmeCo-share/ --capability=read --subject-role=acmeCo/` would be used by an admin of `outside-org`
-to revoke `acmeCo/`'s read access to `outside-org/acmeCo-share/`.
+to revoke `acmeCo/`'s read access to `outside-org/acmeCo-share/`
 
 You can find detailed help for all subcommands using the `--help` or `-h` flag.
 
