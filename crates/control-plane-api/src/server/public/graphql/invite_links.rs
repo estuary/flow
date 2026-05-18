@@ -180,6 +180,12 @@ impl InviteLinksMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
+        if capability == models::Capability::None {
+            return Err(async_graphql::Error::new(
+                "capability must be one of: read, write, admin",
+            ));
+        }
+
         if let Err(err) = validator::Validate::validate(&catalog_prefix) {
             return Err(async_graphql::Error::new(format!(
                 "invalid catalog prefix: {err}"

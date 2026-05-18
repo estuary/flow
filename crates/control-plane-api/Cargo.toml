@@ -44,6 +44,7 @@ chrono = { workspace = true }
 clap = { workspace = true }
 colored_json = { workspace = true }
 derivative = { workspace = true }
+enumset = { workspace = true }
 futures = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }

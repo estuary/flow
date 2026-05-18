@@ -68,7 +68,7 @@
             "name": "grant_capability",
             "kind": {
               "Enum": [
-                "x_00",
+                "none",
                 "x_01",
                 "x_02",
                 "x_03",
