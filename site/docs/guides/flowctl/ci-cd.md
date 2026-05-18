@@ -57,7 +57,7 @@ captures:
   Artificial-Industries/ci-cd/source-stripe-native:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-stripe-native:dev
+        image: ghcr.io/estuary/source-stripe-native:v1
         config:
           credentials:
             credentials_title: Private App Credentials
@@ -82,7 +82,7 @@ captures:
   Artificial-Industries/ci-cd/source-postgres:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-postgres:dev
+        image: ghcr.io/estuary/source-postgres:v3
         config:
           address: <host>:<port>
           database: postgres
@@ -314,9 +314,9 @@ Consider this example specification:
 materializations:
   Artificial-Industries/ci-cd/materialize-snowflake:
     endpoint:
-  	  connector:
-        image: ghcr.io/estuary/materialize-snowflake:dev
-    	config:
+      connector:
+        image: ghcr.io/estuary/materialize-snowflake:v4
+        config:
           host: orgname-accountname.snowflakecomputing.com
           database: estuary_db
           schema: estuary_schema

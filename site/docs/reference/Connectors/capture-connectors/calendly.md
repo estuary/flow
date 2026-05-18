@@ -2,9 +2,6 @@
 
 This connector captures data from Calendly into Estuary collections.
 
-This connector is available for use in the Estuary web application.
-For local development or open-source workflows, [`ghcr.io/estuary/source-calendly:v1`](https://ghcr.io/estuary/source-calendly:v1) provides the latest connector image. You can also follow the link in your browser to see past image versions.
-
 ## Supported data resources
 
 The connector captures the following Calendly resources:
