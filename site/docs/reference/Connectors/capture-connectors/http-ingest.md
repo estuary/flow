@@ -124,7 +124,39 @@ Under **Endpoint Config**, you can set [CORS](https://developer.mozilla.org/en-U
 
 ### Webhook signature verification
 
-This connector supports ECDSA P-256 signature verification for webhook providers. Verification is always disabled by default. When enabled, requests with missing or invalid signatures will be rejected with a 401 Unauthorized response. Configuration varies by provider.
+This connector supports signature verification using either ECDSA P-256 or HMAC SHA-256. Verification is disabled by default. When enabled, requests with missing or invalid signatures will be rejected with a 401 Unauthorized response. Configuration varies by provider.
+
+Built-in configurations are provided for Zoom, Knock, and Twilio SendGrid. Any other provider can be configured through the "custom" option.
+
+#### Zoom
+
+For Zoom webhooks, provide your Zoom secret token. The connector will verify HMAC SHA-256 signatures from the `x-zm-signature` header against the `x-zm-request-timestamp` header.
+
+```json
+{
+  "signatureConfig": {
+    "provider": "zoom",
+    "publicKey": "your-zoom-secret-token"
+  }
+}
+```
+
+The secret token can be found in your Zoom App's Event Subscriptions settings.
+
+#### Knock
+
+For Knock webhooks, provide your Knock signing key. The connector verifies HMAC SHA-256 signatures from the `x-knock-signature` header, which packs both the timestamp and signature into a single header value (e.g., `t=<timestamp>,s=<signature>`).
+
+```json
+{
+  "signatureConfig": {
+    "provider": "knock",
+    "publicKey": "your-knock-signing-key"
+  }
+}
+```
+
+The signing key can be found in your Knock dashboard under the webhook source settings.
 
 #### Twilio SendGrid
 
@@ -143,7 +175,25 @@ The verification key can be found in your SendGrid Event Webhook settings.
 
 #### Custom Providers
 
-For other webhook providers that use ECDSA P-256 signatures, use the "custom" configuration to specify custom headers:
+For any other webhook provider, use the "custom" configuration. Custom providers support both HMAC SHA-256 and ECDSA P-256 signatures.
+
+##### HMAC SHA-256 example
+
+```json
+{
+  "signatureConfig": {
+    "provider": "custom",
+    "algorithm": "hmac_sha256",
+    "publicKey": "your-shared-secret",
+    "signatureHeader": "X-Custom-Signature",
+    "signatureEncoding": "hex",
+    "signingStringTemplate": "{TIMESTAMP}.{PAYLOAD}",
+    "timestampHeader": "X-Custom-Timestamp"
+  }
+}
+```
+
+##### ECDSA P-256 example
 
 ```json
 {
@@ -152,12 +202,13 @@ For other webhook providers that use ECDSA P-256 signatures, use the "custom" co
     "algorithm": "ecdsa",
     "publicKey": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGnYX92sAfrAoZadSDc/qKMHph36Y\nMMhXUbkrle5edS+hTngTe5x3ZziwHv/JE5R7f7YCmrQFlIWM+ghy4Lr1zA==\n-----END PUBLIC KEY-----",
     "signatureHeader": "X-Custom-Signature",
+    "signingStringTemplate": "{TIMESTAMP}{PAYLOAD}",
     "timestampHeader": "X-Custom-Timestamp"
   }
 }
 ```
 
-The `publicKey` also accepts a base64-encoded SPKI DER string:
+For ECDSA, the `publicKey` also accepts a base64-encoded SPKI DER string:
 
 ```json
 {
@@ -166,16 +217,19 @@ The `publicKey` also accepts a base64-encoded SPKI DER string:
     "algorithm": "ecdsa",
     "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGnYX92sAfrAoZadSDc/qKMHph36YMMhXUbkrle5edS+hTngTe5x3ZziwHv/JE5R7f7YCmrQFlIWM+ghy4Lr1zA==",
     "signatureHeader": "X-Custom-Signature",
-    "timestampHeader": "X-Custom-Timestamp"
+    "signingStringTemplate": "{PAYLOAD}"
   }
 }
 ```
 
 - **provider**: Set to `"custom"` for custom configuration
-- **algorithm**: The signature algorithm (currently only `"ecdsa"` is supported)
-- **publicKey**: ECDSA P-256 public key from your webhook provider, in PEM format or as a base64-encoded SPKI DER string
-- **signatureHeader**: HTTP header containing the base64-encoded DER signature
-- **timestampHeader**: (optional) HTTP header containing the timestamp to prepend to the body before verification
+- **algorithm**: `"hmac_sha256"` or `"ecdsa"`
+- **publicKey**: For ECDSA, the P-256 public key in PEM format or as a base64-encoded SPKI DER string. For HMAC, the shared secret string.
+- **signatureHeader**: HTTP header containing the signature
+- **signatureEncoding**: How the signature value in the header is encoded; either `"hex"` or `"base64"`
+- **signingStringTemplate**: Template used to construct the byte string that is signed. Must include `{PAYLOAD}` and may include `{TIMESTAMP}`. For example, `"{TIMESTAMP}.{PAYLOAD}"` signs the timestamp, then a literal dot, then the request body.
+- **timestampHeader**: (optional) HTTP header containing the timestamp. Required when `{TIMESTAMP}` appears in `signingStringTemplate`. Enabling this also enforces a freshness check to protect against replay attacks.
+- **maxSignatureAge**: (optional) Maximum age of a signed request, in seconds, before it is rejected. Defaults to 300 (5 minutes).
 
 If your use case requires a different verification scheme, please contact [`support@estuary.dev`](mailto://support@estuary.dev) and let us know.
 
@@ -211,22 +265,42 @@ To reliably capture webhook data, the sender must retry any requests that fail w
 |---|---|---|---|---|
 | `/signatureConfig/provider` |  | Provider identifier | string | Required (`"none"`) |
 
+#### Signature Config: Zoom
+
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| `/signatureConfig/provider` | | Provider identifier | string | Required (`"zoom"`) |
+| `/signatureConfig/publicKey` | Secret Token | Zoom webhook secret token used as the HMAC-SHA256 key. | string | Required |
+| `/signatureConfig/maxSignatureAge` | Max Signature Age | Maximum age of a signed request in seconds before it is rejected. | integer | `300` |
+
+#### Signature Config: Knock
+
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| `/signatureConfig/provider` | | Provider identifier | string | Required (`"knock"`) |
+| `/signatureConfig/publicKey` | Signing Key | Knock webhook signing key used as the HMAC-SHA256 secret. | string | Required |
+| `/signatureConfig/maxSignatureAge` | Max Signature Age | Maximum age of a signed request in seconds before it is rejected. | integer | `300` |
+
 #### Signature Config: Twilio SendGrid
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/signatureConfig/provider` |  | Provider identifier | string | Required (`"twilio"`) |
+| `/signatureConfig/provider` | | Provider identifier | string | Required (`"twilio"`) |
 | `/signatureConfig/publicKey` | Verification Key | Verification key from Twilio SendGrid Event Webhook settings. | string | Required |
+| `/signatureConfig/maxSignatureAge` | Max Signature Age | Maximum age of a signed request in seconds before it is rejected. | integer | `300` |
 
 #### Signature Config: Custom
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/signatureConfig/provider` |  | Provider identifier | string | Required (`"custom"`) |
-| `/signatureConfig/algorithm` | Algorithm | The signature verification algorithm. | string | Required (`"ecdsa"`) |
-| `/signatureConfig/publicKey` | Public Key | PEM-encoded public key. | string | Required |
-| `/signatureConfig/signatureHeader` | Signature Header | HTTP header containing the base64-encoded signature. | string | Required |
-| `/signatureConfig/timestampHeader` | Timestamp Header | Optional HTTP header containing the timestamp. | string | `null` |
+| `/signatureConfig/provider` | | Provider identifier | string | Required (`"custom"`) |
+| `/signatureConfig/algorithm` | Algorithm | The signature verification algorithm. | string | Required (`"hmac_sha256"` or `"ecdsa"`; default `"hmac_sha256"`) |
+| `/signatureConfig/publicKey` | Public Key | PEM-encoded public key for ECDSA, or shared secret for HMAC. | string | Required |
+| `/signatureConfig/signatureHeader` | Signature Header | HTTP header containing the signature. | string | Required |
+| `/signatureConfig/signatureEncoding` | Signature Encoding | Encoding of the signature value in the header. | string | `"hex"` |
+| `/signatureConfig/signingStringTemplate` | Signing String Template | Template used to construct the string that is signed. Must include `{PAYLOAD}`, may include `{TIMESTAMP}`. | string | Required |
+| `/signatureConfig/timestampHeader` | Timestamp Header | Optional HTTP header containing the timestamp. Required when `{TIMESTAMP}` is used in the signing string template. | string | `null` |
+| `/signatureConfig/maxSignatureAge` | Max Signature Age | Maximum age of a signed request in seconds before it is rejected. | integer | `300` |
 
 ### Resource properties
 
