@@ -57,9 +57,9 @@ schedule:
 |------------------------|------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
 | `/syncFrequency`       | Sync Frequency         | Frequency at which transactions are executed when the materialization is fully caught up and streaming changes. May be enabled only for certain time periods and days of the week if configured below; otherwise it is effective 24/7. Defaults to 30 minutes if unset.                                                                                                       | string |
 | `/timezone`            | Timezone               | Timezone applicable to sync time windows and active days. Must be a valid IANA time zone name or +HH:MM offset.                                                                                                                                                                                                                                                               | string |
-| `/fastSyncStartTime`   | Fast Sync Start Time   | Time of day that transactions begin executing at the configured Sync Frequency. Prior to this time transactions will be executed more slowly. Must be in the form of '09:00'.                                                                                                                                                                                                 | string |
-| `/fastSyncStopTime`    | Fast Sync Stop Time    | Time of day that transactions stop executing at the configured Sync Frequency. After this time transactions will be executed more slowly. Must be in the form of '17:00'.                                                                                                                                                                                                     | string |
-| `/fastSyncEnabledDays` | Fast Sync Enabled Days | Days of the week that the configured Sync Frequency is active. On days that are not enabled, transactions will be executed more slowly for the entire day. Examples: 'M-F' (Monday through Friday, inclusive), 'M,W,F' (Monday, Wednesday, and Friday), 'Su-T,Th-S' (Sunday through Tuesday, inclusive; Thursday through Saturday, inclusive). All days are enabled if unset. | string |
+| `/fastSyncStartTime`   | Fast Sync Start Time   | Time of day that transactions begin executing at the configured Sync Frequency. Prior to this time transactions will be executed every 4 hours. Must be in the form of '09:00'.                                                                                                                                                                                                 | string |
+| `/fastSyncStopTime`    | Fast Sync Stop Time    | Time of day that transactions stop executing at the configured Sync Frequency. After this time transactions will be executed every 4 hours. Must be in the form of '17:00'.                                                                                                                                                                                                     | string |
+| `/fastSyncEnabledDays` | Fast Sync Enabled Days | Days of the week that the configured Sync Frequency is active. On days that are not enabled, transactions will be executed every 4 hours. Examples: 'M-F' (Monday through Friday, inclusive), 'M,W,F' (Monday, Wednesday, and Friday), 'Su-T,Th-S' (Sunday through Tuesday, inclusive; Thursday through Saturday, inclusive). All days are enabled if unset. | string |
 
 The sync schedule can be configured in the dashboard or directly in the materialization's specification file.
 Sync schedule properties are nested under a materialization's `config` stanza. For example:
@@ -134,8 +134,8 @@ of 9:00AM and 5:00PM in the Eastern Time Zone (ET) would use these values:
 
 #### Example: Sync data faster only on certain days of the week
 
-You can also set certain days of the week that the fast sync is active. On all
-other days, data will be sync'd more slowly all day.
+You can also set certain days of the week that the fast sync is active.
+Outside Fast Sync Enabled days, data will sync every 4 hours.
 
 To enable this, set values for **Sync Frequency**, **Timezone**, **Fast Sync
 Start Time**, and **Fast Sync Stop Time** as you would for syncing data faster
