@@ -15,15 +15,17 @@ pub(super) fn authorized_prefixes(
     min_capability: models::Capability,
     prefix_filter: Option<&str>,
 ) -> Vec<String> {
+    let min_bits: enumset::EnumSet<models::authz::Capability> = min_capability.into();
+
     let mut prefixes: Vec<String> =
-        tables::UserGrant::transitive_roles(role_grants, user_grants, user_id)
-            .filter(|grant| grant.capability >= min_capability)
-            .filter(|grant| {
+        tables::UserGrant::reachable_nodes(role_grants, user_grants, user_id)
+            .filter(|node| node.capabilities.is_superset(min_bits))
+            .filter(|node| {
                 prefix_filter.is_none_or(|pf| {
-                    grant.object_role.starts_with(pf) || pf.starts_with(&*grant.object_role)
+                    node.object_role.starts_with(pf) || pf.starts_with(node.object_role)
                 })
             })
-            .map(|grant| grant.object_role.to_string())
+            .map(|node| node.object_role.to_string())
             .collect();
 
     // Sort and remove child prefixes that are already covered by a parent prefix.
@@ -57,7 +59,7 @@ mod tests {
                 user_id: *id,
                 object_role: models::Prefix::new(*obj),
                 capability: *cap,
-                capabilities: vec![],
+                bundles: vec![],
             }
         }));
         let rg = tables::RoleGrants::from_iter(role_grants.iter().map(|(sub, obj, cap)| {
@@ -65,7 +67,7 @@ mod tests {
                 subject_role: models::Prefix::new(*sub),
                 object_role: models::Prefix::new(*obj),
                 capability: *cap,
-                capabilities: vec![],
+                bundles: vec![],
             }
         }));
         (ug, rg)

@@ -7,10 +7,8 @@ pub struct PrefixRef {
     pub prefix: models::Prefix,
     /// The capability granted to the user for this prefix.
     pub user_capability: models::Capability,
-    /// Orthogonal capabilities the user has at this prefix, independent of
-    /// the read/write/admin hierarchy. Empty when no orthogonal capabilities
-    /// are granted.
-    pub capabilities: Vec<models::OrthogonalCapability>,
+    /// Fine-grained permissions the user has at this prefix.
+    pub permissions: Vec<models::authz::Capability>,
 }
 
 #[derive(Debug, Clone, async_graphql::InputObject)]
@@ -47,31 +45,42 @@ impl PrefixesQuery {
             let snapshot = env.snapshot();
             let user_id = env.claims()?.sub;
 
-            let mut all_roles: Vec<PrefixRef> = tables::UserGrant::transitive_roles(
+            let min_bits: enumset::EnumSet<models::authz::Capability> = by.min_capability.into();
+
+            let all_nodes: Vec<_> = tables::UserGrant::reachable_nodes(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 user_id,
             )
-            .filter(|grant| grant.capability >= by.min_capability)
-            .filter(|grant| after.as_deref().is_none_or(|min| grant.object_role > min))
-            .map(|grant| {
-                let mut capabilities: Vec<models::OrthogonalCapability> = snapshot
-                    .effective_capabilities(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        user_id,
-                        grant.object_role,
-                    )
-                    .into_iter()
-                    .collect();
-                capabilities.sort();
-                PrefixRef {
-                    prefix: models::Prefix::new(grant.object_role),
-                    user_capability: grant.capability,
-                    capabilities,
-                }
-            })
             .collect();
+
+            let mut all_roles: Vec<PrefixRef> = all_nodes
+                .iter()
+                .filter(|node| node.capabilities.is_superset(min_bits))
+                .filter(|node| after.as_deref().is_none_or(|min| node.object_role > min))
+                .map(|node| {
+                    let bits = all_nodes
+                        .iter()
+                        .filter(|n| node.object_role.starts_with(n.object_role))
+                        .fold(enumset::EnumSet::empty(), |acc, n| acc | n.capabilities);
+
+                    let user_capability = [
+                        (models::authz::Bundle::Admin, models::Capability::Admin),
+                        (models::authz::Bundle::Writer, models::Capability::Write),
+                        (models::authz::Bundle::Viewer, models::Capability::Read),
+                    ]
+                    .into_iter()
+                    .find(|(bundle, _)| bits.is_superset(bundle.capabilities()))
+                    .map(|(_, capability)| capability)
+                    .unwrap_or(models::Capability::Read);
+
+                    PrefixRef {
+                        prefix: models::Prefix::new(node.object_role),
+                        user_capability,
+                        permissions: bits.iter().collect(),
+                    }
+                })
+                .collect();
 
             all_roles.sort_by(|l, r| {
                 l.prefix
@@ -130,7 +139,6 @@ mod tests {
                                 node {
                                     prefix
                                     userCapability
-                                    capabilities
                                 }
                             }
                         }
@@ -149,21 +157,18 @@ mod tests {
               "edges": [
                 {
                   "node": {
-                    "capabilities": [],
                     "prefix": "aliceCo/",
                     "userCapability": "admin"
                   }
                 },
                 {
                   "node": {
-                    "capabilities": [],
                     "prefix": "aliceCo/data/",
-                    "userCapability": "write"
+                    "userCapability": "admin"
                   }
                 },
                 {
                   "node": {
-                    "capabilities": [],
                     "prefix": "ops/dp/public/",
                     "userCapability": "read"
                   }

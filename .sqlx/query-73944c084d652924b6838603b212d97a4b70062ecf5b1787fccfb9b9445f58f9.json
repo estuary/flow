@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            g.subject_role AS \"subject_role: models::Prefix\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\",\n            g.capabilities AS \"capabilities: Vec<models::OrthogonalCapability>\"\n        FROM role_grants g\n        ",
+  "query": "\n        SELECT\n            g.subject_role AS \"subject_role: models::Prefix\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\",\n            g.bundles AS \"bundles: Vec<models::authz::Bundle>\"\n        FROM role_grants g\n        ",
   "describe": {
     "columns": [
       {
@@ -21,7 +21,7 @@
             "name": "grant_capability",
             "kind": {
               "Enum": [
-                "x_00",
+                "none",
                 "x_01",
                 "x_02",
                 "x_03",
@@ -59,18 +59,19 @@
       },
       {
         "ordinal": 3,
-        "name": "capabilities: Vec<models::OrthogonalCapability>",
+        "name": "bundles: Vec<models::authz::Bundle>",
         "type_info": {
           "Custom": {
-            "name": "orthogonal_capability[]",
+            "name": "capability_bundle[]",
             "kind": {
               "Array": {
                 "Custom": {
-                  "name": "orthogonal_capability",
+                  "name": "capability_bundle",
                   "kind": {
                     "Enum": [
-                      "read",
-                      "write",
+                      "viewer",
+                      "writer",
+                      "editor",
                       "admin",
                       "billing",
                       "team_admin",
@@ -95,5 +96,5 @@
       false
     ]
   },
-  "hash": "75cb5e46c0fa1f6c711fc9fdbe487e26c54cebdd3c875e5bf47f088775311cdf"
+  "hash": "73944c084d652924b6838603b212d97a4b70062ecf5b1787fccfb9b9445f58f9"
 }

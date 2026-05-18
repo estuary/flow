@@ -66,7 +66,7 @@ impl App {
 pub fn evaluate_names_authorization<'r, Iter, S>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
-    min_capability: impl Into<models::AnyCapability>,
+    min_capability: impl Into<enumset::EnumSet<models::authz::Capability>>,
     prefixes_or_names: Iter,
 ) -> AuthZResult<()>
 where
@@ -79,7 +79,7 @@ where
         ..
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
-    let min_capability: models::AnyCapability = min_capability.into();
+    let min_capability: enumset::EnumSet<models::authz::Capability> = min_capability.into();
 
     for prefix_or_name in prefixes_or_names.into_iter() {
         if !tables::UserGrant::is_authorized(
@@ -87,10 +87,11 @@ where
             &snapshot.user_grants,
             *user_id,
             prefix_or_name.as_ref(),
-            min_capability.clone(),
+            min_capability,
         ) {
+            let capability_name = models::authz::capability_name(min_capability);
             return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {min_capability}",
+                "{user_email} is not authorized to access prefix or name '{prefix_or_name}' with required capability {capability_name}",
             )));
         }
     }
@@ -318,6 +319,7 @@ fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
 
 const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
     match capability {
+        models::Capability::None => panic!("gazette capability mapping requires Read, Write, or Admin"),
         models::Capability::Read => {
             proto_gazette::capability::LIST | proto_gazette::capability::READ
         }

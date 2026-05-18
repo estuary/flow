@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            g.user_id AS \"user_id: uuid::Uuid\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\",\n            g.capabilities AS \"capabilities: Vec<models::OrthogonalCapability>\"\n        FROM user_grants g\n        ",
+  "query": "\n        SELECT\n            g.user_id AS \"user_id: uuid::Uuid\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\",\n            g.bundles AS \"bundles: Vec<models::authz::Bundle>\"\n        FROM user_grants g\n        ",
   "describe": {
     "columns": [
       {
@@ -21,7 +21,7 @@
             "name": "grant_capability",
             "kind": {
               "Enum": [
-                "x_00",
+                "none",
                 "x_01",
                 "x_02",
                 "x_03",
@@ -59,18 +59,19 @@
       },
       {
         "ordinal": 3,
-        "name": "capabilities: Vec<models::OrthogonalCapability>",
+        "name": "bundles: Vec<models::authz::Bundle>",
         "type_info": {
           "Custom": {
-            "name": "orthogonal_capability[]",
+            "name": "capability_bundle[]",
             "kind": {
               "Array": {
                 "Custom": {
-                  "name": "orthogonal_capability",
+                  "name": "capability_bundle",
                   "kind": {
                     "Enum": [
-                      "read",
-                      "write",
+                      "viewer",
+                      "writer",
+                      "editor",
                       "admin",
                       "billing",
                       "team_admin",
@@ -95,5 +96,5 @@
       false
     ]
   },
-  "hash": "38d66d2132d5063abdc345bdd6491558559381b25bd5f0242815b471198fcf84"
+  "hash": "db0dd837cff7173737de9699bb9ea397c2e272d70c535b6e330acd699fd4e6bd"
 }

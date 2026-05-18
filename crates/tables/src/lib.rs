@@ -110,7 +110,7 @@ tables!(
         key object_role: models::Prefix,
         // Capability of the subject with respect to the object.
         val capability: models::Capability,
-        val capabilities: Vec<models::OrthogonalCapability>,
+        val bundles: Vec<models::authz::Bundle>,
     }
 
     table UserGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] UserGrant, sql "user_grants") {
@@ -120,7 +120,7 @@ tables!(
         key object_role: models::Prefix,
         // Capability of the subject with respect to the object.
         val capability: models::Capability,
-        val capabilities: Vec<models::OrthogonalCapability>,
+        val bundles: Vec<models::authz::Bundle>,
     }
 
     table DraftCaptures (row #[derive(Clone)] DraftCapture, sql "draft_captures") {
@@ -407,17 +407,10 @@ impl Error {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, serde::Serialize)]
-pub struct GrantRef<'a> {
-    pub subject_role: &'a str,
-    pub object_role: &'a str,
-    pub capability: models::Capability,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct NodeRef<'a> {
     pub object_role: &'a str,
-    pub capabilities: Vec<models::OrthogonalCapability>,
+    pub capabilities: enumset::EnumSet<models::authz::Capability>,
 }
 
 /// Attempts to parse a catalog type and name from a URL in the form of:
@@ -487,7 +480,7 @@ string_wrapper_types!(
 json_sql_types!(
     Vec<String>,
     Vec<models::Store>,
-    Vec<models::OrthogonalCapability>,
+    Vec<models::authz::Bundle>,
     models::Capability,
     models::CaptureDef,
     models::CatalogType,
