@@ -17,6 +17,9 @@ In the future, other open-source materialization connectors from third parties c
 * Amazon DynamoDB
   * [Configuration](./amazon-dynamodb.md)
   * Package - ghcr.io/estuary/materialize-dynamodb:v1
+* Amazon EventBridge
+  * [Configuration](./amazon-eventbridge.md)
+  * Package - ghcr.io/estuary/materialize-eventbridge:v1
 * Amazon MySQL
   * [Configuration](./MySQL/amazon-rds-mysql.md)
   * Package - ghcr.io/estuary/materialize-amazon-rds-mysql:v2
