@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            g.subject_role AS \"subject_role: models::Prefix\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\",\n            g.capabilities AS \"capabilities: Vec<models::OrthogonalCapability>\"\n        FROM role_grants g\n        ",
+  "query": "\n        SELECT\n            g.user_id AS \"user_id: uuid::Uuid\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\",\n            g.bundles AS \"bundles: Vec<models::authz::CapabilityBundle>\"\n        FROM user_grants g\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "subject_role: models::Prefix",
-        "type_info": "Text"
+        "name": "user_id: uuid::Uuid",
+        "type_info": "Uuid"
       },
       {
         "ordinal": 1,
@@ -21,7 +21,7 @@
             "name": "grant_capability",
             "kind": {
               "Enum": [
-                "x_00",
+                "none",
                 "x_01",
                 "x_02",
                 "x_03",
@@ -59,18 +59,19 @@
       },
       {
         "ordinal": 3,
-        "name": "capabilities: Vec<models::OrthogonalCapability>",
+        "name": "bundles: Vec<models::authz::CapabilityBundle>",
         "type_info": {
           "Custom": {
-            "name": "orthogonal_capability[]",
+            "name": "capability_bundle[]",
             "kind": {
               "Array": {
                 "Custom": {
-                  "name": "orthogonal_capability",
+                  "name": "capability_bundle",
                   "kind": {
                     "Enum": [
-                      "read",
-                      "write",
+                      "viewer",
+                      "writer",
+                      "editor",
                       "admin",
                       "billing",
                       "team_admin",
@@ -95,5 +96,5 @@
       false
     ]
   },
-  "hash": "75cb5e46c0fa1f6c711fc9fdbe487e26c54cebdd3c875e5bf47f088775311cdf"
+  "hash": "f474f352d1208f95578f08162a2553189fa01dad7bd53a190ccddfabb851357c"
 }

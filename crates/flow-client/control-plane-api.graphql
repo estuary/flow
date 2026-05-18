@@ -323,9 +323,22 @@ enum Capability {
 	"""
 	Note that the discriminants here align with those in the database type.
 	"""
+	none
 	read
 	write
 	admin
+}
+
+enum CapabilityBit {
+	CatalogRead
+	JournalRead
+	JournalAppend
+	SpecEdit
+	CreateGrant
+	DeleteGrant
+	CreateInviteLink
+	Delegate
+	Assume
 }
 
 enum CatalogType {
@@ -1082,26 +1095,6 @@ type MutationRoot {
 scalar Name
 
 """
-Unified capability enum covering both the legacy hierarchical capabilities
-(read/write/admin) and the new orthogonal capabilities (billing, team_admin).
-
-The legacy variants mirror `Capability` and exist so that authorization
-checks can be written against a single type. Today, read/write/admin are
-checked via BFS traversal of the old `capability` column, while
-billing/team_admin are checked via the `capabilities` array on
-`user_grants`. A future migration will consolidate both into the array.
-"""
-enum OrthogonalCapability {
-	READ
-	WRITE
-	ADMIN
-	BILLING
-	TEAM_ADMIN
-	DELEGATE
-	ASSUME
-}
-
-"""
 Information about pagination in a connection
 """
 type PageInfo {
@@ -1150,15 +1143,21 @@ type PrefixRef {
 	"""
 	prefix: Prefix!
 	"""
-	The capability granted to the user for this prefix.
+	The literal legacy `capability` column value of the grant(s) that
+	emitted this prefix (max'd if multiple grants land at the same
+	prefix). Reports `none` for prefixes whose authorization comes
+	entirely from the `bundles` column rather than the legacy column.
+	
+	Exists solely so the dashboard's read/write/admin prefix-bucket
+	store keeps working until it migrates to consuming `capabilities`
+	directly. Once that migration lands, this field and its derivation
+	can be deleted.
 	"""
 	userCapability: Capability!
 	"""
-	Orthogonal capabilities the user has at this prefix, independent of
-	the read/write/admin hierarchy. Empty when no orthogonal capabilities
-	are granted.
+	Fine-grained capabilities the user has at this prefix.
 	"""
-	capabilities: [OrthogonalCapability!]!
+	capabilities: [CapabilityBit!]!
 }
 
 type PrefixRefConnection {

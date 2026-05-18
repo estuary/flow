@@ -2091,6 +2091,7 @@ dependencies = [
  "coroutines",
  "derivative",
  "doc",
+ "enumset",
  "flow-client-next",
  "futures",
  "gazette",
@@ -3089,6 +3090,28 @@ name = "endian-type"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c34f04666d835ff5d62e058c3995147c06f42fe86ff053337632bca83e42702d"
+
+[[package]]
+name = "enumset"
+version = "1.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f96a4a12fe60ac746ae295a1a4ecb5bb02debc20856506c8635288065f142de"
+dependencies = [
+ "enumset_derive",
+ "serde",
+]
+
+[[package]]
+name = "enumset_derive"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bd536557b58c682b217b8fb199afdff47cd3eff260623f19e77074eb073d63a"
+dependencies = [
+ "darling 0.21.3",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
 
 [[package]]
 name = "env_logger"
@@ -5357,6 +5380,7 @@ dependencies = [
  "bytes",
  "caseless",
  "chrono",
+ "enumset",
  "futures",
  "handlebars 6.3.2",
  "humantime-serde",
@@ -8614,6 +8638,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "doc",
+ "enumset",
  "insta",
  "itertools 0.14.0",
  "json",

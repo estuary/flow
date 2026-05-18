@@ -139,7 +139,7 @@ async fn test_user_publications() {
         )
         .await;
     assert!(!dog_result.status.is_success());
-    insta::assert_debug_snapshot!(dog_result.errors, @r###"
+    insta::assert_debug_snapshot!(dog_result.errors, @r#"
     [
         (
             "flow://unauthorized/cats/noms",
@@ -147,10 +147,10 @@ async fn test_user_publications() {
         ),
         (
             "flow://materialization/dogs/materialize",
-            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\"\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\"\n  }\n]",
+            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
         ),
     ]
-    "###);
+    "#);
 
     // Add a user_grant for dogs and assert that a subsequent publication still fails for lack of a role_grant.
     harness
@@ -164,14 +164,14 @@ async fn test_user_publications() {
         )
         .await;
     assert!(!dog_result.status.is_success());
-    insta::assert_debug_snapshot!(dog_result.errors, @r###"
+    insta::assert_debug_snapshot!(dog_result.errors, @r#"
     [
         (
             "flow://materialization/dogs/materialize",
-            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\"\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\"\n  }\n]",
+            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
         ),
     ]
-    "###);
+    "#);
 
     // Add the role grant, and now dogs can materialize cats/noms
     harness
