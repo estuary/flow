@@ -89,6 +89,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 |---|---|---|---|---|
 | **`/name`** | Data resource | Name of the data resource. | string | Required |
 | `/interval` | Interval | Interval between data syncs | string |          |
+| `/schedule` | Backfill schedule | The schedule for automatically backfilling this binding. Accepts a cron expression. For example, a schedule of `55 23 * * *` means the binding will initiate a new backfill at 23:55 UTC every day. If left empty, the binding will not automatically backfill. | string |   |
 
 ### Sample
 
