@@ -1,4 +1,5 @@
-use super::super::tenant::{validate_tenant_name, verify_tenant};
+use super::super::tenant::validate_tenant_name;
+use super::super::verify_authorization;
 use super::billing_provider;
 use super::payment_methods::PaymentMethod;
 use crate::billing::{self, BillingProvider};
@@ -37,20 +38,20 @@ impl BillingMutation {
     ) -> Result<CreateBillingSetupIntentPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_tenant(env, tenant.as_str(), models::Capability::Admin).await?;
+        verify_authorization(env, tenant.as_str(), models::Capability::Admin).await?;
 
         let claims = env.claims()?;
         let email = claims
             .email
             .as_deref()
             .context("authenticated user is missing an email claim")?;
-        let full_name: Option<String> = sqlx::query_scalar(
+        let full_name: Option<String> = sqlx::query_scalar!(
             "SELECT raw_user_meta_data->>'full_name' FROM auth.users WHERE id = $1",
+            claims.sub,
         )
-        .bind(claims.sub)
-        .fetch_one(&env.pg_pool)
-        .await
-        .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+        .fetch_optional(&env.pg_pool)
+        .await?
+        .flatten();
 
         let provider = billing_provider(ctx)?;
         let customer = provider
@@ -77,7 +78,7 @@ impl BillingMutation {
     ) -> Result<BillingPaymentMethodPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_tenant(env, tenant.as_str(), models::Capability::Admin).await?;
+        verify_authorization(env, tenant.as_str(), models::Capability::Admin).await?;
 
         let provider = billing_provider(ctx)?;
         let customer = provider
@@ -110,7 +111,7 @@ impl BillingMutation {
     ) -> Result<BillingPaymentMethodPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_tenant(env, tenant.as_str(), models::Capability::Admin).await?;
+        verify_authorization(env, tenant.as_str(), models::Capability::Admin).await?;
 
         let provider = billing_provider(ctx)?;
         let customer = provider

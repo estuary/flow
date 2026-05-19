@@ -1372,7 +1372,9 @@ dependencies = [
  "async-graphql",
  "async-stripe",
  "serde",
+ "serde_json",
  "sqlx",
+ "strum 0.26.3",
 ]
 
 [[package]]

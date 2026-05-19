@@ -29,7 +29,7 @@ impl connection::CursorType for InvoiceCursor {
             NaiveDate::parse_from_str(date_end, "%Y-%m-%d").context("invalid invoice cursor")?;
         let date_start =
             NaiveDate::parse_from_str(date_start, "%Y-%m-%d").context("invalid invoice cursor")?;
-        let invoice_type = invoice_type.parse::<InvoiceType>().map_err(|()| {
+        let invoice_type = invoice_type.parse::<InvoiceType>().map_err(|_| {
             anyhow::anyhow!("invalid invoice cursor, unknown invoice type: '{invoice_type}'")
         })?;
 
@@ -43,9 +43,7 @@ impl connection::CursorType for InvoiceCursor {
     fn encode_cursor(&self) -> String {
         format!(
             "{};{};{}",
-            self.date_end,
-            self.date_start,
-            self.invoice_type.as_str()
+            self.date_end, self.date_start, self.invoice_type
         )
     }
 }

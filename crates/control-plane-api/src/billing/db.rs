@@ -48,10 +48,9 @@ pub async fn fetch_invoice_rows_forward(
     limit: Option<usize>,
 ) -> anyhow::Result<(Vec<DbInvoiceRow>, bool)> {
     let query_limit = limit.map(|l| l as i64 + 1).unwrap_or(i64::MAX);
-    let invoice_type_eq = query.invoice_type_eq.map(|t| t.as_str());
     let cursor_date_end = cursor.map(|c| c.date_end);
     let cursor_date_start = cursor.map(|c| c.date_start);
-    let cursor_invoice_type = cursor.map(|c| c.invoice_type.as_str());
+    let cursor_invoice_type = cursor.map(|c| c.invoice_type);
 
     let mut invoices = sqlx::query_as!(
         DbInvoiceRow,
@@ -85,10 +84,10 @@ pub async fn fetch_invoice_rows_forward(
         query.date_start_lt,
         query.date_end_gt,
         query.date_end_lt,
-        invoice_type_eq,
+        query.invoice_type_eq as Option<InvoiceType>,
         cursor_date_end,
         cursor_date_start,
-        cursor_invoice_type,
+        cursor_invoice_type as Option<InvoiceType>,
         query_limit,
     )
     .fetch_all(pool)
@@ -114,10 +113,9 @@ pub async fn fetch_invoice_rows_backward(
     limit: Option<usize>,
 ) -> anyhow::Result<(Vec<DbInvoiceRow>, bool)> {
     let query_limit = limit.map(|l| l as i64 + 1).unwrap_or(i64::MAX);
-    let invoice_type_eq = query.invoice_type_eq.map(|t| t.as_str());
     let cursor_date_end = cursor.map(|c| c.date_end);
     let cursor_date_start = cursor.map(|c| c.date_start);
-    let cursor_invoice_type = cursor.map(|c| c.invoice_type.as_str());
+    let cursor_invoice_type = cursor.map(|c| c.invoice_type);
 
     let mut invoices = sqlx::query_as!(
         DbInvoiceRow,
@@ -151,10 +149,10 @@ pub async fn fetch_invoice_rows_backward(
         query.date_start_lt,
         query.date_end_gt,
         query.date_end_lt,
-        invoice_type_eq,
+        query.invoice_type_eq as Option<InvoiceType>,
         cursor_date_end,
         cursor_date_start,
-        cursor_invoice_type,
+        cursor_invoice_type as Option<InvoiceType>,
         query_limit,
     )
     .fetch_all(pool)

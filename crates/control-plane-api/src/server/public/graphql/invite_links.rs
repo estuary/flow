@@ -186,7 +186,7 @@ impl InviteLinksMutation {
             )));
         }
 
-        verify_authorization(env, &catalog_prefix).await?;
+        super::verify_authorization(env, &catalog_prefix, models::Capability::Admin).await?;
 
         let row = sqlx::query!(
             r#"
@@ -375,7 +375,7 @@ impl InviteLinksMutation {
             None => return Err(async_graphql::Error::new("Invalid invite link")),
         };
 
-        verify_authorization(env, &invite.catalog_prefix).await?;
+        super::verify_authorization(env, &invite.catalog_prefix, models::Capability::Admin).await?;
 
         sqlx::query!("DELETE FROM internal.invite_links WHERE token = $1", token,)
             .execute(&mut *txn)
@@ -458,21 +458,6 @@ async fn ensure_private_data_plane_grants(
     .execute(&mut *txn)
     .await?;
 
-    Ok(())
-}
-
-/// Ensures the user has admin capability on the catalog prefix.
-async fn verify_authorization(
-    envelope: &crate::Envelope,
-    catalog_prefix: &str,
-) -> async_graphql::Result<()> {
-    let policy_result = crate::server::evaluate_names_authorization(
-        envelope.snapshot(),
-        envelope.claims()?,
-        models::Capability::Admin,
-        [catalog_prefix],
-    );
-    let (_expiry, ()) = envelope.authorization_outcome(policy_result).await?;
     Ok(())
 }
 

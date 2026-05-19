@@ -25,8 +25,8 @@ impl From<&stripe::BillingDetails> for PaymentMethodBillingDetails {
 
 #[derive(Debug, Clone, SimpleObject)]
 pub struct CardPaymentMethodDetails {
-    pub brand: String,
-    pub last4: String,
+    pub brand: Option<String>,
+    pub last4: Option<String>,
     pub exp_month: i64,
     pub exp_year: i64,
 }
@@ -34,8 +34,8 @@ pub struct CardPaymentMethodDetails {
 impl From<&stripe::CardDetails> for CardPaymentMethodDetails {
     fn from(card: &stripe::CardDetails) -> Self {
         Self {
-            brand: card.brand.clone(),
-            last4: card.last4.clone(),
+            brand: Some(card.brand.clone()),
+            last4: Some(card.last4.clone()),
             exp_month: card.exp_month,
             exp_year: card.exp_year,
         }
@@ -43,16 +43,14 @@ impl From<&stripe::CardDetails> for CardPaymentMethodDetails {
 }
 
 // Stripe exposes near-identical card / bank-account data through two SDK
-// types: one for a saved `PaymentMethod` (`CardDetails`,
-// `PaymentMethodUsBankAccount`) and one for the snapshot recorded on a
-// specific `Charge` (`PaymentMethodDetailsCard`,
-// `PaymentMethodDetailsUsBankAccount`). The fields overlap but the types
-// are distinct, so each shape needs its own `From` impl.
+// types: one for a saved `PaymentMethod` and one for the snapshot recorded
+// on a specific `Charge`. The fields overlap but the types are distinct, so
+// each shape needs its own `From` impl.
 impl From<&stripe::PaymentMethodDetailsCard> for CardPaymentMethodDetails {
     fn from(card: &stripe::PaymentMethodDetailsCard) -> Self {
         Self {
-            brand: card.brand.clone().unwrap_or_default(),
-            last4: card.last4.clone().unwrap_or_default(),
+            brand: card.brand.clone(),
+            last4: card.last4.clone(),
             exp_month: card.exp_month,
             exp_year: card.exp_year,
         }

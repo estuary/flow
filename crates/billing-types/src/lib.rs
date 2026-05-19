@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::str::FromStr;
 
 mod stripe_helpers;
 pub use stripe_helpers::{SearchParams, stripe_search};
@@ -10,7 +9,19 @@ const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
 const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
 const BILLING_PERIOD_END_KEY: &str = "estuary.dev/period_end";
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Eq,
+    PartialEq,
+    Hash,
+    Serialize,
+    Deserialize,
+    sqlx::Type,
+    strum::Display,
+    strum::EnumString,
+)]
 #[cfg_attr(
     feature = "async-graphql",
     derive(async_graphql::Enum),
@@ -19,33 +30,11 @@ const BILLING_PERIOD_END_KEY: &str = "estuary.dev/period_end";
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "text")]
 #[sqlx(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum InvoiceType {
     Final,
     Preview,
     Manual,
-}
-
-impl InvoiceType {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            InvoiceType::Final => "final",
-            InvoiceType::Preview => "preview",
-            InvoiceType::Manual => "manual",
-        }
-    }
-}
-
-impl FromStr for InvoiceType {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "final" => Ok(InvoiceType::Final),
-            "preview" => Ok(InvoiceType::Preview),
-            "manual" => Ok(InvoiceType::Manual),
-            _ => Err(()),
-        }
-    }
 }
 
 /// Status clause to append to a Stripe invoice search query.
@@ -104,10 +93,7 @@ impl InvoiceMetadata {
     pub fn to_metadata_map(&self) -> HashMap<String, String> {
         HashMap::from([
             (TENANT_METADATA_KEY.to_string(), self.tenant.clone()),
-            (
-                INVOICE_TYPE_KEY.to_string(),
-                self.invoice_type.as_str().to_string(),
-            ),
+            (INVOICE_TYPE_KEY.to_string(), self.invoice_type.to_string()),
             (
                 BILLING_PERIOD_START_KEY.to_string(),
                 self.period_start.clone(),
@@ -148,8 +134,7 @@ impl InvoiceSearch<'_> {
         }
         if let Some(invoice_type) = self.invoice_type {
             clauses.push(format!(
-                r#"metadata["{INVOICE_TYPE_KEY}"]:"{}""#,
-                invoice_type.as_str()
+                r#"metadata["{INVOICE_TYPE_KEY}"]:"{invoice_type}""#
             ));
         }
         if let Some(period_start) = self.period_start {
@@ -194,15 +179,6 @@ mod tests {
             customer_create_idempotency_key("acme/widgets"),
             customer_create_idempotency_key("acme/widgets"),
         );
-    }
-
-    #[test]
-    fn invoice_type_parse() {
-        assert_eq!("final".parse(), Ok(InvoiceType::Final));
-        assert_eq!("preview".parse(), Ok(InvoiceType::Preview));
-        assert_eq!("manual".parse(), Ok(InvoiceType::Manual));
-        assert_eq!("Final".parse::<InvoiceType>(), Err(()));
-        assert_eq!("".parse::<InvoiceType>(), Err(()));
     }
 
     #[test]
