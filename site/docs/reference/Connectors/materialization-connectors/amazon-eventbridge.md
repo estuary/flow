@@ -83,7 +83,7 @@ materializations:
 
 ## Event payload
 
-Each materialized document is published as a single [EventBridge event](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-events-structure.html). The connector populates the following fields on each `PutEventsRequestEntry`:
+Each materialized document is published as a single [EventBridge event](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-events.html). The connector populates the following fields on each `PutEventsRequestEntry`:
 
 | EventBridge field | Value                                                                       |
 | ----------------- | --------------------------------------------------------------------------- |
@@ -106,3 +106,5 @@ Delivery is at-least-once: in rare cases, a document may be published more than 
 
 EventBridge limits each event's combined `Source` + `DetailType` + `Detail` payload to **256 KB**.
 If a document in the source collection produces an entry exceeding this limit, the materialization will fail with an error identifying the offending binding.
+
+If your documents are large, use [field selection](/concepts/materialization/#field-selection) on the binding to project down to only the fields needed by downstream consumers.
