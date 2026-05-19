@@ -180,8 +180,6 @@ mod tests {
         .await;
         let token = server.make_access_token(user_id, Some(&format!("{tenant}@example.test")));
 
-        // Phase 1: createBillingSetupIntent for a new tenant.
-        // Exercises: Customer search (miss) → Customer create → SetupIntent create.
         let response: serde_json::Value = server
             .graphql(
                 &json!({
@@ -203,18 +201,15 @@ mod tests {
             "setup intent should return a client secret: {response:?}"
         );
 
-        // Phase 2: Wait for the customer to become searchable.
-        // Stripe's /customers/search API has eventual consistency;
-        // all subsequent GraphQL mutations depend on search to find the customer.
+        // Stripe's customer-search index lags writes by seconds; the mutations
+        // below all depend on search to find the customer.
         let customer = wait_for_customer_searchable(provider.as_ref(), &format!("{tenant}/")).await;
 
-        // Attach two payment methods directly via the Stripe API (simulates
-        // what Stripe.js does client-side after the SetupIntent completes).
+        // Attach payment methods directly via the Stripe API (what Stripe.js
+        // would do client-side after the SetupIntent completes).
         let card_a = attach_test_card(&stripe_client, &customer.id, "pm_card_visa").await;
         let card_b = attach_test_card(&stripe_client, &customer.id, "pm_card_mastercard").await;
 
-        // Phase 3: setBillingPaymentMethod.
-        // Exercises: Customer search (hit) → Customer update → Customer search + PaymentMethod list.
         let response: serde_json::Value = server
             .graphql(
                 &json!({
@@ -250,8 +245,6 @@ mod tests {
             "card_b should be listed"
         );
 
-        // Phase 4: deleteBillingPaymentMethod.
-        // Exercises: PaymentMethod detach → Customer search → PaymentMethod list → Customer update (fallback).
         let response: serde_json::Value = server
             .graphql(
                 &json!({
@@ -284,8 +277,8 @@ mod tests {
         );
         assert!(pm_ids.contains(&card_b.id.as_str()), "card_b should remain");
 
-        // Phase 5: createBillingSetupIntent again for the same tenant.
-        // Exercises the "find" branch of find_or_create_customer (customer already exists).
+        // A second setup-intent on the same tenant: exercises the "find"
+        // branch of find_or_create_customer.
         let response: serde_json::Value = server
             .graphql(
                 &json!({

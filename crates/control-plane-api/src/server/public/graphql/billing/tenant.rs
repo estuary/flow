@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use super::super::tenant::{Tenant, verify_tenant};
+use super::super::tenant::Tenant;
+use super::super::verify_authorization;
 use super::billing_provider;
 use super::invoices::{Invoice, InvoiceFilter};
 use super::loaders::CustomerDataLoader;
@@ -16,7 +17,7 @@ use async_graphql::{
 impl Tenant {
     async fn billing(&self, ctx: &Context<'_>) -> Result<TenantBilling> {
         let env = ctx.data::<crate::Envelope>()?;
-        verify_tenant(env, &self.name, models::Capability::Admin).await?;
+        verify_authorization(env, &self.name, models::Capability::Admin).await?;
         let provider = billing_provider(ctx)?;
         Ok(TenantBilling::new(self.name.clone(), provider))
     }
@@ -129,6 +130,8 @@ mod tests {
     use crate::test_server;
     use serde_json::json;
 
+    /// `Query.tenant` errors when the caller lacks Read on the requested
+    /// prefix: the response is null + a single error.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../../fixtures", scripts("data_planes", "alice"))
@@ -143,8 +146,6 @@ mod tests {
         let (server, token) =
             start_server_and_token(&pool, owner_user_id, owner_tenant, mock_provider()).await;
 
-        // verify_tenant runs before tenant_exists, so querying another tenant
-        // (or a nonexistent one) fails identically; one assertion is enough.
         let unauthorized: serde_json::Value = server
             .graphql(
                 &json!({

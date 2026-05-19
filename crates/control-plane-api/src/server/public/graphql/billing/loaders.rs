@@ -90,8 +90,15 @@ impl Loader<stripe::PaymentIntentId> for ChargeDataLoader {
                     .await
                     .map_err(|err| async_graphql::Error::new(err.to_string()))?;
                 let charge = match pi.latest_charge {
+                    None => None,
                     Some(stripe::Expandable::Object(charge)) => Some(*charge),
-                    _ => None,
+                    Some(stripe::Expandable::Id(id)) => {
+                        tracing::error!(
+                            charge_id=?id,
+                            payment_intent_id=?pi_id,
+                            "Stripe returned non-expanded charge for payment intent");
+                        return Err(async_graphql::Error::new("Something went wrong"));
+                    }
                 };
                 Ok(charge)
             }
@@ -101,20 +108,18 @@ impl Loader<stripe::PaymentIntentId> for ChargeDataLoader {
 }
 
 /// Fans the per-key lookups out in parallel, drops keys whose lookup returned
-/// `None`, and collects the rest into a `HashMap`. Stops on the first error.
+/// `None`, and collects the rest into a `HashMap`. Short-circuits on the first
+/// error.
 async fn fan_out_optional<K, V, F, Fut>(keys: &[K], f: F) -> Result<HashMap<K, V>>
 where
     K: Clone + Eq + std::hash::Hash,
     F: Fn(K) -> Fut,
     Fut: Future<Output = Result<Option<V>>>,
 {
-    let lookups = keys.iter().cloned().map(|k| {
+    let pairs = futures::future::try_join_all(keys.iter().cloned().map(|k| {
         let fut = f(k.clone());
         async move { fut.await.map(|v| v.map(|v| (k, v))) }
-    });
-    futures::future::join_all(lookups)
-        .await
-        .into_iter()
-        .filter_map(Result::transpose)
-        .collect()
+    }))
+    .await?;
+    Ok(pairs.into_iter().flatten().collect())
 }

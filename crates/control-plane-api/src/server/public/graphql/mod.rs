@@ -41,6 +41,22 @@ pub mod status;
 mod storage_mappings;
 mod tenant;
 
+/// Verifies the caller has at least `capability` on `prefix`.
+async fn verify_authorization(
+    env: &crate::Envelope,
+    prefix: &str,
+    capability: models::Capability,
+) -> async_graphql::Result<()> {
+    let policy_result = crate::server::evaluate_names_authorization(
+        env.snapshot(),
+        env.claims()?,
+        capability,
+        [prefix],
+    );
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
+    Ok(())
+}
+
 /// A JSON object, the shape of which is opaque to the graphql schema
 pub type JsonObject = async_graphql::Json<Box<serde_json::value::RawValue>>;
 
