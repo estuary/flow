@@ -10,6 +10,8 @@ so the same configuration applies, but the setup steps look somewhat different.
 
 ## Prerequisites
 
+This connector supports MariaDB 10.3 and later.
+
 To use this connector, you'll need a MariaDB database setup with the following.
 
 - The [`binlog_format`](https://mariadb.com/kb/en/binary-log-formats/)
@@ -42,7 +44,7 @@ The `SELECT` permission can be restricted to just the tables that need to be
 captured, but automatic discovery requires `information_schema` access as well.
 
 ```sql
-CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret'
+CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 ```
@@ -50,53 +52,18 @@ GRANT SELECT ON *.* TO 'flow_capture';
 2. Configure the binary log to retain data for at least 7 days. We recommend 30 days where possible.
 
 ```sql
-SET PERSIST binlog_expire_logs_seconds = 2592000;
+SET GLOBAL binlog_expire_logs_seconds = 2592000;
 ```
 
 3. Configure the database's time zone. See [below](#setting-the-mariadb-time-zone) for more information.
 
 ```sql
-SET PERSIST time_zone = '-05:00'
+SET GLOBAL time_zone = '-05:00';
 ```
 
-### Azure Database for MariaDB
-
-You can use this connector for MariaDB instances on Azure Database for MariaDB using the following setup instructions.
-
-1. Allow connections to the database from the Estuary IP address.
-
-   1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mariadb/howto-manage-firewall-portal)
-      that grants access to the [Estuary IP addresses](/reference/allow-ip-addresses).
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling. To do so:
-
-   - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
-   - When you configure your connector as described in the [configuration](#configuration) section above,
-     including the additional `networkTunnel` configuration to enable the SSH tunnel.
-     See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-     for additional details and a sample.
-     :::
-
-2. Set the `binlog_expire_logs_seconds` [server perameter](https://learn.microsoft.com/en-us/azure/mariadb/howto-server-parameters#configure-server-parameters)
-   to `2592000`.
-
-3. Using your preferred MariaDB client, create the `flow_capture` user with replication permission, and the ability to read all tables.
-
-   The `SELECT` permission can be restricted to just the tables that need to be captured, but automatic discovery requires `information_schema` access as well.
-
-:::tip
-Your username must be specified in the format `username@servername`.
+:::note
+`SET GLOBAL` applies these changes to the running server but does not survive a restart. Add the same variables to `my.cnf` to persist across restarts — MariaDB does not support MySQL's `SET PERSIST` syntax.
 :::
-
-```sql
-CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret'
-GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
-GRANT SELECT ON *.* TO 'flow_capture';
-```
-
-4. Note the instance's host under Server name, and the port under Connection Strings (usually `3306`).
-   Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ## Capturing from Read Replicas
 
@@ -157,9 +124,11 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/dbname`                      | Database Name                      | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access.                                                                                                                                                                                                                    | string  | `"mysql"`                  |
 | `/advanced/node_id`                     | Node ID                            | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value.                                                                                                                                                                             | integer |                            |
 | `/advanced/skip_backfills`              | Skip Backfills                     | A comma-separated list of fully-qualified table names which should not be backfilled.                                                                                                                                                                                                                                                                                                   | string  |                            |
-| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `131072`                   |
+| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `50000`                    |
+| `/advanced/discover_schemas`            | Discovery Schema Selection         | If specified, only tables in the selected schema(s) will be automatically discovered. Omit all entries to discover tables from all schemas.                                                                                                                                                                                                                                             | array of strings | |
 | `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need.                                                                                                                                                                                                                                | boolean |                            |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
+| `/advanced/statement_timeout` | Statement Timeout | Overrides the default statement timeout used by the connector. Allowed values: `30s`, `1m`, `5m`, `30m`, or empty to disable. | string |  |
 
 #### Bindings
 

@@ -10,6 +10,8 @@ so the same configuration applies, but the setup steps look somewhat different.
 
 ## Prerequisites
 
+This connector supports MariaDB 10.3 and later.
+
 To use this connector, you'll need a MariaDB database setup with the following.
 
 - The [`binlog_format`](https://mariadb.com/kb/en/binary-log-formats/)
@@ -63,7 +65,7 @@ To use this connector, you'll need a MariaDB database setup with the following.
 3. Switch to your MariaDB client. Run the following commands to create a new user for the capture with appropriate permissions:
 
 ```sql
-CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret'
+CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 ```
@@ -122,9 +124,11 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/dbname`                      | Database Name                      | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access.                                                                                                                                                                                                                    | string  | `"mysql"`                  |
 | `/advanced/node_id`                     | Node ID                            | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value.                                                                                                                                                                             | integer |                            |
 | `/advanced/skip_backfills`              | Skip Backfills                     | A comma-separated list of fully-qualified table names which should not be backfilled.                                                                                                                                                                                                                                                                                                   | string  |                            |
-| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `131072`                   |
+| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `50000`                    |
+| `/advanced/discover_schemas`            | Discovery Schema Selection         | If specified, only tables in the selected schema(s) will be automatically discovered. Omit all entries to discover tables from all schemas.                                                                                                                                                                                                                                             | array of strings | |
 | `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need.                                                                                                                                                                                                                                | boolean |                            |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
+| `/advanced/statement_timeout` | Statement Timeout | Overrides the default statement timeout used by the connector. Allowed values: `30s`, `1m`, `5m`, `30m`, or empty to disable. | string |  |
 
 #### Bindings
 
