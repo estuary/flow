@@ -161,6 +161,18 @@ const config = {
             from: '/reference/Connectors/capture-connectors/bigquery-ga4-native/',
             to: '/reference/Connectors/capture-connectors/google-analytics-4-bigquery-exports/',
           },
+          {
+            from: '/reference/Connectors/materialization-connectors/Firebolt/',
+            to: '/reference/Connectors/',
+          },
+          {
+            from: '/reference/Connectors/materialization-connectors/starburst/',
+            to: '/reference/Connectors/',
+          },
+          {
+            from: '/api/',
+            to: '/',
+          },
         ],
       },
     ],
