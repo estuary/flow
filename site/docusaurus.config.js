@@ -165,6 +165,10 @@ const config = {
             from: '/reference/Connectors/materialization-connectors/Firebolt/',
             to: '/reference/Connectors/',
           },
+                    {
+            from: '/reference/Connectors/materialization-connectors/starburst/',
+            to: '/reference/Connectors/',
+          },
           {
             from: '/api/',
             to: '/',
