@@ -335,7 +335,6 @@ If data stops flowing after a schema change at your source, work through these c
 |---------|--------------|----------|
 | Transient "document failed validation" error | Schema inference racing with new records | See [Transient validation errors](#transient-validation-errors-during-schema-changes) section below |
 | "Changes rejected due to incompatible collection updates" | Incompatible schema change detected | Click **Apply** to update downstream tasks |
-| "Unsupported operation DROP TABLE" | Destructive DDL change | Disable capture, remove binding, re-enable |
 | Data flows but destination unchanged | Processing delay or materialization paused | Check task status in UI |
 
 ### Transient validation errors during schema changes
@@ -518,32 +517,3 @@ Binding not found for '{binding_name}'
 3. If the table appears, re-add it as a binding
 4. If not, check source permissions and table existence
 
-### Unsupported DDL operations (MySQL/MariaDB CDC)
-
-MySQL and MariaDB CDC captures read changes from the binary log. Certain DDL operations cannot be processed from the binlog:
-
-```
-Unsupported operation ALTER TABLE for table '{table_name}'
-```
-
-**Why this happens:**
-
-The binary log contains row-level changes, but some DDL operations (like `ALTER TABLE`) don't include enough information to reconstruct the new schema. When the capture encounters these, it cannot continue processing that table.
-
-**Solution - Remove and re-add the binding:**
-
-1. **Edit your capture** and remove the affected table binding
-2. **Save and publish** - this preserves other bindings
-3. **Edit again** and re-add the table binding
-4. **Trigger a backfill** on the materialization for this table
-
-This resets the CDC position for only this table. Other tables continue from their current position.
-
-**To avoid this issue:**
-
-- Use `pt-online-schema-change` or `gh-ost` for schema migrations (these use row-based operations)
-- Or temporarily pause the capture before DDL operations
-
-:::note
-This only affects MySQL/MariaDB CDC captures. PostgreSQL and SQL Server handle DDL differently.
-:::

@@ -165,13 +165,15 @@ Your capture definition will likely be more complex, with additional bindings fo
 
 The `source-mysql` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
 
-### Unsupported Operations
+### Handling Source Schema Changes
 
-If your capture is failing with an `"unsupported operation {ALTER,DROP,TRUNCATE,etc} TABLE"` error, this indicates that such an operation has taken place impacting a table which is currently being captured.
+The connector handles most DDL on actively-captured tables automatically:
 
-In the case of `DROP TABLE` and other destructive operations this is not supported, and can only be resolved by removing the offending table(s) from the capture bindings list, after which you may recreate the capture if desired (causing the latest state of the table to be recaptured in its entirety).
+- `ALTER TABLE` to add, drop, rename, or change the type of a column is applied to the collection schema as the change appears in the binlog. No action is required.
+- `DROP TABLE`, `RENAME TABLE`, and `DROP DATABASE` deactivate the affected binding. To resume capturing afterwards, re-add the table to the binding list, which will trigger a fresh backfill.
+- `TRUNCATE TABLE` on an active table is ignored — truncated rows are not propagated to the destination as deletes. If you need the destination to reflect the truncate, trigger a backfill of the binding.
 
-In the case of `ALTER TABLE` we currently support table alterations to add or drop columns from a table. This error indicates that whatever alteration took place is not currently supported. Practically speaking the immediate resolution is the same as for a `DROP` or `TRUNCATE TABLE`, but if you frequently perform schema migrations it may be worth reaching out to see if we can add support for whatever table alteration you just did.
+If a column type change results in captured documents that don't match the existing collection schema, autodiscovery will update the schema on its next run. To apply the new schema immediately, edit the capture, click **Refresh**, and republish.
 
 ### Data Manipulation Queries
 
@@ -183,7 +185,7 @@ Resolving this error requires fixing the `binlog_format` system variable, and th
 
 If your capture is failing with an `"unhandled query"` error, some SQL query is present in the binlog which the connector does not (currently) understand.
 
-In general, this error suggests that the connector should be modified to at least recognize this type of query, and most likely categorize it as either an unsupported [DML Query](#data-manipulation-queries), an unsupported [Table Operation](#unsupported-operations), or something that can safely be ignored. Until such a fix is made the capture cannot proceed, and you will need to backfill all collections to allow the capture to jump ahead to a later point in the binlog.
+In general, this error suggests that the connector should be modified to at least recognize this type of query, and most likely categorize it as either an unsupported [DML Query](#data-manipulation-queries), a [schema change](#handling-source-schema-changes), or something that can safely be ignored. Until such a fix is made the capture cannot proceed, and you will need to backfill all collections to allow the capture to jump ahead to a later point in the binlog.
 
 ### Inconsistent Metadata
 
