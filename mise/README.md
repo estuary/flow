@@ -246,7 +246,7 @@ nvim .
 
 ### Zed
 
-Zed editor support is TODO - requires updating `bootstrap:ide-settings` to write Zed configuration.
+VM provisioning automatically writes Zed settings via `bootstrap:ide-settings`, configuring `gopls` and `rust-analyzer` with the same environment used for VS Code. Use Zed's [Remote Development](https://zed.dev/docs/remote-development) to connect to your VM hostname (e.g., `lima-tiger` or `dev-<you>-panther`) and open the Flow repository.
 
 ### JetBrains RustRover
 
@@ -271,7 +271,7 @@ mise tasks
 | --------------------------------- | ------------------------------------------------ |
 | `bootstrap:apt-packages-ci-base`  | Install packages matching GitHub Actions runners |
 | `bootstrap:apt-packages-ci-extra` | Install additional required packages             |
-| `bootstrap:ide-settings`          | Configure VS Code Remote SSH settings            |
+| `bootstrap:ide-settings`          | Configure VS Code Remote SSH and Zed settings    |
 
 ### Build Tasks
 
