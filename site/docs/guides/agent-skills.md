@@ -24,7 +24,7 @@ The skills are grouped into three plugins: captures, materializations, and opera
 
 ### Captures (sources)
 
-Capture data from databases, APIs, and webhooks into Estuary collections.
+Capture data from databases, APIs, and webhooks into Estuary collections. The generic skill can configure any connector in the [Estuary connector catalog](https://estuary.dev/integrations/).
 
 | Skill | Description |
 |-------|-------------|
@@ -196,6 +196,8 @@ When something goes wrong, ask:
 
 These prompts route to the operations skills (`estuary-task-health`, `estuary-task-stats`, `estuary-logs`, `estuary-catalog-history`), which pull data from `flowctl` and summarize the results.
 
+If a skill itself misbehaves, file an [issue on the agent-skills repo](https://github.com/estuary/agent-skills/issues) or reach out in the [Estuary Slack community](https://go.estuary.dev/slack).
+
 ## Example prompts
 
 Use the skills for any task you would normally run by hand:
@@ -206,16 +208,4 @@ Use the skills for any task you would normally run by hand:
 - *"My capture is failing with an SSH tunnel error. Help me debug it."*
 - *"Restart the materialization to BigQuery."*
 
-## Resources
-
-- [`estuary/agent-skills` on GitHub](https://github.com/estuary/agent-skills): source for every skill.
-- [flowctl installation and setup](./get-started-with-flowctl.md).
-- [MCP Integration](../features/mcp-integration.md): docs-aware AI access for the same tools.
-- [Estuary connector catalog](https://estuary.dev/integrations/).
-- [SKILL.md standard](https://agentskills.io).
-
-## Feedback and support
-
-- Open an [issue](https://github.com/estuary/agent-skills/issues) in the agent-skills repo.
-- Join the [Estuary Slack community](https://go.estuary.dev/slack).
-- Email [support@estuary.dev](mailto:support@estuary.dev).
+For docs-aware Q&A from the same assistants (without the action skills), see [MCP Integration](../features/mcp-integration.md).
