@@ -11,6 +11,10 @@ sidebar_position: 2
 In this tutorial, you will learn how to set up a streaming Change Data Capture (CDC) pipeline from PostgreSQL to
 Snowflake using Estuary.
 
+:::tip Prefer to drive Estuary from your AI assistant?
+[Estuary Agent Skills](../guides/agent-skills.md) let you set up the same pipeline by asking Claude Code, Cursor, OpenAI Codex, or any other [SKILL.md](https://agentskills.io)-compatible assistant in plain English (e.g. *"capture my Postgres into Snowflake"*). The skills handle `flowctl` setup, spec generation, publishing, and troubleshooting for you.
+:::
+
 Before you get started, make sure you do two things.
 
 1. Sign up for Estuary [here](https://dashboard.estuary.dev/register). It’s simple, fast and free.
