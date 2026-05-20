@@ -64,11 +64,13 @@ func LoadAllErrors(db *sql.DB) ([]Error, error) {
 	return out, err
 }
 
-// LoadAllCollections loads all collections.
+// LoadAllCollections loads all collections, excluding tombstone rows
+// whose spec is NULL because the collection is being deleted by the
+// current publication.
 func LoadAllCollections(db *sql.DB) ([]*pf.CollectionSpec, error) {
 	var out []*pf.CollectionSpec
 	var err = loadSpecs(db,
-		`SELECT spec FROM built_collections ORDER BY collection ASC;`,
+		`SELECT spec FROM built_collections WHERE spec IS NOT NULL ORDER BY collection ASC;`,
 		func() loadableSpec { return new(pf.CollectionSpec) },
 		func(l loadableSpec) { out = append(out, l.(*pf.CollectionSpec)) },
 	)
@@ -81,11 +83,13 @@ func LoadCollection(db *sql.DB, name string) (*pf.CollectionSpec, error) {
 	return out, loadOneSpec(db, `SELECT spec FROM built_collections WHERE collection = ?;`, out, name)
 }
 
-// LoadAllCaptures loads all captures.
+// LoadAllCaptures loads all captures, excluding tombstone rows whose
+// spec is NULL because the capture is being deleted by the current
+// publication.
 func LoadAllCaptures(db *sql.DB) ([]*pf.CaptureSpec, error) {
 	var out []*pf.CaptureSpec
 	var err = loadSpecs(db,
-		`SELECT spec FROM built_captures ORDER BY capture ASC;`,
+		`SELECT spec FROM built_captures WHERE spec IS NOT NULL ORDER BY capture ASC;`,
 		func() loadableSpec { return new(pf.CaptureSpec) },
 		func(l loadableSpec) { out = append(out, l.(*pf.CaptureSpec)) },
 	)
@@ -98,11 +102,13 @@ func LoadCapture(db *sql.DB, name string) (*pf.CaptureSpec, error) {
 	return out, loadOneSpec(db, `SELECT spec FROM built_captures WHERE capture = ?;`, out, name)
 }
 
-// LoadAllMaterializations loads all materializations.
+// LoadAllMaterializations loads all materializations, excluding
+// tombstone rows whose spec is NULL because the materialization is
+// being deleted by the current publication.
 func LoadAllMaterializations(db *sql.DB) ([]*pf.MaterializationSpec, error) {
 	var out []*pf.MaterializationSpec
 	var err = loadSpecs(db,
-		`SELECT spec FROM built_materializations ORDER BY materialization ASC;`,
+		`SELECT spec FROM built_materializations WHERE spec IS NOT NULL ORDER BY materialization ASC;`,
 		func() loadableSpec { return new(pf.MaterializationSpec) },
 		func(l loadableSpec) { out = append(out, l.(*pf.MaterializationSpec)) },
 	)
@@ -115,11 +121,22 @@ func LoadMaterialization(db *sql.DB, name string) (*pf.MaterializationSpec, erro
 	return out, loadOneSpec(db, `SELECT spec FROM built_materializations WHERE materialization = ?;`, out, name)
 }
 
-// LoadAllTests loads all tests.
+// LoadAllTests loads all tests, excluding tombstone rows whose spec
+// is NULL because the test is being deleted by the current publication.
+//
+// Without this filter, a publication that deletes a test (which the
+// Rust build layer represents as a row with model=None / spec=NULL,
+// per BuiltRow::is_delete in crates/tables/src/built.rs) would cause
+// the test runner to load an empty TestSpec and fail TestSpec.Validate
+// with "missing Name", e.g.
+//
+//   extracting from build: validating spec : missing Name
+//
+// This blocks `flowctl catalog delete` for any test spec.
 func LoadAllTests(db *sql.DB) ([]*pf.TestSpec, error) {
 	var out []*pf.TestSpec
 	var err = loadSpecs(db,
-		`SELECT spec FROM built_tests ORDER BY test ASC;`,
+		`SELECT spec FROM built_tests WHERE spec IS NOT NULL ORDER BY test ASC;`,
 		func() loadableSpec { return new(pf.TestSpec) },
 		func(l loadableSpec) {
 			out = append(out, l.(*pf.TestSpec))
