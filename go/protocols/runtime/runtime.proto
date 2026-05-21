@@ -5,6 +5,7 @@ option go_package = "github.com/estuary/flow/go/protocols/runtime";
 
 import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
+import "go/protocols/capture/capture.proto";
 import "go/protocols/derive/derive.proto";
 import "go/protocols/flow/flow.proto";
 import "go/protocols/materialize/materialize.proto";
@@ -413,6 +414,7 @@ service Leader {
 //    the response back. A Validate may follow a Spec on the same stream.
 service Shard {
   // rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
+  rpc Capture(stream .runtime.Capture) returns (stream .runtime.Capture);
   rpc Materialize(stream .runtime.Materialize) returns (stream .runtime.Materialize);
 }
 
@@ -662,6 +664,63 @@ message SessionLoop {
   // of its leader sessions. Absent for non-zero materialize/derive
   // shards, which don't host a recovery log.
   RocksDBDescriptor rocksdb_descriptor = 1;
+}
+
+// Capture is the bidirectional message type for capture sessions. Exactly one
+// field is set per message.
+message Capture {
+  // ----- UNARY REQUESTS -----
+
+  // Controller → Shard. Unary request outside of a SessionLoop.
+  capture.Request.Spec spec = 1;
+  // Shard → Controller. Connector's reply to `spec`.
+  capture.Response.Spec spec_response = 2;
+  // Controller → Shard. Unary request outside of a SessionLoop.
+  capture.Request.Discover discover = 3;
+  // Shard → Controller. Connector's reply to `discover`.
+  capture.Response.Discovered discovered = 4;
+  // Controller → Shard. Unary request outside of a SessionLoop.
+  capture.Request.Validate validate = 5;
+  // Shard → Controller. Connector's reply to `validate`.
+  capture.Response.Validated validated = 6;
+  // Controller → Shard. Effective only on unary messages.
+  ops.Log.Level log_level = 9;
+
+  // ----- SESSION -----
+
+  // Controller → Shard. First message of a session-loop stream.
+  SessionLoop session_loop = 20;
+
+  // Controller → Shard. Session initiation with live shard labeling.
+  // Captures don't join a leader, and this Join must describe exactly one shard.
+  Join join = 21;
+
+  // Shard → Controller. Echoes capture Join acceptance. Capture sessions are
+  // single-shard and leaderless, so `max_etcd_revision` is always zero.
+  Joined joined = 22;
+
+  // Controller → Shard. Defines the capture task and begins one session within
+  // the SessionLoop. Captures have no leader, so unlike materialize (where the
+  // leader translates Task into a per-shard Open) the capture shard consumes
+  // Task directly and drives its own connector Open internally. The shard's
+  // build version and key range come from the Join labeling, not from Task.
+  Task task = 23;
+
+  // Shard → Controller. Connector is running and session startup is complete.
+  message Opened {
+    // Description of the running connector container.
+    Container container = 1;
+  }
+  Opened opened = 24;
+
+  // Controller → Shard. Request immediate close of the currently-open
+  // transaction.
+  CloseNow close_now = 25;
+
+  // Controller → Shard. Graceful shutdown request.
+  Stop stop = 26;
+  // Shard → Controller. Shutdown confirmed; EOF follows.
+  Stopped stopped = 27;
 }
 
 // Materialize is the bidirectional message type for materialization

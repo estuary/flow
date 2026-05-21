@@ -309,6 +309,9 @@ impl serde::Serialize for request::Apply {
         if !self.last_version.is_empty() {
             len += 1;
         }
+        if !self.state_json.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Request.Apply", len)?;
         if let Some(v) = self.capture.as_ref() {
             struct_ser.serialize_field("capture", v)?;
@@ -321,6 +324,11 @@ impl serde::Serialize for request::Apply {
         }
         if !self.last_version.is_empty() {
             struct_ser.serialize_field("lastVersion", &self.last_version)?;
+        }
+        if !self.state_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("state", &crate::as_raw_json(&self.state_json)?)?;
         }
         struct_ser.end()
     }
@@ -338,6 +346,8 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
             "lastCapture",
             "last_version",
             "lastVersion",
+            "state_json",
+            "state",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -346,6 +356,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
             Version,
             LastCapture,
             LastVersion,
+            StateJson,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -371,6 +382,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                             "version" => Ok(GeneratedField::Version),
                             "lastCapture" | "last_capture" => Ok(GeneratedField::LastCapture),
                             "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
+                            "state" | "state_json" => Ok(GeneratedField::StateJson),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -394,6 +406,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                 let mut version__ = None;
                 let mut last_capture__ = None;
                 let mut last_version__ = None;
+                let mut state_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Capture => {
@@ -420,6 +433,14 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                             }
                             last_version__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::StateJson => {
+                            if state_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("state"));
+                            }
+                            state_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(request::Apply {
@@ -427,6 +448,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                     version: version__.unwrap_or_default(),
                     last_capture: last_capture__,
                     last_version: last_version__.unwrap_or_default(),
+                    state_json: state_json__.unwrap_or_default(),
                 })
             }
         }
@@ -1391,9 +1413,15 @@ impl serde::Serialize for response::Applied {
         if !self.action_description.is_empty() {
             len += 1;
         }
+        if self.state.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Response.Applied", len)?;
         if !self.action_description.is_empty() {
             struct_ser.serialize_field("actionDescription", &self.action_description)?;
+        }
+        if let Some(v) = self.state.as_ref() {
+            struct_ser.serialize_field("state", v)?;
         }
         struct_ser.end()
     }
@@ -1407,11 +1435,13 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
         const FIELDS: &[&str] = &[
             "action_description",
             "actionDescription",
+            "state",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ActionDescription,
+            State,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1434,6 +1464,7 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
                     {
                         match value {
                             "actionDescription" | "action_description" => Ok(GeneratedField::ActionDescription),
+                            "state" => Ok(GeneratedField::State),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1454,6 +1485,7 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut action_description__ = None;
+                let mut state__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ActionDescription => {
@@ -1462,10 +1494,17 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
                             }
                             action_description__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::State => {
+                            if state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("state"));
+                            }
+                            state__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(response::Applied {
                     action_description: action_description__.unwrap_or_default(),
+                    state: state__,
                 })
             }
         }

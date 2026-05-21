@@ -63,7 +63,11 @@ expression: json_test(msg)
     ]
   },
   "applied": {
-    "actionDescription": "I did some stuff"
+    "actionDescription": "I did some stuff",
+    "state": {
+      "updated": {"state":"update"},
+      "mergePatch": true
+    }
   },
   "opened": {
     "explicitAcknowledgements": true

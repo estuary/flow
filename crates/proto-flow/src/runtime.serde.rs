@@ -286,6 +286,432 @@ impl<'de> serde::Deserialize<'de> for Apply {
         deserializer.deserialize_struct("runtime.Apply", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for Capture {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.spec.is_some() {
+            len += 1;
+        }
+        if self.spec_response.is_some() {
+            len += 1;
+        }
+        if self.discover.is_some() {
+            len += 1;
+        }
+        if self.discovered.is_some() {
+            len += 1;
+        }
+        if self.validate.is_some() {
+            len += 1;
+        }
+        if self.validated.is_some() {
+            len += 1;
+        }
+        if self.log_level != 0 {
+            len += 1;
+        }
+        if self.session_loop.is_some() {
+            len += 1;
+        }
+        if self.join.is_some() {
+            len += 1;
+        }
+        if self.joined.is_some() {
+            len += 1;
+        }
+        if self.task.is_some() {
+            len += 1;
+        }
+        if self.opened.is_some() {
+            len += 1;
+        }
+        if self.close_now.is_some() {
+            len += 1;
+        }
+        if self.stop.is_some() {
+            len += 1;
+        }
+        if self.stopped.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.Capture", len)?;
+        if let Some(v) = self.spec.as_ref() {
+            struct_ser.serialize_field("spec", v)?;
+        }
+        if let Some(v) = self.spec_response.as_ref() {
+            struct_ser.serialize_field("specResponse", v)?;
+        }
+        if let Some(v) = self.discover.as_ref() {
+            struct_ser.serialize_field("discover", v)?;
+        }
+        if let Some(v) = self.discovered.as_ref() {
+            struct_ser.serialize_field("discovered", v)?;
+        }
+        if let Some(v) = self.validate.as_ref() {
+            struct_ser.serialize_field("validate", v)?;
+        }
+        if let Some(v) = self.validated.as_ref() {
+            struct_ser.serialize_field("validated", v)?;
+        }
+        if self.log_level != 0 {
+            let v = super::ops::log::Level::try_from(self.log_level)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.log_level)))?;
+            struct_ser.serialize_field("logLevel", &v)?;
+        }
+        if let Some(v) = self.session_loop.as_ref() {
+            struct_ser.serialize_field("sessionLoop", v)?;
+        }
+        if let Some(v) = self.join.as_ref() {
+            struct_ser.serialize_field("join", v)?;
+        }
+        if let Some(v) = self.joined.as_ref() {
+            struct_ser.serialize_field("joined", v)?;
+        }
+        if let Some(v) = self.task.as_ref() {
+            struct_ser.serialize_field("task", v)?;
+        }
+        if let Some(v) = self.opened.as_ref() {
+            struct_ser.serialize_field("opened", v)?;
+        }
+        if let Some(v) = self.close_now.as_ref() {
+            struct_ser.serialize_field("closeNow", v)?;
+        }
+        if let Some(v) = self.stop.as_ref() {
+            struct_ser.serialize_field("stop", v)?;
+        }
+        if let Some(v) = self.stopped.as_ref() {
+            struct_ser.serialize_field("stopped", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Capture {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "spec",
+            "spec_response",
+            "specResponse",
+            "discover",
+            "discovered",
+            "validate",
+            "validated",
+            "log_level",
+            "logLevel",
+            "session_loop",
+            "sessionLoop",
+            "join",
+            "joined",
+            "task",
+            "opened",
+            "close_now",
+            "closeNow",
+            "stop",
+            "stopped",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Spec,
+            SpecResponse,
+            Discover,
+            Discovered,
+            Validate,
+            Validated,
+            LogLevel,
+            SessionLoop,
+            Join,
+            Joined,
+            Task,
+            Opened,
+            CloseNow,
+            Stop,
+            Stopped,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "spec" => Ok(GeneratedField::Spec),
+                            "specResponse" | "spec_response" => Ok(GeneratedField::SpecResponse),
+                            "discover" => Ok(GeneratedField::Discover),
+                            "discovered" => Ok(GeneratedField::Discovered),
+                            "validate" => Ok(GeneratedField::Validate),
+                            "validated" => Ok(GeneratedField::Validated),
+                            "logLevel" | "log_level" => Ok(GeneratedField::LogLevel),
+                            "sessionLoop" | "session_loop" => Ok(GeneratedField::SessionLoop),
+                            "join" => Ok(GeneratedField::Join),
+                            "joined" => Ok(GeneratedField::Joined),
+                            "task" => Ok(GeneratedField::Task),
+                            "opened" => Ok(GeneratedField::Opened),
+                            "closeNow" | "close_now" => Ok(GeneratedField::CloseNow),
+                            "stop" => Ok(GeneratedField::Stop),
+                            "stopped" => Ok(GeneratedField::Stopped),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Capture;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.Capture")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Capture, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut spec__ = None;
+                let mut spec_response__ = None;
+                let mut discover__ = None;
+                let mut discovered__ = None;
+                let mut validate__ = None;
+                let mut validated__ = None;
+                let mut log_level__ = None;
+                let mut session_loop__ = None;
+                let mut join__ = None;
+                let mut joined__ = None;
+                let mut task__ = None;
+                let mut opened__ = None;
+                let mut close_now__ = None;
+                let mut stop__ = None;
+                let mut stopped__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Spec => {
+                            if spec__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("spec"));
+                            }
+                            spec__ = map_.next_value()?;
+                        }
+                        GeneratedField::SpecResponse => {
+                            if spec_response__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("specResponse"));
+                            }
+                            spec_response__ = map_.next_value()?;
+                        }
+                        GeneratedField::Discover => {
+                            if discover__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("discover"));
+                            }
+                            discover__ = map_.next_value()?;
+                        }
+                        GeneratedField::Discovered => {
+                            if discovered__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("discovered"));
+                            }
+                            discovered__ = map_.next_value()?;
+                        }
+                        GeneratedField::Validate => {
+                            if validate__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("validate"));
+                            }
+                            validate__ = map_.next_value()?;
+                        }
+                        GeneratedField::Validated => {
+                            if validated__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("validated"));
+                            }
+                            validated__ = map_.next_value()?;
+                        }
+                        GeneratedField::LogLevel => {
+                            if log_level__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("logLevel"));
+                            }
+                            log_level__ = Some(map_.next_value::<super::ops::log::Level>()? as i32);
+                        }
+                        GeneratedField::SessionLoop => {
+                            if session_loop__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sessionLoop"));
+                            }
+                            session_loop__ = map_.next_value()?;
+                        }
+                        GeneratedField::Join => {
+                            if join__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("join"));
+                            }
+                            join__ = map_.next_value()?;
+                        }
+                        GeneratedField::Joined => {
+                            if joined__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("joined"));
+                            }
+                            joined__ = map_.next_value()?;
+                        }
+                        GeneratedField::Task => {
+                            if task__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("task"));
+                            }
+                            task__ = map_.next_value()?;
+                        }
+                        GeneratedField::Opened => {
+                            if opened__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("opened"));
+                            }
+                            opened__ = map_.next_value()?;
+                        }
+                        GeneratedField::CloseNow => {
+                            if close_now__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("closeNow"));
+                            }
+                            close_now__ = map_.next_value()?;
+                        }
+                        GeneratedField::Stop => {
+                            if stop__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stop"));
+                            }
+                            stop__ = map_.next_value()?;
+                        }
+                        GeneratedField::Stopped => {
+                            if stopped__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stopped"));
+                            }
+                            stopped__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(Capture {
+                    spec: spec__,
+                    spec_response: spec_response__,
+                    discover: discover__,
+                    discovered: discovered__,
+                    validate: validate__,
+                    validated: validated__,
+                    log_level: log_level__.unwrap_or_default(),
+                    session_loop: session_loop__,
+                    join: join__,
+                    joined: joined__,
+                    task: task__,
+                    opened: opened__,
+                    close_now: close_now__,
+                    stop: stop__,
+                    stopped: stopped__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.Capture", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for capture::Opened {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.container.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("runtime.Capture.Opened", len)?;
+        if let Some(v) = self.container.as_ref() {
+            struct_ser.serialize_field("container", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for capture::Opened {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "container",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Container,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "container" => Ok(GeneratedField::Container),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = capture::Opened;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.Capture.Opened")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<capture::Opened, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut container__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Container => {
+                            if container__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("container"));
+                            }
+                            container__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(capture::Opened {
+                    container: container__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.Capture.Opened", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for CaptureRequestExt {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
