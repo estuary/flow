@@ -171,12 +171,67 @@ Binaries: the unit files run `~/cargo-target/debug/<crate>` because
 units have an `ExecStartPre=cargo build -p <crate>` so a unit restart picks up
 your latest source — handy when iterating.
 
+## Driving a local runtime QA loop
+
+For runtime work, keep the local stack stateful while you iterate. A full
+`mise run local:stop && mise run local:stack` is useful when topology or
+database state is suspect, but it also deletes Etcd state, local fragments,
+generated env files, and the systemd drop-ins. After changing reactor-side Go
+or Rust code, a reactor restart is usually enough (takes a few minutes):
+
+```bash
+systemctl --user restart flow-reactor@local-cluster-8099.service
+```
+
+Strongly prefer `flowctl` as the primary tool for interacting with the platform.
+
+If needed, use `flowctl raw gazctl-env --help` to generate an environment
+suitable for `flowctl-go` or `gazctl`, which allows for direct interaction
+with journals and shards.
+
+Status comes from several layers, and one layer can lag another. After a task
+has failed a few times, `flowctl catalog status <task>` may continue reporting
+the last failure while the controller and reactor work through retry backoff.
+Cross-check with reactor logs, connector containers, Etcd, and the actual
+collection or ops journals:
+
+```bash
+systemctl --user is-active \
+  flow-control-plane.target \
+  flow-plane@local-cluster.target \
+  flow-reactor@local-cluster-8099.service \
+  flow-runtime-sidecar@local-cluster.service
+
+journalctl --user -u flow-reactor@local-cluster-8099.service --since '10 min ago' --no-pager
+
+docker ps --filter 'label=task-name=acmeCo/hello-world'
+```
+
+The labels in a built spec are not always the labels the reactor is actually
+running with. The controller overlays live shard labels such as `range`,
+`logs-journal`, and `stats-journal` into Etcd. Inspect the live shard spec when
+authorization, stats, or logs look inconsistent with the built catalog:
+
+```bash
+ETCDCTL_API=3 etcdctl \
+  --endpoints=http://etcd.flow.localhost:2379 \
+  get /flow/local-cluster/items/capture/acmeCo/hello-world/14d588f6a580018e/00000000-00000000 \
+  -w json | jq -r '.kvs[0].value' | base64 -d | strings | head -100
+```
+
+The runtime sidecar admin endpoint is useful for materializations and
+derivations driven by the Rust sidecar. Capture runtime-v2 runs in the reactor
+process, so do not expect capture work to appear in `/debug/handlers.json`.
+
 ## Provisioning tenant credentials
 
 After data plane(s) are started, register a new tenant and credentials:
 ```bash
 mise run local:test-tenant --tenant acmeCo --user alice@example.com
-source ~/flow-local/test-tenant.env # Written by test-tenant.
+# Credentials are written per-tenant as ~/flow-local/test-tenant-<tenant>.env
+# (the exact path is printed at the end).
+# The default tenant is 'test' -> ~/flow-local/test-tenant-test.env.
+source ~/flow-local/test-tenant-acmeCo.env
 flowctl --profile local catalog list
 ```
 

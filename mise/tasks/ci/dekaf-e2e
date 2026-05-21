@@ -30,7 +30,7 @@ mise run local:data-plane local-cluster-2 8200 --num-brokers 4 --num-reactors 1 
 
 echo "Provisioning test tenant..."
 mise run local:test-tenant
-source "${FLOW_LOCAL}/test-tenant.env"
+source "${FLOW_LOCAL}/test-tenant-test.env" # Default tenant is 'test'.
 
 echo "Waiting for Dekaf instances..."
 TIMEOUT=60
