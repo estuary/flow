@@ -53,6 +53,14 @@ pub const MAX_MESSAGE_SIZE: usize = 1 << 26; // 64MB.
 /// CHANNEL_BUFFER for connector RPC pipelines, shared with `runtime`.
 pub const CHANNEL_BUFFER: usize = 16;
 
+// This constant is shared between Rust and Go code.
+// See go/protocols/flow/document_extensions.go.
+pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
+
+/// JSON-Schema annotation used to track collection generations in inferred
+/// schemas.
+pub const X_GENERATION_ID: &str = "x-collection-generation-id";
+
 /// Interval at which leader actor event loops tick, ensuring per-loop tracing
 /// instrumentation fires periodically even when no other events arrive.
 pub(crate) const ACTOR_TICK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
