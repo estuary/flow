@@ -26,9 +26,49 @@ pub(crate) async fn map_partition<N: json::AsNode>(
     prefix: String,
     packed_key: bytes::BytesMut,
 ) -> tonic::Result<(String, bytes::BytesMut)> {
-    let (mut prefix, packed_key, key_hash) =
-        extract_mapping_context(binding, doc, prefix, packed_key)?;
+    let (prefix, packed_key, key_hash) = extract_mapping_context(binding, doc, prefix, packed_key)?;
+    let (_doc, journal, packed_key) =
+        map_partition_from_context(binding, lazy, doc, prefix, packed_key, key_hash).await?;
+    Ok((journal, packed_key))
+}
 
+/// Owned-document variant of [`map_partition`].
+///
+/// Takes ownership of `doc` so that bump-backed heap documents can be moved
+/// through the async mapping loop, rather than holding a borrowed `HeapNode`
+/// across its `.await` points. Returns `doc` alongside the mapped journal.
+pub(crate) async fn map_partition_owned(
+    binding: &super::MappedBinding,
+    lazy: &std::sync::LazyLock<
+        (
+            gazette::journal::Client,
+            tokens::PendingWatch<Vec<watch::PartitionSplit>>,
+        ),
+        crate::MappedClientInit,
+    >,
+    doc: doc::OwnedNode,
+    prefix: String,
+    packed_key: bytes::BytesMut,
+) -> tonic::Result<(doc::OwnedNode, String, bytes::BytesMut)> {
+    let (prefix, packed_key, key_hash) =
+        extract_mapping_context_owned(binding, &doc, prefix, packed_key)?;
+    map_partition_from_context(binding, lazy, doc, prefix, packed_key, key_hash).await
+}
+
+async fn map_partition_from_context<D: PartitionDoc>(
+    binding: &super::MappedBinding,
+    lazy: &std::sync::LazyLock<
+        (
+            gazette::journal::Client,
+            tokens::PendingWatch<Vec<watch::PartitionSplit>>,
+        ),
+        crate::MappedClientInit,
+    >,
+    doc: D,
+    mut prefix: String,
+    packed_key: bytes::BytesMut,
+    key_hash: u32,
+) -> tonic::Result<(D, String, bytes::BytesMut)> {
     let (client, partitions) = &(**lazy);
     let partitions = partitions.ready().await;
 
@@ -39,7 +79,7 @@ pub(crate) async fn map_partition<N: json::AsNode>(
         // Common case: we find a covering partition. Append its distinctive suffix and return.
         if let Some(idx) = pick_partition(partitions, &prefix, key_hash) {
             prefix.push_str(&partitions[idx].name[prefix.len()..]);
-            return Ok((prefix, packed_key));
+            return Ok((doc, prefix, packed_key));
         }
         // Uncommon case: a covering physical partition doesn't exist.
 
@@ -52,8 +92,10 @@ pub(crate) async fn map_partition<N: json::AsNode>(
                 binding.partitions_limit
             )));
         }
-        // Attempt to create a new full-range physical partition of this logical partition.
-        let (name, request) = build_partition_apply(binding, doc)?;
+        // Attempt to create a new full-range physical partition of this logical
+        // partition. The logical-partition labels are extracted from the document
+        // only here, on the uncommon path that actually needs them.
+        let (name, request) = build_partition_apply(binding, &doc)?;
         let result = client.apply(request).await;
 
         match result {
@@ -77,6 +119,12 @@ pub(crate) async fn map_partition<N: json::AsNode>(
     }
 }
 
+/// Extract the partition-mapping context of `doc`: its packed key, key hash,
+/// and the logical journal-name `prefix` of its partition.
+///
+/// Partition field values are encoded *directly* into the journal name, which
+/// is all that's required to map a document in the common case where its
+/// physical partition already exists.
 fn extract_mapping_context<N: json::AsNode>(
     binding: &super::MappedBinding,
     doc: &N,
@@ -97,6 +145,81 @@ fn extract_mapping_context<N: json::AsNode>(
     .map_err(|err| tonic::Status::internal(format!("failed to encode logical prefix: {err}")))?;
 
     Ok((prefix, packed_key, key_hash))
+}
+
+/// Owned-document counterpart of `extract_mapping_context`, which dispatches
+/// `doc` to its inner `json::AsNode` representation.
+fn extract_mapping_context_owned(
+    binding: &super::MappedBinding,
+    doc: &doc::OwnedNode,
+    prefix: String,
+    packed_key: bytes::BytesMut,
+) -> tonic::Result<(String, bytes::BytesMut, u32)> {
+    match doc {
+        doc::OwnedNode::Heap(root) => match root.access() {
+            Ok(heap_node) => extract_mapping_context(binding, &heap_node, prefix, packed_key),
+            Err(embedded) => extract_mapping_context(binding, embedded.get(), prefix, packed_key),
+        },
+        doc::OwnedNode::Archived(archived) => {
+            extract_mapping_context(binding, archived.get(), prefix, packed_key)
+        }
+    }
+}
+
+/// A document being mapped to a physical partition, which can encode the
+/// labels of its logical partition on demand.
+///
+/// Mapping needs only the journal name in the common case: logical-partition
+/// labels are required *only* when creating a new partition (uncommon).
+/// This trait lets us defer extraction until it's needed, without holding
+/// a borrowed `HeapNode` across an `.await` point.
+trait PartitionDoc {
+    /// Encode the document's logical-partition field values as
+    /// `estuary.dev/field/` labels of `labels`, returning the extended set.
+    fn encode_logical_partition_labels(
+        &self,
+        binding: &super::MappedBinding,
+        labels: broker::LabelSet,
+    ) -> tonic::Result<broker::LabelSet>;
+}
+
+impl<N: json::AsNode> PartitionDoc for &N {
+    fn encode_logical_partition_labels(
+        &self,
+        binding: &super::MappedBinding,
+        labels: broker::LabelSet,
+    ) -> tonic::Result<broker::LabelSet> {
+        labels::partition::encode_extracted_fields_labels(
+            labels,
+            &binding.partition_fields,
+            &binding.partition_extractors,
+            *self,
+        )
+        .map_err(|err| {
+            tonic::Status::internal(format!("failed to encode logical partitions: {err}"))
+        })
+    }
+}
+
+impl PartitionDoc for doc::OwnedNode {
+    fn encode_logical_partition_labels(
+        &self,
+        binding: &super::MappedBinding,
+        labels: broker::LabelSet,
+    ) -> tonic::Result<broker::LabelSet> {
+        // Dispatch to the `&N` impl over `doc::OwnedNode`'s inner representation.
+        match self {
+            doc::OwnedNode::Heap(root) => match root.access() {
+                Ok(heap_node) => (&heap_node).encode_logical_partition_labels(binding, labels),
+                Err(embedded) => embedded
+                    .get()
+                    .encode_logical_partition_labels(binding, labels),
+            },
+            doc::OwnedNode::Archived(archived) => archived
+                .get()
+                .encode_logical_partition_labels(binding, labels),
+        }
+    }
 }
 
 /// Find a covering partition for the given logical prefix and hex key.
@@ -151,29 +274,21 @@ fn pick_partition(
 }
 
 // Build an ApplyRequest to create a new full-range physical partition of the
-// logical partition implied by the fields extracted from `doc`.
-//
-// Panics if field extraction fails, as build_logical_prefix() should have
-// already been called.
-fn build_partition_apply<N: json::AsNode>(
+// logical partition implied by `doc`.
+fn build_partition_apply<D: PartitionDoc>(
     binding: &super::MappedBinding,
-    doc: &N,
+    doc: &D,
 ) -> tonic::Result<(String, broker::ApplyRequest)> {
     let mut spec = binding.partitions_template.clone();
 
-    // Encode labels of the logical partition implied by `doc`,
-    // and a single physical partition covering the full key range.
-    let labels = spec.labels.take().unwrap_or_default();
-    let labels = labels::partition::encode_key_range_labels(labels, u32::MIN, u32::MAX);
-    let labels = labels::partition::encode_extracted_fields_labels(
-        labels,
-        &binding.partition_fields,
-        &binding.partition_extractors,
-        doc,
-    )
-    .map_err(|err| {
-        tonic::Status::internal(format!("failed to encode logical partitions: {err}"))
-    })?;
+    // Encode labels of a single physical partition covering the full key
+    // range, then the logical-partition fields extracted from `doc`.
+    let labels = labels::partition::encode_key_range_labels(
+        spec.labels.take().unwrap_or_default(),
+        u32::MIN,
+        u32::MAX,
+    );
+    let labels = doc.encode_logical_partition_labels(binding, labels)?;
 
     let name = labels::partition::full_name(&spec.name, &labels).unwrap();
     spec.name = name.clone();
@@ -332,14 +447,12 @@ mod test {
         let spec = spec.as_ref().unwrap();
         let binding = test_binding(spec);
 
-        // extract_mapping_context encodes partition field values into a logical prefix.
-        let (prefix_1, _, _) = extract_mapping_context(
-            &binding,
-            &json!({"a_key": "k", "a_bool": true, "a_str": "hello"}),
-            String::new(),
-            bytes::BytesMut::new(),
-        )
-        .unwrap();
+        // extract_mapping_context encodes partition field values directly into
+        // the logical journal-name prefix.
+        let doc_1 = json!({"a_key": "k", "a_bool": true, "a_str": "hello"});
+        let (prefix_1, _, _) =
+            extract_mapping_context(&binding, &doc_1, String::new(), bytes::BytesMut::new())
+                .unwrap();
 
         let (prefix_2, _, _) = extract_mapping_context(
             &binding,
@@ -360,12 +473,10 @@ mod test {
 
         insta::assert_json_snapshot!("logical_prefixes", json!([prefix_1, prefix_2, prefix_3]));
 
-        // build_partition_apply creates a full-key-range partition spec.
-        let (name, request) = build_partition_apply(
-            &binding,
-            &json!({"a_key": "k", "a_bool": true, "a_str": "hello"}),
-        )
-        .unwrap();
+        // build_partition_apply creates a full-key-range partition spec, with
+        // the logical-partition field labels extracted from the document only
+        // when a new partition must be created.
+        let (name, request) = build_partition_apply(&binding, &&doc_1).unwrap();
 
         insta::assert_json_snapshot!(
             "physical_partition_apply",
