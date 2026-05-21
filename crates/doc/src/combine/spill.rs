@@ -136,6 +136,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
         Ok(end - begin)
     }
 
+    #[inline]
     pub fn segment_ranges(&self) -> &[Range<u64>] {
         &self.ranges
     }

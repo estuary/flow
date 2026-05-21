@@ -91,11 +91,32 @@ impl<L: crate::LogHandler> Service<L> {
         });
         response_rx
     }
+
+    pub fn spawn_capture<R>(
+        &self,
+        controller_rx: R,
+    ) -> mpsc::UnboundedReceiver<tonic::Result<proto::Capture>>
+    where
+        R: Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
+    {
+        let service = self.clone();
+        let (controller_tx, response_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
+        let error_tx = controller_tx.clone();
+
+        tokio::spawn(async move {
+            if let Err(err) = super::capture::serve(service, controller_rx, controller_tx).await {
+                let _ = error_tx.send(Err(crate::anyhow_to_status(err)));
+            }
+        });
+        response_rx
+    }
 }
 
 #[tonic::async_trait]
 impl<L: crate::LogHandler> proto_grpc::runtime::shard_server::Shard for Service<L> {
     type MaterializeStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Materialize>>;
+    type CaptureStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Capture>>;
     //type DeriveStream = wrappers::ReceiverStream<tonic::Result<proto::Derive>>;
 
     async fn materialize(
@@ -104,6 +125,15 @@ impl<L: crate::LogHandler> proto_grpc::runtime::shard_server::Shard for Service<
     ) -> tonic::Result<tonic::Response<Self::MaterializeStream>> {
         Ok(tonic::Response::new(
             wrappers::UnboundedReceiverStream::new(self.spawn_materialize(request.into_inner())),
+        ))
+    }
+
+    async fn capture(
+        &self,
+        request: tonic::Request<tonic::Streaming<proto::Capture>>,
+    ) -> tonic::Result<tonic::Response<Self::CaptureStream>> {
+        Ok(tonic::Response::new(
+            wrappers::UnboundedReceiverStream::new(self.spawn_capture(request.into_inner())),
         ))
     }
 

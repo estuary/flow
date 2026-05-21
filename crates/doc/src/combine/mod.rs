@@ -162,6 +162,7 @@ impl Accumulator {
     /// Segment ranges of the spill file written by this Accumulator so far.
     /// Ranges are append-only, non-overlapping, and monotonic within an
     /// Accumulator's lifetime.
+    #[inline]
     pub fn ranges(&self) -> &[std::ops::Range<u64>] {
         self.spill.segment_ranges()
     }

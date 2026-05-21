@@ -247,10 +247,13 @@ connector state represents per-shard cursors (e.g., CDC LSNs) with
 no cross-shard coordination, so shards must make independent progress.
 A capture shard failure affects only that shard.
 
-Capture is unimplemented in `runtime-next` at the time of writing.
-The intent is to reuse `runtime-next`'s single Persist application
-path by synthesizing `Persist` messages locally inside the capture
-shard, rather than receiving them from a leader.
+Capture reuses `runtime-next`'s single Persist application path by
+synthesizing `Persist` messages locally inside the capture shard,
+rather than receiving them from a leader. The per-shard transaction
+loop lives in `crates/runtime-next/src/shard/capture/`; its Head/Tail
+FSM lives alongside the materialize FSM in
+`crates/runtime-next/src/leader/capture/` despite being leader-less,
+to keep the close-policy and transaction-shape primitives in one place.
 
 ## Migration strategy
 
