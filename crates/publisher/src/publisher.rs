@@ -154,6 +154,62 @@ impl Publisher {
         Ok(appender)
     }
 
+    /// Enqueue an owned document for publication to the appropriate journal partition.
+    ///
+    /// This is the owned-document counterpart of [`Self::enqueue`]. It takes a
+    /// `doc::OwnedNode` so bump-backed heap documents can be moved through the
+    /// async partition-mapping path without requiring shared references to be
+    /// held across await points.
+    pub async fn enqueue_owned(
+        &mut self,
+        doc: impl FnOnce(uuid::Uuid) -> (usize, doc::OwnedNode),
+        flags: uuid::Flags,
+    ) -> tonic::Result<(&crate::Appender, usize)> {
+        // Invariant: buffers are always empty (but may have capacity).
+        let prefix = std::mem::take(&mut self.prefix_buf);
+        let packed_key = std::mem::take(&mut self.packed_key_buf);
+
+        // Sequence the document.
+        let uuid = proto_gazette::uuid::build(self.producer, self.clock.tick(), flags);
+        let (binding_idx, doc) = doc(uuid);
+
+        let (doc, mut journal, mut packed_key) = match &self.bindings[binding_idx] {
+            super::Binding::Mapped(mapped) => {
+                let super::LazyBindingClient::Mapped(lazy) = &self.binding_clients[binding_idx]
+                else {
+                    unreachable!("Mapped binding has Mapped lazy client");
+                };
+                super::mapping::map_partition_owned(mapped, lazy, doc, prefix, packed_key).await?
+            }
+            super::Binding::Fixed(fixed) => {
+                let mut prefix = prefix;
+                prefix.push_str(&fixed.journal);
+                (doc, prefix, packed_key)
+            }
+        };
+
+        let client = self.binding_clients[binding_idx].client();
+        let appender = self.appenders.activate(&journal, client);
+
+        // Enqueue the serialization to the Appender's buffer, then checkpoint.
+        let buffer_len = appender.buffer.len();
+        let mut writer = std::mem::take(&mut appender.buffer).writer();
+        serde_json::to_writer(&mut writer, &doc::SerPolicy::noop().on_owned(&doc))
+            .expect("serialization of doc::OwnedNode cannot fail");
+        appender.buffer = writer.into_inner();
+        let bytes_written = appender.buffer.len() - buffer_len;
+        appender.buffer.put_u8(b'\n');
+        appender.checkpoint().await?;
+
+        // Clear and reclaim buffers for reuse.
+        journal.clear();
+        self.prefix_buf = journal;
+        packed_key.clear();
+        self.packed_key_buf = packed_key;
+
+        Ok((appender, bytes_written))
+    }
+
     /// Flush all active Appenders, ensuring every buffered byte is durably appended.
     ///
     /// Starts concurrent background Append RPCs for any Appenders with remaining
