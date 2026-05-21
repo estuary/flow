@@ -29,9 +29,9 @@ gcp_auth = { workspace = true }
 googleapis-tonic-google-bigtable-v2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-tracing = { workspace = true }
 
 [dev-dependencies]
 catalog-stats = { path = ".", features = ["test_util"] }

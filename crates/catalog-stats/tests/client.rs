@@ -40,14 +40,14 @@ fn stats(
 }
 
 async fn names_of(
-    stream: impl futures_core::Stream<Item = anyhow::Result<catalog_stats::CatalogStats>>,
+    stream: impl futures_core::Stream<Item = catalog_stats::RetryResult<catalog_stats::CatalogStats>>,
 ) -> Vec<String> {
     let rows: Vec<catalog_stats::CatalogStats> = Box::pin(stream).try_collect().await.unwrap();
     rows.into_iter().map(|s| s.catalog_name).collect()
 }
 
 async fn pairs_of(
-    stream: impl futures_core::Stream<Item = anyhow::Result<catalog_stats::CatalogStats>>,
+    stream: impl futures_core::Stream<Item = catalog_stats::RetryResult<catalog_stats::CatalogStats>>,
 ) -> Vec<(String, chrono::DateTime<chrono::Utc>)> {
     let rows: Vec<catalog_stats::CatalogStats> = Box::pin(stream).try_collect().await.unwrap();
     rows.into_iter().map(|s| (s.catalog_name, s.ts)).collect()
