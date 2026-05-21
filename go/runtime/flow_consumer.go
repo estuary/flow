@@ -154,10 +154,18 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 	var taskType = shard.Spec().LabelSet.ValueOf(labels.TaskType)
 	switch taskType {
 	case ops.TaskType_capture.String():
-		if c, err := newCaptureApp(f, shard, rec); err != nil {
-			return nil, err
+		if useRuntimeV2(shard.Spec().LabelSet) {
+			if c, err := newCaptureAppV2(f, shard, rec); err != nil {
+				return nil, err
+			} else {
+				return c, nil
+			}
 		} else {
-			return c, nil
+			if c, err := newCaptureApp(f, shard, rec); err != nil {
+				return nil, err
+			} else {
+				return c, nil
+			}
 		}
 	case ops.TaskType_derivation.String():
 		if d, err := newDeriveApp(f, shard, rec); err != nil {

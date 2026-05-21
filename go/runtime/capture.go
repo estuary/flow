@@ -75,6 +75,16 @@ func (c *captureApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _
 		return pf.Checkpoint{}, err
 	}
 
+	// Fail the shard if its runtime-v2 flag has been turned on. NewStore is
+	// invoked only on the initial PRIMARY transition, so a publish that
+	// flips the flag on a running shard cannot otherwise reroute it. We
+	// surface a functional error so the controller restarts the shard,
+	// at which point NewStore re-evaluates the flag and selects V2.
+	if useRuntimeV2(shard.Spec().LabelSet) {
+		return pf.Checkpoint{}, fmt.Errorf(
+			"runtime-v2 feature flag is set but this shard is running the V1 capture runtime; failing to force a restart")
+	}
+
 	var watchCtx context.Context
 	c.watches = c.watches[:0] // Truncate.
 
