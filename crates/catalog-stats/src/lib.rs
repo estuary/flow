@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use googleapis_tonic_google_bigtable_v2::google::bigtable::v2::{
     self as bt, bigtable_client,
     read_rows_response::{self, cell_chunk},
@@ -19,8 +19,48 @@ pub use ops::catalog_stats::{CatalogStats, Grain, StatsSummary, TaskStats};
 // Fixed column family written by `materialize-bigtable`.
 const COLUMN_FAMILY: &str = "f";
 
-// Maximum consecutive transient stream failures tolerated.
-const MAX_RETRIES: usize = 5;
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("gRPC code: {:?}, message: {}", .0.code(), .0.message())]
+    Grpc(#[from] tonic::Status),
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
+
+/// RetryError is an Error encountered during a retry-able operation.
+#[derive(Debug)]
+pub struct RetryError {
+    /// Number of operation attempts since the last success.
+    pub attempt: usize,
+    /// Error encountered with this attempt.
+    pub inner: Error,
+}
+
+impl Error {
+    pub fn with_attempt(self, attempt: usize) -> RetryError {
+        RetryError {
+            attempt,
+            inner: self,
+        }
+    }
+
+    pub fn is_transient(&self) -> bool {
+        match self {
+            // These retryable codes are consistent with retry handling in the
+            // official Go Bigtable client library.
+            Error::Grpc(status) => matches!(
+                status.code(),
+                tonic::Code::Unavailable | tonic::Code::DeadlineExceeded | tonic::Code::Aborted,
+            ),
+            Error::Internal(_) => false,
+        }
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// RetryResult is a single Result of a retry-able operation.
+pub type RetryResult<T> = std::result::Result<T, RetryError>;
 
 /// BigTable-specific configuration. When `emulator_host` is `Some`, the
 /// transport connects to `http://{host}` and skips ADC auth; otherwise it
@@ -76,7 +116,7 @@ impl Client {
         names: &[&str],
         grain: Grain,
         range: std::ops::Range<chrono::DateTime<chrono::Utc>>,
-    ) -> impl futures_core::Stream<Item = anyhow::Result<CatalogStats>> + '_ {
+    ) -> impl futures_core::Stream<Item = RetryResult<CatalogStats>> + '_ {
         let row_set = bt::RowSet {
             row_keys: vec![],
             row_ranges: names
@@ -100,7 +140,7 @@ impl Client {
         names: &[&str],
         grain: Grain,
         ts: chrono::DateTime<chrono::Utc>,
-    ) -> impl futures_core::Stream<Item = anyhow::Result<CatalogStats>> + '_ {
+    ) -> impl futures_core::Stream<Item = RetryResult<CatalogStats>> + '_ {
         let row_set = bt::RowSet {
             row_keys: names.iter().map(|name| pack_row_key(name, ts)).collect(),
             row_ranges: vec![],
@@ -109,7 +149,7 @@ impl Client {
         self.read_rows(grain, row_set, vec![])
     }
 
-    /// Streams every `catalog_stats_<grain>` row whose `catalog_name` stats
+    /// Streams every `catalog_stats_<grain>` row whose `catalog_name` starts
     /// with `prefix`, and whose `ts` falls in the half-open interval
     /// `[range.start, range.end)`.
     ///
@@ -131,7 +171,7 @@ impl Client {
         prefix: &str,
         grain: Grain,
         range: std::ops::Range<chrono::DateTime<chrono::Utc>>,
-    ) -> impl futures_core::Stream<Item = anyhow::Result<CatalogStats>> + '_ {
+    ) -> impl futures_core::Stream<Item = RetryResult<CatalogStats>> + '_ {
         let row_set = bt::RowSet {
             row_keys: vec![],
             row_ranges: pack_name_prefix_range(prefix).into_iter().collect(),
@@ -175,56 +215,60 @@ impl Client {
         grain: Grain,
         row_set: bt::RowSet,
         additional_filters: Vec<bt::RowFilter>,
-    ) -> impl futures_core::Stream<Item = anyhow::Result<CatalogStats>> + '_ {
+    ) -> impl futures_core::Stream<Item = RetryResult<CatalogStats>> + '_ {
         let mut client = self.client.clone();
         let mut read = ReadRows::new(self.table_name(grain), row_set, additional_filters);
-        let mut retries: usize = 0;
+        let mut attempt: usize = 0;
 
-        coroutines::try_coroutine(move |mut co| async move {
-            // Each iteration issues one ReadRows RPC; a transient error
-            // loops back with `next_request` narrowed past the watermark
-            // so we only re-read rows still owed.
-            while let Some(request) = read.next_request() {
+        coroutines::coroutine(move |mut co| async move {
+            // Each iteration issues one ReadRows RPC; on failure the inner
+            // state has already trimmed `row_set` past the watermark so we
+            // only re-read rows still owed.
+            loop {
+                let Some(request) = read.next_request() else {
+                    return;
+                };
+
                 let stream = client
                     .read_rows(request)
                     .await
                     .map(|response| response.into_inner());
                 let mut stream = std::pin::pin!(read.handle_stream(stream));
 
-                while let Some(res) = stream.try_next().await? {
-                    match res {
+                while let Some(action) = stream.next().await {
+                    match action {
                         ReadResult::Yield(stats_doc) => {
-                            // Hand off the row; success resets the retry budget.
-                            () = co.yield_(stats_doc).await;
-                            retries = 0;
+                            () = co.yield_(Ok(stats_doc)).await;
+                            attempt = 0;
                         }
-                        ReadResult::Retry(status) => {
-                            if retries >= MAX_RETRIES {
-                                // Out of budget — propagate as a hard failure.
-                                return Err(
-                                    anyhow::Error::new(status).context("ReadRows RPC failed")
-                                );
+                        ReadResult::Done => return,
+                        ReadResult::Failed(err) => {
+                            // Surface error to the caller, who can either drop
+                            // to cancel or poll to retry. Non-transient errors
+                            // (decode failures, protocol violations) end the
+                            // stream immediately — retrying won't help.
+                            let transient = err.is_transient();
+                            () = co.yield_(Err(err.with_attempt(attempt))).await;
+                            if !transient {
+                                return;
                             }
-
-                            // Exponential backoff, then loop for another RPC.
-                            tracing::warn!(
-                                retries,
-                                code = ?status.code(),
-                                message = status.message(),
-                                "ReadRows failed, retrying",
-                            );
-                            tokio::time::sleep(std::time::Duration::from_millis(100u64 << retries))
-                                .await;
-
-                            retries += 1;
+                            () = tokio::time::sleep(backoff(attempt)).await;
+                            attempt += 1;
+                            break;
                         }
-                        ReadResult::Done => return Ok(()),
                     }
                 }
             }
-
-            Ok(())
         })
+    }
+}
+
+fn backoff(attempt: usize) -> std::time::Duration {
+    match attempt {
+        0 => std::time::Duration::ZERO,
+        1 => std::time::Duration::from_millis(100),
+        2 | 3 => std::time::Duration::from_millis(500),
+        _ => std::time::Duration::from_secs(1),
     }
 }
 
@@ -305,7 +349,7 @@ struct ReadRows {
 #[derive(Debug)]
 enum ReadResult {
     Yield(CatalogStats),
-    Retry(tonic::Status),
+    Failed(Error),
     Done,
 }
 
@@ -349,19 +393,20 @@ impl ReadRows {
 
     fn handle_stream<'a, S>(
         &'a mut self,
-        stream: Result<S, tonic::Status>,
-    ) -> impl futures_core::Stream<Item = anyhow::Result<ReadResult>> + 'a
+        stream: std::result::Result<S, tonic::Status>,
+    ) -> impl futures_core::Stream<Item = ReadResult> + 'a
     where
-        S: futures_core::Stream<Item = Result<bt::ReadRowsResponse, tonic::Status>> + Unpin + 'a,
+        S: futures_core::Stream<Item = std::result::Result<bt::ReadRowsResponse, tonic::Status>>
+            + Unpin
+            + 'a,
     {
-        coroutines::try_coroutine(move |mut co| async move {
+        coroutines::coroutine(move |mut co| async move {
             let mut stream = match stream {
                 Ok(s) => s,
                 Err(status) => {
-                    // Initial RPC failed before any data arrived. Retry or fail
-                    // per on_status.
-                    () = co.yield_(self.on_status(status)?).await;
-                    return Ok(());
+                    // Initial RPC failed before any data arrived.
+                    () = co.yield_(ReadResult::Failed(Error::Grpc(status))).await;
+                    return;
                 }
             };
 
@@ -370,39 +415,49 @@ impl ReadRows {
             while let Some(res) = stream.next().await {
                 let message = match res {
                     Ok(m) => m,
-
                     Err(status) => {
-                        // Mid-stream failure: same retry-or-fail handoff.
-                        () = co.yield_(self.on_status(status)?).await;
-                        return Ok(());
+                        // Mid-stream failure may be retried. Drop any partial
+                        // row buffer and trim `row_set` past the last yielded
+                        // key.
+                        self.doc.clear();
+                        if let Some(w) = &self.watermark {
+                            self.row_set = trim_row_set(std::mem::take(&mut self.row_set), w);
+                        }
+                        () = co.yield_(ReadResult::Failed(Error::Grpc(status))).await;
+                        return;
                     }
                 };
                 for chunk in message.chunks {
                     // `on_chunk` returns `Some` only on `CommitRow`.
-                    if let Some(stats) = self.on_chunk(chunk)? {
-                        () = co.yield_(ReadResult::Yield(stats)).await;
+                    match self.on_chunk(chunk) {
+                        Ok(Some(stats)) => () = co.yield_(ReadResult::Yield(stats)).await,
+                        Ok(None) => {}
+                        Err(err) => {
+                            () = co.yield_(ReadResult::Failed(err)).await;
+                            return;
+                        }
                     }
                 }
             }
 
             // Clean end-of-stream: no row should be mid-assembly.
-            anyhow::ensure!(
-                self.doc.is_empty(),
-                "ReadRows stream ended with {} bytes buffered for an uncommitted row",
-                self.doc.len(),
-            );
+            if !self.doc.is_empty() {
+                let buffered = self.doc.len();
+                () = co
+                    .yield_(ReadResult::Failed(Error::Internal(anyhow::anyhow!(
+                        "ReadRows stream ended with {buffered} bytes buffered for an uncommitted row",
+                    ))))
+                    .await;
+                return;
+            }
 
             () = co.yield_(ReadResult::Done).await;
-            Ok(())
         })
     }
 
     /// Fold `chunk` into the in-progress row buffer. Returns the
     /// decoded row when `chunk` carries `CommitRow`.
-    fn on_chunk(
-        &mut self,
-        chunk: read_rows_response::CellChunk,
-    ) -> anyhow::Result<Option<CatalogStats>> {
+    fn on_chunk(&mut self, chunk: read_rows_response::CellChunk) -> Result<Option<CatalogStats>> {
         // The first chunk of each row carries `row_key`; subsequent
         // chunks for the same row leave it empty.
         if !chunk.row_key.is_empty() {
@@ -421,7 +476,9 @@ impl ReadRows {
                 Ok(None)
             }
             Some(cell_chunk::RowStatus::CommitRow(true)) => {
-                let result = serde_json::from_slice(&self.doc).context("decoding flow_document")?;
+                let result = serde_json::from_slice(&self.doc)
+                    .context("decoding flow_document")
+                    .map_err(Error::Internal)?;
                 self.doc.clear();
 
                 // This assumes Bigtable returns results in sorted order, which
@@ -432,22 +489,6 @@ impl ReadRows {
             }
             _ => Ok(None), // Continue accumulation
         }
-    }
-
-    fn on_status(&mut self, status: tonic::Status) -> anyhow::Result<ReadResult> {
-        if !matches!(
-            status.code(),
-            tonic::Code::Unavailable | tonic::Code::DeadlineExceeded | tonic::Code::Aborted,
-        ) {
-            return Err(anyhow::Error::new(status).context("ReadRows RPC failed"));
-        }
-
-        self.doc.clear();
-        if let Some(w) = &self.watermark {
-            self.row_set = trim_row_set(std::mem::take(&mut self.row_set), w);
-        }
-
-        Ok(ReadResult::Retry(status))
     }
 }
 
@@ -537,15 +578,16 @@ impl codegen::Service<http::Request<body::Body>> for AuthChannel {
     type Error = codegen::StdError;
     type Future = std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = Result<http::Response<body::Body>, codegen::StdError>>
-                + Send,
+            dyn std::future::Future<
+                    Output = std::result::Result<http::Response<body::Body>, codegen::StdError>,
+                > + Send,
         >,
     >;
 
     fn poll_ready(
         &mut self,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    ) -> std::task::Poll<std::result::Result<(), Self::Error>> {
         self.channel.poll_ready(cx).map_err(Into::into)
     }
 
@@ -860,16 +902,19 @@ mod tests {
 
     async fn drive(
         state: &mut ReadRows,
-        stream: Result<Vec<Result<bt::ReadRowsResponse, tonic::Status>>, tonic::Status>,
-    ) -> anyhow::Result<Vec<ReadResult>> {
+        stream: std::result::Result<
+            Vec<std::result::Result<bt::ReadRowsResponse, tonic::Status>>,
+            tonic::Status,
+        >,
+    ) -> Vec<ReadResult> {
         let stream = stream.map(futures::stream::iter);
         let res = state.handle_stream(stream);
         let mut res = std::pin::pin!(res);
         let mut out = Vec::new();
-        while let Some(action) = res.try_next().await? {
+        while let Some(action) = res.next().await {
             out.push(action);
         }
-        Ok(out)
+        out
     }
 
     fn assert_yields_then_done(label: &str, actions: &[ReadResult], expected: &[CatalogStats]) {
@@ -948,21 +993,19 @@ mod tests {
 
         for (label, name, responses, expected) in cases {
             let mut state = read_over_name_range(name, 1);
-            let rpc: Vec<Result<bt::ReadRowsResponse, tonic::Status>> =
+            let rpc: Vec<std::result::Result<bt::ReadRowsResponse, tonic::Status>> =
                 responses.into_iter().map(Ok).collect();
-            let actions = drive(&mut state, Ok(rpc)).await.expect(label);
+            let actions = drive(&mut state, Ok(rpc)).await;
             assert_yields_then_done(label, &actions, &expected);
         }
     }
 
     #[tokio::test]
-    async fn transient_status_returns_retry() {
+    async fn initial_status_yields_failed() {
         let mut read = read_over_name_range("foo", 1);
-        let actions = drive(&mut read, Err(tonic::Status::unavailable("nope")))
-            .await
-            .unwrap();
-        let [ReadResult::Retry(status)] = &actions[..] else {
-            panic!("expected [Retry], got {actions:?}");
+        let actions = drive(&mut read, Err(tonic::Status::unavailable("nope"))).await;
+        let [ReadResult::Failed(Error::Grpc(status))] = &actions[..] else {
+            panic!("expected [Failed(Grpc)], got {actions:?}");
         };
         assert_eq!(status.code(), tonic::Code::Unavailable);
     }
@@ -980,11 +1023,14 @@ mod tests {
                 Err(tonic::Status::unavailable("")),
             ]),
         )
-        .await
-        .unwrap();
+        .await;
 
-        let [ReadResult::Yield(s), ReadResult::Retry(status)] = &stream[..] else {
-            panic!("expected [Yield, Retry], got {stream:?}");
+        let [
+            ReadResult::Yield(s),
+            ReadResult::Failed(Error::Grpc(status)),
+        ] = &stream[..]
+        else {
+            panic!("expected [Yield, Failed(Grpc)], got {stream:?}");
         };
         assert_eq!(s, &stats);
         assert_eq!(status.code(), tonic::Code::Unavailable);
@@ -1010,11 +1056,14 @@ mod tests {
                 Err(tonic::Status::unavailable("")),
             ]),
         )
-        .await
-        .unwrap();
+        .await;
 
-        let [ReadResult::Yield(s), ReadResult::Retry(status)] = &stream[..] else {
-            panic!("expected [Yield, Retry], got {stream:?}");
+        let [
+            ReadResult::Yield(s),
+            ReadResult::Failed(Error::Grpc(status)),
+        ] = &stream[..]
+        else {
+            panic!("expected [Yield, Failed(Grpc)], got {stream:?}");
         };
         assert_eq!(s, &stats);
         assert_eq!(status.code(), tonic::Code::Unavailable);
