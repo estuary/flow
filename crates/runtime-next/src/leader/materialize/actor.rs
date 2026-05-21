@@ -580,7 +580,7 @@ mod tests {
             reqwest::Client::new(),
             None,
             super::super::Metrics::new("test/task/shard"),
-            crate::Publisher::new_preview(),
+            crate::Publisher::new_preview([]),
             shard_tx,
             task,
         );

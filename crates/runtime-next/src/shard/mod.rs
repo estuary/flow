@@ -1,3 +1,4 @@
+pub mod capture;
 pub mod materialize;
 pub(crate) mod recovery;
 mod rocksdb;

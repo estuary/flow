@@ -123,7 +123,7 @@ where
 
     // Initialize publisher.
     let publisher = if preview {
-        crate::Publisher::new_preview()
+        crate::Publisher::new_preview([])
     } else {
         crate::Publisher::new_real(
             shard_id, // Shard ID is AuthZ subject.

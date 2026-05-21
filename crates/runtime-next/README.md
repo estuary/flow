@@ -75,7 +75,13 @@ src/
 └── shard/             # per-shard controller-facing service
     ├── service.rs       # gRPC entry, dispatches by task type
     ├── recovery.rs      # Persist <-> RocksDB WriteBatch encode/decode + scan-time FC: pruning
-    ├── rocksdb.rs       # single Persist application path (capture will reuse)
+    ├── rocksdb.rs       # single Persist application path
+    ├── capture/
+    │   ├── handler.rs       # startup, apply/open, recovery scan, publisher setup
+    │   ├── connector.rs     # capture connector RPC bridging
+    │   ├── actor.rs         # independent per-shard capture transaction loop
+    │   ├── fsm.rs           # head/tail state machines for capture transactions
+    │   └── task.rs          # per-capture task and binding shape
     └── materialize/
         ├── handler.rs       # gRPC stream handler
         ├── startup.rs       # join leader, scan RocksDB, open connector
@@ -128,8 +134,8 @@ documented inline in the proto.
   runtime checkpoint at `Opened` — both indicate stale per-shard state from
   before consolidation.
 - **`shard/rocksdb.rs` is the single Persist application path.** Capture
-  (unimplemented) will reuse it by synthesizing `Persist` messages locally
-  rather than receiving them from a leader.
+  reuses it by synthesizing `Persist` messages locally rather than receiving
+  them from a leader.
 
 ## Coexistence with `runtime`
 
@@ -164,7 +170,6 @@ only ever writes `FC:` deltas.
 ## Status
 
 - `leader::materialize` and `shard::materialize` are implemented.
-- `leader::derive` and `leader::capture` are not yet implemented (see
-  commented modules in `leader/mod.rs`).
-- Capture is unimplemented in `shard/`; the intended approach is local
-  Persist synthesis as noted above.
+- `shard::capture` is implemented as an independent per-shard transaction
+  loop with local RocksDB persistence.
+- `leader::derive` and `shard::derive` are not yet implemented.

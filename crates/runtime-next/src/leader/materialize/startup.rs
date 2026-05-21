@@ -92,7 +92,7 @@ pub(super) async fn run(
 
     // Initialize publisher.
     let publisher = if preview {
-        crate::Publisher::new_preview()
+        crate::Publisher::new_preview([])
     } else {
         crate::Publisher::new_real(
             shard_ids[0].clone(), // Shard zero is AuthZ subject.
