@@ -68,6 +68,12 @@ impl Registry {
     /// The guard also carries a [`tracing::Span`] (see [`HandlerGuard::span`]):
     /// the handler should run its body inside it (`.instrument(handler.span())`)
     /// so that operator-directed trace overrides reach the handler's events.
+    ///
+    /// Call `register` *inside* the spawned task, never before a `tokio::spawn`
+    /// that carries the guard in: a span captures the current dispatcher at
+    /// creation and `tokio::spawn` doesn't propagate it, so a span created under
+    /// one subscriber (e.g. a test's `set_default`) but closed on a worker
+    /// thread routes its close to the wrong registry and panics.
     pub fn register(&self, kind: &'static str) -> HandlerGuard {
         let now = SystemTime::now();
 
