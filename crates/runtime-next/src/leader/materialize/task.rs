@@ -1,4 +1,4 @@
-use super::{Task, triggers};
+use super::{Task, close_policy, triggers};
 use anyhow::Context;
 use proto_flow::flow;
 use proto_gazette::consumer;
@@ -78,26 +78,16 @@ impl Task {
             build,
         };
 
-        // Close-policy thresholds, many with placeholder defaults.
-        // TODO: thread these through from the spec once they're supported there.
-        let combiner_usage_bytes = 0..(30 * 1024 * 1024 * 1024);
-        let last_close_age = std::time::Duration::ZERO..std::time::Duration::MAX;
-        let open_duration = min_txn_duration..max_txn_duration;
-        let read_bytes = 0..u64::MAX;
-        let read_docs = 0..u64::MAX;
+        let close_policy = close_policy::Policy::new(min_txn_duration, max_txn_duration);
 
         Ok(Self {
             binding_collection_names,
             binding_journal_read_suffixes,
-            combiner_usage_bytes,
+            close_policy,
             connector_image,
-            last_close_age,
             max_transactions,
             n_shards: peers.len(),
-            open_duration,
             peers,
-            read_bytes,
-            read_docs,
             shard_ref,
             triggers,
         })

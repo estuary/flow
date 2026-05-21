@@ -35,6 +35,12 @@ impl CompiledTriggers {
     }
 }
 
+impl std::fmt::Debug for CompiledTriggers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompiledTriggers").finish()
+    }
+}
+
 /// Fire all configured triggers using the given variables.
 pub async fn fire_pending_triggers(
     compiled: &CompiledTriggers,

@@ -14,11 +14,12 @@
 //! idle with Tail already done, or after its next durable commit. Any post-
 //! commit work for that last transaction is recovered and resumed by the next
 //! leader session.
-use super::{Task, frontier_mapping};
+use super::{Task, close_policy, frontier_mapping, triggers};
 use crate::proto;
 use gazette::consumer;
 use proto_gazette::uuid;
 use std::collections::{BTreeMap, HashMap};
+use std::time::Duration;
 
 /// Per-transaction aggregated state threaded through the HeadFSM.
 #[derive(Debug, Default)]
@@ -87,16 +88,14 @@ pub enum Tail {
 }
 
 /// `Action` is the next outgoing IO, or an actor-loop control edge.
-/// Every non-terminator maps to exactly one IO primitive in the Actor's `dispatch()`.
 #[derive(Debug)]
 pub enum Action {
     /// Park until new IO arrives.
     Idle,
-    /// Park with a precise deadline.
+    /// Sleep for the indicated duration before re-polling.
     Sleep {
-        wake_after: std::time::Duration,
+        wake_after: Duration,
     },
-
     /// Broadcast a `L:Load` Frontier.
     Load {
         frontier: shuffle::Frontier,
@@ -136,6 +135,7 @@ pub enum Action {
     /// Start calling the trigger.
     /// Actor sets `trigger_done = false` upon dispatch.
     CallTrigger {
+        triggers: std::sync::Arc<triggers::CompiledTriggers>,
         trigger_params: bytes::Bytes,
     },
 
@@ -226,7 +226,7 @@ impl Tail {
         match self {
             Tail::Begin(s) => s.step(stopping, task),
             Tail::WriteIntents(s) => s.step(intents_write_idle),
-            Tail::Acknowledge(s) => s.step(now, shard_rx),
+            Tail::Acknowledge(s) => s.step(now, shard_rx, task),
             Tail::Trigger(s) => s.step(now, trigger_call_running),
             Tail::Persist(s) => s.step(shard_rx),
             Tail::Done(_) => (Action::Idle, self),
@@ -395,9 +395,7 @@ impl HeadExtend {
         // We've received all expected Loaded responses.
 
         // Measures used to evaluate extend and close policy.
-        let open_age = uuid::Clock::delta(now, self.extents.open);
-        let last_age = uuid::Clock::delta(now, self.last_close);
-        let max_combiner = *self.combiner_usage_bytes.iter().max().unwrap();
+        let combiner_bytes = *self.combiner_usage_bytes.iter().max().unwrap();
         let (read_docs, read_bytes) = self
             .extents
             .bindings
@@ -405,24 +403,22 @@ impl HeadExtend {
             .map(|extents| (extents.sourced.docs_total, extents.sourced.bytes_total))
             .fold((0, 0), |(a1, a2), (b1, b2)| (a1 + b1, a2 + b2));
 
-        let CloseDecision {
+        let close_policy::Decision {
             may_extend,
             may_close,
-        } = decide_close_policy(
-            CloseInputs {
-                close_requested: *close_requested,
-                idempotent_replay: self.idempotent_replay,
-                last_age,
-                max_combiner,
-                open_age,
-                read_bytes,
-                read_docs,
-                stopping,
-                tail_done: matches!(tail, Tail::Done(_)),
-                unresolved_hints: self.unresolved_hints,
-            },
-            task,
-        );
+            wake_after,
+        } = task.close_policy.evaluate(close_policy::Inputs {
+            close_requested: *close_requested,
+            idempotent_replay: self.idempotent_replay,
+            last_age: uuid::Clock::delta(now, self.last_close),
+            combiner_bytes,
+            open_age: uuid::Clock::delta(now, self.extents.open),
+            read_bytes,
+            read_docs,
+            stopping,
+            tail_done: matches!(tail, Tail::Done(_)),
+            unresolved_hints: self.unresolved_hints,
+        });
 
         // Should we extend with a ready checkpoint?
         if may_extend && let Some(frontier) = ready_frontier.take() {
@@ -436,7 +432,6 @@ impl HeadExtend {
         if may_close {
             *close_requested = false;
             let Self { mut extents, .. } = self;
-
             extents.close = now;
 
             // Take C:Acknowledged patches of the prior transaction.
@@ -471,17 +466,6 @@ impl HeadExtend {
                 }),
             );
         }
-
-        // Compute next sleep deadline.
-        let wake_after = [
-            task.open_duration.start.checked_sub(open_age),
-            task.open_duration.end.checked_sub(open_age),
-            task.last_close_age.start.checked_sub(last_age),
-            task.last_close_age.end.checked_sub(last_age),
-        ]
-        .into_iter()
-        .filter_map(|s| s)
-        .min();
 
         if let Some(wake_after) = wake_after {
             (Action::Sleep { wake_after }, Head::Extend(self))
@@ -962,6 +946,7 @@ impl TailAcknowledge {
         mut self,
         now: uuid::Clock,
         shard_rx: &mut Option<(usize, proto::Materialize)>,
+        task: &Task,
     ) -> (Action, Tail) {
         // Did we receive an expected Acknowledged response?
         if let Some((
@@ -1010,13 +995,18 @@ impl TailAcknowledge {
         let shard_patches = take_patches(&mut shard_patches);
 
         // Base: call the trigger if needed, else go straight to Done.
-        let (mut action, mut state) = if trigger_params.is_empty() {
-            (Action::Idle, Tail::Done(TailDone { shard_patches }))
-        } else {
+        let (mut action, mut state) = if let Some(triggers) = task.triggers.clone()
+            && !trigger_params.is_empty()
+        {
             (
-                Action::CallTrigger { trigger_params },
+                Action::CallTrigger {
+                    triggers,
+                    trigger_params,
+                },
                 Tail::Trigger(TailTrigger { shard_patches }),
             )
+        } else {
+            (Action::Idle, Tail::Done(TailDone { shard_patches }))
         };
 
         // Wrap with WriteIntents, so journal ACKs are appended immediately after
@@ -1143,89 +1133,6 @@ pub struct TailDone {
     pub shard_patches: bytes::Bytes,
 }
 
-/// Aggregated measures and flags driving an extend-vs-close evaluation.
-#[derive(Debug, Clone, Copy)]
-pub struct CloseInputs {
-    pub close_requested: bool,
-    pub idempotent_replay: bool,
-    pub last_age: std::time::Duration,
-    pub max_combiner: u64,
-    pub open_age: std::time::Duration,
-    pub read_bytes: u64,
-    pub read_docs: u64,
-    pub stopping: bool,
-    pub tail_done: bool,
-    pub unresolved_hints: bool,
-}
-
-/// Outcome of an extend-vs-close evaluation. Both flags may be true: the
-/// caller extends if a Frontier is ready and otherwise closes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CloseDecision {
-    pub may_extend: bool,
-    pub may_close: bool,
-}
-
-/// Evaluate whether an open transaction may extend, close, or hold.
-///
-/// Threshold policy with a hysteresis band per dimension:
-/// - `policy_extend` while every measure is below its `range.end`.
-/// - `policy_close` once every measure is above its `range.start`.
-///   Usage-based measures saturate below `start` once `policy_extend` is false
-///   (otherwise we'd live-lock because the threshold cannot be reached).
-///
-/// Overrides:
-/// - `close_requested`, or `idempotent_replay && !unresolved_hints`: force close.
-/// - `unresolved_hints`: forces extend; suppresses close until hints resolve.
-/// - `idempotent_replay`: suppresses extend (replay is one-shot).
-/// - `close_requested` or `stopping` with `may_close=true`: suppresses extend so
-///   the current txn closes promptly (and Head can stop after the next commit).
-///   With Tail still draining, extend is permitted to keep the pipeline full.
-/// - `!tail_done`: suppresses close (must hold open while Tail finishes).
-pub fn decide_close_policy(inputs: CloseInputs, task: &Task) -> CloseDecision {
-    let CloseInputs {
-        open_age,
-        last_age,
-        max_combiner,
-        read_bytes,
-        read_docs,
-        close_requested,
-        idempotent_replay,
-        unresolved_hints,
-        stopping,
-        tail_done,
-    } = inputs;
-
-    let policy_extend = open_age < task.open_duration.end
-        && last_age < task.last_close_age.end
-        && max_combiner < task.combiner_usage_bytes.end
-        && read_bytes < task.read_bytes.end
-        && read_docs < task.read_docs.end;
-
-    let mut policy_close = open_age >= task.open_duration.start
-        && last_age >= task.last_close_age.start
-        && (!policy_extend || max_combiner >= task.combiner_usage_bytes.start)
-        && (!policy_extend || read_bytes >= task.read_bytes.start)
-        && (!policy_extend || read_docs >= task.read_docs.start);
-    policy_close |= idempotent_replay && !unresolved_hints;
-    policy_close |= close_requested;
-
-    let may_close = policy_close && !unresolved_hints && tail_done;
-
-    // A requested or stopping close stops extending the current txn once
-    // we're actually able to close it, so the txn finishes promptly. While
-    // we cannot yet close (Tail still draining, or unresolved hints), we
-    // keep extending if policy allows — maximizing parallelism as Tail works.
-    let finishing = close_requested || stopping;
-    let may_extend =
-        (!idempotent_replay && policy_extend && (!finishing || !may_close)) || unresolved_hints;
-
-    CloseDecision {
-        may_extend,
-        may_close,
-    }
-}
-
 // Extend separate accrued patches for a future Persist vs future shard broadcast,
 // into `pending` from `src`.
 pub fn extend_patches(pending: &mut PendingDeltas, src: &[u8]) {
@@ -1298,7 +1205,6 @@ mod tests {
     use bytes::Bytes;
     use gazette::consumer;
     use std::collections::BTreeMap;
-    use std::time::Duration;
 
     /// Aggregates the Actor's per-iteration locals so step_head / step_tail
     /// can be driven without recreating the actor's IO scaffolding.
@@ -1354,15 +1260,11 @@ mod tests {
         Task {
             binding_collection_names: vec!["test/collection".to_string()],
             binding_journal_read_suffixes: vec!["pivot=00".to_string()],
-            combiner_usage_bytes: 0..u64::MAX,
+            close_policy: close_policy::Policy::new(Duration::ZERO, Duration::MAX),
             connector_image: String::new(),
-            last_close_age: Duration::ZERO..Duration::MAX,
             max_transactions: 0,
             n_shards,
-            open_duration: Duration::ZERO..Duration::MAX,
             peers: (0..n_shards).map(|i| format!("shard-{i}")).collect(),
-            read_bytes: 0..u64::MAX,
-            read_docs: 0..u64::MAX,
             shard_ref: ops::ShardRef::default(),
             triggers: Some(std::sync::Arc::new(
                 super::super::triggers::CompiledTriggers::compile(vec![]).unwrap(),
@@ -1481,178 +1383,6 @@ mod tests {
                 ..Default::default()
             },
         )
-    }
-
-    /// Table-driven coverage of `decide_close_policy`. The task's hysteresis
-    /// bands are 1..5 (s/bytes/docs); `mid` sits in-band on every dimension.
-    #[test]
-    fn close_policy_table() {
-        let task = Task {
-            combiner_usage_bytes: 1..5,
-            last_close_age: Duration::from_secs(1)..Duration::from_secs(5),
-            open_duration: Duration::from_secs(1)..Duration::from_secs(5),
-            read_bytes: 1..5,
-            read_docs: 1..5,
-            // Unused by `decide_close_policy`.
-            binding_collection_names: vec![],
-            binding_journal_read_suffixes: vec![],
-            connector_image: String::new(),
-            max_transactions: 0,
-            n_shards: 1,
-            peers: vec![],
-            shard_ref: ops::ShardRef::default(),
-            triggers: None,
-        };
-
-        // `mid` is permissive across dimensions and flags: every measure is
-        // inside its band, no overrides are active, and Tail is done. From
-        // here, individual cases nudge one or two fields to exercise each
-        // policy / override branch.
-        let mid = CloseInputs {
-            open_age: Duration::from_secs(3),
-            last_age: Duration::from_secs(3),
-            max_combiner: 3,
-            read_bytes: 3,
-            read_docs: 3,
-            close_requested: false,
-            idempotent_replay: false,
-            unresolved_hints: false,
-            stopping: false,
-            tail_done: true,
-        };
-
-        struct Case {
-            name: &'static str,
-            inputs: CloseInputs,
-            want: CloseDecision,
-        }
-
-        let want = |may_extend, may_close| CloseDecision {
-            may_extend,
-            may_close,
-        };
-
-        let cases = [
-            Case {
-                name: "in-band: may extend or close",
-                inputs: mid,
-                want: want(true, true),
-            },
-            Case {
-                name: "below all minima: extend only",
-                inputs: CloseInputs {
-                    open_age: Duration::ZERO,
-                    last_age: Duration::ZERO,
-                    max_combiner: 0,
-                    read_bytes: 0,
-                    read_docs: 0,
-                    ..mid
-                },
-                want: want(true, false),
-            },
-            Case {
-                name: "saturated combiner: close only",
-                inputs: CloseInputs {
-                    max_combiner: 10,
-                    ..mid
-                },
-                want: want(false, true),
-            },
-            Case {
-                name: "saturated combiner but open_age below min: hold",
-                inputs: CloseInputs {
-                    open_age: Duration::ZERO,
-                    max_combiner: 10,
-                    ..mid
-                },
-                want: want(false, false),
-            },
-            Case {
-                name: "close_requested with may_close: extend suppressed, close",
-                inputs: CloseInputs {
-                    open_age: Duration::ZERO,
-                    last_age: Duration::ZERO,
-                    read_bytes: 0,
-                    read_docs: 0,
-                    max_combiner: 0,
-                    close_requested: true,
-                    ..mid
-                },
-                want: want(false, true),
-            },
-            Case {
-                name: "close_requested but tail still busy: hold open",
-                inputs: CloseInputs {
-                    close_requested: true,
-                    tail_done: false,
-                    ..mid
-                },
-                want: want(true, false),
-            },
-            Case {
-                name: "close_requested but unresolved hints: extend forced, close suppressed",
-                inputs: CloseInputs {
-                    close_requested: true,
-                    unresolved_hints: true,
-                    ..mid
-                },
-                want: want(true, false),
-            },
-            Case {
-                name: "idempotent_replay with hints resolved: close only",
-                inputs: CloseInputs {
-                    open_age: Duration::ZERO,
-                    idempotent_replay: true,
-                    ..mid
-                },
-                want: want(false, true),
-            },
-            Case {
-                name: "idempotent_replay with unresolved hints: extend forced",
-                inputs: CloseInputs {
-                    open_age: Duration::ZERO,
-                    idempotent_replay: true,
-                    unresolved_hints: true,
-                    ..mid
-                },
-                want: want(true, false),
-            },
-            Case {
-                name: "stopping with may_close: extend suppressed",
-                inputs: CloseInputs {
-                    close_requested: true,
-                    stopping: true,
-                    ..mid
-                },
-                want: want(false, true),
-            },
-            Case {
-                name: "stopping with tail busy: keep pipeline full",
-                inputs: CloseInputs {
-                    stopping: true,
-                    tail_done: false,
-                    ..mid
-                },
-                want: want(true, false),
-            },
-            Case {
-                name: "unresolved hints: extend forced, close suppressed",
-                inputs: CloseInputs {
-                    unresolved_hints: true,
-                    ..mid
-                },
-                want: want(true, false),
-            },
-        ];
-
-        for case in cases {
-            let got = decide_close_policy(case.inputs, &task);
-            assert_eq!(
-                got, case.want,
-                "case `{}` failed: inputs={:?}",
-                case.name, case.inputs,
-            );
-        }
     }
 
     /// Walks Head and Tail through two pipelined transactions and a graceful
@@ -1960,7 +1690,7 @@ mod tests {
         // Shrinking `open_duration.end` below the current `open_age` flips
         // `policy_extend` to false, which lets `policy_close` trip and (under
         // `stopping`) suppresses extend so Head closes on the next step.
-        ctx.task.open_duration.end = Duration::from_nanos(1);
+        ctx.task.close_policy.open_duration.end = Duration::from_nanos(1);
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
         assert!(matches!(action, Action::Flush { .. }));
@@ -2236,9 +1966,9 @@ mod tests {
             // fuzz traces through Flush / Store / Persist / Rotate. Without
             // this, Head spends almost the entire trace in Extend.
             let mut task = mk_task(n_shards);
-            task.combiner_usage_bytes = 0..10_000;
-            task.read_bytes = 0..500;
-            task.read_docs = 0..20;
+            task.close_policy.combiner_usage_bytes = 0..10_000;
+            task.close_policy.read_bytes = 0..500;
+            task.close_policy.read_docs = 0..20;
 
             let mut ctx = Ctx {
                 binding_bytes_behind: vec![0; 3],
