@@ -20,7 +20,8 @@ pub async fn run_sessions(
     session_targets: Vec<u32>,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
-    let join_shards = crate::raw::preview_next::shards::build_join_shards(run.n_shards, spec)?;
+    let join_shards =
+        crate::raw::preview_next::shards::build_materialize_join_shards(run.n_shards, spec)?;
 
     let mut handles = Vec::with_capacity(run.n_shards as usize);
     for i in 0..run.n_shards {
@@ -30,6 +31,7 @@ pub async fn run_sessions(
             rocksdb_path: run.rocksdb_path.clone(),
             network: run.network.clone(),
             log_handler: run.log_handler,
+            registry: run.registry.clone(),
         };
         let spec = spec.clone();
         let join_shards = join_shards.clone();
@@ -81,6 +83,7 @@ struct RunHandle {
     rocksdb_path: String,
     network: String,
     log_handler: fn(&::ops::Log),
+    registry: service_kit::Registry,
 }
 
 async fn drive_one_shard(
@@ -108,7 +111,7 @@ async fn drive_one_shard(
         None,
         task_name,
         publisher_factory,
-        Default::default(), // Inert service_kit::Registry.
+        run.registry,
     );
 
     let mut response_rx = shard_svc.spawn_materialize(UnboundedReceiverStream::new(request_rx));

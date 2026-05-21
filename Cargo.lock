@@ -3410,6 +3410,7 @@ dependencies = [
  "serde-transcode",
  "serde_json",
  "serde_yaml",
+ "service-kit",
  "shuffle",
  "simd-doc",
  "size",

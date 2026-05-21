@@ -116,6 +116,7 @@ pub struct CliContext {
     client: Client,
     config: config::Config,
     output: output::Output,
+    registry: service_kit::Registry,
 }
 
 impl CliContext {
@@ -158,7 +159,7 @@ impl CliContext {
 }
 
 impl Cli {
-    pub async fn run(&self) -> anyhow::Result<()> {
+    pub async fn run(&self, registry: service_kit::Registry) -> anyhow::Result<()> {
         let mut config = config::Config::load(&self.profile)?;
         let output = self.output.clone();
 
@@ -189,6 +190,7 @@ impl Cli {
             client,
             config,
             output,
+            registry,
         };
 
         // Version check runs concurrently with the command
