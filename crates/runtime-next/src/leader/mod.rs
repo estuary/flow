@@ -2,14 +2,13 @@
 mod join;
 use join::{JoinOutcome, JoinSlot, PendingJoin, validate as validate_join};
 
-// gRPC service wiring.
-mod close_policy;
+pub mod close_policy;
 mod service;
 
 // Task-specific handling.
+pub mod capture; // `pub` because it's directly used by shard actor.
 mod materialize;
 // mod derive;  // TODO: implement.
-// mod capture; // TODO: implement.
 
 pub use service::Service;
 
