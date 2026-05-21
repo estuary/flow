@@ -430,6 +430,7 @@ fn ex_capture_request() -> capture::Request {
             version: "11:22:33:44".to_string(),
             last_capture: None,
             last_version: "00:11:22:33".to_string(),
+            state_json: json!({"connector": {"state": 42}}).to_string().into(),
         }),
         open: Some(capture::request::Open {
             capture: Some(ex_capture_spec()),
@@ -470,6 +471,7 @@ fn ex_capture_response() -> capture::Response {
         }),
         applied: Some(capture::response::Applied {
             action_description: "I did some stuff".to_string(),
+            state: Some(ex_connector_state()),
         }),
         opened: Some(capture::response::Opened {
             explicit_acknowledgements: true,

@@ -120,6 +120,12 @@ pub mod request {
         /// Version of the last applied CaptureSpec.
         #[prost(string, tag = "5")]
         pub last_version: ::prost::alloc::string::String,
+        /// Last-persisted connector state, reduced over all prior Apply patches.
+        /// The runtime re-invokes Apply (see the idempotency note above) carrying
+        /// the state reduced from each prior Applied response, so a connector that
+        /// returns state patches observes its own patches on re-apply and converges.
+        #[prost(bytes = "bytes", tag = "6")]
+        pub state_json: ::prost::bytes::Bytes,
     }
     /// Open a capture for reading documents from the endpoint.
     /// Unless the connector requests explicit acknowledgements,
@@ -296,6 +302,11 @@ pub mod response {
         /// If empty, this Apply is to be considered a "no-op".
         #[prost(string, tag = "1")]
         pub action_description: ::prost::alloc::string::String,
+        /// Optional *transactional* update to ConnectorState.
+        /// This update commits atomically with the Flow recovery log checkpoint
+        /// which marks the current specification as having been applied.
+        #[prost(message, optional, tag = "2")]
+        pub state: ::core::option::Option<super::super::flow::ConnectorState>,
     }
     /// Opened responds to Request.Open.
     /// After Opened, the connector beings sending Captured and Checkpoint.

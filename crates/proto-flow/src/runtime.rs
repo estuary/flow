@@ -729,6 +729,74 @@ pub struct SessionLoop {
     #[prost(message, optional, tag = "1")]
     pub rocksdb_descriptor: ::core::option::Option<RocksDbDescriptor>,
 }
+/// Capture is the bidirectional message type for capture sessions. Exactly one
+/// field is set per message.
+///
+/// ----- UNARY REQUESTS -----
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Capture {
+    /// Controller → Shard. Unary request outside of a SessionLoop.
+    #[prost(message, optional, tag = "1")]
+    pub spec: ::core::option::Option<super::capture::request::Spec>,
+    /// Shard → Controller. Connector's reply to `spec`.
+    #[prost(message, optional, tag = "2")]
+    pub spec_response: ::core::option::Option<super::capture::response::Spec>,
+    /// Controller → Shard. Unary request outside of a SessionLoop.
+    #[prost(message, optional, tag = "3")]
+    pub discover: ::core::option::Option<super::capture::request::Discover>,
+    /// Shard → Controller. Connector's reply to `discover`.
+    #[prost(message, optional, tag = "4")]
+    pub discovered: ::core::option::Option<super::capture::response::Discovered>,
+    /// Controller → Shard. Unary request outside of a SessionLoop.
+    #[prost(message, optional, tag = "5")]
+    pub validate: ::core::option::Option<super::capture::request::Validate>,
+    /// Shard → Controller. Connector's reply to `validate`.
+    #[prost(message, optional, tag = "6")]
+    pub validated: ::core::option::Option<super::capture::response::Validated>,
+    /// Controller → Shard. Effective only on unary messages.
+    #[prost(enumeration = "super::ops::log::Level", tag = "9")]
+    pub log_level: i32,
+    /// Controller → Shard. First message of a session-loop stream.
+    #[prost(message, optional, tag = "20")]
+    pub session_loop: ::core::option::Option<SessionLoop>,
+    /// Controller → Shard. Session initiation with live shard labeling.
+    /// Captures don't join a leader, and this Join must describe exactly one shard.
+    #[prost(message, optional, tag = "21")]
+    pub join: ::core::option::Option<Join>,
+    /// Shard → Controller. Echoes capture Join acceptance. Capture sessions are
+    /// single-shard and leaderless, so `max_etcd_revision` is always zero.
+    #[prost(message, optional, tag = "22")]
+    pub joined: ::core::option::Option<Joined>,
+    /// Controller → Shard. Defines the capture task and begins one session within
+    /// the SessionLoop. Captures have no leader, so unlike materialize (where the
+    /// leader translates Task into a per-shard Open) the capture shard consumes
+    /// Task directly and drives its own connector Open internally. The shard's
+    /// build version and key range come from the Join labeling, not from Task.
+    #[prost(message, optional, tag = "23")]
+    pub task: ::core::option::Option<Task>,
+    #[prost(message, optional, tag = "24")]
+    pub opened: ::core::option::Option<capture::Opened>,
+    /// Controller → Shard. Request immediate close of the currently-open
+    /// transaction.
+    #[prost(message, optional, tag = "25")]
+    pub close_now: ::core::option::Option<CloseNow>,
+    /// Controller → Shard. Graceful shutdown request.
+    #[prost(message, optional, tag = "26")]
+    pub stop: ::core::option::Option<Stop>,
+    /// Shard → Controller. Shutdown confirmed; EOF follows.
+    #[prost(message, optional, tag = "27")]
+    pub stopped: ::core::option::Option<Stopped>,
+}
+/// Nested message and enum types in `Capture`.
+pub mod capture {
+    /// Shard → Controller. Connector is running and session startup is complete.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Opened {
+        /// Description of the running connector container.
+        #[prost(message, optional, tag = "1")]
+        pub container: ::core::option::Option<super::Container>,
+    }
+}
 /// Materialize is the bidirectional message type for materialization
 /// sessions. Exactly one field is set per message.
 #[derive(Clone, PartialEq, ::prost::Message)]

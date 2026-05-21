@@ -260,7 +260,8 @@ expression: json_test(msg)
       "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ="
     },
     "version": "11:22:33:44",
-    "lastVersion": "00:11:22:33"
+    "lastVersion": "00:11:22:33",
+    "state": {"connector":{"state":42}}
   },
   "open": {
     "capture": {
