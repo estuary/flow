@@ -9,7 +9,7 @@ set -euo pipefail
 TENANT="${usage_tenant:-test}"
 USER_EMAIL="${usage_user:-alice@example.com}"
 PGURL="postgresql://postgres:postgres@localhost:5432/postgres"
-ENV_FILE="${HOME}/flow-local/test-tenant.env"
+ENV_FILE="${HOME}/flow-local/test-tenant-${TENANT}.env"
 AGENT_PORT=8675
 
 # Onboarding rejects names that don't satisfy the catalog_tenant regex.
@@ -49,9 +49,30 @@ TENANT_EXISTS=$(psql "${PGURL}" -tAqc \
 
 if [ -z "${TENANT_EXISTS}" ]; then
     # Onboarding snapshots the set of `ops/dp/public/*` data planes into
-    # storage_mappings.data_planes at provisioning time. Adding a data plane
-    # later and re-running this task will NOT update that snapshot — bring up
-    # every data plane the tenant should use before provisioning.
+    # storage_mappings.data_planes at provisioning time. Data planes are
+    # registered asynchronously by flow-plane-link once the agent is up,
+    # so wait for at least one public data plane, using the same filter
+    # the onboarding query aggregates over.
+    echo "Waiting for a public data plane (ops/dp/public/*) to be registered..."
+    ELAPSED=0
+    TIMEOUT=120
+    while true; do
+        PLANE_COUNT=$(psql "${PGURL}" -tAqc "
+            SELECT count(*) FROM public.data_planes
+            WHERE starts_with(data_plane_name, 'ops/dp/public/')" 2>/dev/null)
+        if [ "${PLANE_COUNT:-0}" -gt 0 ] 2>/dev/null; then
+            break
+        fi
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+        if [ "${ELAPSED}" -ge "${TIMEOUT}" ]; then
+            echo "Error: no public data plane (ops/dp/public/*) registered within ${TIMEOUT}s" >&2
+            echo "Hint: bring up and link a data plane first (mise run local:stack, or" >&2
+            echo "      mise run local:data-plane <name> <port> --link)" >&2
+            exit 1
+        fi
+    done
+
     echo "Provisioning tenant ${PREFIX} owned by ${USER_EMAIL} via onboarding API..."
 
     # Insert with the default queued status; the create_directive_task trigger
