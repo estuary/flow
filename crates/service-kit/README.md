@@ -45,6 +45,10 @@ become visible on the dashboard.
 - **Handler spans must always be created.** `OverrideFilter` short-circuits
   to `true` for the `service_kit::handler` target — that's where override
   state is hung. Don't filter the target out at the base.
+- **Register inside the spawned task.** A handler span captures the current
+  `tracing` dispatcher at creation and `tokio::spawn` doesn't propagate it, so
+  registering before a spawn can close the span against the wrong registry and
+  panic. See `Registry::register`.
 - **`event!` capture is lazy.** A literal message stays `&'static str`; an
   interpolated message stores `(template, captured args)` and is rendered
   only when read. Values must be cheap-to-capture types (numbers, bools,
