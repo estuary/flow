@@ -9,6 +9,7 @@
 use crate::local_specs;
 use anyhow::Context;
 
+mod capture_driver;
 mod driver;
 mod services;
 mod shards;
@@ -24,6 +25,9 @@ pub struct Preview {
     #[clap(long)]
     name: Option<String>,
     /// Number of synthetic shards to drive in parallel. Default 1.
+    /// For captures, N shards fan out as N independent connector instances.
+    /// Many connectors ignore the key range and will duplicate output;
+    /// use N=1 unless the connector partitions by key_begin/key_end.
     #[clap(long, default_value = "1")]
     shards: u32,
     /// How long should preview run before gracefully stopping?
@@ -55,6 +59,16 @@ pub struct Preview {
     /// Output task logs in JSON format to stderr.
     #[clap(long, action)]
     log_json: bool,
+    /// Loopback HTTP port hosting the service-kit admin dashboard
+    /// (handler inventory, per-handler trace overrides, /metrics).
+    #[clap(long)]
+    debug_port: Option<u16>,
+}
+
+/// Resolved task selected from the source specifications.
+enum TaskSpec {
+    Capture(proto_flow::flow::CaptureSpec),
+    Materialization(proto_flow::flow::MaterializationSpec),
 }
 
 impl Preview {
@@ -67,6 +81,7 @@ impl Preview {
             sessions,
             network,
             log_json,
+            debug_port,
         } = self;
 
         let source_url = build::arg_source_to_url(source, false)?;
@@ -85,7 +100,7 @@ impl Preview {
         )
         .await?;
 
-        let spec = resolve_materialization(&validations, name.as_deref())?;
+        let task = resolve_task(&validations, name.as_deref())?;
 
         let timeout = timeout.map(|i| i.into());
 
@@ -103,55 +118,92 @@ impl Preview {
             vec![0]
         };
 
-        let run = services::Run::start(ctx, network.clone(), *log_json, *shards).await?;
         let stop_token = tokio_util::sync::CancellationToken::new();
 
-        let session_loop = driver::run_sessions(&run, &spec, session_targets, stop_token.clone());
-        tokio::pin!(session_loop);
-
-        if let Some(timeout) = timeout {
-            tokio::select! {
-                result = &mut session_loop => result?,
-                _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("Ctrl-C received; aborting in-flight session");
-                }
-                _ = tokio::time::sleep(timeout) => {
-                    tracing::info!(?timeout, "preview --timeout reached; stopping active session");
-                    stop_token.cancel();
-                    session_loop.await?;
-                }
+        let result: anyhow::Result<()> = match task {
+            TaskSpec::Capture(spec) => {
+                let run = services::Run::start_capture(
+                    *log_json,
+                    network.clone(),
+                    *shards,
+                    *debug_port,
+                    ctx.registry.clone(),
+                )
+                .await?;
+                let session_loop =
+                    capture_driver::run_sessions(&run, &spec, session_targets, stop_token.clone());
+                tokio::pin!(session_loop);
+                run_with_timeout(session_loop, timeout, &stop_token).await
             }
-        } else {
-            tokio::select! {
-                result = &mut session_loop => result?,
-                _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("Ctrl-C received; aborting in-flight session");
-                }
+            TaskSpec::Materialization(spec) => {
+                let run = services::Run::start_materialize(
+                    ctx,
+                    network.clone(),
+                    *log_json,
+                    *shards,
+                    *debug_port,
+                    ctx.registry.clone(),
+                )
+                .await?;
+                let session_loop =
+                    driver::run_sessions(&run, &spec, session_targets, stop_token.clone());
+                tokio::pin!(session_loop);
+                run_with_timeout(session_loop, timeout, &stop_token).await
             }
-        }
+        };
 
         // `run` drops here, aborting the tonic server and removing the
         // RocksDB / shuffle-log tempdirs.
-        Ok(())
+        result
     }
 }
 
-fn resolve_materialization(
-    validations: &tables::Validations,
-    name: Option<&str>,
-) -> anyhow::Result<proto_flow::flow::MaterializationSpec> {
+async fn run_with_timeout<F>(
+    mut session_loop: std::pin::Pin<&mut F>,
+    timeout: Option<std::time::Duration>,
+    stop_token: &tokio_util::sync::CancellationToken,
+) -> anyhow::Result<()>
+where
+    F: std::future::Future<Output = anyhow::Result<()>>,
+{
+    if let Some(timeout) = timeout {
+        tokio::select! {
+            result = &mut session_loop => result,
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Ctrl-C received; aborting in-flight session");
+                Ok(())
+            }
+            _ = tokio::time::sleep(timeout) => {
+                tracing::info!(?timeout, "preview --timeout reached; stopping active session");
+                stop_token.cancel();
+                session_loop.await
+            }
+        }
+    } else {
+        tokio::select! {
+            result = &mut session_loop => result,
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Ctrl-C received; aborting in-flight session");
+                Ok(())
+            }
+        }
+    }
+}
+
+fn resolve_task(validations: &tables::Validations, name: Option<&str>) -> anyhow::Result<TaskSpec> {
+    let derivations_count = validations
+        .built_collections
+        .iter()
+        .filter(|c| {
+            c.spec
+                .as_ref()
+                .map(|s| s.derivation.is_some())
+                .unwrap_or_default()
+        })
+        .count();
     let num_tasks = validations.built_captures.len()
         + validations.built_materializations.len()
-        + validations
-            .built_collections
-            .iter()
-            .filter(|c| {
-                c.spec
-                    .as_ref()
-                    .map(|s| s.derivation.is_some())
-                    .unwrap_or_default()
-            })
-            .count();
+        + derivations_count;
 
     if num_tasks == 0 {
         anyhow::bail!(
@@ -160,21 +212,13 @@ fn resolve_materialization(
     }
     if num_tasks > 1 && name.is_none() {
         anyhow::bail!(
-            "sourced specification files contain multiple tasks; use --name to identify a materialization",
+            "sourced specification files contain multiple tasks; use --name to identify the task",
         );
     }
 
-    // Fail fast if the named target is a capture or a derivation.
+    // Reject derivations explicitly — runtime-next derive isn't wired into
+    // preview-next yet.
     if let Some(target) = name {
-        if validations
-            .built_captures
-            .iter()
-            .any(|c| c.capture.as_str() == target)
-        {
-            anyhow::bail!(
-                "runtime-next preview supports materializations only; capture and derivation will be re-added before upstream merge",
-            );
-        }
         if validations.built_collections.iter().any(|c| {
             c.collection.as_str() == target
                 && c.spec
@@ -183,9 +227,19 @@ fn resolve_materialization(
                     .unwrap_or(false)
         }) {
             anyhow::bail!(
-                "runtime-next preview supports materializations only; capture and derivation will be re-added before upstream merge",
+                "runtime-next preview supports captures and materializations only; derivations will be re-added before upstream merge",
             );
         }
+    }
+
+    for row in validations.built_captures.iter() {
+        if let Some(target) = name {
+            if row.capture.as_str() != target {
+                continue;
+            }
+        }
+        let Some(spec) = &row.spec else { continue };
+        return Ok(TaskSpec::Capture(spec.clone()));
     }
 
     for row in validations.built_materializations.iter() {
@@ -195,13 +249,13 @@ fn resolve_materialization(
             }
         }
         let Some(spec) = &row.spec else { continue };
-        return Ok(spec.clone());
+        return Ok(TaskSpec::Materialization(spec.clone()));
     }
 
     if let Some(target) = name {
-        anyhow::bail!("could not find materialization {target}");
+        anyhow::bail!("could not find capture or materialization {target}");
     }
     anyhow::bail!(
-        "no materialization in source; runtime-next preview supports materializations only",
+        "no capture or materialization in source; runtime-next preview supports captures and materializations only",
     );
 }

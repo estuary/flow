@@ -36,6 +36,7 @@ proto-grpc = { path = "../proto-grpc", features = [
 publisher = { path = "../publisher" }
 runtime = { path = "../runtime" }
 runtime-next = { path = "../runtime-next" }
+service-kit = { path = "../service-kit" }
 shuffle = { path = "../shuffle" }
 simd-doc = { path = "../simd-doc" }
 sources = { path = "../sources" }
