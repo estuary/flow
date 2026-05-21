@@ -14,7 +14,8 @@
 //! idle with Tail already done, or after its next durable commit. Any post-
 //! commit work for that last transaction is recovered and resumed by the next
 //! leader session.
-use super::{Task, close_policy, frontier_mapping, triggers};
+use super::super::frontier_mapping;
+use super::{Task, close_policy, triggers};
 use crate::proto;
 use gazette::consumer;
 use proto_gazette::uuid;
