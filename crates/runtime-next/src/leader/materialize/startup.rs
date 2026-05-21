@@ -1,4 +1,5 @@
-use super::{Task, frontier_mapping};
+use super::super::frontier_mapping;
+use super::Task;
 use crate::proto;
 use anyhow::Context;
 use bytes::Bytes;

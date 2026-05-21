@@ -3,6 +3,7 @@ mod join;
 use join::{JoinOutcome, JoinSlot, PendingJoin, validate as validate_join};
 
 pub mod close_policy;
+pub mod frontier_mapping;
 mod service;
 
 // Task-specific handling.
