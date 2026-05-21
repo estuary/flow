@@ -6,6 +6,7 @@ use futures::stream::{BoxStream, FuturesUnordered};
 use futures::{FutureExt, StreamExt, future::BoxFuture};
 use proto_gazette::{consumer, uuid};
 use std::collections::BTreeMap;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Actor leads transactions of an established materialization task session.
@@ -104,11 +105,10 @@ impl Actor {
         // When true, the topology should gracefully exit.
         let mut stopping = false;
         // Transactions completed in this task session, for preview harness limits.
-        let mut transactions_completed = 0u32;
+        let mut transactions_completed = 0usize;
 
-        loop {
+        while !matches!(head, fsm::Head::Stop) {
             loop_count += 1;
-            let mut wake_after = crate::ACTOR_TICK_INTERVAL;
             now.tick(); // Strictly increasing iteration values.
 
             tracing::trace!(
@@ -126,7 +126,6 @@ impl Actor {
                 "leader materialize Actor::serve iteration"
             );
 
-            // Drive `tail` to idle.
             let action: fsm::Action;
             let prev_kind = tail.kind();
             (action, tail) = tail.step(
@@ -137,7 +136,6 @@ impl Actor {
                 &self.task,
                 self.trigger_fut.is_some(),
             );
-
             if prev_kind != tail.kind() {
                 service_kit::event!(
                     tracing::Level::DEBUG,
@@ -148,18 +146,8 @@ impl Actor {
                     "transition",
                 );
             }
+            let tail_wake_after = self.dispatch(action)?;
 
-            match action {
-                fsm::Action::Idle => (),
-                fsm::Action::Sleep { .. } => unreachable!("Tail does not Sleep"),
-                fsm::Action::Rotate { .. } => unreachable!("Tail does not Rotate"),
-                action => {
-                    self.dispatch(action)?;
-                    continue;
-                }
-            }
-
-            // Drive `head` to idle or stop.
             let action: fsm::Action;
             let prev_kind = head.kind();
             (action, head) = head.step(
@@ -176,7 +164,6 @@ impl Actor {
                 &mut tail,
                 &self.task,
             );
-
             if prev_kind != head.kind() {
                 service_kit::event!(
                     tracing::Level::DEBUG,
@@ -187,37 +174,40 @@ impl Actor {
                     "transition",
                 );
             }
-
-            match action {
-                fsm::Action::Idle => (),
-                fsm::Action::Sleep { wake_after: w } => wake_after = w,
+            let head_wake_after = match action {
                 fsm::Action::Rotate { pending } => {
                     assert!(matches!(tail, fsm::Tail::Done(_)));
-                    on_transaction_completed(
-                        self.task.max_transactions,
-                        &mut transactions_completed,
-                        &mut stopping,
-                    );
                     self.metrics.transactions.increment(1);
+                    transactions_completed += 1;
+
+                    if self.task.max_transactions == 0 || stopping {
+                        // Pass
+                    } else if transactions_completed >= self.task.max_transactions as usize {
+                        service_kit::event!(
+                            tracing::Level::INFO,
+                            "head",
+                            transactions_completed = transactions_completed,
+                            max_transactions = self.task.max_transactions,
+                            "materialize transaction limit reached; stopping gracefully",
+                        );
+                        stopping = true;
+                    }
                     tail = fsm::Tail::Begin(fsm::TailBegin { pending });
-                    continue;
-                }
-                action => {
-                    self.dispatch(action)?;
-                    continue;
-                }
-            }
 
-            if matches!(head, fsm::Head::Stop) {
-                break;
-            }
+                    Duration::ZERO
+                }
+                action => self.dispatch(action)?,
+            };
+            let wake_after = std::cmp::min(head_wake_after, tail_wake_after);
 
-            // If `ready_shard_rx` was not consumed by either `head` or `tail`,
-            // then it was unexpected and is a protocol error.
-            if let Some((shard_index, msg)) = ready_shard_rx.take() {
+            // If `head` and `tail` are awaiting IO and `ready_shard_rx` was not
+            // consumed by either, then it was unexpected and is a protocol error.
+            if let Some((shard_index, msg)) = ready_shard_rx.as_ref()
+                && !wake_after.is_zero()
+            {
                 anyhow::bail!(
                     "unexpected message {msg:?} from {} (index {shard_index})",
-                    self.task.peers[shard_index],
+                    self.task.peers[*shard_index],
                 );
             }
 
@@ -300,7 +290,9 @@ impl Actor {
                 _ = tokio::time::sleep(wake_after) => {}
             }
 
-            now.update(now_clock()); // Resync after blocking IO.
+            if !wake_after.is_zero() {
+                now.update(now_clock()); // Resync after blocking IO.
+            }
         }
 
         service_kit::event!(
@@ -321,11 +313,12 @@ impl Actor {
 
     /// Execute the outgoing-IO primitive for an Action.
     #[tracing::instrument(level = "trace", fields(action = ?action), skip_all)]
-    fn dispatch(&mut self, action: fsm::Action) -> anyhow::Result<()> {
+    fn dispatch(&mut self, action: fsm::Action) -> anyhow::Result<Duration> {
         match action {
-            fsm::Action::Idle | fsm::Action::Sleep { .. } | fsm::Action::Rotate { .. } => {
-                unreachable!("never dispatched");
-            }
+            fsm::Action::Rotate { .. } => unreachable!("never dispatched"),
+
+            fsm::Action::Idle => (),
+            fsm::Action::Sleep { wake_after } => return Ok(wake_after),
 
             fsm::Action::Load { frontier } => {
                 service_kit::event!(tracing::Level::DEBUG, "shard", "broadcasting L:Load");
@@ -435,36 +428,33 @@ impl Actor {
                 );
             }
 
-            fsm::Action::CallTrigger { trigger_params } => {
+            fsm::Action::CallTrigger {
+                triggers,
+                trigger_params,
+            } => {
                 service_kit::event!(
                     tracing::Level::DEBUG,
                     "leader",
                     "starting trigger execution"
                 );
-                let Some(compiled) = self.task.triggers.clone() else {
-                    service_kit::event!(
-                        tracing::Level::INFO,
-                        "leader",
-                        trigger_params_bytes = trigger_params.len(),
-                        "discarding recovered trigger parameters for materialization without triggers",
-                    );
-                    return Ok(());
-                };
                 let variables: models::TriggerVariables =
                     serde_json::from_slice(&trigger_params)
                         .context("decoding trigger_variables JSON")?;
                 let client = self.http_client.clone();
+
                 self.trigger_fut = Some(
                     async move {
                         // TODO(johnny): Periodic writes into task ops logs if it takes a while.
-                        super::triggers::fire_pending_triggers(&compiled, &variables, &client).await
+                        super::triggers::fire_pending_triggers(&triggers, &variables, &client).await
                     }
                     .boxed(),
                 );
             }
         }
 
-        Ok(())
+        // All actions except for Sleep are blocking (they start IO we must
+        // await before usefully re-polling the FSMs).
+        Ok(crate::ACTOR_TICK_INTERVAL)
     }
 
     /// Receive a message from a shard. Returns the message for the
@@ -535,28 +525,6 @@ impl Actor {
     }
 }
 
-fn on_transaction_completed(
-    max_transactions: u32,
-    transactions_completed: &mut u32,
-    stopping: &mut bool,
-) {
-    if max_transactions == 0 || *stopping {
-        return;
-    }
-
-    *transactions_completed = transactions_completed.saturating_add(1);
-    if *transactions_completed >= max_transactions {
-        service_kit::event!(
-            tracing::Level::INFO,
-            "leader",
-            transactions_completed = *transactions_completed,
-            max_transactions,
-            "materialize transaction limit reached; stopping gracefully",
-        );
-        *stopping = true;
-    }
-}
-
 fn now_clock() -> uuid::Clock {
     let now = tokens::now();
     uuid::Clock::from_unix(now.timestamp() as u64, now.timestamp_subsec_nanos())
@@ -600,15 +568,11 @@ mod tests {
         let task = Task {
             binding_collection_names: vec!["test/collection".to_string()],
             binding_journal_read_suffixes: vec!["pivot=00".to_string()],
-            combiner_usage_bytes: 0..u64::MAX,
+            close_policy: super::super::close_policy::Policy::new(Duration::ZERO, Duration::MAX),
             connector_image: String::new(),
-            last_close_age: std::time::Duration::ZERO..std::time::Duration::MAX,
             max_transactions: 0,
             n_shards,
-            open_duration: std::time::Duration::ZERO..std::time::Duration::MAX,
             peers: (0..n_shards).map(|i| format!("shard-{i}")).collect(),
-            read_bytes: 0..u64::MAX,
-            read_docs: 0..u64::MAX,
             shard_ref: ops::ShardRef::default(),
             triggers: None,
         };
@@ -732,58 +696,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn transaction_limit_one_stops_after_one_completion() {
-        let mut completed = 0;
-        let mut stopping = false;
-
-        on_transaction_completed(1, &mut completed, &mut stopping);
-
-        assert_eq!(completed, 1);
-        assert!(stopping);
-    }
-
-    #[test]
-    fn transaction_limit_multiple_stops_after_exact_target() {
-        let mut completed = 0;
-        let mut stopping = false;
-
-        on_transaction_completed(3, &mut completed, &mut stopping);
-        assert_eq!(completed, 1);
-        assert!(!stopping);
-
-        on_transaction_completed(3, &mut completed, &mut stopping);
-        assert_eq!(completed, 2);
-        assert!(!stopping);
-
-        on_transaction_completed(3, &mut completed, &mut stopping);
-        assert_eq!(completed, 3);
-        assert!(stopping);
-    }
-
-    #[test]
-    fn transaction_limit_zero_is_unlimited() {
-        let mut completed = 0;
-        let mut stopping = false;
-
-        for _ in 0..3 {
-            on_transaction_completed(0, &mut completed, &mut stopping);
-        }
-
-        assert_eq!(completed, 0);
-        assert!(!stopping);
-    }
-
-    #[test]
-    fn external_stop_is_not_overridden_by_transaction_limit() {
-        let mut completed = 0;
-        let mut stopping = true;
-
-        on_transaction_completed(1, &mut completed, &mut stopping);
-
-        assert_eq!(completed, 0);
-        assert!(stopping);
     }
 }

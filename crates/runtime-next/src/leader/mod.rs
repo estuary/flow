@@ -3,6 +3,7 @@ mod join;
 use join::{JoinOutcome, JoinSlot, PendingJoin, validate as validate_join};
 
 // gRPC service wiring.
+mod close_policy;
 mod service;
 
 // Task-specific handling.
