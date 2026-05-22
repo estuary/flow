@@ -63,7 +63,7 @@ pub async fn fetch_invoice_rows_forward(
             subtotal as "subtotal!",
             extra as "extra!: sqlx::types::Json<serde_json::Value>",
             invoice_type as "invoice_type!: InvoiceType"
-        FROM invoices_ext
+        FROM internal.invoices_ext
         WHERE billed_prefix = $1
           AND ($2::date IS NULL OR date_start > $2)
           AND ($3::date IS NULL OR date_start < $3)
@@ -128,7 +128,7 @@ pub async fn fetch_invoice_rows_backward(
             subtotal as "subtotal!",
             extra as "extra!: sqlx::types::Json<serde_json::Value>",
             invoice_type as "invoice_type!: InvoiceType"
-        FROM invoices_ext
+        FROM internal.invoices_ext
         WHERE billed_prefix = $1
           AND ($2::date IS NULL OR date_start > $2)
           AND ($3::date IS NULL OR date_start < $3)

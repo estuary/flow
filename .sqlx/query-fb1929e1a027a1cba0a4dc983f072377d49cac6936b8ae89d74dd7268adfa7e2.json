@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            date_start as \"date_start!\",\n            date_end as \"date_end!\",\n            billed_prefix as \"billed_prefix!\",\n            line_items as \"line_items!: sqlx::types::Json<serde_json::Value>\",\n            subtotal as \"subtotal!\",\n            extra as \"extra!: sqlx::types::Json<serde_json::Value>\",\n            invoice_type as \"invoice_type!: InvoiceType\"\n        FROM invoices_ext\n        WHERE billed_prefix = $1\n          AND ($2::date IS NULL OR date_start > $2)\n          AND ($3::date IS NULL OR date_start < $3)\n          AND ($4::date IS NULL OR date_end > $4)\n          AND ($5::date IS NULL OR date_end < $5)\n          AND ($6::text IS NULL OR invoice_type::text = $6)\n          AND (\n            $7::date IS NULL\n            OR date_end < $7\n            OR (date_end = $7 AND date_start < $8)\n            OR (date_end = $7 AND date_start = $8 AND invoice_type::text > $9)\n          )\n        ORDER BY date_end DESC, date_start DESC, invoice_type ASC\n        LIMIT $10\n        ",
+  "query": "\n        SELECT\n            date_start as \"date_start!\",\n            date_end as \"date_end!\",\n            billed_prefix as \"billed_prefix!\",\n            line_items as \"line_items!: sqlx::types::Json<serde_json::Value>\",\n            subtotal as \"subtotal!\",\n            extra as \"extra!: sqlx::types::Json<serde_json::Value>\",\n            invoice_type as \"invoice_type!: InvoiceType\"\n        FROM internal.invoices_ext\n        WHERE billed_prefix = $1\n          AND ($2::date IS NULL OR date_start > $2)\n          AND ($3::date IS NULL OR date_start < $3)\n          AND ($4::date IS NULL OR date_end > $4)\n          AND ($5::date IS NULL OR date_end < $5)\n          AND ($6::text IS NULL OR invoice_type::text = $6)\n          AND (\n            $7::date IS NULL\n            OR date_end > $7\n            OR (date_end = $7 AND date_start > $8)\n            OR (date_end = $7 AND date_start = $8 AND invoice_type::text < $9)\n          )\n        ORDER BY date_end ASC, date_start ASC, invoice_type DESC\n        LIMIT $10\n        ",
   "describe": {
     "columns": [
       {
@@ -63,5 +63,5 @@
       true
     ]
   },
-  "hash": "d96bd638750d5555c9a841b673c60b7707648867b17a0d964ce0c86b6c71761f"
+  "hash": "fb1929e1a027a1cba0a4dc983f072377d49cac6936b8ae89d74dd7268adfa7e2"
 }
