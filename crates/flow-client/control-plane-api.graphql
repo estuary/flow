@@ -242,6 +242,15 @@ input AlertsBy {
 	active: Boolean
 }
 
+type ApiKeyInfo {
+	id: Id!
+	label: String!
+	createdBy: UUID!
+	createdAt: DateTime!
+	expiresAt: DateTime!
+	lastUsedAt: DateTime
+}
+
 type AutoDiscoverFailure {
 	"""
 	The number of consecutive failures that have been observed.
@@ -312,6 +321,11 @@ type AutoDiscoverStatus {
 	failure: AutoDiscoverFailure
 }
 
+type BillingPaymentMethodPayload {
+	paymentMethods: [PaymentMethod!]!
+	primaryPaymentMethod: PaymentMethod
+}
+
 input BoolFilter {
 	eq: Boolean
 }
@@ -341,11 +355,24 @@ enum CapabilityBit {
 	Assume
 }
 
+type CardPaymentMethodDetails {
+	brand: String
+	last4: String
+	expMonth: Int!
+	expYear: Int!
+}
+
 enum CatalogType {
 	capture
 	collection
 	materialization
 	test
+}
+
+enum ChargeStatus {
+	FAILED
+	PENDING
+	SUCCEEDED
 }
 
 scalar Collection
@@ -585,6 +612,15 @@ type Controller {
 	updatedAt: DateTime!
 }
 
+type CreateApiKeyResult {
+	id: Id!
+	secret: String!
+}
+
+type CreateBillingSetupIntentPayload {
+	clientSecret: String!
+}
+
 """
 Result of creating a storage mapping.
 """
@@ -687,6 +723,11 @@ type DataPlaneEdge {
 	A cursor for use in pagination
 	"""
 	cursor: String!
+}
+
+input DateFilter {
+	gt: NaiveDate
+	lt: NaiveDate
 }
 
 """
@@ -831,6 +872,72 @@ type InviteLinkEdge {
 input InviteLinksFilter {
 	singleUse: BoolFilter
 	catalogPrefix: PrefixFilter
+}
+
+type Invoice {
+	dateStart: String!
+	dateEnd: String!
+	invoiceType: InvoiceType!
+	subtotal: Int!
+	lineItems: JSON!
+	extra: JSON!
+	amountDue: Int
+	status: String
+	invoicePdf: String
+	hostedInvoiceUrl: String
+	paymentDetails: InvoicePaymentDetails
+}
+
+type InvoiceConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [InvoiceEdge!]!
+	"""
+	A list of nodes.
+	"""
+	nodes: [Invoice!]!
+}
+
+"""
+An edge in a connection.
+"""
+type InvoiceEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Invoice!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+input InvoiceFilter {
+	dateStart: DateFilter
+	dateEnd: DateFilter
+	invoiceType: InvoiceTypeFilter
+}
+
+type InvoicePaymentDetails {
+	status: ChargeStatus!
+	receiptUrl: String
+	card: CardPaymentMethodDetails
+	usBankAccount: UsBankAccountPaymentMethodDetails
+}
+
+enum InvoiceType {
+	FINAL
+	PREVIEW
+	MANUAL
+}
+
+input InvoiceTypeFilter {
+	eq: InvoiceType
 }
 
 """
@@ -1010,6 +1117,9 @@ type LockFailure {
 }
 
 type MutationRoot {
+	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
+	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
+	deleteBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	"""
 	Create a storage mapping for the given catalog prefix.
 	
@@ -1090,7 +1200,82 @@ type MutationRoot {
 	The caller must have admin capability on the invite link's catalog prefix.
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
+	"""
+	Create a service account with a grant to the specified prefix.
+	
+	The caller must have admin capability on the prefix.
+	Creates an auth.users row, an internal.service_accounts row,
+	and a user_grants row for the service account.
+	"""
+	createServiceAccount(prefix: Prefix!, capability: Capability!, displayName: String!): ServiceAccount!
+	"""
+	Disable a service account, revoking all API keys and grants.
+	
+	The caller must have admin capability on the service account's prefix.
+	The auth.users row is preserved for audit trail / FK integrity.
+	
+	Unlike revoking a single key, disabling removes the service account's
+	grants, so access tokens already issued from its keys resolve to zero
+	capability on their next authorization check (bounded by snapshot-refresh
+	lag, not the token's full ~1h lifetime). Use this to cut off an
+	active service account, not just stop new tokens.
+	"""
+	disableServiceAccount(id: UUID!): Boolean!
+	"""
+	Re-enable a disabled service account, restoring its user_grants row.
+	
+	Does NOT restore previously revoked API keys — new ones must be minted.
+	"""
+	enableServiceAccount(id: UUID!): Boolean!
+	"""
+	Create an API key for a service account.
+	
+	Returns the key_id and the plaintext secret (flow_sa_...).
+	The secret is returned exactly once and cannot be retrieved again.
+	"""
+	createApiKey(		serviceAccountId: UUID!,		label: String!,
+		"""
+		ISO 8601 duration for key validity (e.g. P90D, P1Y)
+		"""
+		validFor: String!
+	): CreateApiKeyResult!
+	"""
+	Revoke (delete) an API key.
+	
+	The caller must have admin capability on the owning service account's prefix.
+	
+	Revocation stops *new* access tokens from being minted with this key, but
+	does not invalidate access tokens already issued from it — those remain
+	valid until they expire (up to ~1h), since the service account's grants
+	are untouched. To cut off active sessions immediately, disable the
+	service account (which removes its grants).
+	"""
+	revokeApiKey(id: Id!): Boolean!
+	"""
+	Create a refresh token for the authenticated user.
+	"""
+	createRefreshToken(
+		"""
+		ISO 8601 duration for token validity (e.g. P90D)
+		"""
+		validFor: String! = "P90D",		multiUse: Boolean! = true,		detail: String = null
+	): RefreshTokenResult!
+	"""
+	Delete a refresh token owned by the authenticated user.
+	"""
+	deleteRefreshToken(id: Id!): Boolean!
 }
+
+"""
+ISO 8601 calendar date without timezone.
+Format: %Y-%m-%d
+
+# Examples
+
+* `1994-11-13`
+* `2000-02-24`
+"""
+scalar NaiveDate
 
 scalar Name
 
@@ -1114,6 +1299,18 @@ type PageInfo {
 	When paginating forwards, the cursor to continue.
 	"""
 	endCursor: String
+}
+
+type PaymentMethod {
+	id: String!
+	type: String!
+	billingDetails: PaymentMethodBillingDetails!
+	card: CardPaymentMethodDetails
+	usBankAccount: UsBankAccountPaymentMethodDetails
+}
+
+type PaymentMethodBillingDetails {
+	name: String
 }
 
 """
@@ -1361,6 +1558,12 @@ type QueryRoot {
 	Returns a paginated list of connectors, optionally filtered by protocol.
 	"""
 	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
+	tenant(name: String!): Tenant
+	serviceAccounts(filter: ServiceAccountsFilter, after: String, first: Int): ServiceAccountConnection!
+	"""
+	List refresh tokens owned by the authenticated user.
+	"""
+	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
 }
 
 """
@@ -1375,6 +1578,46 @@ type RedeemInviteLinkResult {
 	The capability level that was granted.
 	"""
 	capability: Capability!
+}
+
+type RefreshTokenInfo {
+	id: Id!
+	detail: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	multiUse: Boolean!
+	validFor: String!
+	uses: Int!
+}
+
+type RefreshTokenInfoConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [RefreshTokenInfoEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type RefreshTokenInfoEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: RefreshTokenInfo!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+type RefreshTokenResult {
+	id: Id!
+	secret: String!
 }
 
 type RepublishRequested {
@@ -1393,6 +1636,48 @@ type RepublishRequested {
 	and complete.
 	"""
 	lastBuildId: Id!
+}
+
+type ServiceAccount {
+	id: UUID!
+	displayName: String!
+	prefix: Prefix!
+	capability: Capability!
+	createdBy: UUID!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	lastUsedAt: DateTime
+	disabledAt: DateTime
+	apiKeys: [ApiKeyInfo!]!
+}
+
+type ServiceAccountConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [ServiceAccountEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type ServiceAccountEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: ServiceAccount!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+input ServiceAccountsFilter {
+	catalogPrefix: PrefixFilter
 }
 
 """
@@ -1737,6 +2022,17 @@ input StorageMappingsBy {
 	underPrefix: Prefix
 }
 
+type Tenant {
+	name: String!
+	billing: TenantBilling!
+}
+
+type TenantBilling {
+	paymentMethods: [PaymentMethod!]!
+	primaryPaymentMethod: PaymentMethod
+	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
+}
+
 """
 A UUID is a unique 128-bit number, stored as 16 octets. UUIDs are parsed as
 Strings within GraphQL. UUIDs are used to assign unique identifiers to
@@ -1776,6 +2072,12 @@ type UpdateStorageMappingResult {
 URL is a String implementing the [URL Standard](http://url.spec.whatwg.org/)
 """
 scalar Url
+
+type UsBankAccountPaymentMethodDetails {
+	bankName: String
+	last4: String
+	accountHolderType: String
+}
 
 """
 Marks an element of a GraphQL schema as no longer supported.

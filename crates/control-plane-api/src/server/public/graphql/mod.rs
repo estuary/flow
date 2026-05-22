@@ -30,6 +30,7 @@ mod billing;
 mod data_planes;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;
+mod access;
 mod connectors;
 pub mod id;
 mod invite_links;
@@ -83,6 +84,7 @@ pub struct QueryRoot(
     invite_links::InviteLinksQuery,
     connectors::ConnectorsQuery,
     tenant::TenantQuery,
+    access::AccessQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
@@ -93,6 +95,7 @@ pub struct MutationRoot(
     alert_configs::AlertConfigsMutation,
     alert_subscriptions::AlertSubscriptionsMutation,
     invite_links::InviteLinksMutation,
+    access::AccessMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {

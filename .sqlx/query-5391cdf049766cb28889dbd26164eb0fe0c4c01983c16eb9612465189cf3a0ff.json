@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM internal.api_keys WHERE service_account_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5391cdf049766cb28889dbd26164eb0fe0c4c01983c16eb9612465189cf3a0ff"
+}

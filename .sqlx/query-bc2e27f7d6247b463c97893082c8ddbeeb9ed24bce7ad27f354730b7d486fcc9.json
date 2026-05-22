@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            ak.service_account_id,\n            sa.disabled_at\n        FROM internal.api_keys ak\n        JOIN internal.service_accounts sa ON sa.user_id = ak.service_account_id\n        WHERE ak.id = $1\n            AND ak.secret_hash = crypt($2, ak.secret_hash)\n            AND ak.expires_at > now()\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "service_account_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "disabled_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "bc2e27f7d6247b463c97893082c8ddbeeb9ed24bce7ad27f354730b7d486fcc9"
+}

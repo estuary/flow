@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT ak.service_account_id\n            FROM internal.api_keys ak\n            WHERE ak.id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "service_account_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "18fb7e773efb6c6ffb4edaa5b836124a797ee7d3e80cc193da05be099747b933"
+}

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH new_key AS (\n                SELECT\n                    internal.id_generator() AS id,\n                    gen_random_uuid()::text AS secret\n            )\n            INSERT INTO internal.api_keys (id, service_account_id, secret_hash, label, expires_at, created_by)\n            SELECT\n                nk.id,\n                $1,\n                crypt(nk.secret, gen_salt('bf')),\n                $2,\n                now() + $3::text::interval,\n                $4\n            FROM new_key nk\n            RETURNING\n                id AS \"id!: models::Id\",\n                (SELECT secret FROM new_key) AS \"secret!: String\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "secret!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "ec33ef8d7561b0a224cc8f71ba82f6e61bc80ef244afcf09d5c5e871866942c3"
+}

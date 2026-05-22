@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE internal.service_accounts SET disabled_at = NULL, updated_at = now() WHERE user_id = $1 AND disabled_at IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "337ab615355e4a87afa94b3bd1a87d52abbf6d1fe7dfd7ca8162eba48c20eb7b"
+}
