@@ -23,7 +23,7 @@ impl UserToken {
 /// UserTokenSource is a crate::token::Source which emits UserTokens.
 /// It continues from existing `tokens`, creating or exchanging tokens as needed.
 pub struct UserTokenSource {
-    pub pg_client: postgrest::Postgrest,
+    pub rest_client: crate::rest::Client,
     pub tokens: UserToken,
 }
 
@@ -55,7 +55,7 @@ impl tokens::Source for UserTokenSource {
             // We have an access token but no refresh token. Create one.
             (Some((access_token, _valid_for)), None) => {
                 let (refresh_token, access_token, valid_for) =
-                    create_refresh_token(&self.pg_client, access_token).await?;
+                    create_refresh_token(&self.rest_client, access_token).await?;
 
                 self.tokens = UserToken {
                     access_token: Some(access_token),
@@ -67,7 +67,7 @@ impl tokens::Source for UserTokenSource {
             // We have no access token, or it's expiring soon. Generate a new one.
             (_maybe_access_token, Some(refresh_token)) => {
                 let (refresh_token, access_token, valid_for) =
-                    exchange_refresh_token(&self.pg_client, refresh_token).await?;
+                    exchange_refresh_token(&self.rest_client, refresh_token).await?;
 
                 self.tokens = UserToken {
                     access_token: Some(access_token),
@@ -82,30 +82,32 @@ impl tokens::Source for UserTokenSource {
 }
 
 pub async fn create_refresh_token(
-    client: &postgrest::Postgrest,
+    client: &crate::rest::Client,
     access_token: &str,
 ) -> tonic::Result<(RefreshToken, String, TimeDelta)> {
-    let refresh_token = crate::postgrest::exec::<RefreshToken>(
-        client.rpc(
-            "create_refresh_token",
-            serde_json::json!({
-                "multi_use": true,
-                "valid_for": "90d",
-                "detail": "Created by flow-client",
-            })
-            .to_string(),
-        ),
-        Some(&access_token),
-    )
-    .await?;
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Data {
+        create_refresh_token: RefreshToken,
+    }
 
+    let data: Data = client
+        .graphql(
+            "mutation { createRefreshToken(validFor: \"P90D\", detail: \"Created by flow-client\") { id secret } }",
+            None,
+            Some(access_token),
+        )
+        .await
+        .map_err(|err| tonic::Status::internal(format!("create refresh token failed: {err}")))?;
+
+    let refresh_token = data.create_refresh_token;
     tracing::info!(refresh_id = %refresh_token.id, "created new refresh token");
 
     exchange_refresh_token(client, &refresh_token).await
 }
 
 pub async fn exchange_refresh_token(
-    client: &postgrest::Postgrest,
+    client: &crate::rest::Client,
     refresh_token: &RefreshToken,
 ) -> tonic::Result<(RefreshToken, String, TimeDelta)> {
     #[derive(serde::Deserialize)]
@@ -114,21 +116,34 @@ pub async fn exchange_refresh_token(
         refresh_token: Option<RefreshToken>, // Set iff the token was single-use.
     }
 
+    let response = client
+        .post(
+            "/api/v1/auth/token",
+            &serde_json::json!({
+                "grant_type": "refresh_token",
+                "refresh_token_id": refresh_token.id,
+                "secret": refresh_token.secret,
+            }),
+            None, // No access token.
+        )
+        .send()
+        .await
+        .map_err(|err| tonic::Status::unavailable(format!("token exchange request failed: {err}")))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(tonic::Status::unauthenticated(format!(
+            "token exchange failed: {status}: {body}"
+        )));
+    }
+
     let Response {
         access_token,
         refresh_token: next_refresh_token,
-    } = crate::postgrest::exec::<Response>(
-        client.rpc(
-            "generate_access_token",
-            serde_json::json!({
-                "refresh_token_id": refresh_token.id,
-                "secret": refresh_token.secret,
-            })
-            .to_string(),
-        ),
-        None, // No access token.
-    )
-    .await?;
+    } = response.json().await.map_err(|err| {
+        tonic::Status::internal(format!("failed to parse token exchange response: {err}"))
+    })?;
 
     let unverified =
         tokens::jwt::parse_unverified::<serde::de::IgnoredAny>(access_token.as_bytes())?;

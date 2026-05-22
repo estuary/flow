@@ -47,6 +47,55 @@ where
     Ok(pages)
 }
 
+/// Execute a GraphQL query/mutation against the given endpoint, returning the deserialized `data` field.
+pub async fn graphql<T: serde::de::DeserializeOwned>(
+    http_client: &reqwest::Client,
+    endpoint: &url::Url,
+    query: &str,
+    variables: Option<serde_json::Value>,
+    access_token: Option<&str>,
+) -> anyhow::Result<T> {
+    let body = match variables {
+        Some(vars) => serde_json::json!({ "query": query, "variables": vars }),
+        None => serde_json::json!({ "query": query }),
+    };
+
+    let mut builder = http_client
+        .post(
+            endpoint
+                .join("/api/graphql")
+                .context("failed to build GraphQL URL")?,
+        )
+        .json(&body);
+
+    if let Some(token) = access_token {
+        builder = builder.bearer_auth(token);
+    }
+
+    let response = builder.send().await.context("GraphQL request failed")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("GraphQL HTTP {status}: {body}");
+    }
+
+    #[derive(serde::Deserialize)]
+    struct GqlResponse<D> {
+        data: Option<D>,
+        errors: Option<Vec<serde_json::Value>>,
+    }
+
+    let gql: GqlResponse<T> = response.json().await.context("failed to parse GraphQL response")?;
+
+    if let Some(errors) = gql.errors {
+        anyhow::bail!("GraphQL errors: {errors:?}");
+    }
+
+    gql.data
+        .ok_or_else(|| anyhow::anyhow!("GraphQL response missing data field"))
+}
+
 pub fn parse_jwt_claims<T: serde::de::DeserializeOwned>(token: &str) -> anyhow::Result<T> {
     let claims = token
         .split('.')

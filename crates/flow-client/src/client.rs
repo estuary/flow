@@ -1,4 +1,4 @@
-use crate::{api_exec, parse_jwt_claims};
+use crate::parse_jwt_claims;
 use anyhow::Context;
 use models::authorizations::ControlClaims;
 use url::Url;
@@ -486,41 +486,65 @@ pub async fn refresh_authorizations(
             Ok((access, refresh))
         }
         (Some(access), None) => {
-            // We have an access token but no refresh token. Create one.
-            let refresh_token = api_exec::<RefreshToken>(
-                client.clone().with_user_access_token(Some(access.to_owned())).rpc(
-                    "create_refresh_token",
-                    serde_json::json!({"multi_use": true, "valid_for": "90d", "detail": "Created by flowctl"})
-                        .to_string(),
-                ),
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Data {
+                create_refresh_token: RefreshToken,
+            }
+
+            let data: Data = crate::graphql(
+                &client.http_client,
+                &client.agent_endpoint,
+                "mutation { createRefreshToken(validFor: \"P90D\", detail: \"Created by flowctl\") { id secret } }",
+                None,
+                Some(&access),
             )
-            .await?;
+            .await
+            .context("failed to create refresh token")?;
 
             tracing::info!("created new refresh token");
-            Ok((access, refresh_token))
+            Ok((access, data.create_refresh_token))
         }
         (None, Some(RefreshToken { id, secret })) => {
-            // We have a refresh token but no access token. Generate one.
+            // We have a refresh token but no access token. Exchange it for one
+            // via the token exchange endpoint (unauthenticated).
 
             #[derive(serde::Deserialize)]
             struct Response {
                 access_token: String,
                 refresh_token: Option<RefreshToken>, // Set iff the token was single-use.
             }
-            // We either never had an access token, or we had one and it expired,
-            // in which case the client may have an invalid access token configured.
-            // The `generate_access_token` RPC only needs the provided refresh token
-            // for authentication, so we should use an unauthenticated client to make
-            // the request.
+
+            let response = client
+                .http_client
+                .post(
+                    client
+                        .agent_endpoint
+                        .join("/api/v1/auth/token")
+                        .context("failed to build token exchange URL")?,
+                )
+                .json(&serde_json::json!({
+                    "grant_type": "refresh_token",
+                    "refresh_token_id": id,
+                    "secret": secret,
+                }))
+                .send()
+                .await
+                .context("failed to exchange refresh token")?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().await.unwrap_or_default();
+                anyhow::bail!("token exchange failed: {status}: {body}");
+            }
+
             let Response {
                 access_token,
                 refresh_token: next_refresh_token,
-            } = api_exec::<Response>(client.clone().with_user_access_token(None).rpc(
-                "generate_access_token",
-                serde_json::json!({"refresh_token_id": id, "secret": secret}).to_string(),
-            ))
-            .await
-            .context("failed to obtain access token")?;
+            } = response
+                .json()
+                .await
+                .context("failed to parse token exchange response")?;
 
             tracing::info!("generated a new access token");
             Ok((
