@@ -45,6 +45,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/database`** | Database | Name of the database to capture from.                                                                | string | Required         |
 | **`/user`**     | User     | Database user to connect as.                                                                         | string | Required         |
 | **`/password`** | Password | Password for the specified database user.                                                            | string | Required         |
+| `/hardDelete` | Hard Delete | If enabled, items deleted in the source will also be deleted from the destination. By default, deletions are tracked via `_meta/op` (soft delete). | boolean | `false` |
 
 #### Bindings
 

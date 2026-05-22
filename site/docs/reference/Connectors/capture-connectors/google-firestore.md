@@ -53,16 +53,20 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/googleCredentials`** | Credentials | Google Cloud Service Account JSON credentials. | string | Required |
-| `/database` | Database | Optional name of the database to capture from. Leave blank to autodetect. Typically &quot;projects&#x2F;&#x24;PROJECTID&#x2F;databases&#x2F;(default)&quot;. | string |  |
+| `/database` | Database | Optional name of the database to capture from. Leave blank to autodetect. Typically `projects/$PROJECTID/databases/(default)`. | string |  |
+| `/advanced/extra_collections` | Extra Collections | List of collection paths to include even if not found by auto-discovery. Useful when rare collections may not be detected during discovery sampling. | string array |  |
+| `/advanced/skip_discovery` | Skip Automatic Discovery | When set, the connector will skip automatic collection discovery. This generally only makes sense when the "Extra Collections" setting is used. | boolean |  |
+| `/advanced/minBackfillInterval` | Minimum Backfill Interval | A minimum amount of time between backfills if consistency is lost. May be overridden at the binding level. | string |  |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/backfillMode`** | Backfill Mode | Configures the handling of data already in the collection. See [below](#backfill-mode) for details or just stick with &#x27;async&#x27; | string | Required |
-| **`/path`** | Path to Collection | Supports parent&#x2F;&#x2A;&#x2F;nested to capture all nested collections of parent&#x27;s children | string | Required |
-| **`/restartCursorPath`** | Restart Cursor Path | a specified cursor (ideally timestamp) that we will use (+5 minutes overlap) to start our stream recovery backfills from (does not impact the initial backfill), rather than the whole collection | string | Optional |
-| **`/minBackfillInterval`** | Minimum Backfill Interval | A minimum amount of time between backfills if consistency is lost. Defaults to 24 hours if no restart cursor is set, 5 minutes if there is | string | Optional |
+| **`/backfillMode`** | Backfill Mode | Configures the handling of data already in the collection. See [below](#backfill-mode) for details or just stick with `async`. | string | Required |
+| **`/path`** | Path to Collection | Supports `parent/*/nested` to capture all nested collections of parent's children. | string | Required |
+| `/restartCursorPath` | Restart Cursor Path | A specified cursor (ideally timestamp) that Estuary uses (+5 minutes overlap) to start stream recovery backfills from rather than the whole collection. Does not impact the initial backfill. | string |  |
+| `/minBackfillInterval` | Minimum Backfill Interval | Controls how often a collection may be re-backfilled in the event of unrecoverable change stream failure. Overrides any other defaults for this particular resource. | string |  |
+| `/initTimestamp` | Initial Replication Timestamp | Overrides the initial replication timestamp (which is either Zero or Now depending on the backfill mode). Has no effect if changed after a binding is added. | string |  |
 
 ### Sample
 

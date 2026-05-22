@@ -44,6 +44,7 @@ more of your Estuary collections to your desired tables in the database.
 | **`/bucket`**             | S3 Staging Bucket | Name of the S3 bucket to use for staging data loads.                                                                                                             | string | Required         |
 | **`/region`**             | Region            | Region of the S3 staging bucket. For optimal performance this should be in the same region as the Redshift database cluster.                                     | string | Required         |
 | `/bucketPath`             | Bucket Path       | A prefix that will be used to store objects in S3.                                                                                                               | string |                  |
+| `/hardDelete` | Hard Delete | If enabled, items deleted in the source will also be deleted from the destination. By default, deletions are tracked via `_meta/op` (soft delete). | boolean | `false` |
 
 #### Bindings
 

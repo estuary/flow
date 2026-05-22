@@ -17,6 +17,15 @@ To use this connector, you'll need:
 Follow the instructions to create a [virtual machine for SSH tunneling](../../../guides/connect-network.md#setup-for-google-cloud)
 in the same Google Cloud project as your instance.
 
+## Authentication
+
+This connector supports user/password authentication as well as IAM authentication.
+This allows you to use an IAM role with your cloud provider to manage access.
+
+The connector will require [credentials](#credentials) based on your chosen authentication method, such as a password or GCP workload identity pool audience.
+
+See the [GCP IAM authentication guide](/guides/iam-auth/gcp) for additional setup details.
+
 ## Configuration
 
 To use this connector, begin with data in one or more Estuary collections.
@@ -35,13 +44,23 @@ See the table below and the [sample config](#sample).
 |-----------------|----------|-------------------------------------------------|---------|------------------|
 | `/database`     | Database | Name of the logical database to materialize to. | string  |                  |
 | **`/address`**  | Address  | Host and port. Set to `127.0.0.1:5432` to enable SSH tunneling.                   | string  | Required         |
-| **`/password`** | Password | Password for the specified database user.       | string  | Required         |
 | `/schema` | Database Schema | Database [schema](https://www.postgresql.org/docs/current/ddl-schemas.html) to use for materialized tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | `"public"` |
 | **`/user`**     | User     | Database user to connect as.                    | string  | Required         |
-| `networkTunnel` | Network Tunnel | Connect to your system through an SSH server that acts as a bastion host for your network. | Object | |
-| `networkTunnel/sshForwarding` | SSH Forwarding | | Object | |
-| `networkTunnel/sshForwarding/sshEndpoint` | SSH Endpoint | Endpoint of the remote SSH server (in this case, your Google Cloud VM) that supports tunneling (in the form of ssh://user@address. | String | |
-| `networkTunnel/sshForwarding/privateKey` | SSH Private Key | Private key to connect to the remote SSH server. | String | |
+| `/hardDelete` | Hard Delete | If enabled, items deleted in the source will also be deleted from the destination. By default, deletions are tracked via `_meta/op` (soft delete). | boolean | `false` |
+| `/networkTunnel` | Network Tunnel | Connect to your system through an SSH server that acts as a bastion host for your network. | Object | |
+| `/networkTunnel/sshForwarding` | SSH Forwarding | | Object | |
+| `/networkTunnel/sshForwarding/sshEndpoint` | SSH Endpoint | Endpoint of the remote SSH server (in this case, your Google Cloud VM) that supports tunneling (in the form of ssh://user@address. | String | |
+| `/networkTunnel/sshForwarding/privateKey` | SSH Private Key | Private key to connect to the remote SSH server. | String | |
+
+##### Credentials
+
+| Property | Title | Description | Type | Required/Default |
+| --- | --- | --- | --- | --- |
+| **`/credentials`** | Authentication | Authentication method and credentials that provide access to the database. | object | Required |
+| `/credentials/auth_type` | Auth Type | The authentication method to use. One of `UserPassword` or `GCPIAM`. | string |  |
+| `/credentials/password` | Password | Password for the specified database user. | string | Required for `UserPassword` auth |
+| `/credentials/gcp_service_account_to_impersonate` | GCP Service Account | GCP service account email for Cloud SQL IAM authentication. | string | Required for `GCPIAM` auth |
+| `/credentials/gcp_workload_identity_pool_audience` | Workload Identity Pool Audience | GCP workload identity pool audience. The format should be similar to: `//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider`. | string | Required for `GCPIAM` auth |
 
 #### Bindings
 
@@ -62,9 +81,11 @@ materializations:
         image: ghcr.io/estuary/materialize-alloydb:v5
         config:
           database: postgres
-          address: 127.0.0.1:5432
-          password: flow
+          address: host:port
           user: flow
+          credentials:
+            auth_type: UserPassword
+            password: <secret>
           networkTunnel:
             sshForwarding:
               sshEndpoint: ssh://sshUser@<vm-ip-address>

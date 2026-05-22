@@ -107,4 +107,4 @@ Delivery is at-least-once: in rare cases, a document may be published more than 
 EventBridge limits each event's combined `Source` + `DetailType` + `Detail` payload to **256 KB**.
 If a document in the source collection produces an entry exceeding this limit, the materialization will fail with an error identifying the offending binding.
 
-If your documents are large, use [field selection](/concepts/materialization/#field-selection) on the binding to project down to only the fields needed by downstream consumers.
+If your documents are large, use [field selection](/guides/customize-materialization-fields/#field-selection-for-materializations) on the binding to project down to only the fields needed by downstream consumers.
