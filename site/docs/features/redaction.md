@@ -24,11 +24,13 @@ Redaction strategies include:
 
 * **Hash**
 
-   Replaces values with SHA-256 hashed versions of the values.
+   Replaces values with salted SHA-256 hashes of the values.
 
    Hashing fields can be useful when you would like to include stand-in values for sensitive fields in downstream systems but don't want those systems or system users to have access to the unhashed value.
 
    For example, hashing a user email so analysts can still compile information about a user journey without seeing the user's PII.
+
+   Estuary salts every hash to mitigate dictionary and rainbow-table attacks on low-entropy values such as emails or phone numbers. See [Hashing salt](#hashing-salt) for details on how the salt is managed and how to provide your own.
 
 ## How to Use Redaction
 
@@ -91,3 +93,43 @@ An example collection specification would therefore look like:
   "readSchema": {...}
 }
 ```
+
+## Hashing salt
+
+When you hash a field with the `sha256` strategy, Estuary appends a per-task salt to each value before hashing it.
+Salting prevents an attacker who obtains the hashed output from precomputing hashes of common values (such as emails, phone numbers, or SSNs) and matching them against your data.
+
+Estuary manages the salt for you:
+
+* When a capture or derivation is first published, Estuary generates a salt automatically and stores it on the task specification.
+* The same salt is reused across subsequent publications of that task, so hashes remain consistent for a given input value over time.
+* Each capture and derivation gets its own salt, so the same input value will hash to different outputs in different tasks.
+
+### Supplying a custom salt
+
+If you need to share hashed values across multiple tasks (for example, to join hashed identifiers between two captures), or if your compliance program requires you to control the salt yourself, you can supply one explicitly via the top-level `redactSalt` field on a capture or derivation specification.
+
+`redactSalt` is a base64-encoded byte string. For example:
+
+```yaml
+captures:
+  acmeCo/my-capture:
+    endpoint: {...}
+    bindings: [...]
+    redactSalt: "c29tZS1zZWNyZXQtc2FsdC12YWx1ZQ=="
+```
+
+The same field is available on derivations:
+
+```yaml
+collections:
+  acmeCo/my-derived-collection:
+    schema: {...}
+    key: [/id]
+    derive:
+      using: {...}
+      transforms: [...]
+      redactSalt: "c29tZS1zZWNyZXQtc2FsdC12YWx1ZQ=="
+```
+
+When `redactSalt` is set on a specification, Estuary uses your value instead of the generated one. Treat the salt as sensitive — anyone who knows both the salt and a candidate plaintext value can compute the corresponding hash.
