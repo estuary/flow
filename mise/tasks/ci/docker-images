@@ -60,8 +60,18 @@ for DOCKERFILE in docker/*.Dockerfile; do
     IMAGE_NAME=$(basename "${DOCKERFILE}" .Dockerfile)
     TARGET_NAMES+=("${IMAGE_NAME}")
 
+    # Per-image tags begin with the version tags from ${TAGS_FILE}.
+    IMAGE_TAG_NAMES=("${TAGS[@]}")
+
+    # The V2 derivation runtime maps built-in TypeScript/Python derivations
+    # to the `:stable` image, while the legacy V1 runtime keeps using a frozen `:dev`
+    # image (no longer rebuilt here). Publish `:stable` for these two connectors.
+    if [[ "${IMAGE_NAME}" == "derive-python" || "${IMAGE_NAME}" == "derive-typescript" ]]; then
+        IMAGE_TAG_NAMES+=("stable")
+    fi
+
     # Build tags array for this image
-    IMAGE_TAGS=$(printf '%s\n' "${TAGS[@]}" | jq -R '"ghcr.io/estuary/'"${IMAGE_NAME}"':\(.)"' | jq -s '.')
+    IMAGE_TAGS=$(printf '%s\n' "${IMAGE_TAG_NAMES[@]}" | jq -R '"ghcr.io/estuary/'"${IMAGE_NAME}"':\(.)"' | jq -s '.')
 
     # Use absolute path for dockerfile since context is different from CWD
     DOCKERFILE_ABS="$(pwd)/${DOCKERFILE}"

@@ -169,7 +169,12 @@ only ever writes `FC:` deltas.
 
 ## Status
 
-- `leader::materialize` and `shard::materialize` are implemented.
+- `leader::materialize` / `shard::materialize` and `leader::derive` /
+  `shard::derive` are implemented.
 - `shard::capture` is implemented as an independent per-shard transaction
   loop with local RocksDB persistence.
-- `leader::derive` and `shard::derive` are not yet implemented.
+- All three task types are wired into the Go runtime behind the
+  `estuary.dev/flag/enable-runtime-v2` shard label (`go/runtime/{capture,
+  materialize,derive}_v2.go`); without the flag the legacy runtime is used.
+  derive-sqlite threads its recorded SQLite VFS to the connector and runs on an
+  ephemeral shard-zero RocksDB (SQLite is authoritative).

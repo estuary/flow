@@ -269,6 +269,18 @@ tasks twice (to a partial runtime, then again to the final one).
 Risk is managed through rollout pacing: tasks activate into the
 complete runtime in stages of increasing blast radius.
 
+### SQLIte State Support
+
+We will support single-shard SQLite derivations by treating them like
+remote-authoritative connectors that cannot (for the forseeable future)
+drop V1 legacy rollback support. For SQLite, we'll continue to thread
+the recorded SQLite VFS to the connector (as the legacy runtime does)
+and use an _ephemeral_ (initially empty) RocksDB with (sole) shard zero,
+which is not actually recorded. Then, we'll in-practice always recover an
+authoritative checkpoint from the derive-sqlite connector on startup.
+We must guard against inadvertent drops of legacy rollback support for
+such tasks.
+
 ### Rollout sequence
 
 1. **Low-value single-shard captures**: exercises the Rust transaction

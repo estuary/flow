@@ -14,6 +14,7 @@ async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
 dekaf-connector = { path = "../dekaf-connector" }
+derive-sqlite = { path = "../derive-sqlite" }
 doc = { path = "../doc", features = ["combine"] }
 extractors = { path = "../extractors" }
 flow-client-next = { path = "../flow-client-next" }

@@ -111,13 +111,33 @@ impl<L: crate::LogHandler> Service<L> {
         });
         response_rx
     }
+
+    pub fn spawn_derive<R>(
+        &self,
+        controller_rx: R,
+    ) -> mpsc::UnboundedReceiver<tonic::Result<proto::Derive>>
+    where
+        R: Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
+    {
+        let service = self.clone();
+        let (controller_tx, response_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+        let error_tx = controller_tx.clone();
+
+        tokio::spawn(async move {
+            if let Err(err) = super::derive::serve(service, controller_rx, controller_tx).await {
+                let _ = error_tx.send(Err(crate::anyhow_to_status(err)));
+            }
+        });
+        response_rx
+    }
 }
 
 #[tonic::async_trait]
 impl<L: crate::LogHandler> proto_grpc::runtime::shard_server::Shard for Service<L> {
-    type MaterializeStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Materialize>>;
     type CaptureStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Capture>>;
-    //type DeriveStream = wrappers::ReceiverStream<tonic::Result<proto::Derive>>;
+    type DeriveStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;
+    type MaterializeStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Materialize>>;
 
     async fn materialize(
         &self,
@@ -137,14 +157,12 @@ impl<L: crate::LogHandler> proto_grpc::runtime::shard_server::Shard for Service<
         ))
     }
 
-    /*
     async fn derive(
         &self,
-        _request: tonic::Request<tonic::Streaming<proto::Derive>>,
+        request: tonic::Request<tonic::Streaming<proto::Derive>>,
     ) -> tonic::Result<tonic::Response<Self::DeriveStream>> {
-        Err(tonic::Status::unimplemented(
-            "Shard.Derive: not in scope for the materialize phase",
+        Ok(tonic::Response::new(
+            wrappers::UnboundedReceiverStream::new(self.spawn_derive(request.into_inner())),
         ))
     }
-    */
 }
