@@ -63,27 +63,27 @@ pub async fn recv_connector_opened(
         .await
         .context("failed to load runtime checkpoint from RocksDB")?;
 
-    // TODO(johnny): Expose Opened.runtime_checkpoint in the public protocol.
-    opened.set_internal(|internal| {
-        if let Some(derive_response_ext::Opened {
-            runtime_checkpoint: Some(connector_checkpoint),
-        }) = &internal.opened
-        {
-            checkpoint = connector_checkpoint.clone();
-            tracing::debug!(
-                checkpoint=?ops::DebugJson(&checkpoint),
-                "using connector-provided OpenedExt.runtime_checkpoint",
-            );
-        } else {
-            internal.opened = Some(derive_response_ext::Opened {
-                runtime_checkpoint: Some(checkpoint.clone()),
-            });
-            tracing::debug!(
-                checkpoint=?ops::DebugJson(&checkpoint),
-                "loaded and attached a persisted OpenedExt.runtime_checkpoint",
-            );
-        }
-    });
+    let opened_checkpoint = opened
+        .opened
+        .as_ref()
+        .and_then(|opened| opened.runtime_checkpoint.clone());
+
+    if let Some(connector_checkpoint) = opened_checkpoint {
+        checkpoint = connector_checkpoint;
+        tracing::debug!(
+            checkpoint=?ops::DebugJson(&checkpoint),
+            "using connector-provided Opened.runtime_checkpoint",
+        );
+    } else {
+        tracing::debug!(
+            checkpoint=?ops::DebugJson(&checkpoint),
+            "loaded persisted Opened.runtime_checkpoint",
+        );
+    }
+
+    if let Some(opened) = opened.opened.as_mut() {
+        opened.runtime_checkpoint = Some(checkpoint.clone());
+    }
 
     Ok((task, validators, accumulator, checkpoint, opened))
 }
@@ -105,13 +105,12 @@ pub fn recv_client_read_or_flush(
             read: Some(read), ..
         }) => read,
         Some(Request {
-            flush: Some(request::Flush {}),
-            ..
+            flush: Some(flush), ..
         }) => {
             *saw_flush = true;
 
             return Ok(Some(Request {
-                flush: Some(request::Flush {}),
+                flush: Some(flush),
                 ..Default::default()
             }));
         }
@@ -172,7 +171,9 @@ pub fn recv_connector_published_or_flushed(
 ) -> anyhow::Result<()> {
     let response::Published { doc_json } = match response {
         Some(Response {
-            flushed: Some(response::Flushed {}),
+            // The V1 runtime ignores Flushed.state (it persists connector state
+            // from StartedCommit.state); V2 connectors report state via Flushed.
+            flushed: Some(response::Flushed { .. }),
             ..
         }) if saw_flush => {
             *saw_flushed = true;
@@ -297,7 +298,10 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
     };
 
     Response {
-        flushed: Some(response::Flushed {}),
+        flushed: Some(response::Flushed {
+            state: None,
+            more: false,
+        }),
         ..Default::default()
     }
     .with_internal_buf(buf, |internal| {

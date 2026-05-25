@@ -13,18 +13,18 @@ async function emit(response: {
     published?: {
         doc: unknown,
     }
-    flushed?: Record<string, never>,
-    startedCommit?: {
+    flushed?: {
         state?: {
             updated: unknown,
             mergePatch: boolean,
-        }
+        },
+        more: boolean,
     }
 }) {
     await stdout.write(encoder.encode(JSON.stringify(response)));
     await stdout.write(encoder.encode("\n"));
 
-    if (response.opened || response.flushed || response.startedCommit) {
+    if (response.opened || response.flushed) {
         await stdout.flush();
     }
 }
@@ -56,9 +56,8 @@ for await (const line of stdin) {
             shuffleHash: number,
             doc: unknown,
         },
-        flush?: Record<string, never>,
-        startCommit?: {
-            runtimeCheckpoint: any,
+        flush?: {
+            statePatches?: unknown[],
         },
         reset?: {}
     };
@@ -75,15 +74,25 @@ for await (const line of stdin) {
             await emit({ published: { doc: published[i] } });
         }
     } else if (request.flush) {
-        const published = await derivation.flush();
+        const result = await derivation.flush(request.flush.statePatches);
+
+        // flush() returns either a Document[] (publish only) or a FlushResponse
+        // { published, state, more }. Duck-type to support both shapes.
+        const published = Array.isArray(result) ? result : (result.published ?? []);
+        const state = Array.isArray(result) ? undefined : result.state;
+        const more = Array.isArray(result) ? false : (result.more ?? false);
 
         for (let i = 0; i != published.length; i++) {
             await emit({ published: { doc: published[i] } });
         }
-        await emit({ flushed: {} });
-    } else if (request.startCommit) {
-        const startedCommit = derivation.startCommit(request.startCommit);
-        await emit({ startedCommit: startedCommit })
+        await emit({
+            flushed: {
+                ...(state !== undefined
+                    ? { state: { updated: state.updated, mergePatch: state.mergePatch ?? false } }
+                    : {}),
+                more,
+            },
+        });
     } else if (request.reset) {
         await derivation.reset();
     } else {

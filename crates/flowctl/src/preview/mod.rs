@@ -364,7 +364,7 @@ async fn preview_derivation<L: runtime::LogHandler>(
             tracing::trace!(?max_clock, ?key_packed, ?partitions_packed, "published");
 
             print!("{}\n", str::from_utf8(&doc_json).unwrap());
-        } else if let Some(derive::response::Flushed {}) = response.flushed {
+        } else if let Some(derive::response::Flushed { .. }) = response.flushed {
             let proto_flow::runtime::derive_response_ext::Flushed { stats } =
                 internal.flushed.unwrap_or_default();
             tracing::debug!(stats=?ops::DebugJson(stats), "flushed");

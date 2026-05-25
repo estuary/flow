@@ -43,16 +43,12 @@ async def main() -> None:
                 print(response.model_dump_json(by_alias=True), flush=False)
 
         elif request.flush:
-            async for doc in derivation.flush():
+            flushed = Response.Flushed()
+            async for doc in derivation.flush(request.flush.state_patches, flushed):
                 response = Response(published=Response.Published(doc=doc))
                 print(response.model_dump_json(by_alias=True), flush=False)
 
-            print(Response(flushed=Response.Flushed()).model_dump_json(by_alias=True), flush=True)
-
-        elif request.start_commit:
-            started_commit = derivation.start_commit(request.start_commit)
-            response = Response(startedCommit=started_commit)
-            print(response.model_dump_json(by_alias=True), flush=True)
+            print(Response(flushed=flushed).model_dump_json(by_alias=True), flush=True)
 
         elif request.reset:
             await derivation.reset()

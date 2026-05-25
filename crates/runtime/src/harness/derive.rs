@@ -122,20 +122,18 @@ async fn run_session(
     request_tx.try_send(Ok(open)).expect("sender is empty");
 
     // Receive Opened.
-    let opened_ext = match response_rx.try_next().await? {
-        Some(opened) if opened.opened.is_some() && !opened.internal.is_empty() => {
-            let opened_ext = opened.get_internal()?;
+    let checkpoint = match response_rx.try_next().await? {
+        Some(opened) if opened.opened.is_some() => {
+            let checkpoint = opened
+                .opened
+                .as_ref()
+                .and_then(|opened| opened.runtime_checkpoint.clone())
+                .unwrap_or_default();
             () = co.yield_(opened).await;
-            opened_ext
+            checkpoint
         }
         response => return verify("runtime", "Opened").fail(response),
     };
-
-    let checkpoint = opened_ext
-        .opened
-        .context("expected OpenedExt")?
-        .runtime_checkpoint
-        .unwrap_or_default();
 
     let read_rx = reader.start_for_derivation(&spec, checkpoint);
     tokio::pin!(read_rx);
@@ -177,7 +175,7 @@ async fn run_session(
                 // Forward a Flush to the runtime, then go on to commit a checkpoint.
                 Some(Read::Checkpoint(checkpoint)) => (
                     Request {
-                        flush: Some(request::Flush {}),
+                        flush: Some(request::Flush::default()),
                         ..Default::default()
                     },
                     Some(checkpoint),
@@ -206,7 +204,7 @@ async fn run_session(
                     published: Some(_), ..
                 } => false,
                 Response {
-                    flushed: Some(response::Flushed {}),
+                    flushed: Some(response::Flushed { .. }),
                     ..
                 } => true,
                 _ => return verify.fail(response),
