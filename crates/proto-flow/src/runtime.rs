@@ -15,8 +15,9 @@ pub struct TaskServiceConfig {
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,
 /// where a journal is read and each document is mapped into:
-///    - An extracted, packed, and hashed composite key (a "shuffle key").
-///    - A rotated Clock value (an "r-clock").
+///
+/// * An extracted, packed, and hashed composite key (a "shuffle key").
+/// * A rotated Clock value (an "r-clock").
 ///
 /// The packed key and r-clock can then be compared to individual reader
 /// RangeSpec's.
@@ -102,7 +103,7 @@ pub struct ShuffleResponse {
     #[prost(message, repeated, tag = "7")]
     pub docs: ::prost::alloc::vec::Vec<super::flow::Slice>,
     /// The journal offsets of each document within the requested journal.
-    /// For a document at index i, its offsets are \[ offsets[2*i\], offsets\[2*i+1\]
+    /// For a document at index i, its offsets are \[ offsets\[2*i\], offsets\[2*i+1\]
     /// ).
     #[prost(int64, repeated, packed = "false", tag = "8")]
     pub offsets: ::prost::alloc::vec::Vec<i64>,
@@ -397,6 +398,7 @@ pub struct CombineResponse {
     pub values_packed: ::prost::bytes::Bytes,
 }
 /// No requests are sent by the client in a ProxyConnectors RPC. However:
+///
 /// * The client should leave its stream open while the proxy is in use.
 /// * Then, it sends EOF to begin a graceful stop of the proxy.
 /// * The response stream will EOF only after all logs have been yielded.
@@ -1090,6 +1092,242 @@ pub mod materialize {
         #[prost(bytes = "bytes", tag = "1")]
         pub connector_patches_json: ::prost::bytes::Bytes,
     }
+}
+/// Derive is the bidirectional message type for derivation sessions.
+/// Exactly one field is set per message.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Derive {
+    /// Controller → Shard. Unary request outside of a SessionLoop.
+    #[prost(message, optional, tag = "1")]
+    pub spec: ::core::option::Option<super::derive::request::Spec>,
+    /// Shard → Controller. Connector's reply to `spec`.
+    #[prost(message, optional, tag = "2")]
+    pub spec_response: ::core::option::Option<super::derive::response::Spec>,
+    /// Controller → Shard. Unary request outside of a SessionLoop.
+    #[prost(message, optional, tag = "3")]
+    pub validate: ::core::option::Option<super::derive::request::Validate>,
+    /// Shard → Controller. Connector's reply to `validate`.
+    #[prost(message, optional, tag = "4")]
+    pub validated: ::core::option::Option<super::derive::response::Validated>,
+    /// Controller → Shard. Effective only on unary `spec` / `validate`
+    /// messages. Ignored on all other variants.
+    #[prost(enumeration = "super::ops::log::Level", tag = "5")]
+    pub log_level: i32,
+    /// Controller → Shard. First message of a session-loop stream;
+    /// never sent to the Leader.
+    #[prost(message, optional, tag = "20")]
+    pub session_loop: ::core::option::Option<SessionLoop>,
+    /// Controller → Shard → Leader. Session initiation with topology.
+    #[prost(message, optional, tag = "21")]
+    pub join: ::core::option::Option<Join>,
+    /// Leader → Shards → Controllers. Consensus or retry directive.
+    #[prost(message, optional, tag = "22")]
+    pub joined: ::core::option::Option<Joined>,
+    /// Controller → Shard, and Shard zero (only) → Leader.
+    #[prost(message, optional, tag = "23")]
+    pub task: ::core::option::Option<Task>,
+    /// Each Shard → Leader. State recovered from RocksDB on startup.
+    /// Derive shares the same Recover message as Materialize; the max_keys
+    /// field is unused and must be empty.
+    #[prost(message, optional, tag = "24")]
+    pub recover: ::core::option::Option<Recover>,
+    /// Leader → Shards. Open connector and prepare for transactions.
+    #[prost(message, optional, tag = "27")]
+    pub open: ::core::option::Option<Open>,
+    #[prost(message, optional, tag = "28")]
+    pub opened: ::core::option::Option<derive::Opened>,
+    #[prost(message, optional, tag = "40")]
+    pub load: ::core::option::Option<derive::Load>,
+    #[prost(message, optional, tag = "41")]
+    pub loaded: ::core::option::Option<derive::Loaded>,
+    #[prost(message, optional, tag = "42")]
+    pub flush: ::core::option::Option<derive::Flush>,
+    #[prost(message, optional, tag = "43")]
+    pub flushed: ::core::option::Option<derive::Flushed>,
+    #[prost(message, optional, tag = "44")]
+    pub store: ::core::option::Option<derive::Store>,
+    #[prost(message, optional, tag = "45")]
+    pub stored: ::core::option::Option<derive::Stored>,
+    #[prost(message, optional, tag = "46")]
+    pub start_commit: ::core::option::Option<derive::StartCommit>,
+    #[prost(message, optional, tag = "47")]
+    pub started_commit: ::core::option::Option<derive::StartedCommit>,
+    /// Leader → Shard zero. Durably persist state.
+    #[prost(message, optional, tag = "50")]
+    pub persist: ::core::option::Option<Persist>,
+    /// Shard zero → Leader. State is durable.
+    #[prost(message, optional, tag = "51")]
+    pub persisted: ::core::option::Option<Persisted>,
+    /// Controller → Shard → Leader. Request immediate close of the
+    /// currently-open transaction.
+    #[prost(message, optional, tag = "52")]
+    pub close_now: ::core::option::Option<CloseNow>,
+    /// Controller → Shard → Leader. Graceful shutdown request.
+    #[prost(message, optional, tag = "60")]
+    pub stop: ::core::option::Option<Stop>,
+    /// Leader → Shards → Controllers. Shutdown confirmed; EOF follows on
+    /// each leg.
+    #[prost(message, optional, tag = "61")]
+    pub stopped: ::core::option::Option<Stopped>,
+}
+/// Nested message and enum types in `Derive`.
+pub mod derive {
+    /// Each Shard → Leader, and each Shard → Controller. Connector is
+    /// running and session startup is complete.
+    ///
+    /// The shard sends two Opened messages per session, populated differently:
+    ///
+    /// * To the leader: `container` is empty; `connector_checkpoint` is
+    ///   the C:Opened checkpoint (if any). Non-zero shards MUST send
+    ///   `Opened{}` (default).
+    /// * To the controller: `container` describes the running connector
+    ///   container; `connector_checkpoint` is empty.
+    ///
+    /// SQLite derivations are always remote-authoritative: C:Opened always
+    /// returns a runtime_checkpoint which the leader uses to reconcile.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Opened {
+        /// Description of the running connector container.
+        #[prost(message, optional, tag = "1")]
+        pub container: ::core::option::Option<super::Container>,
+        /// Optional connector consumer.Checkpoint returned by C:Opened.
+        #[prost(message, optional, tag = "2")]
+        pub connector_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
+    }
+    /// Leader → Shards. Incremental Frontier to process into transaction.
+    /// Shards forward each source document to the connector as a C:Read RPC
+    /// and accumulate C:Published responses into the output combiner.
+    /// Multiple Load messages may be sent per transaction.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Load {
+        #[prost(message, optional, tag = "1")]
+        pub frontier: ::core::option::Option<super::super::shuffle::Frontier>,
+    }
+    /// Shard → Leader. All frontier documents have been forwarded to the
+    /// connector as C:Read RPCs. The connector has not yet been flushed;
+    /// C:Published responses may still be arriving.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Loaded {
+        #[prost(message, repeated, tag = "1")]
+        pub bindings: ::prost::alloc::vec::Vec<loaded::Binding>,
+        /// On-disk size of this shard's output combiner, for transaction close policy.
+        #[prost(uint64, tag = "2")]
+        pub combiner_usage_bytes: u64,
+    }
+    /// Nested message and enum types in `Loaded`.
+    pub mod loaded {
+        /// Transform (binding) which participated in this Loaded frontier.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Binding {
+            /// Binding index.
+            #[prost(uint32, tag = "1")]
+            pub index: u32,
+            /// Minimum source document Clock observed.
+            #[prost(fixed64, tag = "2")]
+            pub min_source_clock: u64,
+            /// Maximum source document Clock observed.
+            #[prost(fixed64, tag = "3")]
+            pub max_source_clock: u64,
+            /// Number of source documents forwarded as C:Read.
+            #[prost(uint64, tag = "4")]
+            pub sourced_docs_total: u64,
+            /// Number of source document bytes forwarded.
+            #[prost(uint64, tag = "5")]
+            pub sourced_bytes_total: u64,
+        }
+    }
+    /// Leader → Shards. One iteration of the Flush phase; shards send C:Flush to
+    /// the connector and drain any remaining C:Published into the combiner.
+    /// Multiple Flush messages may be sent per transaction (iterative
+    /// scatter/gather).
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Flush {
+        /// Aggregated connector_patches_json from all shards' Flushed responses of
+        /// the PREVIOUS Flush iteration of the current transaction. Empty on the
+        /// first iteration. Forwarded to the connector as C:Flush.state_patches_json.
+        /// State Update Wire Format.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+    }
+    /// Shard → Leader. One Flush iteration complete: C:Flush was sent, all
+    /// C:Published docs from this iteration are in the combiner, and C:Flushed
+    /// was received.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Flushed {
+        /// This iteration's C:Flushed.state, in State Update Wire Format. Empty when
+        /// the connector contributed no state update. Aggregated across shards and
+        /// fed into the next L:Flush, independent of `more`.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub connector_patches_json: ::prost::bytes::Bytes,
+        /// Mirrors C:Flushed.more: this shard's connector requires a further Flush
+        /// iteration this transaction. The leader ends the Flush phase once every
+        /// shard reports `more = false` in the same iteration.
+        #[prost(bool, tag = "2")]
+        pub more: bool,
+    }
+    /// Leader → Shards. Idempotency Persist now complete; drain the output
+    /// combiner into CONTINUE_TXN journal documents via the shard's Publisher.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Store {}
+    /// Shard → Leader. Store phase complete. Reports this shard's transaction
+    /// publish/drain statistics and its publisher commit. The leader collects
+    /// publisher_commits from all shards, calls build_transaction_intents()
+    /// to construct final ACK documents, persists them to shard zero, and
+    /// writes them to journals after the connector commit (WriteIntents).
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Stored {
+        /// Number of documents published by the connector (C:Published), before
+        /// combining.
+        #[prost(uint64, tag = "1")]
+        pub published_docs_total: u64,
+        /// Number of document bytes published by the connector, before combining.
+        #[prost(uint64, tag = "2")]
+        pub published_bytes_total: u64,
+        /// Number of documents drained from the output combiner into CONTINUE_TXN
+        /// journal documents, after combining over published documents.
+        #[prost(uint64, tag = "3")]
+        pub drained_docs_total: u64,
+        /// Number of document bytes drained from the output combiner, after combining.
+        #[prost(uint64, tag = "4")]
+        pub drained_bytes_total: u64,
+        #[prost(message, optional, tag = "5")]
+        pub publisher_commit: ::core::option::Option<stored::PublisherCommit>,
+    }
+    /// Nested message and enum types in `Stored`.
+    pub mod stored {
+        /// Publisher commit from this shard for this transaction.
+        /// Absent when the shard published no documents (preview mode, or an
+        /// empty transaction with no output). The leader collects these from all
+        /// shards and feeds them to build_transaction_intents() to construct the
+        /// per-journal ACK intent NDJSON, which is then persisted and written.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct PublisherCommit {
+            /// 6-byte Producer identity. Matches publisher::Publisher's producer.
+            #[prost(bytes = "bytes", tag = "1")]
+            pub producer: ::prost::bytes::Bytes,
+            /// Transaction commit clock.
+            #[prost(fixed64, tag = "2")]
+            pub clock: u64,
+            /// Journal names this shard published to.
+            #[prost(string, repeated, tag = "3")]
+            pub journals: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        }
+    }
+    /// Leader → Shards. Begin commit phase. Sent only for remote-authoritative
+    /// tasks (whose connector returned a runtime_checkpoint at Opened); SQLite
+    /// derivations always use this path. Runtime-authoritative tasks skip
+    /// StartCommit/StartedCommit entirely and report state via Flushed.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct StartCommit {
+        /// Transaction Checkpoint for the remote-authoritative connector.
+        #[prost(message, optional, tag = "1")]
+        pub connector_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
+    }
+    /// Shard → Leader. Commit initiated. The shard verifies the connector's
+    /// C:StartedCommit.state was empty (the deprecated V1 state path) before
+    /// sending this; V2 connector state flows via Flushed.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct StartedCommit {}
 }
 /// Plane describes the type of data plane in which the runtime is operating.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

@@ -7297,6 +7297,7 @@ dependencies = [
  "connector-init",
  "coroutines",
  "dekaf-connector",
+ "derive-sqlite",
  "doc",
  "extractors",
  "flow-client-next",

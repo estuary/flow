@@ -9,6 +9,8 @@ pub struct Service(Arc<ServiceImpl>);
 
 /// ServiceImpl holds shared implementation state for the Leader gRPC service.
 pub struct ServiceImpl {
+    /// In-progress Derive session Joins, keyed by task name.
+    pub(crate) derive_joins: std::sync::Mutex<HashMap<String, super::PendingJoin<proto::Derive>>>,
     /// In-progress Materialize session Joins, keyed by task name.
     pub(crate) materialize_joins:
         std::sync::Mutex<HashMap<String, super::PendingJoin<proto::Materialize>>>,
@@ -29,6 +31,7 @@ impl Service {
         registry: service_kit::Registry,
     ) -> Self {
         Self(Arc::new(ServiceImpl {
+            derive_joins: std::sync::Mutex::new(HashMap::new()),
             materialize_joins: std::sync::Mutex::new(HashMap::new()),
             shuffle_service,
             publisher_factory,
@@ -45,7 +48,6 @@ impl Service {
             .max_encoding_message_size(usize::MAX)
     }
 
-    /*
     pub fn spawn_derive<R>(
         &self,
         request_rx: R,
@@ -58,13 +60,12 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = serve_derive(service, request_rx, response_tx).await {
+            if let Err(e) = super::derive::serve(service, request_rx, response_tx).await {
                 let _ = error_tx.send(Err(crate::anyhow_to_status(e)));
             }
         });
         response_rx
     }
-    */
 
     pub fn spawn_materialize<R>(
         &self,
@@ -97,12 +98,11 @@ impl std::ops::Deref for Service {
 
 #[tonic::async_trait]
 impl proto_grpc::runtime::leader_server::Leader for Service {
-    //type DeriveStream =
-    //    tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;
+    type DeriveStream =
+        tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;
     type MaterializeStream =
         tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Materialize>>;
 
-    /*
     async fn derive(
         &self,
         request: tonic::Request<tonic::Streaming<proto::Derive>>,
@@ -113,7 +113,6 @@ impl proto_grpc::runtime::leader_server::Leader for Service {
             ),
         ))
     }
-    */
 
     async fn materialize(
         &self,
@@ -126,16 +125,3 @@ impl proto_grpc::runtime::leader_server::Leader for Service {
         ))
     }
 }
-
-/*
-async fn serve_derive<R>(
-    _service: Service,
-    _request_rx: R,
-    _response_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
-) -> anyhow::Result<()>
-where
-    R: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
-{
-    anyhow::bail!("Leader Derive RPC is not yet implemented")
-}
-*/

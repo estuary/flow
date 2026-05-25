@@ -394,7 +394,7 @@ service ConnectorProxy {
 // the shard initiates (Join, Recover, Flushed) and sometimes the leader
 // initiates (Open, Load, Flush, Persist).
 service Leader {
-  // rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
+  rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
   rpc Materialize(stream .runtime.Materialize) returns (stream .runtime.Materialize);
 }
 
@@ -413,8 +413,8 @@ service Leader {
 //    not involved; the handler dials a transient connector and streams
 //    the response back. A Validate may follow a Spec on the same stream.
 service Shard {
-  // rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
   rpc Capture(stream .runtime.Capture) returns (stream .runtime.Capture);
+  rpc Derive(stream .runtime.Derive) returns (stream .runtime.Derive);
   rpc Materialize(stream .runtime.Materialize) returns (stream .runtime.Materialize);
 }
 
@@ -946,6 +946,203 @@ message Materialize {
     bytes connector_patches_json = 1 [json_name = "connectorPatches"];
   }
   Acknowledged acknowledged = 49;
+
+  // Leader → Shard zero. Durably persist state.
+  Persist persist = 50;
+
+  // Shard zero → Leader. State is durable.
+  Persisted persisted = 51;
+
+  // Controller → Shard → Leader. Request immediate close of the
+  // currently-open transaction.
+  CloseNow close_now = 52;
+
+  // ----- TEARDOWN -----
+
+  // Controller → Shard → Leader. Graceful shutdown request.
+  Stop stop = 60;
+  // Leader → Shards → Controllers. Shutdown confirmed; EOF follows on
+  // each leg.
+  Stopped stopped = 61;
+}
+
+// Derive is the bidirectional message type for derivation sessions.
+// Exactly one field is set per message.
+message Derive {
+
+  // ----- UNARY REQUESTS -----
+
+  // Controller → Shard. Unary request outside of a SessionLoop.
+  derive.Request.Spec spec = 1;
+  // Shard → Controller. Connector's reply to `spec`.
+  derive.Response.Spec spec_response = 2;
+  // Controller → Shard. Unary request outside of a SessionLoop.
+  derive.Request.Validate validate = 3;
+  // Shard → Controller. Connector's reply to `validate`.
+  derive.Response.Validated validated = 4;
+
+  // Controller → Shard. Effective only on unary `spec` / `validate`
+  // messages. Ignored on all other variants.
+  ops.Log.Level log_level = 5;
+
+  // ----- STARTUP -----
+
+  // Controller → Shard. First message of a session-loop stream;
+  // never sent to the Leader.
+  SessionLoop session_loop = 20;
+
+  // Controller → Shard → Leader. Session initiation with topology.
+  Join join = 21;
+
+  // Leader → Shards → Controllers. Consensus or retry directive.
+  Joined joined = 22;
+
+  // Controller → Shard, and Shard zero (only) → Leader.
+  Task task = 23;
+
+  // Each Shard → Leader. State recovered from RocksDB on startup.
+  // Derive shares the same Recover message as Materialize; the max_keys
+  // field is unused and must be empty.
+  Recover recover = 24;
+
+  // Leader → Shards. Open connector and prepare for transactions.
+  Open open = 27;
+
+  // Each Shard → Leader, and each Shard → Controller. Connector is
+  // running and session startup is complete.
+  //
+  // The shard sends two Opened messages per session, populated differently:
+  //   - To the leader: `container` is empty; `connector_checkpoint` is
+  //     the C:Opened checkpoint (if any). Non-zero shards MUST send
+  //     `Opened{}` (default).
+  //   - To the controller: `container` describes the running connector
+  //     container; `connector_checkpoint` is empty.
+  //
+  // SQLite derivations are always remote-authoritative: C:Opened always
+  // returns a runtime_checkpoint which the leader uses to reconcile.
+  message Opened {
+    // Description of the running connector container.
+    Container container = 1;
+    // Optional connector consumer.Checkpoint returned by C:Opened.
+    consumer.Checkpoint connector_checkpoint = 2;
+  }
+  Opened opened = 28;
+
+  // ----- TRANSACTION PROCESSING -----
+
+  // Leader → Shards. Incremental Frontier to process into transaction.
+  // Shards forward each source document to the connector as a C:Read RPC
+  // and accumulate C:Published responses into the output combiner.
+  // Multiple Load messages may be sent per transaction.
+  message Load {
+    shuffle.Frontier frontier = 1;
+  }
+  Load load = 40;
+
+  // Shard → Leader. All frontier documents have been forwarded to the
+  // connector as C:Read RPCs. The connector has not yet been flushed;
+  // C:Published responses may still be arriving.
+  message Loaded {
+    // Transform (binding) which participated in this Loaded frontier.
+    message Binding {
+      // Binding index.
+      uint32 index = 1;
+      // Minimum source document Clock observed.
+      fixed64 min_source_clock = 2;
+      // Maximum source document Clock observed.
+      fixed64 max_source_clock = 3;
+      // Number of source documents forwarded as C:Read.
+      uint64 sourced_docs_total = 4;
+      // Number of source document bytes forwarded.
+      uint64 sourced_bytes_total = 5;
+    }
+    repeated Binding bindings = 1;
+    // On-disk size of this shard's output combiner, for transaction close policy.
+    uint64 combiner_usage_bytes = 2;
+  }
+  Loaded loaded = 41;
+
+  // Leader → Shards. One iteration of the Flush phase; shards send C:Flush to
+  // the connector and drain any remaining C:Published into the combiner.
+  // Multiple Flush messages may be sent per transaction (iterative
+  // scatter/gather).
+  message Flush {
+    // Aggregated connector_patches_json from all shards' Flushed responses of
+    // the PREVIOUS Flush iteration of the current transaction. Empty on the
+    // first iteration. Forwarded to the connector as C:Flush.state_patches_json.
+    // State Update Wire Format.
+    bytes connector_patches_json = 1 [json_name = "connectorPatches"];
+  }
+  Flush flush = 42;
+
+  // Shard → Leader. One Flush iteration complete: C:Flush was sent, all
+  // C:Published docs from this iteration are in the combiner, and C:Flushed
+  // was received.
+  message Flushed {
+    // This iteration's C:Flushed.state, in State Update Wire Format. Empty when
+    // the connector contributed no state update. Aggregated across shards and
+    // fed into the next L:Flush, independent of `more`.
+    bytes connector_patches_json = 1 [json_name = "connectorPatches"];
+    // Mirrors C:Flushed.more: this shard's connector requires a further Flush
+    // iteration this transaction. The leader ends the Flush phase once every
+    // shard reports `more = false` in the same iteration.
+    bool more = 2;
+  }
+  Flushed flushed = 43;
+
+  // Leader → Shards. Idempotency Persist now complete; drain the output
+  // combiner into CONTINUE_TXN journal documents via the shard's Publisher.
+  message Store {}
+  Store store = 44;
+
+  // Shard → Leader. Store phase complete. Reports this shard's transaction
+  // publish/drain statistics and its publisher commit. The leader collects
+  // publisher_commits from all shards, calls build_transaction_intents()
+  // to construct final ACK documents, persists them to shard zero, and
+  // writes them to journals after the connector commit (WriteIntents).
+  message Stored {
+    // Number of documents published by the connector (C:Published), before
+    // combining.
+    uint64 published_docs_total = 1;
+    // Number of document bytes published by the connector, before combining.
+    uint64 published_bytes_total = 2;
+    // Number of documents drained from the output combiner into CONTINUE_TXN
+    // journal documents, after combining over published documents.
+    uint64 drained_docs_total = 3;
+    // Number of document bytes drained from the output combiner, after combining.
+    uint64 drained_bytes_total = 4;
+    // Publisher commit from this shard for this transaction.
+    // Absent when the shard published no documents (preview mode, or an
+    // empty transaction with no output). The leader collects these from all
+    // shards and feeds them to build_transaction_intents() to construct the
+    // per-journal ACK intent NDJSON, which is then persisted and written.
+    message PublisherCommit {
+      // 6-byte Producer identity. Matches publisher::Publisher's producer.
+      bytes producer = 1;
+      // Transaction commit clock.
+      fixed64 clock = 2;
+      // Journal names this shard published to.
+      repeated string journals = 3;
+    }
+    PublisherCommit publisher_commit = 5;
+  }
+  Stored stored = 45;
+
+  // Leader → Shards. Begin commit phase. Sent only for remote-authoritative
+  // tasks (whose connector returned a runtime_checkpoint at Opened); SQLite
+  // derivations always use this path. Runtime-authoritative tasks skip
+  // StartCommit/StartedCommit entirely and report state via Flushed.
+  message StartCommit {
+    // Transaction Checkpoint for the remote-authoritative connector.
+    consumer.Checkpoint connector_checkpoint = 1;
+  }
+  StartCommit start_commit = 46;
+
+  // Shard → Leader. Commit initiated. The shard verifies the connector's
+  // C:StartedCommit.state was empty (the deprecated V1 state path) before
+  // sending this; V2 connector state flows via Flushed.
+  message StartedCommit {}
+  StartedCommit started_commit = 47;
 
   // Leader → Shard zero. Durably persist state.
   Persist persist = 50;

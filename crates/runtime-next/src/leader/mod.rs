@@ -8,8 +8,8 @@ mod service;
 
 // Task-specific handling.
 pub mod capture; // `pub` because it's directly used by shard actor.
+mod derive;
 mod materialize;
-// mod derive;  // TODO: implement.
 
 pub use service::Service;
 
