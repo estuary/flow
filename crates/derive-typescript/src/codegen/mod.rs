@@ -62,24 +62,48 @@ export type {source_name} = "#,
     write!(
         w,
         r#"
+// Mirror of Estuary protocol's flow.ConnectorState.
+export type ConnectorState = {{
+    // An updated state, or patch thereof.
+    updated: unknown,
+    // When true, `updated` is a RFC 7396 JSON Merge Patch rather than a full replacement.
+    mergePatch?: boolean,
+}};
+
+// Result type of a derivation flush().
+export type FlushResponse = {{
+    // Documents to publish, if any.
+    published?: Document[],
+    // Connector state update to contribute. It is aggregated across all shards
+    // and, if `more` is set, broadcast to shard's next flush() via `statePatches`.
+    state?: ConnectorState,
+    // Request a further Flush iteration this transaction. The runtime ends the
+    // Flush phase once every shard returns `more: false` (the default). Use this
+    // to drive a multi-stage scatter/gather across shards; it is independent of
+    // `state`.
+    more?: boolean,
+}};
+
 export abstract class IDerivation {{
     // Construct a new Derivation instance from a Request.Open message.
     constructor(_open: {{ state: unknown }}) {{ }}
 
-    // flush awaits any remaining documents to be published and returns them.
+    // flush completes any deferred work for the current transaction, publishing
+    // all documents derived from prior reads. It may be called more than once per
+    // transaction: returning `more: true` asks the runtime for a further
+    // iteration, forming a scatter/gather round across the derivation's shards.
+    // On each call `statePatches` holds the aggregated `state` updates returned by
+    // all participating shards in the previous iteration (empty on the first).
+    // Return a `FlushResponse` to publish documents, contribute a `state` update,
+    // and/or request another iteration with `more: true`; or a bare `Document[]`
+    // to publish and end participation for this transaction.
     // deno-lint-ignore require-await
-    async flush(): Promise<Document[]> {{
-        return [];
+    async flush(_statePatches?: unknown[]): Promise<FlushResponse | Document[]> {{
+        return {{}};
     }}
 
     // reset is called only when running catalog tests, and must reset any internal state.
     async reset() {{ }}
-
-    // startCommit is notified of a runtime commit in progress, and returns an optional
-    // connector state update to be committed.
-    startCommit(_startCommit: {{ runtimeCheckpoint: unknown }}): {{ state?: {{ updated: unknown, mergePatch: boolean }} }} {{
-        return {{}};
-    }}
 "#,
     )
     .unwrap();

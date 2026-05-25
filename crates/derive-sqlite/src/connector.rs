@@ -3,7 +3,7 @@ use anyhow::Context;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use prost::Message;
-use proto_flow::runtime::{DeriveRequestExt, derive_request_ext, derive_response_ext};
+use proto_flow::runtime::{DeriveRequestExt, derive_request_ext};
 use proto_flow::{
     RuntimeCheckpoint,
     derive::{Request, Response, request, response},
@@ -109,17 +109,14 @@ where
                 let (handle, runtime_checkpoint) =
                     Handle::new(&sqlite_uri, &migrations, &transforms)?;
 
-                // Send Opened extended with our recovered runtime checkpoint.
+                // Send Opened with our recovered runtime checkpoint.
                 let _ = response_tx
                     .send(Ok(Response {
-                        opened: Some(response::Opened {}),
-                        ..Default::default()
-                    }
-                    .with_internal(|internal| {
-                        internal.opened = Some(derive_response_ext::Opened {
+                        opened: Some(response::Opened {
                             runtime_checkpoint: Some(runtime_checkpoint),
-                        });
-                    })))
+                        }),
+                        ..Default::default()
+                    }))
                     .await;
 
                 maybe_handle = Some(handle);
@@ -139,13 +136,18 @@ where
                 )?;
             }
             Some(Request {
-                flush: Some(request::Flush {}),
+                flush: Some(request::Flush { .. }),
                 ..
             }) => {
-                // Send Flushed to runtime.
+                // Send Flushed to runtime. derive-sqlite is remote-authoritative
+                // (its state lives in SQLite, committed at StartCommit), so it
+                // reports no Flushed.state and `more` is always false.
                 let _ = response_tx
                     .send(Ok(Response {
-                        flushed: Some(response::Flushed {}),
+                        flushed: Some(response::Flushed {
+                            state: None,
+                            more: false,
+                        }),
                         ..Default::default()
                     }))
                     .await;

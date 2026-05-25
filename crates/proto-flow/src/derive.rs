@@ -163,14 +163,37 @@ pub mod request {
             pub hash: u32,
         }
     }
-    /// Flush tells the connector it should immediately complete any deferred
-    /// work and respond with Published documents for all previously Read
-    /// documents, and then respond with Flushed.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Flush {}
+    /// Flush is an iterative protocol loop whereby the runtime asks connector(s)
+    /// to complete any deferred work and respond with Published documents that
+    /// reflect all previously Read documents, followed by Flushed.
+    ///
+    /// Flush is iterative: the runtime may send multiple Flush requests within a
+    /// single transaction, forming a scatter/gather consensus round between the
+    /// connectors of all participating shards. A connector drives further
+    /// iterations by setting Response.Flushed.more (and may exchange state across
+    /// shards via Response.Flushed.state and Request.Flush.state_patches_json).
+    ///
+    /// Connectors are required to have emitted all Published documents before
+    /// emitting a terminal Flushed response (Response.Flushed.more = false).
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Flush {
+        /// Aggregated connector state patches contributed by all participating
+        /// shards in the PREVIOUS Flush iteration of the CURRENT transaction, as a
+        /// newline-delimited JSON array. Includes this shard's own patch (the
+        /// runtime feeds the shard's contribution back to it for symmetry with the
+        /// scaled-out case). Empty on the first Flush iteration. Connectors
+        /// participating in cooperative multi-shard strategies use this to observe
+        /// peers' state and drive multi-stage computation.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub state_patches_json: ::prost::bytes::Bytes,
+    }
     /// StartCommit indicates that the Flow runtime is beginning to commit.
     /// The checkpoint is purely advisory and the connector is not required to touch it.
     /// The connector responds with StartedCommit.
+    ///
+    /// The V2 runtime sends StartCommit only to remote-authoritative connectors
+    /// (those that returned a runtime_checkpoint at Opened); runtime-authoritative
+    /// connectors are not sent StartCommit and report state via Flushed.state.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct StartCommit {
         /// Flow runtime checkpoint associated with this transaction.
@@ -261,20 +284,62 @@ pub mod response {
         }
     }
     /// Opened responds to Request.Open.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Opened {}
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Opened {
+        /// Flow runtime checkpoint to begin processing from.
+        /// If empty, the most recent checkpoint of the Flow recovery log is used.
+        ///
+        /// Or, a driver may send the value \[\]byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
+        /// to explicitly begin processing from a zero-valued checkpoint, effectively
+        /// rebuilding the derivation from scratch. This sentinel is a trivial
+        /// encoding of the max-value 2^29-1 protobuf tag with boolean true.
+        ///
+        /// DEPRECATED for new connectors. Returning a checkpoint marks the connector
+        /// as remote-authoritative: the V2 runtime treats it as the sole authority
+        /// (expecting an empty recovery-log state), sends StartCommit every
+        /// transaction, and serializes pipelining on the connector commit.
+        /// derive-sqlite continues to use this; new connectors should report state
+        /// via Flushed.state and let the runtime own the checkpoint.
+        #[prost(message, optional, tag = "1")]
+        pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
+    }
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Published {
         /// Published JSON document.
         #[prost(bytes = "bytes", tag = "1")]
         pub doc_json: ::prost::bytes::Bytes,
     }
-    /// Flushed responds to Request.Flush, and indicates that all documents
-    /// have been published.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Flushed {}
-    /// StartedCommit responds to a Request.StartCommit, and includes an optional
-    /// connector state update.
+    /// Flushed responds to a Request.Flush.
+    ///
+    /// `state` is an optional connector state update for this transaction. It is
+    /// aggregated across all participating shards and fed back to every shard's
+    /// next Flush as `state_patches_json`, enabling cooperative scatter/gather
+    /// strategies.
+    ///
+    /// `more` drives the runtime's iterative Flush loop, independent of `state`:
+    /// when set, this connector requires at least one further Flush iteration this
+    /// transaction (for example, to observe peers' aggregated `state` and continue
+    /// a multi-stage computation). The transaction's Flush phase ends once every
+    /// participating shard returns a Flushed with `more = false`. A connector may
+    /// emit a final `state` while setting `more = false` (no extra empty round),
+    /// or request another round with `more = true` while contributing no `state`.
+    ///
+    /// Before responding with `more = false`, the connector MUST have published
+    /// (Response.Published) all documents derived from prior Reads.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Flushed {
+        #[prost(message, optional, tag = "1")]
+        pub state: ::core::option::Option<super::super::flow::ConnectorState>,
+        /// Does the connector require a further Flush iteration this transaction?
+        /// See the message comment.
+        #[prost(bool, tag = "2")]
+        pub more: bool,
+    }
+    /// StartedCommit responds to a Request.StartCommit.
+    ///
+    /// DEPRECATED: `state` is retained for the V1 runtime, which persists connector
+    /// state from it. The V2 runtime ignores `state` and requires it to be empty;
+    /// V2 connectors report state via Flushed.state instead.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct StartedCommit {
         #[prost(message, optional, tag = "1")]

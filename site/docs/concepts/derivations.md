@@ -461,16 +461,17 @@ Python derivations support persistent state management through lifecycle methods
 
 * **`__init__(self, open: Request.Open)`**: Initialize and load persisted state
   from previous transactions via `open.state`
-* **`start_commit(self, start_commit: Request.StartCommit) -> Response.StartedCommit`**:
-  Return state updates to persist at the end of each transaction
+* **`flush(self, state_patches, flushed) -> AsyncIterator[Document]`**:
+  Called at the end of each transaction. Set `flushed.state` to the connector
+  state updates to persist (in addition to publishing any remaining documents)
 * **`reset(self)`**: Reset state between catalog tests
 
 State is serialized as JSON and persists across task restarts, enabling
 stateful transformations like running aggregations, joins, and windowed computations.
 
-The `start_commit` method supports JSON merge patch semantics through `merge_patch=True`,
-allowing you to efficiently update only the portions of state that changed
-during a transaction rather than replacing the entire state.
+Setting `flushed.state = ConnectorState(updated=..., merge_patch=True)` uses JSON
+merge patch semantics, allowing you to efficiently update only the portions of state
+that changed during a transaction rather than replacing the entire state.
 
 For a complete example of stateful derivations, see the
 [stateful pattern example](https://github.com/estuary/flow/blob/master/examples/derive-patterns/stateful.flow.py).

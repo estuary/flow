@@ -543,7 +543,9 @@ fn ex_derive_request() -> derive::Request {
             }),
             doc_json: json!({"read": "doc"}).to_string().into(),
         }),
-        flush: Some(derive::request::Flush {}),
+        flush: Some(derive::request::Flush {
+            state_patches_json: json!([{"flush": true}]).to_string().into(),
+        }),
         start_commit: Some(derive::request::StartCommit {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),
         }),
@@ -572,11 +574,16 @@ fn ex_derive_response() -> derive::Response {
             )]
             .into(),
         }),
-        opened: Some(derive::response::Opened {}),
+        opened: Some(derive::response::Opened {
+            runtime_checkpoint: Some(ex_consumer_checkpoint()),
+        }),
         published: Some(derive::response::Published {
             doc_json: json!({"published": "doc"}).to_string().into(),
         }),
-        flushed: Some(derive::response::Flushed {}),
+        flushed: Some(derive::response::Flushed {
+            state: None,
+            more: true,
+        }),
         started_commit: Some(derive::response::StartedCommit {
             state: Some(ex_connector_state()),
         }),

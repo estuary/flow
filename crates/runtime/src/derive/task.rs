@@ -12,7 +12,7 @@ impl Task {
             version,
         } = open.clone().open.context("expected Open")?;
 
-        let response::Opened {} = opened.opened.as_ref().context("expected Opened")?;
+        let response::Opened { .. } = opened.opened.as_ref().context("expected Opened")?;
 
         let flow::CollectionSpec {
             ack_template_json: _,

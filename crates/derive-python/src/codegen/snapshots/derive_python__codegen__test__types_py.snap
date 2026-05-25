@@ -42,24 +42,32 @@ class SourceProcessStrings(pydantic.BaseModel):
 
 
 
+class ConnectorState(pydantic.BaseModel):
+    """Mirror of Estuary protocol's flow.ConnectorState."""
+
+    # An updated state, or patch thereof.
+    updated: dict[str, typing.Any]
+    # When true, `updated` is an RFC 7396 JSON Merge Patch rather than a full replacement.
+    merge_patch: bool = pydantic.Field(default=False, serialization_alias='mergePatch')
+
+
 class Request(pydantic.BaseModel):
 
     class Open(pydantic.BaseModel):
         state: dict[str, typing.Any]
 
     class Flush(pydantic.BaseModel):
-        pass
+        # Aggregated connector state patches contributed by all participating shards
+        # in the PREVIOUS Flush iteration of the current transaction; empty on the
+        # first iteration.
+        state_patches: list[typing.Any] = pydantic.Field(default_factory=list, alias='statePatches')
 
     class Reset(pydantic.BaseModel):
         pass
 
-    class StartCommit(pydantic.BaseModel):
-        runtime_checkpoint: typing.Any = pydantic.Field(default=None, alias='runtimeCheckpoint')
-
     open: typing.Optional[Open] = None
     flush: typing.Optional[Flush] = None
     reset: typing.Optional[Reset] = None
-    start_commit: typing.Optional[StartCommit] = pydantic.Field(default=None, alias='startCommit')
 
 
     class ReadFromInts(pydantic.BaseModel):
@@ -89,20 +97,15 @@ class Response(pydantic.BaseModel):
         doc: Document
 
     class Flushed(pydantic.BaseModel):
-        pass
-
-    class StartedCommit(pydantic.BaseModel):
-
-        class State(pydantic.BaseModel):
-            updated: dict[str, typing.Any]
-            merge_patch: bool = False
-
-        state: typing.Optional[State] = None
+        # Connector state update to contribute this transaction.
+        # Aggregated across shards and fed back via Request.Flush.state_patches.
+        state: typing.Optional[ConnectorState] = None
+        # Request a further Flush iteration this transaction.
+        more: bool = False
 
     opened: typing.Optional[Opened] = None
     published: typing.Optional[Published] = None
     flushed: typing.Optional[Flushed] = None
-    started_commit: typing.Optional[StartedCommit] = pydantic.Field(default=None, alias='startedCommit')
 
 class IDerivation(ABC):
     """Abstract base class for derivation implementations."""
@@ -123,14 +126,19 @@ class IDerivation(ABC):
         if False:
             yield  # Mark as a generator.
 
-    async def flush(self) -> collections.abc.AsyncIterator[Document]:
-        """Flush any buffered documents. Override to implement pipelining."""
+    async def flush(self, state_patches: list[typing.Any], flushed: Response.Flushed) -> collections.abc.AsyncIterator[Document]:
+        """Complete deferred work for the current transaction, publishing all
+        documents derived from prior reads.
+
+        Set `flushed.state` to contribute a connector state update, and/or set
+        `flushed.more = True` to request a further Flush iteration (a scatter/gather
+        round across the derivation's shards). On each call `state_patches` holds the
+        aggregated `state` updates returned by all shards in the previous iteration
+        (empty on the first). All Documents MUST be yielded before flush returns
+        a terminal (`more = False`) Response.Flushed.
+        Override to implement pipelining or stateful derivations."""
         if False:
             yield  # Mark as a generator.
-
-    def start_commit(self, start_commit: Request.StartCommit) -> Response.StartedCommit:
-        """Return state updates to persist. Override to implement stateful derivations."""
-        return Response.StartedCommit()
 
     async def reset(self):
         """Reset internal state for testing. Override if needed."""

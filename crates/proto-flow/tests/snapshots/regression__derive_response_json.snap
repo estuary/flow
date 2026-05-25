@@ -44,11 +44,40 @@ expression: json_test(msg)
       "file:///project/root/deno.json": "content"
     }
   },
-  "opened": {},
+  "opened": {
+    "runtimeCheckpoint": {
+      "sources": {
+        "a/read/journal;suffix": {
+          "readThrough": "12345",
+          "producers": [
+            {
+              "id": "AwkIBQc=",
+              "state": {
+                "lastAck": "8675",
+                "begin": "1111"
+              }
+            },
+            {
+              "id": "BwxmKx0=",
+              "state": {
+                "lastAck": "309",
+                "begin": "2222"
+              }
+            }
+          ]
+        }
+      },
+      "ackIntents": {
+        "an/ack/journal": "AwQCBQ=="
+      }
+    }
+  },
   "published": {
     "doc": {"published":"doc"}
   },
-  "flushed": {},
+  "flushed": {
+    "more": true
+  },
   "startedCommit": {
     "state": {
       "updated": {"state":"update"},

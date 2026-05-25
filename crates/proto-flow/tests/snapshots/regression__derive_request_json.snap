@@ -309,7 +309,9 @@ expression: json_test(msg)
     },
     "doc": {"read":"doc"}
   },
-  "flush": {},
+  "flush": {
+    "statePatches": [{"flush":true}]
+  },
   "startCommit": {
     "runtimeCheckpoint": {
       "sources": {
