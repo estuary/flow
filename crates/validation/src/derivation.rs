@@ -593,7 +593,7 @@ async fn walk_derivation<C: Connectors>(
             source_partitions,
         ));
 
-        // Build a state key and read suffix using the transform name as it's resource path.
+        // Build a read suffix from the transform's state key (its name as resource path).
         let state_key = assemble::encode_state_key(&[&transform_name], backfill);
         let journal_read_suffix = format!("derive/{collection}/{state_key}");
 
@@ -611,6 +611,14 @@ async fn walk_derivation<C: Connectors>(
             not_before: not_before.map(assemble::pb_datetime),
             not_after: not_after.map(assemble::pb_datetime),
             backfill,
+            // `state_key` is intentionally left unpopulated until the V2 derivation
+            // migration completes. The frozen V1 derive connectors (`derive-typescript`
+            // and `derive-python` `:dev` images) parse the built spec as JSON and reject
+            // the unknown `stateKey` field; default serialization omits an empty value.
+            // The V2 derive runtime recomputes the key on-demand from the transform name
+            // and backfill (`runtime-next` `shard::derive::Task`), matching the value
+            // computed here for `journal_read_suffix`.
+            state_key: String::new(),
         };
 
         transforms_model.push(model);
