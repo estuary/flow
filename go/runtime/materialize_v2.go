@@ -194,7 +194,7 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 		}
 
 		// Build Join from the current topology view, and send.
-		var join, rev, err = m.buildJoin()
+		var join, rev, err = buildLeaderfulJoin(m.host, m.term.shardSpec, m.shuffleDir)
 		if err != nil {
 			return fmt.Errorf("building Join: %w", err)
 		} else if join == nil {
@@ -304,18 +304,21 @@ func (m *materializeAppV2) Coordinator() *shuffle.Coordinator {
 	panic("runtime-v2: Coordinator unreachable (no Go shuffle)")
 }
 
-// buildJoin enumerates the task topology under read lock. If any shard does
-// not yet have a PRIMARY assignment, it returns nil plus the observed Etcd
-// revision so the caller can wait and try again. A non-nil Join describes every
-// shard, sorted by ShardID (which matches the proto's ordering contract on
-// (key_begin, r_clock_begin) ascending).
-func (m *materializeAppV2) buildJoin() (*pr.Join, int64, error) {
-	var ks = m.host.service.State.KS
-	var itemPrefix = allocator.ItemKey(ks, taskShardPrefix(m.term.shardSpec.Id))
+// buildLeaderfulJoin enumerates the task topology under read lock for a
+// leader-ful task (materialization or derivation). If any shard does not yet
+// have a PRIMARY assignment, it returns (nil, rev, nil) — a signal for the
+// caller to await `rev+1` and retry; a hard error returns (nil, rev, err). A
+// non-nil Join describes every shard, sorted by ShardID (which matches the
+// proto's ordering contract on (key_begin, r_clock_begin) ascending). Both
+// materializeAppV2 and deriveAppV2 share this exact consensus logic; the leader
+// fail-stops a session on any disagreement, so the two callers must not drift.
+func buildLeaderfulJoin(host *FlowConsumer, shardSpec *pf.ShardSpec, shuffleDir string) (*pr.Join, int64, error) {
+	var ks = host.service.State.KS
+	var itemPrefix = allocator.ItemKey(ks, taskShardPrefix(shardSpec.Id))
 
 	ks.Mu.RLock()
 	defer ks.Mu.RUnlock()
-	var state = m.host.service.State
+	var state = host.service.State
 	var rev = ks.Header.Revision
 
 	if state.LocalMemberInd == -1 {
@@ -323,7 +326,7 @@ func (m *materializeAppV2) buildJoin() (*pr.Join, int64, error) {
 	}
 	var selfEndpoint = state.Members[state.LocalMemberInd].
 		Decoded.(allocator.Member).MemberValue.(*pc.ConsumerSpec).Endpoint
-	var selfSidecar, err = m.host.config.SidecarEndpoint(selfEndpoint)
+	var selfSidecar, err = host.config.SidecarEndpoint(selfEndpoint)
 	if err != nil {
 		return nil, rev, err
 	}
@@ -348,7 +351,7 @@ func (m *materializeAppV2) buildJoin() (*pr.Join, int64, error) {
 			Reactor:            &pb.ProcessSpec_ID{Zone: asn.MemberZone, Suffix: asn.MemberSuffix},
 			EtcdCreateRevision: createRev,
 		})
-		if spec.Id == m.term.shardSpec.Id {
+		if spec.Id == shardSpec.Id {
 			shardIdx = i
 		}
 	}
@@ -356,7 +359,7 @@ func (m *materializeAppV2) buildJoin() (*pr.Join, int64, error) {
 		return nil, rev, nil
 	}
 	if shardIdx < 0 {
-		return nil, rev, fmt.Errorf("local shard %s not in topology", m.term.shardSpec.Id)
+		return nil, rev, fmt.Errorf("local shard %s not in topology", shardSpec.Id)
 	}
 
 	var leaderEndpoint, ok = memberEndpoint(state, *shards[0].Reactor)
@@ -364,7 +367,7 @@ func (m *materializeAppV2) buildJoin() (*pr.Join, int64, error) {
 		return nil, rev, fmt.Errorf("leader reactor %+v not present in Etcd state", shards[0].Reactor)
 	}
 	var leaderSidecar string
-	if leaderSidecar, err = m.host.config.SidecarEndpoint(leaderEndpoint); err != nil {
+	if leaderSidecar, err = host.config.SidecarEndpoint(leaderEndpoint); err != nil {
 		return nil, rev, err
 	}
 
@@ -372,7 +375,7 @@ func (m *materializeAppV2) buildJoin() (*pr.Join, int64, error) {
 		EtcdModRevision:  rev,
 		Shards:           shards,
 		ShardIndex:       uint32(shardIdx),
-		ShuffleDirectory: m.shuffleDir,
+		ShuffleDirectory: shuffleDir,
 		ShuffleEndpoint:  selfSidecar,
 		LeaderEndpoint:   leaderSidecar,
 	}, rev, nil
