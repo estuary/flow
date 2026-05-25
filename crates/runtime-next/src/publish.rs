@@ -44,9 +44,10 @@ pub enum Publisher {
 impl Publisher {
     /// Build a real `Publisher` backed by a `publisher::Publisher` for the
     /// pre-created `ops_stats_journal` plus any additional supplied collection
-    /// specs.
+    /// specs. `producer` is chosen by the caller (see [`new_producer`]).
     pub fn new_real<'a, I>(
         authz_subject: String,
+        producer: uuid::Producer,
         client_factory: &gazette::journal::ClientFactory,
         ops_stats_journal: &str,
         collection_specs: I,
@@ -61,10 +62,6 @@ impl Publisher {
         for spec in collection_specs {
             bindings.push(publisher::Binding::from_collection_spec(spec)?);
         }
-
-        let mut producer: [u8; 6] = rand::random();
-        producer[0] |= 0x01; // Set multicast bit.
-        let producer = uuid::Producer::from_bytes(producer);
 
         let mut publisher = publisher::Publisher::new(
             authz_subject,
@@ -211,6 +208,25 @@ impl Publisher {
     }
 }
 
+/// Generate a fresh random Gazette `Producer` identity.
+///
+/// The producer is the vector-clock key under which a publisher's documents
+/// are sequenced.
+pub fn new_producer() -> uuid::Producer {
+    let mut producer: [u8; 6] = rand::random();
+    producer[0] |= 0x01; // Set multicast bit (mark as not a real MAC address).
+    uuid::Producer::from_bytes(producer)
+}
+
+/// Decode a 6-byte `Producer`.
+pub fn producer_from_bytes(publisher_id: &[u8]) -> anyhow::Result<uuid::Producer> {
+    use anyhow::Context;
+    let bytes: [u8; 6] = publisher_id
+        .try_into()
+        .context("Task.publisher_id is not a 6-byte producer identity")?;
+    Ok(uuid::Producer::from_bytes(bytes))
+}
+
 /// Patch a document UUID placeholder in-place after the publisher has assigned
 /// the transaction UUID.
 fn patch_document_uuid(doc: &mut doc::OwnedNode, uuid_ptr: &json::Pointer, uuid: uuid::Uuid) {
@@ -252,4 +268,29 @@ fn patch_document_uuid(doc: &mut doc::OwnedNode, uuid_ptr: &json::Pointer, uuid:
         return; // Return, rather than panic-ing if the length is somehow wrong.
     }
     _ = ::uuid::fmt::Hyphenated::from_uuid(uuid).encode_lower(cell);
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn producer_round_trips_through_task_bytes() {
+        // new_producer sets the multicast bit, and producer_from_bytes recovers
+        // the exact identity shard zero forwards in Task.publisher_id.
+        let producer = new_producer();
+        assert_eq!(producer.as_bytes()[0] & 0x01, 0x01, "multicast bit set");
+
+        let recovered = producer_from_bytes(producer.as_bytes()).unwrap();
+        assert_eq!(producer, recovered);
+    }
+
+    #[test]
+    fn producer_from_bytes_rejects_wrong_length() {
+        // Empty (controller never stamps it) and over-length both error rather
+        // than silently truncating into a different identity.
+        assert!(producer_from_bytes(b"").is_err());
+        assert!(producer_from_bytes(b"\x01\x02\x03\x04\x05").is_err());
+        assert!(producer_from_bytes(b"\x01\x02\x03\x04\x05\x06\x07").is_err());
+    }
 }

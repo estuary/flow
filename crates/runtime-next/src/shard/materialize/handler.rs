@@ -136,13 +136,26 @@ where
     let proto::SessionLoop { rocksdb_descriptor } = session_loop;
     let mut db = crate::shard::RocksDB::open(rocksdb_descriptor).await?;
 
+    // Shard zero forwards this producer to the leader, so its Publisher identity
+    // is held constant across every session of the loop. Non-zero shards select
+    // one also, but never forward it.
+    let leader_producer = crate::new_producer();
+
     let verify = crate::verify("Materialize", "Join", "controller");
     while let Some(result) = controller_rx.next().await {
         match verify.ok(result)? {
             proto::Materialize {
                 join: Some(join), ..
             } => {
-                db = serve_session(service, controller_rx, controller_tx, db, join).await?;
+                db = serve_session(
+                    service,
+                    controller_rx,
+                    controller_tx,
+                    db,
+                    join,
+                    leader_producer,
+                )
+                .await?;
             }
             request => return Err(verify.fail_msg(request)),
         };
@@ -157,6 +170,7 @@ async fn serve_session<R, L: crate::LogHandler>(
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
     join: proto::Join,
+    leader_producer: proto_gazette::uuid::Producer,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
     R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
@@ -166,9 +180,17 @@ where
     // periodic instrumentation included.
     let handler = service.registry.register("shard.materialize");
     let span = handler.span();
-    serve_session_inner(service, controller_rx, controller_tx, db, join, handler)
-        .instrument(span)
-        .await
+    serve_session_inner(
+        service,
+        controller_rx,
+        controller_tx,
+        db,
+        join,
+        leader_producer,
+        handler,
+    )
+    .instrument(span)
+    .await
 }
 
 async fn serve_session_inner<R, L: crate::LogHandler>(
@@ -177,6 +199,7 @@ async fn serve_session_inner<R, L: crate::LogHandler>(
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
     join: proto::Join,
+    leader_producer: proto_gazette::uuid::Producer,
     mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
@@ -252,11 +275,11 @@ where
         controller_tx,
         db,
         labeling,
+        leader_producer,
         leader_rx,
         leader_tx,
         log_level,
         service,
-        shard_id,
         shard_index,
         shuffle_directory,
     )

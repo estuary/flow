@@ -157,6 +157,8 @@ async fn drive_one_shard(
                     spec: spec_bytes.clone(),
                     preview: true,
                     max_transactions: target_txns,
+                    sqlite_vfs_uri: String::new(),
+                    publisher_id: Default::default(),
                 }),
                 ..Default::default()
             }))

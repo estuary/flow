@@ -83,6 +83,8 @@ pub(super) async fn run(
         preview,
         max_transactions,
         spec: spec_bytes,
+        sqlite_vfs_uri: _,
+        publisher_id,
     } = task;
 
     let spec = flow::MaterializationSpec::decode(spec_bytes.as_ref())
@@ -97,6 +99,7 @@ pub(super) async fn run(
     } else {
         crate::Publisher::new_real(
             shard_ids[0].clone(), // Shard zero is AuthZ subject.
+            crate::publish::producer_from_bytes(&publisher_id)?,
             &service.publisher_factory,
             &ops_stats_journal,
             [], // No additional bindings.

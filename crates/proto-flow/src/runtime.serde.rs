@@ -8114,6 +8114,12 @@ impl serde::Serialize for Task {
         if self.max_transactions != 0 {
             len += 1;
         }
+        if !self.sqlite_vfs_uri.is_empty() {
+            len += 1;
+        }
+        if !self.publisher_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Task", len)?;
         if !self.spec.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -8125,6 +8131,14 @@ impl serde::Serialize for Task {
         }
         if self.max_transactions != 0 {
             struct_ser.serialize_field("maxTransactions", &self.max_transactions)?;
+        }
+        if !self.sqlite_vfs_uri.is_empty() {
+            struct_ser.serialize_field("sqliteVfsUri", &self.sqlite_vfs_uri)?;
+        }
+        if !self.publisher_id.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("publisherId", pbjson::private::base64::encode(&self.publisher_id).as_str())?;
         }
         struct_ser.end()
     }
@@ -8140,6 +8154,10 @@ impl<'de> serde::Deserialize<'de> for Task {
             "preview",
             "max_transactions",
             "maxTransactions",
+            "sqlite_vfs_uri",
+            "sqliteVfsUri",
+            "publisher_id",
+            "publisherId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -8147,6 +8165,8 @@ impl<'de> serde::Deserialize<'de> for Task {
             Spec,
             Preview,
             MaxTransactions,
+            SqliteVfsUri,
+            PublisherId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -8171,6 +8191,8 @@ impl<'de> serde::Deserialize<'de> for Task {
                             "spec" => Ok(GeneratedField::Spec),
                             "preview" => Ok(GeneratedField::Preview),
                             "maxTransactions" | "max_transactions" => Ok(GeneratedField::MaxTransactions),
+                            "sqliteVfsUri" | "sqlite_vfs_uri" => Ok(GeneratedField::SqliteVfsUri),
+                            "publisherId" | "publisher_id" => Ok(GeneratedField::PublisherId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -8193,6 +8215,8 @@ impl<'de> serde::Deserialize<'de> for Task {
                 let mut spec__ = None;
                 let mut preview__ = None;
                 let mut max_transactions__ = None;
+                let mut sqlite_vfs_uri__ = None;
+                let mut publisher_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Spec => {
@@ -8217,12 +8241,28 @@ impl<'de> serde::Deserialize<'de> for Task {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::SqliteVfsUri => {
+                            if sqlite_vfs_uri__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sqliteVfsUri"));
+                            }
+                            sqlite_vfs_uri__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::PublisherId => {
+                            if publisher_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("publisherId"));
+                            }
+                            publisher_id__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(Task {
                     spec: spec__.unwrap_or_default(),
                     preview: preview__.unwrap_or_default(),
                     max_transactions: max_transactions__.unwrap_or_default(),
+                    sqlite_vfs_uri: sqlite_vfs_uri__.unwrap_or_default(),
+                    publisher_id: publisher_id__.unwrap_or_default(),
                 })
             }
         }

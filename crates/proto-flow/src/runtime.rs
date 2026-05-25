@@ -494,6 +494,24 @@ pub struct Task {
     /// Preview / harness control. Zero means unlimited.
     #[prost(uint32, tag = "3")]
     pub max_transactions: u32,
+    /// URL of a SQLite VFS the shard threads to a SQLite derive connector via
+    /// `DeriveRequestExt.open.sqlite_vfs_uri` on C:Open. Set by the controller
+    /// for derive-sqlite tasks (production: a recorded recovery-log VFS; the
+    /// preview harness: a plain tempfile path). Empty for all other tasks.
+    /// Ignored by the leader (shard zero forwards the whole Task).
+    #[prost(string, tag = "4")]
+    pub sqlite_vfs_uri: ::prost::alloc::string::String,
+    /// 6-byte Gazette producer identity for the leader's Publisher (stats and
+    /// ACK intents). Shard zero selects it once at SessionLoop time and stamps
+    /// it into every Task it forwards to the leader, holding the leader's
+    /// producer constant across all of the loop's re-join sessions. Kept
+    /// distinct from a derive shard's own document-publishing producer.
+    ///
+    /// The controller leaves this empty; only shard zero populates it on the
+    /// Shard→Leader hop. Unused on the Controller→Shard hop and for captures,
+    /// which are leaderless.
+    #[prost(bytes = "bytes", tag = "5")]
+    pub publisher_id: ::prost::bytes::Bytes,
 }
 /// Recover is sent by each shard to the leader after Joined, and carries
 /// state recovered from the shard's RocksDB.
