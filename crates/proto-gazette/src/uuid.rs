@@ -26,7 +26,7 @@ impl std::hash::Hash for Producer {
 /// counter. Both the timestamp and counter are monotonic (will never decrease),
 /// and each Tick increments the Clock. For UUID generation, Clock provides a
 /// total ordering over UUIDs of a given Producer.
-#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Clock(u64);
 
 // Flags are the 10 least-significant bits of the v1 UUID clock sequence,
@@ -152,12 +152,6 @@ impl Clock {
     }
 
     pub const UNIX_EPOCH: Self = Clock::from_unix(0, 0);
-}
-
-impl Default for Clock {
-    fn default() -> Self {
-        Self::UNIX_EPOCH
-    }
 }
 
 impl std::ops::Add<Clock> for Clock {
@@ -408,7 +402,9 @@ mod test {
         assert_eq!(c.0, 0x1b21dd2138140000);
         assert_eq!(c.to_unix(), (0, 0));
 
-        // UNIX_EPOCH is Clock's default.
+        // Clock's default is zero (the additive identity / sentinel), which
+        // still maps to the unix epoch through saturating `to_unix()`.
+        assert_eq!(Clock::default(), Clock::zero());
         assert_eq!(Clock::default().to_unix(), (0, 0));
 
         // Each tick increments the clock.

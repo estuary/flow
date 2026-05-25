@@ -318,6 +318,7 @@ impl Actor {
             fsm::Action::Rotate { .. } => unreachable!("never dispatched"),
 
             fsm::Action::Idle => (),
+            fsm::Action::PollAgain => return Ok(Duration::ZERO),
             fsm::Action::Sleep { wake_after } => return Ok(wake_after),
 
             fsm::Action::Load { frontier } => {

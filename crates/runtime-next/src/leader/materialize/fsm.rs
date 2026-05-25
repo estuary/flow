@@ -1,8 +1,8 @@
 //! HeadFSM and TailFSM: the materialize Leader's pipelined transaction FSMs.
 //!
 //! HeadFSM drives the currently-open transaction toward commit:
-//!   Idle → Extend → Flush → (Persist) → Store → Stored → WriteStats
-//!        → StartCommit → Persist → {Rotate | Stop}
+//!   Stop ← Idle ↔ Extend
+//!          Idle → Flush → Persist(hint) → Store → WriteStats → StartCommit → Persist(commit) → Rotate
 //!
 //! TailFSM drives post-commit work for the prior transaction:
 //!   Begin → Acknowledge → (Persist) → WriteIntents → (Trigger)
@@ -14,6 +14,7 @@
 //! idle with Tail already done, or after its next durable commit. Any post-
 //! commit work for that last transaction is recovered and resumed by the next
 //! leader session.
+
 use super::super::frontier_mapping;
 use super::{Task, close_policy, triggers};
 use crate::proto;
@@ -93,14 +94,12 @@ pub enum Tail {
 pub enum Action {
     /// Park until new IO arrives.
     Idle,
+    /// Immediately re-poll without blocking. Sugar for waking immediately.
+    PollAgain,
     /// Sleep for the indicated duration before re-polling.
-    Sleep {
-        wake_after: Duration,
-    },
+    Sleep { wake_after: Duration },
     /// Broadcast a `L:Load` Frontier.
-    Load {
-        frontier: shuffle::Frontier,
-    },
+    Load { frontier: shuffle::Frontier },
     /// Broadcast `L:Flush`.
     Flush {
         // Prior transaction's C:Acknowledged patches.
@@ -117,13 +116,9 @@ pub enum Action {
     // NOTE: when mapping this pattern into derivations, pass gathered ACK
     // intents from shards to the Actor from this Action variant, to pick up
     // later from `stats_write_idle`.
-    WriteStats {
-        stats: ops::proto::Stats,
-    },
+    WriteStats { stats: ops::proto::Stats },
     /// Persist one `proto::Persist` WriteBatch to shard zero.
-    Persist {
-        persist: proto::Persist,
-    },
+    Persist { persist: proto::Persist },
     /// Write ACK intents to their journals.
     WriteIntents {
         ack_intents: BTreeMap<String, bytes::Bytes>,
@@ -139,10 +134,8 @@ pub enum Action {
         triggers: std::sync::Arc<triggers::CompiledTriggers>,
         trigger_params: bytes::Bytes,
     },
-
-    Rotate {
-        pending: PendingDeltas,
-    },
+    /// Rotate Tail from Done to Begin with the committed transaction's deltas.
+    Rotate { pending: PendingDeltas },
 }
 
 impl Action {
@@ -154,6 +147,7 @@ impl Action {
             Self::Idle => "Idle",
             Self::Load { .. } => "Load",
             Self::Persist { .. } => "Persist",
+            Self::PollAgain => "PollAgain",
             Self::Rotate { .. } => "Rotate",
             Self::Sleep { .. } => "Sleep",
             Self::StartCommit { .. } => "StartCommit",
@@ -181,15 +175,7 @@ impl Head {
     ) -> (Action, Head) {
         match self {
             Head::Idle(s) => s.step(now, close_requested, ready_frontier, stopping, tail, task),
-            Head::Extend(s) => s.step(
-                now,
-                close_requested,
-                ready_frontier,
-                shard_rx,
-                stopping,
-                tail,
-                task,
-            ),
+            Head::Extend(s) => s.step(shard_rx),
             Head::Flush(s) => s.step(now, shard_rx, task),
             Head::Persist(s) => s.step(shard_rx),
             Head::Store(s) => s.step(binding_bytes_behind, shard_rx, task),
@@ -246,10 +232,15 @@ impl Tail {
     }
 }
 
-/// HeadIdle awaits a first ready Frontier that begins a transaction.
+/// HeadIdle evaluates the close policy between Load rounds.
 #[derive(Debug, Default)]
 pub struct HeadIdle {
-    /// Do we expect the next transaction to replay recovered transaction extents?
+    /// Accumulated extents of the current transaction (zero open means none started yet).
+    pub extents: Extents,
+    /// Running disk usage of per-shard combiners.
+    pub combiner_usage_bytes: Vec<u64>,
+    /// Are we replaying recovered transaction extents?
+    /// When true, we MUST stop extending as soon as no unresolved hints remain.
     pub idempotent_replay: bool,
     /// Close Clock of the last transaction, which may be recovered from a
     /// prior session, or zero.
@@ -258,150 +249,37 @@ pub struct HeadIdle {
 
 impl HeadIdle {
     pub fn step(
-        self,
-        now: uuid::Clock,
-        close_requested: &mut bool,
-        ready_frontier: &mut Option<shuffle::Frontier>,
-        stopping: bool,
-        tail: &Tail,
-        task: &Task,
-    ) -> (Action, Head) {
-        // If Tail is Done and Head is Idle, stopping can complete without
-        // starting another transaction. Otherwise Head may still pipeline
-        // a next transaction while Tail finishes post-commit work.
-        if stopping && matches!(tail, Tail::Done(_)) {
-            return (Action::Idle, Head::Stop);
-        }
-
-        // A close requested during the prior transaction's tail must not
-        // immediately close the next one we're about to open.
-        *close_requested = false;
-
-        let Some(frontier) = ready_frontier.take() else {
-            return (Action::Idle, Head::Idle(self));
-        };
-
-        // A frontier is ready, and we begin the transaction.
-        let Self {
-            idempotent_replay,
-            last_close,
-        } = self;
-
-        let unresolved_hints = frontier.unresolved_hints != 0;
-        let action = Action::Load {
-            frontier: frontier.clone(),
-        };
-        let extents = Extents {
-            open: now,
-            frontier,
-            ..Default::default()
-        };
-        let state = HeadExtend {
-            extents,
-            combiner_usage_bytes: vec![0; task.n_shards],
-            idempotent_replay,
-            last_close,
-            shard_loaded: vec![false; task.n_shards],
-            unresolved_hints,
-        };
-        (action, Head::Extend(state))
-    }
-}
-
-/// HeadExtend drives ready frontiers into Load/Loaded cycles that
-/// extend transaction Extents, until we begin to close.
-#[derive(Debug)]
-pub struct HeadExtend {
-    pub extents: Extents,
-
-    /// Running disk usage usage of per-shard combiners.
-    pub combiner_usage_bytes: Vec<u64>,
-    /// Are we replaying recovered transaction extents?
-    /// When true, we MUST stop extending as soon as no unresolved hints remain.
-    pub idempotent_replay: bool,
-    /// Close Clock of the prior transaction (which may be from a prior session), or zero.
-    pub last_close: uuid::Clock,
-    /// Per-shard tracking of Loaded response receipt.
-    pub shard_loaded: Vec<bool>,
-    /// Did the last-extended Frontier have unresolved causal hints?
-    /// When true, we MUST extend rather than close.
-    pub unresolved_hints: bool,
-}
-
-impl HeadExtend {
-    pub fn step(
         mut self,
         now: uuid::Clock,
         close_requested: &mut bool,
         ready_frontier: &mut Option<shuffle::Frontier>,
-        shard_rx: &mut Option<(usize, proto::Materialize)>,
         stopping: bool,
         tail: &mut Tail,
         task: &Task,
     ) -> (Action, Head) {
-        // Did we receive an expected Loaded response?
-        if let Some((
-            shard_index,
-            proto::Materialize {
-                loaded: Some(loaded),
-                ..
-            },
-        )) = shard_rx
-            && self.shard_loaded.get(*shard_index) == Some(&false)
-        {
-            let proto::materialize::Loaded {
-                bindings,
-                combiner_usage_bytes,
-            } = std::mem::take(loaded);
+        let is_open = self.extents.open != uuid::Clock::zero();
+        let tail_done = matches!(tail, Tail::Done(_));
 
-            for crate::proto::materialize::loaded::Binding {
-                index,
-                max_key_delta,
-                max_source_clock,
-                min_source_clock,
-                sourced_bytes_total,
-                sourced_docs_total,
-            } in bindings
-            {
-                let min_source_clock = uuid::Clock::from_u64(min_source_clock);
-                let max_source_clock = uuid::Clock::from_u64(max_source_clock);
-                let extent = self.extents.bindings.entry(index).or_default();
-
-                extent.max_key_delta = std::mem::take(&mut extent.max_key_delta).max(max_key_delta);
-
-                if extent.sourced.docs_total == 0 {
-                    extent.max_source_clock = max_source_clock;
-                    extent.min_source_clock = min_source_clock;
-                } else {
-                    extent.max_source_clock = extent.max_source_clock.max(max_source_clock);
-                    extent.min_source_clock = extent.min_source_clock.min(min_source_clock);
-                }
-                extent.sourced.bytes_total += sourced_bytes_total;
-                extent.sourced.docs_total += sourced_docs_total;
-            }
-            self.combiner_usage_bytes[*shard_index] = combiner_usage_bytes;
-
-            // Mark received and consume `shard_rx`.
-            self.shard_loaded[*shard_index] = true;
-            shard_rx.take();
-
-            if self.shard_loaded.iter().all(|b| *b) {
-                self.shard_loaded.clear(); // All received.
-            }
+        // Termination condition: stop at a clean transaction boundary.
+        if stopping && !is_open && tail_done {
+            return (Action::Idle, Head::Stop);
+        }
+        // Clear stale close_requested from after prior transaction close.
+        if !is_open {
+            *close_requested = false;
         }
 
-        if !self.shard_loaded.is_empty() {
-            return (Action::Idle, Head::Extend(self));
-        }
-        // We've received all expected Loaded responses.
-
-        // Measures used to evaluate extend and close policy.
-        let combiner_bytes = *self.combiner_usage_bytes.iter().max().unwrap();
+        let open_age = if !is_open {
+            Duration::ZERO
+        } else {
+            uuid::Clock::delta(now, self.extents.open)
+        };
+        let combiner_bytes = self.combiner_usage_bytes.iter().copied().max().unwrap_or(0);
         let (read_docs, read_bytes) = self
             .extents
             .bindings
             .values()
-            .map(|extents| (extents.sourced.docs_total, extents.sourced.bytes_total))
+            .map(|e| (e.sourced.docs_total, e.sourced.bytes_total))
             .fold((0, 0), |(a1, a2), (b1, b2)| (a1 + b1, a2 + b2));
 
         let close_policy::Decision {
@@ -413,29 +291,38 @@ impl HeadExtend {
             idempotent_replay: self.idempotent_replay,
             last_age: uuid::Clock::delta(now, self.last_close),
             combiner_bytes,
-            open_age: uuid::Clock::delta(now, self.extents.open),
+            open_age,
             read_bytes,
             read_docs,
             stopping,
-            tail_done: matches!(tail, Tail::Done(_)),
-            unresolved_hints: self.unresolved_hints,
+            tail_done,
+            unresolved_hints: self.extents.frontier.unresolved_hints != 0,
         });
 
-        // Should we extend with a ready checkpoint?
+        // Should we extend with a ready next Frontier?
         if may_extend && let Some(frontier) = ready_frontier.take() {
-            self.unresolved_hints = frontier.unresolved_hints != 0;
+            if !is_open {
+                self.extents.open = now;
+                self.combiner_usage_bytes = vec![0; task.n_shards];
+            }
             self.extents.frontier = self.extents.frontier.reduce(frontier.clone());
-            self.shard_loaded.resize(task.n_shards, false);
-            return (Action::Load { frontier }, Head::Extend(self));
+
+            return (
+                Action::Load { frontier },
+                Head::Extend(HeadExtend {
+                    inner: self,
+                    shard_loaded: vec![false; task.n_shards],
+                }),
+            );
         }
 
         // Should we begin to close the transaction?
-        if may_close {
-            *close_requested = false;
+        if !is_open {
+            return (Action::Idle, Head::Idle(self));
+        } else if may_close {
             let Self { mut extents, .. } = self;
             extents.close = now;
 
-            // Take C:Acknowledged patches of the prior transaction.
             let connector_patches = match tail {
                 Tail::Done(done) => std::mem::take(&mut done.shard_patches),
                 _ => unreachable!("may_close requires TailFSM::Done"),
@@ -469,10 +356,82 @@ impl HeadExtend {
         }
 
         if let Some(wake_after) = wake_after {
-            (Action::Sleep { wake_after }, Head::Extend(self))
+            (Action::Sleep { wake_after }, Head::Idle(self))
         } else {
-            (Action::Idle, Head::Extend(self))
+            (Action::Idle, Head::Idle(self))
         }
+    }
+}
+
+/// HeadExtend waits for Loaded responses from all shards, then returns to
+/// HeadIdle for close-policy evaluation.
+#[derive(Debug)]
+pub struct HeadExtend {
+    /// HeadIdle state to return to once all Loaded responses arrive.
+    pub inner: HeadIdle,
+    /// Per-shard tracking of Loaded response receipt.
+    pub shard_loaded: Vec<bool>,
+}
+
+impl HeadExtend {
+    pub fn step(mut self, shard_rx: &mut Option<(usize, proto::Materialize)>) -> (Action, Head) {
+        if let Some((
+            shard_index,
+            proto::Materialize {
+                loaded: Some(loaded),
+                ..
+            },
+        )) = shard_rx
+            && self.shard_loaded.get(*shard_index) == Some(&false)
+        {
+            let proto::materialize::Loaded {
+                bindings,
+                combiner_usage_bytes,
+            } = std::mem::take(loaded);
+
+            for proto::materialize::loaded::Binding {
+                index,
+                max_key_delta,
+                max_source_clock,
+                min_source_clock,
+                sourced_bytes_total,
+                sourced_docs_total,
+            } in bindings
+            {
+                let min_source_clock = uuid::Clock::from_u64(min_source_clock);
+                let max_source_clock = uuid::Clock::from_u64(max_source_clock);
+                let extent = self.inner.extents.bindings.entry(index).or_default();
+
+                extent.max_key_delta = std::mem::take(&mut extent.max_key_delta).max(max_key_delta);
+
+                if extent.sourced.docs_total == 0 {
+                    extent.max_source_clock = max_source_clock;
+                    extent.min_source_clock = min_source_clock;
+                } else {
+                    extent.max_source_clock = extent.max_source_clock.max(max_source_clock);
+                    extent.min_source_clock = extent.min_source_clock.min(min_source_clock);
+                }
+                extent.sourced.bytes_total += sourced_bytes_total;
+                extent.sourced.docs_total += sourced_docs_total;
+            }
+            self.inner.combiner_usage_bytes[*shard_index] = combiner_usage_bytes;
+
+            // Mark received and consume `shard_rx`.
+            self.shard_loaded[*shard_index] = true;
+            _ = shard_rx.take();
+
+            if self.shard_loaded.iter().all(|b| *b) {
+                self.shard_loaded.clear(); // All received.
+            }
+        }
+
+        if !self.shard_loaded.is_empty() {
+            return (Action::Idle, Head::Extend(self));
+        }
+
+        // All shards have loaded.
+        // Re-poll immediately so HeadIdle evaluates the close policy now.
+        return (Action::PollAgain, Head::Idle(self.inner));
     }
 }
 
@@ -631,7 +590,7 @@ impl HeadStore {
         {
             let proto::materialize::Stored { bindings } = std::mem::take(stored);
 
-            for crate::proto::materialize::stored::Binding {
+            for proto::materialize::stored::Binding {
                 index,
                 stored_bytes_total,
                 stored_docs_total,
@@ -880,8 +839,8 @@ impl HeadStartCommit {
             (
                 Action::Rotate { pending },
                 Head::Idle(HeadIdle {
-                    idempotent_replay: false,
                     last_close: close,
+                    ..Default::default()
                 }),
             )
         };
@@ -1424,7 +1383,7 @@ mod tests {
 
         // ===== Phase 1: txn 1 lifecycle =====
 
-        // HeadIdle observes a ready Frontier and broadcasts L:Load.
+        // HeadIdle evaluates close policy: may_extend=true, frontier ready → Load.
         ctx.ready_frontier = Some(shuffle::Frontier::default());
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
@@ -1437,27 +1396,33 @@ mod tests {
         head = h;
         assert!(matches!(head, Head::Extend(_)));
 
-        // A second ready Frontier becomes available before Loaded(1) arrives —
-        // simulating the actor's loop pre-fetching the next frontier while
-        // awaiting the prior round's Loaded responses.
+        // Loaded(1) completes the Load round → HeadExtend re-polls into HeadIdle.
+        // A second frontier is available; HeadIdle extends rather than closes.
         ctx.ready_frontier = Some(shuffle::Frontier::default());
         ctx.shard_rx = Some(mk_loaded(1));
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
-        // With both inputs available the FSM extends rather than closes.
+        assert!(matches!(action, Action::PollAgain));
+        assert!(matches!(head, Head::Idle(_)));
+
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
         assert!(matches!(action, Action::Load { .. }));
         assert!(matches!(head, Head::Extend(_)));
 
         // Second Load round: Loaded x2 arrive without another frontier queued.
-        // After the final Loaded the close-policy fires: ready_frontier is
-        // None and may_close is true (Tail::Done), so
-        // HeadExtend transitions straight into HeadFlush.
+        // HeadExtend re-polls into HeadIdle; close-policy fires (Tail::Done) → Flush.
         ctx.shard_rx = Some(mk_loaded(0));
         let (_action, h) = ctx.step_head(head, &mut tail);
         head = h;
         assert!(matches!(head, Head::Extend(_)));
 
         ctx.shard_rx = Some(mk_loaded(1));
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        assert!(matches!(action, Action::PollAgain));
+        assert!(matches!(head, Head::Idle(_)));
+
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
         assert!(matches!(action, Action::Flush { .. }));
@@ -1516,7 +1481,7 @@ mod tests {
           "_meta": {},
           "shard": {},
           "ts": "2023-11-14T22:13:20.000000004+00:00",
-          "openSecondsTotal": 0.000000016,
+          "openSecondsTotal": 0.000000024,
           "txnCount": 1,
           "materialize": {
             "test/collection": {
@@ -1605,7 +1570,7 @@ mod tests {
         assert!(matches!(action, Action::Load { .. }));
         assert!(matches!(head, Head::Extend(_)));
 
-        // Head receives Loaded from shard 0 (one of two).
+        // Head receives Loaded(0) (one of two); HeadExtend waits for Loaded(1).
         ctx.shard_rx = Some(mk_loaded(0));
         let (_action, h) = ctx.step_head(head, &mut tail);
         head = h;
@@ -1643,22 +1608,27 @@ mod tests {
         assert!(matches!(tail, Tail::WriteIntents(_)));
 
         // --- End interleave; Head receives Loaded(1) to complete the round. ---
+        // HeadExtend re-polls into HeadIdle; a new frontier is available → extend.
 
-        ctx.shard_rx = Some(mk_loaded(1));
-        let (_action, h) = ctx.step_head(head, &mut tail);
-        head = h;
-
-        // Extend txn 2 with another ready Frontier (Tail still in WriteIntents).
         ctx.ready_frontier = Some(shuffle::Frontier::default());
+        ctx.shard_rx = Some(mk_loaded(1));
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        assert!(matches!(action, Action::PollAgain));
+        assert!(matches!(head, Head::Idle(_)));
+
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
         assert!(matches!(action, Action::Load { .. }));
+        assert!(matches!(head, Head::Extend(_)));
 
+        // Second Load round of txn 2: Loaded x2 → HeadIdle.
         for s in 0..2 {
             ctx.shard_rx = Some(mk_loaded(s));
             let (_action, h) = ctx.step_head(head, &mut tail);
             head = h;
         }
+        assert!(matches!(head, Head::Idle(_)));
 
         // ===== Phase 3: stop signal; drain Tail through trigger to Done =====
 
@@ -1690,7 +1660,7 @@ mod tests {
         // Drive close via policy this time (Phase 1 covered `close_requested`).
         // Shrinking `open_duration.end` below the current `open_age` flips
         // `policy_extend` to false, which lets `policy_close` trip and (under
-        // `stopping`) suppresses extend so Head closes on the next step.
+        // `stopping`) suppresses extend so HeadIdle closes on the next step.
         ctx.task.close_policy.open_duration.end = Duration::from_nanos(1);
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
@@ -1775,24 +1745,33 @@ mod tests {
 
         for (i, (per_shard_keys, expected)) in cycles.iter().enumerate() {
             for (shard, key) in per_shard_keys.iter().enumerate() {
-                // Queue the next frontier alongside the last Loaded so the FSM
-                // extends back into a fresh Load cycle rather than closing.
-                // Mirrors the actor's pre-fetch pattern in `happy_path`.
-                if shard + 1 == per_shard_keys.len() {
-                    ctx.ready_frontier = Some(shuffle::Frontier::default());
-                }
                 ctx.shard_rx = Some(mk_loaded_with_key(shard, *key));
                 let (_a, h) = ctx.step_head(head, &mut tail);
                 head = h;
             }
+            // All shards loaded → HeadExtend returned to HeadIdle.
+            assert!(
+                matches!(head, Head::Idle(_)),
+                "expected Head::Idle after cycle {i}",
+            );
             let aggregated = match &head {
-                Head::Extend(s) => s.extents.bindings[&0].max_key_delta.clone(),
-                other => panic!("expected Head::Extend after cycle {i}, got {other:?}"),
+                Head::Idle(s) => s.extents.bindings[&0].max_key_delta.clone(),
+                other => panic!("expected Head::Idle after cycle {i}, got {other:?}"),
             };
             assert_eq!(
                 aggregated,
                 Bytes::from_static(expected),
                 "after cycle {i} keys={per_shard_keys:?}",
+            );
+
+            // Queue next frontier and let HeadIdle extend into the next Load cycle.
+            ctx.ready_frontier = Some(shuffle::Frontier::default());
+            let (_a, h) = ctx.step_head(head, &mut tail);
+            head = h;
+            assert!(
+                matches!(head, Head::Extend(_)),
+                "expected Head::Extend at start of cycle {}",
+                i + 1,
             );
         }
     }

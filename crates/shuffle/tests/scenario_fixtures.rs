@@ -102,7 +102,10 @@ fn make_publisher(
         bindings,
         factory,
         producer,
-        uuid::Clock::default(),
+        // Deterministic base clock for reproducible snapshots. Must be >=
+        // UNIX_EPOCH so document clocks clear a binding's default `not_before`
+        // floor (also UNIX_EPOCH) and are appended to shard logs.
+        uuid::Clock::UNIX_EPOCH,
     )
 }
 
@@ -1003,7 +1006,7 @@ async fn partition_filtered_hints(
 
 /// Clock-window filtering: set `not_before` on binding 0 (apples) to a
 /// future clock so all documents are filtered (the Publisher starts from
-/// Clock::default(), so document clocks are near epoch). Binding 1 (bananas)
+/// Clock::UNIX_EPOCH, so document clocks are near epoch). Binding 1 (bananas)
 /// is unfiltered.
 ///
 /// Verify that filtered documents are NOT yielded by the reader, but the
@@ -1020,7 +1023,7 @@ async fn clock_window_filtering(
     std::fs::create_dir_all(&scenario_dir).unwrap();
 
     // Set not_before on binding 0 to 1 second after unix epoch. Document
-    // clocks start from Clock::default() (unix epoch) and tick forward by
+    // clocks start from Clock::UNIX_EPOCH and tick forward by
     // nanoseconds, so all clocks are well below 1 second — meaning
     // `clock >= not_before` is false, suppressing append while preserving
     // flush/progress.
