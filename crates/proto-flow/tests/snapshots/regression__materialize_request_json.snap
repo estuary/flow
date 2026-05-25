@@ -517,7 +517,7 @@ expression: json_test(msg)
     "keyPacked": "VkseCQ=="
   },
   "flush": {
-    "connectorStatePatches": [{"flushed":1}]
+    "statePatches": [{"flushed":1}]
   },
   "store": {
     "binding": 3,
@@ -556,10 +556,10 @@ expression: json_test(msg)
         "an/ack/journal": "AwQCBQ=="
       }
     },
-    "connectorStatePatches": [{"started":"commit"}]
+    "statePatches": [{"started":"commit"}]
   },
   "acknowledge": {
-    "connectorStatePatches": [{"acked":true}]
+    "statePatches": [{"acked":true}]
   },
   "$internal": "EgJIaRgB"
 }

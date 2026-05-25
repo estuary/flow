@@ -328,7 +328,7 @@ impl Actor {
         {
             self.connector_pending.push(materialize::Request {
                 flush: Some(materialize::request::Flush {
-                    connector_state_patches_json: connector_patches_json,
+                    state_patches_json: connector_patches_json,
                 }),
                 ..Default::default()
             });
@@ -364,7 +364,7 @@ impl Actor {
             self.connector_pending.push(materialize::Request {
                 start_commit: Some(materialize::request::StartCommit {
                     runtime_checkpoint: connector_checkpoint,
-                    connector_state_patches_json: connector_patches_json,
+                    state_patches_json: connector_patches_json,
                 }),
                 ..Default::default()
             });
@@ -374,7 +374,7 @@ impl Actor {
         {
             self.connector_pending.push(materialize::Request {
                 acknowledge: Some(materialize::request::Acknowledge {
-                    connector_state_patches_json: connector_patches_json,
+                    state_patches_json: connector_patches_json,
                 }),
                 ..Default::default()
             });
@@ -582,10 +582,7 @@ mod tests {
         _ = actor.try_connector_tx();
 
         let request = connector_rx.recv().await.unwrap();
-        assert_eq!(
-            request.acknowledge.unwrap().connector_state_patches_json,
-            patches
-        );
+        assert_eq!(request.acknowledge.unwrap().state_patches_json, patches);
 
         let mut phase = make_idle_phase();
         actor
@@ -690,7 +687,7 @@ mod tests {
 
         let req = actor_to_conn_rx.recv().await.unwrap();
         assert_eq!(
-            req.acknowledge.unwrap().connector_state_patches_json,
+            req.acknowledge.unwrap().state_patches_json,
             Bytes::from_static(br#"[{"ack":1}]"#),
         );
 
@@ -722,7 +719,7 @@ mod tests {
 
         let req = actor_to_conn_rx.recv().await.unwrap();
         assert_eq!(
-            req.flush.unwrap().connector_state_patches_json,
+            req.flush.unwrap().state_patches_json,
             Bytes::from_static(br#"[{"f":1}]"#),
         );
 
@@ -770,10 +767,7 @@ mod tests {
 
         let req = actor_to_conn_rx.recv().await.unwrap();
         let sc = req.start_commit.unwrap();
-        assert_eq!(
-            sc.connector_state_patches_json,
-            Bytes::from_static(br#"[{"sc":1}]"#),
-        );
+        assert_eq!(sc.state_patches_json, Bytes::from_static(br#"[{"sc":1}]"#),);
 
         conn_to_actor_tx
             .send(Ok(materialize::Response {
