@@ -168,10 +168,18 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 			}
 		}
 	case ops.TaskType_derivation.String():
-		if d, err := newDeriveApp(f, shard, rec); err != nil {
-			return nil, err
+		if useRuntimeV2(shard.Spec().LabelSet) {
+			if d, err := newDeriveAppV2(f, shard, rec); err != nil {
+				return nil, err
+			} else {
+				return d, nil
+			}
 		} else {
-			return d, nil
+			if d, err := newDeriveApp(f, shard, rec); err != nil {
+				return nil, err
+			} else {
+				return d, nil
+			}
 		}
 	case ops.TaskType_materialization.String():
 		if useRuntimeV2(shard.Spec().LabelSet) {
