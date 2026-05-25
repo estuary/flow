@@ -59,8 +59,8 @@ pub struct Projection {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Inference {
     /// The possible types for this location.
-    /// Subset of ["null", "boolean", "object", "array", "integer", "numeric",
-    /// "string"].
+    /// Subset of \["null", "boolean", "object", "array", "integer", "numeric",
+    /// "string"\].
     #[prost(string, repeated, tag = "1")]
     pub types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, optional, tag = "3")]
@@ -159,8 +159,8 @@ pub mod inference {
         #[prost(uint32, tag = "3")]
         pub max_items: u32,
         /// The possible types of items contained in this array.
-        /// Subset of ["null", "boolean", "object", "array", "integer", "numeric",
-        /// "string"].
+        /// Subset of \["null", "boolean", "object", "array", "integer", "numeric",
+        /// "string"\].
         #[prost(string, repeated, tag = "4")]
         pub item_types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
@@ -388,7 +388,7 @@ pub mod collection_spec {
     pub mod derivation {
         /// Transforms of the derivation.
         ///
-        /// Next tag: 14.
+        /// Next tag: 15.
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Transform {
             /// Stable and unique name of this transform.
@@ -435,6 +435,12 @@ pub mod collection_spec {
             /// Every increment of this counter results in a new backfill.
             #[prost(uint32, tag = "13")]
             pub backfill: u32,
+            /// Stable key under which this transform's runtime state is indexed.
+            /// Computed from the transform name and backfill counter, and forms the
+            /// final segment of `journal_read_suffix`. Parallels the `state_key` of
+            /// CaptureSpec and MaterializationSpec bindings.
+            #[prost(string, tag = "14")]
+            pub state_key: ::prost::alloc::string::String,
         }
         #[derive(
             Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
@@ -529,7 +535,7 @@ pub struct FieldSelection {
     #[prost(string, tag = "3")]
     pub document: ::prost::alloc::string::String,
     /// Additional configuration, keyed by fields included in |keys|, |values|, or
-    /// |document|. Values are arbitrary JSON-encoded objects.
+    /// \|document|. Values are arbitrary JSON-encoded objects.
     #[prost(btree_map = "string, bytes", tag = "4")]
     pub field_config_json_map: ::prost::alloc::collections::BTreeMap<
         ::prost::alloc::string::String,

@@ -214,7 +214,8 @@ expression: json_test(msg)
         "journalReadSuffix": "derive/a/collection/transform_name.v2",
         "notBefore": "2023-08-11T03:00:27+00:00",
         "notAfter": "2023-03-28T10:40:00+00:00",
-        "backfill": 2
+        "backfill": 2,
+        "stateKey": "transform_name.v2"
       }
     ],
     "shuffleKeyTypes": [

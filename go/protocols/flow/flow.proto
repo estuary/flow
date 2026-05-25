@@ -262,7 +262,7 @@ message CollectionSpec {
     ];
     // Transforms of the derivation.
     message Transform {
-      // Next tag: 14.
+      // Next tag: 15.
 
       // Stable and unique name of this transform.
       string name = 1 [ (gogoproto.casttype) = "Transform" ];
@@ -301,6 +301,11 @@ message CollectionSpec {
       // Backfill counter for this transform.
       // Every increment of this counter results in a new backfill.
       uint32 backfill = 13;
+      // Stable key under which this transform's runtime state is indexed.
+      // Computed from the transform name and backfill counter, and forms the
+      // final segment of `journal_read_suffix`. Parallels the `state_key` of
+      // CaptureSpec and MaterializationSpec bindings.
+      string state_key = 14;
     }
     repeated Transform transforms = 3 [ (gogoproto.nullable) = false ];
     // JSON types of shuffle key components extracted by the transforms of this derivation.

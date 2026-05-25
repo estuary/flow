@@ -247,6 +247,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
                 nanos: 0,
             }),
             backfill: 2,
+            state_key: "transform_name.v2".to_string(),
         }],
         shuffle_key_types: vec![
             flow::collection_spec::derivation::ShuffleType::String as i32,

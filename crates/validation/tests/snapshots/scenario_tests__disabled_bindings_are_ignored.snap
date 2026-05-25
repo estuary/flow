@@ -1588,6 +1588,7 @@ Outcome {
                                 not_before: None,
                                 not_after: None,
                                 backfill: 0,
+                                state_key: "",
                             },
                         ],
                         shuffle_key_types: [],

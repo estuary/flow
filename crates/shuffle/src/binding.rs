@@ -159,6 +159,7 @@ impl Binding {
             read_only,
             shuffle_key,
             shuffle_lambda_config_json,
+            state_key: _,
         } = spec;
 
         let flow::CollectionSpec {
