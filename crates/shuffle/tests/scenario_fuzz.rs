@@ -332,7 +332,10 @@ fn make_publisher(
         bindings,
         factory,
         producer,
-        uuid::Clock::default(),
+        // Deterministic base clock. Must be >= UNIX_EPOCH so document clocks
+        // clear a binding's default `not_before` floor (also UNIX_EPOCH) and
+        // are appended to shard logs.
+        uuid::Clock::UNIX_EPOCH,
     )
 }
 

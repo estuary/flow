@@ -67,7 +67,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
         vec![binding],
         factory,
         uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]),
-        uuid::Clock::default(),
+        uuid::Clock::UNIX_EPOCH,
     );
 
     // Enqueue data documents across logical partitions.

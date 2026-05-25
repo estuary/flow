@@ -7,15 +7,8 @@
 //! HeadFSM drives the currently-accumulating combiner:
 //!   Stop <- Idle <-> Extend
 //!
-//! TailFSM drives the prior transaction after rotation:
+//! TailFSM drives an accumulated transaction towards commit after rotation:
 //!   Begin -> Drain -> WriteStats -> Persist -> Recover -> (Acknowledge) -> WriteIntents -> Done
-//! Acknowledge is visited only for connectors that requested explicit
-//! acknowledgements; others step from Recover straight to WriteIntents.
-//!
-//! Captured and SourcedSchema messages begin or continue a connector checkpoint
-//! sequence, while Checkpoint completes it. Head closes only at sequence
-//! boundaries unless it must inject a synthetic checkpoint to enforce the hard
-//! transaction byte bound.
 //!
 //! Head and Tail are pipelined: while Tail commits transaction K, Head
 //! accumulates K+1 into the other combiner. A transaction therefore batches
@@ -33,6 +26,14 @@
 //! every Persist, and also starts there — seeded with intents recovered from
 //! RocksDB — so a prior session that committed but crashed before its
 //! WriteIntents completes that interrupted commit before new work begins.
+//!
+//! Acknowledge is visited only for connectors that requested explicit
+//! acknowledgements; others step from Recover straight to WriteIntents.
+//!
+//! Captured and SourcedSchema messages begin or continue a connector checkpoint
+//! sequence, while Checkpoint completes it. Head closes only at sequence
+//! boundaries unless it must inject a synthetic checkpoint to enforce the hard
+//! transaction byte bound.
 
 use super::Task;
 use crate::leader::close_policy;
@@ -249,7 +250,7 @@ impl Tail {
     }
 }
 
-/// Transaction state while between connector checkpoint sequences.
+/// HeadIdle evaluates the close policy between connector checkpoint sequences.
 #[derive(Debug, Default)]
 pub struct HeadIdle {
     /// Accumulated extents of this transaction.
@@ -260,7 +261,7 @@ pub struct HeadIdle {
 
 impl HeadIdle {
     fn step(
-        self,
+        mut self,
         now: uuid::Clock,
         close_requested: &mut bool,
         combiner_bytes: u64,
@@ -269,10 +270,11 @@ impl HeadIdle {
         tail: &Tail,
         task: &Task,
     ) -> (Action, Head) {
+        let is_open = self.extents.checkpoints != 0;
         let tail_done = matches!(tail, Tail::Done(_));
 
         // Termination condition: stay unstarted if `stopping`; let Tail finish.
-        if stopping && self.extents.checkpoints == 0 {
+        if stopping && !is_open {
             if tail_done {
                 return (Action::PollAgain, Head::Stop);
             } else {
@@ -280,14 +282,18 @@ impl HeadIdle {
             }
         }
         // Restart condition: hold until `task.restart`, and then Stop this session.
-        if matches!(ready, ConnectorRx::Eof) && self.extents.checkpoints == 0 {
+        if matches!(ready, ConnectorRx::Eof) && !is_open {
             return match uuid::Clock::delta(task.restart, now) {
                 Duration::ZERO => (Action::PollAgain, Head::Stop),
                 wake_after => (Action::Sleep { wake_after }, Head::Idle(self)),
             };
         }
+        // Clear stale close_requested from after prior transaction close.
+        if !is_open {
+            *close_requested = false;
+        }
 
-        let open_age = if self.extents.checkpoints != 0 {
+        let open_age = if is_open {
             uuid::Clock::delta(now, self.extents.open)
         } else {
             Duration::ZERO
@@ -321,30 +327,22 @@ impl HeadIdle {
                     | ConnectorRx::SourcedSchema { .. }
             )
         {
-            let Self {
-                mut extents,
-                last_close,
-            } = self;
-
-            if extents.checkpoints == 0 {
-                extents.open = now;
+            if !is_open {
+                self.extents.open = now;
             }
             return (
                 Action::PollAgain,
                 Head::Extend(HeadExtend {
-                    extents,
+                    inner: self,
                     sequence_bytes: 0,
-                    last_close,
                 }),
             );
         }
 
         // Should we begin to close the transaction?
-        if self.extents.checkpoints == 0 {
-            // We haven't begun this transaction yet and must await input.
+        if !is_open {
             return (Action::Idle, Head::Idle(self));
         } else if may_close {
-            *close_requested = false;
             let Self { mut extents, .. } = self;
             extents.close = now;
 
@@ -357,7 +355,6 @@ impl HeadIdle {
             );
         }
 
-        // Compute next sleep deadline.
         if let Some(wake_after) = wake_after {
             (Action::Sleep { wake_after }, Head::Idle(self))
         } else {
@@ -366,25 +363,23 @@ impl HeadIdle {
     }
 }
 
-/// Transaction state gathered while Head is loading the accumulating combiner.
-#[derive(Debug, Default, Clone)]
+/// HeadExtend waits for a connector sequence to complete, then returns to
+/// HeadIdle for close-policy evaluation.
+#[derive(Debug, Default)]
 pub struct HeadExtend {
-    /// Accumulating extents of this transaction.
-    pub extents: Extents,
+    /// HeadIdle state to return to once the checkpoint sequence completes.
+    pub inner: HeadIdle,
     /// Captured document bytes of *this* checkpoint sequence (not the txn),
     /// used to enforce an upper bound before synthetic checkpoint.
     pub sequence_bytes: u64,
-    /// Clock of the last transaction close.
-    pub last_close: uuid::Clock,
 }
 
 impl HeadExtend {
     pub fn step(mut self, ready: &mut ConnectorRx, task: &Task) -> (Action, Head) {
         if self.sequence_bytes > task.sequence_bytes_limit {
             let Self {
-                mut extents,
+                mut inner,
                 sequence_bytes,
-                last_close,
             } = self;
 
             service_kit::event!(
@@ -401,37 +396,34 @@ impl HeadExtend {
             // HeadIdle refuses to extend a transaction that already injected a
             // synthetic checkpoint, so we reach this at most once per txn.
             assert!(
-                !extents.synthetic_checkpoint,
+                !inner.extents.synthetic_checkpoint,
                 "a second synthetic checkpoint must never be injected into one transaction",
             );
-            extents.checkpoints += 1;
-            extents.synthetic_checkpoint = true;
+            inner.extents.checkpoints += 1;
+            inner.extents.synthetic_checkpoint = true;
 
-            return (
-                Action::Idle,
-                Head::Idle(HeadIdle {
-                    extents,
-                    last_close,
-                }),
-            );
+            return (Action::Idle, Head::Idle(inner));
         }
 
         match std::mem::take(ready) {
             ConnectorRx::Pending => (Action::Idle, Head::Extend(self)),
             ConnectorRx::Captured(captured) => {
-                let extent = self.extents.bindings.entry(captured.binding).or_default();
+                let extents = &mut self.inner.extents;
+
+                let extent = extents.bindings.entry(captured.binding).or_default();
                 extent.captured.docs_total += 1;
                 extent.captured.bytes_total += captured.doc_json.len() as u64;
 
                 self.sequence_bytes += captured.doc_json.len() as u64;
-                self.extents.captured_bytes += captured.doc_json.len() as u64;
-                self.extents.captured_docs += 1;
+                extents.captured_bytes += captured.doc_json.len() as u64;
+                extents.captured_docs += 1;
 
                 (Action::Captured { captured }, Head::Extend(self))
             }
             ConnectorRx::SourcedSchema { binding, shape } => {
-                let entry = self
-                    .extents
+                let extents = &mut self.inner.extents;
+
+                let entry = extents
                     .sourced_schemas
                     .entry(binding)
                     .or_insert(doc::Shape::nothing());
@@ -441,20 +433,13 @@ impl HeadExtend {
             }
             ConnectorRx::Checkpoint(checkpoint) => {
                 let Self {
-                    mut extents,
+                    mut inner,
                     sequence_bytes: _,
-                    last_close,
                 } = self;
 
-                extents.checkpoints += 1;
+                inner.extents.checkpoints += 1;
 
-                (
-                    Action::Checkpoint { checkpoint },
-                    Head::Idle(HeadIdle {
-                        extents,
-                        last_close,
-                    }),
-                )
+                (Action::Checkpoint { checkpoint }, Head::Idle(inner))
             }
             ConnectorRx::Eof => (
                 Action::Error(anyhow::anyhow!(
@@ -570,16 +555,16 @@ impl TailWriteStats {
             .saturating_sub(u32::from(extents.synthetic_checkpoint));
 
         // Persist -> Recover (a no-op hop) -> Acknowledge.
-        (
-            Action::Persist { persist },
-            Tail::Persist(TailPersist {
-                next_action: Action::PollAgain,
-                next_state: Box::new(Tail::Recover(TailRecover {
-                    checkpoints,
-                    ack_intents,
-                })),
-            }),
-        )
+        let recover_state = TailRecover {
+            checkpoints,
+            ack_intents,
+        };
+        let persist_state = TailPersist {
+            next_action: Action::PollAgain,
+            next_state: Box::new(Tail::Recover(recover_state)),
+        };
+
+        (Action::Persist { persist }, Tail::Persist(persist_state))
     }
 }
 
@@ -941,8 +926,8 @@ mod tests {
         assert!(matches!(action, Action::Checkpoint { .. }));
         assert!(matches!(head, Head::Idle(_)));
 
-        // Close on request. `ready` is Pending, Tail is Done, so Head rotates and
-        // clears `close_requested`.
+        // Close on request. `ready` is Pending and Tail is Done, so Head rotates.
+        // The now-stale close request is cleared when the next idle Head is evaluated.
         ctx.close_requested = true;
         let (action, h) = ctx.step_head(head, &tail);
         head = h;
@@ -951,8 +936,13 @@ mod tests {
             other => panic!("expected Rotate, got {other:?}"),
         };
         assert!(matches!(head, Head::Idle(_)));
-        assert!(!ctx.close_requested);
         tail = Tail::Begin(TailBegin { extents });
+
+        let (action, h) = ctx.step_head(head, &tail);
+        head = h;
+        assert!(matches!(action, Action::Idle));
+        assert!(matches!(head, Head::Idle(_)));
+        assert!(!ctx.close_requested);
 
         // ===== Phase 2: commit txn 1 while Head pipelines txn 2 =====
 
@@ -1156,7 +1146,6 @@ mod tests {
             other => panic!("expected Rotate, got {other:?}"),
         };
         assert!(matches!(head, Head::Idle(_)));
-        assert!(!ctx.close_requested);
         tail = Tail::Begin(TailBegin { extents });
 
         // Commit txn 2 with all IO completing immediately (holds were covered
