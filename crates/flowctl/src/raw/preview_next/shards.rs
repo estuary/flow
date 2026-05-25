@@ -54,6 +54,22 @@ pub fn build_capture_join_shards(
     build_join_shards(count, &spec.name, labels, "preview-capture")
 }
 
+/// Build the per-shard `proto::join::Shard` list used by the derive preview
+/// driver. Like materialize, derivations have a leader and a shuffle topology;
+/// the synthetic split is on key only (full r-clock range).
+pub fn build_derive_join_shards(
+    count: u32,
+    spec: &flow::CollectionSpec,
+) -> anyhow::Result<Vec<proto::join::Shard>> {
+    let labels = spec
+        .derivation
+        .as_ref()
+        .and_then(|d| d.shard_template.as_ref())
+        .and_then(|template| template.labels.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("built derivation is missing shard labels"))?;
+    build_join_shards(count, &spec.name, labels, "preview-derive")
+}
+
 fn build_join_shards(
     count: u32,
     task_name: &str,

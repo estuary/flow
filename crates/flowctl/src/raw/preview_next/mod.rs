@@ -10,6 +10,7 @@ use crate::local_specs;
 use anyhow::Context;
 
 mod capture_driver;
+mod derive_driver;
 mod driver;
 mod services;
 mod shards;
@@ -69,6 +70,7 @@ pub struct Preview {
 enum TaskSpec {
     Capture(proto_flow::flow::CaptureSpec),
     Materialization(proto_flow::flow::MaterializationSpec),
+    Derivation(proto_flow::flow::CollectionSpec),
 }
 
 impl Preview {
@@ -136,7 +138,7 @@ impl Preview {
                 run_with_timeout(session_loop, timeout, &stop_token).await
             }
             TaskSpec::Materialization(spec) => {
-                let run = services::Run::start_materialize(
+                let run = services::Run::start_with_shuffle_leader(
                     ctx,
                     network.clone(),
                     *log_json,
@@ -147,6 +149,21 @@ impl Preview {
                 .await?;
                 let session_loop =
                     driver::run_sessions(&run, &spec, session_targets, stop_token.clone());
+                tokio::pin!(session_loop);
+                run_with_timeout(session_loop, timeout, &stop_token).await
+            }
+            TaskSpec::Derivation(spec) => {
+                let run = services::Run::start_with_shuffle_leader(
+                    ctx,
+                    network.clone(),
+                    *log_json,
+                    *shards,
+                    *debug_port,
+                    ctx.registry.clone(),
+                )
+                .await?;
+                let session_loop =
+                    derive_driver::run_sessions(&run, &spec, session_targets, stop_token.clone());
                 tokio::pin!(session_loop);
                 run_with_timeout(session_loop, timeout, &stop_token).await
             }
@@ -216,22 +233,6 @@ fn resolve_task(validations: &tables::Validations, name: Option<&str>) -> anyhow
         );
     }
 
-    // Reject derivations explicitly — runtime-next derive isn't wired into
-    // preview-next yet.
-    if let Some(target) = name {
-        if validations.built_collections.iter().any(|c| {
-            c.collection.as_str() == target
-                && c.spec
-                    .as_ref()
-                    .map(|s| s.derivation.is_some())
-                    .unwrap_or(false)
-        }) {
-            anyhow::bail!(
-                "runtime-next preview supports captures and materializations only; derivations will be re-added before upstream merge",
-            );
-        }
-    }
-
     for row in validations.built_captures.iter() {
         if let Some(target) = name {
             if row.capture.as_str() != target {
@@ -252,10 +253,20 @@ fn resolve_task(validations: &tables::Validations, name: Option<&str>) -> anyhow
         return Ok(TaskSpec::Materialization(spec.clone()));
     }
 
-    if let Some(target) = name {
-        anyhow::bail!("could not find capture or materialization {target}");
+    for row in validations.built_collections.iter() {
+        if let Some(target) = name {
+            if row.collection.as_str() != target {
+                continue;
+            }
+        }
+        let Some(spec) = &row.spec else { continue };
+        if spec.derivation.is_some() {
+            return Ok(TaskSpec::Derivation(spec.clone()));
+        }
     }
-    anyhow::bail!(
-        "no capture or materialization in source; runtime-next preview supports captures and materializations only",
-    );
+
+    if let Some(target) = name {
+        anyhow::bail!("could not find capture, materialization, or derivation {target}");
+    }
+    anyhow::bail!("no capture, materialization, or derivation found in source");
 }

@@ -81,11 +81,12 @@ impl Run {
         })
     }
 
-    /// Resources for previewing a materialization: the capture set plus an
-    /// ephemeral tonic server hosting `runtime_next::Service` + `shuffle::Service`
-    /// and the shuffle log tempdir. Requires a logged-in flowctl token to read
-    /// source-journal documents.
-    pub async fn start_materialize(
+    /// Resources for previewing a materialization or derivation: the capture
+    /// set plus an ephemeral tonic server hosting `runtime_next::Service` +
+    /// `shuffle::Service` and the shuffle log tempdir. Requires a logged-in
+    /// flowctl token to read source-journal documents. Both task types drive
+    /// the same in-process Leader + Shuffle stack.
+    pub async fn start_with_shuffle_leader(
         ctx: &mut crate::CliContext,
         network: String,
         log_json: bool,
@@ -160,7 +161,7 @@ impl Run {
             %shuffle_log_dir,
             n_shards,
             debug_port = ?debug_port,
-            "preview materialize services started",
+            "preview leader + shuffle services started",
         );
 
         Ok(Self {

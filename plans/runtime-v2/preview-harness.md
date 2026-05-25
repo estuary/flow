@@ -14,11 +14,9 @@ is in development. They share most flags and the same test spec format.
 process-global `service_kit::Registry`). It does **not** go through the
 reactor or the runtime-sidecar process. Pass `--debug-port <port>` to
 mount the same handler dashboard the sidecar exposes on `--admin-port`,
-served loopback-only on `127.0.0.1:<port>/`. Both captures and
-materializations are supported (the capture path goes through
-`runtime_next::shard::Service::spawn_capture` — leaderless, identical to
-what the reactor's `captureAppV2` drives in production; `--shards N`
-fans out N independent capture shards in parallel). To exercise the full reactor path (including the sidecar
+served loopback-only on `127.0.0.1:<port>/`. Captures,
+materializations, and derivations are all supported.
+To exercise the full reactor path (including the sidecar
 admin surface), publish a task to a local data plane with
 `shards: { flags: { enable-runtime-v2: "true" } }` (the
 `estuary.dev/flag/enable-runtime-v2` shard label that `useRuntimeV2` in
@@ -301,11 +299,29 @@ A passing run leaves you with:
 | (Ctrl-C mid-session)                       | Clean tonic-server shutdown, tempdirs removed, no port left bound         |
 | `--name <a-capture>` against a capture spec | Capture session runs; `Joined → Opened → … → Stopped` ladder              |
 | `--debug-port 9999`                        | Loopback dashboard at `http://127.0.0.1:9999/` lists live handlers; `POST /debug/handlers/{id}/level/trace` flips one handler to TRACE |
-| `--name <derivation>` against a derivation | Error path: "runtime-next preview supports captures and materializations only…" |
+| `--name <derivation>` (SQLite)             | In-process derive-sqlite (no Docker); remote-authoritative — single-shard only |
+| `--name <derivation>` (TypeScript/Python)  | Image connector via Docker (`derive-typescript:dev` / `derive-python:dev`); codegen + Deno compile; needs the musl `flow-connector-init` (see Known issues) |
+| `--name <derivation> --shards 2`           | Multi-shard Join consensus + fan-out shuffle + leader cross-shard reduce (TypeScript; SQLite is rejected as single-shard) |
+| `--name <derivation> --sessions 2,2,2`     | Cross-session exactly-once recovery: RocksDB-authoritative (TS) or remote-authoritative checkpoint (SQLite); read frontier resumes without gaps |
 
-## Known issues / current state (as of branch `johnny/runtime-v2`)
+## Known issues / current state
 
 - A single connector log line at startup renders as nested ANSI — it
   comes from the legacy `runtime` crate's build-time validation path,
   which doesn't set `LOG_FORMAT=json`. All runtime-next per-shard
   connector logs render cleanly.
+
+- **Image connectors (TypeScript/Python derivations, image captures &
+  materializations) need a compatible `flow-connector-init`.** The
+  container runtime injects the host's `flow-connector-init` as the
+  entrypoint (`crates/runtime/src/container.rs`, via
+  `locate_bin::locate` — which prefers the binary *alongside* the
+  flowctl/reactor executable, then `$PATH`). If that build is
+  dynamically linked against a newer glibc than the connector image's
+  base, the container dies on exec with
+  `/flow-connector-init: ... GLIBC_2.3x not found`. Fix: build /
+  place the statically-linked **musl** `flow-connector-init`
+  (`cargo-target/x86_64-unknown-linux-musl/debug/flow-connector-init`,
+  `static-pie linked`) where `locate` finds it — e.g. copy it over
+  `cargo-target/debug/flow-connector-init`. In-process derive-sqlite is
+  unaffected (no container).
