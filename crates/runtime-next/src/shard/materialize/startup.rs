@@ -79,11 +79,11 @@ pub(super) async fn run<R, L: crate::LogHandler>(
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
     labeling: ops::proto::ShardLabeling,
+    leader_producer: proto_gazette::uuid::Producer,
     mut leader_rx: tonic::Streaming<proto::Materialize>,
     leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     log_level: ops::LogLevel,
     service: &crate::shard::Service<L>,
-    shard_id: String,
     shard_index: u32,
     shuffle_directory: String,
 ) -> anyhow::Result<Startup>
@@ -98,18 +98,24 @@ where
         } => task,
         other => return Err(verify.fail_msg(other)),
     };
-    // Shard zero (only) forwards L:Task to leader.
+    // Shard zero (only) forwards L:Task to the leader, stamping in the
+    // SessionLoop-stable producer the leader's Publisher should use.
     if shard_index == 0 {
         _ = leader_tx.send(proto::Materialize {
-            task: Some(l_task.clone()),
+            task: Some(proto::Task {
+                publisher_id: bytes::Bytes::copy_from_slice(leader_producer.as_bytes()),
+                ..l_task.clone()
+            }),
             ..Default::default()
         });
     }
 
     let proto::Task {
         max_transactions: _,
-        preview,
+        preview: _,
         spec: spec_bytes,
+        sqlite_vfs_uri: _,
+        publisher_id: _,
     } = l_task;
 
     // Build task definition.
@@ -120,25 +126,6 @@ where
     // Reserved for future logging; the actor and scan/drain activities
     // don't presently need shard identity.
     let _ = shard_ref;
-
-    // Initialize publisher.
-    let publisher = if preview {
-        crate::Publisher::new_preview([])
-    } else {
-        crate::Publisher::new_real(
-            shard_id, // Shard ID is AuthZ subject.
-            &service.publisher_factory,
-            &labeling.stats_journal,
-            [], // No additional bindings.
-        )
-        .context("creating publisher")?
-    };
-    // TODO: Materialization shards don't publish journal documents — the leader
-    // handles all publishing. We construct the publisher here only as a
-    // working pattern/template for derivations, which do publish from the
-    // shard. Once derivations are implemented this construction stays there
-    // and the call here is removed.
-    drop(publisher);
 
     // Scan and send L:Recover state from RocksDB.
     let mut sorted_state_keys: Vec<(String, u32)> = bindings

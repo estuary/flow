@@ -43,7 +43,7 @@ mod task_service;
 pub use container::flow_runtime_protocol;
 
 pub use leader::Service;
-pub use publish::Publisher;
+pub use publish::{Publisher, new_producer};
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
 

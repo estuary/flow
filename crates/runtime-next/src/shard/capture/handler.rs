@@ -157,6 +157,10 @@ where
     // identity so a spec update that reorders bindings still resumes inference.
     let mut shapes_by_key: BTreeMap<String, doc::Shape> = BTreeMap::new();
 
+    // Producer identity for this shard's Publisher, selected once and held
+    // constant across every session of the loop.
+    let producer = crate::new_producer();
+
     while let Some(result) = controller_rx.next().await {
         let join = match verify.ok(result)? {
             proto::Capture {
@@ -171,6 +175,7 @@ where
             controller_tx,
             db,
             join,
+            producer,
             &mut shapes_by_key,
         )
         .await?;
@@ -185,6 +190,7 @@ async fn serve_session<R, L: crate::LogHandler>(
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     db: crate::shard::RocksDB,
     join: proto::Join,
+    producer: proto_gazette::uuid::Producer,
     shapes_by_key: &mut BTreeMap<String, doc::Shape>,
 ) -> anyhow::Result<crate::shard::RocksDB>
 where
@@ -201,6 +207,7 @@ where
         controller_tx,
         db,
         join,
+        producer,
         shapes_by_key,
         handler,
     )
@@ -214,6 +221,7 @@ async fn serve_session_inner<R, L: crate::LogHandler>(
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     db: crate::shard::RocksDB,
     join: proto::Join,
+    producer: proto_gazette::uuid::Producer,
     shapes_by_key: &mut BTreeMap<String, doc::Shape>,
     handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<crate::shard::RocksDB>
@@ -261,6 +269,8 @@ where
         spec,
         preview,
         max_transactions,
+        sqlite_vfs_uri: _,
+        publisher_id: _, // Captures are leaderless; the shard's own producer is used.
     } = match verify.not_eof(controller_rx.next().await)? {
         proto::Capture {
             task: Some(task), ..
@@ -350,6 +360,7 @@ where
     } else {
         crate::Publisher::new_real(
             shard_id,
+            producer,
             &service.publisher_factory,
             &labeling.stats_journal,
             collection_specs,
