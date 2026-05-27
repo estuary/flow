@@ -64,9 +64,7 @@ func LoadAllErrors(db *sql.DB) ([]Error, error) {
 	return out, err
 }
 
-// LoadAllCollections loads all collections, excluding tombstone rows
-// whose spec is NULL because the collection is being deleted by the
-// current publication.
+// LoadAllCollections loads all collections.
 func LoadAllCollections(db *sql.DB) ([]*pf.CollectionSpec, error) {
 	var out []*pf.CollectionSpec
 	var err = loadSpecs(db,
@@ -83,9 +81,7 @@ func LoadCollection(db *sql.DB, name string) (*pf.CollectionSpec, error) {
 	return out, loadOneSpec(db, `SELECT spec FROM built_collections WHERE collection = ?;`, out, name)
 }
 
-// LoadAllCaptures loads all captures, excluding tombstone rows whose
-// spec is NULL because the capture is being deleted by the current
-// publication.
+// LoadAllCaptures loads all captures.
 func LoadAllCaptures(db *sql.DB) ([]*pf.CaptureSpec, error) {
 	var out []*pf.CaptureSpec
 	var err = loadSpecs(db,
@@ -102,9 +98,7 @@ func LoadCapture(db *sql.DB, name string) (*pf.CaptureSpec, error) {
 	return out, loadOneSpec(db, `SELECT spec FROM built_captures WHERE capture = ?;`, out, name)
 }
 
-// LoadAllMaterializations loads all materializations, excluding
-// tombstone rows whose spec is NULL because the materialization is
-// being deleted by the current publication.
+// LoadAllMaterializations loads all materializations.
 func LoadAllMaterializations(db *sql.DB) ([]*pf.MaterializationSpec, error) {
 	var out []*pf.MaterializationSpec
 	var err = loadSpecs(db,
@@ -121,18 +115,7 @@ func LoadMaterialization(db *sql.DB, name string) (*pf.MaterializationSpec, erro
 	return out, loadOneSpec(db, `SELECT spec FROM built_materializations WHERE materialization = ?;`, out, name)
 }
 
-// LoadAllTests loads all tests, excluding tombstone rows whose spec
-// is NULL because the test is being deleted by the current publication.
-//
-// Without this filter, a publication that deletes a test (which the
-// Rust build layer represents as a row with model=None / spec=NULL,
-// per BuiltRow::is_delete in crates/tables/src/built.rs) would cause
-// the test runner to load an empty TestSpec and fail TestSpec.Validate
-// with "missing Name", e.g.
-//
-//   extracting from build: validating spec : missing Name
-//
-// This blocks `flowctl catalog delete` for any test spec.
+// LoadAllTests loads all tests.
 func LoadAllTests(db *sql.DB) ([]*pf.TestSpec, error) {
 	var out []*pf.TestSpec
 	var err = loadSpecs(db,
