@@ -93,6 +93,7 @@ pub struct MutationRoot(
     alert_configs::AlertConfigsMutation,
     alert_subscriptions::AlertSubscriptionsMutation,
     invite_links::InviteLinksMutation,
+    data_planes::DataPlanesMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {

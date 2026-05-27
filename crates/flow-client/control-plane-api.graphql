@@ -1,3 +1,17 @@
+type AWSPrivateLink {
+	region: String!
+	azIds: [String!]!
+	serviceName: String!
+	serviceRegion: String
+}
+
+input AWSPrivateLinkInput {
+	region: String!
+	azIds: [String!]!
+	serviceName: String!
+	serviceRegion: String
+}
+
 """
 Status of the abandonment evaluation for a task.
 """
@@ -310,6 +324,20 @@ type AutoDiscoverStatus {
 	This field is cleared as soon as a successful auto-discover is run.
 	"""
 	failure: AutoDiscoverFailure
+}
+
+type AzurePrivateLink {
+	serviceName: String!
+	location: String!
+	dnsName: String
+	resourceType: String
+}
+
+input AzurePrivateLinkInput {
+	serviceName: String!
+	location: String!
+	dnsName: String
+	resourceType: String
 }
 
 type BillingPaymentMethodPayload {
@@ -674,6 +702,25 @@ type DataPlane {
 	Azure application client ID for this data-plane.
 	"""
 	azureApplicationClientId: String
+	"""
+	AWS PrivateLink endpoint provisioning results, opaque JSON exported by
+	the data-plane controller. Empty when no AWS endpoints are provisioned.
+	"""
+	awsLinkEndpoints: [JSON!]!
+	"""
+	Azure Private Link endpoint provisioning results, opaque JSON.
+	"""
+	azureLinkEndpoints: [JSON!]!
+	"""
+	GCP Private Service Connect endpoint provisioning results, opaque JSON.
+	"""
+	gcpPscEndpoints: [JSON!]!
+	"""
+	Configured private link endpoints for this data-plane. Replacing this
+	list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
+	data-plane controller on its next poll.
+	"""
+	privateLinks: [PrivateLink!]!
 }
 
 """
@@ -758,6 +805,22 @@ type Error {
 type FieldProvenance {
 	path: String!
 	source: String
+}
+
+type GCPPrivateServiceConnect {
+	serviceAttachment: String!
+	region: String!
+	dnsZoneName: String!
+	dnsRecordNames: [String!]!
+	allPorts: Boolean!
+}
+
+input GCPPrivateServiceConnectInput {
+	serviceAttachment: String!
+	region: String!
+	dnsZoneName: String!
+	dnsRecordNames: [String!]!
+	allPorts: Boolean! = false
 }
 
 scalar Id
@@ -1186,6 +1249,21 @@ type MutationRoot {
 	The caller must have admin capability on the invite link's catalog prefix.
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
+	"""
+	Replaces the configured private link endpoints on a private data plane.
+	
+	The provided list overwrites the entire `private_links` column; partial
+	updates are intentionally not supported. The data-plane controller
+	converges to the new configuration on its next poll. Returns the desired
+	private links state. The `*LinkEndpoints` provisioning results are not echoed here:
+	they lag this write until the controller converges, so callers needing them re-query `dataPlanes`.
+	
+	Interim authorization: requires `read` on the private data-plane name.
+	This matches the existing data-plane deployment authorization shape and
+	will be replaced with `manage_dataplane` once the orthogonal capability
+	model lands.
+	"""
+	updateDataPlanePrivateLinks(dataPlaneName: String!, privateLinks: [PrivateLinkInput!]!): [PrivateLink!]!
 }
 
 """
@@ -1309,6 +1387,22 @@ input PrefixesBy {
 	Filter returned prefixes by user capability.
 	"""
 	minCapability: Capability!
+}
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+union PrivateLink = AWSPrivateLink | AzurePrivateLink | GCPPrivateServiceConnect
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+input PrivateLinkInput @oneOf {
+	aws: AWSPrivateLinkInput
+	azure: AzurePrivateLinkInput
+	gcp: GCPPrivateServiceConnectInput
 }
 
 """
@@ -1922,6 +2016,10 @@ directive @deprecated(reason: String = "No longer supported") on FIELD_DEFINITIO
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """
 directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one of its field be provided)
+"""
+directive @oneOf on INPUT_OBJECT
 """
 Directs the executor to skip this field or fragment when the `if` argument is true.
 """
