@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE data_planes\n               SET private_links = $2, updated_at = now()\n               WHERE data_plane_name = $1\n               RETURNING private_links as \"private_links!: Vec<serde_json::Value>\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "private_links!: Vec<serde_json::Value>",
+        "type_info": "JsonArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "JsonArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "85b146f39fee0ab26b92ff4e37ef0b891a8778542d1d46e39ecc9515e2c16810"
+}
