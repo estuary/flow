@@ -78,7 +78,7 @@ expression: "(selections, errors)"
     [
         Error {
             scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0,
-            error: raising an error because the/materialization specifies `onIncompatibleSchemaChange: abort`: conflict for field "f_incompatible": field is within the desired depth but connector cannot support this field without a back-fill (I'm an incompatible field),
+            error: raising an error because the/materialization specifies `onIncompatibleSchemaChange: abort`: conflict for field "f_incompatible": field is within the desired depth but connector cannot support this field without a backfill (I'm an incompatible field),
         },
     ],
 )

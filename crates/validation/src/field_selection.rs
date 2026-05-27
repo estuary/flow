@@ -5,6 +5,33 @@ use proto_flow::{flow, materialize};
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 
+/// Normalize the legacy `constraints` map and the new `projection_constraints`
+/// list into a canonical per-field vector. When `projection_constraints` is
+/// non-empty it is authoritative and the map is ignored. Multiple entries with
+/// the same field name are preserved so that compound signals (e.g.
+/// INCOMPATIBLE + LOCATION_REQUIRED) are visible to field selection.
+pub fn normalize_constraints(
+    binding: &materialize::response::validated::Binding,
+) -> BTreeMap<String, Vec<materialize::response::validated::Constraint>> {
+    if !binding.projection_constraints.is_empty() {
+        let mut out: BTreeMap<String, Vec<_>> = BTreeMap::new();
+        for pc in &binding.projection_constraints {
+            let c = pc
+                .constraint
+                .as_ref()
+                .expect("projection_constraints entries are validated non-nil by Validate()");
+            out.entry(pc.field.clone()).or_default().push(c.clone());
+        }
+        out
+    } else {
+        binding
+            .constraints
+            .iter()
+            .map(|(f, c)| (f.clone(), vec![c.clone()]))
+            .collect()
+    }
+}
+
 /// Select is a rationale for including a field in selection.
 #[derive(
     thiserror::Error,
@@ -63,7 +90,7 @@ pub enum Reject {
     ExcludedParent,
     #[error("field's location is already materialized by another selected field")]
     DuplicateLocation,
-    #[error("connector cannot support this field without a back-fill ({reason})")]
+    #[error("connector cannot support this field without a backfill ({reason})")]
     ConnectorIncompatible { reason: String },
     #[error(
         "field is represented by the endpoint as {folded_field:?}, which is ambiguous with selected field {other_field:?}"
@@ -93,14 +120,14 @@ pub struct Conflict {
 
 /// Evaluate field selection for a materialization binding, returning the outcome
 /// and any conflicts. If all conflicts are Reject::ConnectorIncompatible,
-/// then the returned FieldSelection is valid if a back-fill is also performed.
+/// then the returned FieldSelection is valid if a backfill is also performed.
 pub fn evaluate(
     case_insensitive: bool,
     collection_projections: &[flow::Projection],
     group_by: Vec<String>,
     live_spec: Option<&flow::materialization_spec::Binding>,
     model: &models::MaterializationBinding,
-    validated_constraints: &BTreeMap<String, materialize::response::validated::Constraint>,
+    validated_constraints: &BTreeMap<String, Vec<materialize::response::validated::Constraint>>,
 ) -> (flow::FieldSelection, Vec<Conflict>) {
     let models::MaterializationBinding {
         fields: model_fields,
@@ -108,7 +135,7 @@ pub fn evaluate(
         ..
     } = model;
 
-    // If we intend to back-fill, then live fields have no effect on selection.
+    // If we intend to backfill, then live fields have no effect on selection.
     let live_field_selection = match live_spec {
         Some(live) if live.backfill == *model_backfill => live.field_selection.as_ref(),
         _ => None,
@@ -139,7 +166,7 @@ pub fn extract_constraints<'a>(
     group_by: &'a [String],
     live_field_selection: Option<&'a flow::FieldSelection>,
     model_fields: &'a models::MaterializationFields,
-    validated_constraints: &'a BTreeMap<String, materialize::response::validated::Constraint>,
+    validated_constraints: &'a BTreeMap<String, Vec<materialize::response::validated::Constraint>>,
 ) -> (
     Vec<(&'a str, Select)>,
     Vec<(&'a str, Reject)>,
@@ -246,49 +273,73 @@ pub fn extract_constraints<'a>(
     }
 
     // Finally, map Validated constraints into Select and Reject.
-    for (field, constraint) in validated_constraints.iter() {
-        match ConstraintType::try_from(constraint.r#type) {
-            Ok(ConstraintType::FieldRequired) => selects.push((
-                field,
-                Select::ConnectorRequires {
-                    reason: constraint.reason.clone(),
-                },
-            )),
-            Ok(ConstraintType::LocationRequired) => selects.push((
-                field,
-                Select::ConnectorRequiresLocation {
-                    reason: constraint.reason.clone(),
-                },
-            )),
-            Ok(ConstraintType::FieldForbidden) => rejects.push((
-                field,
-                Reject::ConnectorForbids {
-                    reason: constraint.reason.clone(),
-                },
-            )),
-            Ok(ConstraintType::Incompatible | ConstraintType::Unsatisfiable)
-                if live_field_selection.is_some() =>
-            {
-                rejects.push((
+    // A field may have multiple constraints (e.g. INCOMPATIBLE + LOCATION_REQUIRED)
+    // expressed via the projection_constraints list form. Each is processed
+    // independently so that both a Select and a Reject can be generated for the
+    // same field, making the compound requirement visible to field selection.
+    for (field, constraints) in validated_constraints.iter() {
+        // Pre-scan: does this field have any Required-class constraint?
+        // When INCOMPATIBLE co-appears with a Required-class constraint, the
+        // INCOMPATIBLE must generate a Reject even on a new binding (no live spec),
+        // so that the control plane sees an unsatisfiable conflict rather than
+        // silently excluding the field.
+        let has_required = constraints.iter().any(|c| {
+            matches!(
+                ConstraintType::try_from(c.r#type),
+                Ok(ConstraintType::FieldRequired | ConstraintType::LocationRequired)
+            )
+        });
+
+        for constraint in constraints {
+            match ConstraintType::try_from(constraint.r#type) {
+                Ok(ConstraintType::FieldRequired) => selects.push((
                     field,
-                    Reject::ConnectorIncompatible {
+                    Select::ConnectorRequires {
                         reason: constraint.reason.clone(),
                     },
-                ))
-            }
-            Ok(
-                ConstraintType::LocationRecommended
-                | ConstraintType::FieldOptional
-                | ConstraintType::Incompatible
-                | ConstraintType::Unsatisfiable,
-            ) => {
-                // Field is neither selected nor rejected by the connector.
-                // Note: UNSATISFIABLE is an alias for INCOMPATIBLE and treated the same way.
-            }
+                )),
+                Ok(ConstraintType::LocationRequired) => selects.push((
+                    field,
+                    Select::ConnectorRequiresLocation {
+                        reason: constraint.reason.clone(),
+                    },
+                )),
+                Ok(ConstraintType::FieldForbidden) => rejects.push((
+                    field,
+                    Reject::ConnectorForbids {
+                        reason: constraint.reason.clone(),
+                    },
+                )),
+                Ok(ConstraintType::Incompatible | ConstraintType::Unsatisfiable)
+                    if live_field_selection.is_some() || has_required =>
+                {
+                    // Emit ConnectorIncompatible when there is a live field selection
+                    // (the standard case for an existing binding with an incompatible
+                    // column) OR when this field also has a Required-class constraint
+                    // (meaning the connector is signaling "required but incompatible").
+                    rejects.push((
+                        field,
+                        Reject::ConnectorIncompatible {
+                            reason: constraint.reason.clone(),
+                        },
+                    ))
+                }
+                Ok(
+                    ConstraintType::LocationRecommended
+                    | ConstraintType::FieldOptional
+                    | ConstraintType::Incompatible
+                    | ConstraintType::Unsatisfiable,
+                ) => {
+                    // Field is neither selected nor rejected by the connector.
+                    // Note: UNSATISFIABLE is an alias for INCOMPATIBLE and treated the same way.
+                    // Bare INCOMPATIBLE without a co-emitted Required-class constraint preserves
+                    // the existing silent-drop behavior so legacy connector output is unchanged.
+                }
 
-            // Any other constraint type is invalid and errors elsewhere.
-            Ok(ConstraintType::Invalid) | Err(_) => {}
-        };
+                // Any other constraint type is invalid and errors elsewhere.
+                Ok(ConstraintType::Invalid) | Err(_) => {}
+            };
+        }
     }
 
     // Order by field name, then by descending Select/Reject rank.
@@ -305,7 +356,7 @@ pub fn group_outcomes(
     collection_projections: &[flow::Projection],
     rejects: Vec<(&str, Reject)>,
     selects: Vec<(&str, Select)>,
-    validated_constraints: &BTreeMap<String, materialize::response::validated::Constraint>,
+    validated_constraints: &BTreeMap<String, Vec<materialize::response::validated::Constraint>>,
 ) -> (
     Option<String>,                        // Document field.
     BTreeMap<String, EOB<Select, Reject>>, // Field outcomes.
@@ -340,7 +391,9 @@ pub fn group_outcomes(
         EOB::Right(projection) => (projection.field.as_str(), None, None, Some(projection)),
     });
 
-    // Next, outer join with connector constraints.
+    // Next, outer join with connector constraints (keyed by field name).
+    // The folded_field is a field-level property; we take it from the first
+    // constraint in the vec. All constraints for the same field should agree.
     let grouped = itertools::merge_join_by(
         grouped,
         validated_constraints.iter(),
@@ -348,17 +401,22 @@ pub fn group_outcomes(
     )
     .map(|eob| match eob {
         EOB::Left((field, select, reject, projection)) => (field, select, reject, projection, None),
-        EOB::Both((field, select, reject, projection), (_, constraint)) => {
-            (field, select, reject, projection, Some(constraint))
+        EOB::Both((field, select, reject, projection), (_, constraints)) => {
+            (field, select, reject, projection, Some(constraints))
         }
-        EOB::Right((field, constraint)) => (field.as_str(), None, None, None, Some(constraint)),
+        EOB::Right((field, constraints)) => (field.as_str(), None, None, None, Some(constraints)),
     });
 
     // Next, map constraints into folded and folded & lowercased field names.
-    let grouped = grouped.map(|(field, select, mut reject, projection, constraint)| {
-        let folded_field: &str = if let Some(constraint) = constraint {
-            if !constraint.folded_field.is_empty() {
-                constraint.folded_field.as_str()
+    let grouped = grouped.map(|(field, select, mut reject, projection, constraints)| {
+        let folded_field: &str = if let Some(constraints) = constraints {
+            // folded_field is a field-level property; take it from the first entry.
+            let first_folded = constraints
+                .first()
+                .map(|c| c.folded_field.as_str())
+                .unwrap_or("");
+            if !first_folded.is_empty() {
+                first_folded
             } else {
                 field
             }
@@ -584,7 +642,18 @@ mod tests {
         collection: models::CollectionDef,
         model: models::MaterializationFields,
         case_insensitive: bool,
+        // Primary (single) constraints per field, matching the legacy map form.
+        // Existing tests use only this field.
         validated: BTreeMap<String, materialize::response::validated::Constraint>,
+        // Additional constraints layered on top of `validated`, allowing tests to
+        // express multiple constraints per field without rewriting all fixtures.
+        // Merged with `validated` in run_test to produce the normalized form.
+        //
+        // TODO: remove `validated_also` and migrate `validated` to
+        // `BTreeMap<String, Vec<Constraint>>` once the legacy `constraints` map
+        // is removed from the protocol.
+        #[serde(default)]
+        validated_also: BTreeMap<String, Vec<materialize::response::validated::Constraint>>,
         live: Option<flow::FieldSelection>,
     }
 
@@ -873,6 +942,52 @@ validated:
         insta::assert_debug_snapshot!(snap.selection);
     }
 
+    // Regression test for the "silent INSERT-only" bug:
+    // When a connector emits both INCOMPATIBLE and LOCATION_REQUIRED on the same
+    // projection (via projection_constraints), the control plane must surface a
+    // conflict rather than silently excluding flow_document from the selection.
+    #[test]
+    fn test_document_field_incompatible_and_location_required() {
+        let snap = run_test(
+            include_str!("field_selection.fixture.yaml"),
+            r##"
+live: null
+model:
+    recommended: true
+validated:
+    flow_document: { type: INCOMPATIBLE, reason: "existing column has wrong type" }
+validated_also:
+    flow_document:
+        - type: LOCATION_REQUIRED
+          reason: "root document projection required for standard updates"
+"##,
+        );
+        // Expect a conflict surfaced for flow_document (not silently omitted).
+        insta::assert_debug_snapshot!(snap.conflicts);
+        // flow_document must be in the selection (LOCATION_REQUIRED selects it,
+        // INCOMPATIBLE marks it as a conflict requiring backfill).
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("flow_document").unwrap());
+    }
+
+    // A bare INCOMPATIBLE without a paired Required-class constraint on a new
+    // binding (no live spec) preserves the existing silent-drop behavior.
+    #[test]
+    fn test_bare_incompatible_no_live_spec_is_silent() {
+        let snap = run_test(
+            include_str!("field_selection.fixture.yaml"),
+            r##"
+live: null
+model:
+    recommended: true
+validated:
+    flow_document: { type: INCOMPATIBLE, reason: "wrong type" }
+"##,
+        );
+        // Expect no conflicts: INCOMPATIBLE alone on a new binding is still
+        // treated as FieldOptional-equivalent (no select, no reject).
+        insta::assert_debug_snapshot!(snap.conflicts, @r###"[]"###);
+    }
+
     #[test]
     fn test_excluded_canonical_parent() {
         let snap = run_test(
@@ -983,9 +1098,21 @@ live:
             collection,
             model: model_fields,
             case_insensitive,
-            validated: validated_constraints,
+            validated,
+            validated_also,
             live: live_field_selection,
         }: Fixture = serde_json::from_value(fixture).unwrap();
+
+        // Lift the single-constraint map into the normalized form, then merge
+        // any extra per-field constraints from `validated_also`.
+        let mut validated_constraints: BTreeMap<String, Vec<_>> =
+            validated.into_iter().map(|(f, c)| (f, vec![c])).collect();
+        for (field, extra) in validated_also {
+            validated_constraints
+                .entry(field)
+                .or_default()
+                .extend(extra);
+        }
 
         let scope = url::Url::parse("test://case").unwrap();
         let scope = crate::Scope::new(&scope);

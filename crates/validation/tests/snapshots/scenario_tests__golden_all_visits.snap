@@ -6394,6 +6394,7 @@ Outcome {
                         ],
                         delta_updates: false,
                         ser_policy: None,
+                        projection_constraints: [],
                     },
                 ],
             },
@@ -6963,6 +6964,7 @@ Outcome {
                         ],
                         delta_updates: true,
                         ser_policy: None,
+                        projection_constraints: [],
                     },
                     Binding {
                         case_insensitive_fields: false,
@@ -6994,6 +6996,7 @@ Outcome {
                         ],
                         delta_updates: true,
                         ser_policy: None,
+                        projection_constraints: [],
                     },
                 ],
             },

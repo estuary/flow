@@ -961,6 +961,7 @@ impl validation::Connectors for MockDriverCalls {
                         let mut out = materialize::response::validated::Binding {
                             case_insensitive_fields: b.case_insensitive_fields,
                             constraints: b.constraints.clone(),
+                            projection_constraints: Vec::new(),
                             delta_updates: call.delta_updates,
                             resource_path: b.resource_path.clone(),
                             ser_policy: None,

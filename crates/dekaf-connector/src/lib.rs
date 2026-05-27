@@ -153,6 +153,7 @@ where
                                 case_insensitive_fields: false,
                                 constraints,
                                 delta_updates: true,
+                                projection_constraints: Vec::new(),
                                 resource_path: vec![resource_config.topic_name],
                                 ser_policy: None,
                             },
