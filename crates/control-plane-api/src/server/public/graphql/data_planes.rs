@@ -46,24 +46,39 @@ pub struct DataPlane {
     pub azure_application_name: Option<String>,
     /// Azure application client ID for this data-plane.
     pub azure_application_client_id: Option<String>,
-    /// AWS PrivateLink endpoint provisioning results, opaque JSON exported by
-    /// the data-plane controller. Empty when no AWS endpoints are provisioned.
-    pub aws_link_endpoints: Vec<async_graphql::Json<serde_json::Value>>,
-    /// Azure Private Link endpoint provisioning results, opaque JSON.
-    pub azure_link_endpoints: Vec<async_graphql::Json<serde_json::Value>>,
-    /// GCP Private Service Connect endpoint provisioning results, opaque JSON.
-    pub gcp_psc_endpoints: Vec<async_graphql::Json<serde_json::Value>>,
-
+    // The four private-networking fields below are gated behind
+    // `ViewDataPlanePrivateNetworking` and resolved by `ComplexObject` methods.
+    // They are stored as raw JSON and skipped from the derived object so the
+    // capability check lives with the field rather than the construction site;
+    // see the resolvers below.
     #[graphql(skip)]
     raw_private_links: Vec<serde_json::Value>,
+    #[graphql(skip)]
+    raw_aws_link_endpoints: Vec<serde_json::Value>,
+    #[graphql(skip)]
+    raw_azure_link_endpoints: Vec<serde_json::Value>,
+    #[graphql(skip)]
+    raw_gcp_psc_endpoints: Vec<serde_json::Value>,
 }
 
 #[ComplexObject]
 impl DataPlane {
     /// Configured private link endpoints for this data-plane. Replacing this
     /// list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
-    /// data-plane controller on its next poll.
-    async fn private_links(&self) -> async_graphql::Result<Vec<models::PrivateLink>> {
+    /// data-plane controller on its next poll. Returns an empty list to
+    /// callers that lack the `ViewDataPlanePrivateNetworking` capability on
+    /// this data plane.
+    async fn private_links(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Vec<models::PrivateLink>> {
+        if !super::may_access(
+            ctx,
+            &self.name,
+            models::authz::Capability::ViewDataPlanePrivateNetworking,
+        )? {
+            return Ok(Vec::new());
+        }
         self.raw_private_links
             .iter()
             .enumerate()
@@ -76,6 +91,70 @@ impl DataPlane {
                 })
             })
             .collect()
+    }
+
+    /// AWS PrivateLink endpoint provisioning results, opaque JSON exported by
+    /// the data-plane controller. Empty when no AWS endpoints are provisioned,
+    /// or when the caller lacks `ViewDataPlanePrivateNetworking`.
+    async fn aws_link_endpoints(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Vec<async_graphql::Json<serde_json::Value>>> {
+        if !super::may_access(
+            ctx,
+            &self.name,
+            models::authz::Capability::ViewDataPlanePrivateNetworking,
+        )? {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .raw_aws_link_endpoints
+            .iter()
+            .cloned()
+            .map(async_graphql::Json)
+            .collect())
+    }
+
+    /// Azure Private Link endpoint provisioning results, opaque JSON. Empty when
+    /// the caller lacks `ViewDataPlanePrivateNetworking`.
+    async fn azure_link_endpoints(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Vec<async_graphql::Json<serde_json::Value>>> {
+        if !super::may_access(
+            ctx,
+            &self.name,
+            models::authz::Capability::ViewDataPlanePrivateNetworking,
+        )? {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .raw_azure_link_endpoints
+            .iter()
+            .cloned()
+            .map(async_graphql::Json)
+            .collect())
+    }
+
+    /// GCP Private Service Connect endpoint provisioning results, opaque JSON.
+    /// Empty when the caller lacks `ViewDataPlanePrivateNetworking`.
+    async fn gcp_psc_endpoints(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Vec<async_graphql::Json<serde_json::Value>>> {
+        if !super::may_access(
+            ctx,
+            &self.name,
+            models::authz::Capability::ViewDataPlanePrivateNetworking,
+        )? {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .raw_gcp_psc_endpoints
+            .iter()
+            .cloned()
+            .map(async_graphql::Json)
+            .collect())
     }
 }
 
@@ -341,34 +420,16 @@ impl DataPlanesQuery {
                     azure_application_name: details.and_then(|d| d.azure_application_name.clone()),
                     azure_application_client_id: details
                         .and_then(|d| d.azure_application_client_id.clone()),
-                    aws_link_endpoints: details
-                        .map(|d| {
-                            d.aws_link_endpoints
-                                .iter()
-                                .cloned()
-                                .map(async_graphql::Json)
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                    azure_link_endpoints: details
-                        .map(|d| {
-                            d.azure_link_endpoints
-                                .iter()
-                                .cloned()
-                                .map(async_graphql::Json)
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                    gcp_psc_endpoints: details
-                        .map(|d| {
-                            d.gcp_psc_endpoints
-                                .iter()
-                                .cloned()
-                                .map(async_graphql::Json)
-                                .collect()
-                        })
-                        .unwrap_or_default(),
                     raw_private_links: details.map(|d| d.private_links.clone()).unwrap_or_default(),
+                    raw_aws_link_endpoints: details
+                        .map(|d| d.aws_link_endpoints.clone())
+                        .unwrap_or_default(),
+                    raw_azure_link_endpoints: details
+                        .map(|d| d.azure_link_endpoints.clone())
+                        .unwrap_or_default(),
+                    raw_gcp_psc_endpoints: details
+                        .map(|d| d.gcp_psc_endpoints.clone())
+                        .unwrap_or_default(),
                 };
                 Some(connection::Edge::new(data_plane_name, node))
             },
@@ -393,10 +454,8 @@ impl DataPlanesMutation {
     /// private links state. The `*LinkEndpoints` provisioning results are not echoed here:
     /// they lag this write until the controller converges, so callers needing them re-query `dataPlanes`.
     ///
-    /// Interim authorization: requires `read` on the private data-plane name.
-    /// This matches the existing data-plane deployment authorization shape and
-    /// will be replaced with `manage_dataplane` once the orthogonal capability
-    /// model lands.
+    /// Requires the `ModifyDataPlanePrivateNetworking` capability on the
+    /// private data-plane name.
     pub async fn update_data_plane_private_links(
         &self,
         ctx: &Context<'_>,
@@ -420,7 +479,12 @@ impl DataPlanesMutation {
             )));
         }
 
-        super::verify_authorization(env, &data_plane_name, models::Capability::Read).await?;
+        super::verify_authorization(
+            env,
+            &data_plane_name,
+            models::authz::Capability::ModifyDataPlanePrivateNetworking,
+        )
+        .await?;
 
         let bound: Vec<sqlx::types::Json<&models::PrivateLink>> =
             private_links.iter().map(sqlx::types::Json).collect();
@@ -578,9 +642,185 @@ mod tests {
         insta::assert_json_snapshot!("data_planes_with_private_links", response);
     }
 
-    // A malformed `private_links` row should produce a field-level error that
-    // names the data plane and the failing index, without breaking the rest
-    // of the `dataPlanes` query selection.
+    // A caller with only legacy `read` on the DP prefix can view the
+    // private-networking fields (the `Viewer` bundle carries
+    // `ViewDataPlanePrivateNetworking`, because `read` on a data-plane
+    // prefix already conveys deploy-level trust) but cannot mutate them:
+    // `ModifyDataPlanePrivateNetworking` only comes via the separately
+    // granted `ManageDataPlane` bundle.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_read_grants_view_but_not_modify(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        sqlx::query(
+            "INSERT INTO auth.users (id, email) VALUES \
+             ('22222222-2222-2222-2222-222222222222', 'bob@example.test')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO user_grants (user_id, object_role, capability) VALUES \
+             ($1, 'ops/dp/private/aliceCo/', 'read')",
+        )
+        .bind(uuid::Uuid::from_bytes([0x22; 16]))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let bob_token =
+            server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), Some("bob@example.test"));
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        dataPlanes {
+                            edges {
+                                node {
+                                    name
+                                    privateLinks { __typename }
+                                    awsLinkEndpoints
+                                    azureLinkEndpoints
+                                    gcpPscEndpoints
+                                }
+                            }
+                        }
+                    }
+                    "#
+                }),
+                Some(&bob_token),
+            )
+            .await;
+
+        let edges = response["data"]["dataPlanes"]["edges"]
+            .as_array()
+            .expect("should have edges");
+        let private_dp = edges
+            .iter()
+            .find(|e| e["node"]["name"] == "ops/dp/private/aliceCo/aws-us-east-1-c1")
+            .expect("bob should see the private dp via his read grant");
+        // The fixture populates three private links and one AWS provisioning
+        // result; bob's `read` is enough to view all of them.
+        assert_eq!(
+            private_dp["node"]["privateLinks"].as_array().unwrap().len(),
+            3,
+            "read must grant view of private links: {private_dp}",
+        );
+        assert_eq!(
+            private_dp["node"]["awsLinkEndpoints"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1,
+            "read must grant view of endpoint provisioning results: {private_dp}",
+        );
+
+        // Mutating requires `ModifyDataPlanePrivateNetworking`, which `read`
+        // does not carry.
+        let bob_denied: serde_json::Value = server
+            .graphql(
+                &update_mutation("ops/dp/private/aliceCo/aws-us-east-1-c1", VALID_AWS_INPUT),
+                Some(&bob_token),
+            )
+            .await;
+        assert_eq!(
+            first_error_message(&bob_denied),
+            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1' with required capability ModifyDataPlanePrivateNetworking",
+        );
+    }
+
+    // Existing tenants can still view their private data plane's private links
+    // even before the `manage_data_plane` backfill runs, which is what later
+    // adds the ability to modify them. Clearing the bundle reproduces that
+    // pre-backfill state: the links stay readable, the update mutation is denied.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_modify_denied_when_role_grant_lacks_manage_data_plane(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // Strip the `manage_data_plane` bundle from the only edge carrying
+        // Alice to the private dp, leaving its legacy `read` untouched.
+        sqlx::query(
+            r#"UPDATE role_grants
+               SET bundles = '{}'
+               WHERE subject_role = 'aliceCo/'
+                 AND object_role = 'ops/dp/private/aliceCo/'"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let alice_token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        let dp = "ops/dp/private/aliceCo/aws-us-east-1-c1";
+
+        // View still resolves: `read` -> Viewer -> ViewDataPlanePrivateNetworking
+        // does not depend on the cleared bundle.
+        let view: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        dataPlanes {
+                            edges { node { name privateLinks { __typename } } }
+                        }
+                    }
+                    "#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        let edges = view["data"]["dataPlanes"]["edges"]
+            .as_array()
+            .expect("should have edges");
+        let private_dp = edges
+            .iter()
+            .find(|e| e["node"]["name"] == dp)
+            .expect("alice should still see the private dp via her read edge");
+        assert_eq!(
+            private_dp["node"]["privateLinks"].as_array().unwrap().len(),
+            3,
+            "read must still grant view after the manage_data_plane bundle is cleared: {private_dp}",
+        );
+
+        // Modify is denied: ModifyDataPlanePrivateNetworking flowed only
+        // through the now-cleared `manage_data_plane` bundle on the edge.
+        let denied: serde_json::Value = server
+            .graphql(&update_mutation(dp, VALID_AWS_INPUT), Some(&alice_token))
+            .await;
+        assert_eq!(
+            first_error_message(&denied),
+            "PermissionDenied: alice@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1' with required capability ModifyDataPlanePrivateNetworking",
+        );
+    }
+
+    // A malformed `private_links` row produces a field-level error that names
+    // the data plane and the failing index. Because `privateLinks` is declared
+    // `[PrivateLink!]!` (non-null), the error null-propagates up to the
+    // nullable root and the whole `data` field comes back as null; the error
+    // path locates the offending edge.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(
@@ -814,7 +1054,7 @@ mod tests {
             .await;
         assert_eq!(
             first_error_message(&bob_denied),
-            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1' with required capability read",
+            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1' with required capability ModifyDataPlanePrivateNetworking",
         );
     }
 

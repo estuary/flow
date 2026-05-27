@@ -76,7 +76,8 @@
                       "billing",
                       "team_admin",
                       "delegate",
-                      "assume"
+                      "assume",
+                      "manage_data_plane"
                     ]
                   }
                 }
