@@ -3131,6 +3131,9 @@ impl serde::Serialize for response::validated::Binding {
         if self.ser_policy.is_some() {
             len += 1;
         }
+        if !self.projection_constraints.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated.Binding", len)?;
         if self.case_insensitive_fields {
             struct_ser.serialize_field("caseInsensitiveFields", &self.case_insensitive_fields)?;
@@ -3146,6 +3149,9 @@ impl serde::Serialize for response::validated::Binding {
         }
         if let Some(v) = self.ser_policy.as_ref() {
             struct_ser.serialize_field("serPolicy", v)?;
+        }
+        if !self.projection_constraints.is_empty() {
+            struct_ser.serialize_field("projectionConstraints", &self.projection_constraints)?;
         }
         struct_ser.end()
     }
@@ -3166,6 +3172,8 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
             "deltaUpdates",
             "ser_policy",
             "serPolicy",
+            "projection_constraints",
+            "projectionConstraints",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3175,6 +3183,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
             ResourcePath,
             DeltaUpdates,
             SerPolicy,
+            ProjectionConstraints,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3201,6 +3210,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                             "resourcePath" | "resource_path" => Ok(GeneratedField::ResourcePath),
                             "deltaUpdates" | "delta_updates" => Ok(GeneratedField::DeltaUpdates),
                             "serPolicy" | "ser_policy" => Ok(GeneratedField::SerPolicy),
+                            "projectionConstraints" | "projection_constraints" => Ok(GeneratedField::ProjectionConstraints),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3225,6 +3235,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                 let mut resource_path__ = None;
                 let mut delta_updates__ = None;
                 let mut ser_policy__ = None;
+                let mut projection_constraints__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::CaseInsensitiveFields => {
@@ -3259,6 +3270,12 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                             }
                             ser_policy__ = map_.next_value()?;
                         }
+                        GeneratedField::ProjectionConstraints => {
+                            if projection_constraints__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("projectionConstraints"));
+                            }
+                            projection_constraints__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(response::validated::Binding {
@@ -3267,6 +3284,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                     resource_path: resource_path__.unwrap_or_default(),
                     delta_updates: delta_updates__.unwrap_or_default(),
                     ser_policy: ser_policy__,
+                    projection_constraints: projection_constraints__.unwrap_or_default(),
                 })
             }
         }
@@ -3488,5 +3506,113 @@ impl<'de> serde::Deserialize<'de> for response::validated::constraint::Type {
             }
         }
         deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for response::validated::ProjectionConstraint {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.field.is_empty() {
+            len += 1;
+        }
+        if self.constraint.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated.ProjectionConstraint", len)?;
+        if !self.field.is_empty() {
+            struct_ser.serialize_field("field", &self.field)?;
+        }
+        if let Some(v) = self.constraint.as_ref() {
+            struct_ser.serialize_field("constraint", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for response::validated::ProjectionConstraint {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "field",
+            "constraint",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Field,
+            Constraint,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "field" => Ok(GeneratedField::Field),
+                            "constraint" => Ok(GeneratedField::Constraint),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = response::validated::ProjectionConstraint;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct materialize.Response.Validated.ProjectionConstraint")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::validated::ProjectionConstraint, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut field__ = None;
+                let mut constraint__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Field => {
+                            if field__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("field"));
+                            }
+                            field__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Constraint => {
+                            if constraint__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("constraint"));
+                            }
+                            constraint__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(response::validated::ProjectionConstraint {
+                    field: field__.unwrap_or_default(),
+                    constraint: constraint__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("materialize.Response.Validated.ProjectionConstraint", FIELDS, GeneratedVisitor)
     }
 }

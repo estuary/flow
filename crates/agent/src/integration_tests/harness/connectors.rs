@@ -230,6 +230,7 @@ impl Connectors for TestConnectors {
                             materialize::response::validated::Binding {
                                 case_insensitive_fields: false,
                                 constraints,
+                                projection_constraints: Vec::new(),
                                 resource_path,
                                 delta_updates,
                                 ser_policy: None,

@@ -48,6 +48,9 @@ psql postgresql://postgres:postgres@localhost:5432/postgres -c 'SELECT 1;'
 mise run local:stack
 # CLI for interacting with the platform.
 cargo run -p flowctl -- --profile local --help
+
+# Run after changing Rust files to ensure consistent formatting
+cargo fmt
 ```
 
 ## Architecture Overview

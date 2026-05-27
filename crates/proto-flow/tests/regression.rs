@@ -689,6 +689,27 @@ fn ex_materialize_response() -> materialize::Response {
                     ),
                 ]
                 .into(),
+                projection_constraints: vec![
+                    materialize::response::validated::ProjectionConstraint {
+                        field: "flow_document".to_string(),
+                        constraint: Some(materialize::response::validated::Constraint {
+                            r#type:
+                                materialize::response::validated::constraint::Type::LocationRequired
+                                    as i32,
+                            reason: "the root document must be materialized".to_string(),
+                            folded_field: String::new(),
+                        }),
+                    },
+                    materialize::response::validated::ProjectionConstraint {
+                        field: "flow_document".to_string(),
+                        constraint: Some(materialize::response::validated::Constraint {
+                            r#type: materialize::response::validated::constraint::Type::Incompatible
+                                as i32,
+                            reason: "existing column has an incompatible type".to_string(),
+                            folded_field: String::new(),
+                        }),
+                    },
+                ],
                 delta_updates: true,
                 ser_policy: Some(SerPolicy {
                     str_truncate_after: 1 << 16,

@@ -63,6 +63,7 @@ expression: outcome.built_materializations
                     ],
                     delta_updates: false,
                     ser_policy: None,
+                    projection_constraints: [],
                 },
                 Binding {
                     case_insensitive_fields: false,
@@ -83,6 +84,7 @@ expression: outcome.built_materializations
                     ],
                     delta_updates: false,
                     ser_policy: None,
+                    projection_constraints: [],
                 },
             ],
         },

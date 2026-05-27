@@ -57,7 +57,23 @@ expression: json_test(msg)
           "strTruncateAfter": 65536,
           "nestedObjTruncateAfter": 1000,
           "arrayTruncateAfter": 1000
-        }
+        },
+        "projectionConstraints": [
+          {
+            "field": "flow_document",
+            "constraint": {
+              "type": "LOCATION_REQUIRED",
+              "reason": "the root document must be materialized"
+            }
+          },
+          {
+            "field": "flow_document",
+            "constraint": {
+              "type": "INCOMPATIBLE",
+              "reason": "existing column has an incompatible type"
+            }
+          }
+        ]
       }
     ]
   },

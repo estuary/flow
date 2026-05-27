@@ -371,22 +371,26 @@ async fn walk_materialization<C: Connectors>(
 
         let materialize::response::validated::Binding {
             case_insensitive_fields,
-            constraints,
             delta_updates,
             resource_path: validated_path,
             ser_policy,
+            ..
         } = validated;
 
-        for (field, constraint) in constraints {
+        let normalized_constraints = field_selection::normalize_constraints(validated);
+
+        for (field, constraints) in &normalized_constraints {
             use materialize::response::validated::constraint::Type;
-            let type_ = Type::try_from(constraint.r#type);
-            if matches!(type_, Ok(Type::Invalid) | Err(_)) {
-                Error::Connector {
-                    detail: anyhow::anyhow!(
-                        "connector returned invalid constraint for field {field}: {type_:?}"
-                    ),
+            for constraint in constraints {
+                let type_ = Type::try_from(constraint.r#type);
+                if matches!(type_, Ok(Type::Invalid) | Err(_)) {
+                    Error::Connector {
+                        detail: anyhow::anyhow!(
+                            "connector returned invalid constraint for field {field}: {type_:?}"
+                        ),
+                    }
+                    .push(scope, errors);
                 }
-                .push(scope, errors);
             }
         }
 
@@ -418,7 +422,7 @@ async fn walk_materialization<C: Connectors>(
             group_by,
             live_spec,
             &model,
-            constraints,
+            &normalized_constraints,
         );
 
         // "Incompatible" conflicts have different treatment compared to other conflicts.

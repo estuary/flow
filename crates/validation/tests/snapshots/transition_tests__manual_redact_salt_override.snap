@@ -1931,6 +1931,7 @@ Outcome {
                         ],
                         delta_updates: false,
                         ser_policy: None,
+                        projection_constraints: [],
                     },
                 ],
             },

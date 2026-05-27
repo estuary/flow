@@ -298,6 +298,19 @@ pub mod response {
     }
     /// Nested message and enum types in `Validated`.
     pub mod validated {
+        /// ProjectionConstraint pairs a projection field name with a single Constraint.
+        /// Unlike the legacy `constraints` map, a repeated list of ProjectionConstraint
+        /// allows multiple constraints to be expressed for the same field simultaneously.
+        /// For example, INCOMPATIBLE and LOCATION_REQUIRED on the same field signals that
+        /// the field is required but the existing destination column has an incompatible
+        /// type, and a backfill is needed.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct ProjectionConstraint {
+            #[prost(string, tag = "1")]
+            pub field: ::prost::alloc::string::String,
+            #[prost(message, optional, tag = "2")]
+            pub constraint: ::core::option::Option<Constraint>,
+        }
         /// Constraint constrains the use of a flow.Projection within a materialization.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct Constraint {
@@ -429,6 +442,11 @@ pub mod response {
             /// Constraints imposed by the connector, keyed by field name.
             /// Projections of the CollectionSpec which are missing from
             /// constraints are implicitly forbidden.
+            ///
+            /// Deprecated: use projection_constraints instead. When projection_constraints
+            /// is non-empty it is authoritative and this map is ignored by the control
+            /// plane. This field is retained for backward compatibility with connectors
+            /// that have not yet migrated to the list form.
             #[prost(btree_map = "string, message", tag = "1")]
             pub constraints:
                 ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, Constraint>,
@@ -460,6 +478,17 @@ pub mod response {
             /// Serialization policy to use for this binding.
             #[prost(message, optional, tag = "4")]
             pub ser_policy: ::core::option::Option<super::super::super::flow::SerPolicy>,
+            /// Constraints on each projection, as a list that allows multiple constraints
+            /// per projection field. When non-empty, this field is authoritative and the
+            /// legacy `constraints` map is ignored.
+            ///
+            /// Connectors should populate this field instead of `constraints`. The list
+            /// form allows expressing compound requirements that a single constraint type
+            /// cannot capture. For example, emitting both INCOMPATIBLE and
+            /// LOCATION_REQUIRED for the same field signals that the field is required
+            /// but the existing destination column is incompatible; a backfill is required.
+            #[prost(message, repeated, tag = "6")]
+            pub projection_constraints: ::prost::alloc::vec::Vec<ProjectionConstraint>,
         }
     }
     /// Applied responds to Request.Apply.
