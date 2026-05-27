@@ -29,6 +29,9 @@ In the future, other open-source materialization connectors from third parties c
 * Amazon Redshift
   * [Configuration](./amazon-redshift.md)
   * Package - ghcr.io/estuary/materialize-redshift:v2
+* Amazon SNS
+  * [Configuration](./amazon-sns.md)
+  * Package - ghcr.io/estuary/materialize-sns:v1
 * Amazon SQL Server
   * [Configuration](./SQLServer/amazon-rds-sqlserver.md)
   * Package - ghcr.io/estuary/materialize-amazon-rds-sqlserver:v2
@@ -101,6 +104,9 @@ In the future, other open-source materialization connectors from third parties c
 * Google Sheets
   * [Configuration](./Google-sheets.md)
   * Package - ghcr.io/estuary/materialize-google-sheets:v2
+* Google Spanner
+  * [Configuration](./google-spanner.md)
+  * Package - ghcr.io/estuary/materialize-spanner:v1
 * HTTP Webhook
   * [Configuration](./http-webhook.md)
   * Package - ghcr.io/estuary/materialize-webhook:v1
