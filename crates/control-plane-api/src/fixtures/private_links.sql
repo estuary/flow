@@ -72,8 +72,11 @@ begin
     ]
   );
 
-  insert into public.role_grants (subject_role, object_role, capability) values
-    ('aliceCo/', 'ops/dp/private/aliceCo/', 'read');
+  -- Mirrors what `create_data_plane.rs` installs at provisioning time:
+  -- legacy `read` for RLS/`user_roles()`, and the `ManageDataPlane` bundle
+  -- for the capability bits.
+  insert into public.role_grants (subject_role, object_role, capability, bundles) values
+    ('aliceCo/', 'ops/dp/private/aliceCo/', 'read', '{manage_data_plane}');
 
 end
 $$;

@@ -19,8 +19,21 @@ pub enum Capability {
     CreateGrant,
     DeleteGrant,
     CreateInviteLink,
+    // `ViewDataPlanePrivateNetworking` permits reading per-data-plane
+    // private-networking configuration (such as the `private_links`
+    // column).
+    ViewDataPlanePrivateNetworking,
+    // `ModifyDataPlanePrivateNetworking` permits mutating that same
+    // configuration; the data-plane controller converges to it.
+    ModifyDataPlanePrivateNetworking,
     Delegate,
     Assume,
+}
+
+impl std::fmt::Display for Capability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -37,6 +50,7 @@ pub enum CapabilityBundle {
     Admin,
     Billing,
     TeamAdmin,
+    ManageDataPlane,
     Delegate,
     Assume,
 }
@@ -45,7 +59,13 @@ impl CapabilityBundle {
     pub fn capabilities(&self) -> CapabilitySet {
         use Capability::*;
         match self {
-            Self::Viewer => CatalogRead | JournalRead,
+            // `ViewDataPlanePrivateNetworking` is bundled here because
+            // `read` on a data-plane prefix already conveys deploy-level
+            // trust (it's what authorizes deploying tasks into the plane),
+            // so viewing the plane's private-networking configuration comes
+            // with it. Mutating that configuration stays in the separately
+            // granted `ManageDataPlane` bundle.
+            Self::Viewer => CatalogRead | JournalRead | ViewDataPlanePrivateNetworking,
             Self::Writer => Self::Viewer.capabilities() | JournalAppend,
             // `Editor` is the bundle for users who exercise authority
             // over a catalog namespace, not just observe it:
@@ -85,11 +105,15 @@ impl CapabilityBundle {
                     | Self::Writer.capabilities()
                     | Self::TeamAdmin.capabilities()
                     | Self::Billing.capabilities()
+                    | Self::ManageDataPlane.capabilities()
             }
             Self::Billing => EnumSet::empty(),
             Self::TeamAdmin => CreateGrant | DeleteGrant | CreateInviteLink,
-            Self::Delegate => EnumSet::from(Delegate),
-            Self::Assume => EnumSet::from(Assume),
+            Self::ManageDataPlane => {
+                ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking
+            }
+            Self::Delegate => Delegate.into(),
+            Self::Assume => Assume.into(),
         }
     }
 }

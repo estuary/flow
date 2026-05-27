@@ -66,15 +66,20 @@ impl App {
 /// Evaluate whether the user identified by `claims` is authorized to access all
 /// of the enumerated `prefixes_or_names` with at least `min_capability`.
 /// Return a policy_result shape which fits Envelope::authorization_outcome.
-pub fn evaluate_names_authorization<'r, Iter, S>(
+///
+/// `min_capability` accepts any value that converts into a `CapabilitySet`:
+/// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
+/// `models::authz::Capability` bit, or an explicit `CapabilitySet`.
+pub fn evaluate_names_authorization<'r, Iter, S, C>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
-    min_capability: models::Capability,
+    min_capability: C,
     prefixes_or_names: Iter,
 ) -> AuthZResult<()>
 where
     Iter: IntoIterator<Item = S>,
     S: AsRef<str> + std::fmt::Display,
+    C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 {
     let models::authorizations::ControlClaims {
         sub: user_id,

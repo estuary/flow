@@ -370,6 +370,8 @@ enum CapabilityBit {
 	CreateGrant
 	DeleteGrant
 	CreateInviteLink
+	ViewDataPlanePrivateNetworking
+	ModifyDataPlanePrivateNetworking
 	Delegate
 	Assume
 }
@@ -703,24 +705,29 @@ type DataPlane {
 	"""
 	azureApplicationClientId: String
 	"""
+	Configured private link endpoints for this data-plane. Replacing this
+	list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
+	data-plane controller on its next poll. Returns an empty list to
+	callers that lack the `ViewDataPlanePrivateNetworking` capability on
+	this data plane.
+	"""
+	privateLinks: [PrivateLink!]!
+	"""
 	AWS PrivateLink endpoint provisioning results, opaque JSON exported by
-	the data-plane controller. Empty when no AWS endpoints are provisioned.
+	the data-plane controller. Empty when no AWS endpoints are provisioned,
+	or when the caller lacks `ViewDataPlanePrivateNetworking`.
 	"""
 	awsLinkEndpoints: [JSON!]!
 	"""
-	Azure Private Link endpoint provisioning results, opaque JSON.
+	Azure Private Link endpoint provisioning results, opaque JSON. Empty when
+	the caller lacks `ViewDataPlanePrivateNetworking`.
 	"""
 	azureLinkEndpoints: [JSON!]!
 	"""
 	GCP Private Service Connect endpoint provisioning results, opaque JSON.
+	Empty when the caller lacks `ViewDataPlanePrivateNetworking`.
 	"""
 	gcpPscEndpoints: [JSON!]!
-	"""
-	Configured private link endpoints for this data-plane. Replacing this
-	list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
-	data-plane controller on its next poll.
-	"""
-	privateLinks: [PrivateLink!]!
 }
 
 """
@@ -1258,10 +1265,8 @@ type MutationRoot {
 	private links state. The `*LinkEndpoints` provisioning results are not echoed here:
 	they lag this write until the controller converges, so callers needing them re-query `dataPlanes`.
 	
-	Interim authorization: requires `read` on the private data-plane name.
-	This matches the existing data-plane deployment authorization shape and
-	will be replaced with `manage_dataplane` once the orthogonal capability
-	model lands.
+	Requires the `ModifyDataPlanePrivateNetworking` capability on the
+	private data-plane name.
 	"""
 	updateDataPlanePrivateLinks(dataPlaneName: String!, privateLinks: [PrivateLinkInput!]!): [PrivateLink!]!
 }
