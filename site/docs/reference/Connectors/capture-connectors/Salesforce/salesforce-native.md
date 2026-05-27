@@ -41,6 +41,10 @@ There are two different ways to authenticate with Salesforce when capturing data
 
 * Salesforce user credentials. We recommend creating a dedicated read-only [Salesforce user](#create-a-read-only-salesforce-user).
 
+:::tip
+If your Salesforce organization's login policy prevents signing in through `login.salesforce.com`, set the [`my_domain`](#endpoint) field to your full My Domain login host - for example, `mycompany.my.salesforce.com` or `acme--uat.sandbox.my.salesforce.com`. This applies to both authentication methods. Leave it blank to use the standard login endpoint.
+:::
+
 ### Setup
 
 #### Create a read-only Salesforce user
@@ -67,6 +71,7 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `/start_date` | Start Date | Start date in the format YYYY-MM-DD. Data added on and after this date will be captured. If left blank, the start date will be set to Salesforce's founding date. | string | 1999-02-03T00:00:00Z |
+| `/my_domain` | My Domain | Your Salesforce My Domain login host. Enter the full host ending in .my.salesforce.com to login with your My Domain host. e.g. mycompany.my.salesforce.com, acme--uat.sandbox.my.salesforce.com. Leave blank to log in via the standard login/test endpoint. | string | `""` |
 | `/is_sandbox` | Sandbox | Whether you&#x27;re using a [Salesforce Sandbox](https://help.salesforce.com/s/articleView?id=sf.deploy_sandboxes_parent.htm&type=5). | boolean | `false` |
 | `/credentials/credentials_title` | Authentication Method | Set to `OAuth Credentials` or `Username, Password, & Security Token`. | string | Required |
 | `/credentials/client_id` | OAuth Client ID | The OAuth app's client ID. | string | Required for OAuth authentication |
@@ -103,6 +108,7 @@ captures:
             client_secret: <secret>
             instance_url: https://somedomain.my.salesforce.com
             refresh_token: <secret>
+          my_domain: mycompany.my.salesforce.com
           is_sandbox: false
           start_date: "2025-03-19T12:00:00Z"
           advanced:
