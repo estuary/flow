@@ -174,42 +174,10 @@ pub struct GCPBYOC {
     pub project_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum PrivateLink {
-    AWS(AWSPrivateLink),
-    Azure(AzurePrivateLink),
-    GCP(GCPPrivateServiceConnect),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct AWSPrivateLink {
-    pub region: String,
-    pub az_ids: Vec<String>,
-    pub service_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub service_region: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct AzurePrivateLink {
-    pub service_name: String,
-    pub location: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub dns_name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub resource_type: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct GCPPrivateServiceConnect {
-    pub service_attachment: String,
-    pub region: String,
-    pub dns_zone_name: String,
-    pub dns_record_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub all_ports: bool,
-}
+// Private-link config types live in the shared `models` crate so the GraphQL
+// API and the data-plane controller can speak the same shape. The DPC still
+// references them through this module, so re-export them here.
+pub use models::{AWSPrivateLink, AzurePrivateLink, GCPPrivateServiceConnect, PrivateLink};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -640,8 +608,8 @@ mod test {
             PrivateLink::Azure(AzurePrivateLink {
                 location: "eastus".to_string(),
                 service_name: "service".to_string(),
-                resource_type: "managedInstance".to_string(),
-                dns_name: "privatelink.database.windows.net".to_string(),
+                resource_type: Some("managedInstance".to_string()),
+                dns_name: Some("privatelink.database.windows.net".to_string()),
             }),
         );
         assert_eq!(
