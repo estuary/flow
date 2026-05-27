@@ -19,6 +19,7 @@ mod id;
 mod journals;
 mod labels;
 mod materializations;
+mod private_links;
 pub mod publications;
 mod raw_value;
 mod references;
@@ -58,6 +59,7 @@ pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
     RecommendedDepth, TargetNamingStrategy,
 };
+pub use private_links::{AWSPrivateLink, AzurePrivateLink, GCPPrivateServiceConnect, PrivateLink};
 pub use raw_value::RawValue;
 pub use references::{
     CATALOG_PREFIX_RE, Capture, Collection, CompositeKey, Field, JsonPointer, Materialization,
