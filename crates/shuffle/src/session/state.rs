@@ -241,6 +241,11 @@ pub struct CheckpointPipeline {
     completed_clocks: Vec<crate::ProducerMap<uuid::Clock>>,
     /// Maps binding index → cohort index (from Binding::cohort).
     binding_cohorts: Vec<u32>,
+    /// Monotonic floor of every per-shard `flushed_lsn` emitted to the client.
+    /// Different Slices observe Log `flushed_lsn` at different times, so
+    /// without this floor a ready or peek'd checkpoint can carry a lower LSN
+    /// than a checkpoint already emitted.
+    emitted_flushed_lsn: Vec<crate::log::Lsn>,
 }
 
 impl CheckpointPipeline {
@@ -281,6 +286,7 @@ impl CheckpointPipeline {
             recovery_pending,
             completed_clocks,
             binding_cohorts,
+            emitted_flushed_lsn: Vec::new(),
         }
     }
 
@@ -293,6 +299,19 @@ impl CheckpointPipeline {
         Ok(())
     }
 
+    /// Raise a checkpoint's per-shard `flushed_lsn` to the monotonic floor of
+    /// all prior emissions (element-wise max), then advance the floor. Routing
+    /// both the `ready` and `peek` paths through here guarantees the client's
+    /// Reader never sees a regressing `set_flushed_lsn`, even when a peek is
+    /// sourced from an `unresolved` whose Slice observed an older Log watermark.
+    fn floor_flushed_lsn(&mut self, frontier: &mut crate::Frontier) {
+        frontier.flushed_lsn = crate::Frontier::merge_flushed_lsn(
+            std::mem::take(&mut frontier.flushed_lsn),
+            self.emitted_flushed_lsn.clone(),
+        );
+        self.emitted_flushed_lsn = frontier.flushed_lsn.clone();
+    }
+
     /// If a checkpoint was requested, return a Frontier to the client:
     /// preferentially a fully-resolved `ready`, or a *peek* of the
     /// in-progress `unresolved` if it has advanced since the last emission.
@@ -302,13 +321,8 @@ impl CheckpointPipeline {
         }
 
         if !self.ready.journals.is_empty() {
-            let ready = std::mem::take(&mut self.ready);
-            // Retain flushed_lsn as a floor for future checkpoints: different
-            // Slices observe Log flushed_lsn at different times, so a later
-            // Progressed could carry a lower flushed_lsn than one already
-            // emitted. Keeping the floor in `self.ready` ensures that
-            // `reduce()` (which uses element-wise max) prevents regression.
-            self.ready.flushed_lsn = ready.flushed_lsn.clone();
+            let mut ready = std::mem::take(&mut self.ready);
+            self.floor_flushed_lsn(&mut ready);
             self.requested = false;
 
             service_kit::event!(
@@ -350,11 +364,12 @@ impl CheckpointPipeline {
                 })
                 .collect();
 
-            let peek = crate::Frontier {
+            let mut peek = crate::Frontier {
                 journals: peek_journals,
                 flushed_lsn: self.unresolved.flushed_lsn.clone(),
                 unresolved_hints: self.unresolved.unresolved_hints,
             };
+            self.floor_flushed_lsn(&mut peek);
 
             self.requested = false;
             self.unresolved_peek_progress = false;
@@ -776,6 +791,43 @@ mod test {
         // Overlaps of multiple entries.
         assert_eq!(range_span(&shards, 0x30000000, 0x80000000), (0, 2));
         assert_eq!(range_span(&shards, 0x90000000, 0xd0000000), (1, 3));
+    }
+
+    #[test]
+    fn test_peek_flushed_lsn_does_not_regress_below_ready() {
+        let high = crate::log::Lsn::new(1, 3).as_u64();
+        let low = crate::log::Lsn::new(1, 2).as_u64();
+
+        let mut pipeline = test_pipeline();
+
+        // Emit a fully-resolved `ready` checkpoint carrying flushed_lsn 1/3.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 10, 0, -500)])],
+            vec![high],
+        );
+        pipeline.request().unwrap();
+        let ready = pipeline.take_ready().expect("ready checkpoint");
+        assert_eq!(ready.flushed_lsn.len(), 1);
+        assert_eq!(ready.flushed_lsn[0].as_u64(), high);
+
+        // A later Progressed from a *different* Slice carries an unresolved hint
+        // and a lower flushed_lsn 1/2 (that Slice observed the Log one flush
+        // cycle earlier). It lands in `unresolved`, arming the peek path.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x05, 5, 20, -100)])],
+            vec![low],
+        );
+        pipeline.request().unwrap();
+        let peek = pipeline.take_ready().expect("peek checkpoint");
+
+        assert!(
+            peek.flushed_lsn[0].as_u64() >= ready.flushed_lsn[0].as_u64(),
+            "peek flushed_lsn {:?} regressed below previously-emitted ready flushed_lsn {:?}",
+            peek.flushed_lsn[0],
+            ready.flushed_lsn[0],
+        );
     }
 
     #[test]
