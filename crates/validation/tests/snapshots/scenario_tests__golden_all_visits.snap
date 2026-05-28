@@ -3087,8 +3087,8 @@ Outcome {
                 ),
                 derivation: Some(
                     Derivation {
-                        connector_type: Typescript,
-                        config_json: b"{\"module\":\"another typescript placeholder\\n\"}",
+                        connector_type: Image,
+                        config_json: b"{\"image\":\"ghcr.io/estuary/derive-typescript:dev\",\"config\":{\"module\":\"another typescript placeholder\\n\"}}",
                         transforms: [
                             Transform {
                                 name: "halveIntString",
@@ -4515,8 +4515,8 @@ Outcome {
                 ),
                 derivation: Some(
                     Derivation {
-                        connector_type: Typescript,
-                        config_json: b"{\"module\":\"typescript module placeholder\"}",
+                        connector_type: Image,
+                        config_json: b"{\"image\":\"ghcr.io/estuary/derive-typescript:dev\",\"config\":{\"module\":\"typescript module placeholder\"}}",
                         transforms: [
                             Transform {
                                 name: "reverseIntString",
