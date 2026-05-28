@@ -1461,11 +1461,11 @@ mod tests {
 
         // Flushed x2 with distinct connector state patches → idempotency
         // Persist that carries the merged Flushed patches.
-        ctx.shard_rx = Some(mk_flushed(0, b"[{\"phase\":\"flushed\",\"shard\":0}\n]"));
+        ctx.shard_rx = Some(mk_flushed(0, b"[{\"phase\":\"flushed\",\"shard\":0}\t]"));
         let (_action, h) = ctx.step_head(head, &mut tail);
         head = h;
 
-        ctx.shard_rx = Some(mk_flushed(1, b"[{\"phase\":\"flushed\",\"shard\":1}\n]"));
+        ctx.shard_rx = Some(mk_flushed(1, b"[{\"phase\":\"flushed\",\"shard\":1}\t]"));
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
         assert!(matches!(head, Head::Persist(_)));
@@ -1477,7 +1477,7 @@ mod tests {
             (&persist.connector_patches_json, &persist.max_keys),
             @r#"
         (
-            b"[{\"phase\":\"flushed\",\"shard\":0}\n,{\"phase\":\"flushed\",\"shard\":1}\n]",
+            b"[{\"phase\":\"flushed\",\"shard\":0}\t,{\"phase\":\"flushed\",\"shard\":1}\t]",
             {
                 0: b"\x05\x06\x07",
             },
@@ -1548,14 +1548,14 @@ mod tests {
         // Persist that carries the merged StartedCommit patches.
         ctx.shard_rx = Some(mk_started_commit(
             0,
-            b"[{\"phase\":\"committed\",\"shard\":0}\n]",
+            b"[{\"phase\":\"committed\",\"shard\":0}\t]",
         ));
         let (_action, h) = ctx.step_head(head, &mut tail);
         head = h;
 
         ctx.shard_rx = Some(mk_started_commit(
             1,
-            b"[{\"phase\":\"committed\",\"shard\":1}\n]",
+            b"[{\"phase\":\"committed\",\"shard\":1}\t]",
         ));
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
@@ -1568,7 +1568,7 @@ mod tests {
             (&persist.connector_patches_json, &persist.trigger_params_json),
             @r#"
         (
-            b"[{\"phase\":\"committed\",\"shard\":0}\n,{\"phase\":\"committed\",\"shard\":1}\n]",
+            b"[{\"phase\":\"committed\",\"shard\":0}\t,{\"phase\":\"committed\",\"shard\":1}\t]",
             b"{\"collection_names\":[\"test/collection\"],\"connector_image\":\"\",\"materialization_name\":\"\",\"flow_published_at_min\":\"2023-11-14T22:13:25+00:00\",\"flow_published_at_max\":\"2023-11-14T22:13:30+00:00\",\"run_id\":\"2023-11-14T22:13:20.000000004+00:00\"}",
         )
         "#);
@@ -1611,7 +1611,7 @@ mod tests {
         //     and Loaded(1) of Head's txn 2 Load round ---
 
         // Acknowledged from shard 0 carries connector patches.
-        ctx.shard_rx = Some(mk_acknowledged(0, b"[{\"phase\":\"acked\",\"shard\":0}\n]"));
+        ctx.shard_rx = Some(mk_acknowledged(0, b"[{\"phase\":\"acked\",\"shard\":0}\t]"));
         let (action, t) = ctx.step_tail(tail);
         tail = t;
         assert!(matches!(action, Action::Idle));
@@ -1629,7 +1629,7 @@ mod tests {
             Action::Persist { persist } => persist,
             other => panic!("expected Action::Persist, got {other:?}"),
         };
-        insta::assert_debug_snapshot!(&persist.connector_patches_json, @r#"b"[{\"phase\":\"acked\",\"shard\":0}\n]""#);
+        insta::assert_debug_snapshot!(&persist.connector_patches_json, @r#"b"[{\"phase\":\"acked\",\"shard\":0}\t]""#);
 
         // Persisted (post-Acknowledge) → chained next_action = WriteIntents.
         ctx.shard_rx = Some(mk_tail_persisted(&tail));
@@ -1851,7 +1851,7 @@ mod tests {
                             loaded_bytes_total: rng.random_range(0..1_000),
                             loaded_docs_total: rng.random_range(0..100),
                         }],
-                        connector_patches_json: Bytes::from_static(b"[{\"f\":1}\n]"),
+                        connector_patches_json: Bytes::from_static(b"[{\"f\":1}\t]"),
                     });
                 }
                 2 => {
@@ -1865,12 +1865,12 @@ mod tests {
                 }
                 3 => {
                     msg.started_commit = Some(proto::materialize::StartedCommit {
-                        connector_patches_json: Bytes::from_static(b"[{\"sc\":1}\n]"),
+                        connector_patches_json: Bytes::from_static(b"[{\"sc\":1}\t]"),
                     });
                 }
                 4 => {
                     msg.acknowledged = Some(proto::materialize::Acknowledged {
-                        connector_patches_json: Bytes::from_static(b"[{\"ack\":1}\n]"),
+                        connector_patches_json: Bytes::from_static(b"[{\"ack\":1}\t]"),
                     });
                 }
                 _ => {

@@ -603,10 +603,7 @@ mod tests {
         let response = leader_rx.recv().await.unwrap();
         assert_eq!(
             response.acknowledged.unwrap().connector_patches_json,
-            Bytes::from_static(
-                br#"[{"done":true}
-]"#
-            )
+            Bytes::from_static(b"[{\"done\":true}\t]")
         );
     }
 

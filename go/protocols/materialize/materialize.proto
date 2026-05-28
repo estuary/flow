@@ -163,7 +163,7 @@ message Request {
   // responses followed by one Flushed response.
   message Flush {
     // Aggregated state patches from all shards' prior-transaction Acknowledged
-    // responses, as a newline-delimited JSON array. Includes this shard's own
+    // responses, as a tab-delimited JSON array. Includes this shard's own
     // patches (the runtime feeds the shard's contribution back to it for
     // symmetry with the scaled-out case). Connectors participating in
     // cooperative multi-shard strategies use this to observe peers' state.
@@ -212,7 +212,7 @@ message Request {
     // Flow runtime checkpoint to commit with this transaction.
     consumer.Checkpoint runtime_checkpoint = 1;
     // Aggregated state patches from all shards' current-transaction Flushed
-    // responses, as a newline-delimited JSON array.
+    // responses, as a tab-delimited JSON array.
     bytes state_patches_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "statePatches"
@@ -224,7 +224,7 @@ message Request {
   // has committed to the Flow runtime's recovery log.
   message Acknowledge {
     // Aggregated connector state patches from all shards' just-committed
-    // StartedCommit responses, as a newline-delimited JSON array.
+    // StartedCommit responses, as a tab-delimited JSON array.
     bytes state_patches_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "statePatches"

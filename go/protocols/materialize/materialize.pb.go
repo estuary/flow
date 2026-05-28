@@ -498,7 +498,7 @@ var xxx_messageInfo_Request_Load proto.InternalMessageInfo
 // responses followed by one Flushed response.
 type Request_Flush struct {
 	// Aggregated state patches from all shards' prior-transaction Acknowledged
-	// responses, as a newline-delimited JSON array. Includes this shard's own
+	// responses, as a tab-delimited JSON array. Includes this shard's own
 	// patches (the runtime feeds the shard's contribution back to it for
 	// symmetry with the scaled-out case). Connectors participating in
 	// cooperative multi-shard strategies use this to observe peers' state.
@@ -605,7 +605,7 @@ type Request_StartCommit struct {
 	// Flow runtime checkpoint to commit with this transaction.
 	RuntimeCheckpoint *protocol.Checkpoint `protobuf:"bytes,1,opt,name=runtime_checkpoint,json=runtimeCheckpoint,proto3" json:"runtime_checkpoint,omitempty"`
 	// Aggregated state patches from all shards' current-transaction Flushed
-	// responses, as a newline-delimited JSON array.
+	// responses, as a tab-delimited JSON array.
 	StatePatchesJson     encoding_json.RawMessage `protobuf:"bytes,2,opt,name=state_patches_json,json=statePatches,proto3,casttype=encoding/json.RawMessage" json:"state_patches_json,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`
@@ -649,7 +649,7 @@ var xxx_messageInfo_Request_StartCommit proto.InternalMessageInfo
 // has committed to the Flow runtime's recovery log.
 type Request_Acknowledge struct {
 	// Aggregated connector state patches from all shards' just-committed
-	// StartedCommit responses, as a newline-delimited JSON array.
+	// StartedCommit responses, as a tab-delimited JSON array.
 	StatePatchesJson     encoding_json.RawMessage `protobuf:"bytes,1,opt,name=state_patches_json,json=statePatches,proto3,casttype=encoding/json.RawMessage" json:"state_patches_json,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`

@@ -2,7 +2,15 @@
 //!
 //! Connector state updates move through runtime-next as a framed sequence of
 //! JSON merge patches. The empty byte string means "no patches"; otherwise the
-//! payload is a JSON array with one patch per line.
+//! payload is a JSON array whose elements are tab-delimited.
+//!
+//! The delimiter is a tab rather than a newline because image connectors read
+//! requests as newline-delimited JSON (`derive-typescript`'s `readLines`): a
+//! raw newline inside the embedded `statePatches` array would split one Flush
+//! request across lines and corrupt it. A tab is safe because compact JSON
+//! never contains a raw tab — control characters are escaped inside strings and
+//! there is no insignificant whitespace — yet it is still valid JSON whitespace
+//! between array elements, so a connector can `JSON.parse` the payload directly.
 
 use anyhow::Context;
 use bytes::Bytes;
@@ -57,10 +65,10 @@ pub fn encode_connector_state(state: Option<proto_flow::flow::ConnectorState>) -
     b.push(b'[');
 
     if !merge_patch {
-        b.extend_from_slice(b"null\n,");
+        b.extend_from_slice(b"null\t,");
     }
     b.extend_from_slice(&updated_json);
-    b.extend_from_slice(b"\n]");
+    b.extend_from_slice(b"\t]");
 
     b.into()
 }
@@ -83,9 +91,9 @@ pub fn extend_state_patches(out: &mut Vec<u8>, src: &[u8]) {
 
 /// Split a State-Update-Wire-Format payload into its individual JSON patches.
 ///
-/// The wire form is always framed — a JSON array with each patch on its own
-/// line, prefixed by `[` (first) or `,` (subsequent) and terminated by `\n`,
-/// with a closing `]`. Empty bytes is interpreted as "zero patches".
+/// The wire form is always framed — a JSON array with each patch terminated by
+/// a tab and prefixed by `[` (first) or `,` (subsequent), with a closing `]`.
+/// Empty bytes is interpreted as "zero patches".
 pub fn split_state_patches(payload: &Bytes) -> Result<Vec<Bytes>, MalformedStatePatches> {
     if payload.is_empty() {
         return Ok(Vec::new());
@@ -103,7 +111,7 @@ pub fn split_state_patches(payload: &Bytes) -> Result<Vec<Bytes>, MalformedState
             Some(b'[') | Some(b',') => cursor += 1,
             Some(b']') => {
                 let tail = payload.len() - cursor - 1;
-                if tail == 0 || (tail == 1 && payload[cursor + 1] == b'\n') {
+                if tail == 0 || (tail == 1 && payload[cursor + 1] == b'\t') {
                     return Ok(out);
                 }
                 return Err(MalformedStatePatches {
@@ -121,7 +129,7 @@ pub fn split_state_patches(payload: &Bytes) -> Result<Vec<Bytes>, MalformedState
         if payload.get(cursor) == Some(&b']') {
             if out.is_empty() {
                 let tail = payload.len() - cursor - 1;
-                if tail == 0 || (tail == 1 && payload[cursor + 1] == b'\n') {
+                if tail == 0 || (tail == 1 && payload[cursor + 1] == b'\t') {
                     return Ok(out);
                 }
                 return Err(MalformedStatePatches {
@@ -133,14 +141,14 @@ pub fn split_state_patches(payload: &Bytes) -> Result<Vec<Bytes>, MalformedState
             });
         }
 
-        let newline =
+        let delim =
             payload[cursor..]
                 .iter()
-                .position(|b| *b == b'\n')
+                .position(|b| *b == b'\t')
                 .ok_or(MalformedStatePatches {
-                    reason: "missing trailing newline",
+                    reason: "missing trailing tab",
                 })?;
-        let end = cursor + newline;
+        let end = cursor + delim;
         out.push(payload.slice(cursor..end));
         cursor = end + 1;
     }
@@ -158,14 +166,14 @@ mod test {
             (b"", &[]),
             // Canonical zero-patches wire form.
             (b"[]", &[]),
-            (b"[]\n", &[]),
-            (b"[{\"a\":1}\n]", &[b"{\"a\":1}"]),
+            (b"[]\t", &[]),
+            (b"[{\"a\":1}\t]", &[b"{\"a\":1}"]),
             (
-                b"[{\"a\":1}\n,{\"b\":2}\n,{\"c\":3}\n]",
+                b"[{\"a\":1}\t,{\"b\":2}\t,{\"c\":3}\t]",
                 &[b"{\"a\":1}", b"{\"b\":2}", b"{\"c\":3}"],
             ),
-            // Trailing newline after `]` is permitted.
-            (b"[{\"a\":1}\n]\n", &[b"{\"a\":1}"]),
+            // Trailing tab after `]` is permitted.
+            (b"[{\"a\":1}\t]\t", &[b"{\"a\":1}"]),
         ];
         for (input, want) in ok_cases {
             let got = split_state_patches(&Bytes::copy_from_slice(input)).unwrap();
@@ -175,10 +183,10 @@ mod test {
 
         let err_cases: &[&[u8]] = &[
             b"{\"a\":1}",                // bare single-patch form is no longer valid
-            b"[{\"a\":1}]",              // missing trailing newline
-            b"[{\"a\":1}\n] extra",      // junk after closing
-            b"[{\"a\":1}\n{\"b\":2}\n]", // missing inter-entry comma
-            b"[{\"a\":1}\n,]",           // trailing comma before `]`
+            b"[{\"a\":1}]",              // missing trailing tab
+            b"[{\"a\":1}\t] extra",      // junk after closing
+            b"[{\"a\":1}\t{\"b\":2}\t]", // missing inter-entry comma
+            b"[{\"a\":1}\t,]",           // trailing comma before `]`
         ];
         for input in err_cases {
             split_state_patches(&Bytes::copy_from_slice(input)).unwrap_err();
@@ -191,14 +199,14 @@ mod test {
         extend_state_patches(&mut out, b"");
         assert!(out.is_empty());
 
-        extend_state_patches(&mut out, b"[{\"a\":1}\n]");
-        assert_eq!(out.as_slice(), b"[{\"a\":1}\n]");
+        extend_state_patches(&mut out, b"[{\"a\":1}\t]");
+        assert_eq!(out.as_slice(), b"[{\"a\":1}\t]");
 
         extend_state_patches(&mut out, b"");
-        assert_eq!(out.as_slice(), b"[{\"a\":1}\n]");
+        assert_eq!(out.as_slice(), b"[{\"a\":1}\t]");
 
-        extend_state_patches(&mut out, b"[{\"b\":2}\n,{\"c\":null}\n]");
-        assert_eq!(out.as_slice(), b"[{\"a\":1}\n,{\"b\":2}\n,{\"c\":null}\n]");
+        extend_state_patches(&mut out, b"[{\"b\":2}\t,{\"c\":null}\t]");
+        assert_eq!(out.as_slice(), b"[{\"a\":1}\t,{\"b\":2}\t,{\"c\":null}\t]");
 
         let decoded = split_state_patches(&Bytes::from(out)).unwrap();
         let decoded: Vec<&[u8]> = decoded.iter().map(|b| b.as_ref()).collect();
@@ -226,7 +234,7 @@ mod test {
                     updated_json: Bytes::from_static(br#"{"a":1}"#),
                     merge_patch: true,
                 }),
-                b"[{\"a\":1}\n]",
+                b"[{\"a\":1}\t]",
                 vec![br#"{"a":1}"#.as_slice()],
             ),
             (
@@ -234,7 +242,7 @@ mod test {
                     updated_json: Bytes::from_static(br#"{"a":1}"#),
                     merge_patch: false,
                 }),
-                b"[null\n,{\"a\":1}\n]",
+                b"[null\t,{\"a\":1}\t]",
                 vec![b"null".as_slice(), br#"{"a":1}"#.as_slice()],
             ),
         ];

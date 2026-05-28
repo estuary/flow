@@ -987,7 +987,7 @@ mod tests {
 
         // Resume txn 1's Tail. The staged drain output drives WriteStats.
         ctx.drain_finished = Some(DrainedCapture {
-            connector_patches: Bytes::from_static(b"[{\"cursor\":\"lsn-1\"}\n]"),
+            connector_patches: Bytes::from_static(b"[{\"cursor\":\"lsn-1\"}\t]"),
             bindings: BTreeMap::from([
                 (
                     0,
@@ -1073,7 +1073,7 @@ mod tests {
             ),
             @r#"
         (
-            b"[{\"cursor\":\"lsn-1\"}\n]",
+            b"[{\"cursor\":\"lsn-1\"}\t]",
             true,
             {
                 "ops/journal": b"intent-txn1",
@@ -1315,7 +1315,7 @@ mod tests {
             // Stage a drain completion for the Tail.
             if rng.random_bool(0.30) {
                 ctx.drain_finished = Some(DrainedCapture {
-                    connector_patches: Bytes::from_static(b"[{\"c\":1}\n]"),
+                    connector_patches: Bytes::from_static(b"[{\"c\":1}\t]"),
                     bindings: BTreeMap::from([(
                         rng.random_range(0..3),
                         ops::proto::stats::DocsAndBytes {

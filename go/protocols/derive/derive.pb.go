@@ -405,7 +405,7 @@ var xxx_messageInfo_Request_Read_Shuffle proto.InternalMessageInfo
 type Request_Flush struct {
 	// Aggregated connector state patches contributed by all participating
 	// shards in the PREVIOUS Flush iteration of the CURRENT transaction, as a
-	// newline-delimited JSON array. Includes this shard's own patch (the
+	// tab-delimited JSON array. Includes this shard's own patch (the
 	// runtime feeds the shard's contribution back to it for symmetry with the
 	// scaled-out case). Empty on the first Flush iteration. Connectors
 	// participating in cooperative multi-shard strategies use this to observe
