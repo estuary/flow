@@ -32,9 +32,23 @@ The connector will create new tables in the database per your specification. Tab
 |-----------------|----------|-------------------------------------------------|---------|------------------|
 | `/database`     | Database | Name of the logical database to materialize to. | string  |                  |
 | **`/address`**  | Address  | Host and port of the database                   | string  | Required         |
-| **`/password`** | Password | Password for the specified database user.       | string  | Required         |
 | `/schema` | Database Schema | Database [schema](https://docs.timescale.com/timescaledb/latest/how-to-guides/schema-management/) to use for materialized tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | `"public"` |
 | **`/user`**     | User     | Database user to connect as.                    | string  | Required         |
+| `/hardDelete` | Hard Delete | If enabled, items deleted in the source will also be deleted from the destination. By default, deletions are tracked via `_meta/op` (soft delete). | boolean | `false` |
+
+##### Credentials
+
+| Property | Title | Description | Type | Required/Default |
+| --- | --- | --- | --- | --- |
+| **`/credentials`** | Authentication | Authentication method and credentials that provide access to the database. | object | Required |
+| `/credentials/auth_type` | Auth Type | The authentication method to use. One of `UserPassword`, `AWSIAM`, `GCPIAM`, or `AzureIAM`. | string |  |
+| `/credentials/password` | Password | Password for the specified database user. | string | Required for `UserPassword` auth |
+| `/credentials/aws_region` | AWS Region | AWS region of your resource. | string | Required for `AWSIAM` auth |
+| `/credentials/aws_role_arn` | AWS Role ARN | AWS role for Estuary to use that has access to the resource. | string | Required for `AWSIAM` auth |
+| `/credentials/gcp_service_account_to_impersonate` | GCP Service Account | GCP service account email for Cloud SQL IAM authentication. | string | Required for `GCPIAM` auth |
+| `/credentials/gcp_workload_identity_pool_audience` | Workload Identity Pool Audience | GCP workload identity pool audience. The format should be similar to: `//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider`. | string | Required for `GCPIAM` auth |
+| `/credentials/azure_client_id` | Azure Client ID | Azure App Registration Client ID for Azure Active Directory authentication. | string | Required for `AzureIAM` auth |
+| `/credentials/azure_tenant_id` | Azure Tenant ID | Azure Tenant ID for Azure Active Directory authentication. | string | Required for `AzureIAM` auth |
 
 #### Bindings
 
@@ -56,8 +70,10 @@ materializations:
         config:
           database: flow
           address: xxxxxxxxxx.xxxxxxxxxx.tsdb.cloud.timescale.com:01234
-          password: flow
           user: flow
+          credentials:
+            auth_type: UserPassword
+            password: <secret>
     bindings:
       - resource:
           table: ${TABLE_NAME}
