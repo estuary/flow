@@ -739,7 +739,7 @@ mod test {
                     delete_hinted_frontier: true,
                     hinted_frontier: Some(frontier_fixture()),
                     committed_frontier: Some(frontier_fixture()),
-                    connector_patches_json: Bytes::from_static(b"[{\"cursor\":\"abc\"}\n]"),
+                    connector_patches_json: Bytes::from_static(b"[{\"cursor\":\"abc\"}\t]"),
                     max_keys: max_keys_map(&[(0, b"packed-1"), (1, b"packed-2")]),
                     delete_ack_intents: true,
                     ack_intents: ack_intents_map(&[("acme/events/000", b"ack-bytes-A")]),
@@ -799,7 +799,7 @@ mod test {
             (
                 "standalone_trigger_delete",
                 proto::Persist {
-                    connector_patches_json: Bytes::from_static(b"[{\"idle\":true}\n]"),
+                    connector_patches_json: Bytes::from_static(b"[{\"idle\":true}\t]"),
                     delete_trigger_params: true,
                     ..Default::default()
                 },
@@ -841,7 +841,7 @@ mod test {
         let persist2 = proto::Persist {
             committed_frontier: Some(frontier_fixture()),
             connector_patches_json: Bytes::from_static(
-                b"[{\"a\":1}\n,{\"b\":null}\n,{\"c\":[1,2]}\n]",
+                b"[{\"a\":1}\t,{\"b\":null}\t,{\"c\":[1,2]}\t]",
             ),
             delete_ack_intents: true,
             ack_intents: ack_intents_map(&[

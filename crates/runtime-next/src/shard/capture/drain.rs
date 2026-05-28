@@ -53,7 +53,7 @@ pub(super) async fn drain_and_publish(
     apply_sourced_schemas(&mut shapes, &task, sourced_schemas, &mut updated_inferences)?;
 
     // State-Update-Wire-Format stream of this transaction's connector patches:
-    // a `[`, then `,`-separated compact-JSON patches each terminated by `\n`,
+    // a `[`, then `,`-separated compact-JSON patches each terminated by `\t`,
     // and a closing `]` appended once the drain completes.
     let mut connector_patches = Vec::<u8>::new();
     let mut drained = BTreeMap::<u32, ops::proto::stats::DocsAndBytes>::new();
@@ -76,7 +76,7 @@ pub(super) async fn drain_and_publish(
                 &doc::SerPolicy::noop().on_owned(&doc),
             )
             .expect("connector state serialization cannot fail");
-            connector_patches.push(b'\n');
+            connector_patches.push(b'\t');
             continue;
         }
 

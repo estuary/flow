@@ -182,7 +182,7 @@ pub mod request {
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Flush {
         /// Aggregated state patches from all shards' prior-transaction Acknowledged
-        /// responses, as a newline-delimited JSON array. Includes this shard's own
+        /// responses, as a tab-delimited JSON array. Includes this shard's own
         /// patches (the runtime feeds the shard's contribution back to it for
         /// symmetry with the scaled-out case). Connectors participating in
         /// cooperative multi-shard strategies use this to observe peers' state.
@@ -227,7 +227,7 @@ pub mod request {
         #[prost(message, optional, tag = "1")]
         pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
         /// Aggregated state patches from all shards' current-transaction Flushed
-        /// responses, as a newline-delimited JSON array.
+        /// responses, as a tab-delimited JSON array.
         #[prost(bytes = "bytes", tag = "2")]
         pub state_patches_json: ::prost::bytes::Bytes,
     }
@@ -236,7 +236,7 @@ pub mod request {
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Acknowledge {
         /// Aggregated connector state patches from all shards' just-committed
-        /// StartedCommit responses, as a newline-delimited JSON array.
+        /// StartedCommit responses, as a tab-delimited JSON array.
         #[prost(bytes = "bytes", tag = "1")]
         pub state_patches_json: ::prost::bytes::Bytes,
     }

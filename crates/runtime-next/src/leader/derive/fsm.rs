@@ -1389,19 +1389,19 @@ mod tests {
         });
 
         // Iteration 1: both shards contribute a patch and request another round.
-        ctx.shard_rx = Some(mk_flushed(0, b"[{\"a\":0}\n]", true));
+        ctx.shard_rx = Some(mk_flushed(0, b"[{\"a\":0}\t]", true));
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
         assert!(matches!(action, Action::Idle));
         assert!(matches!(head, Head::Flush(_)));
 
-        ctx.shard_rx = Some(mk_flushed(1, b"[{\"a\":1}\n]", true));
+        ctx.shard_rx = Some(mk_flushed(1, b"[{\"a\":1}\t]", true));
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
         // A `more` iteration begins another Flush carrying the aggregate.
         match action {
             Action::Flush { state_patches } => {
-                assert_eq!(state_patches.as_ref(), b"[{\"a\":0}\n,{\"a\":1}\n]");
+                assert_eq!(state_patches.as_ref(), b"[{\"a\":0}\t,{\"a\":1}\t]");
             }
             other => panic!("expected Action::Flush, got {other:?}"),
         }
@@ -1424,7 +1424,7 @@ mod tests {
         // The all-iterations aggregate is carried for persistence.
         assert_eq!(
             extents.connector_patches.as_ref(),
-            b"[{\"a\":0}\n,{\"a\":1}\n]"
+            b"[{\"a\":0}\t,{\"a\":1}\t]"
         );
     }
 

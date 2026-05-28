@@ -656,8 +656,8 @@ mod tests {
         // replacement of `keep`, deletion of `drop`, and addition of `added`.
         let (mut rx, peer_tx, leader_tx, mut leader_rx) = channel_pair();
 
-        let patch1 = b"[{\"nested\":{\"a\":1},\"keep\":\"v1\"}\n]";
-        let patch2 = b"[{\"nested\":{\"b\":2},\"keep\":\"v2\",\"drop\":null,\"added\":true}\n]";
+        let patch1 = b"[{\"nested\":{\"a\":1},\"keep\":\"v1\"}\t]";
+        let patch2 = b"[{\"nested\":{\"b\":2},\"keep\":\"v2\",\"drop\":null,\"added\":true}\t]";
         peer_tx.send(Ok(applied(patch1))).unwrap();
         peer_tx.send(Ok(persisted(1))).unwrap();
         peer_tx.send(Ok(applied(patch2))).unwrap();
@@ -732,7 +732,7 @@ mod tests {
                 name: "no_convergence",
                 seed: |tx| {
                     for seq_no in 1..=4 {
-                        tx.send(Ok(applied(b"[{\"x\":1}\n]"))).unwrap();
+                        tx.send(Ok(applied(b"[{\"x\":1}\t]"))).unwrap();
                         tx.send(Ok(persisted(seq_no))).unwrap();
                     }
                 },
@@ -742,7 +742,7 @@ mod tests {
                 // Peer returns Persisted with a wrong seq_no — protocol error.
                 name: "persisted_seq_no_mismatch",
                 seed: |tx| {
-                    tx.send(Ok(applied(b"[{\"x\":1}\n]"))).unwrap();
+                    tx.send(Ok(applied(b"[{\"x\":1}\t]"))).unwrap();
                     tx.send(Ok(persisted(99))).unwrap();
                 },
                 expect: "expected Persisted",
