@@ -332,9 +332,11 @@ driver:
 
   derivations:
     testing/int-reverse:
-      connectorType: TYPESCRIPT
+      connectorType: IMAGE
       config:
-        module: typescript module placeholder
+        image: ghcr.io/estuary/derive-typescript:dev
+        config:
+          module: typescript module placeholder
       shuffleKeyTypes: []
       transforms:
         - readOnly: true
@@ -354,10 +356,12 @@ driver:
         test://example/mi%C3%9F%C3%9Fing/migration.sql: generated content
 
     testing/int-halve:
-      connectorType: TYPESCRIPT
+      connectorType: IMAGE
       config:
-        module: |
-          another typescript placeholder
+        image: ghcr.io/estuary/derive-typescript:dev
+        config:
+          module: |
+            another typescript placeholder
 
       transforms:
         - readOnly: false

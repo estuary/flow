@@ -96,7 +96,7 @@ pub async fn start<L: crate::LogHandler>(
                 (rx, None)
             }
             models::DeriveUsing::Typescript(_) | models::DeriveUsing::Python(_) => {
-                unreachable!("extract_endpoint maps Typescript/Python to image connectors")
+                unreachable!("extract_endpoint errors on unresolved Typescript/Python connectors")
             }
         };
 
@@ -157,29 +157,17 @@ fn extract_endpoint<'r>(
             ),
             config_json,
         ))
-    } else if connector_type == ConnectorType::Typescript as i32 {
-        // The V2 runtime uses `:stable` images, built from the current (V2-only)
-        // connector sources. The legacy V1 runtime keeps mapping to a frozen `:dev`
-        // image that still speaks the StartCommit/StartedCommit protocol. The runtime
-        // flag (estuary.dev/flag/enable-runtime-v2) selects which runtime — and thus
-        // which image tag — a task uses.
-        Ok((
-            models::DeriveUsing::Connector(models::ConnectorConfig {
-                image: "ghcr.io/estuary/derive-typescript:stable".to_string(),
-                config: serde_json::from_slice::<models::RawValue>(config_json)
-                    .context("parsing connector config")?,
-            }),
-            config_json,
-        ))
-    } else if connector_type == ConnectorType::Python as i32 {
-        Ok((
-            models::DeriveUsing::Connector(models::ConnectorConfig {
-                image: "ghcr.io/estuary/derive-python:stable".to_string(),
-                config: serde_json::from_slice::<models::RawValue>(config_json)
-                    .context("parsing connector config")?,
-            }),
-            config_json,
-        ))
+    } else if connector_type == ConnectorType::Typescript as i32
+        || connector_type == ConnectorType::Python as i32
+    {
+        // The V2 runtime never resolves a built-in connector image itself: the
+        // control-plane build maps TypeScript / Python derivations to a concrete
+        // image (selecting the tag from the task's feature flags) so that Validate
+        // and the runtime agree on the connector interface. Encountering an
+        // unresolved built-in here means the spec was built without that mapping.
+        anyhow::bail!(
+            "derive connector type {connector_type} should have been resolved to an image at build time"
+        );
     } else {
         anyhow::bail!("invalid derive connector type: {connector_type}");
     }
