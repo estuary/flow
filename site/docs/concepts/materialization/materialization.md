@@ -418,6 +418,7 @@ Target resource naming conventions include:
 * **Match source structure**
 
    Preserves the original table and schema names from the source.
+   Optionally specify prefixes/suffixes for schemas and tables.
 
    Collection `acmeCo/anvils/orders` becomes table `orders` in schema `anvils`.<br/>
    Collection `acmeCo/public/orders` becomes table `orders` in schema `public`.
@@ -425,11 +426,14 @@ Target resource naming conventions include:
    ```yaml
    targetNaming:
      strategy: matchSourceStructure
+     schemaTemplate: "schema_pre_{{schema}}_schema_suff"
+     tableTemplate: "table_pre_{{table}}_table_suff"
    ```
 
 * **Set a default schema**
 
    Materialize all tables to a single, given schema.
+   Optionally specify a prefix/suffix for tables.
 
    Collection `acmeCo/anvils/orders` becomes table `orders` in the provided schema.<br/>
    Collection `acmeCo/public/orders` becomes table `orders` in the provided schema.
@@ -438,12 +442,14 @@ Target resource naming conventions include:
    targetNaming:
      strategy: singleSchema
      schema: prod
+     tableTemplate: "table_pre_{{table}}_table_suff"
    ```
 
 * **Prefix table names**
 
    Materialize all tables to a single, given schema. In addition, prefix the source schema name to the table name to avoid naming conflicts when materializing from multiple source schemas.
    Common source schema defaults (like `public` and `dbo`) can be skipped.
+   Optionally specify a prefix/suffix for tables.
 
    Collection `acmeCo/anvils/orders` becomes table `anvils_orders` in the provided schema.<br/>
    Collection `acmeCo/public/orders` becomes table `public_orders` in the provided schema if common schema defaults are included.<br/>
@@ -454,14 +460,7 @@ Target resource naming conventions include:
      strategy: prefixTableNames
      schema: prod
      skipCommonDefaults: true
+     tableTemplate: "table_pre_{{table}}_table_suff"
    ```
-
-All target naming strategies also support modifying table names by specifying a default prefix and/or suffix.
-
-```yaml
-targetNaming:
-  prefix: a_prefix_
-  suffix: _a_suffix
-```
 
 These defaults can then be overridden on a per-binding basis by modifying the binding's **Table** name and setting the **Alternative Schema** field in the binding's Resource Configuration.
