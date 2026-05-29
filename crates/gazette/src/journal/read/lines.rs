@@ -34,7 +34,10 @@ pub struct LinesBatch {
     /// Contiguous newline-terminated content. The final byte is always `b'\n'`.
     /// Has at least PADDING bytes of spare capacity.
     pub content: Vec<u8>,
-    /// Was the read tailing (caught up to the write head) when this batch was produced?
+    /// Was the read caught up to the write head when this batch was produced?
+    /// Reflects the most recent write head observed (including via metadata
+    /// responses) as of this batch, so a batch produced after learning of newer
+    /// unread content reports `false`.
     pub tailing: bool,
 }
 
@@ -271,7 +274,10 @@ where
                 state.write_head = response.write_head;
 
                 if state.offset == response.offset {
-                    // Contiguous content (no offset jump).
+                    // Contiguous content (no offset jump). Refresh `tailing`: the
+                    // write head may have advanced past `offset`, so a previously
+                    // caught-up read is no longer tailing.
+                    state.tailing = state.offset == state.write_head;
                     continue;
                 } else if state.aligned as usize != state.buffers.len() {
                     // Invariant check: we should never have a partially buffered line
@@ -290,10 +296,12 @@ where
                     // Yield it prior to jumping offsets to ensure correct offset calculations.
                     let batch = state.take_aligned(state.aligned, buffered_bytes, PADDING);
                     state.offset = response.offset;
+                    state.tailing = state.offset == state.write_head;
                     return Poll::Ready(Some(Ok(batch)));
                 } else {
                     // `buffers` / `aligned` are zero-valued so we trivially jump.
                     state.offset = response.offset;
+                    state.tailing = state.offset == state.write_head;
                     continue;
                 }
             }
@@ -554,11 +562,43 @@ mod tests {
         assert_eq!((&b.content[..], b.tailing), (&b"bbbbb\n"[..], false));
         assert!(lines.tailing()); // 10 == 10
 
-        // Write_head advanced; behind again.
+        // Write_head advanced (via metadata) before this batch was produced, so
+        // the batch reports non-tailing.
         let b = lines.as_mut().next().await.unwrap().unwrap();
-        assert_eq!((&b.content[..], b.tailing), (&b"cc\n"[..], true));
+        assert_eq!((&b.content[..], b.tailing), (&b"cc\n"[..], false));
         assert!(!lines.tailing()); // 13 != 20
         assert_eq!(lines.write_head(), 20);
+    }
+
+    #[tokio::test]
+    async fn test_tailing_refreshed_by_metadata_before_next_batch() {
+        // Once caught up, a metadata response that advances the
+        // write head must drop `tailing()` immediately — before, and without,
+        // any further batch.
+        let lines = ReadLines::<1024, PADDING, _>::new(
+            TestStream {
+                items: vec![
+                    Some(meta(0, 4)),          // write_head=4
+                    Some(content(0, "aaa\n")), // offset → 4, caught up
+                    None,                      // flush the batch
+                    Some(meta(4, 9)),          // write head advances past offset
+                ]
+                .into(),
+            },
+            0,
+            true,
+        );
+        tokio::pin!(lines);
+
+        let b = lines.as_mut().next().await.unwrap().unwrap();
+        assert_eq!(&b.content[..], b"aaa\n");
+        assert!(lines.tailing()); // 4 == 4
+
+        // Draining the metadata response yields no batch (stream then ends),
+        // yet `tailing()` already reflects the advanced write head.
+        assert!(lines.as_mut().next().await.is_none());
+        assert!(!lines.tailing()); // 4 != 9
+        assert_eq!(lines.write_head(), 9);
     }
 
     #[tokio::test]

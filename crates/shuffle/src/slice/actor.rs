@@ -41,6 +41,10 @@ pub struct SliceActor {
     /// We defer sending Append requests until all pending reads are tailing,
     /// ensuring no pending read has content that could preempt the current heap top.
     pub tailing_reads: usize,
+    /// Read IDs currently pending AND non-tailing: parked awaiting broker I/O
+    /// while still behind their journal write head. This is exactly the set that
+    /// head-of-line-blocks heap draining (see the gate in `try_log_request_tx`).
+    pub stalled_reads: std::collections::HashSet<u32>,
     /// Shard parser for transcoding documents from LinesBatch.
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
@@ -124,6 +128,7 @@ impl SliceActor {
                 loop_count,
                 total_reads = self.reads.len(),
                 tailing_reads = self.tailing_reads,
+                stalled_reads = self.stalled_reads.len(),
                 pending_probes = self.pending_probes.len(),
                 pending_reads = self.pending_reads.len(),
                 ready_heap = self.ready_read_heap.len(),
@@ -157,13 +162,13 @@ impl SliceActor {
 
                 // Lowest priority is processing journal listings and reads.
                 Some(probe_result) = self.pending_probes.next() => {
-                    self.on_probe_result(probe_result)?;
+                    self.park_or_process(probe_result?)?;
                 }
                 Some(listing_result) = listing_tasks.next() => {
                     self.on_listing_task_done(listing_result)?;
                 }
                 Some((result, read)) = self.pending_reads.next() => {
-                    self.on_read_result(result, read)?;
+                    self.on_pending_read_resolved(result, read)?;
                 }
 
                 // Periodic tick ensures tracing fires even when idle.
@@ -330,16 +335,12 @@ impl SliceActor {
         );
         self.metrics.reads_started.increment(1);
 
-        self.reads.push(ReadState {
-            binding_index: binding_index as u16,
+        self.reads.push(ReadState::resuming(
+            binding_index as u16,
             journal,
-            settled: producers,
-            pending: Default::default(),
-            read_offset: offset,
-            prev_read_offset: offset,
-            write_head: 0,
-            prev_write_head: 0,
-        });
+            producers,
+            offset,
+        ));
 
         self.pending_probes.push(Box::pin(async move {
             // Probe the journal for its write head.
@@ -377,22 +378,85 @@ impl SliceActor {
         Ok(())
     }
 
-    pub fn on_probe_result(
-        &mut self,
-        probe_result: anyhow::Result<super::ReadLines>,
-    ) -> anyhow::Result<()> {
-        let read = probe_result?;
+    /// (Re)-introduce `read` into the actor. If its next batch (or terminal status)
+    /// is already available, process it immediately. Otherwise the read must await
+    /// broker I/O: park it in `pending_reads`, classifying its membership
+    /// (a tailing read bumps the `tailing_reads` count, while a non-tailing read
+    /// joins `stalled_reads` and emits a `stall` event). Note that
+    /// `on_pending_read_resolved` performs an exactly-inverted de-classification
+    /// on read resolution.
+    ///
+    /// Pre-condition: `read` is *not* in `pending_reads`, and carries no
+    /// classification membership to undo (that happens in `on_pending_read_resolved`).
+    fn park_or_process(&mut self, mut read: super::ReadLines) -> anyhow::Result<()> {
+        if let Some(result) = read.next().now_or_never() {
+            return self.process_read_result(result, read);
+        }
+
         if read.tailing() {
             self.tailing_reads += 1;
             self.metrics.tailing_reads.set(self.tailing_reads as f64);
+        } else {
+            // `read` isn't in `pending_reads`, and `stalled_reads` is a strict
+            // subset of `pending_reads`.
+            let is_new = self.stalled_reads.insert(read.id());
+            debug_assert!(
+                is_new,
+                "read {} was parked while already stalled",
+                read.id()
+            );
+
+            self.metrics
+                .stalled_reads
+                .set(self.stalled_reads.len() as f64);
+            self.emit_stall_event(
+                read.id(),
+                "read has stalled heap drain (pending and !tailing)",
+            );
         }
         self.pending_reads.push(read.into_future());
         Ok(())
     }
 
-    /// Parse a LinesBatch into documents and push a ReadyRead onto the heap,
-    /// or handle errors from the underlying ReadLines stream.
-    pub fn on_read_result(
+    /// Handle a resolution yielded by `pending_reads`: the read has *left*
+    /// `pending_reads`, so de-classify its membership (the inverse of the
+    /// classification in `park_or_process`) before processing.
+    fn on_pending_read_resolved(
+        &mut self,
+        result: Option<gazette::RetryResult<gazette::journal::read::LinesBatch>>,
+        read: super::ReadLines,
+    ) -> anyhow::Result<()> {
+        if self.stalled_reads.remove(&read.id()) {
+            self.metrics
+                .stalled_reads
+                .set(self.stalled_reads.len() as f64);
+            self.emit_stall_event(read.id(), "read is no longer stalled");
+        } else {
+            // `read` wasn't stalled, so must have been tailing.
+            self.tailing_reads = self.tailing_reads.strict_sub(1);
+            self.metrics.tailing_reads.set(self.tailing_reads as f64);
+        }
+        self.process_read_result(result, read)
+    }
+
+    fn emit_stall_event(&self, read_id: u32, message: &'static str) {
+        let read_state = &self.reads[read_id as usize];
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "stall",
+            read_id,
+            binding = read_state.binding_index,
+            journal = read_state.journal.to_string(),
+            read_offset = read_state.read_offset,
+            write_head = read_state.write_head,
+            "{}",
+            message,
+        );
+    }
+
+    /// Parse a LinesBatch into documents and push a ReadyRead onto the heap, or
+    /// handle a terminal/transient status from the underlying ReadLines stream.
+    fn process_read_result(
         &mut self,
         result: Option<gazette::RetryResult<gazette::journal::read::LinesBatch>>,
         mut read: super::ReadLines,
@@ -402,10 +466,6 @@ impl SliceActor {
         let journal = read.fragment().journal.clone();
 
         let Some(result) = result else {
-            if read.tailing() {
-                self.tailing_reads = self.tailing_reads.strict_sub(1);
-                self.metrics.tailing_reads.set(self.tailing_reads as f64);
-            }
             service_kit::event!(
                 tracing::Level::INFO,
                 "read",
@@ -424,10 +484,6 @@ impl SliceActor {
                 inner: err,
             }) => match err {
                 gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
-                    if read.tailing() {
-                        self.tailing_reads = self.tailing_reads.strict_sub(1);
-                        self.metrics.tailing_reads.set(self.tailing_reads as f64);
-                    }
                     service_kit::event!(
                         tracing::Level::INFO,
                         "read",
@@ -440,10 +496,6 @@ impl SliceActor {
                     return Ok(());
                 }
                 gazette::Error::BrokerStatus(broker::Status::Suspended) => {
-                    if read.tailing() {
-                        self.tailing_reads = self.tailing_reads.strict_sub(1);
-                        self.metrics.tailing_reads.set(self.tailing_reads as f64);
-                    }
                     service_kit::event!(
                         tracing::Level::INFO,
                         "read",
@@ -466,8 +518,7 @@ impl SliceActor {
                         err = service_kit::event::debug(err),
                         "transient error reading from journal (will retry)",
                     );
-                    self.pending_reads.push(read.into_future());
-                    return Ok(());
+                    return self.park_or_process(read);
                 }
                 err => {
                     return Err(map_read_error(
@@ -481,11 +532,6 @@ impl SliceActor {
             Ok(lines_batch) => lines_batch,
         };
 
-        // Pending read has now resolved. Update tailing aggregate and write_head.
-        if lines_batch.tailing {
-            self.tailing_reads = self.tailing_reads.strict_sub(1);
-            self.metrics.tailing_reads.set(self.tailing_reads as f64);
-        }
         read_state.write_head = read.write_head();
 
         service_kit::event!(
@@ -707,6 +753,9 @@ impl SliceActor {
                 .pending
                 .insert(producer, sequenced.producer_state);
 
+            // Copy so the `binding` borrow ends here, freeing &mut self for re-borrow.
+            let read_delay = binding.read_delay;
+
             // Advance doc_tail and meta_tail in lock-step (guaranteed equal length).
             match (doc_tail.next(), meta_tail.next()) {
                 (Some((doc, _)), Some(meta)) => {
@@ -720,17 +769,12 @@ impl SliceActor {
                     };
                     self.ready_read_heap.push(ReadyReadEntry {
                         priority,
-                        adjusted_clock: ready_read.meta.clock + binding.read_delay,
+                        adjusted_clock: ready_read.meta.clock + read_delay,
                         inner: Some(ready_read),
                     })
                 }
-                (None, None) => {
-                    if read.tailing() {
-                        self.tailing_reads += 1;
-                        self.metrics.tailing_reads.set(self.tailing_reads as f64);
-                    }
-                    self.pending_reads.push(read.into_future());
-                }
+                // This read's batch is fully drained, and we must await I/O.
+                (None, None) => self.park_or_process(read)?,
                 _ => unreachable!("doc_tail and meta_tail have equal length"),
             }
         }

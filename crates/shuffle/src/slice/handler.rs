@@ -161,6 +161,7 @@ where
         parser: simd_doc::SimdParser::new(1_000_000),
         ready_read_heap: ReadyReadHeap::new(),
         tailing_reads: 0,
+        stalled_reads: Default::default(),
         metrics,
     }
     .serve(slice_request_rx, log_response_rx)

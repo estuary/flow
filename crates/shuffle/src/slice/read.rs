@@ -30,6 +30,36 @@ pub struct ReadState {
     pub prev_write_head: i64,
 }
 
+impl ReadState {
+    /// Construct a `ReadState` for a read resuming at journal byte `offset`,
+    /// with `settled` producers recovered from its checkpoint.
+    ///
+    /// All four offset fields start at `offset`, so the read's initial
+    /// "bytes behind" (`write_head - read_offset`) and its delta baseline
+    /// (`prev_write_head - prev_read_offset`) initialize as zero, which is
+    /// required because metrics accumulate deltas starting from these baselines.
+    ///
+    /// `write_head` is a placeholder here; it's overwritten with the journal's
+    /// true head once the first batch resolves in `process_read_result`.
+    pub fn resuming(
+        binding_index: u16,
+        journal: Box<str>,
+        settled: ProducerMap<ProducerState>,
+        offset: i64,
+    ) -> Self {
+        Self {
+            binding_index,
+            journal,
+            settled,
+            pending: Default::default(),
+            read_offset: offset,
+            prev_read_offset: offset,
+            write_head: offset,
+            prev_write_head: offset,
+        }
+    }
+}
+
 /// Metadata about a document in a ReadyRead batch.
 #[derive(Debug)]
 pub struct Meta {
