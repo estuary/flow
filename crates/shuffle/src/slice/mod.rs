@@ -51,6 +51,9 @@ pub(crate) struct Metrics {
     reads_stopped: metrics::Counter,
     /// Number of active reads currently tailing their journal write head.
     tailing_reads: metrics::Gauge,
+    /// Number of reads currently pending AND non-tailing: parked awaiting broker
+    /// I/O while behind their write head, head-of-line-blocking the heap drain.
+    stalled_reads: metrics::Gauge,
 }
 
 impl Metrics {
@@ -82,6 +85,11 @@ impl Metrics {
                 metrics::Unit::Count,
                 "active reads currently tailing their journal write head",
             );
+            metrics::describe_gauge!(
+                "shuffle_slice_stalled_reads",
+                metrics::Unit::Count,
+                "active reads pending and non-tailing (awaiting I/O while behind), blocking the heap drain",
+            );
         });
 
         Self {
@@ -90,6 +98,7 @@ impl Metrics {
             reads_started: metrics::counter!("shuffle_slice_reads_started", "shard_id" => shard_id.to_string()),
             reads_stopped: metrics::counter!("shuffle_slice_reads_stopped", "shard_id" => shard_id.to_string()),
             tailing_reads: metrics::gauge!("shuffle_slice_tailing_reads", "shard_id" => shard_id.to_string()),
+            stalled_reads: metrics::gauge!("shuffle_slice_stalled_reads", "shard_id" => shard_id.to_string()),
         }
     }
 }

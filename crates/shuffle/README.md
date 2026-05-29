@@ -194,6 +194,15 @@ read_delay`. The Slice defers draining the heap until all pending reads
 are tailing — this ensures no yet-to-resolve read could preempt the
 current heap top.
 
+A single non-tailing read therefore head-of-line-blocks the whole Slice's
+drain, so I/O stalls on individual journals matter. A read is only
+(re-)parked into `pending_reads` after a now-or-never poll fails to yield
+its next batch (`park_or_process`); a read with content already buffered is
+processed immediately rather than counted as blocked. Reads that genuinely
+park while non-tailing are tracked in `stalled` and surfaced — by transition
+— on the `stall` event track and the `shuffle_slice_stalled_reads` gauge, so
+an operator can sample *which* journals are blocking and for how long.
+
 Before processing the heap top, the Slice gates on wall-clock time: if
 `adjusted_clock` is in the future (due to `read_delay`), the actor
 sleeps until the clock catches up. This is how read delays impose
