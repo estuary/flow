@@ -20,7 +20,6 @@ mod raw;
 mod version;
 
 pub(crate) use flow_client::client::Client;
-use flow_client::client::refresh_authorizations;
 pub(crate) use flow_client::{api_exec, api_exec_paginated};
 use models::authorizations::ControlClaims;
 use output::{Output, OutputType};
@@ -157,6 +156,38 @@ impl CliContext {
     }
 }
 
+/// Refresh the access token using whichever durable credential the config
+/// carries, updating `config` in place, and return it. A service-account API
+/// key (from `FLOW_AUTH_TOKEN`) takes precedence over a refresh token; when one
+/// is present we exchange it for an access token and never mint or rotate a
+/// refresh token (the API key is the long-lived credential).
+pub(crate) async fn refresh_credentials(
+    client: &flow_client::Client,
+    config: &mut config::Config,
+) -> anyhow::Result<String> {
+    if let Some(api_key) = config.user_api_key.clone() {
+        let access = flow_client::client::refresh_api_key_authorization(
+            client,
+            config.user_access_token.clone(),
+            &api_key,
+        )
+        .await?;
+        config.user_access_token = Some(access.clone());
+        return Ok(access);
+    }
+
+    let (access, refresh) = flow_client::client::refresh_authorizations(
+        client,
+        config.user_access_token.clone(),
+        config.user_refresh_token.clone(),
+    )
+    .await?;
+    // Store refreshed tokens back in Config so they get written back to disk.
+    config.user_access_token = Some(access.clone());
+    config.user_refresh_token = Some(refresh);
+    Ok(access)
+}
+
 impl Cli {
     pub async fn run(&self) -> anyhow::Result<()> {
         let mut config = config::Config::load(&self.profile)?;
@@ -164,20 +195,8 @@ impl Cli {
 
         let anon_client: flow_client::Client = config.build_anon_client();
 
-        let client = match refresh_authorizations(
-            &anon_client,
-            config.user_access_token.to_owned(),
-            config.user_refresh_token.to_owned(),
-        )
-        .await
-        {
-            Ok((access, refresh)) => {
-                // Make sure to store refreshed tokens back in Config so they get written back to disk
-                config.user_access_token = Some(access.to_owned());
-                config.user_refresh_token = Some(refresh.to_owned());
-
-                anon_client.with_user_access_token(Some(access))
-            }
+        let client = match refresh_credentials(&anon_client, &mut config).await {
+            Ok(access) => anon_client.with_user_access_token(Some(access)),
             Err(err) => {
                 tracing::debug!(?err, "Error refreshing credentials");
                 tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
@@ -216,7 +235,13 @@ impl Cli {
         }
 
         result?;
-        context.config.write(&self.profile)?;
+
+        // An env-supplied API key authenticates an ephemeral run: never persist
+        // credentials (or other state) derived from it, so the long-lived secret
+        // stays off disk and a human's existing config is left untouched.
+        if context.config.user_api_key.is_none() {
+            context.config.write(&self.profile)?;
+        }
 
         Ok(())
     }

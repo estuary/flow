@@ -2,7 +2,6 @@ pub mod list;
 mod roles;
 
 use anyhow::Context;
-use flow_client::client::refresh_authorizations;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -62,23 +61,18 @@ impl Auth {
             Command::Login => do_login(ctx).await,
             Command::Token(Token { token }) => {
                 ctx.config.user_access_token = Some(token.clone());
+                // An explicit access token supersedes any ambient API key.
+                ctx.config.user_api_key = None;
                 println!("Configured access token.");
                 Ok(())
             }
             Command::Roles(roles) => roles.run(ctx).await,
         }?;
 
-        // Ensure that any changes to the credentials fully propagate
-        // i.e if an access token is changed, we also need to make sure
-        // to generate and store an updated refresh token.
-        let (access_token, refresh_token) = refresh_authorizations(
-            &ctx.client,
-            ctx.config.user_access_token.to_owned(),
-            ctx.config.user_refresh_token.to_owned(),
-        )
-        .await?;
-        ctx.config.user_access_token = Some(access_token);
-        ctx.config.user_refresh_token = Some(refresh_token);
+        // Propagate the credential change: after `login`/`token` this mints and
+        // stores a refresh token. Under API-key auth it refreshes the access
+        // token without creating a refresh token.
+        crate::refresh_credentials(&ctx.client, &mut ctx.config).await?;
         Ok(())
     }
 }
@@ -120,6 +114,8 @@ async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         // Copied credentials will often accidentally contain extra whitespace characters.
         let token = token.trim().to_string();
         ctx.config.user_access_token = Some(token);
+        // An interactive login supersedes any ambient API key.
+        ctx.config.user_api_key = None;
         println!("\nConfigured access token.");
         Ok(())
     } else {

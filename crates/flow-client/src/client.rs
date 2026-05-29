@@ -556,6 +556,62 @@ pub async fn refresh_authorizations(
     }
 }
 
+/// Exchange a service-account API key for a short-lived access token.
+///
+/// Unlike a refresh token, an API key is a fixed, non-rotating credential the
+/// caller holds verbatim — this only ever mints a new access token; the key is
+/// never modified or returned. A still-valid `access_token` is reused as-is to
+/// avoid an exchange on every invocation.
+pub async fn refresh_api_key_authorization(
+    client: &Client,
+    access_token: Option<String>,
+    api_key: &str,
+) -> anyhow::Result<String> {
+    // Reuse a cached access token that still has comfortable runway.
+    if let Some(token) = &access_token {
+        if let Ok(claims) = parse_jwt_claims::<ControlClaims>(token) {
+            if claims.time_remaining().whole_seconds() >= 60 {
+                return Ok(token.to_owned());
+            }
+        }
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Response {
+        access_token: String,
+    }
+
+    let response = client
+        .http_client
+        .post(
+            client
+                .agent_endpoint
+                .join("/api/v1/auth/token")
+                .context("failed to build token exchange URL")?,
+        )
+        .json(&serde_json::json!({
+            "grant_type": "api_key",
+            "api_key": api_key,
+        }))
+        .send()
+        .await
+        .context("failed to exchange api key")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("api key exchange failed: {status}: {body}");
+    }
+
+    let Response { access_token } = response
+        .json()
+        .await
+        .context("failed to parse api key exchange response")?;
+
+    tracing::info!("exchanged api key for a new access token");
+    Ok(access_token)
+}
+
 pub fn client_claims(client: &Client) -> anyhow::Result<ControlClaims> {
     parse_jwt_claims(
         client

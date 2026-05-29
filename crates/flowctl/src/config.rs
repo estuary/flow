@@ -37,6 +37,13 @@ pub struct Config {
     /// used to generate access_token when it's unset or expires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_refresh_token: Option<RefreshToken>,
+    /// Service-account API key (`flow_sa_...`). Sourced only from the
+    /// `FLOW_AUTH_TOKEN` environment variable and held in memory for the life
+    /// of the process — an API key is a long-lived secret, so it is deliberately
+    /// never read from or written to the config file. When set, it is the
+    /// durable credential used to mint access tokens, in place of a refresh token.
+    #[serde(skip)]
+    pub user_api_key: Option<String>,
     /// URL endpoint for the config encryption service.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_encryption_url: Option<url::Url>,
@@ -157,11 +164,19 @@ impl Config {
             config.user_refresh_token = refresh_token;
         }
 
-        // FLOW_AUTH_TOKEN, if present, overrides a refresh or access token
-        // loaded from disk. A value with three dot-delimited segments is a JWT
-        // access token; anything else is a base64-encoded refresh token JSON.
+        // FLOW_AUTH_TOKEN, if present, overrides any credential loaded from
+        // disk. A `flow_sa_` prefix is a service-account API key; a value with
+        // three dot-delimited segments is a JWT access token; anything else is
+        // a base64-encoded refresh token JSON.
         if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
-            if env_token.split('.').count() == 3 {
+            if env_token.starts_with("flow_sa_") {
+                // Held in memory only — the api-key exchange mints a short-lived
+                // access token at use, and nothing is persisted to disk.
+                tracing::info!("using FLOW_AUTH_TOKEN environment API key");
+                config.user_api_key = Some(env_token);
+                config.user_access_token = None;
+                config.user_refresh_token = None;
+            } else if env_token.split('.').count() == 3 {
                 tracing::info!("using FLOW_AUTH_TOKEN environment access token");
                 config.user_refresh_token = None;
                 config.user_access_token = Some(env_token);
