@@ -16,8 +16,9 @@ pub(super) struct Task {
     pub key_extractors: Vec<doc::Extractor>,
     /// Salt used for redacting sensitive fields when combining.
     pub redact_salt: bytes::Bytes,
-    /// Number of transforms (input bindings), for `C:Read` index validation.
-    pub n_transforms: usize,
+    /// Source metadata of each transform (input binding), indexed by transform
+    /// index. Used to bound `C:Read` indices and to re-validate source documents.
+    pub transforms: Vec<Transform>,
     /// Stable RocksDB `state_key` of each transform, indexed by binding index.
     /// Used to map the leader's frontier binding indices to the `FC:`/`FH:`
     /// key layout.
@@ -26,6 +27,18 @@ pub(super) struct Task {
     pub write_schema_json: bytes::Bytes,
     /// Inferred Shape of written documents, seeded from `write_schema_json`.
     pub write_shape: doc::Shape,
+}
+
+/// Transform configuration for a derivation shard.
+pub(super) struct Transform {
+    /// Name of this transform.
+    pub transform: String,
+    /// Source collection name.
+    pub collection: String,
+    /// Schema the shuffle read pipeline validates source documents against:
+    /// the source collection's read schema, or its write schema when no read
+    /// schema is defined (mirroring `shuffle::binding::build_schema`).
+    pub schema_json: bytes::Bytes,
 }
 
 impl Task {
@@ -61,6 +74,31 @@ impl Task {
             .map(|t| assemble::encode_state_key(&[&t.name], t.backfill))
             .collect::<Vec<String>>();
 
+        let sources = transforms
+            .iter()
+            .map(|t| {
+                let collection = t
+                    .collection
+                    .as_ref()
+                    .context("transform missing source collection")?;
+
+                // Prefer the read schema, falling back to the write schema, so
+                // re-validation uses the same schema the shuffle read pipeline
+                // validated against when it set `FLAGS_SCHEMA_VALID`.
+                let schema_json = if collection.read_schema_json.is_empty() {
+                    collection.write_schema_json.clone()
+                } else {
+                    collection.read_schema_json.clone()
+                };
+
+                Ok(Transform {
+                    transform: t.name.clone(),
+                    collection: collection.name.clone(),
+                    schema_json,
+                })
+            })
+            .collect::<anyhow::Result<Vec<Transform>>>()?;
+
         let partition_template = partition_template
             .as_ref()
             .context("missing partition template")?;
@@ -88,11 +126,37 @@ impl Task {
             document_uuid_ptr,
             key_extractors,
             redact_salt: redact_salt.clone(),
-            n_transforms: transforms.len(),
+            transforms: sources,
             binding_state_keys,
             write_schema_json: write_schema_json.clone(),
             write_shape,
         })
+    }
+
+    /// Build a source-document validator per transform.
+    pub fn source_validators(&self) -> anyhow::Result<Vec<doc::Validator>> {
+        self.transforms
+            .iter()
+            .map(
+                |Transform {
+                     collection: collection_name,
+                     transform: transform_name,
+                     schema_json,
+                 }| {
+                    let built_schema =
+                        doc::validation::build_bundle(schema_json).with_context(|| {
+                            format!(
+                                "source collection {collection_name} schema is not a JSON schema",
+                            )
+                        })?;
+                    doc::Validator::new(built_schema).with_context(|| {
+                        format!(
+                            "could not build a schema validator for transform {transform_name}",
+                        )
+                    })
+                },
+            )
+            .collect()
     }
 
     /// Combiner over the single derived-collection output binding. Connector
