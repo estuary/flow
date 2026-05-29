@@ -4,7 +4,7 @@ sidebar_position: 4
 
 # Admin Settings
 
-On the **Admin** page, you can view users' access grants, your organization's cloud storage locations, and a complete list of connectors.
+On the **Admin** page, you can view users' access grants and your organization's cloud storage locations.
 You can also get an access token to authenticate with flowctl and manage billing information.
 
 ## Account Access
@@ -76,11 +76,6 @@ To help estimate your bill, also see the [Pricing Calculator](https://estuary.de
 
 To pay your bill, add a payment method to your account. You can choose to pay via card or bank account.
 You will not be charged until you exceed the free tier's limits and have finished your subsequent trial period.
-
-## Connectors
-
-The **Connectors** tab offers a complete view of all connectors that are currently available through the dashboard, including both capture and materialization connectors.
-If a connector you need is missing, you can [request it](https://github.com/estuary/connectors/issues/new/choose).
 
 ## CLI-API
 
