@@ -93,6 +93,11 @@ impl Actor {
         C: futures::Stream<Item = tonic::Result<derive::Response>> + Send + Unpin + 'static,
         L: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
     {
+        // Source-document validators, indexed by transform. Built once and lent
+        // to each `Scanner::step` to re-validate documents that the shuffle read
+        // pipeline flagged as schema-invalid.
+        let mut source_validators: Vec<doc::Validator> = self.task.source_validators()?;
+
         // Double-buffered output combiners: one drains while the other accumulates.
         let mut accumulator = accumulator;
         let mut accumulator_idle = Some(
@@ -132,7 +137,11 @@ impl Actor {
             if !self.connector_pending.is_empty() {
                 // Channel is stuffed -- don't queue further requests.
             } else if let Phase::Scanning(mut scanner) = phase {
-                if scanner.step(self.task.n_transforms, &mut self.connector_pending)? {
+                if scanner.step(
+                    &self.task.transforms,
+                    &mut source_validators,
+                    &mut self.connector_pending,
+                )? {
                     phase = Phase::Scanning(scanner);
                 } else {
                     let (shuffle_reader, shuffle_remainders, active) = scanner.into_parts();
@@ -481,6 +490,7 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> T {
 
 #[cfg(test)]
 mod tests {
+    use super::super::task::Transform;
     use super::*;
     use proto_flow::derive::response;
     use proto_flow::flow;
@@ -492,7 +502,11 @@ mod tests {
             document_uuid_ptr: json::Pointer::from("/_meta/uuid"),
             key_extractors: Vec::new(),
             redact_salt: bytes::Bytes::new(),
-            n_transforms: 1,
+            transforms: vec![Transform {
+                transform: "fromSrc".to_string(),
+                collection: "test/source".to_string(),
+                schema_json: bytes::Bytes::from_static(b"{}"),
+            }],
             binding_state_keys: vec!["fromSrc".to_string()],
             write_schema_json: bytes::Bytes::from_static(b"{}"),
             write_shape: doc::Shape::nothing(),

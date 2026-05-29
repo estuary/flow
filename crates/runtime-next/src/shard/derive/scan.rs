@@ -3,6 +3,7 @@ use bytes::BufMut;
 use proto_flow::{derive, flow};
 use std::collections::{HashMap, VecDeque};
 
+use super::task::Transform;
 use crate::proto::derive::loaded::Binding as LoadedBinding;
 
 /// Scanner is a synchronous state machine that walks a `shuffle::Frontier` one
@@ -45,7 +46,8 @@ impl Scanner {
     /// has been fully consumed.
     pub fn step(
         &mut self,
-        n_transforms: usize,
+        transforms: &[Transform],
+        validators: &mut [doc::Validator],
         out: &mut Vec<derive::Request>,
     ) -> anyhow::Result<bool> {
         if !self
@@ -64,8 +66,29 @@ impl Scanner {
         } in self.scan.block_iter()
         {
             let transform = meta.binding.to_native() as u32;
-            if transform as usize >= n_transforms {
+            if transform as usize >= transforms.len() {
                 anyhow::bail!("scan entry has invalid transform index {transform}");
+            }
+
+            // The shuffle read pipeline validates each source document against
+            // its source schema and sets `FLAGS_SCHEMA_VALID` on success. A
+            // document arriving without the flag failed (or skipped) validation;
+            // re-validate it to surface a meaningful error instead of forwarding
+            // schema-invalid data to the connector.
+            if meta.flags.to_native() & shuffle::FLAGS_SCHEMA_VALID == 0 {
+                let Transform {
+                    transform: name,
+                    collection,
+                    ..
+                } = &transforms[transform as usize];
+
+                validators[transform as usize]
+                    .validate(doc.doc.get(), |_| None)
+                    .with_context(|| {
+                        format!(
+                            "source document of transform {name} (collection {collection}) is invalid",
+                        )
+                    })?;
             }
 
             // Serialize the source document to JSON for the connector.
