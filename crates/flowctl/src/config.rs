@@ -38,8 +38,8 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_refresh_token: Option<RefreshToken>,
     /// Service-account API key (`flow_sa_...`). Sourced only from the
-    /// `FLOW_AUTH_TOKEN` environment variable and held in memory for the life
-    /// of the process — an API key is a long-lived secret, so it is deliberately
+    /// `FLOW_API_KEY` environment variable and held in memory for the life of
+    /// the process — an API key is a long-lived secret, so it is deliberately
     /// never read from or written to the config file. When set, it is the
     /// durable credential used to mint access tokens, in place of a refresh token.
     #[serde(skip)]
@@ -164,19 +164,34 @@ impl Config {
             config.user_refresh_token = refresh_token;
         }
 
-        // FLOW_AUTH_TOKEN, if present, overrides any credential loaded from
-        // disk. A `flow_sa_` prefix is a service-account API key; a value with
-        // three dot-delimited segments is a JWT access token; anything else is
-        // a base64-encoded refresh token JSON.
-        if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
-            if env_token.starts_with("flow_sa_") {
-                // Held in memory only — the api-key exchange mints a short-lived
-                // access token at use, and nothing is persisted to disk.
-                tracing::info!("using FLOW_AUTH_TOKEN environment API key");
-                config.user_api_key = Some(env_token);
-                config.user_access_token = None;
-                config.user_refresh_token = None;
-            } else if env_token.split('.').count() == 3 {
+        // FLOW_API_KEY, if present, is a service-account API key and takes
+        // precedence over every other credential (disk or FLOW_AUTH_TOKEN). It's
+        // held in memory only — the api-key exchange mints a short-lived access
+        // token at use, and nothing is persisted to disk.
+        if let Ok(api_key) = std::env::var(FLOW_API_KEY) {
+            if !api_key.starts_with("flow_sa_") {
+                anyhow::bail!("FLOW_API_KEY must be a service-account API key, starting with `flow_sa_`");
+            }
+            if std::env::var_os(FLOW_AUTH_TOKEN).is_some() {
+                tracing::debug!("both FLOW_API_KEY and FLOW_AUTH_TOKEN are set; ignoring FLOW_AUTH_TOKEN");
+            }
+            tracing::info!("using FLOW_API_KEY environment API key");
+            config.user_api_key = Some(api_key);
+            config.user_access_token = None;
+            config.user_refresh_token = None;
+        } else if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
+            // FLOW_AUTH_TOKEN is deprecated in favor of FLOW_API_KEY (automated
+            // access) and `flowctl auth login` (interactive). It still works but
+            // is slated for removal; warn so usage drains ahead of sunset.
+            tracing::warn!(
+                "FLOW_AUTH_TOKEN is deprecated and will be removed in a future release; \
+                 set FLOW_API_KEY to a service-account API key for automated access, \
+                 or run `flowctl auth login` for interactive use"
+            );
+            // FLOW_AUTH_TOKEN overrides a credential loaded from disk. A value
+            // with three dot-delimited segments is a JWT access token; anything
+            // else is a base64-encoded refresh token JSON.
+            if env_token.split('.').count() == 3 {
                 tracing::info!("using FLOW_AUTH_TOKEN environment access token");
                 config.user_refresh_token = None;
                 config.user_access_token = Some(env_token);
@@ -248,3 +263,7 @@ impl Config {
 // Environment variable inspected for an auth credential: either a JWT access
 // token, or a base64-encoded refresh token JSON.
 const FLOW_AUTH_TOKEN: &str = "FLOW_AUTH_TOKEN";
+
+// Environment variable holding a service-account API key (`flow_sa_...`). Takes
+// precedence over FLOW_AUTH_TOKEN when both are set.
+const FLOW_API_KEY: &str = "FLOW_API_KEY";
