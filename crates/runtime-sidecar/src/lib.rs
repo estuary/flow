@@ -36,8 +36,8 @@ pub struct Args {
 
     /// Whitespace- or comma-separated base64 HMAC keys recognized by
     /// the data plane. The first key signs outgoing `/authorize/task`
-    /// requests; all keys are accepted as verifiers for incoming
-    /// gRPC traffic (incoming verification is wired in a follow-up).
+    /// requests and RPCs to sidecar peers; all keys are accepted as
+    /// verifiers for incoming gRPC traffic.
     #[arg(long, env = "DATA_PLANE_AUTH_KEYS")]
     pub data_plane_auth_keys: String,
 
@@ -70,22 +70,14 @@ pub enum LogFormat {
 }
 
 pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<()> {
-    // Parse comma/whitespace-separated base64 HMAC keys. First key signs
-    // outgoing /authorize/task requests; the remaining keys are reserved
-    // for future incoming-gRPC verification (see plan).
-    let keys: Vec<String> = args
-        .data_plane_auth_keys
-        .split(|c: char| c == ',' || c.is_whitespace())
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .collect();
-    anyhow::ensure!(
-        !keys.is_empty(),
-        "--data-plane-auth-keys must contain at least one key"
-    );
-    let signing_key = tokens::jwt::EncodingKey::from_base64_secret(&keys[0])
-        .context("parsing first data-plane auth key (base64)")?;
-    let _verification_keys = keys; // TODO(runtime-v2): wire up incoming-gRPC verification.
+    // Parse comma/whitespace-separated base64 HMAC keys. The first key signs
+    // outgoing requests. All keys are accepted as verifiers for incoming gRPCs.
+    let (signing_key, verification_keys) =
+        tokens::jwt::parse_base64_hmac_keys_str(&args.data_plane_auth_keys)
+            .map_err(|status| anyhow::anyhow!("parsing --data-plane-auth-keys: {status}"))?;
+
+    let authn = proto_grpc::Authenticator::new(args.data_plane_fqdn.clone(), verification_keys);
+    let shuffle_signer = proto_grpc::Signer::new(args.data_plane_fqdn.clone(), signing_key.clone());
 
     // Build REST + Router.
     let api_client = flow_client_next::rest::Client::new(&args.agent_endpoint, "runtime-sidecar");
@@ -117,9 +109,14 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
         read_factory,
         args.disk_backlog_threshold,
         registry.clone(),
+        Some(shuffle_signer),
     );
-    let runtime_svc =
-        runtime_next::Service::new(shuffle_svc.clone(), publisher_factory, registry.clone());
+    let runtime_svc = runtime_next::Service::new(
+        shuffle_svc.clone(),
+        publisher_factory,
+        registry.clone(),
+        false, // Don't disarm, enforce AuthN+AuthZ.
+    );
 
     // Build a TLS identity if both files were given.
     // clap `requires` enforces both-or-neither.
@@ -184,8 +181,14 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
             .context("configuring TCP TLS")?;
     }
     builder
-        .add_service(runtime_svc.into_tonic_service())
-        .add_service(shuffle_svc.into_tonic_service())
+        .add_service(tonic::service::interceptor::InterceptedService::new(
+            runtime_svc.into_tonic_service(),
+            authn.clone().interceptor(proto_flow::capability::LEAD),
+        ))
+        .add_service(tonic::service::interceptor::InterceptedService::new(
+            shuffle_svc.into_tonic_service(),
+            authn.interceptor(proto_flow::capability::SHUFFLE),
+        ))
         .serve_with_incoming_shutdown(
             tokio_stream::wrappers::TcpListenerStream::new(tcp),
             async move {

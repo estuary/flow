@@ -39,7 +39,9 @@ where
 /// Verified is a type-safe wrapper around verified JWT claims.
 /// It can only be constructed by the verify() routine,
 /// which gives assurance that the claims have been verified.
-#[derive(Debug)]
+// `Clone` is required because Verified is used in tonic request
+// extensions (`http::Extensions`, whose values must be `Clone`).
+#[derive(Debug, Clone)]
 pub struct Verified<Claims>(Claims, DateTime);
 
 impl<Claims> Verified<Claims> {

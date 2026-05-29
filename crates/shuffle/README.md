@@ -67,6 +67,13 @@ The recovery model is fail-fast: if a terminal error occurs with a component of
 any shard, the entire topology is torn down and all logs are discarded,
 to be rebuilt anew on a next Session.
 
+### Authorization
+
+When the `Service` is built with a `proto_grpc::Signer` (the sidecar; `None` in
+`flowctl preview`), every remote shuffle hop carries a self-signed `SHUFFLE`
+bearer scoped to the task-creation shard-id prefix. Peer sidecars verify it
+for AuthN and AuthZ scoping to the requested task topology.
+
 ### Concepts
 
 **Shard Topology**: A session has N **shards**, each owning a disjoint range of the 2D

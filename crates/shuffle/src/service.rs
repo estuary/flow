@@ -24,6 +24,8 @@ pub struct ServiceImpl {
     pub(crate) log_joins: std::sync::Mutex<HashMap<(String, u32), log::LogJoin>>,
     /// Registry of in-flight Session/Slice/Log handlers, for the admin surface.
     pub(crate) registry: service_kit::Registry,
+    /// Signs `SHUFFLE` bearer tokens for every outbound shuffle hop.
+    pub(crate) signer: Option<proto_grpc::Signer>,
 }
 
 impl Service {
@@ -32,6 +34,7 @@ impl Service {
         journal_client_factory: gazette::journal::ClientFactory,
         disk_backlog_threshold: u64,
         registry: service_kit::Registry,
+        signer: Option<proto_grpc::Signer>,
     ) -> Self {
         Self(Arc::new(ServiceImpl {
             peer_endpoint,
@@ -40,6 +43,7 @@ impl Service {
             channels: std::sync::Mutex::new(HashMap::new()),
             log_joins: std::sync::Mutex::new(HashMap::new()),
             registry,
+            signer,
         }))
     }
 
@@ -64,6 +68,7 @@ impl Service {
 
     pub fn spawn_session<R>(
         &self,
+        authz: proto_grpc::Authorizer,
         request_rx: R,
     ) -> mpsc::UnboundedReceiver<tonic::Result<shuffle::SessionResponse>>
     where
@@ -75,7 +80,7 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = session::serve_session(service, request_rx, response_tx).await {
+            if let Err(e) = session::serve_session(service, authz, request_rx, response_tx).await {
                 let _ = error_tx.send(Err(anyhow_to_status(e)));
             }
         });
@@ -84,6 +89,7 @@ impl Service {
 
     pub fn spawn_slice<R>(
         &self,
+        authz: proto_grpc::Authorizer,
         request_rx: R,
     ) -> mpsc::Receiver<tonic::Result<shuffle::SliceResponse>>
     where
@@ -94,14 +100,18 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = slice::serve_slice(service, request_rx, response_tx).await {
+            if let Err(e) = slice::serve_slice(service, authz, request_rx, response_tx).await {
                 let _ = error_tx.send(Err(anyhow_to_status(e))).await;
             }
         });
         response_rx
     }
 
-    pub fn spawn_log<R>(&self, request_rx: R) -> mpsc::Receiver<tonic::Result<shuffle::LogResponse>>
+    pub fn spawn_log<R>(
+        &self,
+        authz: proto_grpc::Authorizer,
+        request_rx: R,
+    ) -> mpsc::Receiver<tonic::Result<shuffle::LogResponse>>
     where
         R: futures::Stream<Item = tonic::Result<shuffle::LogRequest>> + Send + Unpin + 'static,
     {
@@ -110,11 +120,21 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = log::serve_log(service, request_rx, response_tx).await {
+            if let Err(e) = log::serve_log(service, authz, request_rx, response_tx).await {
                 let _ = error_tx.send(Err(anyhow_to_status(e))).await;
             }
         });
         response_rx
+    }
+
+    /// Build gRPC client metadata bearing a self-signed `SHUFFLE` token, scoped
+    /// to `shard_id`'s task prefix, when a [`proto_grpc::Signer`] is configured.
+    /// Empty metadata otherwise (unauthenticated local contexts, e.g. preview).
+    pub(crate) fn shuffle_bearer(&self, shard_id: &str) -> tonic::Result<proto_grpc::Metadata> {
+        match &self.signer {
+            Some(signer) => signer.shard_bearer(proto_flow::capability::SHUFFLE, shard_id),
+            None => Ok(proto_grpc::Metadata::new()),
+        }
     }
 
     pub(crate) fn dial_channel(&self, endpoint: &str) -> tonic::Result<tonic::transport::Channel> {
@@ -168,30 +188,37 @@ impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
 
     async fn session(
         &self,
-        request: tonic::Request<tonic::Streaming<shuffle::SessionRequest>>,
+        mut request: tonic::Request<tonic::Streaming<shuffle::SessionRequest>>,
     ) -> tonic::Result<tonic::Response<Self::SessionStream>> {
+        let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
         Ok(tonic::Response::new(
             tokio_stream::wrappers::UnboundedReceiverStream::new(
-                self.spawn_session(request.into_inner()),
+                self.spawn_session(authz, request.into_inner()),
             ),
         ))
     }
 
     async fn slice(
         &self,
-        request: tonic::Request<tonic::Streaming<shuffle::SliceRequest>>,
+        mut request: tonic::Request<tonic::Streaming<shuffle::SliceRequest>>,
     ) -> tonic::Result<tonic::Response<Self::SliceStream>> {
+        let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
         Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(self.spawn_slice(request.into_inner())),
+            tokio_stream::wrappers::ReceiverStream::new(
+                self.spawn_slice(authz, request.into_inner()),
+            ),
         ))
     }
 
     async fn log(
         &self,
-        request: tonic::Request<tonic::Streaming<shuffle::LogRequest>>,
+        mut request: tonic::Request<tonic::Streaming<shuffle::LogRequest>>,
     ) -> tonic::Result<tonic::Response<Self::LogStream>> {
+        let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
         Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(self.spawn_log(request.into_inner())),
+            tokio_stream::wrappers::ReceiverStream::new(
+                self.spawn_log(authz, request.into_inner()),
+            ),
         ))
     }
 }

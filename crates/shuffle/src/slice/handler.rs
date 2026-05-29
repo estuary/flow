@@ -7,6 +7,7 @@ use tracing::Instrument;
 
 pub(crate) async fn serve_slice<R>(
     service: crate::Service,
+    authz: proto_grpc::Authorizer,
     slice_request_rx: R,
     slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
 ) -> anyhow::Result<()>
@@ -18,13 +19,14 @@ where
     // instrumentation included.
     let handler = service.registry.register("shuffle.slice");
     let span = handler.span();
-    serve_slice_inner(service, slice_request_rx, slice_response_tx, handler)
+    serve_slice_inner(service, authz, slice_request_rx, slice_response_tx, handler)
         .instrument(span)
         .await
 }
 
 async fn serve_slice_inner<R>(
     service: crate::Service,
+    authz: proto_grpc::Authorizer,
     mut slice_request_rx: R,
     slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
     mut handler: service_kit::HandlerGuard,
@@ -55,13 +57,15 @@ where
     // Identity of the shard hosting this Slice RPC.
     let shard_id = shards
         .get(slice_shard_index as usize)
-        .map(|s| &s.id)
+        .map(|s| s.id.as_str())
         .context("Open shard_index out of range")?;
+    let authz = authz.authorize_id(shard_id)?;
 
     handler.set_label(shard_id);
     handler.set_field("session_id", session_id);
     handler.set_field("slice_shard_index", slice_shard_index);
     handler.set_field("shards", shards.len());
+    handler.set_field("token", serde_json::to_string(&authz.claims()).unwrap());
     handler.set_phase("opening");
 
     let metrics = super::Metrics::new(shard_id);
@@ -120,7 +124,7 @@ where
         .iter()
         .map(|binding| {
             let service = service.clone();
-            let shard_id = shard_id.clone();
+            let shard_id = shard_id.to_string();
             let partition_prefix = binding.partition_prefix.clone().into();
 
             LazyJournalClient::new(Box::new(move || {
@@ -194,12 +198,17 @@ async fn open_log_rpc(
 
     let mut response_rx = if log_shard_index == slice_shard_index {
         tracing::debug!("spawning in-process Log RPC");
-        tokio_stream::wrappers::ReceiverStream::new(service.spawn_log(request_rx.map(Ok))).boxed()
+        tokio_stream::wrappers::ReceiverStream::new(
+            service.spawn_log(proto_grpc::Authorizer::trusted_local(), request_rx.map(Ok)),
+        )
+        .boxed()
     } else {
         let endpoint = &shards[log_shard_index as usize].endpoint;
         tracing::debug!(log_shard_index, endpoint=%endpoint, "dialing remote Log RPC");
-        let channel = verify.ok(service.dial_channel(&endpoint))?;
-        let mut client = proto_grpc::shuffle::shuffle_client::ShuffleClient::new(channel);
+        let channel = verify.ok(service.dial_channel(endpoint))?;
+        let metadata = verify.ok(service.shuffle_bearer(&shards[slice_shard_index as usize].id))?;
+        let mut client =
+            proto_grpc::shuffle::shuffle_client::ShuffleClient::with_interceptor(channel, metadata);
 
         verify
             .ok(client.log(request_rx).await)?

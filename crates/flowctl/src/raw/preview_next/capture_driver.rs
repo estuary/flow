@@ -106,6 +106,7 @@ async fn drive_one_shard(
         task_name,
         publisher_factory,
         run.registry,
+        None, // No AuthN+AuthZ signer (local loopback).
     );
 
     let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();

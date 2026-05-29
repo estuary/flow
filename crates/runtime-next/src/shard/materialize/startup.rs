@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 
 pub async fn dial_and_join(
     join: proto::Join,
+    signer: Option<&proto_grpc::Signer>,
 ) -> anyhow::Result<(
     proto::Joined,
     Option<(
@@ -17,11 +18,13 @@ pub async fn dial_and_join(
 )> {
     let leader_endpoint = join.leader_endpoint.clone();
 
-    // First, dial the leader.
     let channel = gazette::dial_channel(&leader_endpoint).context("failed to dial leader")?;
-    let mut leader_client = proto_grpc::runtime::leader_client::LeaderClient::new(channel)
-        .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
-        .max_encoding_message_size(usize::MAX);
+    let shard_id = &join.shards[join.shard_index as usize].id;
+    let metadata = crate::shard::leader_bearer(signer, shard_id)?;
+    let mut leader_client =
+        proto_grpc::runtime::leader_client::LeaderClient::with_interceptor(channel, metadata)
+            .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+            .max_encoding_message_size(usize::MAX);
 
     // Start the materialize RPC. We use an unbounded sender because we never
     // pump messages to the leader (strictly request / response).

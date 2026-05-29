@@ -6450,9 +6450,12 @@ dependencies = [
 name = "proto-grpc"
 version = "0.0.0"
 dependencies = [
+ "labels",
  "proto-build",
  "proto-flow",
  "proto-gazette",
+ "tokens",
+ "tokio",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
@@ -7381,7 +7384,9 @@ dependencies = [
  "flow-client-next",
  "futures",
  "gazette",
+ "proto-flow",
  "proto-gazette",
+ "proto-grpc",
  "runtime-next",
  "rustls 0.23.32",
  "service-kit",

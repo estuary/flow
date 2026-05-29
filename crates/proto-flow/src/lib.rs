@@ -138,8 +138,18 @@ mod serde_runtime {
 /// Capability bit-mask values which scope Estuary platform operations.
 /// These values share the Gazette capability namespace.
 pub mod capability {
+    /// AUTHORIZE gives the bearer a capability to request tokens from
+    /// the control plane's Authorization APIs.
     pub const AUTHORIZE: u32 = 1 << 16;
+    /// SHUFFLE gives the bearer a capability to use the runtime's Shuffle APIs,
+    /// for scale-out shuffled journal reads.
     pub const SHUFFLE: u32 = 1 << 17;
+    /// NETWORK_PROXY gives the bearer a capability to proxy network traffic to a connector.
     pub const NETWORK_PROXY: u32 = 1 << 18;
+    /// PROXY_CONNECTOR gives the bearer a capability to invoke a connector with proxied IO,
+    /// used by the control plane to drive on-demand connector RPCs.
     pub const PROXY_CONNECTOR: u32 = 1 << 19;
+    /// LEAD gives the bearer a capability to use the runtime's Leader API,
+    /// driving a derivation or materialization task's transactions.
+    pub const LEAD: u32 = 1 << 20;
 }

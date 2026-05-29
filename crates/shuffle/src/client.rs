@@ -26,7 +26,9 @@ impl SessionClient {
         let request_rx =
             tokio_stream::wrappers::ReceiverStream::new(request_rx).map(Ok::<_, tonic::Status>);
 
-        let mut response_rx = service.spawn_session(request_rx);
+        // The shuffle session is opened in-process, ergo is trusted.
+        let mut response_rx =
+            service.spawn_session(proto_grpc::Authorizer::trusted_local(), request_rx);
 
         // Send Open request and read Opened response.
         crate::verify_send(

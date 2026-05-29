@@ -84,7 +84,7 @@ fn build_join_shards(
         .map(|i| {
             let (key_begin, key_end) = key_range(i, count);
             proto::join::Shard {
-                id: format!("{id_prefix}-{i:03}"),
+                id: format!("{id_prefix}/{task_name}/{i:03}"),
                 labeling: Some(::ops::ShardLabeling {
                     task_name: task_name.to_string(),
                     range: Some(flow::RangeSpec {

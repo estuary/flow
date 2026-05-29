@@ -6,6 +6,7 @@ use tracing::Instrument;
 
 pub(crate) async fn serve_session<R>(
     service: crate::Service,
+    authz: proto_grpc::Authorizer,
     request_rx: R,
     session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
 ) -> anyhow::Result<()>
@@ -17,13 +18,14 @@ where
     // instrumentation included.
     let handler = service.registry.register("shuffle.session");
     let span = handler.span();
-    serve_session_inner(service, request_rx, session_response_tx, handler)
+    serve_session_inner(service, authz, request_rx, session_response_tx, handler)
         .instrument(span)
         .await
 }
 
 async fn serve_session_inner<R>(
     service: crate::Service,
+    authz: proto_grpc::Authorizer,
     mut request_rx: R,
     session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
     mut handler: service_kit::HandlerGuard,
@@ -53,13 +55,16 @@ where
         );
     }
     super::state::validate_shard_ranges(&shards)?;
+    let shard_zero = shards[0].id.as_str();
+    let authz = authz.authorize_id(shard_zero)?;
 
-    handler.set_label(&shards[0].id);
+    handler.set_label(shard_zero);
     handler.set_field("session_id", session_id);
     handler.set_field("shards", shards.len());
+    handler.set_field("token", serde_json::to_string(&authz.claims()).unwrap());
     handler.set_phase("opening");
 
-    let metrics = super::Metrics::new(&shards[0].id);
+    let metrics = super::Metrics::new(shard_zero);
     let task = task.context("Open must include task")?;
     let (bindings, _validators) = crate::Binding::from_task(&task)?;
 
@@ -187,12 +192,17 @@ pub async fn open_slice_rpc(
 
     let mut response_rx = if slice_shard_index == 0 {
         tracing::debug!("spawning in-process Slice RPC");
-        tokio_stream::wrappers::ReceiverStream::new(service.spawn_slice(request_rx.map(Ok))).boxed()
+        tokio_stream::wrappers::ReceiverStream::new(
+            service.spawn_slice(proto_grpc::Authorizer::trusted_local(), request_rx.map(Ok)),
+        )
+        .boxed()
     } else {
         let endpoint = &shards[slice_shard_index as usize].endpoint;
         tracing::debug!(slice_shard_index, endpoint=%endpoint, "dialing remote Slice RPC");
-        let channel = verify.ok(service.dial_channel(&endpoint))?;
-        let mut client = proto_grpc::shuffle::shuffle_client::ShuffleClient::new(channel);
+        let channel = verify.ok(service.dial_channel(endpoint))?;
+        let metadata = verify.ok(service.shuffle_bearer(&shards[0].id))?;
+        let mut client =
+            proto_grpc::shuffle::shuffle_client::ShuffleClient::with_interceptor(channel, metadata);
 
         verify
             .ok(client.slice(request_rx).await)?

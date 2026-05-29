@@ -148,9 +148,14 @@ pub fn id_suffix(set: &LabelSet) -> Result<String, Error> {
     Ok(format!("{key_begin}-{rclock_begin}"))
 }
 
-/// Extract a shard's templated ID prefix.
+/// Extract a shard's templated ID prefix, *including* the trailing '/' which
+/// separates it from the key/r-clock suffix. Returns None if `name` has no '/'.
+///
+/// The trailing '/' is significant when the prefix is used as an `id:prefix`
+/// label-selector scope: retaining it ensures `acmeCo/foo/` cannot bleed into a
+/// sibling task such as `acmeCo/foobar/...`.
 pub fn id_prefix<'n>(name: &'n str) -> Option<&'n str> {
-    name.rsplitn(2, "/").skip(1).next()
+    name.rfind('/').map(|i| &name[..i + 1])
 }
 
 #[cfg(test)]
@@ -254,7 +259,7 @@ mod test {
 
         let id = format!("base/shard/id/{}", id_suffix(&set).unwrap());
         assert_eq!(id, "base/shard/id/00000100-00000000");
-        assert_eq!(id_prefix(&id), Some("base/shard/id"));
+        assert_eq!(id_prefix(&id), Some("base/shard/id/"));
     }
 
     #[test]

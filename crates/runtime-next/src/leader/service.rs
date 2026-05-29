@@ -22,6 +22,8 @@ pub struct ServiceImpl {
     pub(crate) http_client: reqwest::Client,
     /// Registry of in-flight Leader session handlers, for the admin surface.
     pub(crate) registry: service_kit::Registry,
+    /// When true, disarm AuthN+AuthZ enforcement (trusted local contexts only).
+    pub(crate) disarm_auth: bool,
 }
 
 impl Service {
@@ -29,6 +31,7 @@ impl Service {
         shuffle_service: shuffle::Service,
         publisher_factory: gazette::journal::ClientFactory,
         registry: service_kit::Registry,
+        disarm_auth: bool,
     ) -> Self {
         Self(Arc::new(ServiceImpl {
             derive_joins: std::sync::Mutex::new(HashMap::new()),
@@ -37,6 +40,7 @@ impl Service {
             publisher_factory,
             http_client: reqwest::Client::new(),
             registry,
+            disarm_auth,
         }))
     }
 
@@ -50,6 +54,7 @@ impl Service {
 
     pub fn spawn_derive<R>(
         &self,
+        authz: proto_grpc::Authorizer,
         request_rx: R,
     ) -> mpsc::UnboundedReceiver<tonic::Result<proto::Derive>>
     where
@@ -60,7 +65,7 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = super::derive::serve(service, request_rx, response_tx).await {
+            if let Err(e) = super::derive::serve(service, authz, request_rx, response_tx).await {
                 let _ = error_tx.send(Err(crate::anyhow_to_status(e)));
             }
         });
@@ -69,6 +74,7 @@ impl Service {
 
     pub fn spawn_materialize<R>(
         &self,
+        authz: proto_grpc::Authorizer,
         request_rx: R,
     ) -> mpsc::UnboundedReceiver<tonic::Result<proto::Materialize>>
     where
@@ -80,7 +86,8 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = super::materialize::serve(service, request_rx, response_tx).await {
+            if let Err(e) = super::materialize::serve(service, authz, request_rx, response_tx).await
+            {
                 let _ = error_tx.send(Err(crate::anyhow_to_status(e)));
             }
         });
@@ -105,22 +112,24 @@ impl proto_grpc::runtime::leader_server::Leader for Service {
 
     async fn derive(
         &self,
-        request: tonic::Request<tonic::Streaming<proto::Derive>>,
+        mut request: tonic::Request<tonic::Streaming<proto::Derive>>,
     ) -> tonic::Result<tonic::Response<Self::DeriveStream>> {
+        let authz = proto_grpc::Authorizer::from_request(&mut request, self.disarm_auth)?;
         Ok(tonic::Response::new(
             tokio_stream::wrappers::UnboundedReceiverStream::new(
-                self.spawn_derive(request.into_inner()),
+                self.spawn_derive(authz, request.into_inner()),
             ),
         ))
     }
 
     async fn materialize(
         &self,
-        request: tonic::Request<tonic::Streaming<proto::Materialize>>,
+        mut request: tonic::Request<tonic::Streaming<proto::Materialize>>,
     ) -> tonic::Result<tonic::Response<Self::MaterializeStream>> {
+        let authz = proto_grpc::Authorizer::from_request(&mut request, self.disarm_auth)?;
         Ok(tonic::Response::new(
             tokio_stream::wrappers::UnboundedReceiverStream::new(
-                self.spawn_materialize(request.into_inner()),
+                self.spawn_materialize(authz, request.into_inner()),
             ),
         ))
     }

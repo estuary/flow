@@ -15,7 +15,9 @@ path = "src/main.rs"
 [dependencies]
 flow-client-next = { path = "../flow-client-next" }
 gazette = { path = "../gazette" }
+proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc" }
 runtime-next = { path = "../runtime-next" }
 service-kit = { path = "../service-kit" }
 shuffle = { path = "../shuffle" }

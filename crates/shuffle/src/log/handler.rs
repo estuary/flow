@@ -7,6 +7,7 @@ use tracing::Instrument;
 
 pub(crate) async fn serve_log<R>(
     service: crate::Service,
+    authz: proto_grpc::Authorizer,
     request_rx: R,
     response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
 ) -> anyhow::Result<()>
@@ -18,13 +19,14 @@ where
     // instrumentation included.
     let handler = service.registry.register("shuffle.log");
     let span = handler.span();
-    serve_log_inner(service, request_rx, response_tx, handler)
+    serve_log_inner(service, authz, request_rx, response_tx, handler)
         .instrument(span)
         .await
 }
 
 async fn serve_log_inner<R>(
     service: crate::Service,
+    authz: proto_grpc::Authorizer,
     mut request_rx: R,
     response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
     mut handler: service_kit::HandlerGuard,
@@ -49,14 +51,16 @@ where
     // Identity and directory of the shard hosting this Log instance.
     let (shard_id, directory) = shards
         .get(log_shard_index as usize)
-        .map(|s| (&s.id, &s.directory))
+        .map(|s| (s.id.as_str(), &s.directory))
         .context("Open log_shard_index out of range")?;
+    let authz = authz.authorize_id(shard_id)?;
 
     handler.set_label(shard_id);
     handler.set_field("session_id", session_id);
     handler.set_field("log_shard_index", log_shard_index);
     handler.set_field("shards", shards.len());
     handler.set_field("directory", directory);
+    handler.set_field("token", serde_json::to_string(&authz.claims()).unwrap());
     handler.set_phase("joining");
 
     let metrics = super::Metrics::new(shard_id);
