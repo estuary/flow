@@ -146,14 +146,7 @@ func (d *deriveApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _e
 	var openedExt = pr.FromInternal[pr.DeriveResponseExt](opened.Internal)
 	d.container.Store(openedExt.Container)
 
-	if opened.Opened == nil {
-		return pf.Checkpoint{}, fmt.Errorf("expected Opened, but got %#v", opened)
-	}
-	var runtimeCheckpoint = opened.Opened.RuntimeCheckpoint
-	if runtimeCheckpoint == nil {
-		runtimeCheckpoint = &pf.Checkpoint{}
-	}
-	return *runtimeCheckpoint, nil
+	return *opened.Opened.RuntimeCheckpoint, nil
 }
 
 // ConsumeMessage forwards a Read to the derive runtime.
