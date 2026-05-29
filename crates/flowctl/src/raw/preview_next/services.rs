@@ -126,6 +126,7 @@ impl Run {
             factory,
             2 * 1024 * 1024 * 1024,
             registry.clone(),
+            None, // No AuthN+AuthZ signer (local loopback).
         );
 
         let publisher_factory: gazette::journal::ClientFactory = std::sync::Arc::new({
@@ -133,8 +134,12 @@ impl Run {
                 unreachable!("live Publisher is not used by preview ({_authz_sub}, {_authz_obj})")
             }
         });
-        let runtime_svc =
-            runtime_next::Service::new(shuffle_svc.clone(), publisher_factory, registry.clone());
+        let runtime_svc = runtime_next::Service::new(
+            shuffle_svc.clone(),
+            publisher_factory,
+            registry.clone(),
+            true, // Disarm AuthN+AuthZ (local loopback).
+        );
 
         let router = tonic::transport::Server::builder()
             .add_service(runtime_svc.into_tonic_service())

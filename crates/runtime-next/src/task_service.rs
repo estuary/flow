@@ -32,7 +32,8 @@ impl TaskService {
         let control_api_endpoint =
             std::env::var("FLOW_CONTROL_API").context("FLOW_CONTROL_API not set")?;
         let availability_zone = std::env::var("CONSUMER_ZONE").context("CONSUMER_ZONE not set")?;
-        let data_plane_signing_key = first_consumer_auth_key()?;
+        let data_plane_signing_key =
+            tokens::jwt::EncodingKey::from_secret(&first_consumer_auth_key()?);
 
         let log_handler = ::ops::new_encoded_json_write_handler(std::sync::Arc::new(
             std::sync::Mutex::new(log_file),
@@ -53,11 +54,9 @@ impl TaskService {
                 flow_client_next::rest::Client::new(&control_api_endpoint, "task-service"),
                 APPEND | APPLY | LIST,
                 gazette::Router::new(&availability_zone),
-                data_plane_fqdn,
-                tokens::jwt::EncodingKey::from_secret(&data_plane_signing_key),
+                data_plane_fqdn.clone(),
+                data_plane_signing_key.clone(),
             );
-
-        std::mem::drop(data_plane_signing_key);
 
         let shard_svc = shard::Service::new(
             crate::proto::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?,
@@ -69,6 +68,10 @@ impl TaskService {
             // Inert registry: TaskService is the CGO entry point and does not
             // serve an admin surface; event! tracks still capture per-handler.
             service_kit::Registry::default(),
+            Some(proto_grpc::Signer::new(
+                data_plane_fqdn,
+                data_plane_signing_key,
+            )),
         );
 
         let uds = tokio_context

@@ -660,12 +660,24 @@ pub fn validate_shard_ranges(shards: &[shuffle::Shard]) -> anyhow::Result<()> {
 
     let mut prev_key_end: Option<u32> = None;
     let mut prev_r_clock_end: Option<u32> = None;
+    let mut zero_prefix = "";
 
     for (i, shard) in shards.iter().enumerate() {
         anyhow::ensure!(
             !shard.directory.is_empty(),
             "shard {i} has an empty directory",
         );
+
+        let shard_prefix = labels::shard::id_prefix(&shard.id)
+            .with_context(|| format!("shard {i} id {:?} has no '/' prefix", shard.id))?;
+        if i == 0 {
+            zero_prefix = shard_prefix;
+        } else {
+            anyhow::ensure!(
+                shard_prefix == zero_prefix,
+                "shard {i} id prefix {shard_prefix:?} differs from shard 0 prefix {zero_prefix:?}",
+            );
+        }
 
         let range = shard
             .range
@@ -1662,11 +1674,45 @@ mod test {
 
         // Missing RangeSpec.
         let err = validate_shard_ranges(&[shuffle::Shard {
+            id: "test/shard".to_string(),
             directory: "/test/dir".to_string(),
             ..Default::default()
         }])
         .unwrap_err();
         assert!(format!("{err}").contains("missing RangeSpec"), "{err}");
+
+        // Shards with differing id prefixes (would break authorization scope).
+        let err = validate_shard_ranges(&[
+            shard(0, 0x7FFFFFFF, 0, u32::MAX),
+            shuffle::Shard {
+                id: "other/shard".to_string(),
+                range: Some(flow::RangeSpec {
+                    key_begin: 0x80000000,
+                    key_end: u32::MAX,
+                    r_clock_begin: 0,
+                    r_clock_end: u32::MAX,
+                }),
+                endpoint: String::new(),
+                directory: "/test/dir".to_string(),
+            },
+        ])
+        .unwrap_err();
+        assert!(format!("{err}").contains("prefix"), "{err}");
+
+        // A shard id without any '/' has no task prefix.
+        let err = validate_shard_ranges(&[shuffle::Shard {
+            id: "no-slash".to_string(),
+            range: Some(flow::RangeSpec {
+                key_begin: 0,
+                key_end: u32::MAX,
+                r_clock_begin: 0,
+                r_clock_end: u32::MAX,
+            }),
+            endpoint: String::new(),
+            directory: "/test/dir".to_string(),
+        }])
+        .unwrap_err();
+        assert!(format!("{err}").contains("no '/' prefix"), "{err}");
 
         // Key space doesn't start at 0.
         let err = validate_shard_ranges(&[shard(1, u32::MAX, 0, u32::MAX)]).unwrap_err();

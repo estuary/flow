@@ -6,6 +6,7 @@ use tracing::Instrument;
 
 pub(crate) async fn serve<R>(
     service: crate::Service,
+    authz: proto_grpc::Authorizer,
     request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
 ) -> anyhow::Result<()>
@@ -17,13 +18,14 @@ where
     // instrumentation included.
     let handler = service.registry.register("leader.materialize");
     let span = handler.span();
-    serve_inner(service, request_rx, response_tx, handler)
+    serve_inner(service, authz, request_rx, response_tx, handler)
         .instrument(span)
         .await
 }
 
 async fn serve_inner<R>(
     service: crate::Service,
+    authz: proto_grpc::Authorizer,
     mut request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     mut handler: service_kit::HandlerGuard,
@@ -41,10 +43,13 @@ where
         request => return Err(verify.fail_msg(request)),
     };
     let task_name = leader::validate_join(&join)?.to_string();
+    let shard_zero = join.shards[0].id.as_str();
+    let authz = authz.authorize_id(shard_zero)?;
 
-    handler.set_label(&join.shards[0].id);
+    handler.set_label(shard_zero);
     handler.set_field("shards", join.shards.len());
     handler.set_field("etcd_mod_revision", join.etcd_mod_revision);
+    handler.set_field("token", serde_json::to_string(&authz.claims()).unwrap());
     handler.set_phase("joining");
 
     service_kit::event!(

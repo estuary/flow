@@ -116,6 +116,7 @@ async fn drive_one_shard(
         task_name,
         publisher_factory,
         run.registry,
+        None, // No AuthN+AuthZ signer (local loopback).
     );
 
     let mut response_rx = shard_svc.spawn_derive(UnboundedReceiverStream::new(request_rx));

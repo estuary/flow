@@ -228,7 +228,8 @@ where
         "dialing leader and sending Join",
     );
 
-    let (joined, leader_stream) = startup::dial_and_join(join).await?;
+    let (joined, leader_stream) =
+        startup::dial_and_join(join, service.data_plane_signer.as_ref()).await?;
 
     _ = controller_tx.send(Ok(proto::Derive {
         joined: Some(joined),

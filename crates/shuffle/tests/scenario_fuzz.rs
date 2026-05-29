@@ -220,6 +220,7 @@ fn get_harness() -> &'static SharedHarness {
                     factory,
                     10 * 1024 * 1024 * 1024,
                     service_kit::Registry::new(),
+                    None, // Tests run the shuffle fan-out unauthenticated.
                 );
 
                 let server = service.clone().build_tonic_server();

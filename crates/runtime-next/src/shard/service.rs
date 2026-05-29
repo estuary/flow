@@ -23,6 +23,7 @@ pub struct Service<L: crate::LogHandler> {
     pub task_name: String,
     pub publisher_factory: gazette::journal::ClientFactory,
     pub registry: service_kit::Registry,
+    pub data_plane_signer: Option<proto_grpc::Signer>,
 }
 
 impl<L: crate::LogHandler> Service<L> {
@@ -42,6 +43,7 @@ impl<L: crate::LogHandler> Service<L> {
         task_name: String,
         publisher_factory: gazette::journal::ClientFactory,
         registry: service_kit::Registry,
+        data_plane_signer: Option<proto_grpc::Signer>,
     ) -> Self {
         Self {
             plane,
@@ -51,6 +53,7 @@ impl<L: crate::LogHandler> Service<L> {
             task_name,
             publisher_factory,
             registry,
+            data_plane_signer,
         }
     }
 

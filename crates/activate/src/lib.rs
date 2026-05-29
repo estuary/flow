@@ -960,7 +960,7 @@ fn map_shard_to_split(
         .context("failed to split shard ID into prefix and suffix")?;
 
     let rhs_id = format!(
-        "{id_prefix}/{}",
+        "{id_prefix}{}",
         labels::shard::id_suffix(&rhs_labels).expect("we encoded the range spec")
     );
 

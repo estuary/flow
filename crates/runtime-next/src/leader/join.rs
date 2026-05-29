@@ -103,6 +103,7 @@ pub fn validate(join: &proto::Join) -> anyhow::Result<&str> {
     anyhow::ensure!(!join.shuffle_directory.is_empty());
 
     let mut task_name = "";
+    let mut id_prefix = "";
 
     for (i, shard) in join.shards.iter().enumerate() {
         let labeling = shard
@@ -114,10 +115,22 @@ pub fn validate(join: &proto::Join) -> anyhow::Result<&str> {
         anyhow::ensure!(!shard.id.is_empty());
         anyhow::ensure!(shard.reactor.is_some());
 
+        let shard_prefix = labels::shard::id_prefix(&shard.id)
+            .with_context(|| format!("shards[{i}].id {:?} has no '/' prefix", shard.id))?;
+
         if i == 0 {
             task_name = &labeling.task_name;
+            id_prefix = shard_prefix;
         } else {
-            anyhow::ensure!(labeling.task_name == task_name);
+            anyhow::ensure!(
+                labeling.task_name == task_name,
+                "shards[{i}] task_name {:?} differs from shards[0] {task_name:?}",
+                labeling.task_name,
+            );
+            anyhow::ensure!(
+                shard_prefix == id_prefix,
+                "shards[{i}].id prefix {shard_prefix:?} differs from shards[0] {id_prefix:?}",
+            );
         }
     }
 
@@ -131,7 +144,7 @@ mod tests {
 
     fn shard(task_name: &str, id: &str) -> proto::join::Shard {
         proto::join::Shard {
-            id: id.into(),
+            id: format!("derivation/{task_name}/{id}"),
             labeling: Some(::ops::ShardLabeling {
                 task_name: task_name.into(),
                 ..Default::default()
@@ -185,6 +198,16 @@ mod tests {
             (
                 "task_name mismatch",
                 |j| j.shards[1].labeling.as_mut().unwrap().task_name = "other".into(),
+                false,
+            ),
+            (
+                "id without a '/' prefix",
+                |j| j.shards[0].id = "no-slash".into(),
+                false,
+            ),
+            (
+                "mixed id prefix across shards",
+                |j| j.shards[1].id = "derivation/other/s1".into(),
                 false,
             ),
         ];

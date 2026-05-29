@@ -62,4 +62,5 @@ e2e-support = { path = "../e2e-support" }
 insta = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
