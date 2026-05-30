@@ -26,6 +26,8 @@ pub(super) struct Actor {
     connector_pending: Vec<derive::Request>,
     // Bounded channel out to the connector.
     connector_tx: mpsc::Sender<derive::Request>,
+    // Wire codec negotiated with the connector.
+    codec: connector_init::Codec,
     // RocksDB, when a Persist is not in flight (shard zero only persists).
     db: Option<crate::shard::RocksDB>,
     // RocksDB future when a Persist is in flight.
@@ -53,6 +55,7 @@ pub(super) struct Actor {
 
 impl Actor {
     pub fn new(
+        codec: connector_init::Codec,
         connector_tx: mpsc::Sender<derive::Request>,
         db: crate::shard::RocksDB,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
@@ -64,6 +67,7 @@ impl Actor {
         Self {
             connector_pending: Vec::new(),
             connector_tx,
+            codec,
             db: Some(db),
             db_persist_fut: None,
             drain_fut: None,
@@ -140,6 +144,7 @@ impl Actor {
                 if scanner.step(
                     &self.task.transforms,
                     &mut source_validators,
+                    self.codec,
                     &mut self.connector_pending,
                 )? {
                     phase = Phase::Scanning(scanner);
@@ -506,6 +511,7 @@ mod tests {
                 transform: "fromSrc".to_string(),
                 collection: "test/source".to_string(),
                 schema_json: bytes::Bytes::from_static(b"{}"),
+                shuffle_key_extractors: Vec::new(),
             }],
             binding_state_keys: vec!["fromSrc".to_string()],
             write_schema_json: bytes::Bytes::from_static(b"{}"),
@@ -545,6 +551,7 @@ mod tests {
         let shuffle_reader = shuffle::log::Reader::new(std::path::Path::new("/dev/null"), 0);
 
         let actor = Actor::new(
+            connector_init::Codec::Proto,
             actor_to_conn_tx,
             db,
             actor_to_leader_tx,

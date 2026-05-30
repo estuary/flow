@@ -52,6 +52,7 @@ impl Scanner {
         load_keys: &mut LoadKeys,
         max_keys: &mut [(Bytes, Bytes)],
         disable_load_optimization: bool,
+        codec: connector_init::Codec,
         out: &mut Vec<materialize::Request>,
     ) -> anyhow::Result<bool> {
         if !self
@@ -94,14 +95,25 @@ impl Scanner {
                 .context("MemTable::add_embedded failed")?;
 
             // Encode the binding index followed by the packed key, for hashing.
+            // Reuse the shuffle log's packed-key prefix when it's known to
+            // contain the whole key (the common case), re-extracting from the
+            // source document only when the prefix may have been truncated.
+            // `key_packed` is required internally (the load-dedup hash and the
+            // `max_keys` ordering) regardless of codec, so we always build it.
             self.buf.put_u32(binding_index);
-            doc::Extractor::extract_all(
-                doc.doc.get(),
-                &binding.key_extractors,
-                doc::Encoding::Packed,
-                &mut self.buf,
-                None,
-            );
+            match doc::Extractor::packed_key_prefix_len(
+                doc.packed_key_prefix.as_slice(),
+                binding.key_extractors.len(),
+            ) {
+                Some(len) => self.buf.extend_from_slice(&doc.packed_key_prefix[..len]),
+                None => doc::Extractor::extract_all(
+                    doc.doc.get(),
+                    &binding.key_extractors,
+                    doc::Encoding::Packed,
+                    &mut self.buf,
+                    None,
+                ),
+            }
             let key_hash = xxhash_rust::xxh3::xxh3_128(&self.buf);
             let mut key_packed = self.buf.split().freeze();
             key_packed.advance(4); // Advance past 4-byte binding index.
@@ -150,10 +162,26 @@ impl Scanner {
             } else {
                 load_keys.insert(key_hash);
 
+                // Send exactly one of `key_json` / `key_packed` per codec. JSON
+                // connectors receive the key as a freshly-extracted JSON array;
+                // protobuf connectors unpack the `key_packed` we already built.
+                let (key_json, key_packed) = if codec == connector_init::Codec::Json {
+                    doc::Extractor::extract_all(
+                        doc.doc.get(),
+                        &binding.key_extractors,
+                        doc::Encoding::Json,
+                        &mut self.buf,
+                        None,
+                    );
+                    (self.buf.split().freeze(), Bytes::new())
+                } else {
+                    (Bytes::new(), key_packed)
+                };
+
                 out.push(materialize::Request {
                     load: Some(materialize::request::Load {
                         binding: binding_index,
-                        key_json: Bytes::new(), // NOTE(johnny): Unclear if we'll implement this.
+                        key_json,
                         key_packed,
                     }),
                     ..Default::default()

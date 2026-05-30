@@ -142,7 +142,13 @@ fn build_binding(
         default_ser_policy.clone()
     };
 
-    let key_extractors = extractors::for_fields(selected_key, projections, &ser_policy)?;
+    // Keys are extracted with a no-op policy, never the binding's `ser_policy`:
+    // a truncated key would collide distinct rows, and matching the shuffle
+    // writer's no-op extraction lets the scan reuse the log's packed-key prefix
+    // (and keeps Load, Store, and combiner keys byte-identical). Only values
+    // carry the serialization policy.
+    let key_extractors =
+        extractors::for_fields(selected_key, projections, &doc::SerPolicy::noop())?;
     let value_plan = doc::ExtractorPlan::new(&extractors::for_fields(
         selected_values,
         projections,

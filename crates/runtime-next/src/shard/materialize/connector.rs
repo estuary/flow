@@ -17,6 +17,7 @@ pub async fn start<L: crate::LogHandler>(
     mpsc::Sender<materialize::Request>,
     BoxStream<'static, tonic::Result<materialize::Response>>,
     Option<crate::proto::Container>,
+    connector_init::Codec,
 )> {
     let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
     let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
@@ -35,14 +36,14 @@ pub async fn start<L: crate::LogHandler>(
         .boxed()
     }
 
-    let (mut connector_rx, container) = match endpoint {
+    let (mut connector_rx, container, codec) = match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
         }) => {
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
-            let (rx, container) = crate::image_connector::serve(
+            let (rx, container, codec) = crate::image_connector::serve(
                 image.clone(),
                 service.log_handler.clone(),
                 log_level,
@@ -55,7 +56,7 @@ pub async fn start<L: crate::LogHandler>(
             )
             .await?;
 
-            (rx.boxed(), Some(container))
+            (rx.boxed(), Some(container), codec)
         }
         models::MaterializationEndpoint::Local(_)
             if !matches!(service.plane, crate::Plane::Local) =>
@@ -71,6 +72,11 @@ pub async fn start<L: crate::LogHandler>(
             env,
             protobuf,
         }) => {
+            let codec = if protobuf {
+                connector_init::Codec::Proto
+            } else {
+                connector_init::Codec::Json
+            };
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
             let rx = crate::local_connector::serve(
@@ -78,19 +84,20 @@ pub async fn start<L: crate::LogHandler>(
                 env,
                 service.log_handler.clone(),
                 log_level,
-                protobuf,
+                codec,
                 connector_rx,
             )?
             .boxed();
 
-            (rx, None)
+            (rx, None, codec)
         }
         models::MaterializationEndpoint::Dekaf(_) => {
+            // Dekaf is in-process Rust and consumes prost requests directly.
             let rx = dekaf_connector::connector(ReceiverStream::new(connector_rx))
                 .map_err(crate::anyhow_to_status)
                 .boxed();
 
-            (rx, None)
+            (rx, None, connector_init::Codec::Proto)
         }
     };
 
@@ -126,7 +133,7 @@ pub async fn start<L: crate::LogHandler>(
     }
     _ = connector_tx.try_send(initial);
 
-    Ok((connector_tx, connector_rx, container))
+    Ok((connector_tx, connector_rx, container, codec))
 }
 
 fn extract_endpoint<'r>(

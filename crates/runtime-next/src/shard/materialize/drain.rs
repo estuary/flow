@@ -45,7 +45,11 @@ impl Drainer {
     }
 
     /// Drain one document (Some), or returns None when the drain is complete.
-    pub fn step(&mut self, bindings: &[Binding]) -> anyhow::Result<Option<materialize::Request>> {
+    pub fn step(
+        &mut self,
+        bindings: &[Binding],
+        codec: connector_init::Codec,
+    ) -> anyhow::Result<Option<materialize::Request>> {
         let Some(doc::combine::DrainedDoc { meta, root }) = self.drainer.drain_next()? else {
             return Ok(None);
         };
@@ -78,6 +82,7 @@ impl Drainer {
         let serialized = &binding
             .ser_policy
             .on_owned_with_truncation_indicator(&root, &truncation_indicator);
+
         let doc_json = if binding.store_document {
             serde_json::to_writer((&mut self.buf).writer(), serialized)
                 .expect("document serialization cannot fail");
@@ -92,31 +97,51 @@ impl Drainer {
         };
         active.stored_docs_total += 1;
 
+        // Build exactly one of the packed / JSON encodings per the connector's
+        // codec — protobuf connectors unpack the `*_packed` tuples, JSON
+        // connectors read the `*_json` arrays — skipping the other's work
+        // entirely. Keys never truncate (no-op SerPolicy), but values may, so
+        // value extraction observes and may further set `truncation_indicator`.
+        let encoding = if codec == connector_init::Codec::Json {
+            doc::Encoding::Json
+        } else {
+            doc::Encoding::Packed
+        };
+
         doc::Extractor::extract_all_owned(
             &root,
             &binding.key_extractors,
-            doc::Encoding::Packed,
+            encoding,
             &mut self.buf,
-            Some(&truncation_indicator),
+            None,
         );
-        let key_packed = self.buf.split().freeze();
+        let key = self.buf.split().freeze();
 
         binding.value_plan.extract_all_owned(
             &root,
-            doc::Encoding::Packed,
+            encoding,
             &mut self.buf,
             Some(&truncation_indicator),
         );
-        let values_packed = self.buf.split().freeze();
+        let values = self.buf.split().freeze();
+
+        let (key_packed, key_json) = match encoding {
+            doc::Encoding::Packed => (key, Bytes::new()),
+            doc::Encoding::Json => (Bytes::new(), key),
+        };
+        let (values_packed, values_json) = match encoding {
+            doc::Encoding::Packed => (values, Bytes::new()),
+            doc::Encoding::Json => (Bytes::new(), values),
+        };
 
         let store = materialize::request::Store {
             binding: binding_index as u32,
             delete: meta.deleted(),
             doc_json,
             exists: meta.front(),
-            key_json: Bytes::new(),
+            key_json,
             key_packed,
-            values_json: Bytes::new(),
+            values_json,
             values_packed,
         };
 

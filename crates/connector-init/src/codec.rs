@@ -1,7 +1,7 @@
 use anyhow::Context;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Codec {
     Proto,
     Json,

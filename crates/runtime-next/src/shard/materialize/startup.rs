@@ -71,6 +71,7 @@ pub(super) struct Startup {
     pub connector_tx: mpsc::Sender<materialize::Request>,
     pub db: crate::shard::RocksDB,
     pub disable_load_optimization: bool,
+    pub codec: connector_init::Codec,
     pub leader_rx: tonic::Streaming<proto::Materialize>,
     pub leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     pub max_keys: Vec<(bytes::Bytes, bytes::Bytes)>,
@@ -240,7 +241,7 @@ where
         }),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container) =
+    let (connector_tx, mut connector_rx, container, codec) =
         super::connector::start(service, log_level, initial).await?;
 
     // Read C:Opened from the connector.
@@ -297,6 +298,7 @@ where
         connector_tx,
         db,
         disable_load_optimization,
+        codec,
         leader_rx,
         leader_tx,
         max_keys,

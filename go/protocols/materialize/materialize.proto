@@ -144,16 +144,21 @@ message Request {
 
   // Load a document identified by its key. The given key may have never before been stored,
   // but a given key will be sent in a transaction Load just one time.
+  //
+  // The runtime populates exactly one of `key_json` or `key_packed` per the
+  // negotiated codec.
   message Load {
     // Index of the Open binding for which this document is to be loaded.
     uint32 binding = 1;
-    // key tuple, as an array of key components.
+    // Key tuple, as a JSON array of key components.
     // Ordering matches `keys` of the materialization's field selection.
+    // Set only for JSON connectors; empty otherwise.
     bytes key_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "key"
     ];
-    // Packed tuple of the document key to load.
+    // Packed FoundationDB tuple of the document key to load.
+    // Set only for protobuf connectors; empty otherwise.
     bytes key_packed = 3;
   }
   Load load = 5;
@@ -175,24 +180,33 @@ message Request {
   Flush flush = 6;
 
   // Store documents updated by the current transaction.
+  //
+  // The runtime populates exactly one of the JSON encodings (`key_json`,
+  // `values_json`) or the packed encodings (`key_packed`, `values_packed`),
+  // per the negotiated codec. `doc_json` is independent of the
+  // codec and is set whenever the document is stored.
   message Store {
     // Index of the Open binding for which this document is to be stored.
     uint32 binding = 1;
-    // Key tuple, as an array of key components.
+    // Key tuple, as a JSON array of key components.
     // Ordering matches `keys` of the materialization's field selection.
+    // Set only for JSON connectors; empty otherwise.
     bytes key_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "key"
     ];
     // Packed FoundationDB tuple of the document key to store.
+    // Set only for protobuf connectors; empty otherwise.
     bytes key_packed = 3;
-    // Values tuple, as an array of value components.
+    // Values tuple, as a JSON array of value components.
     // Ordering matches `values` of the materialization's field selection.
+    // Set only for JSON connectors; empty otherwise.
     bytes values_json = 4 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "values"
     ];
     // Packed FoundationDB tuple of the document values to store.
+    // Set only for protobuf connectors; empty otherwise.
     bytes values_packed = 5;
     // JSON document to store.
     bytes doc_json = 6 [

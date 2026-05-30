@@ -41,7 +41,8 @@ pub async fn start<L: crate::LogHandler>(
             config: sealed_config,
         }) => {
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
-            let (rx, container) = crate::image_connector::serve(
+            // Captures don't have conditional JSON fields, so _codec is unused.
+            let (rx, container, _codec) = crate::image_connector::serve(
                 image,
                 service.log_handler.clone(),
                 log_level,
@@ -67,13 +68,19 @@ pub async fn start<L: crate::LogHandler>(
             env,
             protobuf,
         }) => {
+            let codec = if protobuf {
+                connector_init::Codec::Proto
+            } else {
+                connector_init::Codec::Json
+            };
             *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+
             let rx = crate::local_connector::serve(
                 command,
                 env,
                 service.log_handler.clone(),
                 log_level,
-                protobuf,
+                codec,
                 connector_rx,
             )?
             .boxed();

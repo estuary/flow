@@ -63,6 +63,7 @@ pub async fn dial_and_join(
 
 pub(super) struct Startup {
     pub accumulator: crate::Accumulator,
+    pub codec: connector_init::Codec,
     pub connector_rx: BoxStream<'static, tonic::Result<derive::Response>>,
     pub connector_tx: mpsc::Sender<derive::Request>,
     pub db: crate::shard::RocksDB,
@@ -218,7 +219,7 @@ where
         });
     }
 
-    let (connector_tx, mut connector_rx, container) =
+    let (connector_tx, mut connector_rx, container, codec) =
         super::connector::start(service, log_level, initial).await?;
 
     let verify = crate::verify("Derive", "Opened", "connector");
@@ -255,6 +256,7 @@ where
 
     Ok(Startup {
         accumulator,
+        codec,
         connector_rx,
         connector_tx,
         db,

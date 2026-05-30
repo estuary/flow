@@ -343,14 +343,20 @@ func (m *Request_Read) XXX_DiscardUnknown() {
 var xxx_messageInfo_Request_Read proto.InternalMessageInfo
 
 // Shuffle under which this document was mapped.
+//
+// The runtime populates exactly one of `key_json` or `packed` per the
+// negotiated codec (see each field); `hash` is always set. A shuffle key
+// computed by a lambda cannot be extracted as JSON, so a JSON connector
+// then receives neither and relies on `hash` alone.
 type Request_Read_Shuffle struct {
-	// Shuffle key, as an array of key components.
-	// Ordering matches `keys` of the materialization's field selection.
+	// Shuffle key, as a JSON array of key components in shuffle-key order.
+	// Set only for JSON connectors; empty otherwise.
 	KeyJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=key_json,json=key,proto3,casttype=encoding/json.RawMessage" json:"key_json,omitempty"`
-	// Packed tuple of the document's shuffled key.
+	// Packed FoundationDB tuple of the document's shuffled key.
+	// Set only for protobuf connectors; empty otherwise.
 	Packed []byte `protobuf:"bytes,2,opt,name=packed,proto3" json:"packed,omitempty"`
 	// Stable hash of this document's shuffle key, which falls within
-	// `key_begin` and `key_end` of the Request.Open.
+	// `key_begin` and `key_end` of the Request.Open. Always set.
 	Hash                 uint32   `protobuf:"varint,3,opt,name=hash,proto3" json:"hash,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

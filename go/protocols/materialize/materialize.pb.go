@@ -447,13 +447,18 @@ var xxx_messageInfo_Request_Open proto.InternalMessageInfo
 
 // Load a document identified by its key. The given key may have never before been stored,
 // but a given key will be sent in a transaction Load just one time.
+//
+// The runtime populates exactly one of `key_json` or `key_packed` per the
+// negotiated codec.
 type Request_Load struct {
 	// Index of the Open binding for which this document is to be loaded.
 	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
-	// key tuple, as an array of key components.
+	// Key tuple, as a JSON array of key components.
 	// Ordering matches `keys` of the materialization's field selection.
+	// Set only for JSON connectors; empty otherwise.
 	KeyJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=key_json,json=key,proto3,casttype=encoding/json.RawMessage" json:"key_json,omitempty"`
-	// Packed tuple of the document key to load.
+	// Packed FoundationDB tuple of the document key to load.
+	// Set only for protobuf connectors; empty otherwise.
 	KeyPacked            []byte   `protobuf:"bytes,3,opt,name=key_packed,json=keyPacked,proto3" json:"key_packed,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -542,18 +547,27 @@ func (m *Request_Flush) XXX_DiscardUnknown() {
 var xxx_messageInfo_Request_Flush proto.InternalMessageInfo
 
 // Store documents updated by the current transaction.
+//
+// The runtime populates exactly one of the JSON encodings (`key_json`,
+// `values_json`) or the packed encodings (`key_packed`, `values_packed`),
+// per the negotiated codec. `doc_json` is independent of the
+// codec and is set whenever the document is stored.
 type Request_Store struct {
 	// Index of the Open binding for which this document is to be stored.
 	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
-	// Key tuple, as an array of key components.
+	// Key tuple, as a JSON array of key components.
 	// Ordering matches `keys` of the materialization's field selection.
+	// Set only for JSON connectors; empty otherwise.
 	KeyJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=key_json,json=key,proto3,casttype=encoding/json.RawMessage" json:"key_json,omitempty"`
 	// Packed FoundationDB tuple of the document key to store.
+	// Set only for protobuf connectors; empty otherwise.
 	KeyPacked []byte `protobuf:"bytes,3,opt,name=key_packed,json=keyPacked,proto3" json:"key_packed,omitempty"`
-	// Values tuple, as an array of value components.
+	// Values tuple, as a JSON array of value components.
 	// Ordering matches `values` of the materialization's field selection.
+	// Set only for JSON connectors; empty otherwise.
 	ValuesJson encoding_json.RawMessage `protobuf:"bytes,4,opt,name=values_json,json=values,proto3,casttype=encoding/json.RawMessage" json:"values_json,omitempty"`
 	// Packed FoundationDB tuple of the document values to store.
+	// Set only for protobuf connectors; empty otherwise.
 	ValuesPacked []byte `protobuf:"bytes,5,opt,name=values_packed,json=valuesPacked,proto3" json:"values_packed,omitempty"`
 	// JSON document to store.
 	DocJson encoding_json.RawMessage `protobuf:"bytes,6,opt,name=doc_json,json=doc,proto3,casttype=encoding/json.RawMessage" json:"doc_json,omitempty"`
