@@ -111,8 +111,15 @@ impl Publisher {
                 p.enqueue(
                     |uuid| {
                         // Binding index 0 is the fixed ops_stats journal.
-                        stats.meta.as_mut().unwrap().uuid = uuid.to_string();
-                        (0, serde_json::to_value(&stats).unwrap())
+                        let meta = stats.meta.as_mut().ok_or_else(|| {
+                            tonic::Status::internal("stats document is missing required `meta`")
+                        })?;
+                        meta.uuid = uuid.to_string();
+
+                        let value = serde_json::to_value(&stats).map_err(|err| {
+                            tonic::Status::internal(format!("serializing stats document: {err}"))
+                        })?;
+                        Ok((0, value))
                     },
                     uuid::Flags::CONTINUE_TXN,
                 )
@@ -142,8 +149,8 @@ impl Publisher {
                 let (_, bytes_written) = p
                     .enqueue_owned(
                         |uuid| {
-                            patch_document_uuid(&mut doc, uuid_ptr, uuid);
-                            (publisher_binding, doc)
+                            patch_document_uuid(&mut doc, uuid_ptr, uuid)?;
+                            Ok((publisher_binding, doc))
                         },
                         uuid::Flags::CONTINUE_TXN,
                     )
@@ -229,28 +236,28 @@ pub fn producer_from_bytes(publisher_id: &[u8]) -> anyhow::Result<uuid::Producer
 
 /// Patch a document UUID placeholder in-place after the publisher has assigned
 /// the transaction UUID.
-fn patch_document_uuid(doc: &mut doc::OwnedNode, uuid_ptr: &json::Pointer, uuid: uuid::Uuid) {
-    if uuid_ptr.0.is_empty() {
-        return;
-    }
-
+fn patch_document_uuid(
+    doc: &mut doc::OwnedNode,
+    uuid_ptr: &json::Pointer,
+    uuid: uuid::Uuid,
+) -> tonic::Result<()> {
     let cell = match doc {
         doc::OwnedNode::Archived(archived) => {
             let Some(doc::ArchivedNode::String(s)) = uuid_ptr.query(archived.get()) else {
-                return;
+                return Err(missing_uuid_placeholder(uuid_ptr));
             };
             s.as_bytes().as_ptr_range()
         }
         doc::OwnedNode::Heap(heap) => match heap.access() {
             Ok(node) => {
                 let Some(doc::HeapNode::String(s)) = uuid_ptr.query(&node) else {
-                    return;
+                    return Err(missing_uuid_placeholder(uuid_ptr));
                 };
                 s.as_bytes().as_ptr_range()
             }
             Err(embedded) => {
                 let Some(doc::ArchivedNode::String(s)) = uuid_ptr.query(embedded.get()) else {
-                    return;
+                    return Err(missing_uuid_placeholder(uuid_ptr));
                 };
                 s.as_bytes().as_ptr_range()
             }
@@ -265,9 +272,21 @@ fn patch_document_uuid(doc: &mut doc::OwnedNode, uuid_ptr: &json::Pointer, uuid:
         )
     };
     if cell.len() != ::uuid::fmt::Hyphenated::LENGTH {
-        return; // Return, rather than panic-ing if the length is somehow wrong.
+        return Err(tonic::Status::internal(format!(
+            "document UUID placeholder at {uuid_ptr} is {} bytes, but a hyphenated UUID requires {}",
+            cell.len(),
+            ::uuid::fmt::Hyphenated::LENGTH,
+        )));
     }
     _ = ::uuid::fmt::Hyphenated::from_uuid(uuid).encode_lower(cell);
+
+    Ok(())
+}
+
+fn missing_uuid_placeholder(uuid_ptr: &json::Pointer) -> tonic::Status {
+    tonic::Status::internal(format!(
+        "document is missing a string UUID placeholder at {uuid_ptr}"
+    ))
 }
 
 #[cfg(test)]

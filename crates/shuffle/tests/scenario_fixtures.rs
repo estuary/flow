@@ -358,7 +358,7 @@ async fn single_producer_outside_txn(
     for id in ["a1", "a2", "a3"] {
         pub_.enqueue(
             |uuid| {
-                (
+                Ok((
                     0,
                     serde_json::json!({
                         "_meta": {"uuid": uuid.to_string()},
@@ -366,7 +366,7 @@ async fn single_producer_outside_txn(
                         "category": "alpha",
                         "value": 1,
                     }),
-                )
+                ))
             },
             uuid::Flags::OUTSIDE_TXN,
         )
@@ -417,7 +417,7 @@ async fn continue_then_ack(
     for id in ["b1", "b2"] {
         pub_.enqueue(
             |uuid| {
-                (
+                Ok((
                     0,
                     serde_json::json!({
                         "_meta": {"uuid": uuid.to_string()},
@@ -425,7 +425,7 @@ async fn continue_then_ack(
                         "category": "alpha",
                         "value": 2,
                     }),
-                )
+                ))
             },
             uuid::Flags::CONTINUE_TXN,
         )
@@ -483,7 +483,7 @@ async fn multi_shard_routing(
     for id in ["m-aaa", "m-bbb", "m-ccc", "m-ddd", "m-eee"] {
         pub_.enqueue(
             |uuid| {
-                (
+                Ok((
                     0,
                     serde_json::json!({
                         "_meta": {"uuid": uuid.to_string()},
@@ -491,7 +491,7 @@ async fn multi_shard_routing(
                         "category": "alpha",
                         "value": 3,
                     }),
-                )
+                ))
             },
             uuid::Flags::OUTSIDE_TXN,
         )
@@ -549,7 +549,7 @@ async fn multiple_producers(
     // includes P2 as pending (uncommitted).
     pub2.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -557,7 +557,7 @@ async fn multiple_producers(
                     "category": "alpha",
                     "value": 20,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -567,7 +567,7 @@ async fn multiple_producers(
 
     pub1.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -575,7 +575,7 @@ async fn multiple_producers(
                     "category": "alpha",
                     "value": 10,
                 }),
-            )
+            ))
         },
         uuid::Flags::OUTSIDE_TXN,
     )
@@ -686,7 +686,7 @@ async fn resume_from_checkpoint(
     // Write to binding 0 (testing/apples).
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -694,7 +694,7 @@ async fn resume_from_checkpoint(
                     "category": "alpha",
                     "value": 100,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -704,7 +704,7 @@ async fn resume_from_checkpoint(
     // Write to binding 1 (testing/bananas).
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 1,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -712,7 +712,7 @@ async fn resume_from_checkpoint(
                     "category": "alpha",
                     "value": 200,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -764,7 +764,7 @@ async fn resume_from_checkpoint(
     // ---- Phase 2: write more data, resume from modified frontier. ----
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -772,7 +772,7 @@ async fn resume_from_checkpoint(
                     "category": "alpha",
                     "value": 300,
                 }),
-            )
+            ))
         },
         uuid::Flags::OUTSIDE_TXN,
     )
@@ -840,7 +840,7 @@ async fn multi_partition_transaction(
     // Write to binding 0 (testing/apples).
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -848,7 +848,7 @@ async fn multi_partition_transaction(
                     "category": "alpha",
                     "value": 1,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -858,7 +858,7 @@ async fn multi_partition_transaction(
     // Write to binding 1 (testing/bananas).
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 1,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -866,7 +866,7 @@ async fn multi_partition_transaction(
                     "category": "alpha",
                     "value": 2,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -924,7 +924,7 @@ async fn partition_filtered_hints(
     // Write to binding 0 (testing/apples), partition category=alpha (included).
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -932,7 +932,7 @@ async fn partition_filtered_hints(
                     "category": "alpha",
                     "value": 1,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -942,7 +942,7 @@ async fn partition_filtered_hints(
     // Write to binding 0 (testing/apples), partition category=beta (excluded).
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -950,7 +950,7 @@ async fn partition_filtered_hints(
                     "category": "beta",
                     "value": 2,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -960,7 +960,7 @@ async fn partition_filtered_hints(
     // Write to binding 0 (testing/apples), partition category=gamma (included).
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -968,7 +968,7 @@ async fn partition_filtered_hints(
                     "category": "gamma",
                     "value": 3,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -1039,7 +1039,7 @@ async fn clock_window_filtering(
     // Write to binding 0 (testing/apples) — will be filtered by not_before.
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -1047,7 +1047,7 @@ async fn clock_window_filtering(
                     "category": "alpha",
                     "value": 1,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -1057,7 +1057,7 @@ async fn clock_window_filtering(
     // Write to binding 1 (testing/bananas) — not filtered.
     pub_.enqueue(
         |uuid| {
-            (
+            Ok((
                 1,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -1065,7 +1065,7 @@ async fn clock_window_filtering(
                     "category": "alpha",
                     "value": 2,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -1166,7 +1166,7 @@ async fn rollback(
     // P2 commits a transaction via CONTINUE_TXN + ACK, establishing C_p2.
     pub2.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -1174,7 +1174,7 @@ async fn rollback(
                     "category": "alpha",
                     "value": 10,
                 }),
-            )
+            ))
         },
         uuid::Flags::CONTINUE_TXN,
     )
@@ -1193,7 +1193,7 @@ async fn rollback(
     for id in ["rb-p1-a1", "rb-p1-a2"] {
         pub1.enqueue(
             |uuid| {
-                (
+                Ok((
                     0,
                     serde_json::json!({
                         "_meta": {"uuid": uuid.to_string()},
@@ -1201,7 +1201,7 @@ async fn rollback(
                         "category": "alpha",
                         "value": 1,
                     }),
-                )
+                ))
             },
             uuid::Flags::OUTSIDE_TXN,
         )
@@ -1247,7 +1247,7 @@ async fn rollback(
     for id in ["rb-p2-rolled-back-1", "rb-p2-rolled-back-2"] {
         pub2.enqueue(
             |uuid| {
-                (
+                Ok((
                     0,
                     serde_json::json!({
                         "_meta": {"uuid": uuid.to_string()},
@@ -1255,7 +1255,7 @@ async fn rollback(
                         "category": "alpha",
                         "value": 999,
                     }),
-                )
+                ))
             },
             uuid::Flags::CONTINUE_TXN,
         )
@@ -1283,7 +1283,7 @@ async fn rollback(
 
     pub1.enqueue(
         |uuid| {
-            (
+            Ok((
                 0,
                 serde_json::json!({
                     "_meta": {"uuid": uuid.to_string()},
@@ -1291,7 +1291,7 @@ async fn rollback(
                     "category": "alpha",
                     "value": 2,
                 }),
-            )
+            ))
         },
         uuid::Flags::OUTSIDE_TXN,
     )
@@ -1321,7 +1321,7 @@ async fn rollback(
     for id in ["rb-p1-deep-1", "rb-p1-deep-2"] {
         pub1.enqueue(
             |uuid| {
-                (
+                Ok((
                     0,
                     serde_json::json!({
                         "_meta": {"uuid": uuid.to_string()},
@@ -1329,7 +1329,7 @@ async fn rollback(
                         "category": "alpha",
                         "value": 3,
                     }),
-                )
+                ))
             },
             uuid::Flags::CONTINUE_TXN,
         )

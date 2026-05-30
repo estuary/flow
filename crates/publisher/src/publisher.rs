@@ -108,7 +108,7 @@ impl Publisher {
     /// RPC if the buffer exceeds the flush threshold.
     pub async fn enqueue<N: json::AsNode>(
         &mut self,
-        doc: impl FnOnce(uuid::Uuid) -> (usize, N),
+        doc: impl FnOnce(uuid::Uuid) -> tonic::Result<(usize, N)>,
         flags: uuid::Flags,
     ) -> tonic::Result<&crate::Appender> {
         // Invariant: buffers are always empty (but may have capacity).
@@ -117,7 +117,7 @@ impl Publisher {
 
         // Sequence the document.
         let uuid = proto_gazette::uuid::build(self.producer, self.clock.tick(), flags);
-        let (binding_idx, doc) = doc(uuid);
+        let (binding_idx, doc) = doc(uuid)?;
 
         let (mut journal, mut packed_key) = match &self.bindings[binding_idx] {
             super::Binding::Mapped(mapped) => {
@@ -162,7 +162,7 @@ impl Publisher {
     /// held across await points.
     pub async fn enqueue_owned(
         &mut self,
-        doc: impl FnOnce(uuid::Uuid) -> (usize, doc::OwnedNode),
+        doc: impl FnOnce(uuid::Uuid) -> tonic::Result<(usize, doc::OwnedNode)>,
         flags: uuid::Flags,
     ) -> tonic::Result<(&crate::Appender, usize)> {
         // Invariant: buffers are always empty (but may have capacity).
@@ -171,7 +171,7 @@ impl Publisher {
 
         // Sequence the document.
         let uuid = proto_gazette::uuid::build(self.producer, self.clock.tick(), flags);
-        let (binding_idx, doc) = doc(uuid);
+        let (binding_idx, doc) = doc(uuid)?;
 
         let (doc, mut journal, mut packed_key) = match &self.bindings[binding_idx] {
             super::Binding::Mapped(mapped) => {
