@@ -74,7 +74,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
     publisher
         .enqueue(
             |uuid| {
-                (
+                Ok((
                     0,
                     serde_json::json!({
                         "_meta": {"uuid": uuid.to_string()},
@@ -82,7 +82,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
                         "message": "Hello, World!",
                         "region": "us"
                     }),
-                )
+                ))
             },
             uuid::Flags::CONTINUE_TXN,
         )
@@ -92,7 +92,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
     publisher
         .enqueue(
             |uuid| {
-                (
+                Ok((
                     0,
                     serde_json::json!({
                         "_meta": {"uuid": uuid.to_string()},
@@ -100,7 +100,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
                         "message": "Greetings from the test!",
                         "region": "eu"
                     }),
-                )
+                ))
             },
             uuid::Flags::CONTINUE_TXN,
         )

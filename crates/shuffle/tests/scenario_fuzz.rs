@@ -470,7 +470,7 @@ async fn write_actions(
                         |u| {
                             let (_, clock, _) = uuid::parse(u).unwrap();
                             captured_clock = clock;
-                            (
+                            Ok((
                                 0,
                                 serde_json::json!({
                                     "_meta": {"uuid": u.to_string()},
@@ -478,7 +478,7 @@ async fn write_actions(
                                     "category": PARTITION_CATEGORIES[partition as usize],
                                     "counter": counter,
                                 }),
-                            )
+                            ))
                         },
                         uuid::Flags::OUTSIDE_TXN,
                     )
@@ -501,7 +501,7 @@ async fn write_actions(
                         .publisher
                         .enqueue(
                             |u| {
-                                (
+                                Ok((
                                     0,
                                     serde_json::json!({
                                         "_meta": {"uuid": u.to_string()},
@@ -509,7 +509,7 @@ async fn write_actions(
                                         "category": PARTITION_CATEGORIES[partition as usize],
                                         "counter": counter,
                                     }),
-                                )
+                                ))
                             },
                             uuid::Flags::CONTINUE_TXN,
                         )
@@ -540,7 +540,7 @@ async fn write_actions(
                         .publisher
                         .enqueue(
                             |u| {
-                                (
+                                Ok((
                                     0,
                                     serde_json::json!({
                                         "_meta": {"uuid": u.to_string()},
@@ -548,7 +548,7 @@ async fn write_actions(
                                         "category": PARTITION_CATEGORIES[partition as usize],
                                         "counter": counter,
                                     }),
-                                )
+                                ))
                             },
                             uuid::Flags::CONTINUE_TXN,
                         )
