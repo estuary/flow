@@ -25,6 +25,7 @@
 use super::super::frontier_mapping;
 use super::{Task, close_policy};
 use crate::proto;
+use anyhow::Context;
 use gazette::consumer;
 use proto_gazette::uuid;
 use std::collections::{BTreeMap, HashMap};
@@ -117,22 +118,25 @@ pub enum Action {
     },
     /// Transition Tail from Done to Begin with the closed transaction's extents.
     Rotate { extents: Extents },
+    /// Fail the actor with a terminal error.
+    Error { error: anyhow::Error },
 }
 
 impl Action {
     pub fn kind(&self) -> &'static str {
         match self {
-            Self::Idle => "Idle",
-            Self::PollAgain => "PollAgain",
-            Self::Sleep { .. } => "Sleep",
-            Self::Load { .. } => "Load",
+            Self::Error { .. } => "Error",
             Self::Flush { .. } => "Flush",
-            Self::Store => "Store",
-            Self::WriteStats { .. } => "WriteStats",
-            Self::StartCommit { .. } => "StartCommit",
+            Self::Idle => "Idle",
+            Self::Load { .. } => "Load",
             Self::Persist { .. } => "Persist",
-            Self::WriteIntents { .. } => "WriteIntents",
+            Self::PollAgain => "PollAgain",
             Self::Rotate { .. } => "Rotate",
+            Self::Sleep { .. } => "Sleep",
+            Self::StartCommit { .. } => "StartCommit",
+            Self::Store => "Store",
+            Self::WriteIntents { .. } => "WriteIntents",
+            Self::WriteStats { .. } => "WriteStats",
         }
     }
 }
@@ -625,9 +629,12 @@ impl TailStore {
             *entry += jf.bytes_behind_delta;
         }
 
-        let action = Action::WriteStats {
-            stats: build_stats_doc(task, &extents, binding_bytes_behind),
-            publisher_commits,
+        let action = match build_stats_doc(task, &extents, binding_bytes_behind) {
+            Ok(stats) => Action::WriteStats {
+                stats,
+                publisher_commits,
+            },
+            Err(error) => Action::Error { error },
         };
         let state = TailWriteStats { extents };
 
@@ -836,18 +843,23 @@ fn build_stats_doc(
     task: &Task,
     extents: &Extents,
     binding_bytes_behind: &[i64],
-) -> ops::proto::Stats {
+) -> anyhow::Result<ops::proto::Stats> {
     let mut transforms: BTreeMap<String, ops::proto::stats::derive::Transform> = BTreeMap::new();
     let mut max_published_at: uuid::Clock = uuid::Clock::default();
 
     for (binding_index, binding) in &extents.bindings {
-        let Some(transform_name) = task.binding_transform_names.get(*binding_index as usize) else {
-            continue; // Reachable if shards report invalid binding indices.
-        };
-        let Some(collection_name) = task.binding_collection_names.get(*binding_index as usize)
-        else {
-            continue;
-        };
+        let transform_name = task
+            .binding_transform_names
+            .get(*binding_index as usize)
+            .with_context(|| {
+                format!("shard reported out-of-range binding index {binding_index}")
+            })?;
+        let collection_name = task
+            .binding_collection_names
+            .get(*binding_index as usize)
+            .with_context(|| {
+                format!("shard reported out-of-range binding index {binding_index}")
+            })?;
 
         let entry = transforms.entry(transform_name.clone()).or_default();
         entry.source = collection_name.clone();
@@ -867,7 +879,7 @@ fn build_stats_doc(
 
     let open_seconds_total = uuid::Clock::delta(extents.close, extents.open).as_secs_f64();
 
-    ops::proto::Stats {
+    Ok(ops::proto::Stats {
         meta: Some(ops::proto::Meta {
             uuid: String::new(), // Stamped by Publisher::enqueue()
         }),
@@ -888,7 +900,7 @@ fn build_stats_doc(
         capture: Default::default(),
         materialize: Default::default(),
         interval: None,
-    }
+    })
 }
 
 #[cfg(test)]
