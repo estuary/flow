@@ -18,6 +18,7 @@
 use super::super::frontier_mapping;
 use super::{Task, close_policy, triggers};
 use crate::proto;
+use anyhow::Context;
 use gazette::consumer;
 use proto_gazette::uuid;
 use std::collections::{BTreeMap, HashMap};
@@ -136,6 +137,8 @@ pub enum Action {
     },
     /// Rotate Tail from Done to Begin with the committed transaction's deltas.
     Rotate { pending: PendingDeltas },
+    /// Fail the actor with a terminal error.
+    Error { error: anyhow::Error },
 }
 
 impl Action {
@@ -143,6 +146,7 @@ impl Action {
         match self {
             Self::Acknowledge { .. } => "Acknowledge",
             Self::CallTrigger { .. } => "CallTrigger",
+            Self::Error { .. } => "Error",
             Self::Flush { .. } => "Flush",
             Self::Idle => "Idle",
             Self::Load { .. } => "Load",
@@ -656,8 +660,9 @@ impl HeadStore {
             .into();
         }
 
-        let action = Action::WriteStats {
-            stats: build_stats_doc(task, &extents, binding_bytes_behind),
+        let action = match build_stats_doc(task, &extents, binding_bytes_behind) {
+            Ok(stats) => Action::WriteStats { stats },
+            Err(error) => Action::Error { error },
         };
         let state = HeadWriteStats { extents, pending };
 
@@ -1110,14 +1115,16 @@ fn build_stats_doc(
     task: &Task,
     extents: &Extents,
     binding_bytes_behind: &[i64],
-) -> ops::proto::Stats {
+) -> anyhow::Result<ops::proto::Stats> {
     let mut materialize: BTreeMap<String, ops::proto::stats::MaterializeBinding> = BTreeMap::new();
 
     for (binding_index, extents) in &extents.bindings {
-        let Some(collection_name) = task.binding_collection_names.get(*binding_index as usize)
-        else {
-            continue; // Reachable if shards report invalid binding indices.
-        };
+        let collection_name = task
+            .binding_collection_names
+            .get(*binding_index as usize)
+            .with_context(|| {
+                format!("shard reported out-of-range binding index {binding_index}")
+            })?;
         let entry = materialize.entry(collection_name.clone()).or_default();
 
         // It's possible that multiple bindings source from the same collection.
@@ -1144,7 +1151,7 @@ fn build_stats_doc(
 
     let open_seconds_total = uuid::Clock::delta(extents.close, extents.open).as_secs_f64();
 
-    ops::proto::Stats {
+    Ok(ops::proto::Stats {
         meta: Some(ops::proto::Meta {
             uuid: String::new(), // Stamped by Publisher::enqueue()
         }),
@@ -1156,7 +1163,7 @@ fn build_stats_doc(
         capture: Default::default(), // N/A.
         derive: None,                // N/A.
         interval: None,              // N/A.
-    }
+    })
 }
 
 #[cfg(test)]

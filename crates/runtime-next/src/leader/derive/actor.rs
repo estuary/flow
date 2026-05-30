@@ -294,6 +294,7 @@ impl Actor {
     fn dispatch(&mut self, action: fsm::Action) -> anyhow::Result<Duration> {
         match action {
             fsm::Action::Rotate { .. } => unreachable!("never dispatched"),
+            fsm::Action::Error { error } => return Err(error),
 
             fsm::Action::Idle => (),
             fsm::Action::PollAgain => return Ok(Duration::ZERO),
