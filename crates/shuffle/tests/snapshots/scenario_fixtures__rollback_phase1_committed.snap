@@ -11,13 +11,13 @@ Checkpoint {
                 producers: [
                     ProducerFrontier {
                         producer: Producer(01:00:00:00:00:01),
-                        last_commit: Clock(0s 8ns),
+                        last_commit: Clock(0s 2000ns),
                         hinted_commit: Clock(0s 0ns),
                         offset: -400,
                     },
                     ProducerFrontier {
                         producer: Producer(03:00:00:00:00:02),
-                        last_commit: Clock(0s 8ns),
+                        last_commit: Clock(0s 2000ns),
                         hinted_commit: Clock(0s 0ns),
                         offset: -194,
                     },
@@ -37,7 +37,7 @@ Checkpoint {
             journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
             doc: Object {
                 "_meta": Object {
-                    "uuid": String("13814000-1dd2-11b2-8401-030000000002"),
+                    "uuid": String("1381400a-1dd2-11b2-8001-030000000002"),
                 },
                 "category": String("alpha"),
                 "id": String("rb-p2-committed"),
@@ -49,7 +49,7 @@ Checkpoint {
             journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
             doc: Object {
                 "_meta": Object {
-                    "uuid": String("13814000-1dd2-11b2-8400-010000000001"),
+                    "uuid": String("1381400a-1dd2-11b2-8000-010000000001"),
                 },
                 "category": String("alpha"),
                 "id": String("rb-p1-a1"),
@@ -61,7 +61,7 @@ Checkpoint {
             journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
             doc: Object {
                 "_meta": Object {
-                    "uuid": String("13814000-1dd2-11b2-8800-010000000001"),
+                    "uuid": String("13814014-1dd2-11b2-8000-010000000001"),
                 },
                 "category": String("alpha"),
                 "id": String("rb-p1-a2"),

@@ -105,16 +105,24 @@ impl Clock {
 
     #[inline]
     pub fn tick(&mut self) -> Self {
-        self.0 += 1;
+        // Increment by one microsecond: 1000ns = 10 units of 100ns, shifted
+        // left by 4 to clear the counter bits (10 << 4 = 160). This matches
+        // Gazette's `message.Clock.Tick()` and keeps stamped UUID timestamps
+        // microsecond-aligned, which is the precision most destination systems
+        // support for the materialized `flow_published_at` column.
+        self.0 += 160;
         *self
     }
 
     #[inline]
     pub fn to_unix(&self) -> (u64, u32) {
-        // Each tick is 100ns relative to unix epoch.
+        // The high 60 bits are a count of 100ns intervals since the unix epoch.
         let ticks = (self.0 >> 4).saturating_sub(G1582NS100);
         let seconds = ticks / 10_000_000;
-        // We also include the four counter bits as increments of 4 nanoseconds each.
+        // The low 4 bits are a sub-100ns ordering counter, rendered here as
+        // increments of 4ns. `tick()` advances in whole microseconds and leaves
+        // these bits zero, so this term only contributes for UUIDs that carry a
+        // non-zero counter (e.g. legacy data); it's retained as a safety net.
         let nanos = (ticks % 10_000_000) * 100 + ((self.0 & 0xf) << 2);
         (seconds, nanos as u32)
     }
@@ -407,10 +415,12 @@ mod test {
         assert_eq!(Clock::default(), Clock::zero());
         assert_eq!(Clock::default().to_unix(), (0, 0));
 
-        // Each tick increments the clock.
+        // Each tick advances the clock by one microsecond (160 == 10 << 4),
+        // leaving the 4-bit counter zero.
         c.tick();
         c.tick();
-        assert_eq!(c.0, 0x1b21dd2138140002);
+        assert_eq!(c.0, 0x1b21dd2138140140);
+        assert_eq!(c.to_unix(), (0, 2_000));
 
         // Updates take the maximum value of the observed Clocks (Clock is monotonic).
         c.update(Clock::from_unix(10, 0));
@@ -421,14 +431,14 @@ mod test {
         assert_eq!(c.to_unix(), (10, 0));
 
         c.tick();
-        assert_eq!(c.to_unix(), (10, 4));
+        assert_eq!(c.to_unix(), (10, 1_000));
         c.tick();
-        assert_eq!(c.to_unix(), (10, 8));
+        assert_eq!(c.to_unix(), (10, 2_000));
 
         for _ in 0..16 {
             c.tick();
         }
-        assert_eq!(c.to_unix(), (10, 108));
+        assert_eq!(c.to_unix(), (10, 18_000));
     }
 
     #[test]
@@ -439,12 +449,13 @@ mod test {
 
         let p_in = Producer::from_bytes([8 | 1, 6, 7, 5, 3, 9]);
 
-        // Craft an interesting Clock fixture which uses the full bit-range
-        // and includes clock sequence increments.
+        // Craft an interesting Clock fixture which uses the full bit-range.
         let mut c_in = Clock::UNIX_EPOCH;
         c_in.update(Clock::from_unix(SECONDS, NANOS));
         assert_eq!(c_in.to_unix(), (SECONDS, 981273700)); // Rounded to 100's of nanos.
 
+        // Two microsecond ticks advance the 100ns timestamp field by 2000ns,
+        // leaving the 4-bit clock-sequence counter zero.
         c_in.tick();
         c_in.tick();
 
@@ -457,10 +468,11 @@ mod test {
             id.get_timestamp().map(|ts| ts.to_unix()),
             Some((
                 SECONDS,
-                (NANOS / 100) * 100, // Rounded down to nearest 100ns.
+                (NANOS / 100) * 100 + 2_000, // Rounded to 100ns, plus two µs ticks.
             ))
         );
-        assert_eq!(id.get_timestamp().map(|ts| ts.to_gregorian().1), Some(2730));
+        // The 14-bit clock-sequence is just the flags now that the counter is zero.
+        assert_eq!(id.get_timestamp().map(|ts| ts.to_gregorian().1), Some(682));
 
         let (p_out, c_out, f_out) = parse(id).unwrap();
 

@@ -1511,8 +1511,8 @@ mod tests {
         {
           "_meta": {},
           "shard": {},
-          "ts": "2023-11-14T22:13:20.000000004+00:00",
-          "openSecondsTotal": 0.000000024,
+          "ts": "2023-11-14T22:13:20.000001+00:00",
+          "openSecondsTotal": 0.000006,
           "txnCount": 1,
           "materialize": {
             "test/collection": {
@@ -1569,7 +1569,7 @@ mod tests {
             @r#"
         (
             b"[{\"phase\":\"committed\",\"shard\":0}\t,{\"phase\":\"committed\",\"shard\":1}\t]",
-            b"{\"collection_names\":[\"test/collection\"],\"connector_image\":\"\",\"materialization_name\":\"\",\"flow_published_at_min\":\"2023-11-14T22:13:25+00:00\",\"flow_published_at_max\":\"2023-11-14T22:13:30+00:00\",\"run_id\":\"2023-11-14T22:13:20.000000004+00:00\"}",
+            b"{\"collection_names\":[\"test/collection\"],\"connector_image\":\"\",\"materialization_name\":\"\",\"flow_published_at_min\":\"2023-11-14T22:13:25+00:00\",\"flow_published_at_max\":\"2023-11-14T22:13:30+00:00\",\"run_id\":\"2023-11-14T22:13:20.000001+00:00\"}",
         )
         "#);
 

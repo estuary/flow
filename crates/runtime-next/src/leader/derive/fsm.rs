@@ -1219,8 +1219,8 @@ mod tests {
         {
           "_meta": {},
           "shard": {},
-          "ts": "2023-11-14T22:13:20.000000004+00:00",
-          "openSecondsTotal": 0.000000024,
+          "ts": "2023-11-14T22:13:20.000001+00:00",
+          "openSecondsTotal": 0.000006,
           "txnCount": 1,
           "derive": {
             "transforms": {
