@@ -150,7 +150,9 @@ impl cgo::Service for API {
                 let begin = arena.len();
 
                 for ex in &state.extractors {
-                    ex.extract(&doc, arena).unwrap(); // Vec<u8> is infallible for io::Write.
+                    // Vec<u8> is infallible for io::Write.
+                    ex.extract(&doc, doc::Encoding::Packed, arena, None)
+                        .unwrap();
                 }
                 cgo::send_bytes(Code::ExtractedFields as u32, begin, arena, out);
 

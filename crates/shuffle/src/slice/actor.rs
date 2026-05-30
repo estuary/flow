@@ -863,7 +863,13 @@ impl SliceActor {
         // Extract into `packed_key` and hash to route the document.
         // Compute shard index `targets` to receive an Append of this document.
         packed_key.clear();
-        doc::Extractor::extract_all(doc.get(), &binding.key_extractors, packed_key);
+        doc::Extractor::extract_all(
+            doc.get(),
+            &binding.key_extractors,
+            doc::Encoding::Packed,
+            packed_key,
+            None,
+        );
 
         let key_hash = doc::Extractor::packed_hash(packed_key);
         let r_clock = routing::rotate_clock(*clock);

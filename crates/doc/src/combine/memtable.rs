@@ -1,7 +1,7 @@
 use super::{DrainedDoc, Error, HeapEntry, Meta, Spec, SpillWriter};
 use crate::{
-    Extractor, HeapEmbedded, HeapNode, HeapRoot, LazyNode, OwnedHeapRoot, OwnedNode, redact,
-    reduce, validation,
+    Encoding, Extractor, HeapEmbedded, HeapNode, HeapRoot, LazyNode, OwnedHeapRoot, OwnedNode,
+    redact, reduce, validation,
 };
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
@@ -241,7 +241,9 @@ impl MemTable {
         () = Extractor::extract_all(
             &root,
             &entries.spec.keys[binding as usize],
+            Encoding::Packed,
             &mut entries.scratch,
+            None,
         );
         let meta = Meta::new(
             binding,
@@ -280,7 +282,13 @@ impl MemTable {
         #[cfg(debug_assertions)]
         {
             let keys = &entries.spec.keys[binding as usize];
-            Extractor::extract_all(embedded.get(), keys, &mut entries.scratch);
+            Extractor::extract_all(
+                embedded.get(),
+                keys,
+                Encoding::Packed,
+                &mut entries.scratch,
+                None,
+            );
             debug_assert!(
                 entries
                     .scratch
@@ -627,7 +635,7 @@ mod test {
     ) {
         let embedded = to_embedded(doc, memtable.alloc());
         let mut scratch = bytes::BytesMut::new();
-        Extractor::extract_all(embedded.get(), keys, &mut scratch);
+        Extractor::extract_all(embedded.get(), keys, Encoding::Packed, &mut scratch, None);
         let mut packed_prefix = [0u8; 16];
         let copy_len = scratch.len().min(16);
         packed_prefix[..copy_len].copy_from_slice(&scratch[..copy_len]);

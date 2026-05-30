@@ -1,6 +1,8 @@
-use crate::{Extractor, OwnedNode, extractor::PlanKind};
-use bytes::BufMut;
-use json::Field as _;
+use crate::{
+    Extractor, OwnedNode,
+    extractor::{Encoding, PlanKind, Resolve, write_encoded},
+};
+use json::{Field as _, Fields as _};
 use std::sync::atomic::AtomicBool;
 
 /// Pre-compiled extraction plan that collapses repeated `Fields::get` calls
@@ -50,103 +52,106 @@ impl ExtractorPlan {
         }
     }
 
-    /// Extract a packed tuple representation from an instance of
-    /// doc::OwnedNode.
-    pub fn extract_all_owned_indicate_truncation(
+    /// Extract a composite value from an instance of json::AsNode into `out`,
+    /// in `encoding`, applying the merge-join block optimization. The compiled
+    /// counterpart of [`Extractor::extract_all`]; see it for the `encoding` and
+    /// `indicator` contract.
+    pub fn extract_all<N: json::AsNode>(
+        &self,
+        doc: &N,
+        encoding: Encoding,
+        out: &mut bytes::BytesMut,
+        indicator: Option<&AtomicBool>,
+    ) {
+        write_encoded(encoding, out, indicator, ResolvePlan { plan: self, doc });
+    }
+
+    /// Extract a composite value from a doc::OwnedNode. See [`Self::extract_all`].
+    pub fn extract_all_owned(
         &self,
         doc: &OwnedNode,
+        encoding: Encoding,
         out: &mut bytes::BytesMut,
-        indicator: &AtomicBool,
+        indicator: Option<&AtomicBool>,
     ) {
         match doc {
             OwnedNode::Heap(n) => match n.access() {
-                Ok(heap_node) => self.extract_all_indicate_truncation(&heap_node, out, indicator),
-                Err(embedded) => {
-                    self.extract_all_indicate_truncation(embedded.get(), out, indicator)
-                }
+                Ok(heap_node) => self.extract_all(&heap_node, encoding, out, indicator),
+                Err(embedded) => self.extract_all(embedded.get(), encoding, out, indicator),
             },
-            OwnedNode::Archived(n) => self.extract_all_indicate_truncation(n.get(), out, indicator),
+            OwnedNode::Archived(n) => self.extract_all(n.get(), encoding, out, indicator),
         }
     }
 
-    /// Extract a packed tuple representation from an instance of json::AsNode.
-    pub fn extract_all_indicate_truncation<N: json::AsNode>(
+    /// Resolve each extractor in field-selection order — applying the merge-join
+    /// block optimization once — and invoke `emit(ex, resolved)`, where
+    /// `resolved` is the node at the extractor's pointer (`None` when absent),
+    /// prior to default / magic resolution. This is the single home of the block
+    /// optimization; callers push the tuple-vs-JSON encoding choice into `emit`.
+    fn resolve_each<'n, N: json::AsNode>(
         &self,
-        doc: &N,
-        out: &mut bytes::BytesMut,
-        indicator: &AtomicBool,
+        doc: &'n N,
+        mut emit: impl FnMut(&Extractor, Option<&'n N>),
     ) {
-        let mut projected_indicator_pos: Option<usize> = None;
-        let mut cursor: usize = 0;
-
+        let mut cursor = 0;
         for block in self.blocks.iter() {
-            // Write values for non-block extractors in the midst of blocks, or
-            // prior to the first block.
-            crate::extractor::write_extracted(
-                doc,
-                &self.extractors[cursor..block.start],
-                out,
-                indicator,
-                &mut projected_indicator_pos,
-            );
-            // Write values for combined extractors, forming a contiguous block.
-            emit_block(
+            // Non-block extractors before this block run as singles through the
+            // per-extractor reference path.
+            for ex in &self.extractors[cursor..block.start] {
+                emit(ex, ex.ptr.query(doc));
+            }
+            resolve_block(
                 doc,
                 &self.extractors[block.start..block.start + block.len],
                 &block.parent_ptr,
-                out,
-                indicator,
+                &mut emit,
             );
             cursor = block.start + block.len;
         }
-        // Trailing non-block extractors. When `blocks` is empty, this is the
-        // entire set of extractors.
-        crate::extractor::write_extracted(
-            doc,
-            &self.extractors[cursor..],
-            out,
-            indicator,
-            &mut projected_indicator_pos,
-        );
-
-        crate::extractor::finalize_truncation_indicator(out, projected_indicator_pos, indicator);
+        // Trailing singles. When `blocks` is empty, this is every extractor.
+        for ex in &self.extractors[cursor..] {
+            emit(ex, ex.ptr.query(doc));
+        }
     }
 }
 
-fn emit_block<N: json::AsNode>(
-    doc: &N,
+/// [`Resolve`] adapter that drives [`write_encoded`] through the plan's block
+/// merge-join (`resolve_each`), so the slice and plan paths share one encoder.
+struct ResolvePlan<'a, 'n, N> {
+    plan: &'a ExtractorPlan,
+    doc: &'n N,
+}
+
+impl<'a, 'n, N: json::AsNode> Resolve<'n, N> for ResolvePlan<'a, 'n, N> {
+    #[inline]
+    fn for_each(self, emit: impl FnMut(&Extractor, Option<&'n N>)) {
+        self.plan.resolve_each(self.doc, emit);
+    }
+}
+
+/// Resolve a block's sibling-leaf extractors against their common parent object
+/// via a two-pointer merge, invoking `emit(ex, resolved)` in block order. When
+/// the parent isn't a present object, every extractor resolves to `None`.
+fn resolve_block<'n, N: json::AsNode>(
+    doc: &'n N,
     extractors: &[Extractor],
     parent_ptr: &json::Pointer,
-    out: &mut bytes::BytesMut,
-    indicator: &AtomicBool,
+    emit: &mut impl FnMut(&Extractor, Option<&'n N>),
 ) {
     let parent_fields = parent_ptr.query(doc).and_then(|p| match p.as_node() {
         json::Node::Object(fields) => Some(fields),
         _ => None,
     });
 
-    let mut w = out.writer();
-    if let Some(fields) = parent_fields {
-        // Parent object is present and not null.
-        merge_write_block_extractors::<N, _>(extractors, fields, &mut w, indicator);
-    } else {
+    let Some(fields) = parent_fields else {
         // No non-null parent object present, or the parent is not an object at
-        // all. Emit each extractor individually, as appropriate for its `None`
-        // value.
+        // all. Resolve each extractor to its `None` value.
         for ex in extractors {
-            ex.extract_from_resolved_indicate_truncation(None::<&N>, &mut w, indicator)
-                .unwrap();
+            emit(ex, None);
         }
-    }
-}
+        return;
+    };
 
-/// Two-pointer merge of extractors against a parent object's fields.
-fn merge_write_block_extractors<N: json::AsNode, W: std::io::Write>(
-    extractors: &[Extractor],
-    fields: &(impl json::Fields<N> + ?Sized),
-    w: &mut W,
-    indicator: &AtomicBool,
-) {
     let mut fields_iter = fields.iter();
     let mut field = fields_iter.next();
 
@@ -168,9 +173,7 @@ fn merge_write_block_extractors<N: json::AsNode, W: std::io::Write>(
             }
         };
 
-        // Writing to BytesMut is infallible.
-        ex.extract_from_resolved_indicate_truncation(resolved, w, indicator)
-            .unwrap();
+        emit(ex, resolved);
     }
 }
 
@@ -218,7 +221,13 @@ mod test {
     fn pack_reference(doc: &serde_json::Value, extractors: &[Extractor]) -> bytes::Bytes {
         let mut buf = bytes::BytesMut::new();
         let indicator = AtomicBool::new(false);
-        Extractor::extract_all_indicate_truncation(doc, extractors, &mut buf, &indicator);
+        Extractor::extract_all(
+            doc,
+            extractors,
+            Encoding::Packed,
+            &mut buf,
+            Some(&indicator),
+        );
         buf.freeze()
     }
 
@@ -226,14 +235,39 @@ mod test {
         let plan = ExtractorPlan::new(extractors);
         let mut buf = bytes::BytesMut::new();
         let indicator = AtomicBool::new(false);
-        plan.extract_all_indicate_truncation(doc, &mut buf, &indicator);
+        plan.extract_all(doc, Encoding::Packed, &mut buf, Some(&indicator));
         buf.freeze()
     }
 
+    fn json_reference(doc: &serde_json::Value, extractors: &[Extractor]) -> bytes::Bytes {
+        let mut buf = bytes::BytesMut::new();
+        let indicator = AtomicBool::new(false);
+        Extractor::extract_all(doc, extractors, Encoding::Json, &mut buf, Some(&indicator));
+        buf.freeze()
+    }
+
+    fn json_plan(doc: &serde_json::Value, extractors: &[Extractor]) -> bytes::Bytes {
+        let plan = ExtractorPlan::new(extractors);
+        let mut buf = bytes::BytesMut::new();
+        let indicator = AtomicBool::new(false);
+        plan.extract_all(doc, Encoding::Json, &mut buf, Some(&indicator));
+        buf.freeze()
+    }
+
+    // The packed and JSON plan walks share `resolve_each`, so every block
+    // fixture below doubles as coverage that the JSON plan path agrees with its
+    // flat reference (including the truncation-indicator backpatch).
     fn assert_plan_matches(doc: &serde_json::Value, extractors: &[Extractor]) {
-        let reference = pack_reference(doc, extractors);
-        let plan_bytes = pack_plan(doc, extractors);
-        assert_eq!(reference, plan_bytes, "plan diverged from reference");
+        assert_eq!(
+            pack_reference(doc, extractors),
+            pack_plan(doc, extractors),
+            "packed plan diverged from reference"
+        );
+        assert_eq!(
+            json_reference(doc, extractors),
+            json_plan(doc, extractors),
+            "JSON plan diverged from reference"
+        );
     }
 
     fn merge_joined_extractor_count(plan: &ExtractorPlan) -> usize {
@@ -268,7 +302,7 @@ mod test {
         let plan = ExtractorPlan::new(&[]);
         let mut buf = bytes::BytesMut::new();
         let indicator = AtomicBool::new(false);
-        plan.extract_all_indicate_truncation(&doc, &mut buf, &indicator);
+        plan.extract_all(&doc, Encoding::Packed, &mut buf, Some(&indicator));
         assert!(buf.is_empty());
     }
 
@@ -531,18 +565,14 @@ mod test {
             let heap = crate::HeapNode::from_serde(&mut de, &alloc).unwrap();
 
             let mut ref_buf = bytes::BytesMut::new();
-            Extractor::extract_all_indicate_truncation(
-                &heap,
-                extractors,
-                &mut ref_buf,
-                &AtomicBool::new(false),
-            );
+            Extractor::extract_all(&heap, extractors, Encoding::Packed, &mut ref_buf, None);
 
             let mut plan_buf = bytes::BytesMut::new();
-            ExtractorPlan::new(extractors).extract_all_indicate_truncation(
+            ExtractorPlan::new(extractors).extract_all(
                 &heap,
+                Encoding::Packed,
                 &mut plan_buf,
-                &AtomicBool::new(false),
+                None,
             );
 
             (ref_buf.freeze(), plan_buf.freeze())

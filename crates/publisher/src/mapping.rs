@@ -131,7 +131,13 @@ fn extract_mapping_context<N: json::AsNode>(
     mut prefix: String,
     mut packed_key: bytes::BytesMut,
 ) -> tonic::Result<(String, bytes::BytesMut, u32)> {
-    doc::Extractor::extract_all(doc, &binding.key_extractors, &mut packed_key);
+    doc::Extractor::extract_all(
+        doc,
+        &binding.key_extractors,
+        doc::Encoding::Packed,
+        &mut packed_key,
+        None,
+    );
     let key_hash = doc::Extractor::packed_hash(&packed_key);
 
     prefix.push_str(&binding.partitions_template.name);

@@ -223,9 +223,21 @@ pub fn send_client_published(
 ) -> Response {
     let doc::combine::DrainedDoc { meta: _, root } = drained;
 
-    doc::Extractor::extract_all_owned(&root, &task.key_extractors, buf);
+    doc::Extractor::extract_all_owned(
+        &root,
+        &task.key_extractors,
+        doc::Encoding::Packed,
+        buf,
+        None,
+    );
     let key_packed = buf.split().freeze();
-    doc::Extractor::extract_all_owned(&root, &task.partition_extractors, buf);
+    doc::Extractor::extract_all_owned(
+        &root,
+        &task.partition_extractors,
+        doc::Encoding::Packed,
+        buf,
+        None,
+    );
     let partitions_packed = buf.split().freeze();
 
     serde_json::to_writer(buf.writer(), &task.ser_policy.on_owned(&root))

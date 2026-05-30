@@ -92,18 +92,20 @@ impl Drainer {
         };
         active.stored_docs_total += 1;
 
-        doc::Extractor::extract_all_owned_indicate_truncation(
+        doc::Extractor::extract_all_owned(
             &root,
             &binding.key_extractors,
+            doc::Encoding::Packed,
             &mut self.buf,
-            &truncation_indicator,
+            Some(&truncation_indicator),
         );
         let key_packed = self.buf.split().freeze();
 
-        binding.value_plan.extract_all_owned_indicate_truncation(
+        binding.value_plan.extract_all_owned(
             &root,
+            doc::Encoding::Packed,
             &mut self.buf,
-            &truncation_indicator,
+            Some(&truncation_indicator),
         );
         let values_packed = self.buf.split().freeze();
 

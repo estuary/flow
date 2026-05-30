@@ -4,7 +4,7 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{Extractor, HeapNode, Validator, combine};
+use doc::{Encoding, Extractor, HeapNode, Validator, combine};
 use json::schema::build::build_schema;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
@@ -88,7 +88,7 @@ fn add_as_embedded(
 ) {
     let embedded = to_embedded(node, memtable.alloc());
     let mut scratch = bytes::BytesMut::new();
-    Extractor::extract_all(embedded.get(), keys, &mut scratch);
+    Extractor::extract_all(embedded.get(), keys, Encoding::Packed, &mut scratch, None);
     let mut packed_prefix = [0u8; 16];
     let copy_len = scratch.len().min(16);
     packed_prefix[..copy_len].copy_from_slice(&scratch[..copy_len]);

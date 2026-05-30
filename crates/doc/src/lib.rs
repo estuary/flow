@@ -33,7 +33,7 @@ pub use ser::SerPolicy;
 
 // Extractor extracts locations from documents.
 mod extractor;
-pub use extractor::{Extractor, TRUNCATION_INDICATOR_PTR};
+pub use extractor::{Encoding, Extractor, TRUNCATION_INDICATOR_PTR};
 
 // ExtractorPlan is a pre-compiled Vec<Extractor> that shares pointer
 // traversals.

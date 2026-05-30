@@ -113,9 +113,9 @@ pub async fn do_materialize_fixture(
                     extractors::for_fields(values, projections, &doc::SerPolicy::noop())?;
 
                 for (exists, doc) in &docs {
-                    doc::Extractor::extract_all(doc, &key_ex, buf);
+                    doc::Extractor::extract_all(doc, &key_ex, doc::Encoding::Packed, buf, None);
                     let key_packed = buf.split().freeze();
-                    doc::Extractor::extract_all(doc, &values_ex, buf);
+                    doc::Extractor::extract_all(doc, &values_ex, doc::Encoding::Packed, buf, None);
                     let values_packed = buf.split().freeze();
 
                     if !delta_updates {
