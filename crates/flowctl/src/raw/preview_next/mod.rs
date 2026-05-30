@@ -183,26 +183,19 @@ async fn run_with_timeout<F>(
 where
     F: std::future::Future<Output = anyhow::Result<()>>,
 {
-    if let Some(timeout) = timeout {
-        tokio::select! {
-            result = &mut session_loop => result,
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("Ctrl-C received; aborting in-flight session");
-                Ok(())
-            }
-            _ = tokio::time::sleep(timeout) => {
-                tracing::info!(?timeout, "preview --timeout reached; stopping active session");
-                stop_token.cancel();
-                session_loop.await
-            }
+    let timeout = timeout.unwrap_or_else(|| std::time::Duration::MAX);
+
+    tokio::select! {
+        result = &mut session_loop => result,
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Ctrl-C received; stopping active session");
+            stop_token.cancel();
+            session_loop.await
         }
-    } else {
-        tokio::select! {
-            result = &mut session_loop => result,
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("Ctrl-C received; aborting in-flight session");
-                Ok(())
-            }
+        _ = tokio::time::sleep(timeout) => {
+            tracing::info!(?timeout, "preview --timeout reached; stopping active session");
+            stop_token.cancel();
+            session_loop.await
         }
     }
 }
