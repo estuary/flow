@@ -651,9 +651,11 @@ impl SliceActor {
                 }
             }
 
-            // Defer draining if any pending reads aren't tailing, because a
-            // non-tailing read (once resolved) could order first in the heap.
-            if self.tailing_reads != self.pending_reads.len() {
+            // Defer draining if any read could still resolve to content that
+            // preempts the current heap top: a parked non-tailing (stalled) read,
+            // or a newly-started read still probing its write head (parked in
+            // `pending_probes`, not yet classified as tailing/stalled).
+            if self.tailing_reads != self.pending_reads.len() || !self.pending_probes.is_empty() {
                 return Ok(idle);
             }
 
