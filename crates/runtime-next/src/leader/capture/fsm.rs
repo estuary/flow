@@ -1016,8 +1016,8 @@ mod tests {
         {
           "_meta": {},
           "shard": {},
-          "ts": "2023-11-14T22:13:20.000000016+00:00",
-          "openSecondsTotal": 0.000000032,
+          "ts": "2023-11-14T22:13:20.000004+00:00",
+          "openSecondsTotal": 0.000008,
           "txnCount": 1,
           "capture": {
             "test/collectionA": {
@@ -1029,7 +1029,7 @@ mod tests {
                 "docsTotal": 2,
                 "bytesTotal": 50
               },
-              "lastPublishedAt": "2023-11-14T22:13:20.000000048+00:00"
+              "lastPublishedAt": "2023-11-14T22:13:20.000012+00:00"
             },
             "test/collectionB": {
               "right": {
@@ -1040,7 +1040,7 @@ mod tests {
                 "docsTotal": 1,
                 "bytesTotal": 25
               },
-              "lastPublishedAt": "2023-11-14T22:13:20.000000048+00:00"
+              "lastPublishedAt": "2023-11-14T22:13:20.000012+00:00"
             }
           }
         }

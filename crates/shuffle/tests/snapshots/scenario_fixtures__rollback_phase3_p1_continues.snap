@@ -11,7 +11,7 @@ Checkpoint {
                 producers: [
                     ProducerFrontier {
                         producer: Producer(01:00:00:00:00:01),
-                        last_commit: Clock(0s 12ns),
+                        last_commit: Clock(0s 3000ns),
                         hinted_commit: Clock(0s 0ns),
                         offset: -809,
                     },
@@ -31,7 +31,7 @@ Checkpoint {
             journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
             doc: Object {
                 "_meta": Object {
-                    "uuid": String("13814000-1dd2-11b2-8c00-010000000001"),
+                    "uuid": String("1381401e-1dd2-11b2-8000-010000000001"),
                 },
                 "category": String("alpha"),
                 "id": String("p1-new-msg"),
