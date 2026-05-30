@@ -117,8 +117,10 @@ impl Writer {
         );
 
         // Roll to a new segment if we've exceeded the byte threshold
-        // or exhausted the u16 block number space.
-        if self.segment_bytes < self.segment_threshold && self.next_lsn.block() < u16::MAX {
+        // or have almost exhausted the u16 block number space.
+        // Avoid writing a block at u16::MAX so that the reader can step past
+        // our largest written block without overflowing its block number.
+        if self.segment_bytes < self.segment_threshold && self.next_lsn.block() + 1 < u16::MAX {
             self.next_lsn = self.next_lsn.next_block();
             return Ok((block_lsn, None));
         } else {
