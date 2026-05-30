@@ -701,6 +701,21 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
+        if let Some(models::Derivation {
+            using: models::DeriveUsing::Local(local),
+            ..
+        }) = &mut spec.derive
+        {
+            self.local_command_to_absolute(
+                scope
+                    .push_prop("derive")
+                    .push_prop("using")
+                    .push_prop("local")
+                    .push_prop("command"),
+                &mut local.command,
+            );
+        }
+
         self.tables_mut().collections.insert_row(
             catalog_name,
             scope.flatten(),
@@ -889,6 +904,16 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
+        if let models::CaptureEndpoint::Local(local) = &mut spec.endpoint {
+            self.local_command_to_absolute(
+                scope
+                    .push_prop("endpoint")
+                    .push_prop("local")
+                    .push_prop("command"),
+                &mut local.command,
+            );
+        }
+
         self.tables_mut().captures.insert_row(
             catalog_name,
             scope.flatten(),
@@ -976,6 +1001,16 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
+        if let models::MaterializationEndpoint::Local(local) = &mut spec.endpoint {
+            self.local_command_to_absolute(
+                scope
+                    .push_prop("endpoint")
+                    .push_prop("local")
+                    .push_prop("command"),
+                &mut local.command,
+            );
+        }
+
         self.tables_mut().materializations.insert_row(
             catalog_name,
             scope.flatten(),
@@ -1032,6 +1067,16 @@ impl<F: Fetcher> Loader<F> {
         }
     }
 
+    // Rewrite the `command` of a `local:` connector endpoint so that its
+    // program (`command[0]`) is an absolute path.
+    fn local_command_to_absolute(&self, scope: Scope, command: &mut [String]) {
+        match resolve_local_command(scope.resource(), command) {
+            Ok(Some(program)) => command[0] = program,
+            Ok(None) => {}
+            Err(error) => self.tables_mut().errors.insert_row(scope.flatten(), error),
+        }
+    }
+
     // Consume a result capable of producing a LoadError.
     // Pass through a Result::Ok<T> as Some<T>.
     // Or, record a Result::Err<T> and return None.
@@ -1054,5 +1099,97 @@ impl<F: Fetcher> Loader<F> {
         self.tables
             .try_lock()
             .expect("tables should never be accessed concurrently or locked across await points")
+    }
+}
+
+/// Resolve `command[0]` of a `local:` connector endpoint to an absolute path,
+/// returning the resolved program when it was rewritten or `None` when it was
+/// left unchanged.
+///
+/// Resolution mirrors how a shell interprets a command, and how Flow resolves
+/// every other relative reference (imports, schema `$ref`s, `config` files)
+/// against the file that declares it:
+///   * A bare name like `python` is located on the `$PATH`.
+///   * A relative path like `./connector` is resolved against the directory of
+///     the source file that declares it.
+///   * An absolute path is left unchanged.
+///
+/// This applies only while loading local `file://` sources.
+fn resolve_local_command(resource: &Url, command: &[String]) -> anyhow::Result<Option<String>> {
+    use anyhow::Context;
+
+    if resource.scheme() != "file" {
+        return Ok(None);
+    }
+    let Some(program) = command.first() else {
+        return Ok(None); // Empty command; reported by connector validation.
+    };
+    if std::path::Path::new(program).is_absolute() {
+        return Ok(None);
+    }
+
+    let resolved = if program.contains('/') {
+        // A relative path: resolve against the source file's directory.
+        resource
+            .join(program)
+            .with_context(|| format!("resolving local command {program:?}"))?
+            .to_file_path()
+            .map_err(|()| anyhow::anyhow!("local command {program:?} is not a local file path"))?
+    } else {
+        // A bare program name: locate it on the `$PATH`, as a shell would.
+        locate_bin::locate(program)
+            .with_context(|| format!("locating local command {program:?}"))?
+    };
+
+    Ok(Some(resolved.to_string_lossy().into_owned()))
+}
+
+#[cfg(test)]
+mod local_command_test {
+    use super::resolve_local_command;
+    use url::Url;
+
+    fn cmd(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn test_resolve_local_command() {
+        let src = Url::parse("file:///repo/tests/soak/soak.flow.yaml").unwrap();
+
+        // A relative path resolves against the source file's directory.
+        assert_eq!(
+            resolve_local_command(&src, &cmd(&["./source-soak", "--flag"])).unwrap(),
+            Some("/repo/tests/soak/source-soak".to_string()),
+        );
+        assert_eq!(
+            resolve_local_command(&src, &cmd(&["../sibling/run"])).unwrap(),
+            Some("/repo/tests/sibling/run".to_string()),
+        );
+
+        // Absolute path, empty command, and non-`file://` scope are left as-is.
+        assert_eq!(
+            resolve_local_command(&src, &cmd(&["/usr/bin/python", "-m", "x"])).unwrap(),
+            None,
+        );
+        assert_eq!(resolve_local_command(&src, &[]).unwrap(), None);
+        let from_db = Url::parse("flow://capture/acmeCo/source").unwrap();
+        assert_eq!(
+            resolve_local_command(&from_db, &cmd(&["./source-soak"])).unwrap(),
+            None,
+        );
+
+        // A bare program name is located on the `$PATH`.
+        let resolved = resolve_local_command(&src, &cmd(&["sh"]))
+            .unwrap()
+            .expect("`sh` should resolve to an absolute path on the $PATH");
+        assert!(std::path::Path::new(&resolved).is_absolute());
+        assert!(
+            resolved.ends_with("/sh"),
+            "unexpected resolution: {resolved}"
+        );
+
+        // A bare program name that isn't on the `$PATH` is an error.
+        resolve_local_command(&src, &cmd(&["definitely-not-a-real-binary-xyz9000"])).unwrap_err();
     }
 }

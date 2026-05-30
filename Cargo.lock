@@ -8221,6 +8221,7 @@ dependencies = [
  "futures",
  "insta",
  "json",
+ "locate-bin",
  "md5",
  "models",
  "proto-flow",
