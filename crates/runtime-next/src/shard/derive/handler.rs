@@ -84,7 +84,7 @@ pub async fn serve_unary<L: crate::LogHandler>(
     let is_spec = request.spec.is_some();
     let is_validate = request.validate.is_some();
 
-    let (connector_tx, mut connector_rx, _container) =
+    let (connector_tx, mut connector_rx, _container, _codec) =
         connector::start(service, log_level, request).await?;
     std::mem::drop(connector_tx); // Send EOF.
 
@@ -250,6 +250,7 @@ where
 
     let startup::Startup {
         accumulator,
+        codec,
         mut connector_rx,
         connector_tx,
         db,
@@ -279,6 +280,7 @@ where
     handler.set_phase("running");
 
     let result = super::actor::Actor::new(
+        codec,
         connector_tx,
         db,
         leader_tx,

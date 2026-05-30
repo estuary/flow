@@ -20,6 +20,7 @@ pub async fn start<L: crate::LogHandler>(
     mpsc::Sender<derive::Request>,
     BoxStream<'static, tonic::Result<derive::Response>>,
     Option<crate::proto::Container>,
+    connector_init::Codec,
 )> {
     let (endpoint, config_json) = extract_endpoint(&mut initial)?;
     let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
@@ -38,71 +39,80 @@ pub async fn start<L: crate::LogHandler>(
         .boxed()
     }
 
-    let (connector_rx, container): (BoxStream<'static, tonic::Result<derive::Response>>, _) =
-        match endpoint {
-            models::DeriveUsing::Connector(models::ConnectorConfig {
+    let (connector_rx, container, codec): (
+        BoxStream<'static, tonic::Result<derive::Response>>,
+        _,
+        connector_init::Codec,
+    ) = match endpoint {
+        models::DeriveUsing::Connector(models::ConnectorConfig {
+            image,
+            config: sealed_config,
+        }) => {
+            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+
+            let (rx, container, codec) = crate::image_connector::serve(
                 image,
-                config: sealed_config,
-            }) => {
-                *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+                service.log_handler.clone(),
+                log_level,
+                &service.container_network,
+                connector_rx,
+                start_rpc,
+                &service.task_name,
+                ops::TaskType::Derivation,
+                service.plane,
+            )
+            .await?;
 
-                let (rx, container) = crate::image_connector::serve(
-                    image,
-                    service.log_handler.clone(),
-                    log_level,
-                    &service.container_network,
-                    connector_rx,
-                    start_rpc,
-                    &service.task_name,
-                    ops::TaskType::Derivation,
-                    service.plane,
-                )
-                .await?;
+            (rx.boxed(), Some(container), codec)
+        }
+        models::DeriveUsing::Local(_) if !matches!(service.plane, crate::Plane::Local) => {
+            return Err(tonic::Status::failed_precondition(
+                "Local connectors are not permitted in this context",
+            )
+            .into());
+        }
+        models::DeriveUsing::Local(models::LocalConfig {
+            command,
+            config: sealed_config,
+            env,
+            protobuf,
+        }) => {
+            let codec = if protobuf {
+                connector_init::Codec::Proto
+            } else {
+                connector_init::Codec::Json
+            };
+            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
-                (rx.boxed(), Some(container))
-            }
-            models::DeriveUsing::Local(_) if !matches!(service.plane, crate::Plane::Local) => {
-                return Err(tonic::Status::failed_precondition(
-                    "Local connectors are not permitted in this context",
-                )
-                .into());
-            }
-            models::DeriveUsing::Local(models::LocalConfig {
+            let rx = crate::local_connector::serve(
                 command,
-                config: sealed_config,
                 env,
-                protobuf,
-            }) => {
-                *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+                service.log_handler.clone(),
+                log_level,
+                codec,
+                connector_rx,
+            )?
+            .boxed();
 
-                let rx = crate::local_connector::serve(
-                    command,
-                    env,
-                    service.log_handler.clone(),
-                    log_level,
-                    protobuf,
-                    connector_rx,
-                )?
+            (rx, None, codec)
+        }
+        models::DeriveUsing::Sqlite(_) => {
+            // In-process connector consuming prost requests directly; maps its
+            // anyhow::Result responses to tonic::Result.
+            let rx = derive_sqlite::connector(ReceiverStream::new(connector_rx))
+                .map(|r| r.map_err(crate::anyhow_to_status))
                 .boxed();
 
-                (rx, None)
-            }
-            models::DeriveUsing::Sqlite(_) => {
-                // In-process connector: maps its anyhow::Result responses to tonic::Result.
-                let rx = derive_sqlite::connector(ReceiverStream::new(connector_rx))
-                    .map(|r| r.map_err(crate::anyhow_to_status))
-                    .boxed();
-
-                (rx, None)
-            }
-            models::DeriveUsing::Typescript(_) | models::DeriveUsing::Python(_) => {
-                unreachable!("extract_endpoint errors on unresolved Typescript/Python connectors")
-            }
-        };
+            (rx, None, connector_init::Codec::Proto)
+        }
+        models::DeriveUsing::Typescript(_) | models::DeriveUsing::Python(_) => {
+            unreachable!("extract_endpoint errors on unresolved Typescript/Python connectors")
+        }
+    };
 
     _ = connector_tx.try_send(initial);
 
-    Ok((connector_tx, connector_rx, container))
+    Ok((connector_tx, connector_rx, container, codec))
 }
 
 fn extract_endpoint<'r>(

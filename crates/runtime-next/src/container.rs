@@ -57,7 +57,12 @@ pub async fn start(
     task_name: &str,
     task_type: ops::TaskType,
     plane: crate::Plane,
-) -> anyhow::Result<(runtime::Container, tonic::transport::Channel, Guard)> {
+) -> anyhow::Result<(
+    runtime::Container,
+    tonic::transport::Channel,
+    Guard,
+    connector_init::Codec,
+)> {
     validate_connector_image(image, plane)?;
 
     // Many operational contexts only allow for docker volume mounts
@@ -85,7 +90,7 @@ pub async fn start(
     // Concurrently 1) find or fetch a copy of `flow-connector-init`, copying it
     // into a temp path, and 2) inspect the image, also copying into a temp path,
     // and parsing its advertised network ports.
-    let ((), image_inspection) = futures::try_join!(
+    let ((), (image_inspection, codec)) = futures::try_join!(
         find_connector_init_and_copy(tmp_connector_init.path()),
         inspect_image_and_copy(image, tmp_docker_inspect.path()),
     )?;
@@ -264,6 +269,7 @@ pub async fn start(
         mapped_host_ports = ?ops::DebugJson(&mapped_host_ports),
         %name,
         image_inspection = ?ops::DebugJson(&image_inspection),
+        ?codec,
         %task_name,
         ?task_type,
         "started connector container"
@@ -284,6 +290,7 @@ pub async fn start(
             _tmp_docker_inspect: tmp_docker_inspect,
             _process: process,
         },
+        codec,
     ))
 }
 
@@ -667,7 +674,7 @@ async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Res
 async fn inspect_image_and_copy(
     image: &str,
     tmp_path: &std::path::Path,
-) -> anyhow::Result<ImageInspection> {
+) -> anyhow::Result<(ImageInspection, connector_init::Codec)> {
     if !image.ends_with(":local") {
         docker_pull(image).await.context("pulling image")?;
     }
@@ -680,7 +687,14 @@ async fn inspect_image_and_copy(
         .await
         .context("writing docker inspect output")?;
 
-    parse_image_inspection(&inspect_content)
+    // Resolve the codec that `flow-connector-init` will negotiate with the
+    // connector from this same inspection, so we agree on the wire codec and
+    // know whether we must populate JSON tuple fields it forwards verbatim.
+    let codec = connector_init::inspect::Image::parse_from_json_slice(&inspect_content)
+        .context("parsing image inspection for runtime codec")?
+        .runtime_codec();
+
+    Ok((parse_image_inspection(&inspect_content)?, codec))
 }
 
 #[cfg(test)]
@@ -699,7 +713,7 @@ mod test {
             return;
         }
 
-        let (container, channel, _guard) = start(
+        let (container, channel, _guard, _codec) = start(
             "ghcr.io/estuary/source-http-ingest:dev",
             ops::tracing_log_handler,
             ops::LogLevel::Debug,

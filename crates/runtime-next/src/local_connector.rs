@@ -8,19 +8,13 @@ pub fn serve<Request, Response>(
     env: BTreeMap<String, String>,       // Environment variables.
     log_handler: impl crate::LogHandler, // Handler for connector logs.
     log_level: ops::LogLevel,            // Log-level of the container, if known.
-    protobuf: bool,                      // Whether to use protobuf codec.
+    codec: connector_init::Codec,        // Codec spoken by the connector.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
 ) -> anyhow::Result<impl Stream<Item = tonic::Result<Response>> + Send>
 where
     Request: serde::Serialize + prost::Message + Send + Sync + 'static,
     Response: prost::Message + for<'de> serde::Deserialize<'de> + Default + 'static,
 {
-    let codec = if protobuf {
-        connector_init::Codec::Proto
-    } else {
-        connector_init::Codec::Json
-    };
-
     // Invoke the underlying local connector.
     let mut connector = connector_init::rpc::new_command(&command);
     connector.envs(&env);

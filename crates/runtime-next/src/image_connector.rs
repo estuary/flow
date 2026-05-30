@@ -21,6 +21,7 @@ pub async fn serve<Request, Response, StartRpc, L: crate::LogHandler>(
 ) -> anyhow::Result<(
     impl Stream<Item = tonic::Result<Response>> + Send + use<Request, Response, StartRpc, L>,
     crate::proto::Container,
+    connector_init::Codec,
 )>
 where
     Request: serde::Serialize + Send + 'static,
@@ -29,7 +30,7 @@ where
         + Send
         + 'static,
 {
-    let (container, channel, guard) = container::start(
+    let (container, channel, guard, codec) = container::start(
         &image,
         log_handler.clone(),
         log_level,
@@ -48,5 +49,5 @@ where
         result
     });
 
-    Ok((container_rx, container))
+    Ok((container_rx, container, codec))
 }

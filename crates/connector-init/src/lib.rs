@@ -6,7 +6,7 @@ use tonic::transport::server::TcpIncoming;
 mod capture;
 mod codec;
 mod derive;
-mod inspect;
+pub mod inspect;
 mod materialize;
 pub mod rpc;
 
@@ -42,14 +42,13 @@ pub async fn run(
     std::io::stderr().write(" ".as_bytes()).unwrap();
     tracing::debug!(%log_level, port, message = "connector-init started");
 
-    let image = inspect::Image::parse_from_json_file(&image_inspect_json_path)
-        .context("reading image inspect JSON")?;
+    let image_inspect_json =
+        std::fs::read(&image_inspect_json_path).context("reading image inspect JSON")?;
+    let image = inspect::Image::parse_from_json_slice(&image_inspect_json)
+        .context("parsing image inspect JSON")?;
     let entrypoint = image.get_argv()?;
 
-    let codec = match image.get_label_or_env("FLOW_RUNTIME_CODEC") {
-        Some(protocol) if protocol == "json" => Codec::Json,
-        _ => Codec::Proto,
-    };
+    let codec = image.runtime_codec();
 
     let capture = proto_grpc::capture::connector_server::ConnectorServer::new(capture::Proxy {
         entrypoint: entrypoint.clone(),

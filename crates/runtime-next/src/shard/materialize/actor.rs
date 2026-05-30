@@ -40,6 +40,8 @@ pub(super) struct Actor {
     >,
     // When true, don't suppress C:Load for keys less-than `max_keys`.
     disable_load_optimization: bool,
+    // Wire codec negotiated with the connector.
+    codec: connector_init::Codec,
     // Aggregate active bindings of a pending Flushed response.
     flushed: HashMap<u32, FlushedBinding>,
     // Channel for sending to the leader.
@@ -62,6 +64,7 @@ impl Actor {
         connector_tx: mpsc::Sender<materialize::Request>,
         db: crate::shard::RocksDB,
         disable_load_optimization: bool,
+        codec: connector_init::Codec,
         leader_tx: mpsc::UnboundedSender<proto::Materialize>,
         max_keys: Vec<(Bytes, Bytes)>,
         metrics: super::Metrics,
@@ -73,6 +76,7 @@ impl Actor {
             db: Some((db, binding_state_keys)),
             db_persist_fut: None,
             disable_load_optimization,
+            codec,
             flushed: HashMap::new(),
             leader_tx,
             load_keys: Default::default(),
@@ -136,6 +140,7 @@ impl Actor {
                     &mut self.load_keys,
                     &mut self.max_keys,
                     self.disable_load_optimization,
+                    self.codec,
                     &mut self.connector_pending,
                 )? {
                     phase = Phase::Scanning(scanner);
@@ -168,7 +173,7 @@ impl Actor {
                 }
                 continue;
             } else if let Phase::Draining(mut drainer) = phase {
-                if let Some(request) = drainer.step(&self.bindings)? {
+                if let Some(request) = drainer.step(&self.bindings, self.codec)? {
                     self.connector_pending.push(request);
                     phase = Phase::Draining(drainer);
                 } else {
@@ -550,6 +555,7 @@ mod tests {
                 db: None,
                 db_persist_fut: None,
                 disable_load_optimization: false,
+                codec: connector_init::Codec::Proto,
                 leader_tx,
                 load_keys: Default::default(),
                 flushed: HashMap::new(),
@@ -646,6 +652,7 @@ mod tests {
             db: Some((db, Vec::new())),
             db_persist_fut: None,
             disable_load_optimization: false,
+            codec: connector_init::Codec::Proto,
             leader_tx: actor_to_leader_tx,
             load_keys: Default::default(),
             flushed: HashMap::new(),

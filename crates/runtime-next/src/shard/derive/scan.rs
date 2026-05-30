@@ -48,6 +48,7 @@ impl Scanner {
         &mut self,
         transforms: &[Transform],
         validators: &mut [doc::Validator],
+        codec: connector_init::Codec,
         out: &mut Vec<derive::Request>,
     ) -> anyhow::Result<bool> {
         if !self
@@ -103,17 +104,55 @@ impl Scanner {
             let node = u64::from_be_bytes([p[0], p[1], p[2], p[3], p[4], p[5], 0, 0]);
             let clock = meta.clock.to_native();
 
-            // The shuffle log persists only a 16-byte key prefix, so `hash` is a
-            // best-effort hash of that prefix rather than of the full key.
-            let packed = bytes::Bytes::copy_from_slice(doc.packed_key_prefix.as_slice());
+            let shuffle_key_extractors = &transforms[transform as usize].shuffle_key_extractors;
+
+            // The shuffle log persists only a 16-byte key prefix. Reuse it as
+            // the full packed key when it's known-complete (stripping any
+            // zero-padding), and otherwise re-extract from the source document.
+            let packed = match doc::Extractor::packed_key_prefix_len(
+                doc.packed_key_prefix.as_slice(),
+                shuffle_key_extractors.len(),
+            ) {
+                Some(len) => bytes::Bytes::copy_from_slice(&doc.packed_key_prefix[..len]),
+                None => {
+                    doc::Extractor::extract_all(
+                        doc.doc.get(),
+                        shuffle_key_extractors,
+                        doc::Encoding::Packed,
+                        &mut self.buf,
+                        None,
+                    );
+                    self.buf.split().freeze()
+                }
+            };
             let hash = doc::Extractor::packed_hash(&packed);
+
+            // Send exactly one of `key_json` / `packed` per the connector's
+            // codec; `hash` is always sent.
+            let (key_json, packed) = if codec == connector_init::Codec::Json {
+                let key_json = if shuffle_key_extractors.is_empty() {
+                    bytes::Bytes::new() // Lambda-computed (no extractors).
+                } else {
+                    doc::Extractor::extract_all(
+                        doc.doc.get(),
+                        shuffle_key_extractors,
+                        doc::Encoding::Json,
+                        &mut self.buf,
+                        None,
+                    );
+                    self.buf.split().freeze()
+                };
+                (key_json, bytes::Bytes::new())
+            } else {
+                (bytes::Bytes::new(), packed)
+            };
 
             out.push(derive::Request {
                 read: Some(derive::request::Read {
                     transform,
                     uuid: Some(flow::UuidParts { node, clock }),
                     shuffle: Some(derive::request::read::Shuffle {
-                        key_json: bytes::Bytes::new(),
+                        key_json,
                         packed,
                         hash,
                     }),

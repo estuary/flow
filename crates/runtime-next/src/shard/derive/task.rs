@@ -39,6 +39,51 @@ pub(super) struct Transform {
     /// the source collection's read schema, or its write schema when no read
     /// schema is defined (mirroring `shuffle::binding::build_schema`).
     pub schema_json: bytes::Bytes,
+    /// Extractors of this transform's shuffle key, applied to source documents
+    /// to populate `Read.shuffle.key_json` for JSON connectors. Empty for a
+    /// lambda-computed key.
+    pub shuffle_key_extractors: Vec<doc::Extractor>,
+}
+
+/// Build the runtime [`Transform`] for a single derivation transform (input binding).
+fn build_transform(
+    t: &flow::collection_spec::derivation::Transform,
+    ser_policy: &doc::SerPolicy,
+) -> anyhow::Result<Transform> {
+    let collection = t
+        .collection
+        .as_ref()
+        .context("transform missing source collection")?;
+
+    // Prefer the read schema, falling back to the write schema, so
+    // re-validation uses the same schema the shuffle read pipeline
+    // validated against when it set `FLAGS_SCHEMA_VALID`.
+    let schema_json = if collection.read_schema_json.is_empty() {
+        collection.write_schema_json.clone()
+    } else {
+        collection.read_schema_json.clone()
+    };
+
+    // Resolve the extractors of a transform's shuffle key, applied to source
+    // documents to populate `Read.shuffle.key_json` for JSON connectors.
+    //
+    // Mirrors the key selection of `shuffle::binding::from_derivation_transform`.
+    let shuffle_key_extractors = if !t.shuffle_key.is_empty() {
+        extractors::for_key(&t.shuffle_key, &collection.projections, ser_policy)
+            .with_context(|| format!("building shuffle key extractors for transform {}", t.name))?
+    } else if !t.shuffle_lambda_config_json.is_empty() {
+        Vec::new() // Lambda-computed (no extractors).
+    } else {
+        extractors::for_key(&collection.key, &collection.projections, ser_policy)
+            .with_context(|| format!("building source key extractors for transform {}", t.name))?
+    };
+
+    Ok(Transform {
+        transform: t.name.clone(),
+        collection: collection.name.clone(),
+        schema_json,
+        shuffle_key_extractors,
+    })
 }
 
 impl Task {
@@ -74,29 +119,11 @@ impl Task {
             .map(|t| assemble::encode_state_key(&[&t.name], t.backfill))
             .collect::<Vec<String>>();
 
+        let ser_policy = doc::SerPolicy::noop();
+
         let sources = transforms
             .iter()
-            .map(|t| {
-                let collection = t
-                    .collection
-                    .as_ref()
-                    .context("transform missing source collection")?;
-
-                // Prefer the read schema, falling back to the write schema, so
-                // re-validation uses the same schema the shuffle read pipeline
-                // validated against when it set `FLAGS_SCHEMA_VALID`.
-                let schema_json = if collection.read_schema_json.is_empty() {
-                    collection.write_schema_json.clone()
-                } else {
-                    collection.read_schema_json.clone()
-                };
-
-                Ok(Transform {
-                    transform: t.name.clone(),
-                    collection: collection.name.clone(),
-                    schema_json,
-                })
-            })
+            .map(|t| build_transform(t, &ser_policy))
             .collect::<anyhow::Result<Vec<Transform>>>()?;
 
         let partition_template = partition_template
@@ -105,7 +132,6 @@ impl Task {
         let collection_generation_id =
             assemble::extract_generation_id_suffix(&partition_template.name);
 
-        let ser_policy = doc::SerPolicy::noop();
         let document_uuid_ptr = json::Pointer::from(uuid_ptr);
         let key_extractors = extractors::for_key(key, projections, &ser_policy)?;
 
@@ -142,6 +168,7 @@ impl Task {
                      collection: collection_name,
                      transform: transform_name,
                      schema_json,
+                     shuffle_key_extractors: _,
                  }| {
                     let built_schema =
                         doc::validation::build_bundle(schema_json).with_context(|| {

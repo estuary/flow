@@ -1,5 +1,10 @@
 use std::collections::HashMap;
 
+/// Image label or environment variable which identifies the codec that
+/// the connector wishes to use. A value of "json" selects the JSON codec;
+/// any other value (or absence) selects protobuf.
+pub const FLOW_RUNTIME_CODEC: &str = "FLOW_RUNTIME_CODEC";
+
 /// Image is the object returned by `docker inspect` over an image.
 #[derive(Debug, serde::Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
@@ -17,9 +22,18 @@ pub struct ImageConfig {
 }
 
 impl Image {
-    pub fn parse_from_json_file(path: &str) -> anyhow::Result<Self> {
-        let [out] = serde_json::from_slice::<[Image; 1]>(&std::fs::read(path)?)?;
+    /// Parse `docker inspect` output (a single-element JSON array) from bytes.
+    pub fn parse_from_json_slice(content: &[u8]) -> anyhow::Result<Self> {
+        let [out] = serde_json::from_slice::<[Image; 1]>(content)?;
         Ok(out)
+    }
+
+    /// Resolve the codec that the connector Image wishes to use.
+    pub fn runtime_codec(&self) -> crate::Codec {
+        match self.get_label_or_env(FLOW_RUNTIME_CODEC) {
+            Some("json") => crate::Codec::Json,
+            _ => crate::Codec::Proto,
+        }
     }
 
     /// Find the arguments required to invoke the connector,

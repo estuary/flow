@@ -148,17 +148,23 @@ pub mod request {
     /// Nested message and enum types in `Read`.
     pub mod read {
         /// Shuffle under which this document was mapped.
+        ///
+        /// The runtime populates exactly one of `key_json` or `packed` per the
+        /// negotiated codec (see each field); `hash` is always set. A shuffle key
+        /// computed by a lambda cannot be extracted as JSON, so a JSON connector
+        /// then receives neither and relies on `hash` alone.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct Shuffle {
-            /// Shuffle key, as an array of key components.
-            /// Ordering matches `keys` of the materialization's field selection.
+            /// Shuffle key, as a JSON array of key components in shuffle-key order.
+            /// Set only for JSON connectors; empty otherwise.
             #[prost(bytes = "bytes", tag = "1")]
             pub key_json: ::prost::bytes::Bytes,
-            /// Packed tuple of the document's shuffled key.
+            /// Packed FoundationDB tuple of the document's shuffled key.
+            /// Set only for protobuf connectors; empty otherwise.
             #[prost(bytes = "bytes", tag = "2")]
             pub packed: ::prost::bytes::Bytes,
             /// Stable hash of this document's shuffle key, which falls within
-            /// `key_begin` and `key_end` of the Request.Open.
+            /// `key_begin` and `key_end` of the Request.Open. Always set.
             #[prost(uint32, tag = "3")]
             pub hash: u32,
         }
