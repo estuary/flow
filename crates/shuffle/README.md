@@ -191,8 +191,8 @@ flags) and validates the document against the binding's schema.
 Parsed documents enter a priority heap (`ReadyReadHeap`) ordered by
 (priority DESC, adjusted_clock ASC), where `adjusted_clock = clock +
 read_delay`. The Slice defers draining the heap until all pending reads
-are tailing — this ensures no yet-to-resolve read could preempt the
-current heap top.
+are tailing and no newly-started read is still probing its write head —
+this ensures no yet-to-resolve read could preempt the current heap top.
 
 A single non-tailing read therefore head-of-line-blocks the whole Slice's
 drain, so I/O stalls on individual journals matter. A read is only
