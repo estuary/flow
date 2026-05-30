@@ -741,6 +741,7 @@ impl SliceActor {
                         &self.topology.hint_index,
                         &read_state.journal,
                         binding.cohort,
+                        read_state.binding_index,
                         producer,
                         clock,
                         doc.get(),

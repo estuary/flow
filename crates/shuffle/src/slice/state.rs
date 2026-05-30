@@ -419,7 +419,15 @@ pub fn sequence_document(
 ///
 /// Hinted journals of other cohorts will have their own ACKs, and will project to
 /// hints internal to their own cohort's progress tracking.
-pub struct HintIndex(Vec<(Box<str>, u16, u32, PartitionFilter)>); // (prefix, binding_index, cohort, filter)
+pub struct HintIndex {
+    /// (prefix, binding_index, cohort, filter), sorted by (prefix, binding_index).
+    entries: Vec<(Box<str>, u16, u32, PartitionFilter)>,
+    /// True if some cohort reads one journal-prefix under multiple bindings — so a
+    /// journal may be read by ≥2 bindings of a cohort. When false (the common case
+    /// where each journal maps 1:1 to a binding), `extract_causal_hints` skips
+    /// same-cohort self-hint projection, paying only a boolean test per ACK.
+    cohort_shares_journal: bool,
+}
 
 impl HintIndex {
     pub fn new<'a>(entries: impl Iterator<Item = (&'a str, u16, u32, PartitionFilter)>) -> Self {
@@ -427,14 +435,26 @@ impl HintIndex {
 
         index.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
 
+        // A cohort reads a journal under multiple bindings iff two entries share a
+        // prefix and cohort. Entries are sorted by (prefix, binding), so any such
+        // pair is adjacent. This is conservative — `lookup`'s partition filter
+        // still scopes self-hints to bindings that actually read a given journal —
+        // but it cheaply clears the common 1:1 case.
+        let cohort_shares_journal = index
+            .windows(2)
+            .any(|w| w[0].0 == w[1].0 && w[0].2 == w[1].2);
+
         // Now that we've sorted, re-allocate partition name prefixes.
         // This ensures aligns memory locality and ordering with our query pattern.
-        let owned: Vec<(Box<str>, u16, u32, PartitionFilter)> = index
+        let entries: Vec<(Box<str>, u16, u32, PartitionFilter)> = index
             .into_iter()
             .map(|(prefix, idx, cohort, filter)| (Box::from(prefix), idx, cohort, filter))
             .collect();
 
-        Self(owned)
+        Self {
+            entries,
+            cohort_shares_journal,
+        }
     }
 
     pub fn from_bindings(bindings: &[crate::Binding]) -> Self {
@@ -459,20 +479,22 @@ impl HintIndex {
         // Find the first entry whose partition name prefix is > journal.
         // The matching prefix, if any, is immediately before this position.
         let pos = self
-            .0
+            .entries
             .partition_point(|(prefix, _, _, _)| prefix.as_ref() <= journal);
         if pos == 0 {
             return Ok(());
         }
 
         // Check whether the entry just before `pos` is a prefix of `journal`.
-        let matched_prefix = &self.0[pos - 1].0;
+        let matched_prefix = &self.entries[pos - 1].0;
         if !journal.starts_with(matched_prefix.as_ref()) {
             return Ok(());
         }
 
         // Scan all entries sharing this prefix (they are contiguous and sorted).
-        for &(ref prefix, binding_idx, binding_cohort, ref filter) in self.0[..pos].iter().rev() {
+        for &(ref prefix, binding_idx, binding_cohort, ref filter) in
+            self.entries[..pos].iter().rev()
+        {
             if prefix != matched_prefix {
                 break;
             }
@@ -493,6 +515,7 @@ pub fn extract_causal_hints<N: json::AsNode>(
     hint_index: &HintIndex,
     ack_journal: &str,
     ack_cohort: u32,
+    ack_binding_index: u16,
     ack_producer: uuid::Producer,
     ack_clock: uuid::Clock,
     ack_doc: &N,
@@ -516,6 +539,27 @@ pub fn extract_causal_hints<N: json::AsNode>(
                 .push((hinted_producer, hinted_clock));
         }
     }
+
+    // An ACK doc carries hints only for *other* journals, but one journal may
+    // be read by multiple bindings of a cohort. Project a self-hint from this
+    // ACK's own (journal, producer) to the *other* cohort bindings reading the
+    // journal, so checkpoint visibility is held until all have read through the
+    // producer's commit. Skipped unless a cohort actually shares a journal
+    // across bindings.
+    if hint_index.cohort_shares_journal {
+        hint_index.lookup(ack_journal, ack_cohort, &mut matched_bindings)?;
+
+        for &binding_idx in &matched_bindings {
+            if binding_idx == ack_binding_index {
+                continue;
+            }
+            causal_hints
+                .entry((ack_journal.into(), binding_idx))
+                .or_default()
+                .push((ack_producer, ack_clock));
+        }
+    }
+
     Ok(())
 }
 
@@ -1163,6 +1207,7 @@ mod test {
                 &index,
                 journal,
                 0, // cohort
+                0, // producing binding (unused: this index has no shared journals)
                 ack_producer,
                 commit_clock,
                 &ack,
@@ -1197,6 +1242,7 @@ mod test {
             &index,
             "acmeCo/anvils/x",
             0,
+            0,
             p1,
             Clock::from_u64(100),
             &doc,
@@ -1211,6 +1257,7 @@ mod test {
             &index,
             "acmeCo/anvils/x",
             0,
+            0,
             p1,
             Clock::from_u64(100),
             &doc,
@@ -1220,6 +1267,60 @@ mod test {
         assert!(
             format!("{err}").contains("decoding causal hint"),
             "error should mention decoding: {err}"
+        );
+    }
+
+    #[test]
+    fn test_extract_causal_hints_self_projection() {
+        // Common 1:1 case: each journal-prefix maps to one binding → no projection.
+        assert!(!test_hint_index().cohort_shares_journal);
+
+        // Two bindings (0, 1) of cohort 0 read the same anvils prefix; binding 2
+        // reads a different prefix. Sharing is detected.
+        let index = HintIndex::new(
+            [
+                ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                ("acmeCo/anvils/", 1, 0, passthrough_filter(&["part"])),
+                ("acmeCo/bananas/", 2, 0, passthrough_filter(&[])),
+            ]
+            .into_iter(),
+        );
+        assert!(index.cohort_shares_journal);
+
+        let p1 = producer(0x00);
+        let mut causal_hints = CausalHints::default();
+
+        // An ACK read by binding 0 from the anvils journal, carrying NO doc hints —
+        // exactly the case a single-producer collection ACK presents to a
+        // materialization that reads it under two bindings.
+        let ack = serde_json::json!({"is_ack": true});
+        extract_causal_hints(
+            &index,
+            "acmeCo/anvils/part=a/pivot=00",
+            0, // cohort
+            0, // producing binding
+            p1,
+            Clock::from_u64(100),
+            &ack,
+            &mut causal_hints,
+        )
+        .unwrap();
+
+        // The self-hint lands on the *peer* binding (1) that also reads anvils —
+        // never on the producing binding (0), nor on the unrelated bananas
+        // binding (2). So the checkpoint can't advance binding 0 past this commit
+        // until binding 1's read of anvils also reaches it.
+        let entries: Vec<_> = causal_hints
+            .iter()
+            .map(|((j, b), hints)| (j.as_ref().to_string(), *b, hints.clone()))
+            .collect();
+        assert_eq!(
+            entries,
+            vec![(
+                "acmeCo/anvils/part=a/pivot=00".to_string(),
+                1u16,
+                vec![(p1, Clock::from_u64(100))],
+            )],
         );
     }
 }
