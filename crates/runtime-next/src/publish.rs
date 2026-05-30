@@ -7,8 +7,7 @@
 //!   derive collection writes).
 //! - `Publisher::Preview` performs no journal IO. Stats and log documents
 //!   are emitted as `tracing::info!` events. Captured documents are written
-//!   as NDJSON to stdout; one JSON object per line, flushed once per
-//!   transaction commit.
+//!   as NDJSON to stdout, one JSON object per line.
 //!
 //! Construction is decided in `startup::run` based on the `preview` flag in
 //! `L:Task`: `false` ⇒ `Real`, `true` ⇒ `Preview`. The leader actor parks the
@@ -34,12 +33,19 @@ pub enum Publisher {
     Preview {
         /// Collection names indexed by binding.
         collection_names: Vec<String>,
-        /// Buffered stdout handle.
-        stdout: std::io::BufWriter<std::io::Stdout>,
-        /// Temporary scratch buffer for serialization.
-        scratch: Vec<u8>,
+        /// Accumulates complete `["<name>",<body>]\n` lines. Flushed to stdout
+        /// with a single atomic `write_all` once it crosses [`PREVIEW_FLUSH_THRESHOLD`]
+        /// or at transaction commit. Preview spawns one publisher per shard, all
+        /// writing the process-global stdout `LineWriter`; flushing whole lines
+        /// under the stdout lock keeps shards' output from splicing together.
+        line_buf: Vec<u8>,
     },
 }
+
+/// Flush `Publisher::Preview`'s `line_buf` to stdout once it reaches this many
+/// bytes. Sized to amortize the stdout lock + `write(2)` across many documents
+/// while bounding buffered memory.
+const PREVIEW_FLUSH_THRESHOLD: usize = 32 * 1024;
 
 impl Publisher {
     /// Build a real `Publisher` backed by a `publisher::Publisher` for the
@@ -86,8 +92,7 @@ impl Publisher {
                 .into_iter()
                 .map(|s| s.name.clone())
                 .collect(),
-            stdout: std::io::BufWriter::new(std::io::stdout()),
-            scratch: Vec::new(),
+            line_buf: Vec::new(),
         }
     }
 
@@ -159,18 +164,29 @@ impl Publisher {
             }
             Self::Preview {
                 collection_names,
-                stdout,
-                scratch,
+                line_buf,
             } => {
-                scratch.clear();
-                serde_json::to_writer(&mut *scratch, &doc::SerPolicy::noop().on_owned(&doc))
-                    .unwrap();
-
                 let collection_name = &collection_names[binding_index];
-                write!(stdout, "[{collection_name:?},").unwrap();
-                stdout.write_all(&*scratch).unwrap();
-                stdout.write_all(b"]\n").unwrap();
-                Ok(scratch.len())
+                write!(line_buf, "[{collection_name:?},").unwrap();
+
+                // Serialize the body directly into the line buffer, sampling its
+                // length to report body bytes (excluding framing). Serializing a
+                // valid OwnedNode cannot fail, so the body can never be left
+                // partially written ahead of a flush.
+                let body_start = line_buf.len();
+                serde_json::to_writer(&mut *line_buf, &doc::SerPolicy::noop().on_owned(&doc))
+                    .unwrap();
+                let body_len = line_buf.len() - body_start;
+
+                line_buf.extend_from_slice(b"]\n");
+
+                // Flush whole lines under the stdout lock in a single atomic
+                // write_all so concurrent shards' output can't splice together.
+                if line_buf.len() >= PREVIEW_FLUSH_THRESHOLD {
+                    std::io::stdout().write_all(line_buf).unwrap();
+                    line_buf.clear();
+                }
+                Ok(body_len)
             }
         }
     }
@@ -179,8 +195,11 @@ impl Publisher {
     pub async fn flush(&mut self) -> tonic::Result<()> {
         match self {
             Self::Real(p) => p.flush().await,
-            Self::Preview { stdout, .. } => {
-                stdout.flush().unwrap();
+            Self::Preview { line_buf, .. } => {
+                if !line_buf.is_empty() {
+                    std::io::stdout().write_all(line_buf).unwrap();
+                    line_buf.clear();
+                }
                 Ok(())
             }
         }
