@@ -471,12 +471,22 @@ pub struct PartitionFilter {
 struct FieldConstraint {
     /// Partition field name (bare, without `estuary.dev/field/` prefix).
     field: Box<str>,
-    /// Sorted encoded values that the field MUST match (OR semantics).
+    /// Encoded values the field MUST match (OR semantics).
     /// Empty means no include constraint — any value is accepted.
-    include: Vec<Box<str>>,
-    /// Sorted encoded values that the field MUST NOT match (OR semantics).
+    include: Vec<ConstraintValue>,
+    /// Encoded values the field MUST NOT match (OR semantics).
     /// Empty means no exclude constraint.
-    exclude: Vec<Box<str>>,
+    exclude: Vec<ConstraintValue>,
+}
+
+/// A single selector value for a partition field, carrying the same matching
+/// semantics as `labels::matches`: an empty `value` is a wildcard matching any
+/// value; a `prefix` value matches any value it is a prefix of; otherwise the
+/// match is exact.
+#[derive(Debug, Clone)]
+struct ConstraintValue {
+    value: Box<str>,
+    prefix: bool,
 }
 
 impl PartitionFilter {
@@ -490,32 +500,25 @@ impl PartitionFilter {
             .map(|field| {
                 let label_name = format!("{}{field}", labels::FIELD_PREFIX);
 
-                let include: Vec<Box<str>> = include_set
-                    .map(|set| {
-                        let mut vals: Vec<Box<str>> = labels::values(set, &label_name)
+                // Preserve each label's `prefix` flag (and empty-value wildcard)
+                // so matching mirrors `labels::matches` exactly.
+                let collect_values = |set: Option<&broker::LabelSet>| -> Vec<ConstraintValue> {
+                    set.map(|set| {
+                        labels::values(set, &label_name)
                             .iter()
-                            .map(|l| Box::from(l.value.as_str()))
-                            .collect();
-                        vals.sort();
-                        vals
+                            .map(|l| ConstraintValue {
+                                value: Box::from(l.value.as_str()),
+                                prefix: l.prefix,
+                            })
+                            .collect()
                     })
-                    .unwrap_or_default();
-
-                let exclude: Vec<Box<str>> = exclude_set
-                    .map(|set| {
-                        let mut vals: Vec<Box<str>> = labels::values(set, &label_name)
-                            .iter()
-                            .map(|l| Box::from(l.value.as_str()))
-                            .collect();
-                        vals.sort();
-                        vals
-                    })
-                    .unwrap_or_default();
+                    .unwrap_or_default()
+                };
 
                 FieldConstraint {
                     field: Box::from(field.as_str()),
-                    include,
-                    exclude,
+                    include: collect_values(include_set),
+                    exclude: collect_values(exclude_set),
                 }
             })
             .collect();
@@ -565,21 +568,15 @@ impl PartitionFilter {
                 );
             }
 
+            // Mirror `labels::matches`: an include set requires at least one
+            // value to match; an exclude set rejects when any value matches.
             if !constraint.include.is_empty()
-                && constraint
-                    .include
-                    .binary_search_by(|v| v.as_ref().cmp(parsed_value))
-                    .is_err()
+                && !constraint.include.iter().any(|v| v.matches(parsed_value))
             {
                 return Ok(false);
             }
 
-            if !constraint.exclude.is_empty()
-                && constraint
-                    .exclude
-                    .binary_search_by(|v| v.as_ref().cmp(parsed_value))
-                    .is_ok()
-            {
+            if constraint.exclude.iter().any(|v| v.matches(parsed_value)) {
                 return Ok(false);
             }
         }
@@ -594,6 +591,14 @@ impl PartitionFilter {
         }
 
         Ok(true)
+    }
+}
+
+impl ConstraintValue {
+    fn matches(&self, value: &str) -> bool {
+        self.value.is_empty()
+            || (self.prefix && value.starts_with(self.value.as_ref()))
+            || (!self.prefix && self.value.as_ref() == value)
     }
 }
 
@@ -735,6 +740,46 @@ mod test {
                 &[("region", "eu"), ("region", "us")],
                 &[],
                 "region=ap/pivot=00",
+                Ok(false),
+            ),
+            // Prefix include: selector value is a prefix of the journal value.
+            (
+                &["region"],
+                &[("region:prefix", "u")],
+                &[],
+                "region=us/pivot=00",
+                Ok(true),
+            ),
+            // Prefix include miss.
+            (
+                &["region"],
+                &[("region:prefix", "x")],
+                &[],
+                "region=us/pivot=00",
+                Ok(false),
+            ),
+            // Empty include value is a wildcard: any value matches.
+            (
+                &["region"],
+                &[("region", "")],
+                &[],
+                "region=anything/pivot=00",
+                Ok(true),
+            ),
+            // Prefix exclude: a prefix-matching value is excluded.
+            (
+                &["region"],
+                &[],
+                &[("region:prefix", "ba")],
+                "region=bad/pivot=00",
+                Ok(false),
+            ),
+            // Empty exclude value is a wildcard: any value is excluded.
+            (
+                &["region"],
+                &[],
+                &[("region", "")],
+                "region=us/pivot=00",
                 Ok(false),
             ),
             // Encoded non-string values.
