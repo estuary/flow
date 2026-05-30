@@ -300,7 +300,12 @@ impl HeadIdle {
             read_docs,
             stopping,
             tail_done,
-            unresolved_hints: self.extents.frontier.unresolved_hints != 0,
+            unresolved_hints: self.extents.frontier.unresolved_hints != 0
+                // An unstarted `idempotent_replay` is itself an unresolved hint: the
+                // recovered hints live in the pending `ready_frontier`, not yet in
+                // `extents.frontier`, so without this the txn could neither extend
+                // (replay suppresses policy extend) nor close — spinning Idle forever.
+                || (self.idempotent_replay && !is_open),
         });
 
         // Should we extend with a ready next Frontier?
@@ -1356,8 +1361,12 @@ mod tests {
     /// stop. No IO; each step mutates Ctx fields and reads back the
     /// (Action, State) tuple.
     ///
-    /// Phase 1: txn 1 opens, extends once, closes on `close_requested`, and
-    ///          drives the full commit sequence ending in Action::Rotate.
+    /// Phase 1: txn 1 is an idempotent replay of a recovered transaction.
+    ///          The initial HeadIdle carries `idempotent_replay` with empty
+    ///          extents, so the first extend is forced by the synthetic
+    ///          "unstarted replay is an unresolved hint" bootstrap. A second
+    ///          frontier resolves the recovered hints, after which the replay
+    ///          closes and drives the full commit sequence to Action::Rotate.
     /// Phase 2: rotation hands `pending` to Tail::Begin. Head opens txn 2
     ///          (one Load); while Head awaits the second Loaded, Tail's full
     ///          post-acknowledge sequence runs interleaved: Acknowledged x2
@@ -1385,13 +1394,25 @@ mod tests {
             task,
             trigger_running: false,
         };
-        let mut head = Head::Idle(HeadIdle::default());
+        // txn 1 begins as an idempotent replay: HeadIdle carries
+        // `idempotent_replay` with empty extents (as `handler::serve` builds it
+        // on recovery of a prepared-but-uncommitted transaction).
+        let mut head = Head::Idle(HeadIdle {
+            idempotent_replay: true,
+            ..Default::default()
+        });
         let mut tail = Tail::Done(TailDone::default());
 
-        // ===== Phase 1: txn 1 lifecycle =====
+        // ===== Phase 1: txn 1 lifecycle (idempotent replay) =====
 
-        // HeadIdle evaluates close policy: may_extend=true, frontier ready → Load.
-        ctx.ready_frontier = Some(shuffle::Frontier::default());
+        // The recovered hints arrive as a `ready_frontier` peek, not yet in
+        // `extents.frontier`. Replay suppresses policy-driven extend, so the
+        // first Load is forced only by the "unstarted replay is an unresolved
+        // hint" bootstrap. Absent it, HeadIdle would spin without progress.
+        ctx.ready_frontier = Some(shuffle::Frontier {
+            unresolved_hints: 1,
+            ..Default::default()
+        });
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
         assert!(matches!(action, Action::Load { .. }));
@@ -1404,7 +1425,8 @@ mod tests {
         assert!(matches!(head, Head::Extend(_)));
 
         // Loaded(1) completes the Load round → HeadExtend re-polls into HeadIdle.
-        // A second frontier is available; HeadIdle extends rather than closes.
+        // A second frontier with the hints now resolved is available; the still
+        // -unresolved extents hints force HeadIdle to extend rather than close.
         ctx.ready_frontier = Some(shuffle::Frontier::default());
         ctx.shard_rx = Some(mk_loaded(1));
         let (action, h) = ctx.step_head(head, &mut tail);
@@ -1417,8 +1439,10 @@ mod tests {
         assert!(matches!(action, Action::Load { .. }));
         assert!(matches!(head, Head::Extend(_)));
 
-        // Second Load round: Loaded x2 arrive without another frontier queued.
-        // HeadExtend re-polls into HeadIdle; close-policy fires (Tail::Done) → Flush.
+        // Second Load round applied the hint-resolving frontier, so extents now
+        // carry no unresolved hints. Loaded x2 arrive without another frontier
+        // queued; HeadExtend re-polls into HeadIdle. With the replay's hints
+        // resolved, the close policy force-closes the replay txn → Flush.
         ctx.shard_rx = Some(mk_loaded(0));
         let (_action, h) = ctx.step_head(head, &mut tail);
         head = h;
