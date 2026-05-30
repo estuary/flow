@@ -1,4 +1,4 @@
-use doc::{ArchivedNode, Extractor, ExtractorPlan, HeapNode, SerPolicy};
+use doc::{ArchivedNode, Encoding, Extractor, ExtractorPlan, HeapNode, SerPolicy};
 use quickcheck::{Arbitrary, Gen, QuickCheck};
 use serde_json::{Value, json};
 use std::sync::LazyLock;
@@ -214,14 +214,20 @@ fn field_value(i: usize) -> Value {
 fn pack_reference<N: json::AsNode>(doc: &N, extractors: &[Extractor]) -> bytes::Bytes {
     let mut buf = bytes::BytesMut::new();
     let indicator = AtomicBool::new(false);
-    Extractor::extract_all_indicate_truncation(doc, extractors, &mut buf, &indicator);
+    Extractor::extract_all(
+        doc,
+        extractors,
+        Encoding::Packed,
+        &mut buf,
+        Some(&indicator),
+    );
     buf.freeze()
 }
 
 fn pack_plan<N: json::AsNode>(plan: &ExtractorPlan, doc: &N) -> bytes::Bytes {
     let mut buf = bytes::BytesMut::new();
     let indicator = AtomicBool::new(false);
-    plan.extract_all_indicate_truncation(doc, &mut buf, &indicator);
+    plan.extract_all(doc, Encoding::Packed, &mut buf, Some(&indicator));
     buf.freeze()
 }
 

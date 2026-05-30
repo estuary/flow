@@ -95,7 +95,13 @@ impl Scanner {
 
             // Encode the binding index followed by the packed key, for hashing.
             self.buf.put_u32(binding_index);
-            doc::Extractor::extract_all(doc.doc.get(), &binding.key_extractors, &mut self.buf);
+            doc::Extractor::extract_all(
+                doc.doc.get(),
+                &binding.key_extractors,
+                doc::Encoding::Packed,
+                &mut self.buf,
+                None,
+            );
             let key_hash = xxhash_rust::xxh3::xxh3_128(&self.buf);
             let mut key_packed = self.buf.split().freeze();
             key_packed.advance(4); // Advance past 4-byte binding index.

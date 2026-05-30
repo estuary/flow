@@ -1,11 +1,11 @@
-use doc::{ArchivedNode, Extractor, ExtractorPlan, HeapNode, SerPolicy};
+use doc::{ArchivedNode, Encoding, Extractor, ExtractorPlan, HeapNode, SerPolicy};
 use serde_json::{Map, Value, json};
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
-// This benchmark compares `Extractor::extract_all_indicate_truncation`
-// against `ExtractorPlan::extract_all_indicate_truncation` across the
-// essential planner performance cases.
+// This benchmark compares `Extractor::extract_all` (flat slice path) against
+// `ExtractorPlan::extract_all` (compiled block merge-join) across the essential
+// planner performance cases.
 //
 // Run in CI to keep it functional; for manual investigation:
 //
@@ -96,14 +96,26 @@ fn time_extractor<N: json::AsNode>(extractors: &[Extractor], doc: &N) -> f64 {
     for _ in 0..(TOTAL_ROUNDS / 10).max(1) {
         buf.clear();
         let indicator = AtomicBool::new(false);
-        Extractor::extract_all_indicate_truncation(doc, extractors, &mut buf, &indicator);
+        Extractor::extract_all(
+            doc,
+            extractors,
+            Encoding::Packed,
+            &mut buf,
+            Some(&indicator),
+        );
     }
 
     let start = Instant::now();
     for _ in 0..TOTAL_ROUNDS {
         buf.clear();
         let indicator = AtomicBool::new(false);
-        Extractor::extract_all_indicate_truncation(doc, extractors, &mut buf, &indicator);
+        Extractor::extract_all(
+            doc,
+            extractors,
+            Encoding::Packed,
+            &mut buf,
+            Some(&indicator),
+        );
     }
     let elapsed = start.elapsed().as_nanos() as f64;
     elapsed / TOTAL_ROUNDS as f64
@@ -114,14 +126,14 @@ fn time_plan<N: json::AsNode>(plan: &ExtractorPlan, doc: &N) -> f64 {
     for _ in 0..(TOTAL_ROUNDS / 10).max(1) {
         buf.clear();
         let indicator = AtomicBool::new(false);
-        plan.extract_all_indicate_truncation(doc, &mut buf, &indicator);
+        plan.extract_all(doc, Encoding::Packed, &mut buf, Some(&indicator));
     }
 
     let start = Instant::now();
     for _ in 0..TOTAL_ROUNDS {
         buf.clear();
         let indicator = AtomicBool::new(false);
-        plan.extract_all_indicate_truncation(doc, &mut buf, &indicator);
+        plan.extract_all(doc, Encoding::Packed, &mut buf, Some(&indicator));
     }
     let elapsed = start.elapsed().as_nanos() as f64;
     elapsed / TOTAL_ROUNDS as f64

@@ -240,9 +240,21 @@ pub fn send_client_captured_or_checkpoint(
     }
 
     let binding = &task.bindings[index];
-    doc::Extractor::extract_all_owned(&root, &binding.key_extractors, buf);
+    doc::Extractor::extract_all_owned(
+        &root,
+        &binding.key_extractors,
+        doc::Encoding::Packed,
+        buf,
+        None,
+    );
     let key_packed = buf.split().freeze();
-    doc::Extractor::extract_all_owned(&root, &binding.partition_extractors, buf);
+    doc::Extractor::extract_all_owned(
+        &root,
+        &binding.partition_extractors,
+        doc::Encoding::Packed,
+        buf,
+        None,
+    );
     let partitions_packed = buf.split().freeze();
 
     serde_json::to_writer(buf.writer(), &binding.ser_policy.on_owned(&root))

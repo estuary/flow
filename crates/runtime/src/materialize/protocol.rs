@@ -241,7 +241,13 @@ pub fn recv_client_load_or_flush(
 
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
-            doc::Extractor::extract_all(&doc, &binding.key_extractors, buf);
+            doc::Extractor::extract_all(
+                &doc,
+                &binding.key_extractors,
+                doc::Encoding::Packed,
+                buf,
+                None,
+            );
             let mut key_packed = buf.split().freeze();
             let key_hash: u128 = xxh3_128(&key_packed);
             key_packed.advance(4); // Advance past 4-byte binding index.
@@ -432,11 +438,12 @@ pub fn send_connector_store(
     // extract the values last, so that the indicator can account for truncations
     // in both the keys and the flow document.
     let truncation_indicator = AtomicBool::new(false);
-    doc::Extractor::extract_all_owned_indicate_truncation(
+    doc::Extractor::extract_all_owned(
         &root,
         &binding.key_extractors,
+        doc::Encoding::Packed,
         buf,
-        &truncation_indicator,
+        Some(&truncation_indicator),
     );
     let key_packed = buf.split().freeze();
 
@@ -453,9 +460,12 @@ pub fn send_connector_store(
     .expect("document serialization cannot fail");
     let mut doc_json = buf.split().freeze();
 
-    binding
-        .value_plan
-        .extract_all_owned_indicate_truncation(&root, buf, &truncation_indicator);
+    binding.value_plan.extract_all_owned(
+        &root,
+        doc::Encoding::Packed,
+        buf,
+        Some(&truncation_indicator),
+    );
     let values_packed = buf.split().freeze();
 
     // Accumulate metrics over reads for our transforms.
