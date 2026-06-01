@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/fragment"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
 	"go.gazette.dev/core/broker/stores"
@@ -219,6 +222,110 @@ func TestResolverLocalReplicaStopping(t *testing.T) {
 
 	broker.cleanup()
 	peer.Cleanup()
+}
+
+// TestResolverRebuildsOnJournalRecreate verifies that when a journal name is
+// deleted and re-created such that both Etcd events coalesce into a single
+// KeySpace.Apply batch — the journal never appears to leave LocalItems — the
+// resolver tears down the prior incarnation's replica and builds a fresh, empty
+// one rather than resurrecting its spool/index.
+func TestResolverRebuildsOnJournalRecreate(t *testing.T) {
+	var ctx, etcd = context.Background(), etcdtest.TestClient()
+	defer etcdtest.Cleanup()
+
+	var id = pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"}
+	var ks = NewKeySpace("/broker.test")
+	var state = allocator.NewObservedState(ks,
+		allocator.MemberKey(ks, id.Zone, id.Suffix), JournalIsConsistent)
+	var resolver = newResolver(state, newReplica)
+
+	SetSharedPersister(fragment.NewPersister(ks))
+
+	var spec = pb.JournalSpec{
+		Name:        "recreate/journal",
+		Replication: 1,
+		Fragment: pb.JournalSpec_Fragment{
+			Length:           1024,
+			RefreshInterval:  time.Second,
+			CompressionCodec: pb.CompressionCodec_SNAPPY,
+		},
+	}
+	require.NoError(t, spec.Validate())
+
+	var (
+		itemKey = allocator.ItemKey(ks, spec.Name.String())
+		asnKey  = allocator.AssignmentKey(ks, allocator.Assignment{
+			ItemID:       spec.Name.String(),
+			MemberZone:   id.Zone,
+			MemberSuffix: id.Suffix,
+			Slot:         0,
+		})
+	)
+
+	// Establish the broker member, journal, and its local assignment, then Load.
+	// Load drives the resolver's observer and builds the initial replica.
+	_ = mustKeyValues(t, etcd, map[string]string{
+		state.LocalKey: (&pb.BrokerSpec{
+			ProcessSpec: pb.ProcessSpec{Id: id, Endpoint: "http://localhost:1234"},
+		}).MarshalString(),
+		itemKey: spec.MarshalString(),
+		asnKey:  "",
+	})
+	require.NoError(t, ks.Load(ctx, etcd, 0))
+
+	// Capture the original incarnation's replica and its CreateRevision.
+	var prev = resolver.replicas["recreate/journal"]
+	require.NotNil(t, prev)
+	require.NoError(t, prev.replica.ctx.Err())
+	require.NotZero(t, prev.createRevision)
+
+	// Watch from just after the loaded revision so we capture the raw
+	// WatchResponses of the delete and re-create that follow.
+	ks.Mu.RLock()
+	var watchCh = etcd.Watch(ctx, ks.Root,
+		clientv3.WithPrefix(), clientv3.WithRev(ks.Header.Revision+1))
+	ks.Mu.RUnlock()
+
+	// Delete the journal (item + assignment), then re-create it under the same
+	// name. Etcd forbids mutating a key twice in one transaction, so these are
+	// two transactions — but the re-created keys obtain fresh CreateRevisions.
+	var _, delErr = etcd.Txn(ctx).Then(
+		clientv3.OpDelete(itemKey), clientv3.OpDelete(asnKey)).Commit()
+	require.NoError(t, delErr)
+
+	var putResp, putErr = etcd.Txn(ctx).Then(
+		clientv3.OpPut(itemKey, spec.MarshalString()), clientv3.OpPut(asnKey, "")).Commit()
+	require.NoError(t, putErr)
+
+	// Collect both WatchResponses and apply them as a single batch — the
+	// coalescing the broker's watch loop would perform under --broker.watch-delay.
+	var responses []clientv3.WatchResponse
+	for resp := range watchCh {
+		responses = append(responses, resp)
+		if resp.Header.Revision >= putResp.Header.Revision {
+			break
+		}
+	}
+	require.NoError(t, ks.Apply(responses...))
+
+	ks.Mu.RLock()
+	var next = resolver.replicas["recreate/journal"]
+	ks.Mu.RUnlock()
+
+	// Expect a brand-new replica with a fresh CreateRevision was built, rather
+	// than the prior incarnation's spool/index being resurrected.
+	require.NotNil(t, next)
+	require.False(t, prev.replica == next.replica)
+	require.Greater(t, next.createRevision, prev.createRevision)
+
+	// And the stale incarnation was torn down (not merely dropped from the map),
+	// releasing its spool/index.
+	<-prev.replica.ctx.Done()
+
+	// The re-created journal resolves to the new, empty replica.
+	r, _ := resolver.resolve(ctx, allClaims, "recreate/journal", resolveOpts{})
+	require.Equal(t, pb.Status_OK, r.status)
+	require.Equal(t, next.replica, r.replica)
 }
 
 func TestResolveFutureRevisionCasesWithProxyHeader(t *testing.T) {

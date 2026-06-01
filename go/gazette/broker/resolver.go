@@ -30,11 +30,12 @@ type resolver struct {
 // resolverReplica extends a *replica instance with detection and signaling
 // of changes to its assignments.
 type resolverReplica struct {
-	*replica                          // Embedded replica managing journal state and operations.
-	assignments keyspace.KeyValues    // Current assignments of this journal from etcd.
-	primary     bool                  // Whether this broker is the primary for this journal.
-	signalCh    chan struct{}         // Closed when assignments change, to wake blocked RPCs.
-	stores      []*stores.ActiveStore // Pre-fetched stores corresponding to the journal's FragmentStores.
+	*replica                             // Embedded replica managing journal state and operations.
+	assignments    keyspace.KeyValues    // Current assignments of this journal from etcd.
+	primary        bool                  // Whether this broker is the primary for this journal.
+	signalCh       chan struct{}         // Closed when assignments change, to wake blocked RPCs.
+	stores         []*stores.ActiveStore // Pre-fetched stores corresponding to the journal's FragmentStores.
+	createRevision int64                 // CreateRevision of the journal's item key in Etcd.
 }
 
 func newResolver(state *allocator.State, newReplica func(pb.Journal) *replica) *resolver {
@@ -245,15 +246,23 @@ func (r *resolver) updateResolutions() {
 			continue
 		}
 
-		// If the replica is not found, or if it's `primary` but we have been demoted,
-		// then create a new replica and tear down the old (if there is one).
-		if !ok || !primary && replica.primary {
+		// Create a fresh replica (tearing down the old, if any) when:
+		//  - The replica is not found; or
+		//  - It's `primary` but we have been demoted; or
+		//  - Its CreateRevision differs, meaning the journal name was deleted and
+		//    re-created. The events may coalesce within a single KeySpace.Apply
+		//    batch, so the journal never appears to leave LocalItems.
+		if !ok || (!primary && replica.primary) || replica.createRevision != li.Item.Raw.CreateRevision {
+			// We build a fresh replica below. Any prior replica of this name is
+			// intentionally not removed from r.replicas, so it remains in `prev`
+			// and is torn down by cancelReplicas() once the batch is applied.
 			r.wg.Add(1)
 			replica = &resolverReplica{
-				replica:     r.newReplica(name), // Newly assigned journal.
-				primary:     primary,
-				assignments: li.Assignments.Copy(),
-				signalCh:    make(chan struct{}),
+				replica:        r.newReplica(name), // Newly assigned journal.
+				primary:        primary,
+				assignments:    li.Assignments.Copy(),
+				signalCh:       make(chan struct{}),
+				createRevision: li.Item.Raw.CreateRevision,
 			}
 
 			var rt pb.Route
