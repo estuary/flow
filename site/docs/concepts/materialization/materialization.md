@@ -376,7 +376,7 @@ these are:
 
 2. **Naming Convention**
 
-   The [target resource naming convention](#target-resource-naming-convention-options) can be set in a materialization's Source Collections section.
+   The [target resource naming convention](#target-resource-naming-conventions) can be set in a materialization's Source Collections section.
    This option provides general rules for schema and table names for all newly-added bindings.
 
 3. **Manual Overrides**
