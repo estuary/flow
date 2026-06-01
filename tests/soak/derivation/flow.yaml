@@ -1,0 +1,46 @@
+# The `accounts` derivation: an active TypeScript verifier over the three event
+# logs (see ../README.md "Downstream: the accounts derivation").
+#
+# It imports the capture catalog for its source `events/*` collections, so feeding
+# this file to `flowctl raw preview-next` also builds the (Docker-free) capture,
+# but not the downstream materializations. The derivation itself IS an image
+# connector (derive-typescript), so previewing it needs the locally-built `:local`
+# image and reads the published `events/*` journals from the local stack (README
+# "Running").
+import:
+  - ../capture/flow.yaml
+
+collections:
+  # Unions all three event logs on /id and self-checks three V2-runtime properties:
+  # in-order within-collection reduction (each id routes to one collection),
+  # expected-vs-oracle exactly-once, and cross-collection/cross-shard conservation
+  # via a two-round Flush scatter/gather.
+  #
+  # `shuffle: {key: [/id]}` is load-bearing on every transform: it gives a given
+  # id a single, stable owning shard so the per-account accumulator is coherent.
+  # `shuffle: any` would scatter an id across shards; `shuffle: lambda` is rejected
+  # by derive-typescript.
+  test/soak/accounts:
+    schema: ../accounts.schema.json
+    key: [/id]
+    derive:
+      using:
+        typescript: { module: ../accounts.ts }
+      shards:
+        # `enable-runtime-v2` routes the task to runtime-next (matching the capture).
+        # `derive-image-tag` makes the build resolve the TypeScript connector to the
+        # locally-built `:local` image, which both Validate and the V2 runtime then
+        # use — so the V2 module compiles against the V2 IDerivation interface.
+        flags:
+          enable-runtime-v2: "true"
+          derive-image-tag: local
+      transforms:
+        - name: fromAlpha
+          source: { name: test/soak/events/alpha }
+          shuffle: { key: [/id] }
+        - name: fromBeta
+          source: { name: test/soak/events/beta }
+          shuffle: { key: [/id] }
+        - name: fromGamma
+          source: { name: test/soak/events/gamma }
+          shuffle: { key: [/id] }

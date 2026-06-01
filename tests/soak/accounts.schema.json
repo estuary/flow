@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft/2020-12/schema",
+  "description": "Reduced documents of test/soak/accounts. Two shapes share the [/id] keyspace: a per-account reconstruction (id >= 0) carrying the latest reduced {set, balance, seq}, the connector's oracle, and an ok/mismatch verdict; and a per-shard conservation-violation sentinel keyed by a negative id (-(keyBegin+1)) carrying a `violation`. Root reduce is lastWriteWins: each id is owned by exactly one derivation shard which publishes it in increasing-seq order, so the latest write is the highest-seq truth.",
+  "type": "object",
+  "reduce": { "strategy": "lastWriteWins" },
+  "required": ["id"],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Account id (>= 0) for a reconstruction doc, or a negative per-shard sentinel id for a conservation-violation doc."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Highest seq applied to this account (reconstruction docs)."
+    },
+    "set": {
+      "type": "array",
+      "items": { "enum": ["a", "b", "c", "d", "e", "f", "g", "h"] },
+      "description": "Reduced sorted membership after the latest event (reconstruction docs)."
+    },
+    "balance": {
+      "type": "integer",
+      "description": "Reduced cumulative balance after the latest event (reconstruction docs)."
+    },
+    "oracle": {
+      "type": "object",
+      "description": "The connector's authoritative post-event truth for this account, carried for comparison and debugging.",
+      "properties": {
+        "seq": { "type": "integer" },
+        "set": { "type": "array", "items": { "enum": ["a", "b", "c", "d", "e", "f", "g", "h"] } },
+        "balance": { "type": "integer" }
+      }
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "True iff the reconstructed {set, balance, seq} matched the oracle for the latest event of this account."
+    },
+    "mismatch": {
+      "type": "object",
+      "description": "Present iff ok is false; localizes the divergence (seq gap/dup/reorder, set drift, or balance drift).",
+      "properties": {
+        "kind": { "type": "array", "items": { "enum": ["seq", "set", "balance"] } },
+        "expectedSeq": { "type": "integer" },
+        "gotSeq": { "type": "integer" },
+        "seqClass": { "enum": ["gap", "dupOrReorder"] },
+        "expectedSet": { "type": "array", "items": { "type": "string" } },
+        "gotSet": { "type": "array", "items": { "type": "string" } },
+        "expectedBalance": { "type": "integer" },
+        "gotBalance": { "type": "integer" }
+      }
+    },
+    "violation": {
+      "type": "object",
+      "description": "Present only on a sentinel doc: the non-zero global balance sum gathered across all shards this transaction.",
+      "properties": {
+        "sum": { "type": "integer" },
+        "keyBegin": { "type": "integer" },
+        "shardKeys": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

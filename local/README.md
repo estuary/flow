@@ -253,6 +253,8 @@ swaps every URL to a localhost equivalent:
 The `--profile` flag also controls which config file in
 `~/.config/flowctl/` is loaded.
 
+You must also set SSL_CERT_FILE to ~/flow-local/ca.crt or you'll see TLS violations.
+
 ## Connectors run on the Supabase Docker network
 
 Reactor and agent set `FLOW_NETWORK=supabase_network_flow` (see
