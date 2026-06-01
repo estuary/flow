@@ -79,42 +79,36 @@ async fn exchange_api_key(
         plaintext_secret,
     )
     .fetch_optional(&app.pg_pool)
-    .await
-    .map_err(|err| {
-        crate::ApiError::Status(tonic::Status::internal(format!(
-            "failed to verify api key: {err}"
-        )))
-    })?
+    .await?
     .ok_or_else(|| unauthenticated("invalid or expired api key"))?;
 
     if row.disabled_at.is_some() {
         return Err(unauthenticated("service account is disabled"));
     }
 
-    // Update last_used_at on the key and the service account.
-    sqlx::query!(
-        "UPDATE internal.api_keys SET last_used_at = now() WHERE id = $1",
+    // Stamp last_used_at on both the key and the service account. This is
+    // best-effort telemetry: the key has already verified, so a failure here
+    // must not deny the caller a token it's entitled to. Log and continue.
+    if let Err(err) = sqlx::query!(
+        r#"
+        WITH touch_key AS (
+            UPDATE internal.api_keys SET last_used_at = now() WHERE id = $1
+        )
+        UPDATE internal.service_accounts SET last_used_at = now() WHERE user_id = $2
+        "#,
         key_id as models::Id,
-    )
-    .execute(&app.pg_pool)
-    .await
-    .map_err(|err| {
-        crate::ApiError::Status(tonic::Status::internal(format!(
-            "failed to update api key last_used_at: {err}"
-        )))
-    })?;
-
-    sqlx::query!(
-        "UPDATE internal.service_accounts SET last_used_at = now() WHERE user_id = $1",
         row.service_account_id,
     )
     .execute(&app.pg_pool)
     .await
-    .map_err(|err| {
-        crate::ApiError::Status(tonic::Status::internal(format!(
-            "failed to update service account last_used_at: {err}"
-        )))
-    })?;
+    {
+        tracing::warn!(
+            ?err,
+            %key_id,
+            service_account_id = %row.service_account_id,
+            "failed to update last_used_at after api key exchange"
+        );
+    }
 
     // Mint the access token directly in the application layer. This is the
     // canonical token-minting path: the plan is to retire the SQL
@@ -134,9 +128,8 @@ async fn exchange_api_key(
 
     let access_token =
         tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key).map_err(|err| {
-            crate::ApiError::Status(tonic::Status::internal(format!(
-                "failed to sign access token: {err}"
-            )))
+            tracing::error!(?err, "failed to sign access token during api key exchange");
+            crate::ApiError::Status(tonic::Status::internal("failed to issue access token"))
         })?;
 
     tracing::info!(
@@ -184,11 +177,10 @@ async fn exchange_refresh_token(
         )))
     })?;
 
-    let parsed: SqlResponse =
-        serde_json::from_value(response.token.unwrap_or_default()).map_err(|err| {
-            crate::ApiError::Status(tonic::Status::internal(format!(
-                "invalid token response: {err}"
-            )))
+    let parsed: SqlResponse = serde_json::from_value(response.token.unwrap_or_default())
+        .map_err(|err| {
+            tracing::error!(?err, "generate_access_token returned an unparseable response");
+            crate::ApiError::Status(tonic::Status::internal("invalid token response"))
         })?;
 
     Ok(axum::Json(TokenResponse {

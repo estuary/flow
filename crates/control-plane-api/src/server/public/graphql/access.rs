@@ -421,6 +421,9 @@ impl AccessMutation {
     /// capability on their next authorization check (bounded by snapshot-refresh
     /// lag, not the token's full ~1h lifetime). Use this to cut off an
     /// active service account, not just stop new tokens.
+    ///
+    /// Idempotent: returns `true` if this call disabled the account, `false`
+    /// if it was already disabled.
     async fn disable_service_account(
         &self,
         ctx: &Context<'_>,
@@ -432,20 +435,22 @@ impl AccessMutation {
         let sa = lookup_service_account(&env.pg_pool, user_id).await?;
         super::verify_authorization(env, &sa.prefix, models::Capability::Admin).await?;
 
-        if sa.disabled_at.is_some() {
-            return Err(async_graphql::Error::new(
-                "service account is already disabled",
-            ));
-        }
-
         let mut txn = env.pg_pool.begin().await?;
 
-        sqlx::query!(
-            "UPDATE internal.service_accounts SET disabled_at = now(), updated_at = now() WHERE user_id = $1",
+        // The conditional UPDATE only matches a currently-enabled account, so
+        // concurrent disables serialize on the row and exactly one performs the
+        // transition. A caller that finds it already disabled returns a no-op
+        // success (`false`) and skips the cleanup below.
+        let disabled = sqlx::query!(
+            "UPDATE internal.service_accounts SET disabled_at = now(), updated_at = now() WHERE user_id = $1 AND disabled_at IS NULL",
             user_id,
         )
         .execute(&mut *txn)
         .await?;
+
+        if disabled.rows_affected() == 0 {
+            return Ok(false);
+        }
 
         sqlx::query!(
             "DELETE FROM internal.api_keys WHERE service_account_id = $1",
@@ -473,6 +478,9 @@ impl AccessMutation {
     /// Re-enable a disabled service account, restoring its user_grants row.
     ///
     /// Does NOT restore previously revoked API keys — new ones must be minted.
+    ///
+    /// Idempotent: returns `true` if this call enabled the account, `false`
+    /// if it was not disabled.
     async fn enable_service_account(
         &self,
         ctx: &Context<'_>,
@@ -484,18 +492,22 @@ impl AccessMutation {
         let sa = lookup_service_account(&env.pg_pool, user_id).await?;
         super::verify_authorization(env, &sa.prefix, models::Capability::Admin).await?;
 
-        if sa.disabled_at.is_none() {
-            return Err(async_graphql::Error::new("service account is not disabled"));
-        }
-
         let mut txn = env.pg_pool.begin().await?;
 
-        sqlx::query!(
-            "UPDATE internal.service_accounts SET disabled_at = NULL, updated_at = now() WHERE user_id = $1",
+        // The conditional UPDATE only matches a currently-disabled account, so
+        // concurrent enables serialize on the row and exactly one performs the
+        // transition. A caller that finds it already enabled returns a no-op
+        // success (`false`) and skips restoring the grant below.
+        let enabled = sqlx::query!(
+            "UPDATE internal.service_accounts SET disabled_at = NULL, updated_at = now() WHERE user_id = $1 AND disabled_at IS NOT NULL",
             user_id,
         )
         .execute(&mut *txn)
         .await?;
+
+        if enabled.rows_affected() == 0 {
+            return Ok(false);
+        }
 
         crate::grants::upsert_user_grant(
             user_id,
@@ -535,15 +547,30 @@ impl AccessMutation {
         let sa = lookup_service_account(&env.pg_pool, user_id).await?;
         super::verify_authorization(env, &sa.prefix, models::Capability::Admin).await?;
 
+        // Fast-path rejection that avoids opening a transaction for an account
+        // that's already visibly disabled. The authoritative check happens
+        // below under a row lock.
         if sa.disabled_at.is_some() {
             return Err(async_graphql::Error::new(
                 "cannot create API key for a disabled service account",
             ));
         }
 
-        // Validate and bound the requested lifetime. Postgres parses the
-        // ISO 8601 duration; we cap it at one year so a key can't become an
-        // effectively-permanent credential, and require it to be positive.
+        // valid_for is documented as an ISO 8601 duration (e.g. P90D, P1Y).
+        // Reject anything that isn't ISO 8601 up front: the `::interval` cast
+        // below would otherwise also accept Postgres's own syntax ("90 days"),
+        // silently widening the contract and contradicting the field's docs and
+        // error messages. ISO 8601 durations always start with 'P'; no Postgres
+        // traditional unit does, so this prefix check cleanly distinguishes them.
+        if !valid_for.trim_start().starts_with('P') {
+            return Err(async_graphql::Error::new(
+                "valid_for must be an ISO 8601 duration, e.g. P90D or P1Y",
+            ));
+        }
+
+        // Bound the lifetime so a key can't become an effectively-permanent
+        // credential, and require it to be positive. Postgres does the interval
+        // math, which is calendar-aware for the P1Y / P3M cases.
         let within_bounds = sqlx::query_scalar!(
             r#"
             SELECT $1::text::interval > interval '0'
@@ -556,13 +583,13 @@ impl AccessMutation {
 
         let within_bounds = match within_bounds {
             Ok(ok) => ok,
-            // A malformed duration fails the `::interval` cast (SQLSTATE 22007/
-            // 22008); surface that as a client error rather than a 500.
+            // A 'P'-prefixed but malformed duration still fails the `::interval`
+            // cast (SQLSTATE 22007/22008); surface it as a client error, not a 500.
             Err(sqlx::Error::Database(db))
                 if matches!(db.code().as_deref(), Some("22007") | Some("22008")) =>
             {
                 return Err(async_graphql::Error::new(
-                    "invalid valid_for: expected an ISO 8601 duration (e.g. P90D, P1Y)",
+                    "invalid valid_for: expected an ISO 8601 duration, e.g. P90D or P1Y",
                 ));
             }
             Err(err) => return Err(err.into()),
@@ -571,6 +598,26 @@ impl AccessMutation {
         if !within_bounds {
             return Err(async_graphql::Error::new(
                 "valid_for must be a positive duration no greater than 1 year",
+            ));
+        }
+
+        // Lock the service-account row, then re-check disabled state and insert
+        // the key in the same transaction. `disable_service_account` takes the
+        // same row lock via its UPDATE, so the two cannot interleave: without
+        // this, a disable committing between the check and the INSERT would
+        // leave an orphan key that becomes live on a later enable.
+        let mut txn = env.pg_pool.begin().await?;
+
+        let disabled_at = sqlx::query_scalar!(
+            "SELECT disabled_at FROM internal.service_accounts WHERE user_id = $1 FOR UPDATE",
+            user_id,
+        )
+        .fetch_one(&mut *txn)
+        .await?;
+
+        if disabled_at.is_some() {
+            return Err(async_graphql::Error::new(
+                "cannot create API key for a disabled service account",
             ));
         }
 
@@ -599,8 +646,10 @@ impl AccessMutation {
             valid_for,
             claims.sub,
         )
-        .fetch_one(&env.pg_pool)
+        .fetch_one(&mut *txn)
         .await?;
+
+        txn.commit().await?;
 
         use base64::Engine;
         let payload = format!("{}:{}", row.id, row.secret);
@@ -862,6 +911,10 @@ mod test {
                             displayName
                             prefix
                             capability
+                            createdBy
+                            createdAt
+                            updatedAt
+                            lastUsedAt
                             disabledAt
                             apiKeys { id }
                         }
@@ -887,6 +940,19 @@ mod test {
         assert_eq!(sa["capability"], "admin");
         assert!(sa["disabledAt"].is_null());
         assert_eq!(sa["apiKeys"].as_array().unwrap().len(), 0);
+        // Provenance and timestamp fields are populated on creation: createdBy
+        // is the calling admin (alice), the timestamps are set, and a freshly
+        // created account has never been used.
+        assert_eq!(
+            sa["createdBy"], "11111111-1111-1111-1111-111111111111",
+            "createdBy should be the calling admin: {create_response}"
+        );
+        assert!(sa["createdAt"].is_string(), "createdAt should be set: {sa}");
+        assert!(sa["updatedAt"].is_string(), "updatedAt should be set: {sa}");
+        assert!(
+            sa["lastUsedAt"].is_null(),
+            "a never-used account should have null lastUsedAt: {sa}"
+        );
 
         // === Bob cannot create a service account for aliceCo/ ===
         let unauthorized: serde_json::Value = server
@@ -906,6 +972,49 @@ mod test {
             .await;
 
         assert!(unauthorized["errors"].is_array());
+
+        // === create_service_account input validation ===
+        // An invalid catalog prefix is rejected (before authorization), even
+        // for an admin caller.
+        let bad_prefix: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createServiceAccount(prefix: "Not A Prefix", capability: read, displayName: "x") { id }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            bad_prefix["errors"][0]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("invalid catalog prefix"),
+            "invalid prefix should be rejected: {bad_prefix}"
+        );
+
+        // capability `none` confers no access until bundles are wired, so it is
+        // rejected rather than minting a no-op grant.
+        let none_capability: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createServiceAccount(prefix: "aliceCo/", capability: none, displayName: "x") { id }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            none_capability["errors"][0]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("capability must be one of"),
+            "Capability::None should be rejected: {none_capability}"
+        );
 
         // === Create an API key ===
         let create_key: serde_json::Value = server
@@ -941,6 +1050,41 @@ mod test {
         let secret = key_data["secret"].as_str().expect("should have secret");
         assert!(secret.starts_with("flow_sa_"));
 
+        // === valid_for validation ===
+        // Each case must be rejected, and the error message identifies the
+        // specific branch: non-ISO syntax, malformed ISO, non-positive, and
+        // over the one-year cap.
+        for (valid_for, want) in [
+            ("90 days", "ISO 8601"),               // Postgres syntax, not ISO 8601
+            ("Pfoo", "invalid valid_for"),         // 'P'-prefixed but unparseable
+            ("P0D", "positive"),                   // zero duration
+            ("P2Y", "no greater than 1 year"),     // exceeds the cap
+        ] {
+            let rejected: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        mutation($userId: UUID!, $label: String!, $validFor: String!) {
+                            createApiKey(serviceAccountId: $userId, label: $label, validFor: $validFor) { id }
+                        }"#,
+                        "variables": {
+                            "userId": sa_user_id,
+                            "label": "bad valid_for",
+                            "validFor": valid_for,
+                        }
+                    }),
+                    Some(&alice_token),
+                )
+                .await;
+            assert!(
+                rejected["errors"][0]["message"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains(want),
+                "valid_for {valid_for:?} should be rejected mentioning {want:?}: {rejected}"
+            );
+        }
+
         // === Exchange the API key for an access token ===
         let exchange_result: serde_json::Value = server
             .rest_client()
@@ -975,7 +1119,14 @@ mod test {
                                     displayName
                                     prefix
                                     capability
-                                    apiKeys { id label }
+                                    apiKeys {
+                                        id
+                                        label
+                                        createdBy
+                                        createdAt
+                                        expiresAt
+                                        lastUsedAt
+                                    }
                                 }
                             }
                         }
@@ -990,7 +1141,23 @@ mod test {
             .expect("should have edges");
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0]["node"]["displayName"], "CI Deploy Bot");
+        let listed_key = &edges[0]["node"]["apiKeys"][0];
         assert_eq!(edges[0]["node"]["apiKeys"].as_array().unwrap().len(), 1);
+        assert_eq!(listed_key["label"], "GitHub Actions");
+        assert_eq!(
+            listed_key["createdBy"], "11111111-1111-1111-1111-111111111111",
+            "key createdBy should be the calling admin: {list}"
+        );
+        assert!(
+            listed_key["createdAt"].is_string() && listed_key["expiresAt"].is_string(),
+            "key createdAt/expiresAt should be set: {list}"
+        );
+        // The key was exchanged above, so its last_used_at is now populated —
+        // this also exercises the best-effort last_used_at write on exchange.
+        assert!(
+            listed_key["lastUsedAt"].is_string(),
+            "lastUsedAt should be set after a successful exchange: {list}"
+        );
 
         // Bob sees no service accounts.
         let bob_list: serde_json::Value = server
@@ -1029,7 +1196,8 @@ mod test {
             "revoke should succeed: {revoke}"
         );
 
-        // Exchanging the revoked key fails.
+        // Exchanging the revoked key fails: the key no longer matches any row,
+        // so verification falls through to a 401 "invalid or expired" rejection.
         let exchange_fail = server
             .rest_client()
             .post(
@@ -1043,7 +1211,17 @@ mod test {
             .send()
             .await
             .unwrap();
-        assert!(!exchange_fail.status().is_success());
+        let status = exchange_fail.status();
+        let body = exchange_fail.text().await.unwrap();
+        assert_eq!(
+            status,
+            reqwest::StatusCode::UNAUTHORIZED,
+            "revoked key should be rejected with 401: {body}"
+        );
+        assert!(
+            body.contains("invalid or expired api key"),
+            "revoked key rejection body: {body}"
+        );
 
         // === Create a new key and then disable the service account ===
         let create_key2: serde_json::Value = server
@@ -1070,6 +1248,27 @@ mod test {
             .as_str()
             .unwrap();
 
+        // Count the service account's user_grants rows directly. The grant
+        // deletion is the disable-vs-revoke differentiator (it drops already
+        // issued tokens to zero capability on their next authz check), and the
+        // token-exchange assertions can't observe it: those fail on key
+        // deletion alone and would pass even if the grant were left in place.
+        async fn grant_count(pool: &sqlx::PgPool, user_id: &str) -> i64 {
+            sqlx::query_scalar!(
+                r#"SELECT count(*) AS "count!" FROM public.user_grants WHERE user_id = $1"#,
+                uuid::Uuid::parse_str(user_id).unwrap(),
+            )
+            .fetch_one(pool)
+            .await
+            .unwrap()
+        }
+
+        assert_eq!(
+            grant_count(&pool, sa_user_id).await,
+            1,
+            "service account should have a grant before disable"
+        );
+
         let disable: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
@@ -1087,8 +1286,22 @@ mod test {
             disable["errors"].is_null(),
             "disable should succeed: {disable}"
         );
+        assert_eq!(
+            disable["data"]["disableServiceAccount"].as_bool(),
+            Some(true),
+            "first disable performs the transition: {disable}"
+        );
 
-        // API key from disabled account fails.
+        assert_eq!(
+            grant_count(&pool, sa_user_id).await,
+            0,
+            "disable must delete the user_grants row, not just the keys"
+        );
+
+        // API key from the disabled account fails. Disable deleted the account's
+        // keys, so the exchange falls through to the same 401 "invalid or
+        // expired" path as a revoked key (the dedicated disabled-account branch
+        // in exchange_api_key is unreachable once the keys are gone).
         let exchange_disabled = server
             .rest_client()
             .post(
@@ -1102,7 +1315,17 @@ mod test {
             .send()
             .await
             .unwrap();
-        assert!(!exchange_disabled.status().is_success());
+        let status = exchange_disabled.status();
+        let body = exchange_disabled.text().await.unwrap();
+        assert_eq!(
+            status,
+            reqwest::StatusCode::UNAUTHORIZED,
+            "key for disabled account should be rejected with 401: {body}"
+        );
+        assert!(
+            body.contains("invalid or expired api key"),
+            "disabled-account key rejection body: {body}"
+        );
 
         // Cannot create key for disabled account.
         let key_while_disabled: serde_json::Value = server
@@ -1127,7 +1350,7 @@ mod test {
 
         assert!(key_while_disabled["errors"].is_array());
 
-        // Disabling again fails.
+        // Disabling again is an idempotent no-op: success, reporting no change.
         let disable_again: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
@@ -1141,7 +1364,15 @@ mod test {
             )
             .await;
 
-        assert!(disable_again["errors"].is_array());
+        assert!(
+            disable_again["errors"].is_null(),
+            "repeat disable should not error: {disable_again}"
+        );
+        assert_eq!(
+            disable_again["data"]["disableServiceAccount"].as_bool(),
+            Some(false),
+            "repeat disable is a no-op: {disable_again}"
+        );
 
         // === Re-enable the service account ===
         let enable: serde_json::Value = server
@@ -1160,6 +1391,17 @@ mod test {
         assert!(
             enable["errors"].is_null(),
             "enable should succeed: {enable}"
+        );
+        assert_eq!(
+            enable["data"]["enableServiceAccount"].as_bool(),
+            Some(true),
+            "first enable performs the transition: {enable}"
+        );
+
+        assert_eq!(
+            grant_count(&pool, sa_user_id).await,
+            1,
+            "enable must restore the user_grants row"
         );
 
         // Re-enabled account can have new keys created.
@@ -1208,7 +1450,7 @@ mod test {
             .unwrap();
         assert!(exchange_reenabled.status().is_success());
 
-        // Enabling an already enabled account fails.
+        // Enabling an already-enabled account is an idempotent no-op.
         let enable_again: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
@@ -1222,7 +1464,15 @@ mod test {
             )
             .await;
 
-        assert!(enable_again["errors"].is_array());
+        assert!(
+            enable_again["errors"].is_null(),
+            "repeat enable should not error: {enable_again}"
+        );
+        assert_eq!(
+            enable_again["data"]["enableServiceAccount"].as_bool(),
+            Some(false),
+            "repeat enable is a no-op: {enable_again}"
+        );
     }
 
     /// Covers the refresh-token GraphQL surface (create → list → delete, plus
@@ -1325,7 +1575,17 @@ mod test {
             .send()
             .await
             .unwrap();
-        assert!(!bad_secret.status().is_success());
+        let status = bad_secret.status();
+        let body = bad_secret.text().await.unwrap();
+        assert_eq!(
+            status,
+            reqwest::StatusCode::UNAUTHORIZED,
+            "bad refresh secret should be rejected with 401: {body}"
+        );
+        assert!(
+            body.contains("failed to exchange refresh token"),
+            "bad refresh secret rejection body: {body}"
+        );
 
         // === Delete the refresh token ===
         let delete: serde_json::Value = server
