@@ -155,26 +155,26 @@ async fn drive_one_shard(
             }))
             .map_err(|_| anyhow::anyhow!("serve task closed before Join"))?;
 
-        if shard_index == 0 {
-            tracing::info!(
-                session = session_index,
-                target_txns,
-                "starting preview session",
-            );
+        // All shards receive Task. Shard zero alone forwards to the leader.
+        tracing::info!(
+            session = session_index,
+            shard_index,
+            target_txns,
+            "starting preview session",
+        );
 
-            request_tx
-                .send(Ok(proto::Materialize {
-                    task: Some(proto::Task {
-                        spec: spec_bytes.clone(),
-                        preview: true,
-                        max_transactions: target_txns,
-                        sqlite_vfs_uri: String::new(),
-                        publisher_id: Default::default(), // Unused when `preview`.
-                    }),
-                    ..Default::default()
-                }))
-                .map_err(|_| anyhow::anyhow!("serve task closed before Task"))?;
-        }
+        request_tx
+            .send(Ok(proto::Materialize {
+                task: Some(proto::Task {
+                    spec: spec_bytes.clone(),
+                    preview: true,
+                    max_transactions: target_txns,
+                    sqlite_vfs_uri: String::new(),
+                    publisher_id: Default::default(), // Unused when `preview`.
+                }),
+                ..Default::default()
+            }))
+            .map_err(|_| anyhow::anyhow!("serve task closed before Task"))?;
 
         drive_session_responses(&request_tx, &mut response_rx, session_index, &stop_token).await?;
     }
