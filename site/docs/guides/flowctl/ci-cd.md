@@ -19,13 +19,13 @@ During development, you can locally create, manage, and test your resources befo
 Before creating these resources, you will need:
 * An [Estuary account](https://dashboard.estuary.dev/register)
 * `flowctl` [installed](../get-started-with-flowctl.md) on your machine
-* An Estuary [refresh token](../how_to_generate_refresh_token.md)
+* A service account API key to authenticate with
 
-You can authenticate your `flowctl` session in one of two ways:
+You can authenticate your `flowctl` session in one of these ways:
 
-* Set the `FLOW_AUTH_TOKEN` environment variable to your Estuary refresh token. This is the recommended way to handle a CI or automation setup.
+* **Set the `FLOW_API_KEY` environment variable to a service account API key** (a `flow_sa_...` value). This is the recommended way to authenticate CI and other automation. A service account is a non-human identity: its API key is long-lived, can be revoked at any time, and isn't tied to an individual person's account, so your automation keeps working even if a teammate leaves the organization. Treat the key as a secret—keep it in your secret store and provide it through the environment on each run rather than writing it to disk.
 
-* Or run the `flowctl auth login` command and paste in your token. This is handy for local development.
+* Or run the `flowctl auth login` command and paste in your token. This is handy for local, interactive development.
 
 You will then be able to connect with Estuary to set up your resources.
 
@@ -406,11 +406,13 @@ test:1> Ran 1 tests, 0 passed, 1 failed
 
 Once you're happy with your resources and any tests have passed, your automation can publish your changes to Estuary.
 
-Your automation will need to be authenticated to use `flowctl` for your resources on your behalf. You can do so by setting the `FLOW_AUTH_TOKEN` environment variable:
+Your automation will need to be authenticated to use `flowctl`. For CI and other automation, set the `FLOW_API_KEY` environment variable to a service account API key:
 
 ```
-export FLOW_AUTH_TOKEN=your_refresh_token
+export FLOW_API_KEY=flow_sa_...
 ```
+
+Source the key from your CI system's secret store (for example, a GitHub Actions secret) so it isn't committed to your repository or written to disk.
 
 The session will then be authenticated to use the `catalog publish` command:
 

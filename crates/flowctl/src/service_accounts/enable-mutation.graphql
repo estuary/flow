@@ -1,0 +1,3 @@
+mutation EnableServiceAccount($id: UUID!) {
+    enableServiceAccount(id: $id)
+}

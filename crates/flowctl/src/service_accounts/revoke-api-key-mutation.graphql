@@ -1,0 +1,3 @@
+mutation RevokeApiKey($id: Id!) {
+    revokeApiKey(id: $id)
+}

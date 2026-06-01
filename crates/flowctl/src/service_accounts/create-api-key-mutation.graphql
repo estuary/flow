@@ -1,0 +1,14 @@
+mutation CreateApiKey(
+    $serviceAccountId: UUID!
+    $label: String!
+    $validFor: String!
+) {
+    createApiKey(
+        serviceAccountId: $serviceAccountId
+        label: $label
+        validFor: $validFor
+    ) {
+        id
+        secret
+    }
+}

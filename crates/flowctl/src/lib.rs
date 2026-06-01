@@ -17,6 +17,7 @@ mod output;
 mod poll;
 mod preview;
 mod raw;
+mod service_accounts;
 mod version;
 
 pub(crate) use flow_client::client::Client;
@@ -107,6 +108,8 @@ pub enum Command {
     Draft(draft::Draft),
     /// Read operational logs of your tasks (captures, derivations, and materializations).
     Logs(ops::Logs),
+    /// Manage service accounts and their API keys for programmatic access.
+    ServiceAccounts(service_accounts::ServiceAccounts),
     /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
 }
@@ -224,6 +227,7 @@ impl Cli {
             Command::Preview(preview) => preview.run(&mut context).await,
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
+            Command::ServiceAccounts(sa) => sa.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
         };
 

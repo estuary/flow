@@ -1,0 +1,37 @@
+fragment SelectApiKey on ApiKeyInfo {
+    id
+    label
+    createdBy
+    createdAt
+    expiresAt
+    lastUsedAt
+}
+
+fragment SelectServiceAccount on ServiceAccount {
+    id
+    displayName
+    prefix
+    capability
+    createdBy
+    createdAt
+    updatedAt
+    lastUsedAt
+    disabledAt
+    apiKeys {
+        ...SelectApiKey
+    }
+}
+
+query ListServiceAccounts($filter: ServiceAccountsFilter, $after: String, $first: Int) {
+    serviceAccounts(filter: $filter, after: $after, first: $first) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            node {
+                ...SelectServiceAccount
+            }
+        }
+    }
+}

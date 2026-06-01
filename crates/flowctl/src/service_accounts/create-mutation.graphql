@@ -1,0 +1,24 @@
+mutation CreateServiceAccount(
+    $prefix: Prefix!
+    $capability: Capability!
+    $displayName: String!
+) {
+    createServiceAccount(
+        prefix: $prefix
+        capability: $capability
+        displayName: $displayName
+    ) {
+        id
+        displayName
+        prefix
+        capability
+        createdBy
+        createdAt
+        updatedAt
+        lastUsedAt
+        disabledAt
+        apiKeys {
+            id
+        }
+    }
+}
