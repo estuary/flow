@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Launch the source-soak capture connector via the repo's poetry-managed venv.
+#
+# Self-locating so it works regardless of the caller's working directory: the
+# reactor spawns `local:` connectors from $HOME, not the repo. The flow.yaml
+# references this script by absolute path.
+#
+# Requires an in-project venv with the project's dependencies installed:
+#   (from the repo root) poetry install --no-root
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(realpath "$0")")" && pwd)" # tests/soak/capture
+REPO="$(cd "$HERE/../../.." && pwd)"
+
+cd "$HERE" # so `python -m source_soak` resolves the package in this directory.
+exec "$REPO/.venv/bin/python" -m source_soak "$@"

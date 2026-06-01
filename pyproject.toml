@@ -5,9 +5,10 @@ description = ""
 authors = ["Johnny Graettinger <johnny@estuary.dev>"]
 
 [tool.poetry.dependencies]
-python = "^3.10"
+pydantic = "^2.0"
 pytest = "^7.4.3"
 pytest-insta = "^0.2.0"
+python = "^3.10"
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,0 +1,49 @@
+# The PostgreSQL materialization of `test/soak/accounts` (see ../README.md
+# "Downstream: the PostgreSQL materialization").
+#
+# Materialize the unified `accounts` collection into PostgreSQL two ways, so the
+# V2-runtime invariants the derivation checks in flight (conservation,
+# oracle-vs-computed matching, exactly-once) become re-checkable at rest in a real
+# SQL sink (README has the queries). Both variants are bindings of one task and
+# route through runtime-next via `enable-runtime-v2`. Feeding this file to
+# `flowctl raw preview-next` builds the derivation it imports, plus the
+# materialize-postgres image — and needs a reachable `supabase_db_flow`.
+#
+#   - `soak_accounts`        standard (merge): one row per id (root reduce is
+#                            lastWriteWins, so the row holds the account's latest
+#                            reduced {seq, set, balance, oracle, ok}). Σ balance
+#                            over real ids is 0, and every row's computed
+#                            {seq, balance} equals its carried oracle.
+#   - `soak_accounts_delta`  delta-updates: skips loads and appends each
+#                            transaction's reduced doc, accumulating a per-account
+#                            history. The latest row per id (max seq) reconstructs
+#                            the standard view; oracle matching holds on every row.
+import:
+  - ../derivation/flow.yaml
+
+materializations:
+  test/soak/views:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-postgres:13946b2
+        config:
+          address: supabase_db_flow:5432
+          database: postgres
+          user: postgres
+          credentials:
+            auth_type: UserPassword
+            password: postgres
+    shards:
+      logLevel: info
+      flags:
+        enable-runtime-v2: "true"
+    bindings:
+      - source: test/soak/accounts
+        resource:
+          table: soak_accounts
+          schema: soak
+      - source: test/soak/accounts
+        resource:
+          table: soak_accounts_delta
+          schema: soak
+          delta_updates: true

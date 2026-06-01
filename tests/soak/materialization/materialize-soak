@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Launch the materialize-soak materialization connector via the repo's poetry venv.
+#
+# Self-locating so it works regardless of the caller's working directory: the
+# reactor spawns `local:` connectors from $HOME, not the repo, and resolves this
+# script's command relative to the source flow.yaml. Mirrors ./source-soak.
+#
+# Requires an in-project venv with the project's dependencies installed:
+#   (from the repo root) poetry install --no-root
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(realpath "$0")")" && pwd)" # tests/soak/materialization
+REPO="$(cd "$HERE/../../.." && pwd)"
+
+cd "$HERE" # so `python -m materialize_soak` resolves the package in this directory.
+exec "$REPO/.venv/bin/python" -m materialize_soak "$@"

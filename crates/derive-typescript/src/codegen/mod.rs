@@ -86,7 +86,10 @@ export type FlushResponse = {{
 
 export abstract class IDerivation {{
     // Construct a new Derivation instance from a Request.Open message.
-    constructor(_open: {{ state: unknown }}) {{ }}
+    // `range` is the shard's assigned key/r-clock range (camelCase, with zero
+    // components omitted), present at runtime and useful for shards that namespace
+    // cooperative state by their key range.
+    constructor(_open: {{ state: unknown, range?: {{ keyBegin?: number, keyEnd?: number, rClockBegin?: number, rClockEnd?: number }} }}) {{ }}
 
     // flush completes any deferred work for the current transaction, publishing
     // all documents derived from prior reads. It may be called more than once per
