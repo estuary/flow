@@ -112,6 +112,20 @@ returns setof text as $$
     'alice role_grants visibility'
   );
 
+  -- PostgREST `return=representation` (used by every dashboard insert/update/delete)
+  -- issues `RETURNING *`, so `authenticated` must be able to read every column of
+  -- rows it can mutate. A column-level grant that omits a column breaks this even
+  -- though RLS permits the row. `select *` expands to all columns and regresses the
+  -- moment a column is added without a matching read grant.
+  select lives_ok(
+    $i$ select * from user_grants $i$,
+    'authenticated can select * from user_grants (PostgREST representation)'
+  );
+  select lives_ok(
+    $i$ select * from role_grants $i$,
+    'authenticated can select * from role_grants (PostgREST representation)'
+  );
+
   set role postgres;
 
   select results_eq(
