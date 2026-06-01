@@ -305,7 +305,8 @@ impl Shape {
     ///
     /// The approximate lengths of arrays and strings are attached to widened Shapes at
     /// power-of-two boundaries. Numeric ranges are also attached, at order-of-magnitude
-    /// (10x) boundaries.
+    /// (10x) boundaries, except that they snap to the i64 limits rather than crossing
+    /// them, so that materializations don't widen a column past i64 needlessly.
     pub fn widen<'n, N>(&mut self, node: &'n N) -> bool
     where
         N: AsNode,
@@ -430,7 +431,8 @@ fn length_bounds(l: usize) -> (u32, u32) {
     }
 }
 
-// Compute a lower and upper order-of-magnitude bound for the given number.
+// Compute a lower and upper order-of-magnitude bound for the given number,
+// respecting the i64 limits.
 #[cold]
 fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
     use json::Number;
@@ -475,16 +477,16 @@ fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
                 Number::NegInt(-(10i64.pow(e))),
             )
         }
+        Number::PosInt(n) if n == 0 => (Number::PosInt(0), Number::PosInt(0)),
         Number::PosInt(n) => {
-            if n > 0 {
-                let e = n.ilog10();
-                (
-                    Number::PosInt(10u64.pow(e)),
-                    Number::PosInt(10u64.checked_pow(e + 1).unwrap_or(u64::MAX)),
-                )
+            let e = n.ilog10();
+            let ceil = if n <= i64::MAX as u64 {
+                i64::MAX as u64
             } else {
-                (Number::PosInt(0), Number::PosInt(0))
-            }
+                u64::MAX
+            };
+            let upper = 10u64.checked_pow(e + 1).unwrap_or(u64::MAX).min(ceil);
+            (Number::PosInt(10u64.pow(e)), Number::PosInt(upper))
         }
     }
 }
@@ -1246,6 +1248,34 @@ mod test {
             "#,
             &[(true, json!(0)), (true, json!(i64::MIN as f64 - 1e10))],
         );
+
+        // Values within i64 clamp their bounds at i64::MAX / i64::MIN
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: integer
+            minimum: -9223372036854775808
+            maximum: 9223372036854775807
+            "#,
+            &[
+                (true, json!(0)),
+                (true, json!(9_000_000_000_000_000_000i64)),
+                (true, json!(-9_000_000_000_000_000_000i64)),
+            ],
+        );
+
+        // The clamp is integer-only. When the same in-range magnitudes arrive as
+        // non-fractional floats they are NOT snapped to i64 — they round by
+        // order-of-magnitude to ±1e19 (which a materialization reads as `numeric`).
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: integer
+            minimum: -1e19
+            maximum: 1e19
+            "#,
+            &[(true, json!(0)), (true, json!(9e18)), (true, json!(-9e18))],
+        );
     }
 
     #[test]
@@ -1273,13 +1303,36 @@ mod test {
                 [101.1, 100.0, 1_000.0],
                 [8_675_309, 1_000_000, 10_000_000],
                 [8_675_309.5, 1_000_000.0, 10_000_000.0],
+                // i64 boundary: a value that fits in i64 snaps its upper bound to
+                // i64::MAX instead of rounding up to 1e19 and over-widening columns.
+                [
+                    1_000_000_000_000_000_000u64,
+                    1_000_000_000_000_000_000u64,
+                    i64::MAX
+                ],
+                [
+                    9_000_000_000_000_000_000i64,
+                    1_000_000_000_000_000_000i64,
+                    i64::MAX
+                ],
+                [i64::MAX, 1_000_000_000_000_000_000i64, i64::MAX],
+                [9e18, 1e18, 1e19],
+                [i64::MAX as f64, 1e18, 1e19],
+                [
+                    i64::MAX as u64 + 1,
+                    1_000_000_000_000_000_000i64,
+                    10_000_000_000_000_000_000u64,
+                ],
                 [u64::MAX - 100, 10000000000000000000u64, u64::MAX],
                 [u64::MAX as f64 + 1.0, 1e19, 1e20],
                 [5e31, 1e31, 1e32],
                 // Negative cases.
                 [-5e31, -1e32, -1e31],
                 [i64::MIN as f64 - 1.0, -1e19, -1e18],
+                [i64::MIN as f64, -1e19, -1e18],
+                [-9e18, -1e19, -1e18],
                 [i64::MIN + 1, i64::MIN, -1000000000000000000i64],
+                [i64::MIN, i64::MIN, -1_000_000_000_000_000_000i64],
                 [-8_675_309.5, -10_000_000.0, -1_000_000.0],
                 [-8_675_309, -10_000_000, -1_000_000],
                 [-101.1, -1_000.0, -100.0],
@@ -1306,6 +1359,29 @@ mod test {
                 "number bounds of index {ind}: {given:?}"
             );
         }
+    }
+
+    // The integer-path i64 clamp must reach the emitted JSON Schema as the exact
+    // integers i64::MIN / i64::MAX
+    #[test]
+    fn test_i64_clamped_bounds_serialize_exactly() {
+        let mut schema = Shape::nothing();
+        assert!(schema.widen(&json!(9_000_000_000_000_000_000i64)));
+        assert!(schema.widen(&json!(-9_000_000_000_000_000_000i64)));
+        let rendered = serde_json::to_string(&crate::shape::schema::to_schema(schema)).unwrap();
+
+        assert!(
+            rendered.contains("9223372036854775807"),
+            "maximum must be the exact i64::MAX integer, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("-9223372036854775808"),
+            "minimum must be the exact i64::MIN integer, got: {rendered}"
+        );
+        assert!(
+            !rendered.contains("776000"),
+            "a bound leaked through an f64, got: {rendered}"
+        );
     }
 
     // Parse JSON as a HeapNode, which preserves duplicate properties
