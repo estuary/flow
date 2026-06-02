@@ -94,13 +94,9 @@ impl Preview {
             ::ops::tracing_log_handler
         };
 
-        let (_sources, _live, validations) = local_specs::load_and_validate_full(
-            &ctx.client,
-            source_url.as_str(),
-            network,
-            log_handler,
-        )
-        .await?;
+        let (_sources, _live, validations) =
+            local_specs::load_and_validate_full(ctx, source_url.as_str(), network, log_handler)
+                .await?;
 
         let task = resolve_task(&validations, name.as_deref())?;
 

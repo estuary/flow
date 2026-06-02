@@ -23,9 +23,10 @@ pub async fn list_authorized_prefixes(
         first: limit as i64,
     };
 
-    let resp = post_graphql::<ListAuthorizedPrefixes>(&ctx.client, vars)
-        .await
-        .context("fetching authorized catalog prefixes")?;
+    let resp =
+        post_graphql::<ListAuthorizedPrefixes>(&ctx.rest, ctx.access_token().as_deref(), vars)
+            .await
+            .context("fetching authorized catalog prefixes")?;
 
     let prefixes = resp.prefixes.edges.into_iter().map(|e| e.node).collect();
     Ok(prefixes)

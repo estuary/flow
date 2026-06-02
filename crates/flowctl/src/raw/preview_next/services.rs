@@ -96,17 +96,15 @@ impl Run {
     ) -> anyhow::Result<Self> {
         let log_handler = pick_log_handler(log_json);
 
-        let access_token = ctx
-            .config
-            .user_access_token
-            .clone()
-            .context("you must be logged in to preview. Try `flowctl auth login`")?;
+        anyhow::ensure!(
+            ctx.access_token().is_some(),
+            "you must be logged in to preview. Try `flowctl auth login`"
+        );
 
-        // TODO(johnny): handle refresh rotation.
-        let user_tokens = tokens::fixed(Ok(flow_client_next::user_auth::UserToken {
-            access_token: Some(access_token),
-            refresh_token: None,
-        }));
+        // Share the live, auto-refreshing user-token watch so a long-lived
+        // preview re-mints collection authorizations with a currently-valid
+        // access token and survives rotation of both token layers.
+        let user_tokens = ctx.user_tokens.clone();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -115,9 +113,9 @@ impl Run {
         let peer_endpoint = format!("http://{local_addr}");
 
         let factory = flow_client_next::workflows::user_collection_auth::new_journal_client_factory(
-            flow_client_next::rest::Client::new(ctx.config.get_agent_url(), "flowctl"),
+            ctx.rest.clone(),
             models::Capability::Read,
-            gazette::Router::new("local"),
+            ctx.router.clone(),
             user_tokens,
         );
         // 2 GiB matches the runtime-next default for sidecar-hosted shuffle services.

@@ -177,13 +177,8 @@ pub struct Stats {
 
 impl Stats {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        crate::ops::read_task_ops_journal(
-            &ctx.client,
-            &self.task.task,
-            OpsCollection::Stats,
-            &self.bounds,
-        )
-        .await
+        crate::ops::read_task_ops_journal(ctx, &self.task.task, OpsCollection::Stats, &self.bounds)
+            .await
     }
 }
 
@@ -212,7 +207,7 @@ impl BearerLogs {
             }
         };
 
-        crate::poll::stream_logs(&ctx.client, &self.token.to_string(), bound).await
+        crate::poll::stream_logs(ctx, &self.token.to_string(), bound).await
     }
 }
 
@@ -246,7 +241,11 @@ impl Advanced {
 }
 
 async fn do_get(ctx: &mut crate::CliContext, Get { table, query }: &Get) -> anyhow::Result<()> {
-    let req = ctx.client.from(table).build().query(query);
+    let mut req = ctx.pg.from(table).build();
+    if let Some(token) = ctx.access_token() {
+        req = req.bearer_auth(token);
+    }
+    let req = req.query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -257,7 +256,11 @@ async fn do_update(
     ctx: &mut crate::CliContext,
     Update { table, query, body }: &Update,
 ) -> anyhow::Result<()> {
-    let req = ctx.client.from(table).update(body).build().query(query);
+    let mut req = ctx.pg.from(table).update(body).build();
+    if let Some(token) = ctx.access_token() {
+        req = req.bearer_auth(token);
+    }
+    let req = req.query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -272,7 +275,11 @@ async fn do_rpc(
         body,
     }: &Rpc,
 ) -> anyhow::Result<()> {
-    let req = ctx.client.rpc(function, body.clone()).build().query(query);
+    let mut req = ctx.pg.rpc(function, body.clone()).build();
+    if let Some(token) = ctx.access_token() {
+        req = req.bearer_auth(token);
+    }
+    let req = req.query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -281,7 +288,8 @@ async fn do_rpc(
 
 async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<()> {
     let resolver = local_specs::Resolver {
-        client: ctx.client.clone(),
+        pg: ctx.pg.clone(),
+        access_token: ctx.access_token(),
     };
 
     let Build {
@@ -343,8 +351,7 @@ async fn do_combine(
     ctx: &mut crate::CliContext,
     Combine { source, collection }: &Combine,
 ) -> anyhow::Result<()> {
-    let (_sources, _live, validations) =
-        local_specs::load_and_validate(&ctx.client, source).await?;
+    let (_sources, _live, validations) = local_specs::load_and_validate(ctx, source).await?;
 
     let collection = match validations
         .built_collections
@@ -473,17 +480,15 @@ impl GazctlEnv {
             reactor_address,
             reactor_token,
             retry_millis: _,
-        } = flow_client::fetch_user_prefix_authorization(
-            &ctx.client,
-            models::authorizations::UserPrefixAuthorizationRequest {
-                capability: if self.admin {
-                    models::Capability::Admin
-                } else {
-                    models::Capability::Read
-                },
-                data_plane: models::Name::new(&data_plane_name),
-                prefix: models::Prefix::new(&prefix),
-                started_unix: 0,
+        } = crate::dataplane::user_prefix_authorization(
+            &ctx.rest,
+            &ctx.user_tokens,
+            models::Prefix::new(&prefix),
+            models::Name::new(&data_plane_name),
+            if self.admin {
+                models::Capability::Admin
+            } else {
+                models::Capability::Read
             },
         )
         .await?;
@@ -506,12 +511,13 @@ impl GazctlEnv {
             data_plane_name: Option<String>,
         }
 
-        let results: Vec<LiveSpecResult> = crate::api_exec(
-            ctx.client
+        let results: Vec<LiveSpecResult> = flow_client_next::postgrest::exec(
+            ctx.pg
                 .from("live_specs_ext")
                 .select("data_plane_name")
                 .eq("catalog_name", catalog_name)
                 .limit(1),
+            ctx.access_token().as_deref(),
         )
         .await?;
 

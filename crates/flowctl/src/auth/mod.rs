@@ -2,7 +2,6 @@ pub mod list;
 mod roles;
 
 use anyhow::Context;
-use flow_client::client::refresh_authorizations;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -57,40 +56,70 @@ pub struct Token {
 }
 
 impl Auth {
-    pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
-        match &self.cmd {
-            Command::Login => do_login(ctx).await,
-            Command::Token(Token { token }) => {
-                ctx.config.user_access_token = Some(token.clone());
-                println!("Configured access token.");
-                Ok(())
-            }
-            Command::Roles(roles) => roles.run(ctx).await,
-        }?;
+    /// Whether this subcommand acquires user credentials (`login` / `token`).
+    /// These are the only contexts permitted to create a new refresh token, and
+    /// they reject an ambient `FLOW_AUTH_TOKEN`.
+    pub fn acquires_credential(&self) -> bool {
+        matches!(self.cmd, Command::Login | Command::Token(_))
+    }
 
-        // Ensure that any changes to the credentials fully propagate
-        // i.e if an access token is changed, we also need to make sure
-        // to generate and store an updated refresh token.
-        let (access_token, refresh_token) = refresh_authorizations(
-            &ctx.client,
-            ctx.config.user_access_token.to_owned(),
-            ctx.config.user_refresh_token.to_owned(),
-        )
-        .await?;
-        ctx.config.user_access_token = Some(access_token);
-        ctx.config.user_refresh_token = Some(refresh_token);
-        Ok(())
+    /// Acquire the access token of a credential-establishing subcommand
+    /// (`login`, `token`) to seed the live token watch, which in turn drives
+    /// token creation, refresh, and persistence.
+    ///
+    /// The returned token deliberately clears a prior session refresh token,
+    /// which may belong to a different identity than the freshly-provided access
+    /// token, or be expired or revoked. Omitting it forces the watch down its
+    /// create-refresh-token path, minting a matching refresh token and round-
+    /// tripping to the server, so an invalid access token is rejected rather
+    /// than silently persisted.
+    ///
+    /// Panics if the subcommand does not acquire a credential; callers gate this
+    /// behind `acquires_credential()`.
+    pub async fn acquire_credential(
+        &self,
+        config: &crate::config::Config,
+    ) -> anyhow::Result<flow_client_next::user_auth::UserToken> {
+        let access_token = match &self.cmd {
+            Command::Login => do_login(config).await?,
+            Command::Token(Token { token }) => token.clone(),
+            Command::Roles(_) => unreachable!("gated by acquires_credential()"),
+        };
+        Ok(flow_client_next::user_auth::UserToken {
+            access_token: Some(access_token),
+            refresh_token: None,
+        })
+    }
+
+    /// Run consume-only auth subcommands (`roles`), and confirm credential
+    /// acquisition for `login`/`token` — whose access token is acquired via
+    /// `acquire_credential` to seed the watch before it's wired.
+    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+        match &self.cmd {
+            Command::Roles(roles) => roles.run(ctx).await,
+            Command::Login | Command::Token(_) => {
+                if let Err(status) = ctx.user_tokens.watch().token().result() {
+                    anyhow::bail!(
+                        "Failed to complete authentication flow: {}",
+                        status.message()
+                    )
+                } else {
+                    let claims = ctx.require_control_claims()?;
+                    match claims.email {
+                        Some(email) => println!("Authenticated as {email}."),
+                        None => println!("Authenticated as User ID {}", claims.sub),
+                    }
+                    Ok(())
+                }
+            }
+        }
     }
 }
 
-async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+async fn do_login(config: &crate::config::Config) -> anyhow::Result<String> {
     use crossterm::tty::IsTty;
 
-    let url = ctx
-        .config
-        .get_dashboard_url()
-        .join("/admin/api")?
-        .to_string();
+    let url = config.get_dashboard_url().join("/admin/api")?.to_string();
 
     println!("\nOpening browser to: {url}");
     if let Err(_) = open::that(&url) {
@@ -118,10 +147,7 @@ async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         .context("failed to read auth token")?;
 
         // Copied credentials will often accidentally contain extra whitespace characters.
-        let token = token.trim().to_string();
-        ctx.config.user_access_token = Some(token);
-        println!("\nConfigured access token.");
-        Ok(())
+        Ok(token.trim().to_string())
     } else {
         // This is not necessarily a problem for the user, because they can just run
         // `auth token --token ...`, but we still need to exit non-zero

@@ -1,10 +1,11 @@
 use anyhow::Context;
 use std::path::PathBuf;
 
-use flow_client::{
+use flow_client_next::{
     DEFAULT_AGENT_URL, DEFAULT_CONFIG_ENCRYPTION_URL, DEFAULT_DASHBOARD_URL,
     DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_AGENT_URL, LOCAL_CONFIG_ENCRYPTION_URL,
-    LOCAL_DASHBOARD_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL, client::RefreshToken,
+    LOCAL_DASHBOARD_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
+    user_auth::{RefreshToken, UserToken},
 };
 
 /// Configuration of `flowctl`.
@@ -157,29 +158,39 @@ impl Config {
             config.user_refresh_token = refresh_token;
         }
 
-        // FLOW_AUTH_TOKEN, if present, overrides a refresh or access token
-        // loaded from disk. A value with three dot-delimited segments is a JWT
-        // access token; anything else is a base64-encoded refresh token JSON.
-        if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
-            if env_token.split('.').count() == 3 {
-                tracing::info!("using FLOW_AUTH_TOKEN environment access token");
-                config.user_refresh_token = None;
-                config.user_access_token = Some(env_token);
-            } else {
-                let decoded = tokens::jwt::parse_base64(&env_token)
-                    .context("FLOW_AUTH_TOKEN is not base64")?;
-                let token: RefreshToken =
-                    serde_json::from_slice(&decoded).context("FLOW_AUTH_TOKEN is invalid JSON")?;
-
-                tracing::info!("using FLOW_AUTH_TOKEN environment refresh token");
-                config.user_refresh_token = Some(token);
-                config.user_access_token = None;
-            }
-        }
-
         config.is_local = profile == "local";
 
         Ok(config)
+    }
+
+    /// Parse a `FLOW_AUTH_TOKEN` credential from the environment, if present.
+    ///
+    /// A value with three dot-delimited segments is a JWT access token, and
+    /// anything else is a base64-encoded refresh-token JSON. Returns `None` when
+    /// the variable is unset.
+    pub fn env_user_token() -> anyhow::Result<Option<UserToken>> {
+        let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) else {
+            return Ok(None);
+        };
+
+        if env_token.split('.').count() == 3 {
+            tracing::info!("using FLOW_AUTH_TOKEN environment access token");
+            Ok(Some(UserToken {
+                access_token: Some(env_token),
+                refresh_token: None,
+            }))
+        } else {
+            let decoded =
+                tokens::jwt::parse_base64(&env_token).context("FLOW_AUTH_TOKEN is not base64")?;
+            let refresh_token: RefreshToken =
+                serde_json::from_slice(&decoded).context("FLOW_AUTH_TOKEN is invalid JSON")?;
+
+            tracing::info!("using FLOW_AUTH_TOKEN environment refresh token");
+            Ok(Some(UserToken {
+                access_token: None,
+                refresh_token: Some(refresh_token),
+            }))
+        }
     }
 
     /// Write the config to the file corresponding to the given named `profile`.
@@ -205,16 +216,34 @@ impl Config {
         Ok(())
     }
 
-    pub fn build_anon_client(&self) -> flow_client::Client {
+    /// Build a base PostgREST client carrying the public `apikey` header.
+    /// The user's bearer access token (if any) is applied per-request by
+    /// `flow_client_next::postgrest::exec`, not baked into this client.
+    pub fn build_pg(&self) -> postgrest::Postgrest {
         let user_agent = format!("flowctl-{}", env!("CARGO_PKG_VERSION"));
-        flow_client::Client::new(
-            user_agent,
-            self.get_agent_url().clone(),
-            self.get_pg_public_token().to_string(),
-            self.get_pg_url().clone(),
-            None,
-            self.get_config_encryption_url().clone(),
-        )
+        flow_client_next::postgrest::new_client(self.get_pg_url(), self.get_pg_public_token())
+            .insert_header("user-agent", user_agent)
+    }
+
+    /// Build a REST client for the control-plane agent API.
+    pub fn build_rest(&self) -> flow_client_next::rest::Client {
+        let user_agent = format!("flowctl-{}", env!("CARGO_PKG_VERSION"));
+        flow_client_next::rest::Client::new(self.get_agent_url(), &user_agent)
+    }
+
+    /// Atomically persist just the user token fields to the named profile's
+    /// config file, preserving all other on-disk fields. This is the single
+    /// writer of token state during a run (startup bootstrap, the rotation
+    /// observer, and `auth login`), so refresh-token rotations are durably
+    /// captured as they happen rather than only at process exit.
+    pub fn persist_tokens(
+        profile: &str,
+        tokens: &flow_client_next::user_auth::UserToken,
+    ) -> anyhow::Result<()> {
+        let mut config = Config::load(profile)?;
+        config.user_access_token = tokens.access_token.clone();
+        config.user_refresh_token = tokens.refresh_token.clone();
+        config.write(profile)
     }
 
     fn config_dir() -> anyhow::Result<PathBuf> {

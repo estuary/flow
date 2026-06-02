@@ -98,7 +98,7 @@ async fn fetch_all(
             after: after.clone(),
             first: Some(PAGE_SIZE),
         };
-        let resp = post_graphql::<ListAlertConfigs>(&ctx.client, vars)
+        let resp = post_graphql::<ListAlertConfigs>(&ctx.rest, ctx.access_token().as_deref(), vars)
             .await
             .context("failed to fetch alert configs")?;
 
@@ -176,7 +176,8 @@ async fn do_update(args: &UpdateArgs, ctx: &mut crate::CliContext) -> anyhow::Re
         config: models::RawValue::from_value(&merged_config),
         detail: args.detail.clone(),
     };
-    let resp = post_graphql::<UpdateAlertConfig>(&ctx.client, vars).await?;
+    let resp =
+        post_graphql::<UpdateAlertConfig>(&ctx.rest, ctx.access_token().as_deref(), vars).await?;
 
     let action = if resp.update_alert_config.created {
         "created"

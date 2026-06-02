@@ -1,5 +1,5 @@
 use crate::local_specs;
-use flow_client::api_exec_paginated;
+use futures::TryStreamExt;
 use models::{CatalogType, RawValue};
 use serde::{Deserialize, Serialize};
 
@@ -36,13 +36,16 @@ pub async fn develop(
     overwrite: bool,
     flat: bool,
 ) -> anyhow::Result<()> {
-    let rows: Vec<DraftSpecRow> = api_exec_paginated(
-        ctx.client
+    let rows: Vec<DraftSpecRow> = flow_client_next::postgrest::exec_paginated(
+        ctx.pg
             .from("draft_specs")
             .select("catalog_name,spec,spec_type,expect_pub_id")
             .not("is", "spec_type", "null")
             .eq("draft_id", draft_id.to_string()),
+        ctx.access_token().as_deref(),
     )
+    .await
+    .try_collect::<Vec<_>>()
     .await?;
 
     let target = build::arg_source_to_url(&target, true)?;
@@ -56,7 +59,7 @@ pub async fn develop(
     let sources = local_specs::indirect_and_write_resources(sources)?;
 
     println!("Wrote {count} specifications under {target}.");
-    let () = local_specs::generate_files(&ctx.client, sources).await?;
+    let () = local_specs::generate_files(ctx, sources).await?;
 
     Ok(())
 }

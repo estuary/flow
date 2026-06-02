@@ -7,7 +7,7 @@ use tables::CatalogResolver;
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
 pub(crate) async fn load_and_validate(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     source: &str,
 ) -> anyhow::Result<(
     tables::DraftCatalog,
@@ -16,22 +16,14 @@ pub(crate) async fn load_and_validate(
 )> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let (draft, live, built) = validate(
-        client,
-        true,
-        false,
-        true,
-        draft,
-        "",
-        ops::tracing_log_handler,
-    )
-    .await;
+    let (draft, live, built) =
+        validate(ctx, true, false, true, draft, "", ops::tracing_log_handler).await;
     Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Load and validate sources and all connectors.
 pub(crate) async fn load_and_validate_full(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     source: &str,
     network: &str,
     log_handler: impl runtime::LogHandler,
@@ -43,17 +35,17 @@ pub(crate) async fn load_and_validate_full(
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
     let (draft, live, built) =
-        validate(client, false, false, false, sources, network, log_handler).await;
+        validate(ctx, false, false, false, sources, network, log_handler).await;
     Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Generate connector files by validating sources with derivation connectors.
 pub(crate) async fn generate_files(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
     let (mut draft, _live, built) = validate(
-        client,
+        ctx,
         true,
         false,
         true,
@@ -96,7 +88,7 @@ pub(crate) async fn load(source: &url::Url) -> tables::DraftCatalog {
 }
 
 async fn validate(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
@@ -112,7 +104,8 @@ async fn validate(
     let project_root = build::project_root(source);
 
     let mut live = Resolver {
-        client: client.clone(),
+        pg: ctx.pg.clone(),
+        access_token: ctx.access_token(),
     }
     .resolve(draft.all_catalog_names())
     .await;
@@ -228,7 +221,8 @@ pub(crate) fn pick_policy(
 }
 
 pub(crate) struct Resolver {
-    pub client: crate::Client,
+    pub pg: postgrest::Postgrest,
+    pub access_token: Option<String>,
 }
 
 impl tables::CatalogResolver for Resolver {
@@ -269,7 +263,7 @@ impl Resolver {
         let mut live = build::NoOpCatalogResolver.resolve(Vec::new()).await;
 
         // If we're unauthenticated then return the placeholder LiveCatalog.
-        if !self.client.is_authenticated() {
+        if self.access_token.is_none() {
             return Ok(live);
         }
 
@@ -295,11 +289,12 @@ impl Resolver {
         prefixes.sort();
         prefixes.dedup();
 
-        let storage_mappings = crate::api_exec::<Vec<StorageMappingRow>>(
-            self.client
+        let storage_mappings = flow_client_next::postgrest::exec::<Vec<StorageMappingRow>>(
+            self.pg
                 .from("storage_mappings")
                 .select("catalog_prefix,id,spec")
                 .in_("catalog_prefix", prefixes),
+            self.access_token.as_deref(),
         )
         .await
         .context("failed to fetch storage mappings")?;
@@ -332,8 +327,9 @@ impl Resolver {
             data_plane_name: String,
         }
 
-        let data_planes = crate::api_exec::<Vec<DataPlaneRow>>(
-            self.client.from("data_planes").select("id,data_plane_name"),
+        let data_planes = flow_client_next::postgrest::exec::<Vec<DataPlaneRow>>(
+            self.pg.from("data_planes").select("id,data_plane_name"),
+            self.access_token.as_deref(),
         )
         .await
         .context("failed to fetch data planes")?;
@@ -374,13 +370,20 @@ impl Resolver {
             .into_iter()
             .map(|names| {
                 let builder = self
-                    .client
+                    .pg
                     .from("live_specs_ext")
                     .select("id,catalog_name,data_plane_id,spec_type,spec,built_spec,last_pub_id,last_build_id")
                     .not("is", "spec_type", "null")
                     .in_("catalog_name", names);
+                let access_token = self.access_token.clone();
 
-                async move { crate::api_exec::<Vec<LiveSpec>>(builder).await }
+                async move {
+                    flow_client_next::postgrest::exec::<Vec<LiveSpec>>(
+                        builder,
+                        access_token.as_deref(),
+                    )
+                    .await
+                }
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect::<Vec<Vec<LiveSpec>>>()
@@ -450,7 +453,7 @@ impl Resolver {
         catalog_names: &[&str],
     ) -> anyhow::Result<tables::InferredSchemas> {
         // If we're unauthenticated then return empty InferredSchemas rather than an error.
-        if !self.client.is_authenticated() {
+        if self.access_token.is_none() {
             return Ok(Default::default());
         }
 
@@ -467,12 +470,16 @@ impl Resolver {
             .into_iter()
             .map(|names| {
                 let builder = self
-                    .client
+                    .pg
                     .from("inferred_schemas")
                     .select("collection_name,schema,md5")
                     .in_("collection_name", names);
+                let access_token = self.access_token.clone();
 
-                async move { crate::api_exec::<Vec<Row>>(builder).await }
+                async move {
+                    flow_client_next::postgrest::exec::<Vec<Row>>(builder, access_token.as_deref())
+                        .await
+                }
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect::<Vec<Vec<Row>>>()

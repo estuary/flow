@@ -3,7 +3,7 @@ use serde::Deserialize;
 // Poll an async task in `table` having `id` until it's no longer queued.
 // While we're waiting print out logs under `logs_token`.
 pub async fn poll_while_queued(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     table: &str,
     id: models::Id,
     logs_token: &str,
@@ -11,13 +11,13 @@ pub async fn poll_while_queued(
     tracing::info!(%id, %logs_token, "Waiting for {table} job");
 
     tokio::select! {
-        outcome = poll_table(client, table, id) => return outcome,
-        result = stream_logs(client, logs_token, None) => return Err(result.unwrap_err()),
+        outcome = poll_table(ctx, table, id) => return outcome,
+        result = stream_logs(ctx, logs_token, None) => return Err(result.unwrap_err()),
     };
 }
 
 pub async fn poll_table(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     table: &str,
     id: models::Id,
 ) -> anyhow::Result<String> {
@@ -26,14 +26,16 @@ pub async fn poll_table(
         struct PollResponse {
             r#type: String,
         }
-        let PollResponse { r#type: job_status } = crate::api_exec::<PollResponse>(
-            client
-                .from(table)
-                .select("job_status->>type")
-                .eq("id", id.to_string())
-                .single(),
-        )
-        .await?;
+        let PollResponse { r#type: job_status } =
+            flow_client_next::postgrest::exec::<PollResponse>(
+                ctx.pg
+                    .from(table)
+                    .select("job_status->>type")
+                    .eq("id", id.to_string())
+                    .single(),
+                ctx.access_token().as_deref(),
+            )
+            .await?;
         tracing::trace!(%job_status, %id, %table, "polled job");
 
         if job_status != "queued" {
@@ -46,7 +48,7 @@ pub async fn poll_table(
 }
 
 pub async fn stream_logs(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     logs_token: &str,
     mut last_logged_at: Option<crate::Timestamp>,
 ) -> anyhow::Result<()> {
@@ -59,8 +61,8 @@ pub async fn stream_logs(
             logged_at: crate::Timestamp,
             stream: String,
         }
-        let logs: Vec<Log> = super::api_exec::<Vec<Log>>(
-            client.rpc(
+        let logs: Vec<Log> = flow_client_next::postgrest::exec::<Vec<Log>>(
+            ctx.pg.rpc(
                 "view_logs",
                 serde_json::json!({
                     "bearer_token": logs_token,
@@ -68,6 +70,7 @@ pub async fn stream_logs(
                 })
                 .to_string(),
             ),
+            ctx.access_token().as_deref(),
         )
         .await?;
 

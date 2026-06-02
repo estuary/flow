@@ -19,13 +19,7 @@ pub struct TaskSelector {
 
 impl Logs {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        read_task_ops_journal(
-            &ctx.client,
-            &self.task.task,
-            OpsCollection::Logs,
-            &self.bounds,
-        )
-        .await
+        read_task_ops_journal(ctx, &self.task.task, OpsCollection::Logs, &self.bounds).await
     }
 }
 
@@ -36,13 +30,19 @@ pub enum OpsCollection {
 }
 
 pub async fn read_task_ops_journal(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     task_name: &str,
     collection: OpsCollection,
     bounds: &ReadBounds,
 ) -> anyhow::Result<()> {
     let (_shard_id_prefix, ops_logs_journal, ops_stats_journal, _shard_client, journal_client) =
-        flow_client::fetch_user_task_authorization(client, task_name).await?;
+        crate::dataplane::user_task_authorization(
+            &ctx.rest,
+            &ctx.user_tokens,
+            &ctx.router,
+            task_name,
+        )
+        .await?;
 
     let journal_name = match collection {
         OpsCollection::Logs => ops_logs_journal,
