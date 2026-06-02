@@ -571,6 +571,14 @@ func (b *appendFSM) onValidatePreconditions() {
 		if suspend.GetLevel() == pb.JournalSpec_Suspend_PARTIAL {
 			b.resolved.status = pb.Status_SUSPENDED
 		}
+	case pb.AppendRequest_SUSPEND_KEEP:
+		// Proceed without altering the journal's suspension level. A partially
+		// suspended journal is appended through its single remaining replica
+		// (which, crucially, leaves DesiredReplication unchanged and avoids the
+		// full-topology restoration that SUSPEND_RESUME would require). Used by
+		// `gazctl journals reset-head` to reset the write head of a journal
+		// without resuming it. Fully suspended journals are already handled by
+		// onResolve(), which returns SUSPENDED before reaching this point.
 	}
 
 	if b.pln.spool.Begin == indexMin {
@@ -670,8 +678,14 @@ func (b *appendFSM) onStreamContent(req *pb.AppendRequest, err error) {
 		// Non-empty appends cannot be made to non-writable journals.
 		b.resolved.status = pb.Status_NOT_ALLOWED
 	} else if err == nil &&
-		(b.req.Suspend == pb.AppendRequest_SUSPEND_IF_FLUSHED || b.req.Suspend == pb.AppendRequest_SUSPEND_NOW) {
-		// Appends that request a suspension may not have content.
+		(b.req.Suspend == pb.AppendRequest_SUSPEND_IF_FLUSHED ||
+			b.req.Suspend == pb.AppendRequest_SUSPEND_NOW ||
+			b.req.Suspend == pb.AppendRequest_SUSPEND_KEEP) {
+		// Appends carrying a suspension control other than the SUSPEND_RESUME
+		// default may not have content. SUSPEND_IF_FLUSHED / SUSPEND_NOW request
+		// a suspension, while SUSPEND_KEEP is used for empty barriers such as
+		// `gazctl journals reset-head` which deliberately do not resume.
+		// In all cases the empty commit chunk is handled above and is permitted.
 		b.resolved.status = pb.Status_NOT_ALLOWED
 	} else if err == nil {
 		// Regular content chunk. Forward it through the pipeline.

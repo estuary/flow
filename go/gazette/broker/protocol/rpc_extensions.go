@@ -124,7 +124,7 @@ func (m *ReadResponse) Validate() error {
 
 func (x AppendRequest_Suspend) Validate() error {
 	switch x {
-	case AppendRequest_SUSPEND_RESUME, AppendRequest_SUSPEND_NO_RESUME, AppendRequest_SUSPEND_IF_FLUSHED, AppendRequest_SUSPEND_NOW:
+	case AppendRequest_SUSPEND_RESUME, AppendRequest_SUSPEND_NO_RESUME, AppendRequest_SUSPEND_IF_FLUSHED, AppendRequest_SUSPEND_NOW, AppendRequest_SUSPEND_KEEP:
 		return nil
 	default:
 		return NewValidationError("invalid Suspend variant (%s)", x)

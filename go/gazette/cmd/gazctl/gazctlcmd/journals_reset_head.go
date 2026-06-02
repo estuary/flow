@@ -49,7 +49,11 @@ Then, the effect of reset-head is to jump the append offset forward to the
 maximum indexed offset, allowing new append operations to proceed.
 
 reset-head is safe to run against journals which are already consistent and
-and are being actively appended to.
+are being actively appended to.
+
+Partially-suspended journals are reset in place without being resumed, so
+running reset-head does not disturb their suspension or replication topology.
+Fully-suspended journals have an empty fragment index and are skipped.
 `, &cmdJournalResetHead{})
 }
 
@@ -97,10 +101,14 @@ func resetHead(rjc pb.RoutedJournalClient, journal pb.Journal, done func()) {
 	if _, err := r.Read(nil); err != client.ErrOffsetNotYetAvailable {
 		mbp.Must(err, "failed to read head of journal", "journal", journal)
 	}
-	// Issue a zero-byte write at the indexed head.
+	// Issue a zero-byte write at the indexed head. SUSPEND_KEEP resets the head
+	// without altering suspension: a partially-suspended journal is reset through
+	// its single replica and stays suspended, rather than being resumed (which
+	// would force a costly restoration of its full replication topology).
 	var a = client.NewAppender(ctx, rjc, pb.AppendRequest{
 		Journal: journal,
 		Offset:  r.Response.Offset,
+		Suspend: pb.AppendRequest_SUSPEND_KEEP,
 	})
 	var err = a.Close()
 

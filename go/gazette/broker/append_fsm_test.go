@@ -328,6 +328,46 @@ func TestFSMSuspendAndResume(t *testing.T) {
 	require.NotNil(t, fsm.plnReturnCh)
 	fsm.returnPipeline()
 
+	// Case: a SUSPEND_KEEP append (as issued by `gazctl journals reset-head`)
+	// resets the head of the now partially-suspended journal through its single
+	// replica, without resuming it. Its suspension is left unchanged, and -- in
+	// contrast to the SUSPEND_NOW case above -- it returns OK rather than
+	// SUSPENDED, so reset-head observes the reset as a success.
+	fsm = newFSM(broker, ctx, pb.AppendRequest{
+		Journal: "a/journal",
+		Offset:  1024,
+		Suspend: pb.AppendRequest_SUSPEND_KEEP,
+	})
+	require.True(t, fsm.runTo(stateStreamContent))
+
+	require.Equal(t, pb.Status_OK, fsm.resolved.status)
+	require.Nil(t, fsm.nextSuspend)
+	require.Equal(t, &pb.JournalSpec_Suspend{
+		Level:  pb.JournalSpec_Suspend_PARTIAL,
+		Offset: 1024,
+	}, fsm.resolved.journalSpec.Suspend)
+	fsm.returnPipeline()
+
+	// Case: a SUSPEND_KEEP append may carry only an empty barrier. Content is
+	// rejected with NOT_ALLOWED, as it would otherwise be committed through the
+	// journal's reduced-replication topology.
+	fsm = newFSM(broker, ctx, pb.AppendRequest{
+		Journal: "a/journal",
+		Offset:  1024,
+		Suspend: pb.AppendRequest_SUSPEND_KEEP,
+	})
+	require.True(t, fsm.runTo(stateStreamContent))
+
+	fsm.onStreamContent(&pb.AppendRequest{Content: []byte("data")}, nil)
+	require.Equal(t, pb.Status_NOT_ALLOWED, fsm.resolved.status)
+
+	fsm.onReadAcknowledgements()
+	require.Equal(t, stateError, fsm.state)
+	require.NoError(t, fsm.err)
+	require.Equal(t, pb.Status_NOT_ALLOWED, fsm.resolved.status)
+	require.Equal(t, pb.JournalSpec_Suspend_PARTIAL,
+		fsm.resolved.journalSpec.Suspend.GetLevel())
+
 	// Case: Journal is eligible for full suspension.
 	broker.initialFragmentLoad() // Clear remote fragments.
 	fsm = newFSM(broker, ctx, pb.AppendRequest{
