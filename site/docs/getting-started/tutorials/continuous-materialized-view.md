@@ -214,11 +214,11 @@ Your transformation will continue in real time based on the raw dataset, which i
 
 Now, you'll materialize your new fact table to Postgres. You'll also materialize the source dataset to compare performance.
 
-1. Go to the [Destinations page](https://dashboard.estuary.dev/materializations) in Estuary's web app.
+1. Go to the [Destinations page](https://dashboard.estuary.dev/materializations) in Estuary's dashboard.
 
 2. Click **New Materialization**.
 
-3. Find the **PostgreSQL** and click **Materialization**.
+3. Find the **PostgreSQL** tile and click **Materialization**.
 
 3. Add a unique name for the materialization, for example, `yourprefix/yourname-materialized-views-demo`.
 
@@ -232,7 +232,13 @@ Now, you'll materialize your new fact table to Postgres. You'll also materialize
 
    See the [connector documentation](https://docs.estuary.dev/reference/Connectors/materialization-connectors/PostgreSQL/) if you need help finding these properties.
 
-5. In the **Source Collections** browser, search for and add the collection `demo/wikipedia/recentchange` and name the corresponding Postgres Table `wikipedia_raw`.
+5. In the **Source Collections** browser, search for and add the collection `demo/wikipedia/recentchange`.
+
+   When you first add a capture or collection to your materialization, you will be prompted to select a **target naming strategy**.
+   This sets defaults for your table and schema names in your destination.
+   We'll be updating our table names manually for clarity, so simply stick with "Match source structure" and continue.
+
+   In the collection's **Resource Configuration**, you can then name the corresponding Postgres table `wikipedia_raw`.
 
 6. Also search for and add the collection you just derived, (for example, `yourprefix/wikipedia/user-fact-table`).
 Name the corresponding Postgres table `wikipedia_data_by_user`.

@@ -13,7 +13,7 @@ You'll need:
 
 * (Recommended) understanding of Estuary's [basic concepts](/concepts/#essential-concepts).
 
-* Access to the [**Estuary web application**](http://dashboard.estuary.dev) through an Estuary account.
+* Access to the [**Estuary dashboard**](http://dashboard.estuary.dev) through an Estuary account.
 If you don't have one, visit the web app to register for free.
 
 * A **Firestore database** that contains the data you'd like to move to Snowflake. You [create this as part of a Google Firebase project](https://cloud.google.com/firestore/docs/create-database-web-mobile-client-library).
@@ -27,10 +27,12 @@ If you don't have one, visit the web app to register for free.
 
 * A Snowflake account with:
 
-  * A target **database**, **schema**, and virtual **warehouse**; and a **user** with a **role** assigned that grants the appropriate access levels to these resources.
+  * A target **database**, **schema**, and virtual **warehouse**.
+
+  * A **user** with a **role** assigned that grants the appropriate access levels to these resources and a **public key** assigned for JWT auth.
   [You can use a script to quickly create all of these items.](/reference/Connectors/materialization-connectors/Snowflake/#setup) Have these details on hand for setup with Estuary.
 
-  * The account identifier and host URL noted. [The URL is formatted using the account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used). For example, you might have the account identifier `orgname-accountname.snowflakecomputing.com`.
+  * The host URL noted. [The URL is formatted using the account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used). For example, you might have the account identifier `orgname-accountname.snowflakecomputing.com`.
 
 ## Introduction
 
@@ -50,8 +52,7 @@ We'll walk through how to configure the [Firestore](/reference/Connectors/captur
 
 You'll first create a capture to connect to your Firestore database, which will yield one Estuary collection for each [Firestore collection](https://cloud.google.com/firestore/docs/data-model) in your database.
 
-1. Go to Estuary's web application at [dashboard.estuary.dev](https://dashboard.estuary.dev/) and sign in using the
-credentials provided by your Estuary account manager.
+1. Go to Estuary's dashboard at [dashboard.estuary.dev](https://dashboard.estuary.dev/) and sign in.
 
 2. Click the **Sources** tab and choose **New Capture**.
 
@@ -76,9 +77,9 @@ credentials provided by your Estuary account manager.
 
    Estuary uses the provided configuration to initiate a connection with Firestore.
 
-   It maps each available Firestore collection to a possible Estuary collection. It also generates minimal schemas for each collection.
+   It maps each available Firestore collection to a possible Estuary collection. It also infers schemas for each collection.
 
-   You can use the **Source Collections** browser to remove or modify collections. You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
+   You can remove or modify collections in the **Source Collections** section. For each collection, you can rename or [redact](/features/redaction) fields from its **Collection** tab.
 
   :::tip
   If you make any changes to collections, click **Next** again.
@@ -90,7 +91,7 @@ credentials provided by your Estuary account manager.
 
    The data currently in your Firestore database has been captured, and future updates to it will be captured continuously.
 
-8. Click **Materialize Collections** to continue.
+8. Click **Materialize** to continue.
 
 ## Materialize to Snowflake
 
@@ -100,48 +101,40 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
    A form appears with the properties required for a Snowflake materialization.
 
-2.  Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/mySnowflakeMaterialization`.
+2. You will be prompted to select a [default naming strategy](/concepts/materialization/#target-resource-naming-conventions) for your materialization.
 
-3. Fill out the required properties for Snowflake (you should have most of these handy from the [prerequisites](#prerequisites)).
+   For this demo, select **Set a default schema** and enter the schema name you created as per the [prerequisites](#prerequisites).
+
+   Click **Continue** to set your selection.
+
+3.  Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/mySnowflakeMaterialization`.
+
+4. Fill out the required properties for Snowflake (you should have most of these handy from the [prerequisites](#prerequisites)).
 
    * **Host URL**
-   * **Account**
-   * **User**
-   * **Password**
    * **Database**
    * **Schema**
    * **Warehouse**: optional
    * **Role**: optional
+   * **Timestamp type**
+   * **User**
+   * **Private key**
 
-4. Click **Next**.
+5. Click **Next**.
 
    Estuary uses the provided configuration to initiate a connection to Snowflake.
 
    You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
-   Once the connection is successful, the Endpoint Config collapses and the **Source Collections** browser becomes prominent.
+   Once the connection is successful, the Endpoint Config collapses and the **Source Collections** section becomes prominent.
    It shows the collections you captured previously.
    Each of them will be mapped to a Snowflake table.
 
-5. In the **Source Collections** browser, optionally change the name in the **Table** field for each collection.
+6. In the **Source Collections** section, optionally modify the **Resource Configuration** for each collection.
 
-   These will be the names of the output tables in Snowflake.
+   This includes table name, an alternative schema name, and field selection options.
 
-6. For each table, choose whether to [enable delta updates](/reference/Connectors/materialization-connectors/Snowflake/#delta-updates).
-
-7. For each collection, apply a stricter schema to be used for the materialization.
-
-   Firestore has a flat data structure.
-   To materialize data effectively from Firestore to Snowflake, you should apply a schema that can translate to a table structure.
-   Estuary's **Schema Inference** tool can help.
-
-   1. In the Source Collections browser, choose a collection and click its **Collection** tab.
-
-   2. Click **Schema Inference**
-
-      The Schema Inference window appears. Estuary scans the data in your collection and infers a new schema, called the `readSchema`, to use for the materialization.
-
-   3. Review the new schema and click **Apply Inferred Schema**.
+7. For each table, choose whether to [enable delta updates](/reference/Connectors/materialization-connectors/Snowflake/#delta-updates).
 
 8. Click **Next** to apply the changes you made to collections.
 
@@ -149,7 +142,7 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 ## What's next?
 
-Your Data Flow has been deployed, and will run continuously until it's stopped. Updates in your Firestore database will be reflected in your Snowflake table as they occur.
+Your Data Flow has been deployed, and will run continuously until it's stopped. Updates in your Firestore database will be reflected in your Snowflake table based on your defined sync schedule.
 
 You can advance your Data Flow by adding a **derivation**. Derivations are real-time data transformations.
 See the [guide to create a derivation](/guides/flowctl/create-derivation).

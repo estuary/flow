@@ -11,7 +11,7 @@ The dataset you'll use is composed of zipped CSV files in an Amazon S3 cloud sto
 
 You'll need:
 
-* An Estuary account. If you don't have one, visit the [Estuary web app](https://dashboard.estuary.dev) to register for free.
+* An Estuary account. If you don't have one, visit [Estuary's dashboard](https://dashboard.estuary.dev) to register for free.
 
 * A [Snowflake free trial account](https://signup.snowflake.com/) (or a full account).
   Snowflake trials are valid for 30 days.
@@ -37,7 +37,7 @@ The simplest Data Flow comprises three types of entities:
 
 * A data **capture**, which ingests data from the source. In this case, you'll capture from Amazon S3.
 
-* One or more **collections**, which Estuary uses to store that data inside a cloud-backed data lake
+* One or more **collections**, which Estuary uses to store that data inside a cloud-backed data lake.
 
 * A **materialization**, to push the data to an external destination. In this case, you'll materialize to a Snowflake data warehouse.
 
@@ -82,38 +82,42 @@ You'll start by creating your capture.
 
 6. Next, fill out the required properties for S3.
 
-   * **AWS Access Key ID** and **AWS Secret Access Key**: The bucket is public, so you can leave these fields blank.
-
    * **AWS Region**: `us-east-1`
 
    * **Bucket**: `tripdata`
 
    * **Prefix**: The storage bucket isn't organized by prefixes, so leave this blank.
 
-   * **Match Keys**: `2022`
+   * **Match Keys**: `2025.*`
 
-   The Citi Bike storage bucket has been around for a while. Some of the older datasets have incorrect file extensions or contain data in different formats. By selecting a subset of files from the year 2022, you'll make things easier to manage for the purposes of this tutorial.
-   (In a real-world use case, you'd likely reconcile the different schemas of the various data formats using a **derivation**.
-   [Derivations](../../concepts/README.md#derivations) are a more advanced Estuary skill.)
+      The Citi Bike storage bucket has been around for a while. Some of the older datasets have incorrect file extensions or contain data in different formats. By selecting a subset of files from the year 2025, you'll make things easier to manage for the purposes of this tutorial.
+      (In a real-world use case, you'd likely reconcile the different schemas of the various data formats using a **derivation**.
+      [Derivations](../../concepts/README.md#derivations) are a more advanced Estuary skill.)
+
+   * **Authentication**: The bucket is public, so select **Anonymous** authentication.
+
+   * **Parser Configuration**: Estuary is often able to automatically determine how to parse incoming data.
+   For this capture, however, you can specify **Zip Archive** as the compression type and **CSV** as the file type.
 
 7. Click **Next**.
 
    Estuary uses the configuration you provided to initiate a connection with S3. It generates a list of **collections** that will store the data inside Estuary. In this case, there's just one collection from the bucket.
 
-     Once this process completes, you can move on to the next step. If there's an error, go back and check your configuration.
+   Once this process completes, you can move on to the next step. If there's an error, go back and check your configuration.
+
 8. Click **Save and Publish**.
 
-   Estuary deploys, or **publishes**, your capture, including your change to the schema. You'll see a notification when the this is complete.
+   Estuary deploys, or **publishes**, your capture. You'll see a notification when the this is complete.
 
    A subset of data from the Citi Bike tripdata bucket has been captured to a collection. Now, you can materialize that data to Snowflake.
 
-9. Click **Materialize Collections**.
+9. Click **Materialize**.
 
 ## Prepare Snowflake to use with Estuary
 
 Before you can materialize from Estuary to Snowflake, you need to complete some setup steps.
 
-1. Leave the Estuary web app open. In a new window or tab, go to your Snowflake console.
+1. Leave the Estuary dashboard open. In a new window or tab, go to your Snowflake console.
 
    If you're a new trial user, you should have received instructions by email. For additional help in this section, see the [Snowflake documentation](https://docs.snowflake.com/en/user-guide-getting-started.html).
 
@@ -121,14 +125,13 @@ Before you can materialize from Estuary to Snowflake, you need to complete some 
 
    This provides an interface where you can run queries.
 
-3. Paste the following script into the console, changing the value for `estuary_password` from `secret` to a strong password:
+3. Paste the following script into the console:
 
 ```sql
 set database_name = 'ESTUARY_DB';
 set warehouse_name = 'ESTUARY_WH';
 set estuary_role = 'ESTUARY_ROLE';
 set estuary_user = 'ESTUARY_USER';
-set estuary_password = 'secret';
 set estuary_schema = 'ESTUARY_SCHEMA';
 -- create role and schema for Estuary
 create role if not exists identifier($estuary_role);
@@ -139,10 +142,11 @@ use database identifier($database_name);
 create schema if not exists identifier($estuary_schema);
 -- create a user for Estuary
 create user if not exists identifier($estuary_user)
-password = $estuary_password
 default_role = $estuary_role
 default_warehouse = $warehouse_name;
 grant role identifier($estuary_role) to user identifier($estuary_user);
+-- Estuary requires case-sensitive quoted identifiers (e.g. "_meta/op").
+alter user identifier($estuary_user) set QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE;
 grant all on schema identifier($estuary_schema) to identifier($estuary_role);
 -- create a warehouse for estuary
 create warehouse if not exists identifier($warehouse_name)
@@ -166,34 +170,46 @@ COMMIT;
 
 4. Click the drop-down arrow next to the **Run** button and click **Run All**.
 
-  Snowflake runs all the queries and is ready to use with Estuary.
+5. Set up JWT authentication for the `estuary_user`.
 
-5. Return to the Estuary web application.
+   You can generate a public/private key-pair in your terminal using:
+
+   ```shell
+   openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out rsa_key.p8 -nocrypt
+   openssl rsa -in rsa_key.p8 -pubout -out rsa_key.pub
+   ```
+
+   Assign the _public_ key to `estuary_user` in Snowflake:
+
+   ```sql
+   ALTER USER identifier($estuary_user) SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...'
+   ```
+
+6. Return to the Estuary dashboard.
 
 ## Materialize your Estuary collection to Snowflake
 
-You were directed to the **Materializations** page.
+When you clicked **Materialize** from your S3 capture, you were directed to the **Materializations** page.
 All of the available materialization connectors — representing the possible data destinations — are shown as tiles.
 
 1. Find the **Snowflake** tile and click **Materialization**.
 
    A new form appears with the properties required to materialize to Snowflake.
 
-2. Click inside the **Name** box.
+2. You will be prompted to select a [default naming strategy](/concepts/materialization/#target-resource-naming-conventions) for your materialization.
 
-3. Click your prefix from the dropdown and append a unique name after it. For example, `myOrg/yourname/citibiketutorial`.
+   For this demo, select **Set a default schema** and enter the schema name you created using the SQL script in Snowflake.
+   By default, this will be `ESTUARY_SCHEMA`.
+
+   Click **Continue** to set your selection.
+
+3. In the **Name** box, select your prefix from the dropdown and append a unique name after it. For example, `myOrg/yourname/citibiketutorial`.
 
 4. Next, fill out the required properties for Snowflake (most of these come from the script you just ran).
 
    * **Host URL**: This is the URL you use to log into Snowflake. If you recently signed up for a trial, it should be in your email. Omit the protocol from the beginning. For example, `ACCOUNTID.region.cloudprovider.snowflakecomputing.com` or `orgname-accountname.snowflakecomputing.com`.
 
       [Learn more about account identifiers and host URLs.](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used)
-
-   * **Account**: Your account identifier. This is part of the Host URL. Using the previous examples, it would be `ACCOUNTID` or `accountname`.
-
-   * **User**: `ESTUARY_USER`
-
-   * **Password**: `secret` (Substitute the password you set in the script.)
 
    * **Database**: `ESTUARY_DB`
 
@@ -203,18 +219,18 @@ All of the available materialization connectors — representing the possible da
 
    * **Role**: `ESTUARY_ROLE`
 
-4. Scroll down to view the **Source Collections** section and change the default name in the **Table** field to `CitiBikeData` or another name of your choosing.
+   * **Timestamp Type**: Choose how timestamp columns should be stored in Snowflake.
+   Unless you have already explicitly set your `TIMESTAMP_TYPE_MAPPING` in Snowflake, you can default to `TIMESTAMP_LTZ` for this field.
 
-   Every Estuary collection is defined by one or more **schemas**.
-   Because S3 is a cloud storage bucket, the schema used to ingest the data is quite permissive.
+   * **Authentication**: Using Private Key (JWT) auth, enter your user (`ESTUARY_USER`) and the _private_ key you generated.
 
-   You'll add a more detailed schema for Estuary to use to materialize the data to Snowflake. This will ensure that each field from the source CSV is mapped to a column in the Snowflake table.
+4. Scroll down to view the **Source Collections** section.
 
-5. With the collection still selected, click its **Collection** tab. Then, click **Schema Inference**.
+   Estuary automatically infers the schema of incoming data.
+   To check how your data will materialize in Snowflake, select your `tripdata` collection and view its **Collection** tab.
+   You should see fields related to the start and end of bike trips and their inferred data types.
 
-   Estuary examines the data and automatically generates a new `readSchema`. Scroll through and note the differences between this and the original schema, renamed `writeSchema`.
-
-6. Click **Apply Inferred Schema**.
+   You can also control which fields get materialized in the **Resource Configuration** tab under **Field Selection**.
 
 7. Click **Next**.
 
