@@ -7,10 +7,7 @@ mod status;
 mod test;
 
 use self::list::{List, do_list};
-use crate::{
-    api_exec,
-    output::{CliOutput, JsonCell, to_table_row},
-};
+use crate::output::{CliOutput, JsonCell, to_table_row};
 use models::{CatalogType, RawValue};
 use serde::{Deserialize, Serialize};
 
@@ -219,23 +216,25 @@ async fn do_draft(
         mut spec,
         spec_type,
     } = if let Some(publication_id) = publication_id {
-        api_exec(
-            ctx.client
+        flow_client_next::postgrest::exec(
+            ctx.pg
                 .from("publication_specs_ext")
                 .eq("catalog_name", name)
                 .eq("pub_id", publication_id.to_string())
                 .select("catalog_name,last_pub_id,pub_id,spec,spec_type")
                 .single(),
+            ctx.access_token().as_deref(),
         )
         .await?
     } else {
-        api_exec(
-            ctx.client
+        flow_client_next::postgrest::exec(
+            ctx.pg
                 .from("live_specs")
                 .eq("catalog_name", name)
                 .not("is", "spec_type", "null")
                 .select("catalog_name,last_pub_id,pub_id:last_pub_id,spec,spec_type")
                 .single(),
+            ctx.access_token().as_deref(),
         )
         .await?
     };
@@ -263,12 +262,13 @@ async fn do_draft(
     };
     tracing::debug!(?draft_spec, "inserting draft");
 
-    let rows: Vec<SpecSummaryItem> = api_exec(
-        ctx.client
+    let rows: Vec<SpecSummaryItem> = flow_client_next::postgrest::exec(
+        ctx.pg
             .from("draft_specs")
             .select("catalog_name,spec_type")
             .upsert(serde_json::to_string(&draft_spec).unwrap())
             .on_conflict("draft_id,catalog_name"),
+        ctx.access_token().as_deref(),
     )
     .await?;
 

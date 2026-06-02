@@ -20,12 +20,12 @@ pub struct TestArgs {
 /// actually modifying the published specs.
 pub async fn do_test(ctx: &mut CliContext, args: &TestArgs) -> anyhow::Result<()> {
     let (mut draft_catalog, _live, _validations) =
-        local_specs::load_and_validate(&ctx.client, &args.source).await?;
+        local_specs::load_and_validate(ctx, &args.source).await?;
 
-    let draft = draft::create_draft(&ctx.client).await?;
+    let draft = draft::create_draft(ctx).await?;
     println!("Created draft: {}", &draft.id);
     tracing::info!(draft_id = %draft.id, "created draft");
-    let spec_rows = draft::author(&ctx.client, draft.id, &mut draft_catalog).await?;
+    let spec_rows = draft::author(ctx, draft.id, &mut draft_catalog).await?;
     println!("Running tests for catalog items:");
     ctx.write_all(spec_rows, ())?;
     println!("Starting tests...");
@@ -33,7 +33,7 @@ pub async fn do_test(ctx: &mut CliContext, args: &TestArgs) -> anyhow::Result<()
     // Technically, test is just a publish with the dry-run flag set to true.
     let publish_result = draft::publish(ctx, args.init_data_plane.as_deref(), draft.id, true).await;
 
-    if let Err(del_err) = draft::delete_draft(&ctx.client, draft.id).await {
+    if let Err(del_err) = draft::delete_draft(ctx, draft.id).await {
         tracing::error!(draft_id = %draft.id, error = %del_err, "failed to delete draft");
     }
     publish_result.context("Tests failed")?;

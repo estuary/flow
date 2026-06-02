@@ -64,9 +64,14 @@ pub async fn read_collection(
         );
     }
 
-    let (journal_name_prefix, journal_client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, false)
-            .await?;
+    let (journal_name_prefix, journal_client) = crate::dataplane::user_collection_journal(
+        &ctx.rest,
+        &ctx.user_tokens,
+        &ctx.router,
+        &selector.collection,
+        models::Capability::Read,
+    )
+    .await?;
 
     let list_resp = journal_client
         .list(broker::ListRequest {

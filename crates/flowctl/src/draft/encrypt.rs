@@ -1,4 +1,3 @@
-use crate::Client;
 use crate::graphql::*;
 use anyhow::Context;
 use models::RawValue;
@@ -18,7 +17,7 @@ struct FetchConnectorEndpointSchema;
 /// passing the connector's `endpointSpecSchema` to identify secret fields.
 pub async fn encrypt_configs(
     draft: &mut tables::DraftCatalog,
-    client: &Client,
+    ctx: &crate::CliContext,
 ) -> anyhow::Result<()> {
     // Simple cache of endpoint spec schemas, keyed on the full image + tag.
     // Avoids repeated GraphQL calls for catalogs with many tasks.
@@ -30,10 +29,10 @@ pub async fn encrypt_configs(
         {
             if !is_encrypted(&connector.config) {
                 let maybe_schema =
-                    fetch_or_cache_schema(&connector.image, &mut schema_cache, client).await?;
+                    fetch_or_cache_schema(&connector.image, &mut schema_cache, ctx).await?;
                 let endpoint_spec_schema = require_schema(&capture.scope, maybe_schema)?;
                 connector.config = encrypt_config(
-                    client,
+                    ctx,
                     capture.capture.as_str(),
                     models::CatalogType::Capture,
                     &connector.config,
@@ -55,10 +54,10 @@ pub async fn encrypt_configs(
         if let models::MaterializationEndpoint::Connector(connector) = &mut model.endpoint {
             if !is_encrypted(&connector.config) {
                 let maybe_schema =
-                    fetch_or_cache_schema(&connector.image, &mut schema_cache, client).await?;
+                    fetch_or_cache_schema(&connector.image, &mut schema_cache, ctx).await?;
                 let endpoint_spec_schema = require_schema(&materialization.scope, maybe_schema)?;
                 connector.config = encrypt_config(
-                    client,
+                    ctx,
                     materialization.materialization.as_str(),
                     models::CatalogType::Materialization,
                     &connector.config,
@@ -73,7 +72,7 @@ pub async fn encrypt_configs(
             && triggers.sops.is_none()
         {
             *triggers = encrypt_triggers(
-                client,
+                ctx,
                 materialization.materialization.as_str(),
                 triggers,
                 &triggers_schema,
@@ -90,7 +89,7 @@ pub async fn encrypt_configs(
 /// fields without causing HMAC mismatches that would require re-entering secret
 /// header values.
 async fn encrypt_triggers(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     task_name: &str,
     triggers: &models::Triggers,
     schema: &RawValue,
@@ -100,7 +99,7 @@ async fn encrypt_triggers(
 
     let stripped_json = serde_json::to_string(&to_encrypt).context("serializing triggers")?;
     let encrypted_raw = encrypt_config(
-        client,
+        ctx,
         task_name,
         models::CatalogType::Materialization,
         &RawValue::from_string(stripped_json).context("triggers JSON is invalid")?,
@@ -116,19 +115,65 @@ async fn encrypt_triggers(
 }
 
 async fn encrypt_config(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     task_name: &str,
     task_type: models::CatalogType,
     config: &RawValue,
     schema: &RawValue,
 ) -> anyhow::Result<RawValue> {
     tracing::debug!(?task_name, %task_type, "encrypting task endpoint config");
-    let encrypted = client
-        .encrypt_endpoint_config(config, schema)
-        .await
-        .with_context(|| format!("encrypting endpoint config for {task_type} '{task_name}'"))?;
+    let encrypted = encrypt_endpoint_config(
+        &ctx.rest.http_client,
+        ctx.config.get_config_encryption_url(),
+        config,
+        schema,
+    )
+    .await
+    .with_context(|| format!("encrypting endpoint config for {task_type} '{task_name}'"))?;
     tracing::info!(%task_name, %task_type, "successfully encrypted endpoint configuration");
     Ok(encrypted)
+}
+
+/// Calls the config encryption service to encrypt `plaintext` using `schema` to
+/// identify secret fields. Port of the former
+/// `flow_client::Client::encrypt_endpoint_config`.
+async fn encrypt_endpoint_config(
+    http_client: &reqwest::Client,
+    config_encryption_url: &url::Url,
+    plaintext: &RawValue,
+    schema: &RawValue,
+) -> anyhow::Result<RawValue> {
+    #[derive(serde::Serialize)]
+    struct EncryptRequest<'a> {
+        config: &'a RawValue,
+        schema: &'a RawValue,
+    }
+
+    let encrypt_endpoint = format!("{config_encryption_url}v1/encrypt-config");
+
+    // The encryption service does not currently require any sort of
+    // authentication, so there's no auth header added here.
+    let response = http_client
+        .post(&encrypt_endpoint)
+        .header("Content-Type", "application/json")
+        .json(&EncryptRequest {
+            config: plaintext,
+            schema,
+        })
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Config encryption failed: {} {}",
+            response.status(),
+            response.text().await?
+        );
+    }
+
+    let bytes = response.bytes().await?;
+    let encrypted: Box<RawValue> = serde_json::from_slice(&bytes)?;
+    Ok(*encrypted)
 }
 
 fn is_encrypted(config: &RawValue) -> bool {
@@ -159,7 +204,7 @@ fn require_schema(
 async fn fetch_or_cache_schema(
     image: &str,
     cache: &mut HashMap<String, Option<RawValue>>,
-    client: &Client,
+    ctx: &crate::CliContext,
 ) -> anyhow::Result<Option<RawValue>> {
     if let Some(cached) = cache.get(image) {
         return Ok(cached.clone());
@@ -174,9 +219,13 @@ async fn fetch_or_cache_schema(
     let vars = fetch_connector_endpoint_schema::Variables {
         full_image_name: image.to_string(),
     };
-    let resp = post_graphql::<FetchConnectorEndpointSchema>(client, vars)
-        .await
-        .context("failed to fetch connector endpoint schema")?;
+    let resp = post_graphql::<FetchConnectorEndpointSchema>(
+        &ctx.rest,
+        ctx.access_token().as_deref(),
+        vars,
+    )
+    .await
+    .context("failed to fetch connector endpoint schema")?;
     let Some(spec) = resp.connector_spec else {
         anyhow::bail!(
             "connector image '{image}' is unknown to Estuary, so the endpoint configuration cannot be encrypted. Use a different connector or reach out to Estuary support for help"

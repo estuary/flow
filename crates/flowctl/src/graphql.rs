@@ -59,18 +59,48 @@ pub type JSON = models::RawValue;
 /// Used for user ids
 pub type UUID = uuid::Uuid;
 
-const GRAPHQL_PATH: &str = "/api/graphql";
+pub(crate) const GRAPHQL_PATH: &str = "/api/graphql";
+
+/// Perform a unary POST to the control-plane agent API and deserialize its JSON
+/// response. This is the flow-client-next equivalent of the former
+/// `flow_client::Client::agent_unary`.
+pub async fn agent_unary<Request, Response>(
+    rest: &flow_client_next::rest::Client,
+    access_token: Option<&str>,
+    path: &'static str,
+    request: &Request,
+) -> anyhow::Result<Response>
+where
+    Request: serde::Serialize,
+    Response: serde::de::DeserializeOwned,
+{
+    let response = rest.post(path, request, access_token).send().await?;
+    let status = response.status();
+
+    if status.is_success() {
+        let bytes = response.bytes().await?;
+        serde_json::from_slice(&bytes).map_err(|error| {
+            let body_prefix = String::from_utf8_lossy(&bytes[..(bytes.len().min(500))]);
+            tracing::warn!(?error, %body_prefix, "failed to deserialize response body");
+            anyhow::Error::from(error)
+        })
+    } else {
+        let body = response.text().await?;
+        anyhow::bail!("POST {path}: {status}: {body}");
+    }
+}
 
 #[tracing::instrument(level = tracing::Level::DEBUG, err, skip_all)]
 pub async fn post_graphql<Q: graphql_client::GraphQLQuery>(
-    client: &flow_client::Client,
+    rest: &flow_client_next::rest::Client,
+    access_token: Option<&str>,
     variables: Q::Variables,
 ) -> anyhow::Result<Q::ResponseData> {
     use itertools::Itertools;
 
     let body = Q::build_query(variables);
     let resp: graphql_client::Response<Q::ResponseData> =
-        client.agent_unary(GRAPHQL_PATH, &body).await?;
+        agent_unary(rest, access_token, GRAPHQL_PATH, &body).await?;
 
     if let Some(errors) = resp.errors.filter(|e| !e.is_empty()) {
         tracing::warn!(?errors, "graphql query response has errors");

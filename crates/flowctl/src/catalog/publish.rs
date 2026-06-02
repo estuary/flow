@@ -33,14 +33,14 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
     );
 
     let (mut draft_catalog, _live, _validations) =
-        local_specs::load_and_validate(&ctx.client, &args.source).await?;
+        local_specs::load_and_validate(ctx, &args.source).await?;
 
-    let draft = draft::create_draft(&ctx.client).await?;
+    let draft = draft::create_draft(ctx).await?;
     println!("Created draft: {}", &draft.id);
     tracing::info!(draft_id = %draft.id, "created draft");
-    draft::author(&ctx.client, draft.id, &mut draft_catalog).await?;
+    draft::author(ctx, draft.id, &mut draft_catalog).await?;
 
-    let removed = draft::remove_unchanged(&ctx.client, draft.id).await?;
+    let removed = draft::remove_unchanged(ctx, draft.id).await?;
     if !removed.is_empty() {
         println!(
             "The following specs are identical to the currently published specs, and have been pruned from the draft:"
@@ -56,7 +56,7 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
 
     if summary.is_empty() {
         println!("No specs would be changed by this publication, nothing to publish.");
-        try_delete_draft(&ctx.client, draft.id).await;
+        try_delete_draft(ctx, draft.id).await;
         return Ok(());
     }
 
@@ -65,7 +65,7 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
 
     if !(args.auto_approve || prompt_to_continue().await) {
         println!("\nCancelling");
-        try_delete_draft(&ctx.client, draft.id).await;
+        try_delete_draft(ctx, draft.id).await;
         anyhow::bail!("publish cancelled");
     }
     println!("Proceeding to publish...");
@@ -75,7 +75,7 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
     // The draft will have been deleted automatically if the publish was successful.
     if let Err(err) = publish_result.as_ref() {
         tracing::error!(draft_id = %draft.id, error = ?err, "publication error");
-        try_delete_draft(&ctx.client, draft.id).await;
+        try_delete_draft(ctx, draft.id).await;
     }
     publish_result.context("Publish failed")?;
     println!("\nPublish successful");
@@ -96,8 +96,8 @@ async fn prompt_to_continue() -> bool {
     }
 }
 
-async fn try_delete_draft(client: &crate::Client, draft_id: models::Id) {
-    if let Err(del_err) = draft::delete_draft(client, draft_id).await {
+async fn try_delete_draft(ctx: &crate::CliContext, draft_id: models::Id) {
+    if let Err(del_err) = draft::delete_draft(ctx, draft_id).await {
         tracing::error!(draft_id = %draft_id, error = %del_err, "failed to delete draft");
     }
 }

@@ -205,9 +205,14 @@ async fn do_list_fragments(
         since,
     }: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
-    let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, false)
-            .await?;
+    let (journal_name_prefix, client) = crate::dataplane::user_collection_journal(
+        &ctx.rest,
+        &ctx.user_tokens,
+        &ctx.router,
+        &selector.collection,
+        models::Capability::Read,
+    )
+    .await?;
 
     let list_resp = client
         .list(broker::ListRequest {
@@ -246,9 +251,14 @@ async fn do_list_journals(
     ctx: &mut crate::CliContext,
     selector: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
-    let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, false)
-            .await?;
+    let (journal_name_prefix, client) = crate::dataplane::user_collection_journal(
+        &ctx.rest,
+        &ctx.user_tokens,
+        &ctx.router,
+        &selector.collection,
+        models::Capability::Read,
+    )
+    .await?;
 
     let list_resp = client
         .list(broker::ListRequest {
@@ -278,13 +288,14 @@ async fn do_split_journals(
         built_spec: Option<models::RawValue>,
     }
 
-    let results: Vec<LiveSpecResult> = crate::api_exec(
-        ctx.client
+    let results: Vec<LiveSpecResult> = flow_client_next::postgrest::exec(
+        ctx.pg
             .from("live_specs_ext")
             .select("built_spec")
             .eq("catalog_name", &selector.collection)
             .eq("spec_type", "collection")
             .limit(1),
+        ctx.access_token().as_deref(),
     )
     .await?;
 
@@ -311,9 +322,14 @@ async fn do_split_journals(
         .context("Collection has no partition template")?;
 
     // Now get collection authorization and journal client (admin required for splitting)
-    let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, true)
-            .await?;
+    let (journal_name_prefix, client) = crate::dataplane::user_collection_journal(
+        &ctx.rest,
+        &ctx.user_tokens,
+        &ctx.router,
+        &selector.collection,
+        models::Capability::Admin,
+    )
+    .await?;
 
     // List current journals
     let list_resp = client

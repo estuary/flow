@@ -3,7 +3,13 @@ use crate::{CliContext, ops::TaskSelector};
 pub async fn do_list_shards(ctx: &mut CliContext, selector: &TaskSelector) -> anyhow::Result<()> {
     let task_name = &selector.task;
     let (shard_id_prefix, _, _, shard_client, _journal_client) =
-        flow_client::fetch_user_task_authorization(&ctx.client, task_name).await?;
+        crate::dataplane::user_task_authorization(
+            &ctx.rest,
+            &ctx.user_tokens,
+            &ctx.router,
+            task_name,
+        )
+        .await?;
 
     let req = proto_gazette::consumer::ListRequest {
         selector: Some(proto_gazette::LabelSelector {

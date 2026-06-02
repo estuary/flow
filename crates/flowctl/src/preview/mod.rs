@@ -95,13 +95,9 @@ impl Preview {
         };
 
         // TODO(johnny): validate only `name`, if presented.
-        let (_sources, _live, validations) = local_specs::load_and_validate_full(
-            &ctx.client,
-            source.as_str(),
-            &network,
-            log_handler,
-        )
-        .await?;
+        let (_sources, _live, validations) =
+            local_specs::load_and_validate_full(ctx, source.as_str(), &network, log_handler)
+                .await?;
 
         let runtime = runtime::Runtime::new(
             runtime::Plane::Local,
@@ -138,7 +134,7 @@ impl Preview {
                     path: std::path::PathBuf::from(fixture),
                 },
             );
-        let journal_reader = journal_reader::Reader::new(&ctx.client, delay);
+        let journal_reader = journal_reader::Reader::new(ctx, delay);
 
         let initial_state =
             models::RawValue::from_str(initial_state).context("initial state is not valid JSON")?;

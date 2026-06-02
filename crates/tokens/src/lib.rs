@@ -156,6 +156,15 @@ impl<Token> PendingWatch<Token> {
         self.signal.clone().cancelled_owned()
     }
 
+    /// Borrow the underlying Watch without awaiting readiness. Before the first
+    /// refresh its `token()` is an "awaiting initial refresh" error; callers
+    /// that require a resolved Token should `ready().await` instead. Intended
+    /// for synchronous reads once readiness has already been established.
+    #[inline]
+    pub fn watch(&self) -> &Arc<dyn Watch<Token>> {
+        &self.inner
+    }
+
     /// Consume this PendingWatch and return its components.
     #[inline]
     pub fn into_parts(self) -> (Arc<dyn Watch<Token>>, CancellationToken) {

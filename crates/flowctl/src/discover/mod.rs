@@ -1,5 +1,6 @@
-use crate::{Client, api_exec, api_exec_paginated, draft, local_specs};
+use crate::{draft, local_specs};
 use anyhow::Context;
+use futures::TryStreamExt;
 use serde::Deserialize;
 
 #[derive(Debug, clap::Args)]
@@ -30,7 +31,7 @@ impl Discover {
 async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Result<()> {
     // Load, inline, and validate the source specifications.
     let (mut draft_catalog, live, _validations) =
-        local_specs::load_and_validate(&ctx.client, &args.source).await?;
+        local_specs::load_and_validate(ctx, &args.source).await?;
 
     // Identify the capture to discover.
     let needle = if let Some(needle) = &args.capture {
@@ -75,7 +76,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     };
     tracing::info!(%data_plane_name, "using data-plane for discovery");
 
-    draft::encrypt_configs(&mut draft_catalog, &ctx.client)
+    draft::encrypt_configs(&mut draft_catalog, ctx)
         .await
         .context("encrypting endpoint configurations")?;
 
@@ -88,7 +89,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
 
     let (connector_tag_id, endpoint_config) = match &draft_model.endpoint {
         models::CaptureEndpoint::Connector(config) => {
-            let tag = extract_connector_tag_id(&ctx.client, &config.image)
+            let tag = extract_connector_tag_id(ctx, &config.image)
                 .await
                 .context("extracting connector tag ID from capture endpoint")?;
             (tag, &config.config)
@@ -104,8 +105,8 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
         .unwrap_or_default();
 
     // Upsert the draft into which discovery will be merged by the control plane.
-    let draft = draft::create_draft(&ctx.client).await?;
-    draft::upsert_draft_specs(&ctx.client, draft.id, &draft_catalog)
+    let draft = draft::create_draft(ctx).await?;
+    draft::upsert_draft_specs(ctx, draft.id, &draft_catalog)
         .await
         .context("upserting draft specifications")?;
     tracing::info!(draft_id = %draft.id, "created draft for discovery");
@@ -124,23 +125,23 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     let DiscoverResponse {
         id: discover_id,
         logs_token,
-    }: DiscoverResponse = api_exec(
-        ctx.client
+    }: DiscoverResponse = flow_client_next::postgrest::exec(
+        ctx.pg
             .from("discovers")
             .select("id,logs_token")
             .insert(body)
             .single(),
+        ctx.access_token().as_deref(),
     )
     .await
     .context("failed to submit discovery job")?;
     tracing::info!(%discover_id, %logs_token, "submitted discovery job");
 
-    let outcome =
-        crate::poll_while_queued(&ctx.client, "discovers", discover_id, &logs_token).await?;
+    let outcome = crate::poll_while_queued(ctx, "discovers", discover_id, &logs_token).await?;
 
     if outcome != "success" {
         draft::print_draft_errors(ctx, draft.id).await?;
-        _ = draft::delete_draft(&ctx.client, draft.id).await; // Best effort.
+        _ = draft::delete_draft(ctx, draft.id).await; // Best effort.
         anyhow::bail!("discovery failed with status: {outcome}");
     }
 
@@ -155,7 +156,7 @@ async fn do_discover(ctx: &mut crate::CliContext, args: &Discover) -> anyhow::Re
     .context("failed to pull down draft for local development")?;
 
     tracing::info!(%discover_id, "discovery completed successfully");
-    _ = draft::delete_draft(&ctx.client, draft.id).await; // Best effort.
+    _ = draft::delete_draft(ctx, draft.id).await; // Best effort.
 
     Ok(())
 }
@@ -179,7 +180,10 @@ struct DiscoverResponse {
     logs_token: String,
 }
 
-async fn extract_connector_tag_id(client: &Client, image: &str) -> anyhow::Result<models::Id> {
+async fn extract_connector_tag_id(
+    ctx: &crate::CliContext,
+    image: &str,
+) -> anyhow::Result<models::Id> {
     // Parse the image URL to extract the image name and tag.
     // Expected format: "image-name:tag" or "registry/image-name:tag"
     let (image_name, tag) = if let Some((name, tag)) = image.rsplit_once(':') {
@@ -194,12 +198,15 @@ async fn extract_connector_tag_id(client: &Client, image: &str) -> anyhow::Resul
         id: models::Id,
     }
 
-    let connectors: Vec<ConnectorRow> = api_exec_paginated(
-        client
+    let connectors: Vec<ConnectorRow> = flow_client_next::postgrest::exec_paginated(
+        ctx.pg
             .from("connectors")
             .select("id")
             .eq("image_name", image_name),
+        ctx.access_token().as_deref(),
     )
+    .await
+    .try_collect::<Vec<_>>()
     .await?;
 
     if connectors.is_empty() {
@@ -214,13 +221,16 @@ async fn extract_connector_tag_id(client: &Client, image: &str) -> anyhow::Resul
         id: models::Id,
     }
 
-    let tags: Vec<ConnectorTagRow> = api_exec_paginated(
-        client
+    let tags: Vec<ConnectorTagRow> = flow_client_next::postgrest::exec_paginated(
+        ctx.pg
             .from("connector_tags")
             .select("id")
             .eq("connector_id", connector_id.to_string())
             .eq("image_tag", &tag),
+        ctx.access_token().as_deref(),
     )
+    .await
+    .try_collect::<Vec<_>>()
     .await?;
 
     if tags.is_empty() {

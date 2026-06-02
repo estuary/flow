@@ -1,12 +1,12 @@
-use std::fmt::Debug;
-
 use clap::Parser;
+use std::fmt::Debug;
 
 mod alerts;
 mod auth;
 mod catalog;
 mod collection;
 mod config;
+mod dataplane;
 mod discover;
 mod draft;
 mod generate;
@@ -19,9 +19,6 @@ mod preview;
 mod raw;
 mod version;
 
-pub(crate) use flow_client::client::Client;
-use flow_client::client::refresh_authorizations;
-pub(crate) use flow_client::{api_exec, api_exec_paginated};
 use models::authorizations::ControlClaims;
 use output::{Output, OutputType};
 use poll::poll_while_queued;
@@ -113,9 +110,20 @@ pub enum Command {
 }
 
 pub struct CliContext {
-    client: Client,
+    /// Base PostgREST client carrying the public `apikey` header. The user's
+    /// bearer token is applied per-request via `access_token()`.
+    pg: postgrest::Postgrest,
+    /// REST client for the control-plane agent API.
+    rest: flow_client_next::rest::Client,
+    /// Live, auto-refreshing watch of the user's access & refresh tokens.
+    user_tokens: tokens::PendingWatch<flow_client_next::user_auth::UserToken>,
+    /// Router shared by data-plane (journal/shard) clients.
+    router: gazette::Router,
+    /// Loaded configuration of the active profile (endpoints, tokens, selected draft).
     config: config::Config,
+    /// Selected output format (table / JSON / YAML) for command results.
     output: output::Output,
+    /// Tracks in-flight work units; cloned into preview-next connector drivers.
     registry: service_kit::Registry,
 }
 
@@ -146,48 +154,120 @@ impl CliContext {
         }
     }
 
+    /// The user's current access token from the live token watch, or None if
+    /// the user is not authenticated.
+    pub(crate) fn access_token(&self) -> Option<String> {
+        self.user_tokens
+            .watch()
+            .token()
+            .result()
+            .ok()
+            .and_then(|t| t.access_ref().map(str::to_string))
+    }
+
     /// Parses the user access token and returns the deserialized claims.
     /// This does not check the validity of the token in any way. As long
     /// the claims can be deserialized, they will be returned as they are.
     fn require_control_claims(&self) -> anyhow::Result<ControlClaims> {
-        let Some(token) = self.config.user_access_token.as_deref() else {
+        let Some(token) = self.access_token() else {
             anyhow::bail!("you must be logged in in order to do this. Try `flowctl auth login`");
         };
-        let claims = flow_client::parse_jwt_claims::<ControlClaims>(token)?;
+        let claims = tokens::jwt::parse_unverified::<ControlClaims>(token.as_bytes())?
+            .claims()
+            .clone();
         Ok(claims)
     }
 }
 
 impl Cli {
     pub async fn run(&self, registry: service_kit::Registry) -> anyhow::Result<()> {
-        let mut config = config::Config::load(&self.profile)?;
+        let config = config::Config::load(&self.profile)?;
         let output = self.output.clone();
 
-        let anon_client: flow_client::Client = config.build_anon_client();
+        let pg = config.build_pg();
+        let rest = config.build_rest();
+        let router = gazette::Router::new("local");
 
-        let client = match refresh_authorizations(
-            &anon_client,
-            config.user_access_token.to_owned(),
-            config.user_refresh_token.to_owned(),
-        )
-        .await
+        // An ambient FLOW_AUTH_TOKEN, if present, overrides the profile's stored
+        // tokens. It's used but never persisted (it may still rotate in memory).
+        let env_token = config::Config::env_user_token()?;
+
+        // Resolve the watch's initial tokens, whether we may mint a new refresh
+        // token (`may_create`, only when explicitly acquiring credentials), and
+        // whether the tokens came from the environment (`from_env`, never
+        // persisted).
+        let (initial_tokens, may_create, from_env) = if let Command::Auth(auth) = &self.cmd
+            && auth.acquires_credential()
         {
-            Ok((access, refresh)) => {
-                // Make sure to store refreshed tokens back in Config so they get written back to disk
-                config.user_access_token = Some(access.to_owned());
-                config.user_refresh_token = Some(refresh.to_owned());
+            // Reject an ambient FLOW_AUTH_TOKEN when acquiring credentials: on a
+            // next invocation, it would silently shadow the credential that the
+            // user is explicitly providing in this one.
+            if env_token.is_some() {
+                anyhow::bail!(
+                    "FLOW_AUTH_TOKEN is set in your environment and would shadow the credentials you're establishing.\n\
+                 Unset FLOW_AUTH_TOKEN and re-run."
+                );
+            }
+            // Allow creation of a new refresh token from the acquired access token.
+            (auth.acquire_credential(&config).await?, true, false)
+        } else if let Some(env_token) = env_token {
+            (env_token, false, true)
+        } else {
+            (
+                flow_client_next::user_auth::UserToken {
+                    access_token: config.user_access_token.clone(),
+                    refresh_token: config.user_refresh_token.clone(),
+                },
+                false,
+                false,
+            )
+        };
 
-                anon_client.with_user_access_token(Some(access))
+        // Live, auto-refreshing user-token watch. If `may_create`, the watch
+        // will establish a new refresh token. Otherwise, a bare access token is
+        // surfaced as-is and allowed to expire, never minting a refresh token.
+        let user_tokens = tokens::watch(flow_client_next::user_auth::UserTokenSource {
+            pg_client: pg.clone(),
+            tokens: initial_tokens,
+            may_create,
+        });
+
+        // Force the first refresh (creates a refresh token from a bare access
+        // token when establishing, or exchanges an existing refresh token),
+        // then persist the result so even short-lived commands durably store a
+        // freshly-created refresh token. Env-provided tokens are never persisted.
+        let user_tokens_watch = user_tokens.clone().ready_owned().await;
+        match user_tokens_watch.token().result() {
+            Ok(tokens) if tokens.access_token.is_some() && !from_env => {
+                config::Config::persist_tokens(&self.profile, tokens)?;
             }
-            Err(err) => {
-                tracing::debug!(?err, "Error refreshing credentials");
-                tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
-                anon_client
-            }
+            Ok(_) => {} // Anonymous, or env-provided: nothing to persist.
+            Err(status) => anyhow::bail!(
+                "Failed to authenticate (run `flowctl auth login`): {}",
+                status.message()
+            ),
+        }
+
+        // Observe token rotations and persist them to config as they happen,
+        // rather than only at process exit. Important for single-use refresh
+        // tokens, where a consumed-but-unsaved token would lock the user out.
+        // Skipped for env-provided tokens, which must never reach the profile.
+        let token_observer_stop = tokens::CancellationToken::new();
+        let observer = if from_env {
+            None
+        } else {
+            Some(tokio::spawn(persist_token_rotations(
+                self.profile.clone(),
+                user_tokens_watch.clone(),
+                token_observer_stop.clone(),
+            )))
         };
 
         let mut context = CliContext {
-            client,
+            pg,
+            rest,
+            user_tokens,
+            router,
             config,
             output,
             registry,
@@ -217,11 +297,61 @@ impl Cli {
             );
         }
 
+        // Stop the rotation observer and await its final write before persisting
+        // the rest of the config, so the two writers never race. The observer
+        // returns the freshest tokens it persisted; `Some(observer)` is exactly
+        // the "we were persisting" case — env-provided tokens spawn no observer.
+        token_observer_stop.cancel();
+        let observed_tokens = match observer {
+            Some(observer) => observer.await.ok().flatten(),
+            None => None,
+        };
+
         result?;
+
+        // Adopt the observer's final tokens so writing the remaining config state
+        // (e.g. selected draft) doesn't clobber a rotation that happened during
+        // the run.
+        if let Some(tokens) = observed_tokens {
+            context.config.user_access_token = tokens.access_token;
+            context.config.user_refresh_token = tokens.refresh_token;
+        }
         context.config.write(&self.profile)?;
 
         Ok(())
     }
+}
+
+/// Background task that persists user-token rotations to the named profile's
+/// config as they occur. Stops when `stop` is cancelled (orderly shutdown),
+/// returning the freshest tokens it persisted — or `None` if it never observed a
+/// valid token (e.g. an anonymous session).
+async fn persist_token_rotations(
+    profile: String,
+    user_tokens_watch: std::sync::Arc<dyn tokens::Watch<flow_client_next::user_auth::UserToken>>,
+    stop: tokens::CancellationToken,
+) -> Option<flow_client_next::user_auth::UserToken> {
+    let mut latest = None;
+    loop {
+        let refresh = user_tokens_watch.token();
+
+        // Guard against clobbering good on-disk tokens with a `None` access
+        // token (e.g. an anonymous startup watch that never authenticated).
+        if let Ok(tokens) = refresh.result() {
+            if tokens.access_token.is_some() {
+                if let Err(err) = config::Config::persist_tokens(&profile, tokens) {
+                    tracing::warn!(?err, "failed to persist rotated tokens to config");
+                }
+                latest = Some(tokens.clone());
+            }
+        }
+
+        tokio::select! {
+            _ = refresh.expired() => continue, // Superseded by a newer rotation.
+            _ = stop.cancelled() => break,
+        }
+    }
+    latest
 }
 
 // new_table builds a comfy_table with UTF8 styling.

@@ -117,9 +117,10 @@ async fn do_list(list: &List, ctx: &mut crate::CliContext) -> anyhow::Result<()>
         prefix: models::Prefix::new(prefix),
     };
 
-    let resp = post_graphql::<ListAlertSubscriptions>(&ctx.client, vars)
-        .await
-        .context("failed to fetch alert subscriptions")?;
+    let resp =
+        post_graphql::<ListAlertSubscriptions>(&ctx.rest, ctx.access_token().as_deref(), vars)
+            .await
+            .context("failed to fetch alert subscriptions")?;
     ctx.write_all(resp.alert_subscriptions, ())
 }
 
@@ -224,7 +225,12 @@ async fn do_subscribe(create: &SubscribeArgs, ctx: &mut crate::CliContext) -> an
                 alert_types: Some(desired_alert_types.clone()),
                 detail: Some(detail),
             };
-            let resp = post_graphql::<UpdateAlertSubscription>(&ctx.client, vars).await?;
+            let resp = post_graphql::<UpdateAlertSubscription>(
+                &ctx.rest,
+                ctx.access_token().as_deref(),
+                vars,
+            )
+            .await?;
 
             println!(
                 "updated alert subscription for catalog prefix: {prefix}, email: {email}, alert types: [{}]",
@@ -246,7 +252,9 @@ async fn do_subscribe(create: &SubscribeArgs, ctx: &mut crate::CliContext) -> an
         };
 
         tracing::debug!(%email, %prefix, "creating alert subscription");
-        let resp = post_graphql::<CreateAlertSubscription>(&ctx.client, vars).await?;
+        let resp =
+            post_graphql::<CreateAlertSubscription>(&ctx.rest, ctx.access_token().as_deref(), vars)
+                .await?;
 
         println!(
             "created alert subscription for catalog prefix: {prefix}, email: {email}, alert types: [{}]",
@@ -264,9 +272,10 @@ async fn get_existing_subscription(
     let list_vars = list_alert_subscriptions::Variables {
         prefix: models::Prefix::new(prefix),
     };
-    let list_resp = post_graphql::<ListAlertSubscriptions>(&ctx.client, list_vars)
-        .await
-        .context("failed to fetch alert subscriptions")?;
+    let list_resp =
+        post_graphql::<ListAlertSubscriptions>(&ctx.rest, ctx.access_token().as_deref(), list_vars)
+            .await
+            .context("failed to fetch alert subscriptions")?;
 
     let sub = list_resp
         .alert_subscriptions
@@ -335,7 +344,9 @@ async fn do_unsubscribe(args: &UnsubscribeArgs, ctx: &mut crate::CliContext) -> 
             prefix: models::Prefix::new(&prefix),
             email: email.clone(),
         };
-        let resp = post_graphql::<DeleteSubscription>(&ctx.client, vars).await?;
+        let resp =
+            post_graphql::<DeleteSubscription>(&ctx.rest, ctx.access_token().as_deref(), vars)
+                .await?;
         tracing::debug!(?resp, "deleted alert subscription");
 
         println!(
@@ -353,7 +364,9 @@ async fn do_unsubscribe(args: &UnsubscribeArgs, ctx: &mut crate::CliContext) -> 
             alert_types: Some(desired_alert_types),
             detail: None, // don't update the detail
         };
-        let resp = post_graphql::<UpdateAlertSubscription>(&ctx.client, vars).await?;
+        let resp =
+            post_graphql::<UpdateAlertSubscription>(&ctx.rest, ctx.access_token().as_deref(), vars)
+                .await?;
         tracing::debug!(?resp, "updated alert subscription");
         let remaining_types = resp.update_alert_subscription.alert_types.iter().join(", ");
         let removed_types = args

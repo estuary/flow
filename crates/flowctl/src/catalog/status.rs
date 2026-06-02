@@ -57,7 +57,8 @@ async fn fetch_statuses(
         full_status,
     };
 
-    let data = post_graphql::<ConnectedStatusQuery>(&ctx.client, vars).await?;
+    let data = post_graphql::<ConnectedStatusQuery>(&ctx.rest, ctx.access_token().as_deref(), vars)
+        .await?;
 
     // We'll merge all the statuses into this map in order to deduplicate them
     // when fetching connected statuses

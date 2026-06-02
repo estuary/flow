@@ -7,7 +7,9 @@ use proto_gazette::broker;
 /// collection journals.
 #[derive(Clone)]
 pub struct Reader {
-    client: crate::Client,
+    rest: flow_client_next::rest::Client,
+    user_tokens: tokens::PendingWatch<flow_client_next::user_auth::UserToken>,
+    router: gazette::Router,
     delay: std::time::Duration,
 }
 
@@ -25,9 +27,11 @@ impl Reader {
     ///
     /// `delay` is an artificial, injected delay between a read and a subsequent checkpoint.
     /// It emulates back-pressure and encourages amortized transactions and reductions.
-    pub fn new(client: &crate::Client, delay: std::time::Duration) -> Self {
+    pub fn new(ctx: &crate::CliContext, delay: std::time::Duration) -> Self {
         Self {
-            client: client.clone(),
+            rest: ctx.rest.clone(),
+            user_tokens: ctx.user_tokens.clone(),
+            router: ctx.router.clone(),
             delay,
         }
     }
@@ -40,10 +44,12 @@ impl Reader {
         let reader = coroutines::try_coroutine(move |mut co| async move {
             // Concurrently fetch authorizations for all sourced collections.
             let sources = futures::future::try_join_all(sources.iter().map(|source| {
-                flow_client::fetch_user_collection_authorization(
-                    &self.client,
+                crate::dataplane::user_collection_journal(
+                    &self.rest,
+                    &self.user_tokens,
+                    &self.router,
                     &source.collection,
-                    false,
+                    models::Capability::Read,
                 )
                 .map_ok(move |(_journal_name_prefix, client)| (source, client))
             }))

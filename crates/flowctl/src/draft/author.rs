@@ -1,4 +1,4 @@
-use crate::{api_exec, catalog::SpecSummaryItem, draft::encrypt, local_specs};
+use crate::{catalog::SpecSummaryItem, draft::encrypt, local_specs};
 use anyhow::Context;
 use futures::{StreamExt, stream::FuturesOrdered};
 use serde::Serialize;
@@ -11,13 +11,14 @@ pub struct Author {
     source: String,
 }
 
-pub async fn clear_draft(client: &crate::Client, draft_id: models::Id) -> anyhow::Result<()> {
+pub async fn clear_draft(ctx: &crate::CliContext, draft_id: models::Id) -> anyhow::Result<()> {
     tracing::info!(%draft_id, "clearing existing specs from draft");
-    api_exec::<Vec<serde_json::Value>>(
-        client
+    flow_client_next::postgrest::exec::<Vec<serde_json::Value>>(
+        ctx.pg
             .from("draft_specs")
             .eq("draft_id", draft_id.to_string())
             .delete(),
+        ctx.access_token().as_deref(),
     )
     .await
     .context("failed to clear existing draft specs")?;
@@ -27,16 +28,16 @@ pub async fn clear_draft(client: &crate::Client, draft_id: models::Id) -> anyhow
 /// Encrypts any unencrypted endpoint configurations in the draft catalog,
 /// and then upserts the draft specs to the given draft ID.
 pub async fn author(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     draft_id: models::Id,
     draft: &mut tables::DraftCatalog,
 ) -> anyhow::Result<Vec<SpecSummaryItem>> {
-    encrypt::encrypt_configs(draft, client).await?;
-    upsert_draft_specs(client, draft_id, &*draft).await
+    encrypt::encrypt_configs(draft, ctx).await?;
+    upsert_draft_specs(ctx, draft_id, &*draft).await
 }
 
 pub async fn upsert_draft_specs(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     draft_id: models::Id,
     draft: &tables::DraftCatalog,
 ) -> anyhow::Result<Vec<SpecSummaryItem>> {
@@ -118,13 +119,20 @@ pub async fn upsert_draft_specs(
     let mut futures = draft_specs
         .chunks(BATCH_SIZE)
         .map(|batch| {
-            let builder = client
-                .clone()
+            let builder = ctx
+                .pg
                 .from("draft_specs")
                 .select("catalog_name,spec_type")
                 .upsert(format!("[{}]", batch.join(",")))
                 .on_conflict("draft_id,catalog_name");
-            async move { api_exec::<Vec<SpecSummaryItem>>(builder).await }
+            let access_token = ctx.access_token();
+            async move {
+                flow_client_next::postgrest::exec::<Vec<SpecSummaryItem>>(
+                    builder,
+                    access_token.as_deref(),
+                )
+                .await
+            }
         })
         .collect::<FuturesOrdered<_>>();
 
@@ -142,10 +150,10 @@ pub async fn do_author(
     Author { source }: &Author,
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config.selected_draft()?;
-    let (mut draft, _live, _built) = local_specs::load_and_validate(&ctx.client, &source).await?;
+    let (mut draft, _live, _built) = local_specs::load_and_validate(ctx, &source).await?;
 
-    clear_draft(&ctx.client, draft_id).await?;
-    let rows = author(&ctx.client, draft_id, &mut draft).await?;
+    clear_draft(ctx, draft_id).await?;
+    let rows = author(ctx, draft_id, &mut draft).await?;
 
     ctx.write_all(rows, ())
 }

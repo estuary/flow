@@ -48,7 +48,7 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
     let sources = local_specs::indirect_and_write_resources(sources)?;
 
     println!("Wrote {count} specifications under {target}.");
-    let () = local_specs::generate_files(&ctx.client, sources).await?;
+    let () = local_specs::generate_files(ctx, sources).await?;
 
     Ok(())
 }

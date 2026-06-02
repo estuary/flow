@@ -58,7 +58,7 @@ pub async fn fetch_live_specs(
         list.name_selector.prefix = prefixes;
     }
 
-    fetch_paginated_live_specs(ctx.client.clone(), list)
+    fetch_paginated_live_specs(ctx.rest.clone(), ctx.access_token(), list)
         .try_collect()
         .await
 }
@@ -213,7 +213,8 @@ fn format_flows(conn: Option<&list_live_specs_query::SelectConnection>) -> Strin
 /// Executes the graphql query for the given `list` arguments, making additional
 /// requests as necessary to read all of the results.
 fn fetch_paginated_live_specs(
-    client: flow_client::Client,
+    rest: flow_client_next::rest::Client,
+    access_token: Option<String>,
     list: List,
 ) -> impl futures::Stream<Item = anyhow::Result<list_live_specs_query::SelectRef>> + 'static {
     if list.name_selector.name.is_empty() && list.name_selector.prefix.is_empty() {
@@ -235,7 +236,7 @@ fn fetch_paginated_live_specs(
                     include_flows: list.include_flows,
                     include_last_publication: list.include_last_publication,
                 };
-                let resp = post_graphql::<ListLiveSpecsQuery>(&client, vars)
+                let resp = post_graphql::<ListLiveSpecsQuery>(&rest, access_token.as_deref(), vars)
                     .await
                     .context("failed to fetch live specs")?;
 

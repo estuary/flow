@@ -41,7 +41,8 @@ pub async fn do_history(ctx: &mut crate::CliContext, history: &History) -> anyho
     }
 
     let entries: Vec<HistoryRow> = stream_history(
-        ctx.client.clone(),
+        ctx.rest.clone(),
+        ctx.access_token(),
         models::Name::new(&history.name),
         history.include_models,
     )
@@ -86,12 +87,13 @@ impl crate::output::CliOutput for HistoryRow {
 }
 
 fn stream_history(
-    client: crate::Client,
+    rest: flow_client_next::rest::Client,
+    access_token: Option<String>,
     catalog_name: models::Name,
     include_models: bool,
 ) -> impl futures::Stream<Item = anyhow::Result<HistoryRow>> {
     let page_size = if include_models { 50 } else { 200 };
-    coroutines::try_coroutine(|mut co| async move {
+    coroutines::try_coroutine(move |mut co| async move {
         let mut cursor: Option<String> = None;
         loop {
             let vars = publication_history_query::Variables {
@@ -100,9 +102,10 @@ fn stream_history(
                 after: cursor.take(),
                 first: page_size,
             };
-            let mut resp = post_graphql::<PublicationHistoryQuery>(&client, vars)
-                .await
-                .context("failed to fetch publication history")?;
+            let mut resp =
+                post_graphql::<PublicationHistoryQuery>(&rest, access_token.as_deref(), vars)
+                    .await
+                    .context("failed to fetch publication history")?;
             let Some(live) = resp.live_specs.edges.pop() else {
                 anyhow::bail!("no live spec found for name: '{catalog_name}'");
             };
