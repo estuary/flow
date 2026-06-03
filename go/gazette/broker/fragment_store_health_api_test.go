@@ -26,6 +26,7 @@ func TestFragmentStoreHealthCases(t *testing.T) {
 	})
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	defer broker.cleanup()
 
 	// Case: health of a valid FragmentStore.
 	var resp, err = broker.client().FragmentStoreHealth(ctx, &pb.FragmentStoreHealthRequest{
