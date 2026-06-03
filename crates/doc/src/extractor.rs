@@ -343,7 +343,12 @@ impl Extractor {
                 &mut *w,
                 &self.policy.with_truncation_indicator(node, indicator),
             ),
-            Err(value) => serde_json::to_writer(&mut *w, value.as_ref()),
+            Err(value) => serde_json::to_writer(
+                &mut *w,
+                &self
+                    .policy
+                    .with_truncation_indicator(value.as_ref(), indicator),
+            ),
         }
         .map_err(std::io::Error::other)
     }

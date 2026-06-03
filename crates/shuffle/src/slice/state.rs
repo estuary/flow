@@ -436,13 +436,18 @@ impl HintIndex {
         index.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
 
         // A cohort reads a journal under multiple bindings iff two entries share a
-        // prefix and cohort. Entries are sorted by (prefix, binding), so any such
-        // pair is adjacent. This is conservative — `lookup`'s partition filter
-        // still scopes self-hints to bindings that actually read a given journal —
-        // but it cheaply clears the common 1:1 case.
+        // (prefix, cohort). We can't rely on the (prefix, binding) sort to make
+        // such a pair adjacent: a binding of a different cohort on the same prefix
+        // can sort between them. For example priorities `[0, 1, 0]` assign cohorts
+        // `[0, 1, 0]`, where bindings 0 and 2 share cohort 0 but binding 1 sorts
+        // between them. Detect any duplicate (prefix, cohort) regardless of order.
+        // This is conservative — `lookup`'s partition filter still scopes self-hints
+        // to bindings that actually read a given journal — but it cheaply clears the
+        // common 1:1 case.
+        let mut seen_prefix_cohort = std::collections::HashSet::new();
         let cohort_shares_journal = index
-            .windows(2)
-            .any(|w| w[0].0 == w[1].0 && w[0].2 == w[1].2);
+            .iter()
+            .any(|(prefix, _, cohort, _)| !seen_prefix_cohort.insert((*prefix, *cohort)));
 
         // Now that we've sorted, re-allocate partition name prefixes.
         // This ensures aligns memory locality and ordering with our query pattern.
@@ -1286,6 +1291,20 @@ mod test {
             .into_iter(),
         );
         assert!(index.cohort_shares_journal);
+
+        // Same-cohort bindings need not be adjacent under the (prefix, binding)
+        // sort: bindings 0 and 2 share the anvils prefix and cohort 0, while
+        // binding 1 (cohort 1) sorts between them (priorities `[0, 1, 0]`).
+        // Sharing must still be detected.
+        let index_interleaved = HintIndex::new(
+            [
+                ("acmeCo/anvils/", 0, 0, passthrough_filter(&["part"])),
+                ("acmeCo/anvils/", 1, 1, passthrough_filter(&["part"])),
+                ("acmeCo/anvils/", 2, 0, passthrough_filter(&["part"])),
+            ]
+            .into_iter(),
+        );
+        assert!(index_interleaved.cohort_shares_journal);
 
         let p1 = producer(0x00);
         let mut causal_hints = CausalHints::default();

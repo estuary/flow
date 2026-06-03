@@ -65,7 +65,11 @@ pub(super) async fn drain_and_publish(
         if binding == task.bindings.len() {
             // This is a post-combine checkpoint state update. Each is a merge-
             // patch document serialized as compact single-line JSON,
-            // so frame each directly into the wire-format stream.
+            // so frame each directly into the wire-format stream. Unlike
+            // `encode_connector_state` (which copies a connector's raw bytes and
+            // must scrub embedded tabs), `serde_json` compact serialization can't
+            // emit a raw `\t` — in-string tabs are escaped — so the `\t` patch
+            // delimiter is unambiguous here without sanitizing.
             connector_patches.push(if connector_patches.is_empty() {
                 b'['
             } else {
