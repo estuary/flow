@@ -277,19 +277,15 @@ pub fn extract_constraints<'a>(
     // expressed via the projection_constraints list form. Each is processed
     // independently so that both a Select and a Reject can be generated for the
     // same field, making the compound requirement visible to field selection.
+    //
+    // INCOMPATIBLE always produces a Reject. Whether that Reject is fatal is
+    // decided later by `build_selection`, which walks fields in grouped and
+    // prioritized order and understands the status of required locations. An
+    // incompatible field whose location is already satisfied by another selected
+    // field has its Select dropped (the location is a duplicate), leaving a
+    // non-fatal Reject (EOB::Right); only an incompatible field that survives
+    // with a Select becomes a conflict (EOB::Both).
     for (field, constraints) in validated_constraints.iter() {
-        // Pre-scan: does this field have any Required-class constraint?
-        // When INCOMPATIBLE co-appears with a Required-class constraint, the
-        // INCOMPATIBLE must generate a Reject even on a new binding (no live spec),
-        // so that the control plane sees an unsatisfiable conflict rather than
-        // silently excluding the field.
-        let has_required = constraints.iter().any(|c| {
-            matches!(
-                ConstraintType::try_from(c.r#type),
-                Ok(ConstraintType::FieldRequired | ConstraintType::LocationRequired)
-            )
-        });
-
         for constraint in constraints {
             match ConstraintType::try_from(constraint.r#type) {
                 Ok(ConstraintType::FieldRequired) => selects.push((
@@ -310,13 +306,8 @@ pub fn extract_constraints<'a>(
                         reason: constraint.reason.clone(),
                     },
                 )),
-                Ok(ConstraintType::Incompatible | ConstraintType::Unsatisfiable)
-                    if live_field_selection.is_some() || has_required =>
-                {
-                    // Emit ConnectorIncompatible when there is a live field selection
-                    // (the standard case for an existing binding with an incompatible
-                    // column) OR when this field also has a Required-class constraint
-                    // (meaning the connector is signaling "required but incompatible").
+                Ok(ConstraintType::Incompatible | ConstraintType::Unsatisfiable) => {
+                    // UNSATISFIABLE is an alias for INCOMPATIBLE and treated the same way.
                     rejects.push((
                         field,
                         Reject::ConnectorIncompatible {
@@ -324,16 +315,8 @@ pub fn extract_constraints<'a>(
                         },
                     ))
                 }
-                Ok(
-                    ConstraintType::LocationRecommended
-                    | ConstraintType::FieldOptional
-                    | ConstraintType::Incompatible
-                    | ConstraintType::Unsatisfiable,
-                ) => {
+                Ok(ConstraintType::LocationRecommended | ConstraintType::FieldOptional) => {
                     // Field is neither selected nor rejected by the connector.
-                    // Note: UNSATISFIABLE is an alias for INCOMPATIBLE and treated the same way.
-                    // Bare INCOMPATIBLE without a co-emitted Required-class constraint preserves
-                    // the existing silent-drop behavior so legacy connector output is unchanged.
                 }
 
                 // Any other constraint type is invalid and errors elsewhere.
@@ -450,7 +433,20 @@ pub fn group_outcomes(
         Option<Reject>,
         Option<&flow::Projection>,
     )> = grouped
-        .sorted_by(|(_, _, _, l, _, _), (_, _, _, r, _, _)| l.cmp(r).reverse())
+        .sorted_by(|(_, _, _, l_sel, l_rej, _), (_, _, _, r_sel, r_rej, _)| {
+            // Primary: descending Select priority.
+            l_sel.cmp(r_sel).reverse().then_with(|| {
+                // Secondary: among fields of equal Select priority, prefer one that
+                // is *not* incompatible. This lets a compatible field claim a shared
+                // required location first, so an incompatible sibling at the same
+                // pointer is dropped as a DuplicateLocation rather than surfaced as a
+                // conflict when some other projection of the location is satisfiable.
+                let incompatible = |rej: &Option<Reject>| {
+                    matches!(rej, Some(Reject::ConnectorIncompatible { .. }))
+                };
+                incompatible(l_rej).cmp(&incompatible(r_rej))
+            })
+        })
         .collect();
 
     // Pre-scan to find user-excluded canonical projections.
@@ -969,8 +965,9 @@ validated_also:
         insta::assert_debug_snapshot!(snap.field_outcomes.get("flow_document").unwrap());
     }
 
-    // A bare INCOMPATIBLE without a paired Required-class constraint on a new
-    // binding (no live spec) preserves the existing silent-drop behavior.
+    // A bare INCOMPATIBLE on a field that nothing else selects produces no
+    // conflict: the Reject is emitted but, without a surviving Select, the field
+    // is simply not selected (EOB::Right) rather than surfaced as a conflict.
     #[test]
     fn test_bare_incompatible_no_live_spec_is_silent() {
         let snap = run_test(
@@ -983,9 +980,57 @@ validated:
     flow_document: { type: INCOMPATIBLE, reason: "wrong type" }
 "##,
         );
-        // Expect no conflicts: INCOMPATIBLE alone on a new binding is still
-        // treated as FieldOptional-equivalent (no select, no reject).
+        // Expect no conflicts: flow_document is not otherwise selected, so the
+        // INCOMPATIBLE Reject has no paired Select and does not become a conflict.
         insta::assert_debug_snapshot!(snap.conflicts, @r###"[]"###);
+    }
+
+    // Two projections of the same required location, one compatible and one
+    // incompatible. We can proceed by selecting the compatible field; the
+    // incompatible sibling is dropped as a DuplicateLocation and does not surface
+    // as a conflict.
+    //
+    // The incompatible projection (`Alpha`) sorts before the compatible one
+    // (`Zeta`) by field name, so this only produces no conflict because the
+    // `build_selection` ordering prefers the compatible field for the shared
+    // required location.
+    #[test]
+    fn test_incompatible_sibling_of_required_location() {
+        let snap = run_test(
+            r##"
+collection:
+  key: [/id]
+  projections:
+    Zeta: /val
+    Alpha: /val
+  schema:
+    type: object
+    properties:
+      id: {type: integer}
+      val: {type: string}
+model:
+  recommended: 0
+  groupBy: [id]
+case_insensitive: false
+validated:
+  id: { type: LOCATION_REQUIRED, reason: "key is required" }
+  Zeta: { type: LOCATION_REQUIRED, reason: "value location required" }
+  Alpha: { type: INCOMPATIBLE, reason: "existing column has wrong type" }
+validated_also:
+  Alpha:
+    - type: LOCATION_REQUIRED
+      reason: "value location required"
+live: null
+"##,
+            "{}",
+        );
+        // No conflict: the compatible `Zeta` satisfies the required `/val` location.
+        insta::assert_debug_snapshot!(snap.conflicts, @r###"[]"###);
+        // `Zeta` is selected for its location; `Alpha` loses its Select to the
+        // already-claimed location and is left as a non-fatal Reject (EOB::Right),
+        // so it never becomes a conflict.
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("Zeta").unwrap());
+        insta::assert_debug_snapshot!(snap.field_outcomes.get("Alpha").unwrap());
     }
 
     #[test]

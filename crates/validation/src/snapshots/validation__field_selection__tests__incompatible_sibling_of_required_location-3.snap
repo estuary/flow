@@ -1,0 +1,9 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: "snap.field_outcomes.get(\"Alpha\").unwrap()"
+---
+Right(
+    ConnectorIncompatible {
+        reason: "existing column has wrong type",
+    },
+)
