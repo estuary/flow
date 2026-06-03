@@ -706,12 +706,19 @@ impl AccessMutation {
         let sa = lookup_service_account(&env.pg_pool, key_owner).await?;
         super::verify_authorization(env, &sa.prefix, models::Capability::Admin).await?;
 
-        sqlx::query!(
+        let result = sqlx::query!(
             "DELETE FROM internal.api_keys WHERE id = $1",
             key_id as models::Id
         )
         .execute(&env.pg_pool)
         .await?;
+
+        // The key existed when we looked up its owner above; a zero-row delete
+        // means it was concurrently revoked. Report not-found rather than a
+        // misleading success, matching delete_refresh_token.
+        if result.rows_affected() == 0 {
+            return Err(async_graphql::Error::new("API key not found"));
+        }
 
         tracing::info!(
             %key_id,
@@ -747,6 +754,17 @@ impl AccessMutation {
             ));
         }
 
+        // valid_for is documented as an ISO 8601 duration (e.g. P90D). Reject
+        // anything that isn't up front: the `::interval` cast below would
+        // otherwise also accept Postgres's own syntax ("90 days"), silently
+        // widening the contract. ISO 8601 durations always start with 'P'; no
+        // Postgres traditional unit does. Mirrors create_api_key.
+        if !valid_for.trim_start().starts_with('P') {
+            return Err(async_graphql::Error::new(
+                "valid_for must be an ISO 8601 duration, e.g. P90D",
+            ));
+        }
+
         let row = sqlx::query!(
             r#"
             WITH new_token AS (
@@ -770,7 +788,21 @@ impl AccessMutation {
             detail.as_deref(),
         )
         .fetch_one(&env.pg_pool)
-        .await?;
+        .await;
+
+        let row = match row {
+            Ok(row) => row,
+            // A 'P'-prefixed but malformed duration still fails the `::interval`
+            // cast (SQLSTATE 22007/22008); surface it as a client error, not a 500.
+            Err(sqlx::Error::Database(db))
+                if matches!(db.code().as_deref(), Some("22007") | Some("22008")) =>
+            {
+                return Err(async_graphql::Error::new(
+                    "invalid valid_for: expected an ISO 8601 duration, e.g. P90D",
+                ));
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         tracing::info!(
             refresh_token_id = %row.id,

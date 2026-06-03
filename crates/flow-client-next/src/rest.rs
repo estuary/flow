@@ -57,9 +57,8 @@ pub enum GraphqlError {
 }
 
 impl Client {
-    /// Execute a GraphQL query/mutation and extract a single field from the response.
-    ///
-    /// `field` must match the top-level field name in the response `data` object.
+    /// Execute a GraphQL query/mutation and deserialize the response `data`
+    /// object into `T`.
     pub async fn graphql<T: serde::de::DeserializeOwned>(
         &self,
         query: &str,

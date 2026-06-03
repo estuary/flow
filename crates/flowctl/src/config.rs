@@ -164,22 +164,19 @@ impl Config {
             config.user_refresh_token = refresh_token;
         }
 
-        // FLOW_API_KEY, if present, is a service-account API key and takes
-        // precedence over every other credential (disk or FLOW_AUTH_TOKEN). It's
-        // held in memory only — the api-key exchange mints a short-lived access
-        // token at use, and nothing is persisted to disk.
-        if let Ok(api_key) = std::env::var(FLOW_API_KEY) {
-            if !api_key.starts_with("flow_sa_") {
-                anyhow::bail!("FLOW_API_KEY must be a service-account API key, starting with `flow_sa_`");
-            }
-            if std::env::var_os(FLOW_AUTH_TOKEN).is_some() {
-                tracing::debug!("both FLOW_API_KEY and FLOW_AUTH_TOKEN are set; ignoring FLOW_AUTH_TOKEN");
-            }
-            tracing::info!("using FLOW_API_KEY environment API key");
-            config.user_api_key = Some(api_key);
-            config.user_access_token = None;
-            config.user_refresh_token = None;
-        } else if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
+        // FLOW_API_KEY / FLOW_AUTH_TOKEN override any credential loaded from
+        // disk. FLOW_API_KEY (a service-account API key) takes precedence when
+        // both are set; it's held in memory only, so nothing derived from it is
+        // persisted. The dispatch itself lives in `resolve_env_credential` so
+        // the precedence ladder is unit-testable without touching the process
+        // environment; here we only read the env and emit the operator-facing
+        // logging that depends on which vars were set.
+        let api_key_env = std::env::var(FLOW_API_KEY).ok();
+        let auth_token_env = std::env::var(FLOW_AUTH_TOKEN).ok();
+
+        if api_key_env.is_some() && auth_token_env.is_some() {
+            tracing::debug!("both FLOW_API_KEY and FLOW_AUTH_TOKEN are set; ignoring FLOW_AUTH_TOKEN");
+        } else if api_key_env.is_none() && auth_token_env.is_some() {
             // FLOW_AUTH_TOKEN is deprecated in favor of FLOW_API_KEY (automated
             // access) and `flowctl auth login` (interactive). It still works but
             // is slated for removal; warn so usage drains ahead of sunset.
@@ -188,28 +185,40 @@ impl Config {
                  set FLOW_API_KEY to a service-account API key for automated access, \
                  or run `flowctl auth login` for interactive use"
             );
-            // FLOW_AUTH_TOKEN overrides a credential loaded from disk. A value
-            // with three dot-delimited segments is a JWT access token; anything
-            // else is a base64-encoded refresh token JSON.
-            if env_token.split('.').count() == 3 {
-                tracing::info!("using FLOW_AUTH_TOKEN environment access token");
-                config.user_refresh_token = None;
-                config.user_access_token = Some(env_token);
-            } else {
-                let decoded = tokens::jwt::parse_base64(&env_token)
-                    .context("FLOW_AUTH_TOKEN is not base64")?;
-                let token: RefreshToken =
-                    serde_json::from_slice(&decoded).context("FLOW_AUTH_TOKEN is invalid JSON")?;
+        }
 
+        match resolve_env_credential(api_key_env, auth_token_env)? {
+            Some(EnvCredential::ApiKey(api_key)) => {
+                tracing::info!("using FLOW_API_KEY environment API key");
+                config.user_api_key = Some(api_key);
+                config.user_access_token = None;
+                config.user_refresh_token = None;
+            }
+            Some(EnvCredential::AccessToken(token)) => {
+                tracing::info!("using FLOW_AUTH_TOKEN environment access token");
+                config.user_access_token = Some(token);
+                config.user_refresh_token = None;
+            }
+            Some(EnvCredential::RefreshToken(token)) => {
                 tracing::info!("using FLOW_AUTH_TOKEN environment refresh token");
                 config.user_refresh_token = Some(token);
                 config.user_access_token = None;
             }
+            None => {}
         }
 
         config.is_local = profile == "local";
 
         Ok(config)
+    }
+
+    /// Whether this config should be persisted back to disk after a command.
+    /// A config carrying an env-supplied API key authenticates an ephemeral
+    /// run, so we never write credentials (or other state) derived from it: the
+    /// long-lived secret stays off disk and a human's existing config is left
+    /// untouched.
+    pub(crate) fn should_persist(&self) -> bool {
+        self.user_api_key.is_none()
     }
 
     /// Write the config to the file corresponding to the given named `profile`.
@@ -267,3 +276,120 @@ const FLOW_AUTH_TOKEN: &str = "FLOW_AUTH_TOKEN";
 // Environment variable holding a service-account API key (`flow_sa_...`). Takes
 // precedence over FLOW_AUTH_TOKEN when both are set.
 const FLOW_API_KEY: &str = "FLOW_API_KEY";
+
+/// The credential contributed by the environment, after dispatching on
+/// FLOW_API_KEY / FLOW_AUTH_TOKEN.
+#[cfg_attr(test, derive(Debug))]
+enum EnvCredential {
+    /// A service-account API key from FLOW_API_KEY.
+    ApiKey(String),
+    /// A JWT access token from FLOW_AUTH_TOKEN.
+    AccessToken(String),
+    /// A refresh token decoded from FLOW_AUTH_TOKEN.
+    RefreshToken(RefreshToken),
+}
+
+/// Resolve the credential supplied by the environment from the raw values of
+/// FLOW_API_KEY and FLOW_AUTH_TOKEN. Pure (no environment reads) so the
+/// precedence ladder and FLOW_AUTH_TOKEN's JWT-vs-refresh-token discrimination
+/// are unit-testable. FLOW_API_KEY wins when both are set; an FLOW_API_KEY that
+/// isn't a service-account key is an error rather than a silent fallback.
+fn resolve_env_credential(
+    api_key: Option<String>,
+    auth_token: Option<String>,
+) -> anyhow::Result<Option<EnvCredential>> {
+    if let Some(api_key) = api_key {
+        if !api_key.starts_with("flow_sa_") {
+            anyhow::bail!(
+                "FLOW_API_KEY must be a service-account API key, starting with `flow_sa_`"
+            );
+        }
+        return Ok(Some(EnvCredential::ApiKey(api_key)));
+    }
+
+    let Some(auth_token) = auth_token else {
+        return Ok(None);
+    };
+
+    // A value with three dot-delimited segments is a JWT access token; anything
+    // else is a base64-encoded refresh token JSON.
+    if auth_token.split('.').count() == 3 {
+        return Ok(Some(EnvCredential::AccessToken(auth_token)));
+    }
+
+    let decoded = tokens::jwt::parse_base64(&auth_token).context("FLOW_AUTH_TOKEN is not base64")?;
+    let token: RefreshToken =
+        serde_json::from_slice(&decoded).context("FLOW_AUTH_TOKEN is invalid JSON")?;
+    Ok(Some(EnvCredential::RefreshToken(token)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine;
+
+    fn refresh_token_b64() -> String {
+        let token = RefreshToken {
+            id: models::Id::new([1, 2, 3, 4, 5, 6, 7, 8]),
+            secret: "the-secret".to_string(),
+        };
+        let json = serde_json::to_vec(&token).unwrap();
+        base64::engine::general_purpose::STANDARD.encode(json)
+    }
+
+    #[test]
+    fn api_key_takes_precedence_over_auth_token() {
+        let resolved =
+            resolve_env_credential(Some("flow_sa_abc".to_string()), Some("a.b.c".to_string()))
+                .unwrap();
+        assert!(matches!(resolved, Some(EnvCredential::ApiKey(k)) if k == "flow_sa_abc"));
+    }
+
+    #[test]
+    fn api_key_without_prefix_is_rejected() {
+        let err = resolve_env_credential(Some("not-an-sa-key".to_string()), None).unwrap_err();
+        assert!(err.to_string().contains("flow_sa_"));
+    }
+
+    #[test]
+    fn auth_token_jwt_resolves_to_access_token() {
+        let resolved = resolve_env_credential(None, Some("header.payload.sig".to_string())).unwrap();
+        assert!(matches!(resolved, Some(EnvCredential::AccessToken(t)) if t == "header.payload.sig"));
+    }
+
+    #[test]
+    fn auth_token_base64_resolves_to_refresh_token() {
+        let resolved = resolve_env_credential(None, Some(refresh_token_b64())).unwrap();
+        assert!(matches!(resolved, Some(EnvCredential::RefreshToken(t)) if t.secret == "the-secret"));
+    }
+
+    #[test]
+    fn no_env_credential_resolves_to_none() {
+        assert!(resolve_env_credential(None, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn should_persist_is_false_under_api_key() {
+        let config = Config {
+            user_api_key: Some("flow_sa_abc".to_string()),
+            ..Default::default()
+        };
+        assert!(!config.should_persist());
+    }
+
+    #[test]
+    fn should_persist_is_true_without_api_key() {
+        assert!(Config::default().should_persist());
+    }
+
+    #[test]
+    fn api_key_is_never_serialized_to_disk() {
+        let config = Config {
+            user_api_key: Some("flow_sa_super_secret".to_string()),
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(!serialized.contains("flow_sa_super_secret"));
+        assert!(!serialized.contains("user_api_key"));
+    }
+}

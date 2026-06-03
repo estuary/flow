@@ -3389,6 +3389,7 @@ dependencies = [
  "assert_cmd",
  "async-process",
  "axum",
+ "base64 0.22.1",
  "build",
  "bytes",
  "chrono",

@@ -158,7 +158,7 @@ impl CliContext {
 
 /// Refresh the access token using whichever durable credential the config
 /// carries, updating `config` in place, and return it. A service-account API
-/// key (from `FLOW_AUTH_TOKEN`) takes precedence over a refresh token; when one
+/// key (from `FLOW_API_KEY`) takes precedence over a refresh token; when one
 /// is present we exchange it for an access token and never mint or rotate a
 /// refresh token (the API key is the long-lived credential).
 pub(crate) async fn refresh_credentials(
@@ -236,10 +236,10 @@ impl Cli {
 
         result?;
 
-        // An env-supplied API key authenticates an ephemeral run: never persist
-        // credentials (or other state) derived from it, so the long-lived secret
-        // stays off disk and a human's existing config is left untouched.
-        if context.config.user_api_key.is_none() {
+        // Skip write-back for an env-supplied API key (see `should_persist`):
+        // the long-lived secret stays off disk and a human's existing config is
+        // left untouched.
+        if context.config.should_persist() {
             context.config.write(&self.profile)?;
         }
 
