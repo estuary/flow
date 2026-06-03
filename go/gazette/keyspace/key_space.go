@@ -180,7 +180,26 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 		select {
 		case resp, ok := <-watchCh:
 			if !ok {
-				return ctx.Err() // Watch contract implies the context is cancelled.
+				// The Etcd client closed the watch channel. Usually this means
+				// our context was cancelled, but the client also closes the
+				// channel on server- or transport-initiated stream teardown
+				// (eg, ErrNoLeader under WithRequireLeader, or a compaction).
+				// In those cases it tries to first deliver an explanatory error
+				// WatchResponse, but that delivery is best-effort: it's dropped
+				// if not read within the client's 250ms closeSendErrTimeout.
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				watchCh = nil
+
+				log.WithField("attempt", attempt).
+					Warn("watch channel closed with a live context (will restart)")
+
+				select {
+				case <-time.After(backoff(attempt)): // Pass.
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			} else if err := resp.Err(); err != nil && !resp.Canceled {
 				log.WithFields(log.Fields{"err": err, "attempt": attempt}).
 					Warn("non-terminal watch error (will continue)")
