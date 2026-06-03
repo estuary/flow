@@ -1,5 +1,5 @@
-# When editing this catalog, regenerate its bundle via:
-#  flowctl raw bundle --source ops-catalog/reporting-L2-template.flow.yaml  > ops-catalog/reporting-L2-template.bundle.json
+# When editing this catalog, regenerate the checked-in bundles:
+#  mise run build:ops-bundles
 
 collections:
   ops.us-central1.v1/events/L2:
