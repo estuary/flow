@@ -48,6 +48,15 @@ pub fn apply_state_patches(state_json: &Bytes, patches_json: &Bytes) -> anyhow::
 /// `merge_patch` is false the connector wants its prior state replaced — we
 /// encode that as a leading `null` patch (state reset) followed by the
 /// connector's `updated_json`.
+///
+/// The wire format delimits patches with `\t`, so a raw tab byte in the
+/// connector's `updated_json` would corrupt framing — [`split_state_patches`]
+/// would truncate the patch at the first embedded tab. An RFC-8259-compliant
+/// encoder escapes in-string tabs as `\t` (two bytes), so a raw tab can only
+/// appear as structural whitespace from a pretty-printer (e.g.
+/// `json.MarshalIndent(_, "", "\t")`). We defensively replace any such tab with
+/// a space, which is semantically inert between JSON tokens; the `memchr` scan
+/// is cheap and the replacement loop runs only in this vanishingly rare case.
 pub fn encode_connector_state(state: Option<proto_flow::flow::ConnectorState>) -> Bytes {
     let Some(proto_flow::flow::ConnectorState {
         merge_patch,
@@ -67,7 +76,17 @@ pub fn encode_connector_state(state: Option<proto_flow::flow::ConnectorState>) -
     if !merge_patch {
         b.extend_from_slice(b"null\t,");
     }
+
+    let json_start = b.len();
     b.extend_from_slice(&updated_json);
+    if memchr::memchr(b'\t', &b[json_start..]).is_some() {
+        for byte in &mut b[json_start..] {
+            if *byte == b'\t' {
+                *byte = b' ';
+            }
+        }
+    }
+
     b.extend_from_slice(b"\t]");
 
     b.into()
@@ -244,6 +263,16 @@ mod test {
                 }),
                 b"[null\t,{\"a\":1}\t]",
                 vec![b"null".as_slice(), br#"{"a":1}"#.as_slice()],
+            ),
+            // Raw tabs in pretty-printed connector JSON are replaced with spaces
+            // so they don't corrupt the tab-delimited framing.
+            (
+                Some(flow::ConnectorState {
+                    updated_json: Bytes::from_static(b"{\n\t\"a\": 1\n}"),
+                    merge_patch: true,
+                }),
+                b"[{\n \"a\": 1\n}\t]",
+                vec![b"{\n \"a\": 1\n}".as_slice()],
             ),
         ];
 

@@ -7339,6 +7339,7 @@ dependencies = [
  "labels",
  "librocksdb-sys",
  "locate-bin",
+ "memchr",
  "metrics",
  "models",
  "ops",

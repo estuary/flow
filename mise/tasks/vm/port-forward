@@ -27,6 +27,7 @@ ssh ${usage_hostname:?} \
     -L 8001:localhost:8001 ${C# gazette 2} \
     -L 8002:localhost:8002 ${C# gazette 3} \
     -L 8003:localhost:8003 ${C# gazette 4} \
+    -L 8061:localhost:8061 ${C# runtime-sidecar debug } \
     -L 8098:localhost:8098 ${C# reactor 2} \
     -L 8099:localhost:8099 ${C# reactor 1} \
     ${C# Control Plane} \

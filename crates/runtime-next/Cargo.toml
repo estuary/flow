@@ -58,6 +58,7 @@ handlebars = { workspace = true }
 json-patch = { workspace = true }
 jsonwebtoken = { workspace = true }
 librocksdb-sys = { workspace = true }
+memchr = { workspace = true }
 metrics = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
