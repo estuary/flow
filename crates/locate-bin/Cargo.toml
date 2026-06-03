@@ -12,3 +12,6 @@ license.workspace = true
 which = "4.4.0"
 anyhow = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

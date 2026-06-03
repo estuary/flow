@@ -5119,6 +5119,7 @@ name = "locate-bin"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "tempfile",
  "tracing",
  "which",
 ]
