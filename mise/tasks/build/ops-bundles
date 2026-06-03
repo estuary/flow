@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+#MISE description="Regenerate the ops-catalog/*.bundle.json from their flow.yaml models"
+set -euo pipefail
+
+# Each ops-catalog model is bundled into a flattened, fully-inlined
+# `models::Catalog` that's checked in and embedded (`include_str!`) by Rust:
+#  * data-plane-template / reporting-L2-template -> control-plane-api
+#  * local-view                                  -> local/ops-publication.sh
+#  * ops-task-template                           -> flowctl (ops logs/stats reads)
+
+FLOWCTL="${CARGO_TARGET_DIR:-${HOME}/cargo-target}/debug/flowctl"
+
+# Canonicalize the repo root to match how flowctl canonicalizes source paths,
+# so the prefix we normalize below matches the `file://` ids flowctl emits.
+ROOT="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
+
+# Build flowctl so we bundle against the current sources. (The bundle command
+# reads the YAML models directly and does NOT use the embedded copies, so a
+# stale embedded ops-task-template.bundle.json here is harmless.)
+cargo build -p flowctl
+
+# Bundling is purely local, but on this branch flowctl eagerly authenticates at
+# startup and would fail on a stale stored credential. Point at a throwaway,
+# empty config home + profile so the run never reads or writes real credentials.
+export XDG_CONFIG_HOME="$(mktemp -d)"
+export FLOWCTL_PROFILE="ops-bundles-offline"
+trap 'rm -rf "${XDG_CONFIG_HOME}"' EXIT
+
+bundles=(
+  data-plane-template
+  reporting-L2-template
+  local-view
+  ops-task-template
+)
+
+for name in "${bundles[@]}"; do
+  echo "Bundling ops-catalog/${name}.flow.yaml ..."
+  # Normalize the machine-specific repo-root prefix in schema `$id`s to a stable
+  # placeholder, so the checked-in bundles are reproducible across machines.
+  # The `$id` is cosmetic here (schemas are fully inlined; refs are
+  # document-relative `#/$defs/...`), so any stable value is fine.
+  "${FLOWCTL}" raw bundle --source "${ROOT}/ops-catalog/${name}.flow.yaml" \
+    | sed "s|file://${ROOT}/|file:///flow/|g" \
+    > "${ROOT}/ops-catalog/${name}.bundle.json"
+done
+
+echo "✓ Regenerated ops-catalog bundles"

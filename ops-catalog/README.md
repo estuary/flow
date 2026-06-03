@@ -101,3 +101,25 @@ New L1 rollups will be added as transforms of these existing derivations:
 
 * `ops.us-central1.v1/catalog-stats-L2`
 * `ops.us-central1.v1/inferred-schemas/L2`
+
+# Regenerating bundles
+
+Several `*.flow.yaml` models here have a checked-in, flattened-and-inlined
+`*.bundle.json` (a `models::Catalog`) that's embedded by Rust (`include_str!`):
+
+* `data-plane-template` / `reporting-L2-template` -> `control-plane-api`
+  (published when creating a data-plane or updating L2 reporting).
+* `local-view` -> `local/ops-publication.sh`.
+* `ops-task-template` -> `flowctl`, which builds it offline to read a task's ops
+  `logs` / `stats` through the shuffle crate. Its collections are also inlined
+  into `data-plane-template.bundle.json` (which imports it).
+
+After editing any model or its schemas, regenerate all bundles in one step:
+
+```bash
+mise run build:ops-bundles
+```
+
+The task runs `flowctl raw bundle` and normalizes the machine-specific repo-root
+prefix in schema `$id`s to a stable `file:///flow/` placeholder, so the output
+is reproducible across machines.

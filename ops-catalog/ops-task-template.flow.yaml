@@ -1,0 +1,34 @@
+# The ops `logs` and `stats` collections that every Flow task in a data-plane
+# writes to. They live in their own catalog so they can be:
+#  * imported by data-plane-template.flow.yaml (which derives roll-ups from them),
+#  * and bundled into ops-task-template.bundle.json, which flowctl embeds and
+#    builds offline so that `flowctl logs` / `flowctl raw stats` can read them
+#    through the shuffle crate without round-tripping the control plane for a
+#    system-owned spec.
+#
+# BASE_NAME is substituted with the data-plane's base name at use.
+#
+# When editing, regenerate the checked-in bundles:  mise run build:ops-bundles
+
+collections:
+  ops/tasks/BASE_NAME/logs:
+    schema: logs.schema.yaml
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops/tasks/BASE_NAME/stats:
+    schema: stats.schema.yaml
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true

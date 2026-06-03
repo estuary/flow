@@ -1,5 +1,5 @@
-# When editing this catalog, regenerate its bundle via:
-#  flowctl raw bundle --source ops-catalog/local-view.flow.yaml  > ops-catalog/local-view.bundle.json
+# When editing this catalog, regenerate the checked-in bundles:
+#  mise run build:ops-bundles
 
 materializations:
   ops.us-central1.v1/stats-view:

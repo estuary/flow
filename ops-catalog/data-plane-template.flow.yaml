@@ -1,29 +1,13 @@
-# When editing this catalog, regenerate its bundle via:
-#  flowctl raw bundle --source ops-catalog/data-plane-template.flow.yaml  > ops-catalog/data-plane-template.bundle.json
+# When editing this catalog, regenerate the checked-in bundles:
+#  mise run build:ops-bundles
+
+# The ops/tasks/BASE_NAME/{logs,stats} collections live in their own catalog so
+# they can also be pre-built into CollectionSpecs that flowctl embeds. The import
+# is inlined into this catalog's bundle, so the bundle is unchanged in content.
+import:
+  - ops-task-template.flow.yaml
 
 collections:
-  ops/tasks/BASE_NAME/logs:
-    schema: logs.schema.yaml
-    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
-    projections:
-      kind:
-        location: /shard/kind
-        partition: true
-      name:
-        location: /shard/name
-        partition: true
-
-  ops/tasks/BASE_NAME/stats:
-    schema: stats.schema.yaml
-    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
-    projections:
-      kind:
-        location: /shard/kind
-        partition: true
-      name:
-        location: /shard/name
-        partition: true
-
   ops/rollups/L1/BASE_NAME/events:
     schema: events.schema.yaml
     key: [/fields/eventTarget, /fields/eventType]
