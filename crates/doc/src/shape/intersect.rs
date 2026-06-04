@@ -268,6 +268,7 @@ impl Shape {
         let provenance = lhs.provenance.intersect(rhs.provenance);
         let default = lhs.default.or(rhs.default);
         let secret = lhs.secret.or(rhs.secret);
+        let nonsensitive = lhs.nonsensitive.or(rhs.nonsensitive);
 
         let content_media_type = lhs.content_media_type.or(rhs.content_media_type);
 
@@ -313,6 +314,7 @@ impl Shape {
             provenance,
             default,
             secret,
+            nonsensitive,
             content_media_type,
             annotations,
             string,
