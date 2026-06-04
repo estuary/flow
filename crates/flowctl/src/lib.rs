@@ -292,8 +292,10 @@ impl Cli {
         };
 
         // Print before `result?` so the warning is visible even when the command fails
-        if let Ok(Some(latest)) = version_check.await {
+        if let Ok(Some((current, latest))) = version_check.await {
             tracing::warn!(
+                current,
+                latest,
                 "You're running an outdated version of flowctl — please update to {latest}",
             );
         }

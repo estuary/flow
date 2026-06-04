@@ -1,8 +1,9 @@
 use std::time::Duration;
 
-pub async fn check_latest() -> Option<String> {
+pub async fn check_latest() -> Option<(String, String)> {
+    let current = env!("CARGO_PKG_VERSION");
     match fetch_latest_tag().await {
-        Ok(latest) if latest != env!("CARGO_PKG_VERSION") => Some(latest),
+        Ok(latest) if current != latest && current != "dev" => Some((current.to_string(), latest)),
         Ok(_) => None,
         Err(err) => {
             tracing::debug!(%err, "version check failed");
