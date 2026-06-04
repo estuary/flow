@@ -99,23 +99,14 @@ The collection documents are displayed by key. Click the desired key to preview 
 
 #### Using the flowctl CLI
 
-In your [authenticated flowctl session](/reference/authentication/#authenticating-estuary-using-the-cli), issue the command `flowctl collections read --collection <full/collection-name> --uncommitted`. For example, `flowctl collections read --collection acmeCo/inventory/anvils --uncommitted`.
+In your [authenticated flowctl session](/reference/authentication/#authenticating-estuary-using-the-cli), issue the command `flowctl collections read --collection <full/collection-name>`. For example, `flowctl collections read --collection acmeCo/inventory/anvils`.
 
 Options are available to read a subset of data from collections.
-For example, `--since` allows you to specify an approximate start time from which to read data, and
-`--include-partition` allows you to read only data from a specified [logical partition](../concepts/advanced/projections.md#logical-partitions).
+For example, `--since` (a relative duration like `10m`) or `--not-before` (an absolute RFC-3339 timestamp)
+let you specify an exact start time from which to read data, and
+`--partitions` allows you to read only data from a specified [logical partition](../concepts/advanced/projections.md#logical-partitions).
+By default the command reads all currently-available data and then exits; pass `--follow` to keep reading new data as it's written.
 Use `flowctl collections read --help` to see documentation for all options.
-
-:::info Beta
-While in beta, this command currently has the following limitations. They will be removed in a later release:
-
-* The `--uncommitted` flag is required. This means that all collection documents are read, regardless of whether they were successfully committed or not.
-In the future, reads of committed documents will be the default.
-
-* Only reads of a single [partition](../concepts/advanced/projections.md#logical-partitions) are supported. If you need to read from a partitioned collection, use `--include-partition` or `--exclude-partition` to narrow down to a single partition.
-
-* The `--output` flag is not usable for this command. Only JSON data can be read from collections.
-:::
 
 ## Specification
 

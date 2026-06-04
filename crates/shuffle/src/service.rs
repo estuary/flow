@@ -4,6 +4,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+/// Default on-disk shuffle-log overflow threshold, in bytes (2 GiB), before a
+/// LogActor engages back-pressure. The single home for this value: the runtime
+/// sidecar's `--disk-backlog-threshold` CLI default and flowctl's in-process
+/// loopback Services all reference it so they cannot drift apart.
+pub const DEFAULT_DISK_BACKLOG_THRESHOLD: u64 = 2 * 1024 * 1024 * 1024;
+
 /// Service is the implementation of the Shuffle gRPC service trait.
 #[derive(Clone)]
 pub struct Service(Arc<ServiceImpl>);
@@ -45,6 +51,23 @@ impl Service {
             registry,
             signer,
         }))
+    }
+
+    /// Build a Service for an in-process loopback peer (e.g. `flowctl collections
+    /// read` or `flowctl preview`): no AuthN+AuthZ signer is needed because the
+    /// only peer is ourselves, and the disk-backlog threshold takes its default.
+    pub fn new_loopback(
+        peer_endpoint: String,
+        journal_client_factory: gazette::journal::ClientFactory,
+        registry: service_kit::Registry,
+    ) -> Self {
+        Self::new(
+            peer_endpoint,
+            journal_client_factory,
+            DEFAULT_DISK_BACKLOG_THRESHOLD,
+            registry,
+            None, // No AuthN+AuthZ signer (local loopback).
+        )
     }
 
     /// Wrap this service in its typed tonic server, applying the

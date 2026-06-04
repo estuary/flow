@@ -75,7 +75,8 @@ pub enum Command {
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
-    /// Locally run and preview a materialization using the V2 runtime.
+    /// Locally run and preview a capture, derivation, or materialization using
+    /// the V2 runtime.
     PreviewNext(preview_next::Preview),
 }
 
@@ -167,18 +168,11 @@ pub struct Stats {
 
     #[clap(flatten)]
     pub bounds: ReadBounds,
-
-    /// Read raw data from stats journals, including possibly uncommitted or rolled back transactions.
-    /// This flag is currently required, but will be made optional in the future as we add support for
-    /// committed reads, which will become the default.
-    #[clap(long)]
-    pub uncommitted: bool,
 }
 
 impl Stats {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        crate::ops::read_task_ops_journal(ctx, &self.task.task, OpsCollection::Stats, &self.bounds)
-            .await
+        crate::ops::read_task_ops(ctx, &self.task.task, OpsCollection::Stats, &self.bounds).await
     }
 }
 
@@ -187,25 +181,25 @@ pub struct BearerLogs {
     /// Bearer logs token.
     #[clap(long)]
     pub token: uuid::Uuid,
-    /// Start reading from this far in the past.
-    #[clap(long, default_value = "1h")]
+    /// Start reading from this far in the past, defaulting to the last hour.
+    /// Mutually exclusive with --not-before.
+    #[clap(long)]
     pub since: Option<humantime::Duration>,
+    /// Start reading from this absolute point in time, as an RFC-3339 timestamp
+    /// (e.g. "2024-01-02T15:04:05Z"). Mutually exclusive with --since.
+    #[clap(long, conflicts_with = "since", value_parser = crate::parse_rfc3339)]
+    pub not_before: Option<time::OffsetDateTime>,
 }
 
 impl BearerLogs {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        let bound = match self.since {
-            None => None,
-            Some(since) => {
-                let since: std::time::Duration = since.into();
-                Some(crate::Timestamp::from_unix_timestamp(
-                    (std::time::SystemTime::now() - since)
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64,
-                )?)
-            }
-        };
+        // Bearer logs are always read from a lower bound; when neither --since
+        // nor --not-before is given, default to the last hour.
+        let start_time = crate::resolve_not_before(self.since, self.not_before)
+            .unwrap_or_else(|| time::OffsetDateTime::now_utc() - time::Duration::hours(1));
+        let bound = Some(crate::Timestamp::from_unix_timestamp(
+            start_time.unix_timestamp(),
+        )?);
 
         crate::poll::stream_logs(ctx, &self.token.to_string(), bound).await
     }

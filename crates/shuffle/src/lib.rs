@@ -51,7 +51,7 @@ pub mod frontier;
 pub mod log;
 mod service;
 mod session;
-mod slice;
+pub mod slice;
 
 #[cfg(test)]
 pub(crate) mod testing;
@@ -67,7 +67,7 @@ pub const FLAGS_SCHEMA_VALID: u16 = 0x8000;
 pub use binding::Binding;
 pub use client::SessionClient;
 pub use frontier::{Frontier, JournalFrontier, ProducerFrontier};
-pub use service::Service;
+pub use service::{DEFAULT_DISK_BACKLOG_THRESHOLD, Service};
 
 /// Return the current wall-clock time as a `uuid::Clock`.
 ///
@@ -166,15 +166,6 @@ impl<'p> Verify<'p> {
         match t {
             Ok(t) => Ok(t),
             Err(status) => Err(self.fail_status(status)),
-        }
-    }
-
-    #[inline]
-    fn eof<T: serde::Serialize>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<()> {
-        match t {
-            None => Ok(()),
-            Some(Err(status)) => Err(self.fail_status(status)),
-            Some(Ok(t)) => Err(self.fail(t)),
         }
     }
 

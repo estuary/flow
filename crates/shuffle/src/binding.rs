@@ -113,6 +113,8 @@ impl Binding {
                 let shuffle::CollectionPartitions {
                     collection,
                     partition_selector,
+                    not_before,
+                    not_after,
                 } = collection_partitions;
 
                 let collection_spec = collection
@@ -126,6 +128,8 @@ impl Binding {
                 let pairs = vec![Self::from_collection_partitions(
                     collection_spec,
                     partition_selector,
+                    not_before.as_ref(),
+                    not_after.as_ref(),
                 )?];
 
                 pairs
@@ -310,6 +314,8 @@ impl Binding {
     fn from_collection_partitions(
         spec: &flow::CollectionSpec,
         source_partitions: &broker::LabelSelector,
+        not_before: Option<&pbjson_types::Timestamp>,
+        not_after: Option<&pbjson_types::Timestamp>,
     ) -> anyhow::Result<(Self, doc::Validator)> {
         let flow::CollectionSpec {
             ack_template_json: _,
@@ -332,6 +338,8 @@ impl Binding {
 
         let (validator, shape) = build_schema(read_schema_json, write_schema_json)?;
 
+        let (not_before, not_after) = not_before_after(not_before, not_after);
+
         let binding = Self {
             index: 0,
             filter_r_clocks: false,
@@ -345,8 +353,8 @@ impl Binding {
             source_uuid_ptr: json::Pointer::from_str(uuid_ptr),
             uses_lambda: false,
             uses_source_key: true,
-            not_before: uuid::Clock::UNIX_EPOCH,
-            not_after: uuid::Clock::from_u64(u64::MAX),
+            not_before,
+            not_after,
             cohort: 0, // Assigned by assign_cohorts().
             partition_fields: partition_fields.clone(),
             partition_prefix: format!("{partition_template_name}/").into(),

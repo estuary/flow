@@ -5,6 +5,7 @@ package shuffle;
 import "broker/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/estuary/flow/go/protocols/shuffle";
 
@@ -35,6 +36,10 @@ message CollectionPartitions {
   flow.CollectionSpec collection = 1;
   // Partition selector for filtering source collection journals.
   protocol.LabelSelector partition_selector = 2;
+  // When set, documents published before this timestamp are not processed.
+  google.protobuf.Timestamp not_before = 3;
+  // When set, documents published at or after this timestamp are not processed.
+  google.protobuf.Timestamp not_after = 4;
 }
 
 // Task which we're performing shuffles for.

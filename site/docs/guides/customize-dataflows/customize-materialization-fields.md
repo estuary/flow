@@ -381,7 +381,7 @@ allOf:
 To discover the JSON path of a pruned field, read documents from the collection:
 
 ```bash
-flowctl collections read --collection <name> --uncommitted | head -5
+flowctl collections read --collection <name> | head -5
 ```
 
 Examine the document structure to identify the path using `/` separators (e.g., `/fields/project/id`).

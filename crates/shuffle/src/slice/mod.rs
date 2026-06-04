@@ -5,7 +5,7 @@ mod handler;
 mod heap;
 mod listing;
 mod producer;
-mod read;
+pub mod read;
 mod routing;
 mod state;
 

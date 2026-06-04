@@ -97,6 +97,10 @@ impl SessionClient {
     }
 
     /// Cleanly close the session by dropping the request sender and reading server EOF.
+    ///
+    /// A caller may abandon an in-flight `next_checkpoint()` (e.g. on Ctrl-C or a
+    /// timeout) whose `NextCheckpoint` request was already sent, leaving its
+    /// checkpoint response still in flight.
     pub async fn close(self) -> anyhow::Result<()> {
         let Self {
             request_tx,
@@ -106,6 +110,16 @@ impl SessionClient {
         drop(request_tx); // Drop to close RPC send.
 
         let verify = crate::verify("SessionResponse", "EOF", "(in-process)", 0);
-        verify.eof(response_rx.recv().await)
+        loop {
+            match response_rx.recv().await {
+                None => return Ok(()),
+                Some(Err(status)) => return Err(verify.fail_status(status)),
+                Some(Ok(shuffle::SessionResponse {
+                    next_checkpoint: Some(_),
+                    ..
+                })) => continue, // Trailing response to an abandoned request.
+                Some(Ok(response)) => return Err(verify.fail(response)),
+            }
+        }
     }
 }
