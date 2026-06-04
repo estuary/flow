@@ -283,6 +283,7 @@ impl Shape {
         let provenance = lhs.provenance.union(rhs.provenance);
         let default = union_option(lhs.default, rhs.default);
         let secret = union_option(lhs.secret, rhs.secret);
+        let nonsensitive = union_option(lhs.nonsensitive, rhs.nonsensitive);
         let content_media_type = union_option(lhs.content_media_type, rhs.content_media_type);
 
         // Union of annotations is actually an _intersection_, which yields only
@@ -333,6 +334,7 @@ impl Shape {
             provenance,
             default,
             secret,
+            nonsensitive,
             content_media_type,
             annotations,
             string,

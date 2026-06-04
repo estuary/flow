@@ -241,6 +241,7 @@ impl Shape {
                     // but explicitly mentioned so that a compiler error will force us to check
                     // here as new annotations are added.
                     Annotation::Secret(b) => shape.secret = Some(*b),
+                    Annotation::Nonsensitive(b) => shape.nonsensitive = Some(*b),
                     Annotation::Multiline(_) => {}
                     Annotation::Advanced(_) => {}
                     Annotation::Order(_) => {}
@@ -556,6 +557,7 @@ mod test {
                     None,
                 ))),
                 secret: Some(true),
+                nonsensitive: None,
                 content_media_type: Some("some/thing".into()),
                 string: StringShape {
                     content_encoding: Some("base64".into()),
@@ -771,6 +773,7 @@ mod test {
                 provenance: Inline,
                 default: None,
                 secret: None,
+                nonsensitive: None,
                 content_media_type: None,
                 annotations: {},
                 array: ArrayShape {
