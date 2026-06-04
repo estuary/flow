@@ -89,14 +89,18 @@ impl Client {
         // than the default broker we initially dialed for the metadata request.
         req.header = metadata.header.take();
 
-        // OFFSET_NOT_YET_AVAILABLE means the requested offset has no content.
-        // When the request was for offset -1 (resolved to write head) or
-        // exactly at the write head, this is a normal "caught up" condition:
-        // yield the metadata so the caller sees write_head, then return.
-        // Setting both `*write_head` and `req.offset` to the same value
-        // causes the outer read() loop to exit for non-blocking reads.
+        // OFFSET_NOT_YET_AVAILABLE means there's no content at our requested
+        // offset. The broker reports, via `metadata.offset`, the offset it
+        // resolved to: our request (resolved from -1 to the write head), or a
+        // *fast-forwarded* offset when fragments were skipped because they fall
+        // before `begin_mod_time` or sit beyond a hole in the offset space. When
+        // that resolved offset equals the write head, the read is definitively
+        // caught up: there's no content between it and the head. Yield the
+        // metadata so the caller observes `offset` and `write_head`, then return.
+        // Setting both `*write_head` and `req.offset` to the write head causes
+        // the outer read() loop to exit for non-blocking reads.
         if metadata.status() == broker::Status::OffsetNotYetAvailable
-            && (req.offset == -1 || req.offset == metadata.write_head)
+            && metadata.offset == metadata.write_head
         {
             *write_head = metadata.write_head;
             req.offset = metadata.write_head;
