@@ -28,6 +28,12 @@ pub struct CollectionPartitions {
     /// Partition selector for filtering source collection journals.
     #[prost(message, optional, tag = "2")]
     pub partition_selector: ::core::option::Option<::proto_gazette::broker::LabelSelector>,
+    /// When set, documents published before this timestamp are not processed.
+    #[prost(message, optional, tag = "3")]
+    pub not_before: ::core::option::Option<::pbjson_types::Timestamp>,
+    /// When set, documents published at or after this timestamp are not processed.
+    #[prost(message, optional, tag = "4")]
+    pub not_after: ::core::option::Option<::pbjson_types::Timestamp>,
 }
 /// Task which we're performing shuffles for.
 #[derive(Clone, PartialEq, ::prost::Message)]

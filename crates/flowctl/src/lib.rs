@@ -17,6 +17,7 @@ mod output;
 mod poll;
 mod preview;
 mod raw;
+mod shuffle_read;
 mod version;
 
 use models::authorizations::ControlClaims;
@@ -383,6 +384,27 @@ impl Timestamp {
     pub fn from_unix_timestamp(epoch_time_seconds: i64) -> Result<Timestamp, anyhow::Error> {
         let offset_date_time = time::OffsetDateTime::from_unix_timestamp(epoch_time_seconds)?;
         Ok(Timestamp(offset_date_time))
+    }
+}
+
+/// Parse an RFC-3339 timestamp, for use as a clap `value_parser` backing
+/// `--not-before` style flags.
+pub(crate) fn parse_rfc3339(s: &str) -> Result<time::OffsetDateTime, String> {
+    time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
+        .map_err(|err| format!("invalid RFC-3339 timestamp: {err}"))
+}
+
+/// Resolve the mutually-exclusive `--since` (a duration before now) and
+/// `--not-before` (an absolute timestamp) flags into an absolute lower-bound
+/// time, or None when neither is set.
+pub(crate) fn resolve_not_before(
+    since: Option<humantime::Duration>,
+    not_before: Option<time::OffsetDateTime>,
+) -> Option<time::OffsetDateTime> {
+    if let Some(not_before) = not_before {
+        Some(not_before)
+    } else {
+        since.map(|since| time::OffsetDateTime::now_utc() - *since)
     }
 }
 

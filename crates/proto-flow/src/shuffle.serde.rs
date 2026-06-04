@@ -12,12 +12,24 @@ impl serde::Serialize for CollectionPartitions {
         if self.partition_selector.is_some() {
             len += 1;
         }
+        if self.not_before.is_some() {
+            len += 1;
+        }
+        if self.not_after.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.CollectionPartitions", len)?;
         if let Some(v) = self.collection.as_ref() {
             struct_ser.serialize_field("collection", v)?;
         }
         if let Some(v) = self.partition_selector.as_ref() {
             struct_ser.serialize_field("partitionSelector", v)?;
+        }
+        if let Some(v) = self.not_before.as_ref() {
+            struct_ser.serialize_field("notBefore", v)?;
+        }
+        if let Some(v) = self.not_after.as_ref() {
+            struct_ser.serialize_field("notAfter", v)?;
         }
         struct_ser.end()
     }
@@ -32,12 +44,18 @@ impl<'de> serde::Deserialize<'de> for CollectionPartitions {
             "collection",
             "partition_selector",
             "partitionSelector",
+            "not_before",
+            "notBefore",
+            "not_after",
+            "notAfter",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Collection,
             PartitionSelector,
+            NotBefore,
+            NotAfter,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -61,6 +79,8 @@ impl<'de> serde::Deserialize<'de> for CollectionPartitions {
                         match value {
                             "collection" => Ok(GeneratedField::Collection),
                             "partitionSelector" | "partition_selector" => Ok(GeneratedField::PartitionSelector),
+                            "notBefore" | "not_before" => Ok(GeneratedField::NotBefore),
+                            "notAfter" | "not_after" => Ok(GeneratedField::NotAfter),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -82,6 +102,8 @@ impl<'de> serde::Deserialize<'de> for CollectionPartitions {
             {
                 let mut collection__ = None;
                 let mut partition_selector__ = None;
+                let mut not_before__ = None;
+                let mut not_after__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Collection => {
@@ -96,11 +118,25 @@ impl<'de> serde::Deserialize<'de> for CollectionPartitions {
                             }
                             partition_selector__ = map_.next_value()?;
                         }
+                        GeneratedField::NotBefore => {
+                            if not_before__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("notBefore"));
+                            }
+                            not_before__ = map_.next_value()?;
+                        }
+                        GeneratedField::NotAfter => {
+                            if not_after__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("notAfter"));
+                            }
+                            not_after__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(CollectionPartitions {
                     collection: collection__,
                     partition_selector: partition_selector__,
+                    not_before: not_before__,
+                    not_after: not_after__,
                 })
             }
         }

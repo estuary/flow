@@ -118,14 +118,8 @@ impl Run {
             ctx.router.clone(),
             user_tokens,
         );
-        // 2 GiB matches the runtime-next default for sidecar-hosted shuffle services.
-        let shuffle_svc = shuffle::Service::new(
-            peer_endpoint.clone(),
-            factory,
-            2 * 1024 * 1024 * 1024,
-            registry.clone(),
-            None, // No AuthN+AuthZ signer (local loopback).
-        );
+        let shuffle_svc =
+            shuffle::Service::new_loopback(peer_endpoint.clone(), factory, registry.clone());
 
         let publisher_factory: gazette::journal::ClientFactory = std::sync::Arc::new({
             move |_authz_sub: String, _authz_obj: String| -> gazette::journal::Client {

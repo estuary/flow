@@ -59,7 +59,7 @@ pub struct Args {
     pub gazette_zone: String,
 
     /// On-disk shuffle log overflow threshold in bytes. Default is 2 GiB.
-    #[arg(long, env = "DISK_BACKLOG_THRESHOLD", default_value_t = 2 * 1024 * 1024 * 1024)]
+    #[arg(long, env = "DISK_BACKLOG_THRESHOLD", default_value_t = shuffle::DEFAULT_DISK_BACKLOG_THRESHOLD)]
     pub disk_backlog_threshold: u64,
 }
 
