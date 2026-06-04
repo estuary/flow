@@ -31,32 +31,41 @@ pub struct ReadState {
 }
 
 impl ReadState {
-    /// Construct a `ReadState` for a read resuming at journal byte `offset`,
-    /// with `settled` producers recovered from its checkpoint.
-    ///
-    /// All four offset fields start at `offset`, so the read's initial
-    /// "bytes behind" (`write_head - read_offset`) and its delta baseline
-    /// (`prev_write_head - prev_read_offset`) initialize as zero, which is
-    /// required because metrics accumulate deltas starting from these baselines.
-    ///
-    /// `write_head` is a placeholder here; it's overwritten with the journal's
-    /// true head once the first batch resolves in `process_read_result`.
-    pub fn resuming(
+    /// Construct a `ReadState` for a read with `settled` producers recovered
+    /// from its checkpoint.
+    pub fn recovered(
         binding_index: u16,
         journal: Box<str>,
         settled: ProducerMap<ProducerState>,
-        offset: i64,
     ) -> Self {
         Self {
             binding_index,
             journal,
             settled,
             pending: Default::default(),
-            read_offset: offset,
-            prev_read_offset: offset,
-            write_head: offset,
-            prev_write_head: offset,
+            read_offset: 0,
+            prev_read_offset: 0,
+            write_head: 0,
+            prev_write_head: 0,
         }
+    }
+
+    /// Seed all four offset fields to `offset`, the read's effective start as
+    /// resolved by the journal probe. The probe may fast-forward past leading
+    /// fragments that precede the read's `begin_mod_time`, so `offset` can
+    /// exceed the checkpoint offset; the skipped range would be filtered by the
+    /// read regardless. Initializing all four equal makes the initial "bytes
+    /// behind" (`write_head - read_offset`) and the delta baseline
+    /// (`prev_write_head - prev_read_offset`) zero, which is required because
+    /// metrics accumulate deltas starting from these baselines.
+    ///
+    /// `write_head` is a placeholder here; it's overwritten with the journal's
+    /// true head once the first batch resolves in `process_read_result`.
+    pub fn start_at(&mut self, offset: i64) {
+        self.read_offset = offset;
+        self.prev_read_offset = offset;
+        self.write_head = offset;
+        self.prev_write_head = offset;
     }
 }
 
@@ -139,22 +148,41 @@ pub fn extract_metas(
     Ok(out)
 }
 
-/// Probe the current write head of a journal via a non-blocking read at offset -1.
-/// Returns `(write_head, header)`.
-pub async fn probe_write_head(
+/// Probe where a read starting at `offset` with the given `begin_mod_time` will
+/// actually begin, along with the journal's current write head.
+/// Returns `(start_offset, write_head, header)`.
+///
+/// We issue a non-blocking, metadata-only read at `offset` with `begin_mod_time`
+/// wired in. The broker fast-forwards over any fragments that fall before
+/// `begin_mod_time` (or over holes in the offset space) and replies with a single
+/// metadata response before closing the stream — `Status OK` with a covering
+/// fragment if eligible content exists, or `OFFSET_NOT_YET_AVAILABLE` if every
+/// fragment was filtered. Either way the response carries:
+///   * `offset`: the fast-forwarded start, at-or-after the requested `offset`, and
+///   * `write_head`: the journal's current write head.
+///
+/// `start_offset == write_head` means the read is caught up: all content up to the
+/// head precedes `begin_mod_time`. Starting the read at `start_offset` rather than
+/// a stale `offset` below the head is both correct — the skipped bytes precede
+/// `begin_mod_time` and would be filtered by the read regardless — and necessary
+/// to classify a caught-up read as tailing rather than stalled.
+///
+/// Note that `client.read()` controls `ReadRequest::metadata_only` internally.
+pub async fn probe_read_start(
     client: gazette::journal::Client,
     journal: &str,
     binding_state_key: &str,
     header: Option<broker::Header>,
     journal_create_revision: i64,
-) -> anyhow::Result<(i64, Option<broker::Header>)> {
+    offset: i64,
+    begin_mod_time: i64,
+) -> anyhow::Result<(i64, i64, Option<broker::Header>)> {
     use futures::StreamExt;
 
-    // A non-blocking read at offset -1 returns OffsetNotYetAvailable immediately.
-    // Note that the `client.read()` controls ReadRequest::metadata_only internally.
     let stream = client.read(broker::ReadRequest {
         journal: journal.to_string(),
-        offset: -1,
+        offset,
+        begin_mod_time,
         block: false,
         do_not_proxy: true,
         header,
@@ -172,7 +200,18 @@ pub async fn probe_write_head(
                 attempt,
                 inner: err,
             })) => {
-                if err.is_transient() {
+                // A non-blocking read whose `offset` is ahead of the write head
+                // returns OFFSET_NOT_YET_AVAILABLE (surfaced here as a non-transient
+                // BrokerStatus). This is expected transiently while a (re)assigned
+                // broker loads its fragment index and its tracked end offset
+                // (reported write head) lags our checkpoint `offset`. Retry until
+                // the broker catches up — exactly as a blocking read at `offset` would wait.
+                let retryable = err.is_transient()
+                    || matches!(
+                        err,
+                        gazette::Error::BrokerStatus(broker::Status::OffsetNotYetAvailable)
+                    );
+                if retryable {
                     service_kit::event!(
                         tracing::Level::WARN,
                         "read",
@@ -180,18 +219,18 @@ pub async fn probe_write_head(
                         journal = journal.to_string(),
                         attempt,
                         err = service_kit::event::debug(err),
-                        "transient error probing journal write head (will retry)",
+                        "transient error probing journal read start (will retry)",
                     );
                 } else {
                     return Err(map_read_error(
                         err,
                         journal,
                         binding_state_key,
-                        "probing write head",
+                        "probing read start",
                     ));
                 }
             }
-            Some(Ok(resp)) => return Ok((resp.write_head, resp.header)),
+            Some(Ok(resp)) => return Ok((resp.offset, resp.write_head, resp.header)),
         }
     }
 }

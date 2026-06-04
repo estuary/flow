@@ -1,6 +1,6 @@
 use super::{
     heap::{ReadyReadEntry, ReadyReadHeap},
-    read::{Meta, ReadState, ReadyRead, map_read_error, probe_write_head},
+    read::{Meta, ReadState, ReadyRead, map_read_error, probe_read_start},
     routing,
     state::{self, FlushState, ProgressState, Topology},
 };
@@ -32,9 +32,12 @@ pub struct SliceActor {
     pub log_request_tx: Vec<mpsc::Sender<shuffle::LogRequest>>,
     /// Previous journal name sent to each Log shard, for delta encoding.
     pub log_prev_journal: Vec<String>,
-    /// Pending Journal write-head probes for newly started reads.
-    pub pending_probes:
-        stream::FuturesUnordered<future::BoxFuture<'static, anyhow::Result<super::ReadLines>>>,
+    /// Pending Journal read-start probes for newly started reads.
+    /// Each resolves to `(start_offset, read)`, where `start_offset` is the
+    /// read's fast-forwarded starting offset used to seed its `ReadState`.
+    pub pending_probes: stream::FuturesUnordered<
+        future::BoxFuture<'static, anyhow::Result<(i64, super::ReadLines)>>,
+    >,
     /// Reads that are awaiting more data from Gazette brokers.
     pub pending_reads: stream::FuturesUnordered<stream::StreamFuture<super::ReadLines>>,
     /// Number of pending reads that are caught up to their journal write head.
@@ -162,7 +165,12 @@ impl SliceActor {
 
                 // Lowest priority is processing journal listings and reads.
                 Some(probe_result) = self.pending_probes.next() => {
-                    self.park_or_process(probe_result?)?;
+                    let (start_offset, read) = probe_result?;
+                    // Seed the ReadState's offsets at the probe's resolved start
+                    // before parking, so byte deltas exclude the filtered range
+                    // the read skipped.
+                    self.reads[read.id() as usize].start_at(start_offset);
+                    self.park_or_process(read)?;
                 }
                 Some(listing_result) = listing_tasks.next() => {
                     self.on_listing_task_done(listing_result)?;
@@ -335,26 +343,33 @@ impl SliceActor {
         );
         self.metrics.reads_started.increment(1);
 
-        self.reads.push(ReadState::resuming(
+        self.reads.push(ReadState::recovered(
             binding_index as u16,
             journal,
             producers,
-            offset,
         ));
 
         self.pending_probes.push(Box::pin(async move {
-            // Probe the journal for its write head.
-            let (write_head, probe_header) = probe_write_head(
+            // Probe where this read effectively begins (after `begin_mod_time`
+            // fast-forwarding) and the journal's current write head.
+            let (start_offset, write_head, probe_header) = probe_read_start(
                 client.clone(),
                 &request.journal,
                 &binding_state_key,
                 request.header.take(),
                 create_revision,
+                offset,
+                request.begin_mod_time,
             )
             .await?;
 
-            let tailing = offset >= write_head;
+            // Begin the read at the fast-forwarded offset rather than the stale
+            // checkpoint `offset`: the skipped range precedes `begin_mod_time` and
+            // would be filtered regardless, and starting here lets a read that's
+            // caught up past all filtered content be classified as tailing.
+            request.offset = start_offset;
             request.header = probe_header;
+            let tailing = start_offset >= write_head;
 
             service_kit::event!(
                 tracing::Level::DEBUG,
@@ -362,17 +377,20 @@ impl SliceActor {
                 read_id,
                 binding = binding_index,
                 journal = request.journal.clone(),
-                offset,
+                offset = start_offset,
                 tailing,
                 write_head,
-                "probed journal write head",
+                "probed journal read start",
             );
 
-            Ok(Box::pin(gazette::journal::read::ReadLines::new(
-                client.read(request).boxed(),
-                read_id,
-                tailing,
-            )))
+            Ok((
+                start_offset,
+                Box::pin(gazette::journal::read::ReadLines::new(
+                    client.read(request).boxed(),
+                    read_id,
+                    tailing,
+                )) as super::ReadLines,
+            ))
         }));
 
         Ok(())
