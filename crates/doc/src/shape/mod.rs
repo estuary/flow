@@ -36,6 +36,10 @@ pub struct Shape {
     pub default: Option<Box<(Value, Option<super::FailedValidation>)>>,
     /// Is this location sensitive? For example, a password or credential.
     pub secret: Option<bool>,
+    /// Is this location explicitly marked as not security-relevant? Such locations
+    /// (and their subtrees) may be carried in a plaintext `sops.overlay` and modified
+    /// without re-encrypting the configuration. `None` is treated as sensitive.
+    pub nonsensitive: Option<bool>,
     /// Annotated `contentMediaType`. The JSON-Schema specification defines
     /// this annotation only for strings; Flow extends it to apply to any
     /// type, so it lives at the top level rather than nested in a typed
@@ -196,6 +200,7 @@ impl Shape {
             provenance: Provenance::Unset,
             default: None,
             secret: None,
+            nonsensitive: None,
             content_media_type: None,
             annotations: BTreeMap::new(),
             array: ArrayShape::new(),
@@ -218,6 +223,7 @@ impl Shape {
             provenance: Provenance::Inline,
             default: None,
             secret: None,
+            nonsensitive: None,
             content_media_type: None,
             annotations: BTreeMap::new(),
             array: ArrayShape::new(),
