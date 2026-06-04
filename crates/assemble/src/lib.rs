@@ -90,10 +90,18 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
                     .map(Into::into)
                     .unwrap_or_default(),
                 max_length: shape.string.max_length.unwrap_or_default() as u32,
-                // Holders only: populated in a follow-up, once the regenerated
-                // protobuf structs have rolled out to all readers.
-                str_minimum: String::new(),
-                str_maximum: String::new(),
+                str_minimum: shape
+                    .string
+                    .str_minimum
+                    .as_ref()
+                    .map(|b| b.to_string())
+                    .unwrap_or_default(),
+                str_maximum: shape
+                    .string
+                    .str_maximum
+                    .as_ref()
+                    .map(|b| b.to_string())
+                    .unwrap_or_default(),
             })
         } else {
             None
@@ -616,6 +624,8 @@ mod test {
                 format: Some(json::schema::formats::Format::DateTime),
                 min_length: 10,
                 max_length: Some(123),
+                str_minimum: Some(Box::new("100".parse().unwrap())),
+                str_maximum: Some(Box::new("18446744073709551615".parse().unwrap())),
                 ..StringShape::new()
             },
             numeric: NumericShape {
