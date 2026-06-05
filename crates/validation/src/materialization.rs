@@ -377,6 +377,30 @@ async fn walk_materialization<C: Connectors>(
             ..
         } = validated;
 
+        // Validate the list-form `projection_constraints`, mirroring the
+        // Go-side Response_Validated_Binding.Validate(): each entry must name a
+        // field and carry a constraint. Malformed entries are dropped by
+        // `normalize_constraints`, so they're caught here against the raw response.
+        for (index, pc) in validated.projection_constraints.iter().enumerate() {
+            if pc.field.is_empty() {
+                Error::Connector {
+                    detail: anyhow::anyhow!(
+                        "connector returned a projection constraint with an empty field (index {index})"
+                    ),
+                }
+                .push(scope, errors);
+            }
+            if pc.constraint.is_none() {
+                Error::Connector {
+                    detail: anyhow::anyhow!(
+                        "connector returned a projection constraint with no constraint for field {:?}",
+                        pc.field
+                    ),
+                }
+                .push(scope, errors);
+            }
+        }
+
         let normalized_constraints = field_selection::normalize_constraints(validated);
 
         for (field, constraints) in &normalized_constraints {
