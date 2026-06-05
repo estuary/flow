@@ -16,10 +16,12 @@ pub fn normalize_constraints(
     if !binding.projection_constraints.is_empty() {
         let mut out: BTreeMap<String, Vec<_>> = BTreeMap::new();
         for pc in &binding.projection_constraints {
-            let c = pc
-                .constraint
-                .as_ref()
-                .expect("projection_constraints entries are validated non-nil by Validate()");
+            // Entries with a missing constraint are skipped here;
+            // `walk_materialization` separately reports them as a connector
+            // error during validation.
+            let Some(c) = pc.constraint.as_ref() else {
+                continue;
+            };
             out.entry(pc.field.clone()).or_default().push(c.clone());
         }
         out
