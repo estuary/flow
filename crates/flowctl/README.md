@@ -55,3 +55,19 @@ flowctl draft create
 flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
 flowctl draft publish
 ```
+
+### Local previews and catalog tests
+
+`flowctl preview` and `flowctl catalog test` may need to run connector
+containers when you are working with TypeScript or Python derivations, captures,
+or materializations. Make sure Docker Desktop, Docker Engine, or your configured
+container runtime is running before starting those workflows.
+
+If you use Podman or another Docker-compatible CLI, set `DOCKER_CLI`:
+
+```console
+DOCKER_CLI=podman flowctl preview --source ./flow.yaml --name acmeCo/example/derivation
+```
+
+When the container runtime is unreachable, flowctl reports that directly instead
+of surfacing a misleading `docker inspect` parse error.
