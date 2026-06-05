@@ -44,8 +44,14 @@ impl Reader {
         }
     }
 
+    /// Index of the shard this Reader is reading for.
     pub fn shard_index(&self) -> u32 {
         self.shard_index
+    }
+
+    /// Base directory holding this Reader's on-disk log segment files.
+    pub fn directory(&self) -> &std::path::Path {
+        &self.directory
     }
 
     /// Set or update the high-watermark flushed LSN confirmed by the log writer.

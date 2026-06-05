@@ -67,6 +67,30 @@ The recovery model is fail-fast: if a terminal error occurs with a component of
 any shard, the entire topology is torn down and all logs are discarded,
 to be rebuilt anew on a next Session.
 
+### Shutdown
+
+The topology tears down through a single path: the coordinator drops (EOFs) its
+Session request stream, the Session propagates this to its Slices by closing
+their request streams, and each Slice in turn to its Logs. Each actor observes
+the EOF, then drains its downstream peers' EOFs before exiting.
+
+This interacts subtly with disk back-pressure. When a Log engages back-pressure
+(§8), it stops draining a Slice's `Append`s, which parks that Slice's request
+stream — so the Log no longer polls it and cannot observe its EOF. A Slice whose
+`Append` is parked at a back-pressured Log therefore can't drain that Log to EOF,
+and shutdown wedges from the Log upward. Back-pressure normally releases only as
+the downstream coordinator consumes the local log and reclaims segments — which
+stops happening once the coordinator is shutting down.
+
+A coordinator breaks this by relieving the back-pressure out-of-band: it removes
+each shard's log segment files (`remove_shard_segments`). The co-located Log's
+sealed-segment reclaim observes the unlinks, drops `disk_backlog_bytes` below
+threshold, and releases back-pressure — so the parked Slice streams re-arm, reach
+EOF, and the whole topology drains. Because this discards any log not yet
+consumed, a coordinator does it only once it will request no further checkpoints,
+then calls `SessionClient::close()` (which blocks until the Session→Slice→Log
+topology has fully drained).
+
 ### Authorization
 
 When the `Service` is built with a `proto_grpc::Signer` (the sidecar; `None` in

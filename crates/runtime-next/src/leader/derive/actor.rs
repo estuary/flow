@@ -55,7 +55,7 @@ impl Actor {
         &mut self,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
-        session: shuffle::SessionClient,
+        mut session: shuffle::SessionClient,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Derive>>>,
     ) -> anyhow::Result<()> {
         service_kit::event!(
@@ -74,15 +74,10 @@ impl Actor {
             .map(next_shard_rx)
             .collect();
 
-        // Build a stream of frontier checkpoints from the shuffle Session.
-        let frontier_rx = futures::stream::unfold(session, |mut session| async {
-            let result = session.next_checkpoint().await;
-            Some((result, session))
-        });
-        let mut frontier_rx = std::pin::pin!(frontier_rx);
-
         // Per-binding absolute measure, into which deltas are reduced.
         let mut binding_bytes_behind = vec![0; self.task.binding_collection_names.len()];
+        // We keep exactly one NextCheckpoint request in flight while idle.
+        let mut checkpoint_requested = false;
         // When true, Head should close its current open transaction ASAP.
         let mut close_requested = false;
         // Iteration counter for the per-loop trace event.
@@ -199,6 +194,12 @@ impl Actor {
                 );
             }
 
+            // Keep one NextCheckpoint in flight whenever we can accept a frontier.
+            if ready_frontier.is_none() && !checkpoint_requested {
+                session.request_checkpoint();
+                checkpoint_requested = true;
+            }
+
             tokio::select! {
                 biased;
 
@@ -245,12 +246,14 @@ impl Actor {
                     }
                     shard_rx.push(next_shard_rx((shard_index, rx)));
                 }
-                // Poll for a next frontier when otherwise idle.
-                Some(result) = frontier_rx.next(), if ready_frontier.is_none() => {
+                // Receive a requested NextCheckpoint frontier.
+                result = session.recv_checkpoint(), if checkpoint_requested => {
                     let frontier = result?;
                     let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) = frontier.measures();
                     let unresolved_hints = frontier.unresolved_hints;
+
                     ready_frontier = Some(frontier);
+                    checkpoint_requested = false;
 
                     service_kit::event!(
                         tracing::Level::DEBUG,
@@ -279,12 +282,23 @@ impl Actor {
             "derive Actor::serve exiting; broadcasting Stopped",
         );
 
+        // Broadcast L:Stopped. Each shard, upon observing it, removes its shuffle
+        // log segment files — releasing any disk back-pressure held by the
+        // co-located shuffle Log RPC so the Session topology can drain.
         for tx in &self.shard_tx {
             let _ = tx.send(Ok(proto::Derive {
                 stopped: Some(proto::Stopped {}),
                 ..Default::default()
             }));
         }
+
+        // Close the shuffle Session, blocking until the entire
+        // Session→Slice→Log topology has drained to EOF and exited. This depends
+        // on the shard segment removals above to release disk back-pressure.
+        () = session
+            .close()
+            .await
+            .context("closing shuffle Session on Stop")?;
 
         Ok(())
     }
