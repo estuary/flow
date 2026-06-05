@@ -66,19 +66,28 @@ impl SessionClient {
         })
     }
 
-    /// Send NextCheckpoint and read back the frontier response.
-    pub async fn next_checkpoint(&mut self) -> anyhow::Result<crate::Frontier> {
+    /// Send a `NextCheckpoint` request without awaiting its response.
+    ///
+    /// Pair with [`Self::recv_checkpoint`]. At most one request may be
+    /// outstanding at a time. Best-effort: a send error (the Session having
+    /// exited, or — invariant violation — a full request channel) surfaces
+    /// causally as an error or EOF from a subsequent `recv_checkpoint`.
+    pub fn request_checkpoint(&self) {
         tracing::debug!("requesting NextCheckpoint");
 
-        let verify = crate::verify("SessionResponse", "next_checkpoint", "(in-process)", 0);
+        let _: Result<(), _> = self.request_tx.try_send(shuffle::SessionRequest {
+            next_checkpoint: Some(shuffle::session_request::NextCheckpoint {}),
+            ..Default::default()
+        });
+    }
 
-        let _: Result<(), _> = self
-            .request_tx
-            .send(shuffle::SessionRequest {
-                next_checkpoint: Some(shuffle::session_request::NextCheckpoint {}),
-                ..Default::default()
-            })
-            .await;
+    /// Await the frontier response to a previously-issued
+    /// [`Self::request_checkpoint`].
+    ///
+    /// Cancel-safe: dropping the returned future before it completes loses no
+    /// response, so it may be re-awaited (e.g. across `select!` iterations).
+    pub async fn recv_checkpoint(&mut self) -> anyhow::Result<crate::Frontier> {
+        let verify = crate::verify("SessionResponse", "next_checkpoint", "(in-process)", 0);
 
         let proto = match verify.not_eof(self.response_rx.recv().await)? {
             shuffle::SessionResponse {
@@ -94,6 +103,15 @@ impl SessionClient {
             "received NextCheckpoint"
         );
         Ok(frontier)
+    }
+
+    /// Send NextCheckpoint and read back the frontier response.
+    ///
+    /// NOT cancel-safe: if dropped after the request is sent but before the
+    /// response arrives, a later call sends a second, redundant request.
+    pub async fn next_checkpoint(&mut self) -> anyhow::Result<crate::Frontier> {
+        self.request_checkpoint();
+        self.recv_checkpoint().await
     }
 
     /// Cleanly close the session by dropping the request sender and reading server EOF.

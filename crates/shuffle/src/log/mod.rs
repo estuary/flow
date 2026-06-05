@@ -98,6 +98,64 @@ pub(crate) fn segment_path(
     directory.join(filename)
 }
 
+/// Remove all on-disk log segment files for `shard_index` within `directory`.
+///
+/// Segments are matched by the `mem-{shard_index:03}-seg-*.flog` naming of
+/// `segment_path`, scoped to this shard; files of sibling shards and transient
+/// `.compress-*` files are left untouched. A never-created or already-removed
+/// directory is treated as success, and per-file `NotFound` is tolerated — the
+/// owning Log's `SealedSegment` / `Writer` `Drop`s may race these unlinks.
+///
+/// This is the escape hatch for tearing down a back-pressured Session. A Log
+/// engages disk back-pressure once its sealed-segment backlog exceeds the
+/// configured threshold, and releases it only as those segments are reclaimed —
+/// normally by a shard worker consuming its local log and unlinking what it has
+/// read. A coordinator shutting down stops consuming, so that back-pressure (and
+/// the Slice EOF propagation it blocks) would never release on its own. Removing
+/// a shard's segment files makes the Log's reclaim observe the unlinks and drop
+/// its backlog below the threshold, so it resumes draining and reaches EOF. See
+/// the crate README "Shutdown" notes.
+pub fn remove_shard_segments(directory: &std::path::Path, shard_index: u32) -> anyhow::Result<()> {
+    use anyhow::Context;
+
+    // Matches the `mem-{shard_index:03}-seg-{segment:012x}.flog` naming of
+    // `segment_path`, scoped to this shard.
+    let prefix = format!("mem-{shard_index:03}-seg-");
+
+    let entries = match std::fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => {
+            return Err(anyhow::Error::new(err))
+                .with_context(|| format!("reading shuffle log directory {directory:?}"));
+        }
+    };
+
+    for entry in entries {
+        let entry =
+            entry.with_context(|| format!("listing shuffle log directory {directory:?}"))?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+
+        if !(name.starts_with(&prefix) && name.ends_with(".flog")) {
+            continue;
+        }
+        let path = entry.path();
+
+        match std::fs::remove_file(&path) {
+            Ok(()) => tracing::debug!(?path, "removed shuffle log segment on Stop"),
+            // Raced the Log RPC's own SealedSegment/Writer unlink — benign.
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(anyhow::Error::new(err))
+                    .with_context(|| format!("removing shuffle log segment {path:?}"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// LZ4-compress a raw block payload, returning the compressed bytes.
 pub(crate) fn lz4_compress(raw: &[u8]) -> anyhow::Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(lz4::block::compress_bound(raw.len())?);
@@ -182,5 +240,48 @@ impl Metrics {
             segments_sealed: metrics::counter!("shuffle_log_segments_sealed", "shard_id" => shard_id.to_string()),
             disk_backlog_bytes: metrics::gauge!("shuffle_log_disk_backlog_bytes", "shard_id" => shard_id.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_remove_shard_segments_is_scoped() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // This shard's segments, a sibling shard's segment, a compression temp
+        // file, and an unrelated file.
+        let ours = [
+            super::segment_path(dir.path(), 0, 1),
+            super::segment_path(dir.path(), 0, 2),
+        ];
+        let sibling = super::segment_path(dir.path(), 1, 1);
+        let compress_tmp = dir
+            .path()
+            .join(".compress-mem-000-seg-000000000003.flogAB12");
+        let unrelated = dir.path().join("CURRENT");
+
+        for path in ours.iter().chain([&sibling, &compress_tmp, &unrelated]) {
+            std::fs::write(path, b"x").unwrap();
+        }
+
+        super::remove_shard_segments(dir.path(), 0).unwrap();
+
+        for path in &ours {
+            assert!(!path.exists(), "expected {path:?} removed");
+        }
+        assert!(sibling.exists(), "sibling shard segment must be retained");
+        assert!(compress_tmp.exists(), "compression temp must be retained");
+        assert!(unrelated.exists(), "unrelated file must be retained");
+
+        // Idempotent: a second call (segments now gone) still succeeds.
+        super::remove_shard_segments(dir.path(), 0).unwrap();
+    }
+
+    #[test]
+    fn test_remove_shard_segments_missing_dir_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("never-created");
+        super::remove_shard_segments(&missing, 0).unwrap();
     }
 }
