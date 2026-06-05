@@ -115,6 +115,8 @@ pub struct DataPlane {
     pub allow_cidrs: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub private_links: Vec<PrivateLink>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_private_routes: Vec<ExtraRoute>,
     pub deployments: Vec<Deployment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_limits: Option<ConnectorLimits>,
@@ -124,6 +126,15 @@ pub struct DataPlane {
 pub struct ConnectorLimits {
     pub cpu: String,
     pub memory: String,
+}
+
+/// A static route added to the private subnet route tables, pointing a
+/// customer-supplied CIDR at a VPN/transit gateway they've attached to the VPC.
+/// Mirrors est_dry_dock's `ExtraRoute` model; passed through to Pulumi.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ExtraRoute {
+    pub cidr_block: sqlx::types::ipnetwork::IpNetwork,
+    pub gateway_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
