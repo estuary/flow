@@ -97,7 +97,12 @@ impl Publisher {
     }
 
     /// Advance the publisher's clock to the current wall-clock time.
-    /// No-op in preview mode.
+    ///
+    /// Called once at the start of each transaction's stream of published
+    /// documents (the shard drain, or the leader stats + ACK write) so that
+    /// stamped UUIDs reflect the transaction's write time and then tick up
+    /// minimally between documents. The clock is monotonic, so this never
+    /// regresses below a prior written clock. No-op in preview mode.
     pub fn update_clock(&mut self) {
         match self {
             Self::Real(p) => p.update_clock(),

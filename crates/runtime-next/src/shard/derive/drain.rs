@@ -37,6 +37,13 @@ pub(super) async fn drain_and_publish(
     mut write_shape: doc::Shape,
     metrics: super::Metrics,
 ) -> anyhow::Result<Output> {
+    // Resync the publisher clock to wall-clock time at the start of this
+    // transaction's stream of published documents. Each `publish_doc` and the
+    // closing `commit_intents` then tick it up by a single microsecond, so
+    // stamped UUIDs cluster at the transaction's time of initial write.
+    // `Clock::update` is monotonic and never regresses.
+    publisher.update_clock();
+
     let mut drainer = drainer;
     let mut drained_docs: u64 = 0;
     let mut drained_bytes: u64 = 0;
