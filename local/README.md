@@ -5,6 +5,10 @@ glues together into a working Estuary stack. The interesting machinery is in
 `local/systemd/` (unit files) and `mise/tasks/local/` (drivers that emit env
 files and dropins, then `systemctl --user start`).
 
+**Scope.** This README is the primary reference for how the local stack is wired.
+Keep it current as the stack evolves. Task-specific docs (e.g. `tests/soak/README.md`)
+should link to the relevant section here rather than restate it.
+
 ## Topology
 
 ```
@@ -257,13 +261,17 @@ You must also set SSL_CERT_FILE to ~/flow-local/ca.crt or you'll see TLS violati
 
 ## Connectors run on the Supabase Docker network
 
-Reactor and agent set `FLOW_NETWORK=supabase_network_flow` (see
-`mise/tasks/local/reactor`), so connector containers — at build/discover time
-and at runtime — run on that Docker network, not the default bridge. The handy
-consequence: a connector endpoint config can point straight at the Supabase
-Postgres, which sits on the same network as `supabase_db_flow` and answers to
-`db:5432`. Any *other* service a connector needs has to be `docker network
-connect supabase_network_flow`'d first, and then addressed by container name.
+The **reactor** sets `FLOW_NETWORK=supabase_network_flow` (see
+`mise/tasks/local/reactor`), and the data plane spawns every connector container
+onto that Docker network rather than the default bridge — at runtime *and* at
+build / discover / Validate time. The agent never runs connectors itself: it
+proxies them to the data plane (`ProxyConnectors`), so they land on the reactor's
+network regardless of the agent's own config. (The agent's `--connector-network`
+defaults to `bridge` and only affects the legacy `connector_tags` automation.)
+The handy consequence: a connector endpoint config can point straight at the
+Supabase Postgres, which sits on the same network as `supabase_db_flow` and
+answers to `db:5432`. Any *other* service a connector needs has to be `docker
+network connect supabase_network_flow`'d first, and then addressed by container name.
 
 ## What `local:stack` is actually publishing
 
@@ -274,3 +282,11 @@ draft + publication of `ops-catalog/local-view.bundle.json` to the
 return the `ops/rollups/...` and `ops/dp/public/local-cluster/...` specs.
 `local/ops-publication.sh` is the standalone version of that same SQL if you
 want to publish your own bundle the same way.
+
+## Soak test
+
+`tests/soak/` is a continuous, self-checking workload that exercises the full V2
+runtime end to end on a local stack (capture → derivation → materializations), so
+any lost, duplicated, reordered, or torn document surfaces as a downstream
+contradiction. It's the go-to end-to-end exercise when validating runtime changes;
+see `tests/soak/README.md` to publish, run, and verify it.

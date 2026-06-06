@@ -249,15 +249,11 @@ cd ~/estuary/flow && poetry install --no-root
 ```
 
 **Materialization target.** `views` writes to the local stack's own **`supabase_db_flow`**
-(db/user/password all `postgres`), already on the `supabase_network_flow` Docker network
-the reactor spawns connectors onto, so the connector reaches it as `supabase_db_flow:5432`
-with no extra wiring. Tables land in a dedicated `soak` schema and are wiped by
-`supabase db reset` on each stack start (ephemeral — re-published next run). One prereq is
-baked into `local/systemd/flow-control-agent.service`: the agent runs build/validation
-connectors with **`--connector-network supabase_network_flow`** (its default `bridge` has
-no inter-container DNS, so a materialization's *Validate* couldn't resolve
-`supabase_db_flow`). If you brought a stack up before this change,
-`systemctl --user daemon-reload && systemctl --user restart flow-control-agent`.
+(db/user/password all `postgres`) in a dedicated `soak` schema, wiped by `supabase db reset`
+on each stack start (ephemeral — re-published next run). It needs no extra wiring: both at
+Validate time and at runtime the connector runs on the `supabase_network_flow` Docker network
+and reaches `supabase_db_flow:5432` directly — see `local/README.md` ("Connectors run on the
+Supabase Docker network").
 
 ## Running
 
@@ -287,12 +283,12 @@ The `accounts` derivation and `ledger` also run under preview-next, with two ext
 requirements. They are **image connectors** (derive-typescript needs Docker/Deno/a musl
 `flow-connector-init` entrypoint — see the preview-harness doc), and — unlike the capture
 — they **read source journals from the local stack**, so the upstream tasks must already
-be published and running (below) and the read must be authenticated. Hence these add
-`--profile local` plus the tenant token and local CA:
+be published and running (below) and the read must be authenticated against the stack
+(tenant token, `--profile local`, and the local CA — see `local/README.md`):
 
 ```bash
-set -a; . ~/flow-local/test-tenant-test.env; set +a   # FLOW_AUTH_TOKEN for journal reads
-export SSL_CERT_FILE=~/flow-local/ca.crt              # trust the local broker's TLS
+set -a; . ~/flow-local/test-tenant-test.env; set +a
+export SSL_CERT_FILE=~/flow-local/ca.crt
 
 # Derivation — union, in-order, oracle, conservation. Add --shards N for real cross-shard
 # Flush scatter/gather; --sessions 3,3,3 for the cross-session exactly-once probe.
@@ -326,6 +322,9 @@ FLOWCTL=~/cargo-target/debug/flowctl
 # Read connector ops logs (set SSL_CERT_FILE first, or you'll see TLS UnknownIssuer):
 export SSL_CERT_FILE=~/flow-local/ca.crt
 "$FLOWCTL" --profile local logs --task test/soak/ledger --since 30m | grep -i error
+
+# Read a task's per-transaction ops stats:
+"$FLOWCTL" --profile local raw stats --task test/soak/accounts --since 5m -o json
 ```
 
 A published capture runs continuously. Disable it by republishing with
