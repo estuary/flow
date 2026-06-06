@@ -378,6 +378,10 @@ impl Actor {
 
                 self.stats_write_fut = Some(
                     async move {
+                        // Resync the leader publisher clock to wall-clock at the
+                        // start of this transaction's stats + ACK publish stream.
+                        publisher.update_clock();
+
                         () = publisher.publish_stats(stats).await?;
 
                         // Build ACK intents from all shard publisher_commits
