@@ -117,6 +117,11 @@ pub struct DataPlane {
     pub private_links: Vec<PrivateLink>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_private_routes: Vec<ExtraRoute>,
+    // When true, the host-local podman `flow-connectors` network is created
+    // without IPv6 so connector containers cannot make outbound IPv6
+    // connections. Set per-data-plane; not part of any Deployment template.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disable_ipv6: bool,
     pub deployments: Vec<Deployment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_limits: Option<ConnectorLimits>,
