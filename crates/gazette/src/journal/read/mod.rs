@@ -40,6 +40,14 @@ impl Client {
                 {
                     Ok(()) => {
                         attempt = 0;
+
+                        // Yield now rather than looping immediately back into
+                        // `read_some`, which issues a request for metadata &
+                        // maybe a pre-signed fragment URL. Callers may not
+                        // immediately consume the resulting stream, and the
+                        // pre-signed URL might expire in that case. Wait until
+                        // actively polled again to mint any pre-signed URLs.
+                        () = tokio::task::yield_now().await;
                         continue;
                     }
                     Err(err) => err,
