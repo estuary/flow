@@ -24,6 +24,7 @@ type cmdShardsSplit struct {
 	DryRun        bool                  `long:"dry-run" description:"Print actions that would be taken, but don't actually take them"`
 	Shard         string                `long:"shard" required:"true" description:"Shard to split"`
 	SplitOnRClock bool                  `long:"split-rclock" description:"Split on rotated clock (instead of on key)"`
+	BuildsRoot    string                `long:"builds-root" required:"true" description:"Builds root URL from which the task's built specification is loaded"`
 	Diagnostics   mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
@@ -45,11 +46,7 @@ func (cmd cmdShardsSplit) execute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	buildsRoot, err := getBuildsRoot(ctx, gazctlcmd.ShardsCfg.Consumer)
-	if err != nil {
-		return err
-	}
-	builds, err := flow.NewBuildService(buildsRoot.String())
+	builds, err := flow.NewBuildService(cmd.BuildsRoot)
 	if err != nil {
 		return err
 	}
