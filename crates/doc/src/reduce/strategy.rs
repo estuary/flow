@@ -107,7 +107,6 @@ pub struct LastWriteWins {
     /// The default is true. When set to false, then unequal left- and right-hand
     /// values may not reduce associatively and both documents must be retained
     /// until a full reduction can be performed.
-    /// EXPERIMENTAL: This keyword may be removed in the future.
     #[serde(default = "true_value")]
     pub associative: bool,
 }
