@@ -65,16 +65,24 @@ collections:
 ```
 
 To preserve **every** document for a key end-to-end (no deduplication at any stage),
-pair `associative: false` on the collection with a **delta-updates** materialization:
+you need both `associative: false` on the collection **and** a **delta-updates**
+materialization, because reductions happen at more than one place:
 
-* `associative: false` stops same-key documents from being combined as they're
-  written to and read from the collection.
-* Delta updates skips the destination's load-reduce-store cycle, so the
-  materialization never merges a new document into the existing row for its key.
+* **At capture time**, documents are combined with a *partial* (associative)
+  reduction before they're written to the collection. `associative: false` is what
+  stops unequal same-key documents from being merged here.
+* **A standard materialization** loads the existing destination row and performs a
+  *full* reduction of new documents into it — always one row per key. The
+  `associative` flag has no effect on a full reduction, so this step must be removed
+  with [delta updates](/concepts/materialization/#delta-updates).
+* **A delta-updates materialization** still combines documents with a *partial*
+  reduction within each transaction, so `associative: false` is needed here too —
+  otherwise same-key documents that land in one transaction are merged before they're
+  written to the destination.
 
-Delta updates alone is not sufficient: without `associative: false`, same-key
-documents that land in the same materialization transaction can still be combined
-before they're written. Both knobs are needed for a fully un-reduced stream.
+In short: delta updates removes the full reduction at the destination, and
+`associative: false` prevents merging at every remaining (partial) reduction stage.
+Either knob alone still deduplicates.
 
 This is the mechanism CDC **history mode** uses to retain the full change history of
 a source row, rather than just its latest state.
