@@ -286,8 +286,8 @@ The `source-mysql` connector is designed to halt immediately if something wrong 
 
 The connector handles most DDL on actively-captured tables automatically:
 
-- `ALTER TABLE` to add, drop, rename, or change the type of a column is applied to the collection schema as the change appears in the binlog. No action is required.
-- `DROP TABLE`, `RENAME TABLE`, and `DROP DATABASE` deactivate the affected binding. To resume capturing afterwards, re-add the table to the binding list, which will trigger a fresh backfill.
+- `ALTER TABLE` to add, drop, rename, or change the type of a column is handled automatically as the change appears in the binlog. No action is required.
+- `DROP TABLE`, `RENAME TABLE`, and `DROP DATABASE` deactivate the affected binding. If the table is later recreated, the connector automatically re-backfills it and resumes capturing.
 - `TRUNCATE TABLE` on an active table is ignored — truncated rows are not propagated to the destination as deletes. If you need the destination to reflect the truncate, trigger a backfill of the binding.
 
 If a column type change results in captured documents that don't match the existing collection schema, autodiscovery will update the schema on its next run. To apply the new schema immediately, edit the capture, click **Refresh**, and republish.
@@ -302,7 +302,7 @@ Resolving this error requires fixing the `binlog_format` system variable, and th
 
 If your capture is failing with an `"unhandled query"` error, some SQL query is present in the binlog which the connector does not (currently) understand.
 
-In general, this error suggests that the connector should be modified to at least recognize this type of query, and most likely categorize it as either an unsupported [DML Query](#data-manipulation-queries), a [schema change](#handling-source-schema-changes), or something that can safely be ignored. Until such a fix is made the capture cannot proceed, and you will need to backfill all collections to allow the capture to jump ahead to a later point in the binlog.
+If you encounter this error, [contact Estuary support](mailto:support@estuary.dev) so we can help get your capture unstuck.
 
 ### Inconsistent Metadata
 
