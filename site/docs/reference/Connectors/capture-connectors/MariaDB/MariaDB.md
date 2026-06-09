@@ -10,6 +10,8 @@ so the same configuration applies, but the setup steps look somewhat different.
 
 ## Prerequisites
 
+This connector supports MariaDB 10.3 and later.
+
 To use this connector, you'll need a MariaDB database setup with the following.
 
 - The [`binlog_format`](https://mariadb.com/kb/en/binary-log-formats/)
@@ -42,7 +44,7 @@ The `SELECT` permission can be restricted to just the tables that need to be
 captured, but automatic discovery requires `information_schema` access as well.
 
 ```sql
-CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret'
+CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 ```
@@ -50,53 +52,18 @@ GRANT SELECT ON *.* TO 'flow_capture';
 2. Configure the binary log to retain data for at least 7 days. We recommend 30 days where possible.
 
 ```sql
-SET PERSIST binlog_expire_logs_seconds = 2592000;
+SET GLOBAL binlog_expire_logs_seconds = 2592000;
 ```
 
 3. Configure the database's time zone. See [below](#setting-the-mariadb-time-zone) for more information.
 
 ```sql
-SET PERSIST time_zone = '-05:00'
+SET GLOBAL time_zone = '-05:00';
 ```
 
-### Azure Database for MariaDB
-
-You can use this connector for MariaDB instances on Azure Database for MariaDB using the following setup instructions.
-
-1. Allow connections to the database from the Estuary IP address.
-
-   1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mariadb/howto-manage-firewall-portal)
-      that grants access to the [Estuary IP addresses](/reference/allow-ip-addresses).
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling. To do so:
-
-   - Follow the guide to [configure an SSH server for tunneling](/guides/connect-network/)
-   - When you configure your connector as described in the [configuration](#configuration) section above,
-     including the additional `networkTunnel` configuration to enable the SSH tunnel.
-     See [Connecting to endpoints on secure networks](/concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-     for additional details and a sample.
-     :::
-
-2. Set the `binlog_expire_logs_seconds` [server perameter](https://learn.microsoft.com/en-us/azure/mariadb/howto-server-parameters#configure-server-parameters)
-   to `2592000`.
-
-3. Using your preferred MariaDB client, create the `flow_capture` user with replication permission, and the ability to read all tables.
-
-   The `SELECT` permission can be restricted to just the tables that need to be captured, but automatic discovery requires `information_schema` access as well.
-
-:::tip
-Your username must be specified in the format `username@servername`.
+:::note
+`SET GLOBAL` applies these changes to the running server but does not survive a restart. Add the same variables to `my.cnf` to persist across restarts — MariaDB does not support MySQL's `SET PERSIST` syntax.
 :::
-
-```sql
-CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret'
-GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
-GRANT SELECT ON *.* TO 'flow_capture';
-```
-
-4. Note the instance's host under Server name, and the port under Connection Strings (usually `3306`).
-   Together, you'll use the host:port as the `address` property when you configure the connector.
 
 ## Capturing from Read Replicas
 
@@ -157,9 +124,11 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/dbname`                      | Database Name                      | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access.                                                                                                                                                                                                                    | string  | `"mysql"`                  |
 | `/advanced/node_id`                     | Node ID                            | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value.                                                                                                                                                                             | integer |                            |
 | `/advanced/skip_backfills`              | Skip Backfills                     | A comma-separated list of fully-qualified table names which should not be backfilled.                                                                                                                                                                                                                                                                                                   | string  |                            |
-| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `131072`                   |
+| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `50000`                    |
+| `/advanced/discover_schemas`            | Discovery Schema Selection         | If specified, only tables in the selected schema(s) will be automatically discovered. Omit all entries to discover tables from all schemas.                                                                                                                                                                                                                                             | array of strings | |
 | `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need.                                                                                                                                                                                                                                | boolean |                            |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
+| `/advanced/statement_timeout` | Statement Timeout | Overrides the default statement timeout used by the connector. Allowed values: `30s`, `1m`, `5m`, `30m`, or empty to disable. | string |  |
 
 #### Bindings
 
@@ -204,13 +173,15 @@ Your capture definition will likely be more complex, with additional bindings fo
 
 The `source-mariadb` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
 
-### Unsupported Operations
+### Handling Source Schema Changes
 
-If your capture is failing with an `"unsupported operation {ALTER,DROP,TRUNCATE,etc} TABLE"` error, this indicates that such an operation has taken place impacting a table which is currently being captured.
+The connector handles most DDL on actively-captured tables automatically:
 
-In the case of `DROP TABLE` and other destructive operations this is not supported, and can only be resolved by removing the offending table(s) from the capture bindings list, after which you may recreate the capture if desired (causing the latest state of the table to be recaptured in its entirety).
+- `ALTER TABLE` to add, drop, rename, or change the type of a column is handled automatically as the change appears in the binlog. No action is required.
+- `DROP TABLE`, `RENAME TABLE`, and `DROP DATABASE` deactivate the affected binding. If the table is later recreated, the connector automatically re-backfills it and resumes capturing.
+- `TRUNCATE TABLE` on an active table is ignored — truncated rows are not propagated to the destination as deletes. If you need the destination to reflect the truncate, trigger a backfill of the binding.
 
-In the case of `ALTER TABLE` we currently support table alterations to add or drop columns from a table. This error indicates that whatever alteration took place is not currently supported. Practically speaking the immediate resolution is the same as for a `DROP` or `TRUNCATE TABLE`, but if you frequently perform schema migrations it may be worth reaching out to see if we can add support for whatever table alteration you just did.
+If a column type change results in captured documents that don't match the existing collection schema, autodiscovery will update the schema on its next run. To apply the new schema immediately, edit the capture, click **Refresh**, and republish.
 
 ### Data Manipulation Queries
 
@@ -222,7 +193,7 @@ Resolving this error requires fixing the `binlog_format` system variable, and th
 
 If your capture is failing with an `"unhandled query"` error, some SQL query is present in the binlog which the connector does not (currently) understand.
 
-In general, this error suggests that the connector should be modified to at least recognize this type of query, and most likely categorize it as either an unsupported [DML Query](#data-manipulation-queries), an unsupported [Table Operation](#unsupported-operations), or something that can safely be ignored. Until such a fix is made the capture cannot proceed, and you will need to backfill all collections to allow the capture to jump ahead to a later point in the binlog.
+If you encounter this error, [contact Estuary support](mailto:support@estuary.dev) so we can help get your capture unstuck.
 
 ### Inconsistent Metadata
 
