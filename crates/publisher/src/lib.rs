@@ -5,7 +5,7 @@ pub mod mapping;
 pub mod publisher;
 pub mod watch;
 
-pub use appender::{Appender, AppenderGroup};
+pub use appender::{Appender, AppenderGroup, ThrottleSample};
 pub use binding::{Binding, FixedBinding, MappedBinding};
 pub use publisher::Publisher;
 

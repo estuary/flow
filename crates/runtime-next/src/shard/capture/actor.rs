@@ -38,6 +38,9 @@ pub(super) struct Actor {
     // Inferred per-binding write-shapes. Seeded from prior sessions at
     // construction, parked into the drain future, handed back at session end.
     shapes: Option<Vec<doc::Shape>>,
+    // Long-lived per-journal throttle policy, fed once per transaction once the
+    // collection appends have flushed.
+    split_policy: crate::split_policy::SplitPolicy,
     // Drain inputs staged by a Rotate, consumed by the Drain dispatch.
     drain_input: Option<DrainInput>,
 
@@ -80,6 +83,7 @@ impl Actor {
             db: Some((db, binding_state_keys)),
             publisher: Some(publisher),
             shapes: Some(shapes),
+            split_policy: crate::split_policy::SplitPolicy::new(),
             drain_input: None,
             acknowledge_fut: None,
             drain_fut: None,
@@ -237,6 +241,10 @@ impl Actor {
                     self.publisher = Some(publisher);
                     self.pending_ack_intents = ack_intents;
                     self.stats_write_fut = None;
+
+                    // WriteStats flushed this transaction's collection appends, so
+                    // the publisher's per-journal throttle samples are now complete
+                    self.observe_throttle();
                 }
                 Some(result) = maybe_fut(&mut self.persist_fut) => {
                     self.db = Some(result?);
@@ -276,6 +284,19 @@ impl Actor {
         let shapes = self.shapes.take().context("missing capture shapes")?;
 
         Ok((db, shapes))
+    }
+
+    /// Drain this transaction's per-journal throttle samples from the publisher
+    /// and feed them into the long-lived split policy.
+    fn observe_throttle(&mut self) {
+        let Some(publisher) = self.publisher.as_mut() else {
+            return;
+        };
+        crate::shard::observe_throttle_samples(
+            &mut self.split_policy,
+            publisher.take_throttle_samples(),
+            std::time::Instant::now(),
+        );
     }
 
     /// Execute the outgoing-IO primitive for an Action.

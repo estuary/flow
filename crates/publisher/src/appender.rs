@@ -1,6 +1,7 @@
 use futures::StreamExt;
 use proto_gazette::broker;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 
 /// An Appender manages a pipeline of sequential appends directed to a single journal.
 pub struct Appender {
@@ -21,6 +22,11 @@ pub struct Appender {
     /// Optional registers which must be present for the Append to succeed.
     /// This may be used with cooperative fencing of journals.
     check_registers: Option<Box<broker::LabelSelector>>,
+    /// Accumulated `delayed_chunks` summed across every append RPC issued to
+    /// this journal since the last `take_throttle_samples()`.
+    delayed_chunks: Arc<AtomicI64>,
+    /// Accumulated `total_chunks` summed across every append RPC
+    total_chunks: Arc<AtomicI64>,
 }
 
 type UpdateFn = Box<
@@ -58,6 +64,8 @@ impl Appender {
             watch,
             state: AppendState::Idle(update),
             check_registers: None,
+            delayed_chunks: Arc::new(AtomicI64::new(0)),
+            total_chunks: Arc::new(AtomicI64::new(0)),
         }
     }
 
@@ -148,6 +156,8 @@ impl Appender {
         let barrier = self.barrier;
         let buffer = self.buffer.split().freeze();
         let client = self.client.clone();
+        let delayed_chunks = self.delayed_chunks.clone();
+        let total_chunks = self.total_chunks.clone();
 
         let request = proto_gazette::broker::AppendRequest {
             header,
@@ -175,6 +185,11 @@ impl Appender {
             loop {
                 match stream.next().await {
                     Some(Ok(response)) => {
+                        // Accumulate throttle counts here where every AppendResponse
+                        // lands.  Relaxed is sufficient, we're just summing counts
+                        total_chunks.fetch_add(response.total_chunks, Ordering::Relaxed);
+                        delayed_chunks.fetch_add(response.delayed_chunks, Ordering::Relaxed);
+
                         update(Ok((response, barrier)));
                         return update;
                     }
@@ -224,6 +239,15 @@ impl Appender {
 
     /// Chunk size for streaming data to the broker during an append RPC.
     const CHUNK_SIZE: usize = 32 << 10; // 32 KB
+}
+
+/// A per-journal sample of append-throttle pressure observed over all of a
+/// transaction's append RPCs to that journal (see [`Appender`]).
+pub struct ThrottleSample<'a> {
+    /// Name of the journal that was appended to.
+    pub journal_name: &'a str,
+    /// Whether the broker delayed any of the transaction's appends to it.
+    pub throttled: bool,
 }
 
 /// Manages a pool of Appenders, separating those that have been recently active
@@ -284,6 +308,26 @@ impl AppenderGroup {
     /// Move all active appenders to idle.
     pub fn sweep(&mut self) {
         self.idle.extend(self.active.drain());
+    }
+
+    /// Take accumulated per-journal throttle samples for active journals
+    pub fn take_throttle_samples(&mut self) -> Vec<ThrottleSample<'_>> {
+        let mut samples = Vec::new();
+
+        for (journal, appender) in self.active.iter() {
+            let total_chunks = appender.total_chunks.swap(0, Ordering::Relaxed);
+            let delayed_chunks = appender.delayed_chunks.swap(0, Ordering::Relaxed);
+
+            if total_chunks == 0 {
+                continue;
+            }
+
+            samples.push(ThrottleSample {
+                journal_name: journal.as_ref(),
+                throttled: delayed_chunks > 0,
+            });
+        }
+        samples
     }
 }
 
@@ -350,6 +394,59 @@ mod test {
             b"hello"
         );
         assert_eq!(group.active_set().count(), 1);
+    }
+
+    // --- Throttle sample accounting ---
+
+    #[test]
+    fn test_take_throttle_samples_accumulates_and_resets() {
+        let client = mock_journal_client();
+        let mut group = AppenderGroup::new();
+
+        // Simulate two append RPCs to journal/a within one cycle — as the
+        // spawned append task's fetch_add would — to prove the accumulators
+        // sum across RPCs rather than overwrite (the watch's last-writer-wins
+        // behavior we're working around).
+        {
+            let a = group.activate("journal/a", &client);
+            a.total_chunks.fetch_add(10, Ordering::Relaxed);
+            a.delayed_chunks.fetch_add(3, Ordering::Relaxed);
+            a.total_chunks.fetch_add(5, Ordering::Relaxed);
+            a.delayed_chunks.fetch_add(2, Ordering::Relaxed);
+        }
+        {
+            // journal/b was appended to but never throttled.
+            let b = group.activate("journal/b", &client);
+            b.total_chunks.fetch_add(7, Ordering::Relaxed);
+        }
+
+        let mut samples = group.take_throttle_samples();
+        samples.sort_by(|x, y| x.journal_name.cmp(y.journal_name));
+
+        assert_eq!(samples.len(), 2);
+        // journal/a was throttled (3 + 2 delayed chunks summed across its RPCs).
+        assert_eq!(samples[0].journal_name, "journal/a");
+        assert!(samples[0].throttled);
+        // journal/b was appended to (total > 0) but never delayed.
+        assert_eq!(samples[1].journal_name, "journal/b");
+        assert!(!samples[1].throttled);
+
+        // The borrow ends here, freeing `group` for the reset check below.
+        drop(samples);
+
+        // Take resets: a subsequent take with no new appends yields nothing.
+        assert!(group.take_throttle_samples().is_empty());
+    }
+
+    #[test]
+    fn test_take_throttle_samples_skips_untouched_journal() {
+        let client = mock_journal_client();
+        let mut group = AppenderGroup::new();
+
+        // Activated (e.g. mapped) but never actually appended to.
+        group.activate("journal/idle", &client);
+
+        assert!(group.take_throttle_samples().is_empty());
     }
 
     // --- Barrier watch mechanics ---

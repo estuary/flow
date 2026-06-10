@@ -47,6 +47,8 @@ pub(super) struct Actor {
     // C:Published measures snapshotted at L:Store for the in-flight drain's L:Stored.
     staged_published_docs: u64,
     staged_published_bytes: u64,
+    // Long-lived per-journal throttle policy, fed once per transaction
+    split_policy: crate::split_policy::SplitPolicy,
     // Task being executed.
     task: Arc<Task>,
     // Inferred write shape; parked while a drain borrows it.
@@ -78,6 +80,7 @@ impl Actor {
             published_bytes: 0,
             staged_published_docs: 0,
             staged_published_bytes: 0,
+            split_policy: crate::split_policy::SplitPolicy::new(),
             task,
             write_shape: Some(write_shape),
         }
@@ -223,6 +226,10 @@ impl Actor {
                     self.publisher = Some(output.publisher);
                     self.write_shape = Some(output.write_shape);
                     self.drain_fut = None;
+
+                    // The drain just flushed this transaction's collection appends,
+                    // check the throttling stats
+                    self.observe_throttle();
 
                     service_kit::event!(
                         tracing::Level::DEBUG,
@@ -414,6 +421,18 @@ impl Actor {
         }
 
         Ok((phase, false))
+    }
+
+    /// Drain this transaction's per-journal throttle samples from the publisher
+    fn observe_throttle(&mut self) {
+        let Some(publisher) = self.publisher.as_mut() else {
+            return;
+        };
+        crate::shard::observe_throttle_samples(
+            &mut self.split_policy,
+            publisher.take_throttle_samples(),
+            std::time::Instant::now(),
+        );
     }
 
     fn on_connector_response(

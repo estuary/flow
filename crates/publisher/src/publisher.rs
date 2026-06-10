@@ -304,6 +304,11 @@ impl Publisher {
         Ok(())
     }
 
+    /// Take accumulated per-journal append-throttle samples since the last call.
+    pub fn take_throttle_samples(&mut self) -> Vec<super::ThrottleSample<'_>> {
+        self.appenders.take_throttle_samples()
+    }
+
     /// Access the lazy Client and partitions watch for the Mapped binding at
     /// `index`. Panics if the binding is Fixed. Primarily used by tests.
     pub fn mapped_binding_client(
