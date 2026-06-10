@@ -306,6 +306,15 @@ pub struct AnsibleHost {
     pub geo_region: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vpc: Option<String>,
+    // CIDRs of the public and private subnets this host's template is
+    // attached to. Consumed by the est-dry-dock common role to identify
+    // iface_pub vs. iface_nat without hardcoding the legacy 10.0/16 and
+    // 10.1/16 defaults. Optional for backward compatibility with stack
+    // outputs produced before these were exported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_subnet_cidr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_subnet_cidr: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
