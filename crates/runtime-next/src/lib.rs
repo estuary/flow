@@ -38,6 +38,7 @@ pub mod leader;
 pub mod patches;
 pub mod publish;
 pub mod shard;
+pub mod split_policy;
 mod task_service;
 
 pub use container::flow_runtime_protocol;

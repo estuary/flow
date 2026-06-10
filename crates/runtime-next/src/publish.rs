@@ -210,6 +210,14 @@ impl Publisher {
         }
     }
 
+    /// Take accumulated per-journal append-throttle samples since the last call.
+    pub fn take_throttle_samples(&mut self) -> Vec<publisher::ThrottleSample<'_>> {
+        match self {
+            Self::Real(p) => p.take_throttle_samples(),
+            Self::Preview { .. } => Vec::new(),
+        }
+    }
+
     /// Snapshot this producer's contribution to the current transaction's
     /// ACK intents. In preview mode, returns an empty list — no real
     /// publishes happened, so there are no commit positions to encode.
@@ -316,6 +324,15 @@ fn missing_uuid_placeholder(uuid_ptr: &json::Pointer) -> tonic::Status {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn preview_take_throttle_samples_is_empty() {
+        // The auto-split signal path stays inert in preview mode: no journal IO
+        // happens, so there are no throttle samples to surface.
+        let mut publisher =
+            Publisher::new_preview(std::iter::empty::<&proto_flow::flow::CollectionSpec>());
+        assert!(publisher.take_throttle_samples().is_empty());
+    }
 
     #[test]
     fn producer_round_trips_through_task_bytes() {
