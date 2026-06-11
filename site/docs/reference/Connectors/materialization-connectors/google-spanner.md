@@ -30,7 +30,7 @@ Use the properties below to configure a Google Spanner materialization.
 | **`/credentials`** | Credentials | Credentials used to authenticate with Google. | object | Required |
 | **`/credentials/service_account_json`** | Service Account JSON | The JSON key of the service account to use for authorization. | string | Required |
 | `/advanced` | Advanced Options | Options for advanced users. | object |  |
-| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. | boolean | `false` |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 | `/advanced/disable_key_distribution_optimization` | Disable Key Distribution Optimization | When enabled, the hash prefix normally added to table keys will be omitted. The hash prefix distributes writes across Spanner splits and avoids hotspots. | boolean | `false` |
 
 #### Bindings

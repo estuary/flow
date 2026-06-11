@@ -56,6 +56,7 @@ Use the below properties to configure a SingleStore materialization, which will 
 | `/advanced/ssl_server_ca` | SSL Server CA | Optional server certificate authority to use when connecting with custom SSL mode | string |  |
 | `/advanced/ssl_client_cert` | SSL Client Certificate | Optional client certificate to use when connecting with custom SSL mode. | string |  |
 | `/advanced/ssl_client_key` | SSL Client Key | Optional client key to use when connecting with custom SSL mode. | string |  |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 
 #### SSL Mode
 

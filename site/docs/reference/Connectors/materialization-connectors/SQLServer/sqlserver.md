@@ -115,6 +115,7 @@ Use the below properties to configure a SQLServer materialization, which will di
 | **`/database`**    | Database    | Name of the logical database to materialize to.                                            | string  | Required         |
 | **`/schema`**      | Schema      | Default database schema for bound collection tables.                                       | string  | Optional         |
 | **`/credentials`** | Credentials | Credentials for authentication.                                                            | [Credentials](#credentials) | Required |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 
 #### Credentials
 

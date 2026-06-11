@@ -23,6 +23,7 @@ Select one or more of your Estuary collections to start using this connector. Th
 | **`/password`**         | Password           | Password for authentication.               | string | Required               |
 | **`/timezone`**                 | Timezone               | Timezone to use when materializing datetime columns. Should normally be left blank to use the database's 'time_zone' system variable. Only required if the 'time_zone' system variable cannot be read.  | string |                  |
 | `/hardDelete` | Hard Delete | If enabled, items deleted in the source will also be deleted from the destination. By default, deletions are tracked via `_meta/op` (soft delete). | boolean | `false` |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 
 ### Advanced: SSL Mode
 Configuring the SSL mode strengthens security when transferring data to Oracle MySQL HeatWave. Here are the possible values for SSL mode:
