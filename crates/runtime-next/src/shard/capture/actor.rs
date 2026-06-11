@@ -49,6 +49,7 @@ pub(super) struct Actor {
     drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output>>>,
     intents_write_fut: Option<BoxFuture<'static, tonic::Result<crate::Publisher>>>,
     persist_fut: Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, Vec<String>)>>>,
+    split_fut: Option<crate::shard::SplitFuture>,
     stats_write_fut:
         Option<BoxFuture<'static, tonic::Result<(crate::Publisher, BTreeMap<String, Bytes>)>>>,
 
@@ -89,6 +90,7 @@ impl Actor {
             drain_fut: None,
             intents_write_fut: None,
             persist_fut: None,
+            split_fut: None,
             stats_write_fut: None,
             drain_finished: None,
             pending_ack_intents: BTreeMap::new(),
@@ -138,6 +140,7 @@ impl Actor {
                 head = ?head,
                 persist_in_flight = self.persist_fut.is_some(),
                 ready_connector_rx = ready_connector_rx.kind(),
+                split_in_flight = self.split_fut.is_some(),
                 stats_in_flight = self.stats_write_fut.is_some(),
                 stopping,
                 tail = ?tail,
@@ -260,6 +263,15 @@ impl Actor {
                     self.publisher = Some(publisher);
                     self.intents_write_fut = None;
                 }
+                Some((journal, outcome)) = maybe_fut(&mut self.split_fut) => {
+                    crate::shard::finish_split(
+                        &mut self.split_policy,
+                        &journal,
+                        outcome,
+                        std::time::Instant::now(),
+                    );
+                    self.split_fut = None;
+                }
                 // Process controller messages next.
                 msg = controller_rx.next() => {
                     Self::on_controller_rx(msg, &mut close_requested, &mut stopping)?;
@@ -287,16 +299,22 @@ impl Actor {
     }
 
     /// Drain this transaction's per-journal throttle samples from the publisher
-    /// and feed them into the long-lived split policy.
+    /// and feed them into the long-lived split policy, then start a split of
+    /// at most one persistently-throttled journal — off the hot path, parked
+    /// as `split_fut`.
     fn observe_throttle(&mut self) {
         let Some(publisher) = self.publisher.as_mut() else {
             return;
         };
+        let now = std::time::Instant::now();
         crate::shard::observe_throttle_samples(
             &mut self.split_policy,
             publisher.take_throttle_samples(),
-            std::time::Instant::now(),
+            now,
         );
+        if self.split_fut.is_none() {
+            self.split_fut = crate::shard::start_due_split(&mut self.split_policy, publisher, now);
+        }
     }
 
     /// Execute the outgoing-IO primitive for an Action.
@@ -754,6 +772,85 @@ mod tests {
             recover.connector_state_json.as_ref(),
             br#"{"cursor":"lsn-9"}"#
         );
+    }
+
+    /// `observe_throttle` parks at most one split for a due journal, never
+    /// replaces an in-flight split, and is suppressed by cooldown and by the
+    /// terminal `ignore` set.
+    #[tokio::test]
+    async fn observe_throttle_split_dispatch() {
+        let (connector_tx, _actor_to_conn_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+        let task = std::sync::Arc::new(mk_task(true));
+
+        let spec = flow::CollectionSpec {
+            name: "test/collectionA".to_string(),
+            partition_template: Some(proto_gazette::broker::JournalSpec {
+                name: "test/collectionA/v1".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let publisher = crate::Publisher::new_test_real([&spec]);
+        let shapes = task.binding_shapes_by_index(Default::default());
+
+        let mut actor = Actor::new(
+            vec!["stateA".to_string()],
+            connector_tx,
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            super::super::Metrics::new("test/shard"),
+            publisher,
+            shapes,
+            task,
+        );
+
+        // Seed a policy under which the observed journal is immediately due.
+        const J: &str = "test/collectionA/v1/pivot=00";
+        actor.split_policy =
+            crate::split_policy::SplitPolicy::with_config(crate::split_policy::Config {
+                threshold: -1.0,
+                min_observation_span: Duration::ZERO,
+                ..Default::default()
+            });
+        actor
+            .split_policy
+            .observe(J, true, std::time::Instant::now());
+
+        // Exactly one split is dispatched and parked for the due journal.
+        actor.observe_throttle();
+        assert!(actor.split_fut.is_some());
+
+        // An in-flight split is never replaced: park a sentinel, re-evaluate
+        // (J is still due), and observe the sentinel itself resolve.
+        actor.split_fut = Some(
+            async {
+                (
+                    "sentinel".to_string(),
+                    Ok(publisher::SplitOutcome::Transient),
+                )
+            }
+            .boxed(),
+        );
+        actor.observe_throttle();
+        let (journal, _outcome) = actor.split_fut.take().unwrap().await;
+        assert_eq!(journal, "sentinel");
+
+        // A completed split puts J in cooldown: nothing re-dispatches.
+        crate::shard::finish_split(
+            &mut actor.split_policy,
+            J,
+            Ok(publisher::SplitOutcome::Split),
+            std::time::Instant::now(),
+        );
+        actor.observe_throttle();
+        assert!(actor.split_fut.is_none());
+
+        // An ignored journal never re-triggers, even under fresh pressure.
+        actor.split_policy.ignore(J);
+        actor
+            .split_policy
+            .observe(J, true, std::time::Instant::now());
+        actor.observe_throttle();
+        assert!(actor.split_fut.is_none());
     }
 
     /// `parse_sourced_schema` resolves a valid closed schema to its binding and

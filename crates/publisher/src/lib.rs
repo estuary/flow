@@ -7,6 +7,7 @@ pub mod watch;
 
 pub use appender::{Appender, AppenderGroup, ThrottleSample};
 pub use binding::{Binding, FixedBinding, MappedBinding};
+pub use mapping::{MIN_PARTITION_WIDTH, SplitOutcome};
 pub use publisher::Publisher;
 
 /// Boxed closure for lazy initialization of a Mapped binding's partitions
