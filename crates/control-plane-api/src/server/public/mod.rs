@@ -4,6 +4,7 @@ use std::sync::Arc;
 pub mod graphql;
 mod open_metrics;
 pub mod status;
+pub mod token_exchange;
 
 /// Creates a router for the public API that can be merged into an existing router.
 /// All endpoints registered here are documented in an OpenAPI spec. For adding new
@@ -69,6 +70,10 @@ pub(crate) fn api_v1_router(
         // The openapi json is itself documented as an API route
         .api_route("/api/v1/openapi.json", aide::axum::routing::get(serve_docs))
         // The docs UI is not documented as an API route
+        .api_route(
+            "/api/v1/auth/token",
+            aide::axum::routing::post(token_exchange::handle_post_token),
+        )
         .route(
             "/api/v1/docs",
             axum::routing::get(

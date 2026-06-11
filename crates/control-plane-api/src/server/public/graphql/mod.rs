@@ -37,6 +37,7 @@ mod live_spec_refs;
 mod live_specs;
 mod prefixes;
 mod publication_history;
+mod refresh_tokens;
 pub mod status;
 mod storage_mappings;
 mod tenant;
@@ -83,6 +84,7 @@ pub struct QueryRoot(
     invite_links::InviteLinksQuery,
     connectors::ConnectorsQuery,
     tenant::TenantQuery,
+    refresh_tokens::RefreshTokensQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
@@ -93,6 +95,7 @@ pub struct MutationRoot(
     alert_configs::AlertConfigsMutation,
     alert_subscriptions::AlertSubscriptionsMutation,
     invite_links::InviteLinksMutation,
+    refresh_tokens::RefreshTokensMutation,
 );
 
 pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {

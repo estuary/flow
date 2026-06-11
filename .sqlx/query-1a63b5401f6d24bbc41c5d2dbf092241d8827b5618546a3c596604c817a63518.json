@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE refresh_tokens\n        SET uses = uses + 1, updated_at = clock_timestamp()\n        WHERE id = $1\n          AND hash = crypt($2, hash)\n          AND multi_use\n          AND (updated_at + valid_for) > now()\n        RETURNING user_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1a63b5401f6d24bbc41c5d2dbf092241d8827b5618546a3c596604c817a63518"
+}
