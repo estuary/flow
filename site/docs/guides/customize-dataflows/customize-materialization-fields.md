@@ -335,10 +335,15 @@ Enabling **Exclude Flow Document** does not modify a table that has already been
 * `flow_document` remains a required field in the binding's field selection, and the connector continues to write it.
 
 The option takes effect for new bindings, or for existing bindings once they are [backfilled](/reference/backfilling-data/).
-Backfilling a binding drops and re-creates the destination table, so the re-created table will not include the `flow_document` column.
+
+For most SQL and warehouse destinations, a routine backfill [truncates and repopulates the existing table](/reference/backfilling-data/#schema-changes-during-backfill) rather than dropping it.
+The truncate clears the stored document values — which is where the storage savings come from — but the now-unused `flow_document` column itself remains in the table as an empty, nullable column.
+Since Estuary no longer writes to it, you can manually drop the leftover column if you want it gone.
+
+A new binding, or a backfill that takes the [drop-and-recreate path](/reference/backfilling-data/#schema-changes-during-backfill), creates the table without the `flow_document` column entirely.
 
 :::note
-The main motivation for this option is saving destination storage. For an existing table, those savings are only realized after a backfill re-creates the table without the document column.
+The main motivation for this option is saving destination storage. For an existing table, those savings are only realized after a backfill clears the stored documents.
 :::
 
 ## Pruned fields
