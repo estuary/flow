@@ -15,7 +15,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           },
           {
             "name": "estuary.dev/key-end",
-            "value": "2fffffff"
+            "value": "1fffffff"
           },
           {
             "name": "estuary.dev/rclock-begin",
@@ -24,10 +24,6 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           {
             "name": "estuary.dev/rclock-end",
             "value": "9fffffff"
-          },
-          {
-            "name": "estuary.dev/split-target",
-            "value": "derivation/example/derivation/2020202020202020/20000000-60000000"
           },
           {
             "name": "extra",
@@ -59,10 +55,6 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
             "value": "9fffffff"
           },
           {
-            "name": "estuary.dev/split-source",
-            "value": "derivation/example/derivation/2020202020202020/10000000-60000000"
-          },
-          {
             "name": "extra",
             "value": "1"
           }
@@ -92,11 +84,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           },
           {
             "name": "estuary.dev/rclock-end",
-            "value": "9fffffff"
-          },
-          {
-            "name": "estuary.dev/split-target",
-            "value": "derivation/example/derivation/2020202020202020/10000000-80000000"
+            "value": "7fffffff"
           },
           {
             "name": "extra",
@@ -126,10 +114,6 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
           {
             "name": "estuary.dev/rclock-end",
             "value": "9fffffff"
-          },
-          {
-            "name": "estuary.dev/split-source",
-            "value": "derivation/example/derivation/2020202020202020/10000000-60000000"
           },
           {
             "name": "extra",
@@ -167,7 +151,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
               },
               {
                 "name": "estuary.dev/key-end",
-                "value": "2fffffff"
+                "value": "1fffffff"
               },
               {
                 "name": "estuary.dev/log-level",
@@ -184,10 +168,6 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
               {
                 "name": "estuary.dev/rclock-end",
                 "value": "9fffffff"
-              },
-              {
-                "name": "estuary.dev/split-target",
-                "value": "derivation/example/derivation/2020202020202020/20000000-60000000"
               },
               {
                 "name": "estuary.dev/stats-journal",
@@ -263,6 +243,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
         "upsert": {
           "hintBackups": 2,
           "hintPrefix": "/estuary/flow/hints",
+          "hotStandbys": 3,
           "id": "derivation/example/derivation/2020202020202020/20000000-60000000",
           "labels": {
             "labels": [
@@ -297,10 +278,6 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
               {
                 "name": "estuary.dev/rclock-end",
                 "value": "9fffffff"
-              },
-              {
-                "name": "estuary.dev/split-source",
-                "value": "derivation/example/derivation/2020202020202020/10000000-60000000"
               },
               {
                 "name": "estuary.dev/stats-journal",
@@ -410,11 +387,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
               },
               {
                 "name": "estuary.dev/rclock-end",
-                "value": "9fffffff"
-              },
-              {
-                "name": "estuary.dev/split-target",
-                "value": "derivation/example/derivation/2020202020202020/10000000-80000000"
+                "value": "7fffffff"
               },
               {
                 "name": "estuary.dev/stats-journal",
@@ -490,6 +463,7 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
         "upsert": {
           "hintBackups": 2,
           "hintPrefix": "/estuary/flow/hints",
+          "hotStandbys": 3,
           "id": "derivation/example/derivation/2020202020202020/10000000-80000000",
           "labels": {
             "labels": [
@@ -524,10 +498,6 @@ expression: "json!([\"key_splits\", (&key_lhs, &key_rhs), \"clock_splits\",\n(&c
               {
                 "name": "estuary.dev/rclock-end",
                 "value": "9fffffff"
-              },
-              {
-                "name": "estuary.dev/split-source",
-                "value": "derivation/example/derivation/2020202020202020/10000000-60000000"
               },
               {
                 "name": "estuary.dev/stats-journal",

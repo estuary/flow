@@ -2,7 +2,7 @@ use anyhow::Context;
 use gazette::broker::journal_spec;
 use proto_flow::flow;
 use proto_gazette::{
-    broker::{self, JournalSpec, Label, LabelSelector, LabelSet},
+    broker::{self, JournalSpec, LabelSelector, LabelSet},
     consumer::{self, ShardSpec},
     recoverylog,
 };
@@ -10,7 +10,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 // A Shard or Journal change to be applied.
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub enum Change {
     Shard(consumer::apply_request::Change),
     Journal(broker::apply_request::Change),
@@ -457,6 +457,30 @@ pub fn unpack_journal_listing(resp: broker::ListResponse) -> anyhow::Result<Vec<
     Ok(v)
 }
 
+const RUNTIME_V2_FLAG: &str = "estuary.dev/flag/enable-runtime-v2";
+
+fn non_zero_shards_are_stateless(shard_template: &ShardSpec) -> bool {
+    let Some(set) = shard_template.labels.as_ref() else {
+        return false;
+    };
+    let task_type = labels::values(set, labels::TASK_TYPE)
+        .first()
+        .map(|l| l.value.as_str());
+
+    if !matches!(
+        task_type,
+        Some(labels::TASK_TYPE_DERIVATION) | Some(labels::TASK_TYPE_MATERIALIZATION)
+    ) {
+        return false;
+    }
+
+    // TODO(whb): Remove this check when all tasks are running runtime v2.
+    labels::values(set, RUNTIME_V2_FLAG)
+        .first()
+        .map(|l| l.value.as_str())
+        == Some("true")
+}
+
 /// Determine the consumer shard and broker recovery and ops journal changes
 /// required to converge the desired splits towards the `template`.
 pub fn task_changes<'a>(
@@ -513,10 +537,37 @@ pub fn task_changes<'a>(
             ..template.shard.clone()
         };
 
-        // Next resolve the shard's recovery-log JournalSpec.
-        let recovery_name = format!("{}/{}", shard_spec.recovery_log_prefix, shard_spec.id);
-        let recovery_split = recovery.remove(&recovery_name).unwrap_or_default();
+        // Stateless shards (non-zero shards of leaderful runtime-v2 tasks)
+        // acquire all state through the leader protocol and must not have
+        // recovery logs or hints.
+        let range_spec = labels::shard::decode_range_spec(&split)?;
+        let stateless = non_zero_shards_are_stateless(template.shard)
+            && (range_spec.key_begin != 0 || range_spec.r_clock_begin != 0);
 
+        if stateless {
+            shard_spec.recovery_log_prefix = String::new();
+            shard_spec.hint_prefix = String::new();
+            shard_spec.hint_backups = 0;
+            shard_spec.hot_standbys = 0;
+        }
+
+        // Next resolve the shard's recovery-log JournalSpec.
+        let recovery_name = format!("{}/{}", template.shard.recovery_log_prefix, shard_spec.id);
+
+        {
+            // TODO(whb): Safety check that no multi-shard V1 task gets flipped
+            // to the V2 runtime, which would delete its recovery logs for
+            // non-zero shards. This can be removed once there are no more
+            // multi-shard V1 tasks.
+            if stateless && recovery.contains_key(&recovery_name) {
+                anyhow::bail!(
+                    "stateless shard {} must not have a recovery log, but {recovery_name} exists",
+                    shard_spec.id,
+                );
+            }
+        }
+
+        let recovery_split = recovery.remove(&recovery_name).unwrap_or_default();
         let mut recovery_spec = JournalSpec {
             name: recovery_name,
             suspend: recovery_split.suspend, // Must be passed through.
@@ -545,14 +596,6 @@ pub fn task_changes<'a>(
             }
             shard_labels = labels::add_value(shard_labels, &label.name, &label.value);
 
-            // A shard which is actively being split from another
-            // parent (source) shard should not have hot standbys,
-            // since we must complete the split workflow to even know
-            // what hints they should begin recovery log replay from.
-            if label.name == labels::SPLIT_SOURCE {
-                shard_spec.hot_standbys = 0
-            }
-
             // A cordoned task is disabled with its recovery log marked read-only.
             if label.name == labels::CORDON {
                 shard_spec.disable = true;
@@ -569,11 +612,14 @@ pub fn task_changes<'a>(
             delete: String::new(),
             primary_hints,
         }));
-        changes.push(Change::Journal(broker::apply_request::Change {
-            expect_mod_revision: recovery_split.mod_revision,
-            upsert: Some(recovery_spec),
-            delete: String::new(),
-        }));
+
+        if !stateless {
+            changes.push(Change::Journal(broker::apply_request::Change {
+                expect_mod_revision: recovery_split.mod_revision,
+                upsert: Some(recovery_spec),
+                delete: String::new(),
+            }));
+        }
     }
 
     // Any remaining recovery logs are not paired with an active shard, and are deleted.
@@ -914,27 +960,13 @@ pub fn map_partition_to_split(
 }
 
 /// Map a parent ShardSplit into two splits subdivided on either key or r-clock.
-#[allow(dead_code, unused_variables, unused_assignments)]
-fn map_shard_to_split(
+pub fn map_shard_to_split(
     parent: &ShardSplit,
     split_on_key: bool,
 ) -> anyhow::Result<(ShardSplit, ShardSplit)> {
     let parent_range = labels::shard::decode_range_spec(&parent.labels)?;
 
-    // Confirm the shard doesn't have an ongoing split.
-    if let Some(Label { value, .. }) = labels::values(&parent.labels, labels::SPLIT_SOURCE).first()
-    {
-        anyhow::bail!(
-            "shard {} is already splitting from source {value}",
-            parent.id
-        );
-    }
-    if let Some(Label { value, .. }) = labels::values(&parent.labels, labels::SPLIT_TARGET).first()
-    {
-        anyhow::bail!("shard {} is already splitting to target {value}", parent.id);
-    }
-
-    // Pick a split point of the parent range, which will divide the future
+    // Pick a split point of the parent range, which will divide the
     // LHS & RHS children.
     let (mut lhs_range, mut rhs_range) = (parent_range.clone(), parent_range.clone());
 
@@ -947,13 +979,8 @@ fn map_shard_to_split(
         (lhs_range.r_clock_end, rhs_range.r_clock_begin) = (pivot - 1, pivot);
     }
 
-    // Deep-copy parent labels for the desired LHS / RHS updates.
-    let (mut lhs_labels, mut rhs_labels) = (parent.labels.clone(), parent.labels.clone());
-
-    // Update the `rhs` range but not the `lhs` range at this time.
-    // That will happen when the `rhs` shard finishes playback
-    // and completes the split workflow.
-    rhs_labels = labels::shard::encode_range_spec(rhs_labels, &rhs_range);
+    let lhs_labels = labels::shard::encode_range_spec(parent.labels.clone(), &lhs_range);
+    let rhs_labels = labels::shard::encode_range_spec(parent.labels.clone(), &rhs_range);
 
     // Extract the Shard ID prefix and map into a new RHS Shard ID.
     let id_prefix = labels::shard::id_prefix(&parent.id)
@@ -963,10 +990,6 @@ fn map_shard_to_split(
         "{id_prefix}{}",
         labels::shard::id_suffix(&rhs_labels).expect("we encoded the range spec")
     );
-
-    // Mark the parent & child specs as having an in-progress split.
-    lhs_labels = labels::set_value(lhs_labels, labels::SPLIT_TARGET, &rhs_id);
-    rhs_labels = labels::set_value(rhs_labels, labels::SPLIT_SOURCE, &parent.id);
 
     Ok((
         ShardSplit {
@@ -1276,6 +1299,96 @@ mod test {
             insta::assert_json_snapshot!("update", (partition_changes, task_changes));
         }
 
+        // Case: leaderful tasks have stateless non-zero shards.
+        {
+            let shard_template = ShardSpec {
+                labels: Some(labels::set_value(
+                    shard_template.labels.clone().unwrap_or_default(),
+                    RUNTIME_V2_FLAG,
+                    "true",
+                )),
+                ..shard_template.clone()
+            };
+            let v2_template = TaskTemplate {
+                shard: &shard_template,
+                recovery: recovery_template,
+            };
+
+            let mut shards = Vec::new();
+            let mut recovery_logs = Vec::new();
+
+            for range in [
+                flow::RangeSpec {
+                    key_begin: 0,
+                    key_end: 0x7fffffff,
+                    r_clock_begin: 0,
+                    r_clock_end: u32::MAX,
+                },
+                flow::RangeSpec {
+                    key_begin: 0x80000000,
+                    key_end: u32::MAX,
+                    r_clock_begin: 0,
+                    r_clock_end: u32::MAX,
+                },
+            ] {
+                let labels = labels::shard::encode_range_spec(LabelSet::default(), &range);
+                let id = format!(
+                    "{}/{}",
+                    shard_template.id,
+                    labels::shard::id_suffix(&labels).unwrap()
+                );
+                // Only shard zero has a recovery log.
+                if range.key_begin == 0 {
+                    recovery_logs.push(JournalSplit {
+                        name: format!("{}/{}", shard_template.recovery_log_prefix, id),
+                        labels: LabelSet::default(),
+                        mod_revision: 333,
+                        suspend: None,
+                    });
+                }
+                shards.push(ShardSplit {
+                    id,
+                    labels,
+                    mod_revision: 222,
+                    primary_hints: None,
+                });
+            }
+
+            let changes = task_changes(
+                Some(v2_template),
+                shards.clone(),
+                recovery_logs,
+                (ops_logs_spec.name.clone(), None, Vec::new()),
+                (ops_stats_spec.name.clone(), None, Vec::new()),
+            )
+            .unwrap();
+
+            insta::assert_json_snapshot!("update-v2-stateless", changes);
+
+            // A recovery log paired with a stateless shard is refused.
+            let stray = JournalSplit {
+                name: format!("{}/{}", shard_template.recovery_log_prefix, shards[1].id),
+                labels: LabelSet::default(),
+                mod_revision: 333,
+                suspend: None,
+            };
+            let err = task_changes(
+                Some(v2_template),
+                shards.clone(),
+                vec![stray.clone()],
+                (ops_logs_spec.name.clone(), None, Vec::new()),
+                (ops_stats_spec.name.clone(), None, Vec::new()),
+            )
+            .unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                format!(
+                    "stateless shard {} must not have a recovery log, but {} exists",
+                    shards[1].id, stray.name
+                )
+            );
+        }
+
         // Case: test creation of new specs.
         {
             let shards = apply_initial_splits(Some(task_template), 4, Vec::new()).unwrap();
@@ -1546,19 +1659,6 @@ mod test {
                     "clock_changes",
                     clock_changes,
                 ])
-            );
-
-            // Expect that an attempt to split an already-splitting parent fails.
-            let err = map_shard_to_split(&key_lhs, true).unwrap_err();
-            assert_eq!(
-                err.to_string(),
-                "shard derivation/example/derivation/2020202020202020/10000000-60000000 is already splitting to target derivation/example/derivation/2020202020202020/20000000-60000000"
-            );
-
-            let err = map_shard_to_split(&key_rhs, true).unwrap_err();
-            assert_eq!(
-                err.to_string(),
-                "shard derivation/example/derivation/2020202020202020/20000000-60000000 is already splitting from source derivation/example/derivation/2020202020202020/10000000-60000000"
             );
         }
 

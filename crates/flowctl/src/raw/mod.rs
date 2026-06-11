@@ -18,6 +18,7 @@ mod oauth;
 mod preview_next;
 mod shards;
 mod spec;
+mod split_shards;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -72,6 +73,8 @@ pub enum Command {
     BearerLogs(BearerLogs),
     /// Print information about the shards for a given task
     ListShards(TaskSelector),
+    /// Split each shard of a task on either shuffled key or rotated clock.
+    SplitShards(split_shards::Split),
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
@@ -228,6 +231,7 @@ impl Advanced {
             Command::Stats(stats) => stats.run(ctx).await,
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
+            Command::SplitShards(split) => split_shards::do_split(ctx, split).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
             Command::PreviewNext(preview) => preview.run(ctx).await,
         }
