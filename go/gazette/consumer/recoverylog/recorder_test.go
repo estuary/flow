@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -378,6 +379,47 @@ func (s *RecorderSuite) TestContextCancellation(c *gc.C) {
 
 	broker.Tasks.Cancel()
 	c.Check(broker.Tasks.Wait(), gc.IsNil)
+}
+
+func (s *RecorderSuite) TestFencedRecorderBlocksUntilCancelled(c *gc.C) {
+	var (
+		broker, cleanup = newBrokerAndLog(c)
+		ctx, cancel     = context.WithCancel(context.Background())
+		rjc             = pb.NewRoutedJournalClient(broker.Client(), pb.NoopDispatchRouter{})
+		ajc             = client.NewAppendService(ctx, rjc)
+		fsm, _          = NewFSM(FSMHints{Log: aRecoveryLog})
+		rec             = NewRecorder(aRecoveryLog, fsm, anAuthor, "/strip", ajc)
+	)
+	defer cleanup()
+
+	rec.RecordCreate("/strip/file1")
+	c.Check(rec.Barrier(nil).Err(), gc.IsNil)
+
+	// Take the log's registers, as a new primary completing log
+	// hand-off after fail-over would.
+	var fence = client.NewAppender(ctx, rjc, pb.AppendRequest{
+		Journal:        aRecoveryLog,
+		UnionRegisters: otherAuthor.Fence(),
+	})
+	_, _ = fence.Write([]byte("hand-off"))
+	c.Check(fence.Close(), gc.IsNil)
+
+	rec.RecordCreate("/strip/file2")
+	var barrier = rec.Barrier(nil)
+
+	// The barrier must not resolve: its append fails with REGISTER_MISMATCH,
+	// which a register-checked append retries rather than treats as terminal.
+	// A resolved barrier would otherwise tell callers -- like a recorded
+	// RocksDB sync, which cannot check errors -- that the write is durable.
+	select {
+	case <-barrier.Done():
+		c.Fatalf("barrier resolved (err: %v) despite the fence", barrier.Err())
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// Cancelling the processing context releases the (zombie) barrier.
+	cancel()
+	c.Check(barrier.Err(), gc.Equals, context.Canceled)
 }
 
 func (s *RecorderSuite) TestRandomAuthorGeneration(c *gc.C) {

@@ -400,6 +400,20 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend, err error) {
 						errors.Is(err2, ErrNotAllowed) ||
 						errors.Is(err2, ErrRegisterMismatch) ||
 						errors.Is(err2, ErrWrongAppendOffset) {
+
+						// TODO(whb): Temporary fix for Flow recovery log
+						// writes, which use CheckRegisters for fencing. These
+						// should be retried indefinitely (until context
+						// cancellation) as there is no way to surface any other
+						// error condition to the caller. Remove this when Flow
+						// no longer relies on the Gazette recovery log
+						// recorder.
+						if aa.app.Request.CheckRegisters != nil &&
+							err2 != context.Canceled && err2 != context.DeadlineExceeded {
+							aa.app.Reset()
+							return err2 // Retry by returning |err2|.
+						}
+
 						err = err2
 						return nil // Break retry loop.
 					} else if err2 != nil {

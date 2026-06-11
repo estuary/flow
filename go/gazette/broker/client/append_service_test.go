@@ -255,19 +255,11 @@ func (s *AppendServiceSuite) TestAppendNonRetryableErrors(c *gc.C) {
 		status           pb.Status
 		errMsg           string
 		storeHealthError string
-		setupRequest     func(*pb.AppendRequest)
 	}{
 		{
 			status:           pb.Status_FRAGMENT_STORE_UNHEALTHY,
 			errMsg:           "s3: connection timeout: FRAGMENT_STORE_UNHEALTHY",
 			storeHealthError: "s3: connection timeout",
-		},
-		{
-			status: pb.Status_REGISTER_MISMATCH,
-			errMsg: "selector .* doesn't match registers .*: REGISTER_MISMATCH",
-			setupRequest: func(req *pb.AppendRequest) {
-				req.CheckRegisters = &pb.LabelSelector{Include: pb.MustLabelSet("foo", "bar")}
-			},
 		},
 		{
 			status: pb.Status_INDEX_HAS_GREATER_OFFSET,
@@ -295,10 +287,6 @@ func (s *AppendServiceSuite) TestAppendNonRetryableErrors(c *gc.C) {
 		var as = NewAppendService(context.Background(), rjc)
 
 		var req = pb.AppendRequest{Journal: "a/journal"}
-		if tc.setupRequest != nil {
-			tc.setupRequest(&req)
-		}
-
 		var aa = as.StartAppend(req, nil)
 		_, _ = aa.Writer().WriteString("hello, world")
 		c.Check(aa.Release(), gc.IsNil)
