@@ -848,6 +848,11 @@ fn build_stats_doc(
     let mut max_published_at: uuid::Clock = uuid::Clock::default();
 
     for (binding_index, binding) in &extents.bindings {
+        // Skip bindings which sourced no documents: the stats schema requires
+        // `input` of each transform entry
+        if binding.sourced.docs_total == 0 {
+            continue;
+        }
         let transform_name = task
             .binding_transform_names
             .get(*binding_index as usize)
@@ -879,6 +884,12 @@ fn build_stats_doc(
 
     let open_seconds_total = uuid::Clock::delta(extents.close, extents.open).as_secs_f64();
 
+    // Leave zero-valued extents unset: proto3 JSON serialization would emit
+    // them as `{}`, which violates the stats schema's `docsAndBytes`
+    let (mut published, mut out) = (None, None);
+    ops::merge_docs_and_bytes(&extents.published, &mut published);
+    ops::merge_docs_and_bytes(&extents.drained, &mut out);
+
     Ok(ops::proto::Stats {
         meta: Some(ops::proto::Meta {
             uuid: String::new(), // Stamped by Publisher::enqueue()
@@ -889,8 +900,8 @@ fn build_stats_doc(
         txn_count: 1,
         derive: Some(ops::proto::stats::Derive {
             transforms,
-            published: Some(extents.published),
-            out: Some(extents.drained),
+            published,
+            out,
             last_published_at: if max_published_at != uuid::Clock::default() {
                 max_published_at.to_pb_json_timestamp()
             } else {
@@ -1509,5 +1520,46 @@ mod tests {
             ctx.ready_frontier.is_none(),
             "frontier consumed once unblocked"
         );
+    }
+
+    /// An empty transaction must still build a stats document which
+    /// validates against the ops stats schema. Zero-valued DocsAndBytes
+    /// serialize as `{}` under proto3 JSON rules, which the schema rejects
+    #[test]
+    fn empty_transaction_stats_are_schema_valid() {
+        let task = Task {
+            shard_ref: ops::ShardRef {
+                kind: ops::TaskType::Derivation as i32,
+                name: "acmeCo/my-derivation".to_string(),
+                key_begin: "00000000".to_string(),
+                r_clock_begin: "00000000".to_string(),
+                build: "00aabbccddeeff00".to_string(),
+            },
+            ..mk_task(1)
+        };
+
+        let mut extents = Extents::default();
+        extents.open = uuid::Clock::from_unix(1_700_000_000, 0);
+        extents.close = uuid::Clock::from_unix(1_700_000_001, 0);
+        // A shard reported the binding active without sourcing any documents.
+        extents.bindings.insert(0, BindingExtents::default());
+
+        let stats = build_stats_doc(&task, &extents, &[0]).unwrap();
+        insta::assert_json_snapshot!(stats, @r#"
+        {
+          "_meta": {},
+          "shard": {
+            "kind": "derivation",
+            "name": "acmeCo/my-derivation",
+            "keyBegin": "00000000",
+            "rClockBegin": "00000000",
+            "build": "00aabbccddeeff00"
+          },
+          "ts": "2023-11-14T22:13:20+00:00",
+          "openSecondsTotal": 1.0,
+          "txnCount": 1,
+          "derive": {}
+        }
+        "#);
     }
 }
