@@ -11,6 +11,8 @@ pub use service::Service;
 /// Feed one transaction's per-journal append-throttle samples into the shard's
 /// long-lived [`SplitPolicy`]. Called once per transaction at the commit/drain
 /// boundary
+///
+/// [`SplitPolicy`]: crate::split_policy::SplitPolicy
 pub(crate) fn observe_throttle_samples<'a>(
     policy: &mut crate::split_policy::SplitPolicy,
     samples: impl IntoIterator<Item = publisher::ThrottleSample<'a>>,
@@ -18,9 +20,71 @@ pub(crate) fn observe_throttle_samples<'a>(
 ) {
     for sample in samples {
         policy.observe(sample.journal_name, sample.throttled, now);
+    }
+}
 
-        if policy.should_split(sample.journal_name, now) {
-            // TODO actually do the split
+/// A parked automatic-split attempt: resolves to the target journal name and
+/// the outcome of the split's List / Apply RPCs.
+pub(crate) type SplitFuture =
+    futures::future::BoxFuture<'static, (String, tonic::Result<publisher::SplitOutcome>)>;
+
+/// Start at most one automatic split among the journals now due, returning a
+/// detached future for the actor to park. Due journals which no Mapped binding
+/// can split (e.g. the fixed ops-stats journal) are terminally ignored — they
+/// can never become splittable.
+///
+/// A dispatched journal stays "due" until its outcome lands: the actor's
+/// single-flight parking of the returned future is what prevents duplicate
+/// dispatch, and a Transient outcome leaves a still-hot journal due for retry.
+pub(crate) fn start_due_split(
+    policy: &mut crate::split_policy::SplitPolicy,
+    publisher: &crate::Publisher,
+    now: std::time::Instant,
+) -> Option<SplitFuture> {
+    use futures::FutureExt;
+
+    let due: Vec<String> = policy
+        .due_for_split(now)
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+    for journal in due {
+        let Some(split) = publisher.split_partition(&journal) else {
+            policy.ignore(&journal);
+            continue;
+        };
+        tracing::info!(journal, "starting automatic journal split");
+        return Some(async move { (journal, split.await) }.boxed());
+    }
+    None
+}
+
+/// Apply a completed split attempt's outcome to the policy. Runs on the actor
+/// — the sole owner of policy state — which keeps the policy lock-free.
+pub(crate) fn finish_split(
+    policy: &mut crate::split_policy::SplitPolicy,
+    journal: &str,
+    outcome: tonic::Result<publisher::SplitOutcome>,
+    now: std::time::Instant,
+) {
+    match outcome {
+        // Lost means a contending shard's split won the CAS. Either way the
+        // journal's layout changed: cool down and reset its EWMA so pressure
+        // must re-accumulate against the new layout.
+        Ok(publisher::SplitOutcome::Split | publisher::SplitOutcome::Lost) => {
+            policy.mark_attempted(journal, now);
+        }
+        // Too narrow to split, and a journal's width never grows: terminally
+        // stop observing it.
+        Ok(publisher::SplitOutcome::AtFloor) => policy.ignore(journal),
+        // Absent from the partition watch (e.g. deleted mid-flight). Leave
+        // state untouched so a still-hot journal is retried.
+        Ok(publisher::SplitOutcome::Transient) => {}
+        // Splits are opportunistic: an RPC failure must not fail the shard.
+        // Leave state untouched so a still-hot journal is retried.
+        Err(status) => {
+            tracing::warn!(journal, %status, "automatic journal split failed (will retry while due)");
         }
     }
 }
@@ -41,8 +105,9 @@ pub(crate) fn leader_bearer(
 
 #[cfg(test)]
 mod tests {
-    use super::observe_throttle_samples;
+    use super::{finish_split, observe_throttle_samples, start_due_split};
     use crate::split_policy::SplitPolicy;
+    use publisher::SplitOutcome;
     use std::time::{Duration, Instant};
 
     fn sample(journal_name: &str, throttled: bool) -> publisher::ThrottleSample<'_> {
@@ -84,5 +149,117 @@ mod tests {
             !policy.should_split("cold", now),
             "never-throttled journal must not become due",
         );
+    }
+
+    const J: &str = "test/collection/v1/pivot=00";
+
+    /// A policy whose every observed journal is immediately due: no threshold,
+    /// no cold-start span. Lets these tests drive due-ness with a single
+    /// sample instead of fabricating minutes of clock history.
+    fn due_policy() -> (SplitPolicy, Instant) {
+        let now = Instant::now();
+        let mut policy = SplitPolicy::with_config(crate::split_policy::Config {
+            threshold: -1.0,
+            min_observation_span: Duration::ZERO,
+            ..Default::default()
+        });
+        policy.observe(J, true, now);
+        assert!(policy.should_split(J, now));
+        (policy, now)
+    }
+
+    /// Split and Lost both mean the journal's layout changed: the journal
+    /// enters cooldown (with its EWMA reset) and becomes due again only once
+    /// the cooldown passes.
+    #[test]
+    fn finish_split_applied_and_lost_start_cooldown() {
+        for outcome in [SplitOutcome::Split, SplitOutcome::Lost] {
+            let (mut policy, now) = due_policy();
+            finish_split(&mut policy, J, Ok(outcome), now);
+
+            // Renewed pressure within the cooldown must not re-trigger.
+            let later = now + Duration::from_secs(60);
+            policy.observe(J, true, later);
+            assert!(
+                !policy.should_split(J, later),
+                "{outcome:?} must start a cooldown",
+            );
+
+            // A still-hot journal is due again once the cooldown passes.
+            let after = now + Duration::from_secs(31 * 60);
+            policy.observe(J, true, after);
+            assert!(policy.should_split(J, after), "{outcome:?} cooldown ended");
+        }
+    }
+
+    /// AtFloor is terminal: the journal's state is dropped and continued
+    /// throttling never re-accumulates pressure or re-triggers.
+    #[test]
+    fn finish_split_at_floor_is_terminal() {
+        let (mut policy, now) = due_policy();
+        finish_split(&mut policy, J, Ok(SplitOutcome::AtFloor), now);
+
+        let later = now + Duration::from_secs(31 * 60);
+        policy.observe(J, true, later);
+        assert!(!policy.should_split(J, later));
+        assert!(policy.due_for_split(later).is_empty());
+    }
+
+    /// Transient outcomes and RPC errors leave the policy untouched, so a
+    /// still-hot journal is immediately due for retry.
+    #[test]
+    fn finish_split_transient_and_error_leave_state_for_retry() {
+        let (mut policy, now) = due_policy();
+        finish_split(&mut policy, J, Ok(SplitOutcome::Transient), now);
+        assert!(policy.should_split(J, now));
+
+        finish_split(
+            &mut policy,
+            J,
+            Err(tonic::Status::unavailable("broker")),
+            now,
+        );
+        assert!(policy.should_split(J, now));
+    }
+
+    /// A due journal which no Mapped binding can split (here: any journal of
+    /// a Preview publisher) takes the terminal off-ramp rather than being
+    /// re-evaluated forever.
+    #[test]
+    fn start_due_split_terminally_ignores_unsplittable_journals() {
+        let publisher =
+            crate::Publisher::new_preview(std::iter::empty::<&proto_flow::flow::CollectionSpec>());
+        let (mut policy, now) = due_policy();
+
+        assert!(start_due_split(&mut policy, &publisher, now).is_none());
+        assert!(!policy.should_split(J, now), "terminally ignored");
+
+        // And with nothing due at all, dispatch is a no-op.
+        assert!(start_due_split(&mut policy, &publisher, now).is_none());
+    }
+
+    /// One evaluation starts at most one split, and dispatch itself doesn't
+    /// alter policy state: both hot journals stay due until an outcome lands,
+    /// and the actor's single-flight parking prevents duplicate dispatch.
+    #[tokio::test]
+    async fn start_due_split_starts_exactly_one() {
+        let spec = proto_flow::flow::CollectionSpec {
+            name: "test/collection".to_string(),
+            partition_template: Some(proto_gazette::broker::JournalSpec {
+                name: "test/collection/v1".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let publisher = crate::Publisher::new_test_real([&spec]);
+
+        let (mut policy, now) = due_policy();
+        let j2 = "test/collection/v1/pivot=80";
+        policy.observe(j2, true, now);
+        assert_eq!(policy.due_for_split(now), vec![J, j2]);
+
+        let split = start_due_split(&mut policy, &publisher, now);
+        assert!(split.is_some());
+        assert_eq!(policy.due_for_split(now), vec![J, j2], "both remain due");
     }
 }
