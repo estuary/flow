@@ -317,6 +317,84 @@ pub async fn authenticate_refresh_token(
     Ok(tokens::Verified::assert_authenticity(claims, exp))
 }
 
+/// Authenticate a service-account API key presented as a bearer credential,
+/// returning the claims it proves.
+///
+/// API keys are evaluated *statefully only*: every presentation is verified
+/// against the database, and a key is never exchanged for a signed JWT. This
+/// is what makes key revocation immediate — there are no outstanding minted
+/// tokens to wait out — and it's why key secrets are hashed with SHA-256
+/// rather than bcrypt: the secret is high-entropy random (so a slow hash adds
+/// no brute-force protection) and this verification is in the per-request hot
+/// path, where a fast hash matters.
+pub async fn authenticate_api_key(
+    pg_pool: &sqlx::PgPool,
+    api_key: &str,
+) -> tonic::Result<tokens::Verified<crate::ControlClaims>> {
+    let raw = api_key
+        .strip_prefix("flow_sa_")
+        .expect("caller dispatches on the flow_sa_ prefix");
+
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(raw)
+        .map_err(|_| tonic::Status::invalid_argument("malformed api key: invalid base64"))?;
+    let decoded = String::from_utf8(decoded)
+        .map_err(|_| tonic::Status::invalid_argument("malformed api key: invalid UTF-8"))?;
+
+    let (id_str, secret) = decoded
+        .split_once(':')
+        .ok_or_else(|| tonic::Status::invalid_argument("malformed api key payload"))?;
+    let key_id: models::Id = id_str
+        .parse()
+        .map_err(|_| tonic::Status::invalid_argument("malformed api key: invalid key id"))?;
+
+    // Validate the secret, expiry, and revocation in one query, stamping
+    // last_used_at on both the key and its service account as part of the
+    // same verification round-trip.
+    let row = sqlx::query!(
+        r#"
+        WITH verified AS (
+            UPDATE internal.api_keys
+            SET last_used_at = now()
+            WHERE id = $1
+              AND secret_hash = encode(digest($2, 'sha256'), 'hex')
+              AND expires_at > now()
+              AND revoked_at IS NULL
+            RETURNING service_account_id
+        )
+        UPDATE internal.service_accounts sa
+        SET last_used_at = now()
+        FROM verified v
+        WHERE sa.user_id = v.service_account_id
+        RETURNING sa.user_id
+        "#,
+        key_id as models::Id,
+        secret,
+    )
+    .fetch_optional(pg_pool)
+    .await
+    .map_err(|err| tonic::Status::internal(format!("failed to authenticate api key: {err}")))?
+    .ok_or_else(|| tonic::Status::unauthenticated("invalid, expired, or revoked api key"))?;
+
+    // As with refresh-token bearer authentication: verification re-runs on
+    // every presentation, making revocation near-immediate, and the small
+    // expiry only bounds any future caching of this authentication.
+    let now = tokens::now();
+    let exp = now + chrono::Duration::minutes(5);
+
+    let claims = crate::ControlClaims {
+        iat: now.timestamp() as u64,
+        exp: exp.timestamp() as u64,
+        sub: row.user_id,
+        role: "authenticated".to_string(),
+        aud: "authenticated".to_string(),
+        email: None,
+    };
+
+    Ok(tokens::Verified::assert_authenticity(claims, exp))
+}
+
 /// Parse a data-plane claims token without verifying its signature.
 /// Returns an `Unverified` wrapper to make clear the claims have not been verified.
 fn parse_untrusted_data_plane_claims(

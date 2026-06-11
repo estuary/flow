@@ -133,6 +133,15 @@ impl RefreshTokensMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
+        // Service accounts authenticate exclusively via API keys, which are
+        // expiring and revocable. A refresh token bypasses both, so deny
+        // issuance to SA principals.
+        if super::service_accounts::is_service_account(&env.pg_pool, claims.sub).await? {
+            return Err(async_graphql::Error::new(
+                "service accounts cannot create refresh tokens; authenticate with an API key instead",
+            ));
+        }
+
         let row = sqlx::query!(
             r#"
             WITH new_token AS (
@@ -220,8 +229,9 @@ mod test {
 
     /// Covers the refresh-token GraphQL surface (create → list → revoke, plus
     /// the not-found idempotency guard), the `/api/v1/auth/token`
-    /// refresh-token dispatch, and direct bearer authentication with a
-    /// refresh token via the Envelope extractor.
+    /// refresh-token dispatch, direct bearer authentication with a refresh
+    /// token via the Envelope extractor, and the guard denying refresh tokens
+    /// to service-account principals.
     ///
     /// The happy-path *exchange* — `generate_access_token` actually signing a
     /// JWT — is intentionally not exercised here: it reads `app.jwt_secret` from
@@ -461,5 +471,50 @@ mod test {
             )
             .await;
         assert!(revoke_again["errors"].is_array());
+
+        // === Service accounts cannot create refresh tokens ===
+        // They authenticate via API keys, which are expiring and revocable; a
+        // refresh token would bypass both, so issuance to an SA principal must
+        // be denied.
+        let create_sa: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createServiceAccount(
+                            catalogName: "aliceCo/refresh-token-bot"
+                            displayName: "refresh-token bot"
+                            grants: [{ prefix: "aliceCo/", capability: admin }]
+                        ) { id }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            create_sa["errors"].is_null(),
+            "create SA should succeed: {create_sa}"
+        );
+        let sa_user_id = create_sa["data"]["createServiceAccount"]["id"]
+            .as_str()
+            .expect("should have id");
+
+        // Mint an access token whose `sub` is the service account, mirroring
+        // the claims that stateful API-key bearer authentication constructs
+        // (no email for an SA principal).
+        let sa_token = server.make_access_token(uuid::Uuid::parse_str(sa_user_id).unwrap(), None);
+
+        let sa_create_rt: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { createRefreshToken(validFor: "P30D") { id secret } }"#
+                }),
+                Some(&sa_token),
+            )
+            .await;
+        assert!(
+            sa_create_rt["errors"].is_array(),
+            "service account should be denied a refresh token: {sa_create_rt}"
+        );
     }
 }

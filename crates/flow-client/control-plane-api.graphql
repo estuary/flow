@@ -242,6 +242,15 @@ input AlertsBy {
 	active: Boolean
 }
 
+type ApiKeyInfo {
+	id: Id!
+	label: String!
+	createdBy: UUID!
+	createdAt: DateTime!
+	expiresAt: DateTime!
+	lastUsedAt: DateTime
+}
+
 type AutoDiscoverFailure {
 	"""
 	The number of consecutive failures that have been observed.
@@ -342,6 +351,7 @@ enum CapabilityBit {
 	CreateGrant
 	DeleteGrant
 	CreateInviteLink
+	ManageServiceAccounts
 	Delegate
 	Assume
 }
@@ -601,6 +611,11 @@ type Controller {
 	"""
 	abandon: AbandonStatus
 	updatedAt: DateTime!
+}
+
+type CreateApiKeyResult {
+	id: Id!
+	secret: String!
 }
 
 type CreateBillingSetupIntentPayload {
@@ -1203,6 +1218,91 @@ type MutationRoot {
 	Already-zeroed (revoked) tokens are treated as not found.
 	"""
 	revokeRefreshToken(id: Id!): Boolean!
+	"""
+	Create a service account homed at the specified catalog name, seeded
+	with the given user_grants.
+	
+	`catalogName` is a management anchor: admins of a prefix covering it
+	may manage the account. It determines who may manage the account, not
+	what the account may access. Access is determined solely by the
+	account's user_grants, which may span multiple prefixes.
+	
+	The caller must have admin capability on the catalog name AND on each
+	granted prefix. Creates an auth.users row, an
+	internal.service_accounts row, and a user_grants row per requested
+	grant.
+	"""
+	createServiceAccount(catalogName: Name!, displayName: String!, grants: [ServiceAccountGrantInput!]!): ServiceAccount!
+	"""
+	Add a user_grant to a service account.
+	
+	The caller must manage the service account (admin capability on its
+	catalog name) AND have admin capability on the granted prefix — the
+	same authorization as granting a human user. The second requirement
+	prevents a caller from extending an account's access beyond what they
+	themselves administer.
+	"""
+	addServiceAccountGrant(serviceAccountId: UUID!, prefix: Prefix!, capability: Capability!): Boolean!
+	"""
+	Remove a user_grant from a service account.
+	
+	The caller must manage the service account (admin capability on its
+	catalog name). Unlike addServiceAccountGrant, no capability on the
+	grant's prefix is required: removal only ever narrows the account's
+	access, so managers may remove ANY grant — including grants to
+	prefixes they don't themselves administer.
+	"""
+	removeServiceAccountGrant(serviceAccountId: UUID!, prefix: Prefix!): Boolean!
+	"""
+	Create an API key for a service account.
+	
+	Returns the key_id and the plaintext secret (flow_sa_...).
+	The secret is returned exactly once and cannot be retrieved again.
+	
+	The key is presented directly as an `Authorization: Bearer` credential.
+	It is verified statefully against the database on every request and is
+	never exchanged for an access token, so revoking it cuts off access
+	immediately.
+	"""
+	createApiKey(		serviceAccountId: UUID!,		label: String!,
+		"""
+		ISO 8601 duration for key validity (e.g. P90D, P1Y)
+		"""
+		validFor: String!
+	): CreateApiKeyResult!
+	"""
+	Revoke an API key.
+	
+	The caller must have admin capability on the owning service account's
+	catalog name.
+	
+	Rather than deleting the row, we stamp `revoked_at`, which makes the key
+	inert (excluded from bearer authentication and listings) while
+	preserving the audit trail. Already-revoked keys are treated as not
+	found.
+	
+	Revocation is immediate: keys are verified statefully on every request
+	and never exchanged for access tokens, so there are no outstanding
+	minted credentials to wait out. The next request presenting this key
+	fails authentication.
+	"""
+	revokeApiKey(id: Id!): Boolean!
+	"""
+	Revoke ALL of a service account's API keys.
+	
+	The caller must manage the service account (admin capability on its
+	catalog name).
+	
+	This is the kill switch for a compromised or retired account: API keys
+	are its only means of authentication and are verified statefully on
+	every request, so revoking them all cuts off access immediately — the
+	account's next request fails authentication. Its user_grants are
+	untouched and may be cleaned up separately via
+	removeServiceAccountGrant.
+	
+	Idempotent: returns the number of keys revoked, zero if none remained.
+	"""
+	revokeApiKeys(serviceAccountId: UUID!): Int!
 }
 
 """
@@ -1502,6 +1602,7 @@ type QueryRoot {
 	List refresh tokens owned by the authenticated user.
 	"""
 	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
+	serviceAccounts(after: String, first: Int): ServiceAccountConnection!
 }
 
 """
@@ -1579,6 +1680,50 @@ type RepublishRequested {
 	and complete.
 	"""
 	lastBuildId: Id!
+}
+
+type ServiceAccount {
+	id: UUID!
+	displayName: String!
+	catalogName: Name!
+	createdBy: UUID!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	lastUsedAt: DateTime
+	apiKeys: [ApiKeyInfo!]!
+}
+
+type ServiceAccountConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [ServiceAccountEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type ServiceAccountEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: ServiceAccount!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+A user_grant to seed a service account with at creation time.
+"""
+input ServiceAccountGrantInput {
+	prefix: Prefix!
+	capability: Capability!
 }
 
 """

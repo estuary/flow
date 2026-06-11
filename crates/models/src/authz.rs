@@ -19,6 +19,7 @@ pub enum Capability {
     CreateGrant,
     DeleteGrant,
     CreateInviteLink,
+    ManageServiceAccounts,
     Delegate,
     Assume,
 }
@@ -87,7 +88,7 @@ impl CapabilityBundle {
                     | Self::Billing.capabilities()
             }
             Self::Billing => EnumSet::empty(),
-            Self::TeamAdmin => CreateGrant | DeleteGrant | CreateInviteLink,
+            Self::TeamAdmin => CreateGrant | DeleteGrant | CreateInviteLink | ManageServiceAccounts,
             Self::Delegate => EnumSet::from(Delegate),
             Self::Assume => EnumSet::from(Assume),
         }

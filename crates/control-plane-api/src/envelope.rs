@@ -236,11 +236,16 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                 Some(TypedHeader(auth)) => {
                     let token = auth.token();
 
-                    // A refresh token (base64 JSON, which never contains '.')
-                    // may be presented in lieu of a signed JWT. It's verified
-                    // statefully against the database; a JWT is verified by
-                    // its signature. Both produce equally-trusted claims.
-                    let verified = if !token.contains('.') {
+                    // A service-account API key (flow_sa_-prefixed) or a
+                    // refresh token (base64 JSON, which never contains '.')
+                    // may be presented in lieu of a signed JWT. Both are
+                    // verified statefully against the database on every
+                    // request — API keys are never exchanged for JWTs — while
+                    // a JWT is verified by its signature. All three produce
+                    // equally-trusted claims.
+                    let verified = if token.starts_with("flow_sa_") {
+                        crate::server::authenticate_api_key(&state.pg_pool, token).await?
+                    } else if !token.contains('.') {
                         crate::server::authenticate_refresh_token(&state.pg_pool, token).await?
                     } else {
                         tokens::jwt::verify::<crate::ControlClaims>(

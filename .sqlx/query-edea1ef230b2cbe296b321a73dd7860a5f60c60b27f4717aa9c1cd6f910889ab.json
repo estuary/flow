@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH new_key AS (\n                SELECT\n                    internal.id_generator() AS id,\n                    -- 256 bits from pgcrypto's CSPRNG; the SHA-256 hashing\n                    -- below rests on secrets being high-entropy.\n                    encode(gen_random_bytes(32), 'hex') AS secret\n            )\n            INSERT INTO internal.api_keys (id, service_account_id, secret_hash, label, expires_at, created_by)\n            SELECT\n                nk.id,\n                $1,\n                -- SHA-256 rather than bcrypt: API keys are only ever\n                -- verified statefully -- every bearer presentation re-checks\n                -- this hash, and a key is never exchanged for a signed JWT --\n                -- placing verification squarely in the per-request hot path,\n                -- where a fast hash matters. A slow hash would buy nothing\n                -- anyway: the secret is high-entropy random, and offline\n                -- brute-force resistance only matters for low-entropy\n                -- passwords. This matches how GitHub stores PATs.\n                -- Refresh-token secrets will migrate to the same scheme once\n                -- the legacy postgREST token functions are retired.\n                encode(digest(nk.secret, 'sha256'), 'hex'),\n                $2,\n                now() + $3::text::interval,\n                $4\n            FROM new_key nk\n            RETURNING\n                id AS \"id!: models::Id\",\n                (SELECT secret FROM new_key) AS \"secret!: String\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "secret!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "edea1ef230b2cbe296b321a73dd7860a5f60c60b27f4717aa9c1cd6f910889ab"
+}

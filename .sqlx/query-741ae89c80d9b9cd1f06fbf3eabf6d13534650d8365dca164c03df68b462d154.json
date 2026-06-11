@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO internal.service_accounts (user_id, catalog_name, display_name, created_by)\n            VALUES ($1, $2::text::catalog_name, $3, $4)\n            RETURNING created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "741ae89c80d9b9cd1f06fbf3eabf6d13534650d8365dca164c03df68b462d154"
+}
