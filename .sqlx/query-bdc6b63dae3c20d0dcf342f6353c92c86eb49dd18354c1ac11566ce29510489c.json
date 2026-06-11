@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM public.user_grants WHERE user_id = $1 AND object_role = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bdc6b63dae3c20d0dcf342f6353c92c86eb49dd18354c1ac11566ce29510489c"
+}

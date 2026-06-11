@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        SELECT\n                            ak.id AS \"id!: models::Id\",\n                            ak.service_account_id,\n                            ak.label,\n                            ak.created_by,\n                            ak.created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n                            ak.expires_at AS \"expires_at!: chrono::DateTime<chrono::Utc>\",\n                            ak.last_used_at AS \"last_used_at: chrono::DateTime<chrono::Utc>\"\n                        FROM internal.api_keys ak\n                        WHERE ak.service_account_id = ANY($1)\n                          AND ak.revoked_at IS NULL\n                        ORDER BY ak.created_at DESC\n                        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "service_account_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_used_at: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "45e004513d51bbe95e3b6e6ceff4b0bf4f9a0c8da1830dcd304f5c4157ba2441"
+}

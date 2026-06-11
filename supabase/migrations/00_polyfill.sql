@@ -27,8 +27,8 @@ BEGIN
         -- Roles are cluster-wide and already exist from migrations applied to the
         -- primary `postgres` database. We only need to stub Supabase schemas.
 
-        -- pgcrypto provides crypt()/gen_salt(), used for refresh-token
-        -- secret hashing. Real Supabase pre-installs it in the
+        -- pgcrypto provides crypt()/gen_salt(), used by refresh-token and
+        -- API-key secret hashing. Real Supabase pre-installs it in the
         -- `extensions` schema; here we install into `public` (on the default
         -- search_path) so the migrations' unqualified calls resolve.
         create extension if not exists pgcrypto with schema public;

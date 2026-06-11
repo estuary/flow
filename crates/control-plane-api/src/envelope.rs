@@ -237,8 +237,25 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                     let mut token = auth.token();
                     let exchanged_token: Option<String>;
 
-                    // Is this is a refresh token? If so, first exchange for an access token.
-                    if !token.contains(".") {
+                    // A service-account API key (flow_sa_-prefixed) or a
+                    // refresh token (base64 JSON, which never contains '.') may
+                    // be presented in lieu of a signed JWT. We exchange either
+                    // for a short-lived signed access token and then verify it
+                    // exactly like a JWT presented directly; a JWT is verified
+                    // by its signature. The exchange's stateful database check
+                    // is the source of trust — the signature just lets the
+                    // minted token flow through the normal verify path.
+                    if token.starts_with("flow_sa_") {
+                        exchanged_token = Some(
+                            crate::server::exchange_api_key(
+                                &state.pg_pool,
+                                &state.control_plane_jwt_encode_key,
+                                token,
+                            )
+                            .await?,
+                        );
+                        token = exchanged_token.as_ref().unwrap();
+                    } else if !token.contains('.') {
                         exchanged_token = Some(
                             crate::server::exchange_refresh_token(&state.pg_pool, token).await?,
                         );

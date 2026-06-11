@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT $1::text::interval > interval '0'\n               AND $1::text::interval <= interval '1 year' AS \"ok!: bool\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ok!: bool",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "cb2678905898cd566802b5f77cff7b967c364bfdb01f4d7d30ad7a62a1b42131"
+}
