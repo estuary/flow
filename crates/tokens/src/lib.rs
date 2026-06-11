@@ -52,6 +52,48 @@ pub trait Source: Send + Sized + 'static {
     > + Send;
 }
 
+/// Verified is a type-safe wrapper around verified claims: holding one is a
+/// type-level proof that authentication ran. Its fields are private, so it
+/// can be constructed only through assert_authenticity() — the single root
+/// through which every credential-verification path mints its proof.
+// `Clone` is required because Verified is used in tonic request
+// extensions (`http::Extensions`, whose values must be `Clone`).
+#[derive(Debug, Clone)]
+pub struct Verified<Claims>(Claims, DateTime);
+
+impl<Claims> Verified<Claims> {
+    /// Assert that `claims` were established by verification of a presented
+    /// credential — whether cryptographic (a JWT signature; see jwt::verify)
+    /// or stateful (a database check of a presented secret).
+    ///
+    /// SECURITY: every caller of this function must itself be a
+    /// credential-verification routine, called with claims derived from the
+    /// credential it just verified. Its callers are the complete set of ways
+    /// a request can become authenticated; adding one warrants security
+    /// review.
+    pub fn assert_authenticity(claims: Claims, expiry: DateTime) -> Self {
+        Self(claims, expiry)
+    }
+
+    /// Return the verified claims.
+    #[inline]
+    pub fn claims(&self) -> &Claims {
+        &self.0
+    }
+
+    /// Return the token's expiry.
+    #[inline]
+    pub fn expiry(&self) -> DateTime {
+        self.1
+    }
+
+    /// Return the remaining TimeDelta of the token.
+    #[inline]
+    pub fn valid_for(&self) -> TimeDelta {
+        self.1 - now()
+    }
+}
+
 /// Refresh represents the result of a Token refresh operation.
 pub struct Refresh<Token> {
     result: tonic::Result<Token>,

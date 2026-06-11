@@ -25,3 +25,4 @@ __pycache__
 
 .claude/*
 !.claude/skills/
+mise.local.toml
