@@ -2,12 +2,14 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 
 const outputDir = './build';
-const connectorsDir = `${outputDir}/reference/Connectors`
+const connectorsDir = `${outputDir}/reference/Connectors`;
+const conceptsDir = `${outputDir}/concepts`;
 const connector = 'Connector';
+const concept = 'Concept';
 const divider = ' | ';
 
-const updateAllConnectorPages = (params, titleAddition) => {
-    console.log('Customizing BEGIN')
+const updatePageTitles = (params, titleAddition) => {
+    console.log(`Customizing ${params} BEGIN`);
 
     let updateCount = 0;
     fs.readdirSync(params, {
@@ -15,24 +17,20 @@ const updateAllConnectorPages = (params, titleAddition) => {
     }).forEach(file => {
 
         if (file.includes('.html')) {
-            const fileFullPath = `${connectorsDir}/${file}`;
+            const fileFullPath = `${params}/${file}`;
             const $cheer = cheerio.load(fs.readFileSync(fileFullPath));
             const $title = $cheer("title")
             const titleText = $title.text();
 
             if (
                 // Skip if we are on a specific "root" page
-                !titleText.toLowerCase().startsWith(connector.toLowerCase()) &&
-                !titleText.toLowerCase().startsWith('dekaf integrations'.toLowerCase()) && 
-                !titleText.toLowerCase().startsWith('materialization protocol'.toLowerCase()) && 
+                !titleText.toLowerCase().startsWith('dekaf integrations'.toLowerCase()) &&
+                !titleText.toLowerCase().startsWith('materialization protocol'.toLowerCase()) &&
 
-                // Skip if it is already there
-                !titleText.toLowerCase().includes(titleAddition) && 
-
-                // Skip if plural version is there (ex: Capture Connectors)
-                !titleText.toLowerCase().includes(`${connector}s |`.toLowerCase())
+                // Skip if it is already there (whether at the beginning, in plural, etc)
+                !titleText.toLowerCase().includes(titleAddition.toLowerCase())
             ) {
-                const newTitle = titleText.replace(divider, titleAddition);
+                const newTitle = titleText.replace(divider, ` ${titleAddition}${divider}`);
                 console.debug(`  - updating    : ${fileFullPath}`)
                 console.debug(`    - new title : ${newTitle}`)
 
@@ -47,4 +45,5 @@ const updateAllConnectorPages = (params, titleAddition) => {
 
 }
 
-updateAllConnectorPages(connectorsDir, ` ${connector}${divider}`);
+updatePageTitles(connectorsDir, `${connector}`);
+updatePageTitles(conceptsDir, `${concept}`);
