@@ -10,6 +10,9 @@ pub const COLLECTION: &str = "estuary.dev/collection";
 pub const CORDON: &str = "estuary.dev/cordon";
 pub const FIELD_PREFIX: &str = "estuary.dev/field/";
 pub const FLAG_PREFIX: &str = "estuary.dev/flag/";
+// Flag which enables the V2 task runtime.
+// TODO(whb): remove once the runtime-v2 migration is complete.
+pub const RUNTIME_V2_FLAG: &str = "estuary.dev/flag/enable-runtime-v2";
 pub const KEY_BEGIN: &str = "estuary.dev/key-begin";
 pub const KEY_BEGIN_MIN: &str = "00000000";
 pub const KEY_END: &str = "estuary.dev/key-end";
