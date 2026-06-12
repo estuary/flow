@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH new_token AS (\n                -- 256 bits from pgcrypto's CSPRNG, up from a UUID's 122. The\n                -- SHA-256 hashing below rests on secrets being high-entropy.\n                SELECT encode(gen_random_bytes(32), 'hex') AS secret\n            )\n            INSERT INTO refresh_tokens (user_id, multi_use, valid_for, hash, detail)\n            SELECT\n                $1,\n                $2,\n                $3::text::interval,\n                -- SHA-256 rather than bcrypt: the secret is high-entropy\n                -- random, so a slow hash adds no protection while a fast\n                -- hash keeps per-request bearer verification cheap. See\n                -- migration 20260611120000_refresh_token_sha256.sql.\n                encode(digest(nt.secret, 'sha256'), 'hex'),\n                $4\n            FROM new_token nt\n            RETURNING\n                id AS \"id!: models::Id\",\n                (SELECT secret FROM new_token) AS \"secret!: String\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "secret!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "a2e33d37031fd7b55f5fe9b762ba82875452393dfd21cd2aed483d3462536eac"
+}

@@ -275,12 +275,23 @@ pub async fn authenticate_refresh_token(
     // Validate the secret, expiry, and multi-use in one query, stamping usage
     // exactly as the SQL `generate_access_token` function does for multi-use
     // tokens: `updated_at` re-arms the validity window on each use.
+    //
+    // Hashes dual-read during the bcrypt → SHA-256 migration: legacy bcrypt
+    // hashes (prefix '$2') verify with crypt() and are rewritten to SHA-256
+    // while the plaintext is in hand. See migration
+    // 20260611120000_refresh_token_sha256.sql for the full rationale.
     let row = sqlx::query!(
         r#"
         UPDATE refresh_tokens
-        SET uses = uses + 1, updated_at = clock_timestamp()
+        SET uses = uses + 1,
+            updated_at = clock_timestamp(),
+            hash = CASE WHEN hash LIKE '$2%'
+                        THEN encode(digest($2, 'sha256'), 'hex')
+                        ELSE hash END
         WHERE id = $1
-          AND hash = crypt($2, hash)
+          AND CASE WHEN hash LIKE '$2%'
+                   THEN hash = crypt($2, hash)
+                   ELSE hash = encode(digest($2, 'sha256'), 'hex') END
           AND multi_use
           AND (updated_at + valid_for) > now()
         RETURNING user_id

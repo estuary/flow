@@ -136,14 +136,20 @@ impl RefreshTokensMutation {
         let row = sqlx::query!(
             r#"
             WITH new_token AS (
-                SELECT gen_random_uuid()::text AS secret
+                -- 256 bits from pgcrypto's CSPRNG, up from a UUID's 122. The
+                -- SHA-256 hashing below rests on secrets being high-entropy.
+                SELECT encode(gen_random_bytes(32), 'hex') AS secret
             )
             INSERT INTO refresh_tokens (user_id, multi_use, valid_for, hash, detail)
             SELECT
                 $1,
                 $2,
                 $3::text::interval,
-                crypt(nt.secret, gen_salt('bf')),
+                -- SHA-256 rather than bcrypt: the secret is high-entropy
+                -- random, so a slow hash adds no protection while a fast
+                -- hash keeps per-request bearer verification cheap. See
+                -- migration 20260611120000_refresh_token_sha256.sql.
+                encode(digest(nt.secret, 'sha256'), 'hex'),
                 $4
             FROM new_token nt
             RETURNING
@@ -461,5 +467,105 @@ mod test {
             )
             .await;
         assert!(revoke_again["errors"].is_array());
+    }
+
+    /// Covers the bcrypt → SHA-256 hash migration for refresh tokens:
+    /// newly-created tokens store SHA-256 digests, and legacy bcrypt rows
+    /// still authenticate as bearer credentials and are rewritten to SHA-256
+    /// on first successful use ("rehash on use").
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_refresh_token_hash_migration(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice_id = uuid::Uuid::from_bytes([0x11; 16]);
+        let alice_token = server.make_access_token(alice_id, Some("alice@example.test"));
+
+        // === Newly-created tokens store SHA-256, not bcrypt ===
+        let create: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { createRefreshToken(validFor: "P30D") { id secret } }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        let created = &create["data"]["createRefreshToken"];
+        let token_id: models::Id = created["id"].as_str().unwrap().parse().unwrap();
+
+        let hash = sqlx::query_scalar!(
+            r#"SELECT hash FROM refresh_tokens WHERE id = $1"#,
+            token_id as models::Id,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            !hash.starts_with("$2") && hash.len() == 64,
+            "new tokens should store hex SHA-256, got: {hash}"
+        );
+
+        // === A legacy bcrypt row authenticates and is rehashed on use ===
+        let legacy_secret = "legacy-bcrypt-secret";
+        let legacy_id = sqlx::query_scalar!(
+            r#"
+            INSERT INTO refresh_tokens (user_id, multi_use, valid_for, hash, detail)
+            VALUES ($1, true, interval '30 days', crypt($2, gen_salt('bf')), 'legacy')
+            RETURNING id AS "id!: models::Id"
+            "#,
+            alice_id,
+            legacy_secret,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let bearer = bearer_refresh_token(&legacy_id.to_string(), legacy_secret);
+        let via_bearer: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"query { refreshTokens { edges { node { id } } } }"#
+                }),
+                Some(&bearer),
+            )
+            .await;
+        assert!(
+            via_bearer["data"]["refreshTokens"]["edges"].is_array(),
+            "legacy bcrypt bearer should authenticate: {via_bearer}"
+        );
+
+        let rehashed = sqlx::query_scalar!(
+            r#"SELECT hash FROM refresh_tokens WHERE id = $1"#,
+            legacy_id as models::Id,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            !rehashed.starts_with("$2") && rehashed.len() == 64,
+            "legacy hash should be rewritten to SHA-256 on use, got: {rehashed}"
+        );
+
+        // The rehashed token continues to authenticate (now via the SHA-256 path).
+        let again: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"query { refreshTokens { edges { node { id uses } } } }"#
+                }),
+                Some(&bearer),
+            )
+            .await;
+        assert!(
+            again["data"]["refreshTokens"]["edges"].is_array(),
+            "rehashed token should still authenticate: {again}"
+        );
     }
 }

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE refresh_tokens\n        SET uses = uses + 1,\n            updated_at = clock_timestamp(),\n            hash = CASE WHEN hash LIKE '$2%'\n                        THEN encode(digest($2, 'sha256'), 'hex')\n                        ELSE hash END\n        WHERE id = $1\n          AND CASE WHEN hash LIKE '$2%'\n                   THEN hash = crypt($2, hash)\n                   ELSE hash = encode(digest($2, 'sha256'), 'hex') END\n          AND multi_use\n          AND (updated_at + valid_for) > now()\n        RETURNING user_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bd8255a35d75cdac20d481ded4d709015c2e3fb08a9762cb20c3226d9a5f3521"
+}

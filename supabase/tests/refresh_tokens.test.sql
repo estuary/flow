@@ -81,6 +81,46 @@ begin
 end;
 $$ language plpgsql;
 
+create function tests.test_generate_access_token_bcrypt_migration()
+returns setof text as $$
+declare
+  rt_id flowid;
+  response json;
+  new_hash text;
+begin
+  delete from refresh_tokens;
+
+  -- Seed a legacy bcrypt-hashed token, as all rows created before the
+  -- SHA-256 migration (20260611120000) are.
+  insert into refresh_tokens (user_id, multi_use, valid_for, hash, detail)
+  values (
+    '11111111-1111-1111-1111-111111111111'::uuid,
+    true,
+    interval '1 day',
+    crypt('legacy-secret', gen_salt('bf')),
+    'legacy'
+  ) returning id into rt_id;
+
+  -- Drop priviledge to `authenticated` and authorize as Alice.
+  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
+
+  select generate_access_token(rt_id, 'legacy-secret') into response;
+  return query select ok(response::jsonb ? 'access_token', 'legacy bcrypt token still exchanges');
+
+  set role postgres;
+  select hash into new_hash from refresh_tokens where id = rt_id;
+  return query select ok(
+    new_hash not like '$2%' and length(new_hash) = 64,
+    'bcrypt hash rewritten to SHA-256 on use'
+  );
+
+  -- The rehashed token exchanges again, now via the SHA-256 branch.
+  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
+  select generate_access_token(rt_id, 'legacy-secret') into response;
+  return query select ok(response::jsonb ? 'access_token', 'rehashed token still exchanges');
+end;
+$$ language plpgsql;
+
 create function tests.test_generate_access_token_errors()
 returns setof text as $$
 declare
