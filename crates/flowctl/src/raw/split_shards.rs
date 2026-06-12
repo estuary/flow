@@ -84,14 +84,15 @@ pub async fn do_split(ctx: &mut crate::CliContext, args: &Split) -> anyhow::Resu
         // TODO(whb): This check can be removed once the runtime-v2 migration is
         // complete.
         let is_runtime_v2 = template.shard.labels.as_ref().is_some_and(|set| {
-            set.labels.iter().any(|label| {
-                label.name == "estuary.dev/flag/enable-runtime-v2" && label.value == "true"
-            })
+            set.labels
+                .iter()
+                .any(|label| label.name == labels::RUNTIME_V2_FLAG && label.value == "true")
         });
         anyhow::ensure!(
             is_runtime_v2,
             "task {task_name} is not running the V2 runtime (its shards lack the \
-         `estuary.dev/flag/enable-runtime-v2: true` flag) and cannot be split",
+         `{}: true` flag) and cannot be split",
+            labels::RUNTIME_V2_FLAG,
         );
     }
 
