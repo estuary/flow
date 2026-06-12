@@ -457,8 +457,6 @@ pub fn unpack_journal_listing(resp: broker::ListResponse) -> anyhow::Result<Vec<
     Ok(v)
 }
 
-const RUNTIME_V2_FLAG: &str = "estuary.dev/flag/enable-runtime-v2";
-
 fn non_zero_shards_are_stateless(shard_template: &ShardSpec) -> bool {
     let Some(set) = shard_template.labels.as_ref() else {
         return false;
@@ -475,7 +473,7 @@ fn non_zero_shards_are_stateless(shard_template: &ShardSpec) -> bool {
     }
 
     // TODO(whb): Remove this check when all tasks are running runtime v2.
-    labels::values(set, RUNTIME_V2_FLAG)
+    labels::values(set, labels::RUNTIME_V2_FLAG)
         .first()
         .map(|l| l.value.as_str())
         == Some("true")
@@ -1304,7 +1302,7 @@ mod test {
             let shard_template = ShardSpec {
                 labels: Some(labels::set_value(
                     shard_template.labels.clone().unwrap_or_default(),
-                    RUNTIME_V2_FLAG,
+                    labels::RUNTIME_V2_FLAG,
                     "true",
                 )),
                 ..shard_template.clone()
