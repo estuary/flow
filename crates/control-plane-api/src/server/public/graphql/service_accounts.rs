@@ -1,4 +1,4 @@
-use super::TimestampCursor;
+use super::{TimestampCursor, filters};
 use async_graphql::{Context, types::connection};
 
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
@@ -52,6 +52,11 @@ pub type PaginatedServiceAccounts = connection::Connection<
     connection::DisableNodesField,
 >;
 
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct ServiceAccountsFilter {
+    pub tenant: Option<filters::TenantFilter>,
+}
+
 #[derive(Debug, Default)]
 pub struct ServiceAccountsQuery;
 
@@ -63,28 +68,35 @@ impl ServiceAccountsQuery {
     async fn service_accounts(
         &self,
         ctx: &Context<'_>,
+        filter: Option<ServiceAccountsFilter>,
         after: Option<String>,
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedServiceAccounts> {
         let env = ctx.data::<crate::Envelope>()?;
 
+        let tenant = filter.and_then(|f| f.tenant).and_then(|f| f.eq);
+
         let snapshot = env.snapshot();
-        // Service accounts are visible to callers who can manage them: those
-        // holding ManageServiceAccounts on a prefix covering the account's
-        // catalog_name.
+        // Service accounts are visible to callers who can manage them, scoped to
+        // the requested tenant (its own prefix plus everything it reaches at the
+        // same capability). The tenant filter only narrows the caller's own
+        // authorized set, so it can never widen access.
         let user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
             &snapshot.role_grants,
             &snapshot.user_grants,
             env.claims()?.sub,
             models::authz::Capability::ManageServiceAccounts,
             None,
+            tenant.as_deref(),
         );
 
         if user_accessible_prefixes.is_empty() {
             return Ok(PaginatedServiceAccounts::new(false, false));
         }
         if user_accessible_prefixes.len() > MAX_PREFIXES {
-            return Err(async_graphql::Error::new("Too many accessible prefixes"));
+            return Err(async_graphql::Error::new(
+                "Too many accessible prefixes; narrow results with a tenant filter",
+            ));
         }
 
         connection::query_with::<TimestampCursor, _, _, _, async_graphql::Error>(
@@ -972,7 +984,7 @@ mod test {
                 &serde_json::json!({
                     "query": r#"
                     query {
-                        serviceAccounts {
+                        serviceAccounts(filter: { tenant: { eq: "aliceCo/" } }) {
                             edges {
                                 node {
                                     id

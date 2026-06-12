@@ -15,3 +15,8 @@ pub struct DateFilter {
 pub struct PrefixFilter {
     pub starts_with: Option<String>,
 }
+
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct TenantFilter {
+    pub eq: Option<String>,
+}

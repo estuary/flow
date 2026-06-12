@@ -81,7 +81,10 @@ impl InviteLinksQuery {
             &env.snapshot().user_grants,
             env.claims()?.sub,
             models::Capability::Admin,
+            // TODO: prefix_filter is deprecated in favor of the tenant filter;
+            // migrate this query's `catalogPrefix` filter to `tenant`.
             prefix_starts_with.as_deref(),
+            None,
         );
 
         if admin_prefixes.is_empty() {
@@ -89,7 +92,7 @@ impl InviteLinksQuery {
         }
         if admin_prefixes.len() > MAX_PREFIXES {
             return Err(async_graphql::Error::new(
-                "Too many admin prefixes; narrow results with a prefix filter",
+                "Too many admin prefixes; narrow results with a prefix / tenant filter",
             ));
         }
 

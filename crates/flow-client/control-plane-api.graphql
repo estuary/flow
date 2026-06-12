@@ -1602,7 +1602,7 @@ type QueryRoot {
 	List refresh tokens owned by the authenticated user.
 	"""
 	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
-	serviceAccounts(after: String, first: Int): ServiceAccountConnection!
+	serviceAccounts(filter: ServiceAccountsFilter, after: String, first: Int): ServiceAccountConnection!
 }
 
 """
@@ -1724,6 +1724,10 @@ A user_grant to seed a service account with at creation time.
 input ServiceAccountGrantInput {
 	prefix: Prefix!
 	capability: Capability!
+}
+
+input ServiceAccountsFilter {
+	tenant: TenantFilter
 }
 
 """
@@ -2077,6 +2081,10 @@ type TenantBilling {
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
 	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
+}
+
+input TenantFilter {
+	eq: String
 }
 
 """

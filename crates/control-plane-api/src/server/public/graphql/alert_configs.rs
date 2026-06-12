@@ -130,7 +130,10 @@ impl AlertConfigsQuery {
             &env.snapshot().user_grants,
             claims.sub,
             models::Capability::Read,
+            // TODO: prefix_filter is deprecated in favor of the tenant filter;
+            // migrate this query's `catalogPrefixOrName` filter to `tenant`.
             prefix_starts_with.as_deref(),
+            None,
         );
 
         if read_prefixes.is_empty() {
