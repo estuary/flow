@@ -42,7 +42,21 @@ impl StringShape {
             format: lhs.format.or(rhs.format),
             min_length: lhs.min_length.max(rhs.min_length),
             max_length,
+            str_minimum: intersect_bound(lhs.str_minimum, rhs.str_minimum, true),
+            str_maximum: intersect_bound(lhs.str_maximum, rhs.str_maximum, false),
         }
+    }
+}
+
+// Combine two optional numeric-string bounds for an intersection
+fn intersect_bound(
+    lhs: Option<Box<bigdecimal::BigDecimal>>,
+    rhs: Option<Box<bigdecimal::BigDecimal>>,
+    take_greater: bool,
+) -> Option<Box<bigdecimal::BigDecimal>> {
+    match (lhs, rhs) {
+        (Some(l), Some(r)) => Some(if take_greater { l.max(r) } else { l.min(r) }),
+        (l, r) => l.or(r),
     }
 }
 

@@ -506,6 +506,8 @@ impl<F: Fetcher> Loader<F> {
                 json::schema::Keyword::Pattern { .. } => (),
                 json::schema::Keyword::Type { .. } => (),
                 json::schema::Keyword::UniqueItems { .. } => (),
+                json::schema::Keyword::XStrMaximum { .. } => (),
+                json::schema::Keyword::XStrMinimum { .. } => (),
             };
         }
 

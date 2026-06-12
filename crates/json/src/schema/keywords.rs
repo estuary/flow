@@ -216,6 +216,15 @@ where
         unevaluated_properties: Box<Schema<A>>,
     },
     UniqueItems {},
+
+    /// Numeric maximum bound for numeric (`format: integer`/`number`) strings.
+    XStrMaximum {
+        x_str_maximum: Box<bigdecimal::BigDecimal>,
+    },
+    /// Numeric minimum bound for numeric (`format: integer`/`number`) strings.
+    XStrMinimum {
+        x_str_minimum: Box<bigdecimal::BigDecimal>,
+    },
 }
 
 impl<A: Annotation> Keyword<A> {
@@ -275,6 +284,8 @@ impl<A: Annotation> Keyword<A> {
             Keyword::UnevaluatedItems { .. } => UNEVALUATED_ITEMS,
             Keyword::UnevaluatedProperties { .. } => UNEVALUATED_PROPERTIES,
             Keyword::UniqueItems { .. } => UNIQUE_ITEMS,
+            Keyword::XStrMaximum { .. } => X_STR_MAXIMUM,
+            Keyword::XStrMinimum { .. } => X_STR_MINIMUM,
 
             // Callers should be filtering False before calling keyword(),
             // but return something reasonable if they don't.
@@ -407,3 +418,5 @@ pub const UNIQUE_ITEMS: &str = "uniqueItems";
 pub const URL: &str = "url"; // Appears in draft 2020-12 schema.
 pub const VOCABULARY: &str = "$vocabulary";
 pub const WRITE_ONLY: &str = "writeOnly";
+pub const X_STR_MAXIMUM: &str = "x-str-maximum";
+pub const X_STR_MINIMUM: &str = "x-str-minimum";

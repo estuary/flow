@@ -79,6 +79,12 @@ fn outcome_detail<'s, A: schema::Annotation>(outcome: &Outcome<'s, A>) -> String
         Outcome::TypeNotMet(expected) => {
             format!("Type mismatch: expected a {}", expected.iter().join(" or "))
         }
+        Outcome::XStrMaximumExceeded => {
+            "Numeric string exceeds the maximum (x-str-maximum)".to_string()
+        }
+        Outcome::XStrMinimumNotMet => {
+            "Numeric string is below the minimum (x-str-minimum)".to_string()
+        }
     }
 }
 

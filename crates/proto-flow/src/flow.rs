@@ -120,6 +120,16 @@ pub mod inference {
         /// limit.
         #[prost(uint32, tag = "6")]
         pub max_length: u32,
+        /// Minimum value for a numeric-formatted string (format: integer/number).
+        /// Corresponds to the x-str-minimum schema keyword. Empty string means no
+        /// bound.
+        #[prost(string, tag = "8")]
+        pub str_minimum: ::prost::alloc::string::String,
+        /// Maximum value for a numeric-formatted string (format: integer/number).
+        /// Corresponds to the x-str-maximum schema keyword. Empty string means no
+        /// bound.
+        #[prost(string, tag = "9")]
+        pub str_maximum: ::prost::alloc::string::String,
     }
     /// Numeric type-specific inferences. Will be nil if types doesn't include
     /// "integer" or "number", or if the specification was built prior to numeric
