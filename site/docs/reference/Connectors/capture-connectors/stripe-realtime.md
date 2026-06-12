@@ -97,6 +97,7 @@ For captures with many connected accounts, the connector uses a priority-based r
 ## Prerequisites
 
 * An [API Key](https://docs.stripe.com/keys) for your Stripe account. This usually starts with `sk_live_` or `sk_test_` depending on your environment. Manage your Stripe keys in their [developer dashboard](https://dashboard.stripe.com/test/apikeys).
+* A Stripe account default [API version](https://docs.stripe.com/api/versioning) of [2016-07-06](https://docs.stripe.com/changelog/2016-07-06/filter-canceled-subscriptions-retrieve-individually) or later. To capture canceled subscriptions as well as active ones, the connector lists subscriptions with `status=all`. The connector's requests run under your account's default API version, and versions older than 2016-07-06 reject this filter with an error similar to `Invalid status: must be one of active, past_due, unpaid, ...`, which causes the Subscriptions, Subscription items, and Usage records backfills to fail. You can view and upgrade your account's default API version in the Stripe dashboard under [Workbench](https://docs.stripe.com/workbench). Note that upgrading the default version affects API calls that don't pin a version per request and webhook endpoints without their own pinned version.
 
 ## Configuration
 
