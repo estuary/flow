@@ -512,11 +512,32 @@ where
     fn visit_string(&mut self, val: &str, my_tape_index: i32) {
         let active = *self.active.last().unwrap() as usize..self.stack.len();
 
+        // Parse `val` as a number at most once per visit, shared by numeric
+        // `format` validation and the x-str bound checks below.
+        // Outer `None` = "not yet parsed"
+        // inner `None` = "not a finite number" which isn't orderable
+        let mut as_number: Option<Option<bigdecimal::BigDecimal>> = None;
+
         for frame in &mut self.stack[active] {
             for kw in frame.keywords {
                 let invalid: Outcome<'s, A> = match kw {
                     Keyword::Format { format } => {
-                        if format.validate(val) {
+                        // Numeric formats validate via the shared parse so a
+                        // co-located x-str bound doesn't re-parse the value.
+                        let ok = match format {
+                            schema::formats::Format::Integer | schema::formats::Format::Number => {
+                                format.validate_number(
+                                    val,
+                                    as_number
+                                        .get_or_insert_with(|| {
+                                            schema::formats::Format::parse_numeric(val)
+                                        })
+                                        .as_ref(),
+                                )
+                            }
+                            _ => format.validate(val),
+                        };
+                        if ok {
                             continue;
                         }
                         Outcome::FormatNotMatched(format)
@@ -546,6 +567,24 @@ where
                             continue;
                         }
                         Outcome::PatternNotMatched
+                    }
+                    Keyword::XStrMinimum { x_str_minimum } => {
+                        match as_number
+                            .get_or_insert_with(|| schema::formats::Format::parse_numeric(val))
+                        {
+                            Some(num) if *num >= (**x_str_minimum) => continue,
+                            // Number doesn't fit OR is non-finite.
+                            _ => Outcome::XStrMinimumNotMet,
+                        }
+                    }
+                    Keyword::XStrMaximum { x_str_maximum } => {
+                        match as_number
+                            .get_or_insert_with(|| schema::formats::Format::parse_numeric(val))
+                        {
+                            Some(num) if *num <= (**x_str_maximum) => continue,
+                            // Number doesn't fit OR is non-finite.
+                            _ => Outcome::XStrMaximumExceeded,
+                        }
                     }
                     _ => continue,
                 };
@@ -1045,6 +1084,23 @@ fn is_invalid(frame_flags: u8) -> bool {
 mod tests {
     use crate::schema;
 
+    // Builds `schema`, then reports whether `doc` validates against it.
+    fn validates(schema: serde_json::Value, doc: serde_json::Value) -> bool {
+        let schema = schema::build::build_schema::<schema::CoreAnnotation>(
+            &url::Url::parse("https://example.com/schema.json").unwrap(),
+            &schema,
+        )
+        .unwrap();
+
+        let mut builder = schema::index::Builder::new();
+        builder.add(&schema).unwrap();
+        builder.verify_references().unwrap();
+        let index = builder.into_index();
+
+        let mut validator = crate::Validator::new(&index);
+        validator.validate(&schema, &doc, |o| Some(o)).0
+    }
+
     // Use this test to debug a failing test case, by updating `schema` and `doc`.
     #[test]
     fn test_case_debug() {
@@ -1125,6 +1181,121 @@ mod tests {
             ],
         )
         "###);
+    }
+
+    #[test]
+    fn test_x_str_bounds() {
+        // Inclusive landmark bounds, including a negative power-of-ten minimum.
+        let schema = serde_json::json!({
+            "type": "string",
+            "format": "integer",
+            "x-str-minimum": "-10",
+            "x-str-maximum": "100",
+        });
+        assert!(validates(schema.clone(), serde_json::json!("0")));
+        assert!(validates(schema.clone(), serde_json::json!("-10"))); // inclusive min
+        assert!(validates(schema.clone(), serde_json::json!("100"))); // inclusive max
+        assert!(!validates(schema.clone(), serde_json::json!("-11")));
+        assert!(!validates(schema.clone(), serde_json::json!("101")));
+
+        // With `format` present, a non-numeric string is rejected by `format`.
+        assert!(!validates(schema, serde_json::json!("not a number")));
+
+        // The bound alone also rejects it: a declared range admits only finite
+        // numbers, so even without `format` a non-numeric string fails.
+        assert!(!validates(
+            serde_json::json!({"type": "string", "x-str-maximum": "100"}),
+            serde_json::json!("not a number"),
+        ));
+    }
+
+    #[test]
+    fn test_x_str_bounds_compare_numeric_value() {
+        // The instance is compared to the bound by numeric value, not string
+        // bytes. With min == max == "100", only values equal to 100 pass.
+        let schema = serde_json::json!({
+            "type": "string",
+            "x-str-minimum": "100",
+            "x-str-maximum": "100",
+        });
+
+        // Different text, same numeric value.
+        assert!(validates(schema.clone(), serde_json::json!("100")));
+        assert!(validates(schema.clone(), serde_json::json!("100.0")));
+        assert!(validates(schema.clone(), serde_json::json!("100.00")));
+        // A leading zero doesn't change the value.
+        assert!(validates(schema.clone(), serde_json::json!("0100")));
+
+        // Numerically outside the bound.
+        assert!(!validates(schema.clone(), serde_json::json!("101")));
+        assert!(!validates(schema, serde_json::json!("99")));
+
+        // Fractional bounds compare with full decimal precision — e.g. limits
+        // derived from a NUMERIC(4,2) column.
+        let schema = serde_json::json!({
+            "type": "string",
+            "format": "number",
+            "x-str-minimum": "-99.99",
+            "x-str-maximum": "99.99",
+        });
+        assert!(validates(schema.clone(), serde_json::json!("10.5")));
+        assert!(validates(schema.clone(), serde_json::json!("99.99")));
+        assert!(validates(schema.clone(), serde_json::json!("-99.99")));
+        assert!(!validates(schema.clone(), serde_json::json!("99.991")));
+        assert!(!validates(schema.clone(), serde_json::json!("-100")));
+        // Non-numeric historical data (e.g. "n/a") violates the bound — which
+        // is exactly why relaxed write schemas must strip x-str bounds.
+        assert!(!validates(schema, serde_json::json!("n/a")));
+    }
+
+    #[test]
+    fn test_x_str_maximum_beyond_u64() {
+        // A type-edge bound at u64::MAX (18446744073709551615) — which a native
+        // `maximum` could not represent without loss — and beyond-64-bit instances.
+        let schema = serde_json::json!({
+            "type": "string",
+            "format": "integer",
+            "x-str-maximum": "18446744073709551615", // u64::MAX
+        });
+
+        assert!(validates(
+            schema.clone(),
+            serde_json::json!("18446744073709551615")
+        )); // == maximum
+        assert!(validates(
+            schema.clone(),
+            serde_json::json!("18446744073709551614")
+        )); // below
+        assert!(!validates(
+            schema,
+            serde_json::json!("18446744073709551616")
+        )); // u64::MAX + 1, exceeds
+    }
+
+    #[test]
+    fn test_x_str_bounds_reject_non_finite_instances() {
+        // `format: number` permits the textual forms NaN/Infinity/-Infinity,
+        // but a declared bound is a range of finite numbers which a non-finite
+        // value does not fit: a connector sizing a column from these bounds
+        // must never see a value outside them.
+        let schema = serde_json::json!({
+            "type": "string",
+            "format": "number",
+            "x-str-minimum": "0",
+            "x-str-maximum": "100",
+        });
+
+        assert!(!validates(schema.clone(), serde_json::json!("NaN")));
+        assert!(!validates(schema.clone(), serde_json::json!("Infinity")));
+        assert!(!validates(schema.clone(), serde_json::json!("-Infinity")));
+
+        // Finite numeric strings are bound-checked as usual.
+        assert!(validates(schema.clone(), serde_json::json!("50")));
+        assert!(!validates(schema, serde_json::json!("101")));
+
+        // Absent any x-str bound, non-finite values remain valid `format: number`.
+        let unbounded = serde_json::json!({"type": "string", "format": "number"});
+        assert!(validates(unbounded, serde_json::json!("NaN")));
     }
 
     #[test]

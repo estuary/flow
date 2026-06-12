@@ -161,6 +161,12 @@ impl Shape {
                 Keyword::MinLength { min_length } => {
                     shape.string.min_length = *min_length as u32;
                 }
+                Keyword::XStrMinimum { x_str_minimum } => {
+                    shape.string.str_minimum = Some(x_str_minimum.clone());
+                }
+                Keyword::XStrMaximum { x_str_maximum } => {
+                    shape.string.str_maximum = Some(x_str_maximum.clone());
+                }
 
                 // Numeric constraints.
                 Keyword::MinimumPosInt { minimum } => {
@@ -556,6 +562,7 @@ mod test {
                     format: Some(Format::Email),
                     max_length: None,
                     min_length: 0,
+                    ..StringShape::new()
                 },
                 ..Shape::nothing()
             },
@@ -786,6 +793,8 @@ mod test {
                     format: None,
                     max_length: None,
                     min_length: 0,
+                    str_minimum: None,
+                    str_maximum: None,
                 },
             },
         }

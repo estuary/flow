@@ -128,6 +128,14 @@ message Inference {
     // Maximum length when the projection is of "string" type. Zero for no
     // limit.
     uint32 max_length = 6;
+    // Minimum value for a numeric-formatted string (format: integer/number).
+    // Corresponds to the x-str-minimum schema keyword. Empty string means no
+    // bound.
+    string str_minimum = 8;
+    // Maximum value for a numeric-formatted string (format: integer/number).
+    // Corresponds to the x-str-maximum schema keyword. Empty string means no
+    // bound.
+    string str_maximum = 9;
   }
   String string = 3;
   // The title from the schema, if provided.

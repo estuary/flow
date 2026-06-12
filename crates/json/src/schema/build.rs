@@ -19,6 +19,8 @@ pub enum Error<A: schema::Annotation> {
     ExpectedSchema,
     #[error("expected a string")]
     ExpectedString,
+    #[error("expected a string-encoded finite number")]
+    ExpectedNumericStrBound,
     #[error("expected an unsigned integer")]
     ExpectedUnsigned,
     #[error("expected a URL")]
@@ -477,6 +479,17 @@ where
             keywords::URL => {}        // No-op.
             keywords::VOCABULARY => {} // No-op.
 
+            keywords::X_STR_MAXIMUM => {
+                if let Some(x_str_maximum) = expect_numeric_str_bound(scope, value, errors) {
+                    keywords.push(Keyword::XStrMaximum { x_str_maximum });
+                }
+            }
+            keywords::X_STR_MINIMUM => {
+                if let Some(x_str_minimum) = expect_numeric_str_bound(scope, value, errors) {
+                    keywords.push(Keyword::XStrMinimum { x_str_minimum });
+                }
+            }
+
             keyword if keyword.starts_with("x-") => (), // Ignore extension keywords.
 
             _ => {
@@ -732,6 +745,26 @@ fn expect_number<'l, A, F>(
     }
 }
 
+// Parses an x-str-minimum/maximum bound: a JSON string holding a finite decimal
+// number (parsed by the same routine that validates `format: integer`/`number`).
+fn expect_numeric_str_bound<'l, A: schema::Annotation>(
+    scope: Scope<'l>,
+    v: &serde_json::Value,
+    errors: &mut Vec<ScopedError<A>>,
+) -> Option<Box<bigdecimal::BigDecimal>> {
+    let Some(s) = v.as_str() else {
+        Error::ExpectedString.push(scope, errors);
+        return None;
+    };
+    match crate::schema::formats::Format::parse_numeric(s) {
+        Some(num) => Some(Box::new(num)),
+        None => {
+            Error::ExpectedNumericStrBound.push(scope, errors);
+            None
+        }
+    }
+}
+
 fn expect_url<'l, A: schema::Annotation>(
     scope: Scope<'l>,
     is_anchor: bool,
@@ -779,5 +812,71 @@ mod tests {
 
         let schema = super::build_schema::<schema::CoreAnnotation>(&curi, &schema).unwrap();
         insta::assert_debug_snapshot!(schema);
+    }
+
+    #[test]
+    fn test_x_str_bound_parse_errors() {
+        use super::Error;
+
+        let curi = url::Url::parse("https://example.com/schema.json").unwrap();
+        let build_err = |value: serde_json::Value| -> Error<schema::CoreAnnotation> {
+            let mut errs = super::build_schema::<schema::CoreAnnotation>(&curi, &value)
+                .expect_err("expected a build error")
+                .0;
+            assert_eq!(errs.len(), 1, "expected exactly one error");
+            errs.pop().unwrap().inner
+        };
+
+        // A JSON number is rejected: bounds are strings, never numbers.
+        assert!(matches!(
+            build_err(serde_json::json!({"x-str-maximum": 100})),
+            Error::ExpectedString
+        ));
+
+        // Strings that don't parse as a finite number are rejected: non-numbers,
+        // the non-finite literals, and the `_` digit separator JSON disallows.
+        for bad in ["abc", "NaN", "Infinity", "1_000"] {
+            assert!(
+                matches!(
+                    build_err(serde_json::json!({ "x-str-minimum": bad })),
+                    Error::ExpectedNumericStrBound
+                ),
+                "expected {bad:?} to be rejected",
+            );
+        }
+
+        // Any finite number is accepted, including arbitrary integers and
+        // fractions — bounds are no longer restricted to landmark values.
+        for ok in ["12345", "1.5", "-100", "18446744073709551616000"] {
+            assert!(
+                super::build_schema::<schema::CoreAnnotation>(
+                    &curi,
+                    &serde_json::json!({ "x-str-maximum": ok }),
+                )
+                .is_ok(),
+                "expected {ok:?} to be accepted",
+            );
+        }
+    }
+
+    #[test]
+    fn test_x_str_bound_error_message() {
+        // A hand-authored non-numeric bound fails the build with a message that
+        // names both the offending location and the reason.
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "count": { "type": "string", "format": "integer", "x-str-maximum": "abc" }
+            }
+        });
+        let curi = url::Url::parse("https://example.com/schema.json").unwrap();
+        let err = super::build_schema::<schema::CoreAnnotation>(&curi, &schema)
+            .expect_err("non-numeric bound should fail to build");
+
+        assert_eq!(
+            err.to_string(),
+            "at https://example.com/schema.json#/properties/count/x-str-maximum: \
+             expected a string-encoded finite number",
+        );
     }
 }
