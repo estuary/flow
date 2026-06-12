@@ -1,5 +1,6 @@
 ---
 sidebar_position: 3
+description: Set up Estuary's MariaDB capture connector with CDC, binlog configuration, replication permissions, and backfill and time zone settings.
 ---
 
 # MariaDB

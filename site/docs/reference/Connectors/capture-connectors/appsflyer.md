@@ -1,3 +1,7 @@
+---
+description: Use Estuary's AppsFlyer connector for real-time mobile marketing data, including installs, in-app events, and postbacks, using a combination of webhook and API streams.
+---
+
 # AppsFlyer
 
 This connector captures data from [AppsFlyer](https://www.appsflyer.com/) into Estuary collections.

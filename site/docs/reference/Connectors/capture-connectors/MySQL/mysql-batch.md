@@ -1,3 +1,7 @@
+---
+description: Use the MySQL Batch Query connector to capture tables, views, and custom SQL queries with configurable polling schedules, cursors, and SSH tunneling.
+---
+
 # MySQL Batch Query Connector
 
 This connector captures data from MySQL databases into Estuary collections by

@@ -1,3 +1,6 @@
+---
+description: Capture Brevo contacts data with Estuary's connector, including attributes and lists, using API key authentication and a configurable start date.
+---
 
 # Brevo
 

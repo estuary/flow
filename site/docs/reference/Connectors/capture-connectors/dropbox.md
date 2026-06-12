@@ -1,3 +1,7 @@
+---
+description: Read Dropbox folder files with Estuary's connector using OAuth2 with configuration options for regex filters and parser settings related to file and compression formats.
+---
+
 # Dropbox
 
 This connector captures data from a Dropbox account into an Estuary collection.

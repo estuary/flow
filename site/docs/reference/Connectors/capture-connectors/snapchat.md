@@ -1,3 +1,7 @@
+---
+description: Use the Snapchat Marketing connector to sync ads, campaigns, creatives, media, organizations, segments, and stats.
+---
+
 # Snapchat Marketing
 
 This connector captures data from Snapchat Marketing into Estuary collections.

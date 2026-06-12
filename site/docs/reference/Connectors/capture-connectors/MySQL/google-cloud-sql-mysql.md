@@ -1,5 +1,6 @@
 ---
 sidebar_position: 5
+description: Capture MySQL changes from Google Cloud SQL instances with Estuary’s CDC connector. Setup guide includes binlog handling, read replicas, and backfills.
 ---
 
 # Google Cloud SQL for MySQL

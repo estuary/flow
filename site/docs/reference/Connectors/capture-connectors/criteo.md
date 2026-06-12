@@ -1,3 +1,6 @@
+---
+description: Build Criteo ad data flows in Estuary with advertisers, ad sets, audiences, campaigns, and customized reports.
+---
 
 # Criteo
 

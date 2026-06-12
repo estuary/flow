@@ -1,5 +1,6 @@
 ---
 sidebar_position: 6
+description: Set up Estuary's PostgreSQL capture connector with CDC, logical replication, and proper permissions using self-hosted and cloud platform guides.
 ---
 
 # PostgreSQL

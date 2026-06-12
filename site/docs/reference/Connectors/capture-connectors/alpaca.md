@@ -1,3 +1,6 @@
+---
+description: Ingest Alpaca stock trade data into Estuary using both historical and real-time updates. Configure stock symbols, feed settings, and backfills.
+---
 
 # Alpaca
 

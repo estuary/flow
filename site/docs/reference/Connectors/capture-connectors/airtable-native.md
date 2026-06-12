@@ -1,3 +1,7 @@
+---
+description: Capture Airtable bases and tables with Estuary's connector, using an Airtable access token. Supports formula fields with refresh schedules and incremental updates.
+---
+
 # Airtable
 
 This connector captures data from Airtable into Estuary collections.

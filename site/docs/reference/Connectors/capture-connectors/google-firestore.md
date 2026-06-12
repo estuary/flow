@@ -1,3 +1,6 @@
+---
+description: Stream Firestore documents into Estuary collections with a service account. Configure collection path mapping, discovery options, and backfills.
+---
 
 # Google Firestore
 

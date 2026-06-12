@@ -1,5 +1,6 @@
 ---
 sidebar_position: 5
+description: Set up Estuary's MySQL capture connector with CDC, binlog configuration, and time zone settings using self-hosted and cloud platform guides.
 ---
 
 # MySQL

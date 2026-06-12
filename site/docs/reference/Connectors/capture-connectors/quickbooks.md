@@ -1,3 +1,7 @@
+---
+description: Capture QuickBooks accounting data with Estuary, including invoices, customers, bills, payments, and vendors, with a simple OAuth connection.
+---
+
 # QuickBooks
 
 This connector captures data from QuickBooks into Estuary collections.

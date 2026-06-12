@@ -1,3 +1,7 @@
+---
+description: Sync Zendesk Chat data with Estuary, including accounts, agents, chats, shortcuts, triggers, and departments, using an access token for authentication.
+---
+
 # Zendesk Chat
 
 This connector captures data from Zendesk into Estuary collections.

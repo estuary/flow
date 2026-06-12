@@ -1,3 +1,6 @@
+---
+description: Sync Mailchimp data with Estuary's connector, including lists, campaigns, and email activity, using a Mailchimp API key.
+---
 
 # Mailchimp
 

@@ -1,9 +1,11 @@
+---
+description: Capture Twilio SendGrid webhook events into Estuary collections. Configure signature verification and webhook paths.
+---
+
 # Twilio SendGrid HTTP Ingest (Webhook)
 
 The Twilio SendGrid HTTP Ingest connector allows you to capture data from _incoming_ HTTP requests from Twilio SendGrid Event Webhooks.
 A common use case is to capture webhook deliveries, turning them into an Estuary collection.
-
-The connector is available for use in the Estuary web application. For local development or open-source workflows, [`ghcr.io/estuary/source-twilio-ingest:dev`](https://ghcr.io/estuary/source-twilio-ingest:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Usage
 

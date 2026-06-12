@@ -1,3 +1,7 @@
+---
+description: Capture OracleDB changes into Estuary with LogMiner for container or non-container databases. Setup guidance includes configuring dictionary modes and SCN tuning.
+---
+
 import ReactPlayer from "react-player";
 
 # OracleDB

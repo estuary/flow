@@ -1,3 +1,6 @@
+---
+description: Query NetSuite data with the SuiteQL connector, including accounts, customers, items, and transactions. Setup guide includes NetSuite connection instructions and API limitations.
+---
 
 # Netsuite SuiteQL (Beta)
 

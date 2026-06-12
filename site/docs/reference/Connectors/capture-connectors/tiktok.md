@@ -1,3 +1,7 @@
+---
+description: Manage TikTok Marketing data with Estuary's connector, including advertisers, campaigns, ads, and audience reports, using OAuth authentication or sandbox tokens.
+---
+
 # TikTok Marketing
 
 This connector captures data from TikTok marketing campaigns and ads into Estuary collections via the [TikTok API for Business](https://ads.tiktok.com/marketing_api/docs). It supports production as well as [sandbox](https://ads.tiktok.com/marketing_api/docs?id=1738855331457026) accounts.
