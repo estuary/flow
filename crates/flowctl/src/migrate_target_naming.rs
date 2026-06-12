@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::stream::{self, StreamExt};
+use futures::stream::{self, StreamExt, TryStreamExt};
 use models::{MaterializationDef, MaterializationEndpoint, TargetNaming, TargetNamingStrategy};
 use proto_flow::flow::MaterializationSpec;
 use serde_json::Value;
@@ -53,6 +53,10 @@ struct MaterializationAnalysis {
     legacy_naming: Option<TargetNaming>,
     endpoint_schema: Option<String>,
     detected_schema: Option<String>,
+    /// Set when the proposed strategy was derived from the unanimous
+    /// x-schema-name value already present on the bindings, rather than from
+    /// the endpoint config or resource paths.
+    binding_schema_consensus: Option<String>,
     proposed_target_naming: Option<TargetNamingStrategy>,
     action: Action,
     binding_analyses: Vec<BindingAnalysis>,
@@ -90,9 +94,11 @@ struct LiveSpecRow {
     last_pub_id: models::Id,
     /// Kept as raw JSON so we can distinguish explicit vs defaulted fields
     /// (e.g. whether `source.targetNaming` was set by the user or filled in
-    /// by serde's default). Parsed into `MaterializationDef` at use sites.
-    spec: Option<Value>,
-    built_spec: Option<MaterializationSpec>,
+    /// by serde's default), and so the sops-encrypted endpoint config keeps
+    /// its original bytes: parsing into `serde_json::Value` re-sorts object
+    /// keys, which changes the sops MAC and breaks decryption on publish.
+    /// Parsed into `MaterializationDef` at use sites.
+    spec: Option<models::RawValue>,
     connector_image_name: Option<String>,
     connector_image_tag: Option<String>,
 }
@@ -100,10 +106,11 @@ struct LiveSpecRow {
 /// Returns true iff the raw spec JSON has an explicit `source.targetNaming`.
 /// A bare-string source (just a capture name) and an object source without
 /// a `targetNaming` key both count as "no explicit intent."
-fn has_explicit_source_target_naming(spec_raw: &Value) -> bool {
-    spec_raw
-        .get("source")
-        .and_then(|s| s.as_object())
+fn has_explicit_source_target_naming(spec_raw: &models::RawValue) -> bool {
+    serde_json::from_str::<Value>(spec_raw.get())
+        .ok()
+        .and_then(|v| v.get("source").cloned())
+        .and_then(|s| s.as_object().cloned())
         .is_some_and(|obj| obj.contains_key("targetNaming"))
 }
 
@@ -188,10 +195,27 @@ pub async fn do_migrate_target_naming(
     tracing::info!("fetching resource spec schemas from connector_tags");
     let schema_pointers = fetch_resource_spec_pointers(&ctx.client, &rows).await?;
 
-    let analyses: Vec<MaterializationAnalysis> = rows
-        .iter()
-        .map(|row| analyze_materialization(row, &schema_pointers))
-        .collect();
+    let analyzed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let schema_pointers = std::sync::Arc::new(schema_pointers);
+    let total = rows.len();
+
+    let analyses: Vec<MaterializationAnalysis> = stream::iter(rows.into_iter())
+        .map(|row| {
+            let client = ctx.client.clone();
+            let schema_pointers = schema_pointers.clone();
+            let analyzed = analyzed.clone();
+            async move {
+                let analysis = analyze_materialization(&client, &row, &schema_pointers).await?;
+                let count = analyzed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                if count % 100 == 0 {
+                    tracing::info!(count, total, "analyzed materializations");
+                }
+                anyhow::Ok(analysis)
+            }
+        })
+        .buffered(4)
+        .try_collect()
+        .await?;
 
     print_report(&analyses, &schema_pointers);
 
@@ -205,10 +229,11 @@ pub async fn do_migrate_target_naming(
 /// `schema_pointers` maps full connector image (name+tag) to the x-schema-name
 /// JSON pointer from `pointer_for_schema()`, or None if the connector doesn't
 /// support x-schema-name.
-fn analyze_materialization(
+async fn analyze_materialization(
+    client: &crate::Client,
     row: &LiveSpecRow,
     schema_pointers: &HashMap<String, Option<String>>,
-) -> MaterializationAnalysis {
+) -> anyhow::Result<MaterializationAnalysis> {
     let empty = |action: Action| MaterializationAnalysis {
         catalog_name: row.catalog_name.clone(),
         connector_image: row.connector_image_name.clone(),
@@ -217,6 +242,7 @@ fn analyze_materialization(
         legacy_naming: None,
         endpoint_schema: None,
         detected_schema: None,
+        binding_schema_consensus: None,
         proposed_target_naming: None,
         action,
         binding_analyses: Vec::new(),
@@ -224,24 +250,21 @@ fn analyze_materialization(
 
     let spec_raw = match &row.spec {
         Some(s) => s,
-        None => return empty(Action::SkipNotConnector),
+        None => return Ok(empty(Action::SkipNotConnector)),
     };
-    let spec: MaterializationDef = match serde_json::from_value(spec_raw.clone()) {
+    let spec: MaterializationDef = match serde_json::from_str(spec_raw.get()) {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!(catalog_name = %row.catalog_name, error = %e, "failed to parse materialization spec");
-            return empty(Action::SkipNotConnector);
+            return Ok(empty(Action::SkipNotConnector));
         }
     };
 
     if !matches!(spec.endpoint, MaterializationEndpoint::Connector(_)) {
-        return empty(Action::SkipNotConnector);
+        return Ok(empty(Action::SkipNotConnector));
     }
     if spec.target_naming.is_some() {
-        return empty(Action::SkipAlreadySet);
-    }
-    if spec.shards.disable && row.built_spec.is_none() {
-        return empty(Action::SkipDisabledNoBuiltSpec);
+        return Ok(empty(Action::SkipAlreadySet));
     }
 
     let connector_image = row.connector_image_name.as_deref().unwrap_or("");
@@ -255,7 +278,7 @@ fn analyze_materialization(
 
     // No x-schema-name pointer means the connector doesn't support schemas.
     if schema_ptr.is_none() {
-        return empty(Action::SkipNoSchemaSupport);
+        return Ok(empty(Action::SkipNoSchemaSupport));
     }
 
     // If the connector supports x-schema-name but isn't in our info map, we
@@ -264,8 +287,16 @@ fn analyze_materialization(
     // index for connectors where x-schema-name lives past position 0.
     let ci = match connector_info(connector_image) {
         Some(ci) => ci,
-        None => return empty(Action::SkipUnknownConnector),
+        None => return Ok(empty(Action::SkipUnknownConnector)),
     };
+
+    // Fetched on demand, only for rows that survive the cheap checks above:
+    // built specs are too large to fetch in the 50-row pages.
+    let built_spec = fetch_built_spec(client, &row.catalog_name).await?;
+
+    if spec.shards.disable && built_spec.is_none() {
+        return Ok(empty(Action::SkipDisabledNoBuiltSpec));
+    }
     // `legacy_naming` is Some only when the user explicitly set
     // `source.targetNaming`. A bare-string source or an object source
     // without `targetNaming` carries no customer intent, so we treat it
@@ -297,7 +328,7 @@ fn analyze_materialization(
     let schema_idx = ci.schema_path_index;
 
     let detected_schema = if endpoint_schema.is_none() {
-        row.built_spec
+        built_spec
             .as_ref()
             .and_then(|bs| detect_schema_from_paths(bs, schema_idx))
     } else {
@@ -333,7 +364,7 @@ fn analyze_materialization(
 
     let mut binding_analyses = analyze_bindings(
         &spec,
-        row.built_spec.as_ref(),
+        built_spec.as_ref(),
         proposed_target_naming.as_ref(),
         schema_ptr,
         schema_idx,
@@ -341,6 +372,64 @@ fn analyze_materialization(
         effective_endpoint_schema,
         legacy_naming.is_some(),
     );
+
+    // When the customer expressed no intent (no source.targetNaming) and every
+    // enabled binding that already has x-schema-name agrees on a single value,
+    // with at least one disagreeing with what MatchSourceStructure would derive,
+    // the bindings themselves are the best evidence of intent: the user put
+    // everything in one schema. Propose SingleSchema with that value so future
+    // bindings land where the existing tables live, rather than in
+    // collection-derived schemas. Existing x-schema-name values are preserved
+    // either way; this only changes the stored strategy and the defaults for
+    // future bindings.
+    let mut binding_schema_consensus: Option<String> = None;
+    if legacy_naming.is_none()
+        && matches!(
+            proposed_target_naming,
+            Some(TargetNamingStrategy::MatchSourceStructure { .. })
+        )
+    {
+        let set_schemas: Vec<&str> = binding_analyses
+            .iter()
+            .filter(|b| !b.is_disabled)
+            .filter_map(|b| b.current_schema.as_deref())
+            .collect();
+        let unanimous: Option<String> = match set_schemas.split_first() {
+            Some((first, rest)) if rest.iter().all(|s| s == first) => Some(first.to_string()),
+            _ => None,
+        };
+        let disagrees_with_strategy = binding_analyses
+            .iter()
+            .any(|b| !b.is_disabled && b.schema_mismatch_warning.is_some());
+
+        if let (Some(schema), true) = (unanimous, disagrees_with_strategy) {
+            let alt = TargetNamingStrategy::SingleSchema {
+                schema: schema.clone(),
+                table_template: None,
+            };
+            let alt_bindings = analyze_bindings(
+                &spec,
+                built_spec.as_ref(),
+                Some(&alt),
+                schema_ptr,
+                schema_idx,
+                compat_paths,
+                effective_endpoint_schema,
+                false,
+            );
+            // Only adopt the consensus strategy if filling the consensus value
+            // into bindings that are missing x-schema-name wouldn't move them
+            // to a different schema than their resource path shows.
+            if alt_bindings
+                .iter()
+                .all(|b| !b.would_change_schema || b.is_disabled)
+            {
+                binding_schema_consensus = Some(schema);
+                proposed_target_naming = Some(alt);
+                binding_analyses = alt_bindings;
+            }
+        }
+    }
 
     // Escalate to MANUAL if filling in x-schema-name on any binding would
     // change the schema from what the connector actually resolved in the
@@ -365,7 +454,7 @@ fn analyze_materialization(
             };
             let alt_bindings = analyze_bindings(
                 &spec,
-                row.built_spec.as_ref(),
+                built_spec.as_ref(),
                 Some(&alt),
                 schema_ptr,
                 schema_idx,
@@ -407,7 +496,7 @@ fn analyze_materialization(
         };
     }
 
-    MaterializationAnalysis {
+    Ok(MaterializationAnalysis {
         catalog_name: row.catalog_name.clone(),
         connector_image: row.connector_image_name.clone(),
         last_pub_id: row.last_pub_id,
@@ -415,10 +504,11 @@ fn analyze_materialization(
         legacy_naming,
         endpoint_schema,
         detected_schema,
+        binding_schema_consensus,
         proposed_target_naming,
         action,
         binding_analyses,
-    }
+    })
 }
 
 /// Map legacy source.targetNaming to a TargetNamingStrategy.
@@ -459,6 +549,31 @@ fn propose_target_naming(
             })
         }
     }
+}
+
+/// Fetch a single materialization's built spec on demand. Built specs are
+/// large (full projections and inferred schemas per binding), and fetching
+/// them in the 50-row pages of `fetch_materializations` produced responses
+/// big enough that the proxy truncated them mid-body for some tenants.
+async fn fetch_built_spec(
+    client: &crate::Client,
+    catalog_name: &str,
+) -> anyhow::Result<Option<MaterializationSpec>> {
+    #[derive(serde::Deserialize)]
+    struct Row {
+        built_spec: Option<MaterializationSpec>,
+    }
+    let row: Row = crate::api_exec(
+        client
+            .from("live_specs_ext")
+            .select("built_spec")
+            .eq("spec_type", "materialization")
+            .eq("catalog_name", catalog_name)
+            .single(),
+    )
+    .await
+    .with_context(|| format!("fetching built spec for {catalog_name}"))?;
+    Ok(row.built_spec)
 }
 
 async fn fetch_materializations(
@@ -507,7 +622,7 @@ async fn fetch_materializations(
             async move {
                 let mut builder = client
                     .from("live_specs_ext")
-                    .select("catalog_name,last_pub_id,spec,built_spec,connector_image_name,connector_image_tag")
+                    .select("catalog_name,last_pub_id,spec,connector_image_name,connector_image_tag")
                     .eq("spec_type", "materialization")
                     .not("is", "spec", "null")
                     .range(offset, offset + page_size - 1);
@@ -934,7 +1049,7 @@ async fn execute_migration(
         let row: LiveSpecRow = match crate::api_exec(
             ctx.client
                 .from("live_specs_ext")
-                .select("catalog_name,last_pub_id,spec,built_spec,connector_image_name,connector_image_tag")
+                .select("catalog_name,last_pub_id,spec,connector_image_name,connector_image_tag")
                 .eq("spec_type", "materialization")
                 .eq("catalog_name", &a.catalog_name)
                 .single(),
@@ -962,7 +1077,7 @@ async fn execute_migration(
                 continue;
             }
         };
-        let spec: MaterializationDef = match serde_json::from_value(spec_raw.clone()) {
+        let spec: MaterializationDef = match serde_json::from_str(spec_raw.get()) {
             Ok(s) => s,
             Err(e) => {
                 println!(
@@ -1063,53 +1178,58 @@ async fn execute_migration(
     Ok(())
 }
 
-/// Build the modified spec JSON for a materialization.
+/// Build the modified spec for a materialization.
 ///
 /// Sets `targetNaming` and fills in x-schema-name on bindings that need it.
+///
+/// Works on the typed model rather than a `serde_json::Value` tree so that
+/// untouched `RawValue` subtrees, notably the sops-encrypted endpoint config,
+/// are re-emitted byte-for-byte. Round-tripping a sops document through
+/// `Value` re-sorts its object keys, which changes the computed MAC and
+/// makes the agent's decryption fail at build time. Only the binding
+/// resource configs we actually modify get re-rendered (they aren't
+/// sops-encrypted).
 fn build_modified_spec(
     a: &MaterializationAnalysis,
     original_spec: &MaterializationDef,
     schema_ptr: Option<&str>,
-) -> anyhow::Result<Value> {
-    let mut spec: Value =
-        serde_json::to_value(original_spec).context("serializing spec to JSON")?;
+) -> anyhow::Result<models::RawValue> {
+    let mut spec = original_spec.clone();
 
-    // Set targetNaming.
-    let strategy = a
-        .proposed_target_naming
-        .as_ref()
-        .context("analysis has no proposed targetNaming")?;
-    spec["targetNaming"] = serde_json::to_value(strategy).context("serializing targetNaming")?;
-
-    // Update bindings.
-    let bindings = spec
-        .get_mut("bindings")
-        .and_then(|v| v.as_array_mut())
-        .context("spec missing bindings array")?;
+    spec.target_naming = Some(
+        a.proposed_target_naming
+            .clone()
+            .context("analysis has no proposed targetNaming")?,
+    );
 
     for ba in &a.binding_analyses {
-        let binding = bindings
+        // Fill in x-schema-name on bindings that need it.
+        let (Some(proposed), Some(ptr)) = (&ba.proposed_schema, schema_ptr) else {
+            continue;
+        };
+        let binding = spec
+            .bindings
             .get_mut(ba.index)
             .with_context(|| format!("binding index {} out of range", ba.index))?;
 
-        // Fill in x-schema-name on bindings that need it.
-        if let (Some(proposed), Some(ptr)) = (&ba.proposed_schema, schema_ptr) {
-            let resource = binding
-                .get_mut("resource")
-                .context("binding missing resource")?;
+        let mut resource: Value = serde_json::from_str(binding.resource.get())
+            .context("parsing binding resource config")?;
 
-            if let Some(target) = resource.pointer_mut(ptr) {
-                *target = Value::String(proposed.clone());
-            } else {
-                // Field doesn't exist yet; create it. For single-segment pointers
-                // like "/schema" this is equivalent to resource["schema"] = ...
-                let field = ptr.strip_prefix('/').unwrap_or(ptr);
-                resource[field] = Value::String(proposed.clone());
-            }
+        if let Some(target) = resource.pointer_mut(ptr) {
+            *target = Value::String(proposed.clone());
+        } else {
+            // Field doesn't exist yet; create it. For single-segment pointers
+            // like "/schema" this is equivalent to resource["schema"] = ...
+            let field = ptr.strip_prefix('/').unwrap_or(ptr);
+            resource[field] = Value::String(proposed.clone());
         }
+        binding.resource = models::RawValue::from_value(&resource);
     }
 
-    Ok(spec)
+    models::RawValue::from_string(
+        serde_json::to_string(&spec).context("serializing modified spec")?,
+    )
+    .context("modified spec is not valid JSON")
 }
 
 /// Publish a single materialization spec change through the draft/publish cycle.
@@ -1117,7 +1237,7 @@ async fn publish_one(
     ctx: &mut crate::CliContext,
     catalog_name: &str,
     expect_pub_id: models::Id,
-    spec: &Value,
+    spec: &models::RawValue,
     detail: &str,
 ) -> anyhow::Result<()> {
     // Create a draft.
@@ -1129,7 +1249,7 @@ async fn publish_one(
         draft_id: models::Id,
         catalog_name: &'a str,
         spec_type: &'static str,
-        spec: &'a Value,
+        spec: &'a models::RawValue,
         expect_pub_id: models::Id,
     }
 
@@ -1469,7 +1589,9 @@ fn format_reasoning(a: &MaterializationAnalysis) -> String {
 
     // MatchSourceStructure derives schema from collection names, so the
     // endpoint/detected schema is irrelevant to the strategy.
-    let schema_source = if is_match_source {
+    let schema_source = if let Some(val) = &a.binding_schema_consensus {
+        format!("; schema \"{val}\" from unanimous x-schema-name on existing bindings")
+    } else if is_match_source {
         String::new()
     } else {
         match (&a.endpoint_schema, &a.detected_schema) {
