@@ -8,6 +8,11 @@ pub enum TokenRequest {
         refresh_token_id: models::Id,
         secret: String,
     },
+    #[serde(rename = "api_key")]
+    ApiKey {
+        // The full `flow_sa_...` service-account API key.
+        api_key: String,
+    },
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
@@ -34,7 +39,59 @@ pub async fn handle_post_token(
             refresh_token_id,
             secret,
         } => exchange_refresh_token(&app, refresh_token_id, &secret).await,
+        TokenRequest::ApiKey { api_key } => exchange_api_key(&app, &api_key).await,
     }
+}
+
+// Lifetime of an access token minted by exchanging an API key. Matches the
+// refresh-token exchange (SQL `generate_access_token`), so both grant types
+// yield equivalent access tokens.
+const ACCESS_TOKEN_TTL: chrono::Duration = chrono::Duration::hours(1);
+
+// Exchange a service-account API key for an access token.
+//
+// An API key can already be presented directly as an `Authorization: Bearer`
+// credential, verified statefully against the database on every request. This
+// exchange path is a convenience for clients that prefer the standard OAuth
+// shape: present the long-lived key once, then carry a signed access token.
+//
+// No refresh token is returned: the API key itself is the durable credential,
+// and the client simply re-exchanges it when the access token expires.
+async fn exchange_api_key(
+    app: &crate::App,
+    api_key: &str,
+) -> Result<axum::Json<TokenResponse>, crate::ApiError> {
+    // `verify_api_key` dispatches on this prefix via `expect`; reject a
+    // non-key here so a malformed request is a 400 rather than a panic.
+    if !api_key.starts_with("flow_sa_") {
+        return Err(crate::ApiError::Status(tonic::Status::invalid_argument(
+            "api_key must be a flow_sa_ service-account key",
+        )));
+    }
+
+    // The same stateful verification the bearer path performs, including the
+    // last_used_at stamp — but here we mint a signed token for the verified
+    // identity rather than asserting request-scoped claims. The DB check, not
+    // the signature, is the source of trust; signing just lets the client
+    // reuse the result without a per-request round-trip.
+    let user_id = crate::server::verify_api_key(&app.pg_pool, api_key).await?;
+
+    let now = tokens::now();
+    let claims = crate::ControlClaims {
+        iat: now.timestamp() as u64,
+        exp: (now + ACCESS_TOKEN_TTL).timestamp() as u64,
+        sub: user_id,
+        role: "authenticated".to_string(),
+        aud: "authenticated".to_string(),
+        email: None,
+    };
+
+    let access_token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)?;
+
+    Ok(axum::Json(TokenResponse {
+        access_token,
+        refresh_token: None,
+    }))
 }
 
 // Exchange a refresh token for an access token.

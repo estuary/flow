@@ -431,10 +431,8 @@ impl ServiceAccountsMutation {
     /// Returns the key_id and the plaintext secret (flow_sa_...).
     /// The secret is returned exactly once and cannot be retrieved again.
     ///
-    /// The key is presented directly as an `Authorization: Bearer` credential.
-    /// It is verified statefully against the database on every request and is
-    /// never exchanged for an access token, so revoking it cuts off access
-    /// immediately.
+    /// The API key can be exchanged for an 1-hr access token via `POST /api/v1/auth/token`
+    /// or used directly as an `Authorization: Bearer` credential
     async fn create_api_key(
         &self,
         ctx: &Context<'_>,
@@ -506,14 +504,8 @@ impl ServiceAccountsMutation {
             SELECT
                 nk.id,
                 $1,
-                -- SHA-256 rather than bcrypt: API keys are only ever
-                -- verified statefully -- every bearer presentation re-checks
-                -- this hash, and a key is never exchanged for a signed JWT --
-                -- placing verification squarely in the per-request hot path,
-                -- where a fast hash matters. A slow hash would buy nothing
-                -- anyway: the secret is high-entropy random, and offline
-                -- brute-force resistance only matters for low-entropy
-                -- passwords. This matches how GitHub stores PATs.
+                -- SHA-256 rather than bcrypt: the secret is high-entropy random,
+                -- so bcrypt isn't necessary here.
                 -- Refresh-token secrets will migrate to the same scheme once
                 -- the legacy postgREST token functions are retired.
                 encode(digest(nk.secret, 'sha256'), 'hex'),
@@ -561,11 +553,6 @@ impl ServiceAccountsMutation {
     /// inert (excluded from bearer authentication and listings) while
     /// preserving the audit trail. Already-revoked keys are treated as not
     /// found.
-    ///
-    /// Revocation is immediate: keys are verified statefully on every request
-    /// and never exchanged for access tokens, so there are no outstanding
-    /// minted credentials to wait out. The next request presenting this key
-    /// fails authentication.
     async fn revoke_api_key(
         &self,
         ctx: &Context<'_>,
@@ -608,52 +595,6 @@ impl ServiceAccountsMutation {
         );
 
         Ok(true)
-    }
-
-    /// Revoke ALL of a service account's API keys.
-    ///
-    /// The caller must manage the service account (admin capability on its
-    /// catalog name).
-    ///
-    /// This is the kill switch for a compromised or retired account: API keys
-    /// are its only means of authentication and are verified statefully on
-    /// every request, so revoking them all cuts off access immediately — the
-    /// account's next request fails authentication. Its user_grants are
-    /// untouched and may be cleaned up separately via
-    /// removeServiceAccountGrant.
-    ///
-    /// Idempotent: returns the number of keys revoked, zero if none remained.
-    async fn revoke_api_keys(
-        &self,
-        ctx: &Context<'_>,
-        #[graphql(name = "serviceAccountId")] user_id: uuid::Uuid,
-    ) -> async_graphql::Result<i32> {
-        let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
-
-        let catalog_name = lookup_service_account(&env.pg_pool, user_id).await?;
-        super::verify_authorization(env, &catalog_name, models::Capability::Admin).await?;
-
-        let revoked = sqlx::query!(
-            r#"
-            UPDATE internal.api_keys
-            SET revoked_at = now()
-            WHERE service_account_id = $1 AND revoked_at IS NULL
-            "#,
-            user_id,
-        )
-        .execute(&env.pg_pool)
-        .await?;
-
-        tracing::info!(
-            %user_id,
-            %catalog_name,
-            revoked = revoked.rows_affected(),
-            %claims.sub,
-            "revoked all service account api keys"
-        );
-
-        Ok(revoked.rows_affected() as i32)
     }
 }
 
@@ -966,6 +907,66 @@ mod test {
             "bearer-authenticated request should succeed: {via_bearer}"
         );
 
+        // === The API key can also be exchanged for an access token ===
+        // POST /api/v1/auth/token with an `api_key` grant statefully verifies
+        // the key and returns a signed JWT (no refresh token — the key is the
+        // durable credential). The minted token then authenticates a request
+        // by its signature, resolving to the same service-account identity.
+        let exchanged = server
+            .rest_client()
+            .post(
+                "/api/v1/auth/token",
+                &serde_json::json!({ "grant_type": "api_key", "api_key": secret }),
+                None,
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            exchanged.status(),
+            reqwest::StatusCode::OK,
+            "api_key exchange should succeed"
+        );
+        let exchanged: serde_json::Value = exchanged.json().await.unwrap();
+        let access_token = exchanged["access_token"]
+            .as_str()
+            .expect("exchange returns an access_token");
+        assert!(
+            exchanged["refresh_token"].is_null(),
+            "api_key exchange returns no refresh token: {exchanged}"
+        );
+
+        // The exchanged token is valid for one hour — the exchange window, not
+        // the 5-minute expiry the bearer path stamps on its claims.
+        use base64::Engine;
+        let payload = access_token.split('.').nth(1).expect("jwt has a payload");
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload)
+            .expect("jwt payload is base64url");
+        let payload: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        let (iat, exp) = (
+            payload["iat"].as_u64().unwrap(),
+            payload["exp"].as_u64().unwrap(),
+        );
+        assert_eq!(
+            exp - iat,
+            3600,
+            "exchanged token should be valid for one hour: {payload}"
+        );
+
+        let via_jwt: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"query { refreshTokens { edges { node { id } } } }"#
+                }),
+                Some(access_token),
+            )
+            .await;
+        assert!(
+            via_jwt["data"]["refreshTokens"]["edges"].is_array(),
+            "exchanged access token should authenticate: {via_jwt}"
+        );
+
         // === List service accounts ===
         let list: serde_json::Value = server
             .graphql(
@@ -1117,6 +1118,24 @@ mod test {
         assert!(
             body.contains("invalid, expired, or revoked api key"),
             "revoked key rejection body: {body}"
+        );
+
+        // Exchange routes through the same stateful verification, so a revoked
+        // key can't be traded for an access token either.
+        let exchange_revoked = server
+            .rest_client()
+            .post(
+                "/api/v1/auth/token",
+                &serde_json::json!({ "grant_type": "api_key", "api_key": secret }),
+                None,
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            exchange_revoked.status(),
+            reqwest::StatusCode::UNAUTHORIZED,
+            "revoked key must not be exchangeable for an access token"
         );
 
         // The revoked key is excluded from listings, even though its row remains.
@@ -1272,114 +1291,5 @@ mod test {
             )
             .await;
         assert!(remove_unmanaged["errors"].is_array());
-
-        // === Bulk key revocation is the kill switch ===
-        // Mint a fresh key (the first was revoked above) and prove it works.
-        let create_key2: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"
-                    mutation($userId: UUID!, $label: String!, $validFor: String!) {
-                        createApiKey(serviceAccountId: $userId, label: $label, validFor: $validFor) {
-                            id
-                            secret
-                        }
-                    }"#,
-                    "variables": {
-                        "userId": sa_user_id,
-                        "label": "temp key",
-                        "validFor": "P30D"
-                    }
-                }),
-                Some(&alice_token),
-            )
-            .await;
-        let secret2 = create_key2["data"]["createApiKey"]["secret"]
-            .as_str()
-            .unwrap();
-
-        let live: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"query { refreshTokens { edges { node { id } } } }"#
-                }),
-                Some(secret2),
-            )
-            .await;
-        assert!(
-            live["data"]["refreshTokens"]["edges"].is_array(),
-            "fresh key should authenticate: {live}"
-        );
-
-        // Bob cannot bulk-revoke keys of an account he doesn't manage.
-        let bulk_unmanaged: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"
-                    mutation($userId: UUID!) {
-                        revokeApiKeys(serviceAccountId: $userId)
-                    }"#,
-                    "variables": { "userId": sa_user_id }
-                }),
-                Some(&bob_token),
-            )
-            .await;
-        assert!(bulk_unmanaged["errors"].is_array());
-
-        // Revoking every key disables the account: keys are its only means
-        // of authentication, and they're re-verified on every request, so the
-        // cutoff is immediate.
-        let bulk: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"
-                    mutation($userId: UUID!) {
-                        revokeApiKeys(serviceAccountId: $userId)
-                    }"#,
-                    "variables": { "userId": sa_user_id }
-                }),
-                Some(&alice_token),
-            )
-            .await;
-        assert!(
-            bulk["errors"].is_null(),
-            "bulk revoke should succeed: {bulk}"
-        );
-        assert_eq!(
-            bulk["data"]["revokeApiKeys"].as_i64(),
-            Some(1),
-            "the one live key is revoked: {bulk}"
-        );
-
-        let rejected = server
-            .rest_client()
-            .post(
-                "/api/graphql",
-                &serde_json::json!({ "query": "query { refreshTokens { edges { node { id } } } }" }),
-                Some(secret2),
-            )
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(rejected.status(), reqwest::StatusCode::UNAUTHORIZED);
-
-        // Revoking again is an idempotent no-op reporting zero keys revoked.
-        let bulk_again: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"
-                    mutation($userId: UUID!) {
-                        revokeApiKeys(serviceAccountId: $userId)
-                    }"#,
-                    "variables": { "userId": sa_user_id }
-                }),
-                Some(&alice_token),
-            )
-            .await;
-        assert_eq!(
-            bulk_again["data"]["revokeApiKeys"].as_i64(),
-            Some(0),
-            "repeat bulk revoke is a no-op: {bulk_again}"
-        );
     }
 }

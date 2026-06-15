@@ -281,20 +281,21 @@ pub async fn exchange_refresh_token(
     Ok(access_token)
 }
 
-/// Authenticate a service-account API key presented as a bearer credential,
-/// returning the claims it proves.
+/// Statefully verify a service-account API key against the database, returning
+/// the verified service account's `user_id`.
 ///
-/// API keys are evaluated *statefully only*: every presentation is verified
-/// against the database, and a key is never exchanged for a signed JWT. This
-/// is what makes key revocation immediate — there are no outstanding minted
-/// tokens to wait out — and it's why key secrets are hashed with SHA-256
-/// rather than bcrypt: the secret is high-entropy random (so a slow hash adds
-/// no brute-force protection) and this verification is in the per-request hot
-/// path, where a fast hash matters.
-pub async fn authenticate_api_key(
-    pg_pool: &sqlx::PgPool,
-    api_key: &str,
-) -> tonic::Result<tokens::Verified<crate::ControlClaims>> {
+/// This is the sole check of an API key's validity — secret hash, expiry, and
+/// revocation — and it stamps `last_used_at` on both the key and its service
+/// account in the same round-trip. Both the bearer path
+/// (`authenticate_api_key`) and the token-exchange endpoint
+/// (`token_exchange::exchange_api_key`) build a credential atop the verified
+/// identity; they differ only in the lifetime of what they then issue.
+///
+/// Secrets are hashed with SHA-256 rather than bcrypt: the secret is
+/// high-entropy random (so a slow hash adds no brute-force protection) and
+/// this verification sits in the per-request hot path, where a fast hash
+/// matters.
+pub async fn verify_api_key(pg_pool: &sqlx::PgPool, api_key: &str) -> tonic::Result<uuid::Uuid> {
     let raw = api_key
         .strip_prefix("flow_sa_")
         .expect("caller dispatches on the flow_sa_ prefix");
@@ -341,16 +342,24 @@ pub async fn authenticate_api_key(
     .map_err(|err| tonic::Status::internal(format!("failed to authenticate api key: {err}")))?
     .ok_or_else(|| tonic::Status::unauthenticated("invalid, expired, or revoked api key"))?;
 
-    // As with refresh-token bearer authentication: verification re-runs on
-    // every presentation, making revocation near-immediate, and the small
-    // expiry only bounds any future caching of this authentication.
+    Ok(row.user_id)
+}
+
+/// Authenticate a service-account API key presented as a bearer credential,
+/// returning the claims it proves.
+pub async fn authenticate_api_key(
+    pg_pool: &sqlx::PgPool,
+    api_key: &str,
+) -> tonic::Result<tokens::Verified<crate::ControlClaims>> {
+    let user_id = verify_api_key(pg_pool, api_key).await?;
+
     let now = tokens::now();
     let exp = now + chrono::Duration::minutes(5);
 
     let claims = crate::ControlClaims {
         iat: now.timestamp() as u64,
         exp: exp.timestamp() as u64,
-        sub: row.user_id,
+        sub: user_id,
         role: "authenticated".to_string(),
         aud: "authenticated".to_string(),
         email: None,
