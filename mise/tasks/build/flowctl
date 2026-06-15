@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+#MISE description="Build the Rust flowctl CLI for local use (debug)"
+
+# flowctl links RocksDB (via the `runtime`/`build` crates, which let it run
+# derivations and catalog tests locally), so RocksDB headers and a static lib
+# must be available before the crate can build.
+
+if [ "$(uname -s)" = "Darwin" ]; then
+    # macOS host: the shared `mold` linker and the from-source build:rocksdb
+    # task (apt + GNU `strip --strip-unneeded`) are Linux-only. Instead link
+    # against Homebrew's clang-compatible RocksDB; Snappy already resolves to
+    # Homebrew via the macOS branch of SNAPPY_LIB_DIR in mise.toml.
+    ROCKSDB_PREFIX="$(brew --prefix rocksdb 2>/dev/null || true)"
+    if [ -z "${ROCKSDB_PREFIX}" ] || [ ! -f "${ROCKSDB_PREFIX}/include/rocksdb/c.h" ]; then
+        echo "RocksDB not found. Install it with: brew install rocksdb snappy" >&2
+        exit 1
+    fi
+    export RUSTFLAGS="-D warnings"
+    export ROCKSDB_INCLUDE_DIR="${ROCKSDB_PREFIX}/include"
+    export ROCKSDB_LIB_DIR="${ROCKSDB_PREFIX}/lib"
+else
+    # linux/lima: build the pinned RocksDB static library if it's not already
+    # present (no-op when it is), then build with the shared mold-linked env.
+    mise run build:rocksdb
+fi
+
+cargo build -p flowctl
+
+echo "Built flowctl at ${CARGO_TARGET_DIR}/debug/flowctl"
