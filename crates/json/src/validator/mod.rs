@@ -38,6 +38,8 @@ pub enum Outcome<'s, A: Annotation> {
     RecursionDepthExceeded,
     ReferenceNotFound(&'s schema::PackedStr),
     TypeNotMet(schema::types::Set),
+    XStrMaximumExceeded,
+    XStrMinimumNotMet,
 }
 
 /// ScopedOutcome is an Outcome with its tape index and schema URI.

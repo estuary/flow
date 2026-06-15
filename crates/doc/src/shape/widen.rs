@@ -25,6 +25,15 @@ impl StringShape {
             self.max_length = Some(max);
             self.min_length = min;
 
+            if is_numeric_format(&self.format) {
+                // Seed numeric-string bounds for new `format: integer`/`number`
+                if let Ok(num) = val.parse::<bigdecimal::BigDecimal>() {
+                    let (min, max) = str_number_bounds(&num);
+                    self.str_minimum = min;
+                    self.str_maximum = max;
+                }
+            }
+
             return true;
         }
 
@@ -41,6 +50,38 @@ impl StringShape {
             _ => {
                 self.format = None;
                 changed = true;
+            }
+        }
+
+        // Maintain numeric-string bounds in lock-step with `format`.
+        if !is_numeric_format(&self.format) {
+            // The location is no longer a numeric string; its bounds are moot.
+            if self.str_minimum.is_some() || self.str_maximum.is_some() {
+                self.str_minimum = None;
+                self.str_maximum = None;
+                changed = true;
+            }
+        } else if self.str_minimum.is_some() || self.str_maximum.is_some() {
+            // Widen existing bounds to fit `val` (but never add new bounds to an
+            // established location which doesn't already have them).
+            match val.parse::<bigdecimal::BigDecimal>() {
+                Ok(num) => {
+                    if self.str_minimum.as_deref().is_some_and(|min| num < *min) {
+                        self.str_minimum = str_number_bounds(&num).0;
+                        changed = true;
+                    }
+                    if self.str_maximum.as_deref().is_some_and(|max| num > *max) {
+                        self.str_maximum = str_number_bounds(&num).1;
+                        changed = true;
+                    }
+                }
+                Err(_) => {
+                    // A non-finite value (NaN/Infinity — anything else would have
+                    // dropped the numeric format above) fits within no range
+                    self.str_minimum = None;
+                    self.str_maximum = None;
+                    changed = true;
+                }
             }
         }
 
@@ -431,6 +472,11 @@ fn length_bounds(l: usize) -> (u32, u32) {
     }
 }
 
+#[inline(always)]
+fn is_numeric_format(format: &Option<Format>) -> bool {
+    matches!(format, Some(Format::Integer) | Some(Format::Number))
+}
+
 // Compute a lower and upper order-of-magnitude bound for the given number,
 // respecting the i64 limits.
 #[cold]
@@ -487,6 +533,64 @@ fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
             };
             let upper = 10u64.checked_pow(e + 1).unwrap_or(u64::MAX).min(ceil);
             (Number::PosInt(10u64.pow(e)), Number::PosInt(upper))
+        }
+    }
+}
+
+// The arbitrary-precision analog of `number_bounds` for `format: integer`/
+// `number` strings: a lower and upper order-of-magnitude bound bracketing `num`,
+// clamped to the i64/u64 limits exactly as `number_bounds` clamps to them
+#[cold]
+fn str_number_bounds(
+    num: &bigdecimal::BigDecimal,
+) -> (
+    Option<Box<bigdecimal::BigDecimal>>,
+    Option<Box<bigdecimal::BigDecimal>>,
+) {
+    use bigdecimal::num_bigint::{BigInt, Sign};
+
+    // Don't bound past this exponent for sanity.
+    const MAX_STR_BOUND_EXP: i64 = 40;
+
+    // floor(log10(|num|)): mantissa digit count, less one, less the fractional
+    // digits. Saturating so a pathological scale (e.g. "1e9999999999") can't
+    // overflow the subtraction.
+    let e = (num.digits() as i64)
+        .saturating_sub(1)
+        .saturating_sub(num.fractional_digit_count());
+
+    let dec = |n: BigInt| Some(Box::new(bigdecimal::BigDecimal::from(n)));
+    let pow10 = |k: i64| BigInt::from(10).pow(k as u32);
+
+    match num.sign() {
+        Sign::NoSign => (dec(BigInt::from(0)), dec(BigInt::from(0))),
+        // Sub-unit magnitude brackets with [0, 1] (or [-1, 0]), like number_bounds.
+        Sign::Plus if e < 0 => (dec(BigInt::from(0)), dec(BigInt::from(1))),
+        Sign::Minus if e < 0 => (dec(BigInt::from(-1)), dec(BigInt::from(0))),
+        // Too large to represent a bound on either side.
+        _ if e > MAX_STR_BOUND_EXP => (None, None),
+        Sign::Plus => {
+            // Clamp the upper power of ten down to the tightest integer edge that
+            // still contains `num`, mirroring number_bounds.
+            let upper = pow10(e + 1);
+            let upper = if *num <= bigdecimal::BigDecimal::from(i64::MAX) {
+                upper.min(BigInt::from(i64::MAX))
+            } else if *num <= bigdecimal::BigDecimal::from(u64::MAX) {
+                upper.min(BigInt::from(u64::MAX))
+            } else {
+                upper
+            };
+            (dec(pow10(e)), dec(upper))
+        }
+        Sign::Minus => {
+            // Mirror, clamping the lower bound up to i64::MIN.
+            let lower = -pow10(e + 1);
+            let lower = if *num >= bigdecimal::BigDecimal::from(i64::MIN) {
+                lower.max(BigInt::from(i64::MIN))
+            } else {
+                lower
+            };
+            (dec(lower), dec(-pow10(e)))
         }
     }
 }
@@ -674,6 +778,8 @@ mod test {
             format: integer
             maxLength: 1
             minLength: 0
+            x-str-minimum: "1"
+            x-str-maximum: "10"
             "#,
             &[(true, json!("5"))],
         );
@@ -730,6 +836,139 @@ mod test {
             minLength: 1
             "#,
             &[(false, json!("5"))],
+        );
+    }
+
+    #[test]
+    fn test_widening_str_numeric_bounds() {
+        // A new `format: integer` location is seeded with order-of-magnitude
+        // x-str bounds, which then widen (only) as larger-magnitude values arrive.
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: string
+            format: integer
+            minLength: 0
+            maxLength: 1
+            x-str-minimum: "1"
+            x-str-maximum: "10"
+            "#,
+            &[(true, json!("5"))],
+        );
+
+        // Seeding from a value that is itself a landmark keeps headroom rather
+        // than collapsing to a point: "100" seeds [100, 1000], not [100, 100].
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: string
+            format: integer
+            minLength: 2
+            maxLength: 4
+            x-str-minimum: "100"
+            x-str-maximum: "1000"
+            "#,
+            &[(true, json!("100"))],
+        );
+
+        // A value beyond u64 widens the maximum without any precision loss.
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: string
+            format: integer
+            minLength: 1
+            maxLength: 2
+            x-str-minimum: "1"
+            x-str-maximum: "10"
+            "#,
+            ),
+            r#"
+            type: string
+            format: integer
+            minLength: 1
+            maxLength: 32
+            x-str-minimum: "1"
+            x-str-maximum: "100000000000000000000000"
+            "#,
+            &[(true, json!("18446744073709551616000"))],
+        );
+
+        // When the format is dropped (a non-numeric string appears), the numeric
+        // bounds are dropped along with it.
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: string
+            format: integer
+            minLength: 1
+            maxLength: 2
+            x-str-minimum: "1"
+            x-str-maximum: "10"
+            "#,
+            ),
+            r#"
+            type: string
+            minLength: 1
+            maxLength: 16
+            "#,
+            &[(true, json!("not a number"))],
+        );
+
+        // Established locations that lack bounds are never retroactively bounded:
+        // starting without x-str-* and widening adds neither.
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: string
+            format: integer
+            minLength: 1
+            maxLength: 2
+            "#,
+            ),
+            r#"
+            type: string
+            format: integer
+            minLength: 1
+            maxLength: 4
+            "#,
+            &[(false, json!("5")), (true, json!("1000"))],
+        );
+
+        // A non-finite value clears existing bounds (it fits no finite range),
+        // while the integer format widens to number.
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: string
+            format: integer
+            minLength: 1
+            maxLength: 4
+            x-str-minimum: "1000"
+            x-str-maximum: "10000"
+            "#,
+            ),
+            r#"
+            type: string
+            format: number
+            minLength: 1
+            maxLength: 4
+            "#,
+            &[(true, json!("NaN"))],
+        );
+
+        // ...and inference is order-independent: a non-finite value observed
+        // first yields the same unbounded location, since later finite values
+        // never re-add bounds.
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: string
+            format: number
+            minLength: 2
+            maxLength: 4
+            "#,
+            &[(true, json!("NaN")), (false, json!("1000"))],
         );
     }
 
@@ -1359,6 +1598,64 @@ mod test {
                 "number bounds of index {ind}: {given:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_str_number_bounds() {
+        use bigdecimal::BigDecimal;
+        use bigdecimal::num_bigint::BigInt;
+        use std::str::FromStr;
+
+        let bounds = |s: &str| {
+            let (lo, hi) = str_number_bounds(&BigDecimal::from_str(s).unwrap());
+            (lo.map(|b| b.to_string()), hi.map(|b| b.to_string()))
+        };
+        let ten = |k: u32| BigInt::from(10).pow(k).to_string();
+        let some2 = |lo: String, hi: String| (Some(lo), Some(hi));
+
+        // Mirrors `number_bounds` for representable values, including the
+        // non-collapsing landmark case and the i64/u64 edge clamps.
+        assert_eq!(bounds("0"), some2("0".into(), "0".into())); // [0, 0]
+        assert_eq!(bounds("5"), some2(ten(0), ten(1))); // [1, 10]
+        assert_eq!(bounds("100"), some2(ten(2), ten(3))); // landmark: [100, 1000], not [100, 100]
+        assert_eq!(bounds("0.5"), some2("0".into(), ten(0))); // sub-unit: [0, 1]
+        assert_eq!(
+            bounds("-100"),
+            some2(format!("-{}", ten(3)), format!("-{}", ten(2)))
+        );
+        assert_eq!(bounds("-0.5"), some2(format!("-{}", ten(0)), "0".into()));
+        assert_eq!(
+            bounds("9223372036854775807"), // i64::MAX -> [10^18, i64::MAX]
+            some2(ten(18), i64::MAX.to_string()),
+        );
+        assert_eq!(
+            bounds("18446744073709551615"), // u64::MAX -> [10^19, u64::MAX]
+            some2(ten(19), u64::MAX.to_string()),
+        );
+        assert_eq!(
+            bounds("-9223372036854775808"), // i64::MIN -> [i64::MIN, -10^18]
+            some2(i64::MIN.to_string(), format!("-{}", ten(18))),
+        );
+        // Unlike `number_bounds`, magnitudes beyond u64 round-trip exactly.
+        assert_eq!(bounds("18446744073709551616000"), some2(ten(22), ten(23)));
+
+        // The exponent cap: at the limit bounds still materialize (as short
+        // decimal strings), while one power beyond is dropped on both sides
+        // rather than serializing ever-larger runs of zeros.
+        assert_eq!(bounds("1e40"), some2(ten(40), ten(41)));
+        assert_eq!(bounds("1e41"), (None, None));
+
+        // A pathological scale (~1e(2^63)) can neither overflow the exponent math
+        // nor allocate an enormous BigInt: the value is too large to bound, so
+        // both sides are dropped.
+        assert_eq!(
+            str_number_bounds(&BigDecimal::new(BigInt::from(1), i64::MIN)),
+            (None, None)
+        );
+        assert_eq!(
+            str_number_bounds(&BigDecimal::new(BigInt::from(-1), i64::MIN)),
+            (None, None),
+        );
     }
 
     // The integer-path i64 clamp must reach the emitted JSON Schema as the exact

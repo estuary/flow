@@ -40,7 +40,9 @@ expression: json_test(msg)
                 "contentType": "typ",
                 "format": "date",
                 "contentEncoding": "enc",
-                "maxLength": 12345
+                "maxLength": 12345,
+                "strMinimum": "100",
+                "strMaximum": "18446744073709551615"
               },
               "title": "title",
               "description": "desc",

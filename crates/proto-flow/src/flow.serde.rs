@@ -3453,6 +3453,12 @@ impl serde::Serialize for inference::String {
         if self.max_length != 0 {
             len += 1;
         }
+        if !self.str_minimum.is_empty() {
+            len += 1;
+        }
+        if !self.str_maximum.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.Inference.String", len)?;
         if !self.content_type.is_empty() {
             struct_ser.serialize_field("contentType", &self.content_type)?;
@@ -3465,6 +3471,12 @@ impl serde::Serialize for inference::String {
         }
         if self.max_length != 0 {
             struct_ser.serialize_field("maxLength", &self.max_length)?;
+        }
+        if !self.str_minimum.is_empty() {
+            struct_ser.serialize_field("strMinimum", &self.str_minimum)?;
+        }
+        if !self.str_maximum.is_empty() {
+            struct_ser.serialize_field("strMaximum", &self.str_maximum)?;
         }
         struct_ser.end()
     }
@@ -3483,6 +3495,10 @@ impl<'de> serde::Deserialize<'de> for inference::String {
             "contentEncoding",
             "max_length",
             "maxLength",
+            "str_minimum",
+            "strMinimum",
+            "str_maximum",
+            "strMaximum",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3491,6 +3507,8 @@ impl<'de> serde::Deserialize<'de> for inference::String {
             Format,
             ContentEncoding,
             MaxLength,
+            StrMinimum,
+            StrMaximum,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3516,6 +3534,8 @@ impl<'de> serde::Deserialize<'de> for inference::String {
                             "format" => Ok(GeneratedField::Format),
                             "contentEncoding" | "content_encoding" => Ok(GeneratedField::ContentEncoding),
                             "maxLength" | "max_length" => Ok(GeneratedField::MaxLength),
+                            "strMinimum" | "str_minimum" => Ok(GeneratedField::StrMinimum),
+                            "strMaximum" | "str_maximum" => Ok(GeneratedField::StrMaximum),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3539,6 +3559,8 @@ impl<'de> serde::Deserialize<'de> for inference::String {
                 let mut format__ = None;
                 let mut content_encoding__ = None;
                 let mut max_length__ = None;
+                let mut str_minimum__ = None;
+                let mut str_maximum__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ContentType => {
@@ -3567,6 +3589,18 @@ impl<'de> serde::Deserialize<'de> for inference::String {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::StrMinimum => {
+                            if str_minimum__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("strMinimum"));
+                            }
+                            str_minimum__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::StrMaximum => {
+                            if str_maximum__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("strMaximum"));
+                            }
+                            str_maximum__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(inference::String {
@@ -3574,6 +3608,8 @@ impl<'de> serde::Deserialize<'de> for inference::String {
                     format: format__.unwrap_or_default(),
                     content_encoding: content_encoding__.unwrap_or_default(),
                     max_length: max_length__.unwrap_or_default(),
+                    str_minimum: str_minimum__.unwrap_or_default(),
+                    str_maximum: str_maximum__.unwrap_or_default(),
                 })
             }
         }
