@@ -103,7 +103,7 @@ struct ListAlertSubscriptions;
 
 async fn do_list(list: &List, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     let prefix = if let Some(pre) = list.prefix.clone() {
-        pre
+        crate::normalize_prefix(&pre)
     } else {
         let prefixes =
             crate::get_default_prefix_arguments(ctx, models::Capability::Read, 1).await?;
@@ -181,7 +181,7 @@ async fn do_subscribe(create: &SubscribeArgs, ctx: &mut crate::CliContext) -> an
         anyhow::anyhow!("no explicit email argument provided, and unable to determine the user email from the available authentication information. Please try logging in again, or pass an explicit email argument."))?;
 
     let prefix = if let Some(pre) = create.prefix.clone() {
-        pre
+        crate::normalize_prefix(&pre)
     } else {
         let prefix_vec =
             crate::get_default_prefix_arguments(ctx, models::Capability::Read, 1).await?;
@@ -297,7 +297,7 @@ struct DeleteSubscription;
 async fn do_unsubscribe(args: &UnsubscribeArgs, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     let email = resolve_email(&args.email, ctx)?;
     let prefix = if let Some(pre) = args.prefix.clone() {
-        pre
+        crate::normalize_prefix(&pre)
     } else {
         let prefix_vec =
             crate::get_default_prefix_arguments(ctx, models::Capability::Read, 1).await?;

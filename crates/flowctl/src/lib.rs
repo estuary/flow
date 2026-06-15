@@ -419,6 +419,23 @@ fn format_user(email: Option<String>, full_name: Option<String>, id: Option<uuid
     )
 }
 
+/// Normalizes a user-supplied catalog prefix to end with '/', which
+/// `models::Prefix` requires. Without this, a slash-less `--prefix AcmeCo` is
+/// passed verbatim to the API and rejected as an unauthorized name, producing a
+/// misleading PermissionDenied error. An empty string is the valid root prefix
+/// and is left alone; already-slashed values, including API-sourced defaults,
+/// pass through untouched, so this is a safe no-op on them.
+pub(crate) fn normalize_prefix(prefix: &str) -> String {
+    if prefix.is_empty() || prefix.ends_with('/') {
+        return prefix.to_string();
+    }
+    tracing::warn!(
+        prefix,
+        "interpreting --prefix '{prefix}' as '{prefix}/'"
+    );
+    format!("{prefix}/")
+}
+
 /// Returns a default list of prefixes to use for commands that accept an
 /// optional prefix argument. This will return all of the distinct prefixes that
 /// the user has at least `min_capability` to. If the user has access to more
@@ -524,5 +541,14 @@ mod test {
 
         let fail_result = filter_default_prefixes(roles, 2);
         assert!(fail_result.is_err());
+    }
+
+    #[test]
+    fn test_normalize_prefix() {
+        assert_eq!(normalize_prefix("AcmeCo"), "AcmeCo/");
+        assert_eq!(normalize_prefix("AcmeCo/"), "AcmeCo/");
+        assert_eq!(normalize_prefix("AcmeCo/team"), "AcmeCo/team/");
+        assert_eq!(normalize_prefix("AcmeCo/team/"), "AcmeCo/team/");
+        assert_eq!(normalize_prefix(""), "");
     }
 }
