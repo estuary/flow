@@ -53,8 +53,6 @@ collections:
   - name: example/reductions/no-dedup
     schema:
       type: object
-      # Applied at the document root, this disables incremental combining
-      # on the collection key.
       reduce:
         strategy: lastWriteWins
         associative: false
@@ -64,13 +62,19 @@ collections:
     key: [/id]
 ```
 
+`associative: false` can be set on any reduce annotation, not just the document root.
+A non-associative reduction at any location holds back incremental combining of the
+**entire** document, so the example above — annotating the root — is the simplest way
+to stop same-key documents from being combined on the collection key.
+
 To preserve **every** document for a key end-to-end (no deduplication at any stage),
 you need both `associative: false` on the collection **and** a **delta-updates**
 materialization, because reductions happen at more than one place:
 
-* **At capture time**, documents are combined with a *partial* (associative)
-  reduction before they're written to the collection. `associative: false` is what
-  stops unequal same-key documents from being merged here.
+* **At capture or derivation time**, documents sharing a key are combined with a
+  *partial* (associative) reduction within each transaction before they're written to
+  the collection. `associative: false` is what stops unequal same-key documents from
+  being merged here.
 * **A standard materialization** loads the existing destination row and performs a
   *full* reduction of new documents into it — always one row per key. The
   `associative` flag has no effect on a full reduction, so this step must be removed
