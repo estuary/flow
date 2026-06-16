@@ -1,5 +1,6 @@
 ---
 sidebar_position: 2
+description: Configure Estuary email notifications for data movement, auto-discovery, task failure, and billing alerts, with options for Slack routing and external monitoring.
 slug: /reference/notifications/
 ---
 

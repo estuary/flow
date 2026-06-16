@@ -1,9 +1,10 @@
 ---
 sidebar_position: 0
+description: Learn key Estuary concepts to build your Data Flows, including captures, collections, materializations, connectors, schemas, derivations, and catalogs.
 pagination_next: concepts/captures
 ---
 
-# Concepts
+# Core Concepts
 
 Estuary helps you define data pipelines, known as **Data Flows**, that connect multiple data systems, APIs, and storage, and optionally transform data along the way.
 Data Flows are defined by a set of **Data Flow specifications** and deployed using either the web application or the command-line interface.

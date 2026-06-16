@@ -1,5 +1,6 @@
 ---
 sidebar_position: 3
+description: Manage Estuary materializations in the dashboard. Create new materializations, edit existing ones, and view status, usage stats, specification, alerts, history, and logs.
 ---
 
 # Destinations

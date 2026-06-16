@@ -1,5 +1,6 @@
 ---
 sidebar_position: 2
+description: Use Estuary's flowctl CLI tool to edit tasks created in the dashboard. Update capture, collection, and materialization drafts and publish changes.
 ---
 import Mermaid from '@theme/Mermaid';
 

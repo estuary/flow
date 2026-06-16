@@ -1,5 +1,5 @@
 ---
-description: Using conditionals statements to fine-tune reductions
+description: Fine-tune reduction strategies with conditional statements. Use specific reduction strategies based on document shape or field values to customize behavior.
 slug: /reference/reduction-strategies/composing-with-conditionals/
 sidebar_position: 30
 ---

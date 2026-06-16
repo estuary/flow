@@ -1,3 +1,7 @@
+---
+description: Explore hands-on Estuary tutorials for practical Data Flows with sample data. Connect specific systems, like MongoDB, S3, and Snowflake, and transform data with derivations.
+---
+
 # Estuary Tutorials
 
 Estuary's tutorials are complete learning experiences that help you get to know Estuary using sample data.

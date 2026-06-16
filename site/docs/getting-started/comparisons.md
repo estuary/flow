@@ -1,6 +1,6 @@
 ---
 sidebar_position: 4
-description: High level explanations of Estuary in terms of the systems you already know
+description: High level explanations of Estuary in terms of the systems you already know. Compare Estuary with batch ELT systems, streaming solutions, Kafka, Spark, and more.
 ---
 
 # Comparisons

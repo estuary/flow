@@ -1,5 +1,6 @@
 ---
 sidebar_position: 3
+description: Access Estuary logs and stats from the dashboard or using flowctl. Debug tasks, inspect shards, and monitor bytes and docs.
 slug: /reference/working-logs-stats/
 ---
 

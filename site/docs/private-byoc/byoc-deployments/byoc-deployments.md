@@ -1,3 +1,6 @@
+---
+description: Run Estuary data infrastructure in your own cloud environment for maximum data isolation. Recommended for teams with strict compliance requirements.
+---
 
 # BYOC Deployments
 

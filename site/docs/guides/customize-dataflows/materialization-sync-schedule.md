@@ -1,4 +1,5 @@
 ---
+description: Configure Estuary materialization sync schedules to control transaction frequency, reduce destination compute costs, set time windows, and manage delays.
 slug: /reference/materialization-sync-schedule/
 ---
 

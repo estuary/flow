@@ -1,5 +1,5 @@
 ---
-description: Using the merge reduction strategy
+description: Learn about Estuary's merge reduction strategy to reduce objects or arrays. Covers merge reduction behavior, merge keys, and test examples.
 slug: /reference/reduction-strategies/merge/
 sidebar_position: 3
 ---

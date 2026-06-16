@@ -1,4 +1,5 @@
 ---
+description: Review considerations when editing Estuary Data Flows, including downstream impacts, managing connector updates, name changes, and task restarts.
 slug: /reference/editing/
 ---
 

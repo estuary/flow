@@ -1,5 +1,6 @@
 ---
 sidebar_position: 1
+description: Restrict Estuary materializations to a date range with notBefore and notAfter filters in the dashboard or Data Flow specification file.
 slug: /reference/time-travel/
 ---
 

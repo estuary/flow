@@ -1,5 +1,6 @@
 ---
 sidebar_position: 0
+description: Find step-by-step Estuary guides for creating data flows, securing connections, using flowctl, handling schema evolution, and transforming data using derivations.
 pagination_next: guides/create-dataflow
 ---
 

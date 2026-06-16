@@ -1,5 +1,6 @@
 ---
 sidebar_position: 1
+description: Understand Estuary _meta fields for operation types, source locations, and unique identification. Reference available connector-specific metadata and see guides on using _meta fields.
 ---
 
 # Document Metadata Fields

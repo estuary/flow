@@ -1,5 +1,6 @@
 ---
 sidebar_position: 6
+description: Understand Estuary’s flowctl CLI to manage data flows programmatically. Commands let you work with catalogs, specification files and drafts, logs, and preview functionality.
 ---
 import Mermaid from '@theme/Mermaid';
 

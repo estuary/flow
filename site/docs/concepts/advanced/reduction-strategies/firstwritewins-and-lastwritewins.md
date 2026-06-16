@@ -1,5 +1,5 @@
 ---
-description: Using the firstWriteWins and lastWriteWins reduction strategies
+description: Learn about Estuary's firstWriteWins and lastWriteWins reduction strategies to reduce document fields to their first or last values.
 slug: /reference/reduction-strategies/firstwritewins-and-lastwritewins/
 sidebar_position: 2
 ---

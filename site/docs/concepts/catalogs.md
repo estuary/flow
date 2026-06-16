@@ -1,6 +1,8 @@
 ---
 sidebar_position: 2
+description: Learn how Estuary catalogs organize captures, collections, materializations, derivations, schemas, and tests, using namespaces.
 ---
+
 # Catalog
 
 The **catalog** is the set of published entities that comprise all **Data Flows**: captures, materializations, derivations, collections, schemas, tests, and more.

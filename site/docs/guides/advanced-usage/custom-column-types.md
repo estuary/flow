@@ -1,5 +1,6 @@
 ---
 sidebar_position: 3
+description: Customize Estuary materialized column types with castToString or DDL field configuration for precise control and to match destination-specific data types.
 ---
 
 # Custom Column Types

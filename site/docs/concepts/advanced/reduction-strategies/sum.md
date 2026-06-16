@@ -1,5 +1,5 @@
 ---
-description: Using the sum reduction strategy
+description: Use Estuary's sum reduction strategy to reduce number fields by adding their values.
 slug: /reference/reduction-strategies/sum/
 sidebar_position: 6
 ---

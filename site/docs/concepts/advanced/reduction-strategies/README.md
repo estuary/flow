@@ -1,5 +1,5 @@
 ---
-description: Estuary's default reduction behaviors and available strategies to customize them
+description: Learn how Estuary reduction strategies combine documents with shared keys using append, merge, set, sum, minimize, maximize, and first/last-write-wins behavior.
 slug: /reference/reduction-strategies/
 ---
 

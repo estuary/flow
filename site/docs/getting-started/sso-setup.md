@@ -1,3 +1,6 @@
+---
+description: Set up Estuary SSO login on your tenant for a specific company domain. Guide includes Estuary's SAML 2.0 URLs and adding new users to your tenant.
+---
 
 # Log into Estuary Using SSO
 
