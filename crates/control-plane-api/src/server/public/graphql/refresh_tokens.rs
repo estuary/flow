@@ -236,22 +236,19 @@ mod test {
     }
 
     /// Covers the refresh-token GraphQL surface (create → list → revoke, plus
-    /// the not-found idempotency guard), the `/api/v1/auth/token`
-    /// refresh-token dispatch, and direct bearer authentication with a
-    /// refresh token via the Envelope extractor.
+    /// the `validFor` validation and not-found idempotency guards), the
+    /// `/api/v1/auth/token` refresh-token dispatch, and rejection of a refresh
+    /// token presented as a bearer credential when its secret is bad or it has
+    /// been revoked.
     ///
     /// The happy-path *exchange* — `generate_access_token` actually signing a
     /// JWT — is intentionally not exercised here: it reads `app.jwt_secret` from
     /// `vault.decrypted_secrets` and calls pgjwt's `sign()`, neither of which
     /// exists in the sqlx::test DB (only `auth`/`stripe` are polyfilled). That
-    /// signing path is covered by the pgTAP `test_generate_access_token`. We
-    /// instead assert the endpoint routes the `refresh_token` grant and rejects
-    /// a bad secret — which fails in `generate_access_token` *before* signing,
-    /// so it's deterministic without the vault/pgjwt setup.
-    ///
-    /// The *bearer* authentication path needs no signing at all — the Envelope
-    /// validates the credential against the database and constructs claims
-    /// directly — so its happy path IS exercised here.
+    /// signing path is covered by the pgTAP `test_generate_access_token`. The
+    /// assertions here all fail inside `generate_access_token` *before* signing
+    /// (bad secret, expired/revoked token, or an unknown grant), so they're
+    /// deterministic without the vault/pgjwt setup.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
@@ -343,28 +340,10 @@ mod test {
         assert_eq!(edges[0]["node"]["multiUse"], true);
         assert_eq!(edges[0]["node"]["uses"], 0);
 
-        // === The refresh token authenticates directly as a bearer credential ===
-        // The Envelope validates it against the database and constructs claims
-        // without minting (or verifying) a JWT. The listing returned by this
-        // very request proves authentication resolved to alice's identity, and
-        // shows `uses` incremented by the authentication that served it.
-        let bearer = bearer_refresh_token(&token_id, &token_secret);
-        let via_bearer: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"query { refreshTokens { edges { node { id uses } } } }"#
-                }),
-                Some(&bearer),
-            )
-            .await;
-        let edges = via_bearer["data"]["refreshTokens"]["edges"]
-            .as_array()
-            .expect("bearer-authenticated request should succeed");
-        assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0]["node"]["id"], token_id);
-        assert_eq!(edges[0]["node"]["uses"], 1);
-
-        // A bad secret is rejected at the envelope.
+        // === A bad secret presented as a bearer credential is rejected ===
+        // The Envelope exchanges a refresh-token bearer for an access token via
+        // generate_access_token; a wrong secret fails there (before signing),
+        // so the request is rejected with 401.
         let bad_bearer = bearer_refresh_token(&token_id, "not-the-real-secret");
         let rejected = server
             .rest_client()
@@ -372,40 +351,6 @@ mod test {
                 "/api/graphql",
                 &serde_json::json!({ "query": "query { refreshTokens { edges { node { id } } } }" }),
                 Some(&bad_bearer),
-            )
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(rejected.status(), reqwest::StatusCode::UNAUTHORIZED);
-
-        // A single-use token is rejected as a bearer credential: it exists for
-        // one-shot exchange via /api/v1/auth/token, and accepting it here would
-        // silently consume it.
-        let create_single: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"
-                    mutation {
-                        createRefreshToken(validFor: "P30D", multiUse: false) {
-                            id
-                            secret
-                        }
-                    }"#
-                }),
-                Some(&alice_token),
-            )
-            .await;
-        let single = &create_single["data"]["createRefreshToken"];
-        let single_bearer = bearer_refresh_token(
-            single["id"].as_str().unwrap(),
-            single["secret"].as_str().unwrap(),
-        );
-        let rejected = server
-            .rest_client()
-            .post(
-                "/api/graphql",
-                &serde_json::json!({ "query": "query { refreshTokens { edges { node { id } } } }" }),
-                Some(&single_bearer),
             )
             .send()
             .await
@@ -458,7 +403,10 @@ mod test {
         );
         assert_eq!(revoke["data"]["revokeRefreshToken"], true);
 
-        // A revoked token no longer authenticates as a bearer credential.
+        // A revoked token no longer authenticates as a bearer credential:
+        // revocation zeroes its validity window, which generate_access_token
+        // rejects as expired (before signing).
+        let bearer = bearer_refresh_token(&token_id, &token_secret);
         let rejected = server
             .rest_client()
             .post(
@@ -485,8 +433,8 @@ mod test {
                 .as_array()
                 .unwrap()
                 .len(),
-            1,
-            "only the single-use token remains"
+            0,
+            "the revoked token is the only one, so the list is now empty"
         );
 
         // Revoking again fails (not-found guard).

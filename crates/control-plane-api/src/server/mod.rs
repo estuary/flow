@@ -244,82 +244,41 @@ impl axum::response::IntoResponse for Rejection {
     }
 }
 
-/// Authenticate a refresh token presented as a bearer credential, in lieu of
-/// a signed JWT, returning the claims it proves.
-///
-/// The credential is validated directly against the database — there is no
-/// JWT minting or signature verification on this path. A signature is proof
-/// of authentication across a trust boundary, for reuse on a *later* request;
-/// here the raw credential is in hand and verified now, so claims are
-/// constructed from the verified row instead.
-///
-/// Transitional: the validation and claim shape deliberately mirror the SQL
-/// `generate_access_token` function, which still serves PostgREST callers.
-/// Once those callers migrate to /api/v1/auth/token, the SQL function is
-/// retired and this path becomes canonical; until then, changes to either
-/// must be coordinated.
-///
-/// Only multi-use tokens are accepted: a single-use token exists for one-shot
-/// exchange via /api/v1/auth/token, which rotates its secret and returns the
-/// rotation to the caller. This path has no way to return a rotated secret,
-/// so accepting one here would silently consume it.
-pub async fn authenticate_refresh_token(
+pub async fn exchange_refresh_token(
     pg_pool: &sqlx::PgPool,
     refresh_token: &str,
-) -> tonic::Result<tokens::Verified<crate::ControlClaims>> {
+) -> tonic::Result<String> {
     #[derive(Debug, serde::Deserialize)]
     struct RefreshToken {
         id: models::Id,
         secret: String,
+    }
+    #[derive(Debug, serde::Deserialize)]
+    struct GenerateTokenResponse {
+        access_token: String,
     }
 
     let bearer = tokens::jwt::parse_base64(refresh_token)?;
     let bearer: RefreshToken = serde_json::from_slice(&bearer)
         .map_err(|err| tonic::Status::invalid_argument(format!("invalid bearer token: {err}")))?;
 
-    // Validate the secret, expiry, and multi-use in one query, stamping usage
-    // exactly as the SQL `generate_access_token` function does for multi-use
-    // tokens: `updated_at` re-arms the validity window on each use.
-    let row = sqlx::query!(
-        r#"
-        UPDATE refresh_tokens
-        SET uses = uses + 1, updated_at = clock_timestamp()
-        WHERE id = $1
-          AND hash = crypt($2, hash)
-          AND multi_use
-          AND (updated_at + valid_for) > now()
-        RETURNING user_id
-        "#,
+    let response = sqlx::query!(
+        "select generate_access_token($1, $2) as token",
         bearer.id as models::Id,
         bearer.secret,
     )
-    .fetch_optional(pg_pool)
+    .fetch_one(pg_pool)
     .await
-    .map_err(|err| tonic::Status::internal(format!("failed to authenticate refresh token: {err}")))?
-    .ok_or_else(|| {
-        tonic::Status::unauthenticated("invalid, expired, or single-use refresh token")
+    .map_err(|err| {
+        tonic::Status::unauthenticated(format!("failed to exchange refresh token: {err}"))
     })?;
 
-    // Verification re-runs on every presentation, making revocation
-    // near-immediate. The expiry only bounds any future caching of this
-    // authentication, and is kept small to preserve that property.
-    let now = tokens::now();
-    let exp = now + chrono::Duration::minutes(5);
+    let GenerateTokenResponse { access_token } =
+        serde_json::from_value(response.token.unwrap_or_default()).map_err(|err| {
+            tonic::Status::internal(format!("invalid access token generated: {err}"))
+        })?;
 
-    let claims = crate::ControlClaims {
-        iat: now.timestamp() as u64,
-        exp: exp.timestamp() as u64,
-        sub: row.user_id,
-        role: "authenticated".to_string(),
-        aud: "authenticated".to_string(),
-        email: None,
-    };
-
-    // This call mints authentication itself: unlike jwt::verify, no signature
-    // is checked, and the returned proof is trusted everywhere downstream on
-    // the strength of the row lookup above. Nothing may reach this point
-    // without having verified a presented credential.
-    Ok(tokens::Verified::assert_authenticity(claims, exp))
+    Ok(access_token)
 }
 
 /// Parse a data-plane claims token without verifying its signature.

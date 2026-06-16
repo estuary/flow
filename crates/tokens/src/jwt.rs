@@ -36,11 +36,33 @@ where
     Ok(token)
 }
 
-// Re-exported for call sites that reach Verified through the jwt module.
-// Its canonical home is the crate root: it wraps verified claims regardless
-// of whether verification was a JWT signature check or a stateful credential
-// check.
-pub use crate::Verified;
+/// Verified is a type-safe wrapper around verified JWT claims.
+/// It can only be constructed by the verify() routine,
+/// which gives assurance that the claims have been verified.
+// `Clone` is required because Verified is used in tonic request
+// extensions (`http::Extensions`, whose values must be `Clone`).
+#[derive(Debug, Clone)]
+pub struct Verified<Claims>(Claims, DateTime);
+
+impl<Claims> Verified<Claims> {
+    /// Return the verified claims.
+    #[inline]
+    pub fn claims(&self) -> &Claims {
+        &self.0
+    }
+
+    /// Return the token's expiry.
+    #[inline]
+    pub fn expiry(&self) -> DateTime {
+        self.1
+    }
+
+    /// Return the remaining TimeDelta of the token.
+    #[inline]
+    pub fn valid_for(&self) -> TimeDelta {
+        self.1 - crate::now()
+    }
+}
 
 /// Verify a JWT token and return its Claims.
 /// `require_capability` is a bit-mask. If non-zero, then the `cap` claim
@@ -104,13 +126,7 @@ where
             ))
         })?;
 
-        // The JWT signature and `exp` verified against `key` just above, and the
-        // required capability is present: mint the authentication proof. This is
-        // the cryptographic counterpart to the stateful database checks in
-        // control-plane-api. Every assert_authenticity call site is one such
-        // credential-verification routine, and the Verified it returns is
-        // trusted everywhere downstream.
-        return Ok(Verified::assert_authenticity(
+        return Ok(Verified(
             claims,
             DateTime::from_timestamp_secs(skim.exp).unwrap_or_default(),
         ));

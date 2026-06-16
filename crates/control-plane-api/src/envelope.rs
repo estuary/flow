@@ -3,10 +3,10 @@ use std::sync::Arc;
 /// MaybeControlClaims wraps an optional Verified<ControlClaims> and represents
 /// the presence or absence of a verified control-plane bearer token.
 #[derive(Debug)]
-pub struct MaybeControlClaims(Option<tokens::Verified<crate::ControlClaims>>);
+pub struct MaybeControlClaims(Option<tokens::jwt::Verified<crate::ControlClaims>>);
 
 impl MaybeControlClaims {
-    pub fn with_verified(verified: tokens::Verified<crate::ControlClaims>) -> Self {
+    pub fn with_verified(verified: tokens::jwt::Verified<crate::ControlClaims>) -> Self {
         Self(Some(verified))
     }
 
@@ -234,21 +234,22 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
 
             let maybe_claims = match maybe_bearer {
                 Some(TypedHeader(auth)) => {
-                    let token = auth.token();
+                    let mut token = auth.token();
+                    let exchanged_token: Option<String>;
 
-                    // A refresh token (base64 JSON, which never contains '.')
-                    // may be presented in lieu of a signed JWT. It's verified
-                    // statefully against the database; a JWT is verified by
-                    // its signature. Both produce equally-trusted claims.
-                    let verified = if !token.contains('.') {
-                        crate::server::authenticate_refresh_token(&state.pg_pool, token).await?
-                    } else {
-                        tokens::jwt::verify::<crate::ControlClaims>(
-                            token.as_bytes(),
-                            0,
-                            &state.control_plane_jwt_decode_keys,
-                        )?
-                    };
+                    // Is this is a refresh token? If so, first exchange for an access token.
+                    if !token.contains(".") {
+                        exchanged_token = Some(
+                            crate::server::exchange_refresh_token(&state.pg_pool, token).await?,
+                        );
+                        token = exchanged_token.as_ref().unwrap();
+                    }
+
+                    let verified = tokens::jwt::verify::<crate::ControlClaims>(
+                        token.as_bytes(),
+                        0,
+                        &state.control_plane_jwt_decode_keys,
+                    )?;
 
                     if verified.claims().aud != "authenticated" {
                         return Err(tonic::Status::unauthenticated(
