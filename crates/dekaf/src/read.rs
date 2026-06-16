@@ -342,8 +342,9 @@ impl Read {
             };
             let (producer, clock, flags) = gazette::uuid::parse_str(uuid.as_str())?;
 
-            // Is this a non-content control document, such as a transaction ACK?
-            let is_control = flags.is_ack();
+            // Is this a non-content control document, such as a transaction ACK
+            // or a backfill control message?
+            let is_control = flags.is_ack() || flags.is_control();
 
             let should_skip = match (self.not_before, self.not_after) {
                 (Some(not_before), Some(not_after)) => clock < not_before || clock > not_after,

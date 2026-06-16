@@ -261,7 +261,7 @@ impl Collection {
 
         let key_schema = avro::key_to_avro(&key_ptr, collection_schema_shape);
 
-        let (not_before, not_after) = (
+        let (mut not_before, not_after) = (
             binding.not_before.map(|b| {
                 uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
             }),
@@ -269,6 +269,25 @@ impl Collection {
                 uuid::Clock::from_unix(b.seconds.try_into().unwrap(), b.nanos.try_into().unwrap())
             }),
         );
+
+        // Honor truncated-at journal labels: if any partition carries a
+        // truncated-at label, use the max across all partitions and the
+        // binding's not_before as the effective not_before.
+        for partition in &partitions {
+            if let Some(truncated_at_str) = partition
+                .spec
+                .labels
+                .as_ref()
+                .and_then(|ls| ls.labels.iter().find(|l| l.name == ::labels::TRUNCATED_AT))
+                .map(|l| &l.value)
+            {
+                if let Ok(clock_val) = truncated_at_str.parse::<u64>() {
+                    let truncated_clock = uuid::Clock::from_u64(clock_val);
+                    not_before =
+                        Some(not_before.map_or(truncated_clock, |nb| nb.max(truncated_clock)));
+                }
+            }
+        }
 
         tracing::debug!(
             collection_name,
