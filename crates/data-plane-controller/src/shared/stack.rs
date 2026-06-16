@@ -122,6 +122,19 @@ pub struct DataPlane {
     // connections. Set per-data-plane; not part of any Deployment template.
     #[serde(default, skip_serializing_if = "is_false")]
     pub disable_ipv6: bool,
+    // When true, sets `enableDnsHostnames` on the AWS VPC. Required for
+    // Route 53 Private Hosted Zones associated with this VPC to resolve.
+    // Side effect: AWS publishes externally resolvable
+    // `ec2-<ip>.compute.amazonaws.com` hostnames for every public-IP
+    // instance. Opt in only when a PHZ is actually required.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub enable_dns_hostnames: bool,
+    // When true, attaches the VPC's S3 gateway endpoint to each zone's
+    // private subnet route table so connector containers reach S3 through
+    // the gateway endpoint instead of the NAT gateway. Trade-off: source
+    // IP at S3 changes from the NAT EIP to the private-subnet IP.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub s3_endpoint_on_private_subnet: bool,
     pub deployments: Vec<Deployment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_limits: Option<ConnectorLimits>,
