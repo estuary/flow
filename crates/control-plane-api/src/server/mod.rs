@@ -363,6 +363,10 @@ pub async fn authenticate_api_key(
         email: None,
     };
 
+    // assert_authenticity mints the authentication proof — an authentication
+    // entry point. Like authenticate_refresh_token and unlike jwt::verify, no
+    // signature is checked; the proof rests on verify_api_key's stateful
+    // database check above. See the SECURITY notes on assert_authenticity.
     Ok(tokens::Verified::assert_authenticity(claims, exp))
 }
 
