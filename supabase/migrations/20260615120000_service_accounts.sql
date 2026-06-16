@@ -13,7 +13,6 @@ create table internal.service_accounts (
   -- multiple prefixes.
   catalog_name  public.catalog_name not null,
   created_by    uuid not null references auth.users (id),
-  last_used_at  timestamptz,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );

@@ -103,7 +103,15 @@ impl ServiceAccountsQuery {
                         sa.created_by,
                         sa.created_at AS "created_at!: chrono::DateTime<chrono::Utc>",
                         sa.updated_at AS "updated_at!: chrono::DateTime<chrono::Utc>",
-                        sa.last_used_at AS "last_used_at: chrono::DateTime<chrono::Utc>"
+                        -- The account's "last used" is the max across all its
+                        -- keys (revoked included): verify_api_key only ever
+                        -- stamps the key it authenticated, so api_keys is the
+                        -- single source of truth.
+                        (
+                            SELECT max(ak.last_used_at)
+                            FROM internal.api_keys ak
+                            WHERE ak.service_account_id = sa.user_id
+                        ) AS "last_used_at: chrono::DateTime<chrono::Utc>"
                     FROM internal.service_accounts sa
                     WHERE sa.catalog_name::text ^@ ANY($1)
                       AND ($2::timestamptz IS NULL OR sa.created_at < $2)
@@ -1003,6 +1011,7 @@ mod test {
                                 node {
                                     id
                                     catalogName
+                                    lastUsedAt
                                     apiKeys {
                                         id
                                         label
@@ -1042,6 +1051,11 @@ mod test {
         assert!(
             listed_key["lastUsedAt"].is_string(),
             "lastUsedAt should be set after a successful bearer use: {list}"
+        );
+        // The account's lastUsedAt is derived as the max across its keys' last_used_at.
+        assert!(
+            edges[0]["node"]["lastUsedAt"].is_string(),
+            "account lastUsedAt should be derived from its keys' use: {list}"
         );
 
         // Bob sees no service accounts.

@@ -285,9 +285,8 @@ pub async fn exchange_refresh_token(
 /// the verified service account's `user_id`.
 ///
 /// This is the sole check of an API key's validity — secret hash, expiry, and
-/// revocation — and it stamps `last_used_at` on both the key and its service
-/// account in the same round-trip. Both the bearer path
-/// (`authenticate_api_key`) and the token-exchange endpoint
+/// revocation — and it stamps the key's `last_used_at` in the same round-trip.
+/// Both the bearer path (`authenticate_api_key`) and the token-exchange endpoint
 /// (`token_exchange::exchange_api_key`) build a credential atop the verified
 /// identity.
 ///
@@ -312,25 +311,19 @@ pub async fn verify_api_key(pg_pool: &sqlx::PgPool, api_key: &str) -> tonic::Res
         .parse()
         .map_err(|_| tonic::Status::invalid_argument("malformed api key: invalid key id"))?;
 
-    // Validate the secret, expiry, and revocation in one query, stamping
-    // last_used_at on both the key and its service account as part of the
-    // same verification round-trip.
+    // Validate the secret, expiry, and revocation in one query, stamping the
+    // key's last_used_at as part of the same verification round-trip. The owning
+    // account's "last used" is derived from its keys at read time, so there's no
+    // second row to update here.
     let row = sqlx::query!(
         r#"
-        WITH verified AS (
-            UPDATE internal.api_keys
-            SET last_used_at = now()
-            WHERE id = $1
-              AND secret_hash = encode(digest($2, 'sha256'), 'hex')
-              AND expires_at > now()
-              AND revoked_at IS NULL
-            RETURNING service_account_id
-        )
-        UPDATE internal.service_accounts sa
+        UPDATE internal.api_keys
         SET last_used_at = now()
-        FROM verified v
-        WHERE sa.user_id = v.service_account_id
-        RETURNING sa.user_id
+        WHERE id = $1
+          AND secret_hash = encode(digest($2, 'sha256'), 'hex')
+          AND expires_at > now()
+          AND revoked_at IS NULL
+        RETURNING service_account_id
         "#,
         key_id as models::Id,
         secret,
@@ -340,7 +333,7 @@ pub async fn verify_api_key(pg_pool: &sqlx::PgPool, api_key: &str) -> tonic::Res
     .map_err(|err| tonic::Status::internal(format!("failed to authenticate api key: {err}")))?
     .ok_or_else(|| tonic::Status::unauthenticated("invalid, expired, or revoked api key"))?;
 
-    Ok(row.user_id)
+    Ok(row.service_account_id)
 }
 
 /// Authenticate a service-account API key presented as a bearer credential,
