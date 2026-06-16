@@ -63,9 +63,22 @@ async fn exchange_refresh_token(
     .fetch_one(&app.pg_pool)
     .await
     .map_err(|err| {
-        crate::ApiError::Status(tonic::Status::unauthenticated(format!(
-            "failed to exchange refresh token: {err}"
-        )))
+        // `generate_access_token` signals an unusable credential (unknown id,
+        // bad secret, or expired token) by `raise`-ing, which surfaces as
+        // SQLSTATE P0001. Those are the only legitimate 401s, and we collapse
+        // them into a single generic message so the response doesn't reveal
+        // which check failed. Any other error is an internal fault: log the
+        // detail and return 500.
+        //
+        // This will change again when we retire generate_access_token and implement the logic in the application.
+        if err.as_database_error().and_then(|e| e.code()).as_deref() == Some("P0001") {
+            crate::ApiError::Status(tonic::Status::unauthenticated(
+                "invalid, expired, or unknown refresh token",
+            ))
+        } else {
+            tracing::error!(?err, "failed to exchange refresh token");
+            crate::ApiError::Status(tonic::Status::internal("failed to exchange refresh token"))
+        }
     })?;
 
     let parsed: SqlResponse =

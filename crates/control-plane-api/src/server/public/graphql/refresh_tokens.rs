@@ -438,7 +438,7 @@ mod test {
             "bad refresh secret should be rejected with 401: {body}"
         );
         assert!(
-            body.contains("failed to exchange refresh token"),
+            body.contains("invalid, expired, or unknown refresh token"),
             "bad refresh secret rejection body: {body}"
         );
 
