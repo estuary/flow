@@ -48,7 +48,7 @@ pub(super) struct Actor {
     staged_published_docs: u64,
     staged_published_bytes: u64,
     // Long-lived per-journal throttle policy, fed once per transaction
-    split_policy: crate::split_policy::SplitPolicy,
+    split_policy: crate::shard::split_policy::SplitPolicy,
     split_fut: Option<crate::shard::SplitFuture>,
     // Task being executed.
     task: Arc<Task>,
@@ -81,7 +81,7 @@ impl Actor {
             published_bytes: 0,
             staged_published_docs: 0,
             staged_published_bytes: 0,
-            split_policy: crate::split_policy::SplitPolicy::new(),
+            split_policy: crate::shard::split_policy::SplitPolicy::new(),
             split_fut: None,
             task,
             write_shape: Some(write_shape),
@@ -607,12 +607,13 @@ mod tests {
 
         // Seed a policy under which the observed journal is immediately due.
         const J: &str = "test/derived/v1/pivot=00";
-        actor.split_policy =
-            crate::split_policy::SplitPolicy::with_config(crate::split_policy::Config {
+        actor.split_policy = crate::shard::split_policy::SplitPolicy::with_config(
+            crate::shard::split_policy::Config {
                 threshold: -1.0,
                 min_observation_span: std::time::Duration::ZERO,
                 ..Default::default()
-            });
+            },
+        );
         actor
             .split_policy
             .observe(J, true, std::time::Instant::now());

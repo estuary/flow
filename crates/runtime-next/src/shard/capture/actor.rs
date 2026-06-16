@@ -40,7 +40,7 @@ pub(super) struct Actor {
     shapes: Option<Vec<doc::Shape>>,
     // Long-lived per-journal throttle policy, fed once per transaction once the
     // collection appends have flushed.
-    split_policy: crate::split_policy::SplitPolicy,
+    split_policy: crate::shard::split_policy::SplitPolicy,
     // Drain inputs staged by a Rotate, consumed by the Drain dispatch.
     drain_input: Option<DrainInput>,
 
@@ -84,7 +84,7 @@ impl Actor {
             db: Some((db, binding_state_keys)),
             publisher: Some(publisher),
             shapes: Some(shapes),
-            split_policy: crate::split_policy::SplitPolicy::new(),
+            split_policy: crate::shard::split_policy::SplitPolicy::new(),
             drain_input: None,
             acknowledge_fut: None,
             drain_fut: None,
@@ -805,12 +805,13 @@ mod tests {
 
         // Seed a policy under which the observed journal is immediately due.
         const J: &str = "test/collectionA/v1/pivot=00";
-        actor.split_policy =
-            crate::split_policy::SplitPolicy::with_config(crate::split_policy::Config {
+        actor.split_policy = crate::shard::split_policy::SplitPolicy::with_config(
+            crate::shard::split_policy::Config {
                 threshold: -1.0,
                 min_observation_span: Duration::ZERO,
                 ..Default::default()
-            });
+            },
+        );
         actor
             .split_policy
             .observe(J, true, std::time::Instant::now());

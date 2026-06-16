@@ -334,7 +334,11 @@ pub enum SplitOutcome {
     Transient,
 }
 
-/// Attempt to split partition `journal` of `binding` at its key-range midpoint.
+/// Attempt to split partition `journal` at its key-range midpoint.
+///
+/// `partitions_template` is the owning collection's partition template (the
+/// only thing about the binding a split needs); `client` and `partitions` are
+/// the binding's journal client and live partition watch.
 ///
 /// The journal's width is first checked against the in-memory partition watch
 /// (no RPC): if it's below `2 * MIN_PARTITION_WIDTH` the outcome is `AtFloor`
@@ -344,17 +348,11 @@ pub enum SplitOutcome {
 /// serializes contending splitters: exactly one wins, and losers observe a
 /// benign `Lost`.
 pub async fn split_partition(
-    binding: &super::MappedBinding,
-    lazy: &std::sync::LazyLock<
-        (
-            gazette::journal::Client,
-            tokens::PendingWatch<Vec<watch::PartitionSplit>>,
-        ),
-        crate::MappedClientInit,
-    >,
+    partitions_template: &broker::JournalSpec,
+    client: &gazette::journal::Client,
+    partitions: &tokens::PendingWatch<Vec<watch::PartitionSplit>>,
     journal: &str,
 ) -> tonic::Result<SplitOutcome> {
-    let (client, partitions) = &(**lazy);
     let partitions = partitions.ready().await;
     let refresh = partitions.token();
     let listing = refresh.result()?;
@@ -396,7 +394,7 @@ pub async fn split_partition(
     // fails benignly rather than splitting a layout we never evaluated.
     parent.mod_revision = split.mod_revision;
 
-    let (rhs, request) = build_partition_split_apply(binding, &parent)?;
+    let (rhs, request) = build_partition_split_apply(partitions_template, &parent)?;
     apply_split_outcome(journal, &rhs, client.apply(request).await)
 }
 
@@ -411,14 +409,14 @@ fn key_range_width(key_begin: u32, key_end: u32) -> u64 {
 // mod_revision, while the RHS is created (expect_mod_revision of zero).
 // Returns the RHS journal name alongside the request.
 fn build_partition_split_apply(
-    binding: &super::MappedBinding,
+    partitions_template: &broker::JournalSpec,
     parent: &activate::JournalSplit,
 ) -> tonic::Result<(String, broker::ApplyRequest)> {
     let (lhs, rhs) = activate::map_partition_to_split(parent)
         .map_err(|err| tonic::Status::internal(format!("mapping partition to split: {err:#}")))?;
     let rhs_name = rhs.name.clone();
 
-    let changes = activate::partition_changes(Some(&binding.partitions_template), vec![lhs, rhs])
+    let changes = activate::partition_changes(Some(partitions_template), vec![lhs, rhs])
         .map_err(|err| tonic::Status::internal(format!("building split changes: {err:#}")))?
         .into_iter()
         .map(|change| match change {
@@ -635,45 +633,32 @@ mod test {
         );
     }
 
-    /// Build a MappedBinding with a bare partition template. split_partition
-    /// and build_partition_split_apply consult only `partitions_template`,
-    /// so extractors and fields may be empty.
-    fn split_test_binding() -> super::super::MappedBinding {
-        super::super::MappedBinding {
-            collection: models::Collection::new("example/collection"),
-            key_extractors: Vec::new(),
-            partition_fields: Vec::new(),
-            partition_extractors: Vec::new(),
-            partitions_template: broker::JournalSpec {
-                name: "example/collection/v1".to_string(),
-                ..Default::default()
-            },
-            partitions_limit: 100,
-            partitions_prefix: "example/collection/v1/".to_string(),
+    /// Bare partition template for the split tests. `split_partition` and
+    /// `build_partition_split_apply` consult only the template, so its name is
+    /// all that's needed.
+    fn split_test_template() -> broker::JournalSpec {
+        broker::JournalSpec {
+            name: "example/collection/v1".to_string(),
+            ..Default::default()
         }
     }
 
-    /// Build a lazy client + partitions watch over a fixed listing. The
+    /// Build a journal client + partitions watch over a fixed listing. The
     /// client targets an unreachable endpoint, so any RPC it attempts fails:
     /// an Ok outcome proves the path issued no RPC at all.
-    fn split_test_lazy(
+    fn split_test_client(
         listing: Vec<PartitionSplit>,
-    ) -> std::sync::LazyLock<
-        (
-            gazette::journal::Client,
-            tokens::PendingWatch<Vec<PartitionSplit>>,
-        ),
-        crate::MappedClientInit,
-    > {
-        std::sync::LazyLock::new(Box::new(move || {
-            let client = gazette::journal::Client::new(
-                "http://localhost:0".to_string(),
-                gazette::journal::Client::new_fragment_client(),
-                proto_grpc::Metadata::new(),
-                gazette::Router::new("local"),
-            );
-            (client, tokens::fixed(Ok(listing)))
-        }))
+    ) -> (
+        gazette::journal::Client,
+        tokens::PendingWatch<Vec<PartitionSplit>>,
+    ) {
+        let client = gazette::journal::Client::new(
+            "http://localhost:0".to_string(),
+            gazette::journal::Client::new_fragment_client(),
+            proto_grpc::Metadata::new(),
+            gazette::Router::new("local"),
+        );
+        (client, tokens::fixed(Ok(listing)))
     }
 
     /// Build a parent JournalSplit of `split_test_binding`'s template, having
@@ -698,10 +683,10 @@ mod test {
 
     #[tokio::test]
     async fn test_split_partition_floor_and_absent() {
-        let binding = split_test_binding();
+        let template = split_test_template();
         const W2: u64 = 2 * MIN_PARTITION_WIDTH;
 
-        let lazy = split_test_lazy(splits(&[
+        let (client, partitions) = split_test_client(splits(&[
             // Width 2W - 1: below the floor.
             ("example/collection/v1/pivot=00", 0, (W2 - 2) as u32),
         ]));
@@ -709,28 +694,38 @@ mod test {
         // Below the floor: terminal AtFloor, and no RPC was issued (the test
         // client panics on any RPC attempt, which would fail this test).
         assert_eq!(
-            split_partition(&binding, &lazy, "example/collection/v1/pivot=00")
-                .await
-                .unwrap(),
+            split_partition(
+                &template,
+                &client,
+                &partitions,
+                "example/collection/v1/pivot=00"
+            )
+            .await
+            .unwrap(),
             SplitOutcome::AtFloor
         );
 
         // Absent from the watched listing: transient skip, again without RPC.
         assert_eq!(
-            split_partition(&binding, &lazy, "example/collection/v1/pivot=99999999")
-                .await
-                .unwrap(),
+            split_partition(
+                &template,
+                &client,
+                &partitions,
+                "example/collection/v1/pivot=99999999"
+            )
+            .await
+            .unwrap(),
             SplitOutcome::Transient
         );
     }
 
     #[test]
     fn test_build_partition_split_apply_at_threshold() {
-        let binding = split_test_binding();
+        let template = split_test_template();
 
         // Parent at exactly width 2W: [0x40000000, 0x7fffffff].
         let parent = split_test_parent(0x40000000, 0x7fffffff, 42);
-        let (rhs_name, request) = build_partition_split_apply(&binding, &parent).unwrap();
+        let (rhs_name, request) = build_partition_split_apply(&template, &parent).unwrap();
 
         let [lhs, rhs] = request.changes.as_slice() else {
             panic!("expected exactly two changes: {request:?}");
@@ -747,11 +742,11 @@ mod test {
 
     #[test]
     fn test_build_partition_split_apply_full_range() {
-        let binding = split_test_binding();
+        let template = split_test_template();
 
         // A full 2^32-range parent splits at 0x80000000 without overflow.
         let parent = split_test_parent(u32::MIN, u32::MAX, 7);
-        let (_rhs_name, request) = build_partition_split_apply(&binding, &parent).unwrap();
+        let (_rhs_name, request) = build_partition_split_apply(&template, &parent).unwrap();
 
         let ranges: Vec<_> = request
             .changes

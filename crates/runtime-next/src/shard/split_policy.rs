@@ -21,10 +21,16 @@ const TAU: Duration = Duration::from_secs(5 * 60);
 const THRESHOLD: f64 = 0.10;
 
 /// Quiet period after a split attempt during which a journal won't re-trigger.
+/// This is a per-shard, per-journal-name quiet period — not a global split rate
+/// limit. Each shard runs its own policy, so this isn't an ironclad limit
 const COOLDOWN: Duration = Duration::from_secs(30 * 60);
 
 /// Minimum span a journal must be observed before it may trigger a split.
 const MIN_OBSERVATION_SPAN: Duration = Duration::from_secs(2 * 60);
+
+/// Maximum age of a journal's most recent sample for it to still be eligible to
+/// split.
+const MAX_STALENESS: Duration = Duration::from_secs(5 * 60);
 
 /// Upper bound on the `dt` used to compute `alpha`, which caps `alpha` itself.
 /// Prevents a single throttled sample after a long idle gap from spiking the EWMA
@@ -39,6 +45,7 @@ pub struct Config {
     pub cooldown: Duration,
     pub min_observation_span: Duration,
     pub max_sample_dt: Duration,
+    pub max_staleness: Duration,
 }
 
 impl Default for Config {
@@ -49,6 +56,7 @@ impl Default for Config {
             cooldown: COOLDOWN,
             min_observation_span: MIN_OBSERVATION_SPAN,
             max_sample_dt: MAX_SAMPLE_DT,
+            max_staleness: MAX_STALENESS,
         }
     }
 }
@@ -78,7 +86,7 @@ pub struct SplitPolicy {
 }
 
 impl SplitPolicy {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
@@ -123,7 +131,7 @@ impl SplitPolicy {
 
     /// Returns the journals currently due for a split: over threshold, past the
     /// cold-start span, and not in cooldown. Ordered by journal name.
-    pub fn due_for_split(&self, now: Instant) -> Vec<&str> {
+    pub(crate) fn due_for_split(&self, now: Instant) -> Vec<&str> {
         self.journals
             .iter()
             .filter(|(_, t)| self.is_due(t, now))
@@ -140,14 +148,17 @@ impl SplitPolicy {
     }
 
     fn is_due(&self, throttle: &JournalThrottle, now: Instant) -> bool {
-        // `not_before` gates both cold start and cooldown; see its field doc.
-        now >= throttle.not_before && throttle.ewma > self.config.threshold
+        // `not_before` gates both cold start and cooldown. The staleness check
+        // ensures the journal is *currently* being written
+        now >= throttle.not_before
+            && throttle.ewma > self.config.threshold
+            && now.saturating_duration_since(throttle.last_ts) <= self.config.max_staleness
     }
 
     /// Mark that a split was attempted for `journal` (whether or not it
     /// succeeded). Starts a cooldown and resets the journal's EWMA so pressure
     /// must re-accumulate before it can trigger again.
-    pub fn mark_attempted(&mut self, journal: &str, now: Instant) {
+    pub(crate) fn mark_attempted(&mut self, journal: &str, now: Instant) {
         if let Some(throttle) = self.journals.get_mut(journal) {
             throttle.ewma = 0.0;
             throttle.last_ts = now;
@@ -156,12 +167,12 @@ impl SplitPolicy {
     }
 
     /// Drop all state for `journal`
-    pub fn forget(&mut self, journal: &str) {
+    pub(crate) fn forget(&mut self, journal: &str) {
         self.journals.remove(journal);
     }
 
     /// Ignore a given journal
-    pub fn ignore(&mut self, journal: &str) {
+    pub(crate) fn ignore(&mut self, journal: &str) {
         self.ignore.insert(journal.to_string());
         self.forget(journal);
     }
@@ -336,6 +347,35 @@ mod tests {
         let now = clock.advance(COOLDOWN);
         policy.observe(J, true, now);
         assert!(policy.should_split(J, now));
+    }
+
+    /// A journal that crosses the threshold but then stops being written ages
+    /// out: once its most recent sample is older than `max_staleness` it's no
+    /// longer due, even though its EWMA stays frozen above threshold (decay only
+    /// happens on a sample). This is what stops a quiet — or deleted — journal
+    /// from triggering a stale split.
+    #[test]
+    fn stale_journal_is_not_due() {
+        let mut policy = SplitPolicy::new();
+        let mut clock = TestClock::new();
+
+        // Drive it well over threshold and past the cold-start span.
+        policy.observe(J, true, clock.now());
+        for _ in 0..30 {
+            let now = clock.advance(Duration::from_secs(10));
+            policy.observe(J, true, now);
+        }
+        assert!(policy.should_split(J, clock.now()));
+
+        // No further samples: the journal stopped being written. Its EWMA is
+        // still frozen above threshold, but past `max_staleness` it's not due.
+        let later = clock.advance(MAX_STALENESS + Duration::from_secs(1));
+        assert!(
+            policy.throttle_ewma(J).unwrap() > THRESHOLD,
+            "EWMA stays frozen without samples",
+        );
+        assert!(!policy.should_split(J, later));
+        assert!(policy.due_for_split(later).is_empty());
     }
 
     /// A journal that stops being throttled decays back below threshold as quiet
