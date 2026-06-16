@@ -136,8 +136,11 @@ pub fn recv_client_read_or_flush(
     }
 
     if let Some(flow::UuidParts { clock, node }) = &read.uuid {
-        // Filter out message acknowledgements.
-        if proto_gazette::message_flags::ACK_TXN & node != 0 {
+        // Filter out transaction acknowledgements and application control
+        // messages.
+        if proto_gazette::message_flags::ACK_TXN & node != 0
+            || proto_gazette::message_flags::CONTROL & node != 0
+        {
             return Ok(None);
         }
         // Track the largest document clock that we've observed.

@@ -237,6 +237,7 @@ async fn run_session(
         let flush = Request {
             flush: Some(request::Flush {
                 state_patches_json: bytes::Bytes::new(), // Not implemented.
+                ..Default::default()
             }),
             ..Default::default()
         };
