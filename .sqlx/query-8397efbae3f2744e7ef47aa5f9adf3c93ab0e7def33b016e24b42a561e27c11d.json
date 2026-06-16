@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH new_key AS (\n                SELECT\n                    internal.id_generator() AS id,\n                    -- 256 bits from pgcrypto's CSPRNG; the SHA-256 hashing\n                    -- below rests on secrets being high-entropy.\n                    encode(gen_random_bytes(32), 'hex') AS secret\n            )\n            INSERT INTO internal.api_keys (id, service_account_id, secret_hash, label, expires_at, created_by)\n            SELECT\n                nk.id,\n                $1,\n                -- SHA-256 rather than bcrypt: the secret is high-entropy random,\n                -- so bcrypt isn't necessary here.\n                -- Refresh-token secrets will migrate to the same scheme once\n                -- the legacy postgREST token functions are retired.\n                encode(digest(nk.secret, 'sha256'), 'hex'),\n                $2,\n                now() + $3::text::interval,\n                $4\n            FROM new_key nk\n            RETURNING\n                id AS \"id!: models::Id\",\n                (SELECT secret FROM new_key) AS \"secret!: String\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "secret!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "8397efbae3f2744e7ef47aa5f9adf3c93ab0e7def33b016e24b42a561e27c11d"
+}

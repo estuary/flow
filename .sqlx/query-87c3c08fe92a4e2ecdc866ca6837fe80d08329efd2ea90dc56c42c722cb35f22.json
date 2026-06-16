@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        sa.user_id,\n                        sa.catalog_name AS \"catalog_name!: String\",\n                        sa.created_by,\n                        sa.created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n                        sa.updated_at AS \"updated_at!: chrono::DateTime<chrono::Utc>\",\n                        -- The account's \"last used\" is the max across all its\n                        -- keys (revoked included): verify_api_key only ever\n                        -- stamps the key it authenticated, so api_keys is the\n                        -- single source of truth.\n                        (\n                            SELECT max(ak.last_used_at)\n                            FROM internal.api_keys ak\n                            WHERE ak.service_account_id = sa.user_id\n                        ) AS \"last_used_at: chrono::DateTime<chrono::Utc>\"\n                    FROM internal.service_accounts sa\n                    WHERE sa.catalog_name::text ^@ ANY($1)\n                      AND ($2::timestamptz IS NULL OR sa.created_at < $2)\n                    ORDER BY sa.created_at DESC\n                    LIMIT $3 + 1\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_used_at: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "87c3c08fe92a4e2ecdc866ca6837fe80d08329efd2ea90dc56c42c722cb35f22"
+}
