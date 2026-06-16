@@ -281,11 +281,9 @@ impl Collection {
                 .and_then(|ls| ls.labels.iter().find(|l| l.name == ::labels::TRUNCATED_AT))
                 .map(|l| &l.value)
             {
-                if let Ok(clock_val) = truncated_at_str.parse::<u64>() {
-                    let truncated_clock = uuid::Clock::from_u64(clock_val);
-                    not_before =
-                        Some(not_before.map_or(truncated_clock, |nb| nb.max(truncated_clock)));
-                }
+                let truncated_clock =
+                    uuid::Clock::from_u64(::labels::parse_truncated_at(truncated_at_str)?);
+                not_before = Some(not_before.map_or(truncated_clock, |nb| nb.max(truncated_clock)));
             }
         }
 
