@@ -1,0 +1,25 @@
+collections:
+  testing/autosplit:
+    schema:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        payload: { type: string }
+    key: [/id]
+
+  # Logically-partitioned on /region: each distinct region value gets its own
+  # physical journal(s), exercised by the logical-partition isolation test.
+  testing/autosplit-part:
+    schema:
+      type: object
+      required: [id, region]
+      properties:
+        id: { type: string }
+        region: { type: string }
+        payload: { type: string }
+    key: [/id]
+    projections:
+      region:
+        location: /region
+        partition: true

@@ -14,19 +14,9 @@
 //! `Publisher` across IO futures.
 
 use bytes::Bytes;
-use futures::FutureExt;
 use proto_gazette::uuid;
 use std::collections::BTreeMap;
 use std::io::Write as _;
-
-/// Closure shape of the lazily-initialized journal Client and partitions
-/// watch which `publisher::mapping::split_partition` expects.
-type SplitClientInit = Box<
-    dyn FnOnce() -> (
-            gazette::journal::Client,
-            tokens::PendingWatch<Vec<publisher::watch::PartitionSplit>>,
-        ) + Send,
->;
 
 /// Publishing entity used by leader sessions and runtime-next shards.
 /// `crate::publish::Publisher` is the operative publisher from the
@@ -39,15 +29,7 @@ type SplitClientInit = Box<
 /// stats-enqueue-then-flush idiom. The `Real` arm delegates to
 /// `publisher::Publisher`; the `Preview` arm performs no IO.
 pub enum Publisher {
-    /// The second member holds the Mapped binding of each collection spec,
-    /// parallel to the inner publisher's own bindings but offset by one
-    /// (its binding zero is the fixed ops-stats journal). Detached split
-    /// futures built by [`Self::split_partition`] need an owned binding
-    /// that out-lives any borrow of this Publisher.
-    Real(
-        publisher::Publisher,
-        Vec<std::sync::Arc<publisher::MappedBinding>>,
-    ),
+    Real(publisher::Publisher),
     Preview {
         /// Collection names indexed by binding.
         collection_names: Vec<String>,
@@ -80,21 +62,11 @@ impl Publisher {
         I: IntoIterator<Item = &'a proto_flow::flow::CollectionSpec>,
     {
         let mut bindings = Vec::new();
-        let mut split_bindings = Vec::new();
 
         bindings.push(publisher::Binding::for_fixed_journal(ops_stats_journal));
 
         for spec in collection_specs {
             bindings.push(publisher::Binding::from_collection_spec(spec)?);
-
-            // Build a second, identical binding which is retained outside the
-            // inner publisher for use by detached split futures.
-            let publisher::Binding::Mapped(split_binding) =
-                publisher::Binding::from_collection_spec(spec)?
-            else {
-                unreachable!("from_collection_spec builds Mapped bindings");
-            };
-            split_bindings.push(std::sync::Arc::new(split_binding));
         }
 
         let mut publisher = publisher::Publisher::new(
@@ -106,7 +78,7 @@ impl Publisher {
         );
         publisher.update_clock();
 
-        Ok(Self::Real(publisher, split_bindings))
+        Ok(Self::Real(publisher))
     }
 
     /// Build a preview publisher that performs no journal IO. Stats are emitted
@@ -159,7 +131,7 @@ impl Publisher {
     /// regresses below a prior written clock. No-op in preview mode.
     pub fn update_clock(&mut self) {
         match self {
-            Self::Real(p, _) => p.update_clock(),
+            Self::Real(p) => p.update_clock(),
             Self::Preview { .. } => {}
         }
     }
@@ -171,7 +143,7 @@ impl Publisher {
     /// symmetric across `Real` and `Preview` arms.
     pub async fn publish_stats(&mut self, mut stats: ops::proto::Stats) -> tonic::Result<()> {
         match self {
-            Self::Real(p, _) => {
+            Self::Real(p) => {
                 p.enqueue(
                     |uuid| {
                         // Binding index 0 is the fixed ops_stats journal.
@@ -208,7 +180,7 @@ impl Publisher {
         uuid_ptr: &json::Pointer,
     ) -> tonic::Result<usize> {
         match self {
-            Self::Real(p, _) => {
+            Self::Real(p) => {
                 let publisher_binding = binding_index + 1;
                 let (_, bytes_written) = p
                     .enqueue_owned(
@@ -253,7 +225,7 @@ impl Publisher {
     /// Flush all currently buffered documents.
     pub async fn flush(&mut self) -> tonic::Result<()> {
         match self {
-            Self::Real(p, _) => p.flush().await,
+            Self::Real(p) => p.flush().await,
             Self::Preview { line_buf, .. } => {
                 if !line_buf.is_empty() {
                     std::io::stdout().write_all(line_buf).unwrap();
@@ -267,18 +239,14 @@ impl Publisher {
     /// Take accumulated per-journal append-throttle samples since the last call.
     pub fn take_throttle_samples(&mut self) -> Vec<publisher::ThrottleSample<'_>> {
         match self {
-            Self::Real(p, _) => p.take_throttle_samples(),
+            Self::Real(p) => p.take_throttle_samples(),
             Self::Preview { .. } => Vec::new(),
         }
     }
 
     /// Build a detached future which attempts to split partition `journal` at
-    /// its key-range midpoint (see `publisher::mapping::split_partition`).
-    ///
-    /// The future owns cloned journal-client and partitions-watch handles, so
-    /// the caller may park and poll it while this Publisher continues to
-    /// publish. A stale watch read is benign: the split's CAS fails as a
-    /// `Lost` outcome rather than acting on a layout that was never evaluated.
+    /// its key-range midpoint. Delegates to [`publisher::Publisher`], which
+    /// owns the bindings and journal clients; see its `split_partition`.
     ///
     /// Returns None in preview mode, or when `journal` is not a partition of
     /// any Mapped binding (e.g. the fixed ops-stats journal) — such journals
@@ -287,29 +255,10 @@ impl Publisher {
         &self,
         journal: &str,
     ) -> Option<futures::future::BoxFuture<'static, tonic::Result<publisher::SplitOutcome>>> {
-        let Self::Real(p, split_bindings) = self else {
-            return None;
-        };
-        let index = split_bindings
-            .iter()
-            .position(|b| journal.starts_with(&b.partitions_prefix))?;
-        let binding = std::sync::Arc::clone(&split_bindings[index]);
-
-        // Offset by one: the inner publisher's binding zero is the fixed
-        // ops-stats journal. The lazy client is warm in practice — `journal`
-        // was appended to (and throttled) through this same binding.
-        let (client, partitions) = p.mapped_binding_client(index + 1);
-        let (client, partitions) = (client.clone(), partitions.clone());
-        let journal = journal.to_string();
-
-        Some(
-            async move {
-                let lazy: std::sync::LazyLock<_, SplitClientInit> =
-                    std::sync::LazyLock::new(Box::new(move || (client, partitions)));
-                publisher::mapping::split_partition(&binding, &lazy, &journal).await
-            }
-            .boxed(),
-        )
+        match self {
+            Self::Real(p) => p.split_partition(journal),
+            Self::Preview { .. } => None,
+        }
     }
 
     /// Snapshot this producer's contribution to the current transaction's
@@ -317,7 +266,7 @@ impl Publisher {
     /// publishes happened, so there are no commit positions to encode.
     pub fn commit_intents(&mut self) -> Option<(uuid::Producer, uuid::Clock, Vec<String>)> {
         match self {
-            Self::Real(p, _) => Some(p.commit_intents()),
+            Self::Real(p) => Some(p.commit_intents()),
             Self::Preview { .. } => None,
         }
     }
@@ -329,7 +278,7 @@ impl Publisher {
         journal_intents: BTreeMap<String, Bytes>,
     ) -> tonic::Result<()> {
         match self {
-            Self::Real(p, _) => p.write_intents(journal_intents).await,
+            Self::Real(p) => p.write_intents(journal_intents).await,
             Self::Preview { .. } => {
                 debug_assert!(
                     journal_intents.is_empty(),

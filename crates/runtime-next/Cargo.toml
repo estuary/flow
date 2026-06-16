@@ -82,6 +82,8 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 axum = { workspace = true }
+build = { path = "../build" }
+e2e-support = { path = "../e2e-support" }
 insta = { workspace = true }
 quickcheck = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros"] }

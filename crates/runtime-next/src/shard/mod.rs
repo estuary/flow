@@ -4,17 +4,22 @@ pub mod materialize;
 pub(crate) mod recovery;
 mod rocksdb;
 mod service;
+pub mod split_policy;
 
 use rocksdb::RocksDB;
 pub use service::Service;
 
 /// Feed one transaction's per-journal append-throttle samples into the shard's
 /// long-lived [`SplitPolicy`]. Called once per transaction at the commit/drain
-/// boundary
+/// boundary.
 ///
-/// [`SplitPolicy`]: crate::split_policy::SplitPolicy
-pub(crate) fn observe_throttle_samples<'a>(
-    policy: &mut crate::split_policy::SplitPolicy,
+/// The observe / dispatch / finish trio is actor glue consumed by the capture
+/// and derive actors; it's `pub` so the `split_e2e` integration test can run
+/// the same loop against a real broker.
+///
+/// [`SplitPolicy`]: crate::shard::split_policy::SplitPolicy
+pub fn observe_throttle_samples<'a>(
+    policy: &mut crate::shard::split_policy::SplitPolicy,
     samples: impl IntoIterator<Item = publisher::ThrottleSample<'a>>,
     now: std::time::Instant,
 ) {
@@ -25,7 +30,7 @@ pub(crate) fn observe_throttle_samples<'a>(
 
 /// A parked automatic-split attempt: resolves to the target journal name and
 /// the outcome of the split's List / Apply RPCs.
-pub(crate) type SplitFuture =
+pub type SplitFuture =
     futures::future::BoxFuture<'static, (String, tonic::Result<publisher::SplitOutcome>)>;
 
 /// Start at most one automatic split among the journals now due, returning a
@@ -35,9 +40,9 @@ pub(crate) type SplitFuture =
 ///
 /// A dispatched journal stays "due" until its outcome lands: the actor's
 /// single-flight parking of the returned future is what prevents duplicate
-/// dispatch, and a Transient outcome leaves a still-hot journal due for retry.
-pub(crate) fn start_due_split(
-    policy: &mut crate::split_policy::SplitPolicy,
+/// dispatch, and an RPC error leaves a still-hot journal due for retry.
+pub fn start_due_split(
+    policy: &mut crate::shard::split_policy::SplitPolicy,
     publisher: &crate::Publisher,
     now: std::time::Instant,
 ) -> Option<SplitFuture> {
@@ -62,25 +67,43 @@ pub(crate) fn start_due_split(
 
 /// Apply a completed split attempt's outcome to the policy. Runs on the actor
 /// — the sole owner of policy state — which keeps the policy lock-free.
-pub(crate) fn finish_split(
-    policy: &mut crate::split_policy::SplitPolicy,
+pub fn finish_split(
+    policy: &mut crate::shard::split_policy::SplitPolicy,
     journal: &str,
     outcome: tonic::Result<publisher::SplitOutcome>,
     now: std::time::Instant,
 ) {
     match outcome {
-        // Lost means a contending shard's split won the CAS. Either way the
-        // journal's layout changed: cool down and reset its EWMA so pressure
-        // must re-accumulate against the new layout.
-        Ok(publisher::SplitOutcome::Split | publisher::SplitOutcome::Lost) => {
+        // The split applied: the journal's layout changed. Cool down and reset
+        // its EWMA so pressure must re-accumulate against the narrower journal.
+        Ok(publisher::SplitOutcome::Split) => {
+            tracing::info!(journal, "completed automatic journal split");
+            policy.mark_attempted(journal, now);
+        }
+        // Lost the CAS to a contending shard's split. The layout still changed,
+        // so cool down and reset exactly as for our own split.
+        Ok(publisher::SplitOutcome::Lost) => {
+            tracing::info!(
+                journal,
+                "automatic journal split lost a race to another writer; cooling down"
+            );
             policy.mark_attempted(journal, now);
         }
         // Too narrow to split, and a journal's width never grows: terminally
         // stop observing it.
-        Ok(publisher::SplitOutcome::AtFloor) => policy.ignore(journal),
-        // Absent from the partition watch (e.g. deleted mid-flight). Leave
-        // state untouched so a still-hot journal is retried.
-        Ok(publisher::SplitOutcome::Transient) => {}
+        Ok(publisher::SplitOutcome::AtFloor) => {
+            tracing::debug!(
+                journal,
+                "journal is at the minimum split width; will not auto-split"
+            );
+            policy.ignore(journal);
+        }
+        // Absent from the partition watch (e.g. deleted mid-flight). Forget it:
+        // a journal that no longer exists is never written again, so we can
+        // just forget it.  If it comes back, that's fine it will just restart the clock
+        Ok(publisher::SplitOutcome::Transient) => {
+            policy.forget(journal);
+        }
         // Splits are opportunistic: an RPC failure must not fail the shard.
         // Leave state untouched so a still-hot journal is retried.
         Err(status) => {
@@ -106,7 +129,7 @@ pub(crate) fn leader_bearer(
 #[cfg(test)]
 mod tests {
     use super::{finish_split, observe_throttle_samples, start_due_split};
-    use crate::split_policy::SplitPolicy;
+    use crate::shard::split_policy::SplitPolicy;
     use publisher::SplitOutcome;
     use std::time::{Duration, Instant};
 
@@ -158,7 +181,7 @@ mod tests {
     /// sample instead of fabricating minutes of clock history.
     fn due_policy() -> (SplitPolicy, Instant) {
         let now = Instant::now();
-        let mut policy = SplitPolicy::with_config(crate::split_policy::Config {
+        let mut policy = SplitPolicy::with_config(crate::shard::split_policy::Config {
             threshold: -1.0,
             min_observation_span: Duration::ZERO,
             ..Default::default()
@@ -205,14 +228,22 @@ mod tests {
         assert!(policy.due_for_split(later).is_empty());
     }
 
-    /// Transient outcomes and RPC errors leave the policy untouched, so a
-    /// still-hot journal is immediately due for retry.
+    /// A Transient outcome forgets the journal: it's absent from the listing
+    /// (e.g. deleted), and a journal that's gone is never written again, so its
+    /// frozen EWMA can never decay. Dropping it stops it being perpetually due.
     #[test]
-    fn finish_split_transient_and_error_leave_state_for_retry() {
+    fn finish_split_transient_forgets_journal() {
         let (mut policy, now) = due_policy();
         finish_split(&mut policy, J, Ok(SplitOutcome::Transient), now);
-        assert!(policy.should_split(J, now));
+        assert!(!policy.should_split(J, now));
+        assert!(policy.due_for_split(now).is_empty());
+    }
 
+    /// An RPC error leaves the policy untouched, so a still-hot journal is
+    /// immediately due for retry.
+    #[test]
+    fn finish_split_error_leaves_state_for_retry() {
+        let (mut policy, now) = due_policy();
         finish_split(
             &mut policy,
             J,
