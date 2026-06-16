@@ -104,6 +104,12 @@ where
             ))
         })?;
 
+        // The JWT signature and `exp` verified against `key` just above, and the
+        // required capability is present: mint the authentication proof. This is
+        // the cryptographic counterpart to the stateful database checks in
+        // control-plane-api. Every assert_authenticity call site is one such
+        // credential-verification routine, and the Verified it returns is
+        // trusted everywhere downstream.
         return Ok(Verified::assert_authenticity(
             claims,
             DateTime::from_timestamp_secs(skim.exp).unwrap_or_default(),
