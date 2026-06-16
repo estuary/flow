@@ -289,12 +289,10 @@ pub async fn exchange_refresh_token(
 /// account in the same round-trip. Both the bearer path
 /// (`authenticate_api_key`) and the token-exchange endpoint
 /// (`token_exchange::exchange_api_key`) build a credential atop the verified
-/// identity; they differ only in the lifetime of what they then issue.
+/// identity.
 ///
 /// Secrets are hashed with SHA-256 rather than bcrypt: the secret is
-/// high-entropy random (so a slow hash adds no brute-force protection) and
-/// this verification sits in the per-request hot path, where a fast hash
-/// matters.
+/// high-entropy random (so the slow bcrypt hash adds no brute-force protection).
 pub async fn verify_api_key(pg_pool: &sqlx::PgPool, api_key: &str) -> tonic::Result<uuid::Uuid> {
     let raw = api_key
         .strip_prefix("flow_sa_")
