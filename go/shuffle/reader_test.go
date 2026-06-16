@@ -337,7 +337,11 @@ func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env 
 	var state = *store.(*testStore).State.(*map[string]int)
 	var msg = env.Message.(pr.IndexedShuffleResponse)
 
-	if message.GetFlags(env.GetUUID()) == message.Flag_ACK_TXN {
+	var flags = message.GetFlags(env.GetUUID())
+	if flags&0x3 == message.Flag_ACK_TXN {
+		return nil
+	}
+	if uint16(flags)&labels.FlagControl != 0 {
 		return nil
 	}
 

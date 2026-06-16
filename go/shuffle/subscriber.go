@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -123,12 +124,16 @@ func (s subscribers) stageResponses(from *pr.ShuffleResponse) {
 		s[i].staged.WriteHead = from.WriteHead
 	}
 	for doc, uuid := range from.UuidParts {
-		if message.Flags(uuid.Node) == message.Flag_ACK_TXN {
+		var flags = message.Flags(uuid.Node)
+		if flags&0x3 == message.Flag_ACK_TXN {
 			// ACK documents are always broadcast to every subscriber.
 			for i := range s {
 				s[i].stageDoc(from, doc)
 			}
 			continue
+		}
+		if uint16(flags)&labels.FlagControl != 0 {
+			continue // Drop control docs before key extraction.
 		}
 
 		var keyHash = flow.PackedKeyHash_HH64(from.Arena.Bytes(from.PackedKey[doc]))
