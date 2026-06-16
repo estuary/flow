@@ -14,7 +14,6 @@ pub struct RefreshTokenInfo {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub multi_use: bool,
-    pub valid_for: String,
     pub uses: i32,
     /// True once the token's validity window has elapsed
     /// (now is past `updated_at + valid_for`).
@@ -65,7 +64,6 @@ impl RefreshTokensQuery {
                         created_at AS "created_at!: chrono::DateTime<chrono::Utc>",
                         updated_at AS "updated_at!: chrono::DateTime<chrono::Utc>",
                         multi_use AS "multi_use!: bool",
-                        valid_for::text AS "valid_for!: String",
                         uses AS "uses!: i32",
                         (now() > updated_at + valid_for) AS "expired!: bool"
                     FROM refresh_tokens
@@ -96,7 +94,6 @@ impl RefreshTokensQuery {
                                 created_at: r.created_at,
                                 updated_at: r.updated_at,
                                 multi_use: r.multi_use,
-                                valid_for: r.valid_for,
                                 uses: r.uses,
                                 expired: r.expired,
                             },
@@ -123,7 +120,7 @@ impl RefreshTokensMutation {
         &self,
         ctx: &Context<'_>,
         #[graphql(
-            desc = "ISO 8601 duration for token validity (e.g. P90D)",
+            desc = "ISO 8601 duration for token validity (e.g. P90D); must be greater than zero and at most one year",
             default_with = "String::from(\"P90D\")"
         )]
         valid_for: String,
@@ -132,6 +129,13 @@ impl RefreshTokensMutation {
     ) -> async_graphql::Result<RefreshTokenResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
+
+        // ISO 8601 durations begin with 'P'; considering this cheap and good enough validation for now.
+        if !valid_for.starts_with('P') {
+            return Err(async_graphql::Error::new(
+                "validFor must be an ISO 8601 duration (e.g. P90D)",
+            ));
+        }
 
         let row = sqlx::query!(
             r#"
@@ -142,10 +146,11 @@ impl RefreshTokensMutation {
             SELECT
                 $1,
                 $2,
-                $3::text::interval,
+                v.valid_for,
                 crypt(nt.secret, gen_salt('bf')),
                 $4
-            FROM new_token nt
+            FROM new_token nt, (SELECT $3::text::interval AS valid_for) v
+            WHERE v.valid_for > interval '0' AND v.valid_for <= interval '366 days'
             RETURNING
                 id AS "id!: models::Id",
                 (SELECT secret FROM new_token) AS "secret!: String"
@@ -155,8 +160,20 @@ impl RefreshTokensMutation {
             valid_for,
             detail.as_deref(),
         )
-        .fetch_one(&env.pg_pool)
-        .await?;
+        .fetch_optional(&env.pg_pool)
+        .await
+        .map_err(|err| {
+            // Postgres raises SQLSTATE 22007 for malformed interval input,
+            // which is a client error rather than an internal fault.
+            if err.as_database_error().and_then(|e| e.code()).as_deref() == Some("22007") {
+                async_graphql::Error::new("validFor must be a valid ISO 8601 duration (e.g. P90D)")
+            } else {
+                async_graphql::Error::new(format!("failed to create refresh token: {err}"))
+            }
+        })?
+        .ok_or_else(|| {
+            async_graphql::Error::new("validFor must be greater than zero and at most one year")
+        })?;
 
         tracing::info!(
             refresh_token_id = %row.id,
@@ -279,6 +296,28 @@ mod test {
             .as_str()
             .expect("should return a secret")
             .to_string();
+
+        // === Invalid validFor values are rejected at the boundary ===
+        // Zero (which aliases the revoked sentinel), over a year, and
+        // non-ISO-8601 syntax all fail rather than creating an unusable token.
+        for bad in ["PT0S", "P2Y", "90 days"] {
+            let rejected: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        mutation($v: String!) {
+                            createRefreshToken(validFor: $v) { id }
+                        }"#,
+                        "variables": { "v": bad }
+                    }),
+                    Some(&alice_token),
+                )
+                .await;
+            assert!(
+                rejected["errors"].is_array(),
+                "validFor {bad:?} should be rejected: {rejected}"
+            );
+        }
 
         // === List refresh tokens (scoped to the authenticated user) ===
         let list: serde_json::Value = server

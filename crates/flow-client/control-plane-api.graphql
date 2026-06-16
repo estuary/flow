@@ -1191,7 +1191,7 @@ type MutationRoot {
 	"""
 	createRefreshToken(
 		"""
-		ISO 8601 duration for token validity (e.g. P90D)
+		ISO 8601 duration for token validity (e.g. P90D); must be greater than zero and at most one year
 		"""
 		validFor: String! = "P90D",		multiUse: Boolean! = true,		detail: String = null
 	): RefreshTokenResult!
@@ -1524,7 +1524,6 @@ type RefreshTokenInfo {
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	multiUse: Boolean!
-	validFor: String!
 	uses: Int!
 	"""
 	True once the token's validity window has elapsed

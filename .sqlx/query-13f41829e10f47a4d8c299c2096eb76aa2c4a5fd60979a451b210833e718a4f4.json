@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        id AS \"id!: models::Id\",\n                        detail,\n                        created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n                        updated_at AS \"updated_at!: chrono::DateTime<chrono::Utc>\",\n                        multi_use AS \"multi_use!: bool\",\n                        uses AS \"uses!: i32\",\n                        (now() > updated_at + valid_for) AS \"expired!: bool\"\n                    FROM refresh_tokens\n                    WHERE user_id = $1\n                      AND valid_for <> interval '0'\n                      AND ($2::timestamptz IS NULL OR created_at < $2)\n                    ORDER BY created_at DESC\n                    LIMIT $3 + 1\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "detail",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "updated_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "multi_use!: bool",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "uses!: i32",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "expired!: bool",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "13f41829e10f47a4d8c299c2096eb76aa2c4a5fd60979a451b210833e718a4f4"
+}
