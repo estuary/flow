@@ -297,7 +297,7 @@ impl Ord for Segment {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         let (l, r) = (&self.head, &other.head);
 
-        // Order entries on (binding, key, !front, spill-order):
+        // Order entries on (binding, key, !prior_gen, !front, spill-order):
         // For each (binding, key), we take front() entries first, and then
         // take the Segment which was produced into the spill file first.
         // This maintains the left-to-right associative ordering of reductions.
@@ -309,6 +309,7 @@ impl Ord for Segment {
             .then_with(|| {
                 Extractor::compare_key(&self.keys[l.meta.binding()], l.root.get(), r.root.get())
             })
+            .then_with(|| l.meta.prior_gen().cmp(&r.meta.prior_gen()).reverse())
             .then_with(|| l.meta.front().cmp(&r.meta.front()).reverse())
             .then_with(|| self.next.start.cmp(&other.next.start))
     }
@@ -363,6 +364,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         while let Some(cmp::Reverse(next)) = self.heap.peek() {
             if meta.0 != next.head.meta.0
                 || !Extractor::compare_key(key, root.get(), next.head.root.get()).is_eq()
+                || meta.prior_gen()
             {
                 self.in_group = false;
                 break;
@@ -1094,7 +1096,7 @@ mod test {
             .map(|(binding, value, front)| HeapEntry {
                 // !front() entries are marked known_valid, simulating having
                 // been validated during memtable::spill().
-                meta: Meta::new(*binding, &[], *front, !front),
+                meta: Meta::new(*binding, &[], *front, !front, false),
                 root: HeapRoot::from_heap_node(HeapNode::from_node(value, &alloc)),
             })
             .collect()
@@ -1126,7 +1128,7 @@ mod test {
                 let raw = buf as &[crate::embedded::U64Le];
 
                 HeapEntry {
-                    meta: Meta::new(*binding, &[], *front, !front),
+                    meta: Meta::new(*binding, &[], *front, !front, false),
                     root: HeapRoot::Embedded(raw.as_ptr(), raw.len() as u32),
                 }
             })

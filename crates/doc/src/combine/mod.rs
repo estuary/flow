@@ -270,7 +270,7 @@ impl Combiner {
 
 impl Meta {
     #[inline]
-    fn new(binding: u16, key: &[u8], front: bool, known_valid: bool) -> Self {
+    fn new(binding: u16, key: &[u8], front: bool, known_valid: bool, prior_gen: bool) -> Self {
         let b = binding.to_be_bytes();
         let mut packed = [b[0], b[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         // Copy up to 13 bytes of `key` into the packed representation.
@@ -286,6 +286,9 @@ impl Meta {
         if known_valid {
             flags |= META_FLAG_KNOWN_VALID;
         }
+        if prior_gen {
+            flags |= META_FLAG_PRIOR_GEN;
+        }
         Self(packed, flags)
     }
 
@@ -297,6 +300,7 @@ impl Meta {
         packed_key_prefix: &[u8; 16],
         front: bool,
         known_valid: bool,
+        prior_gen: bool,
     ) -> Self {
         let b = binding.to_be_bytes();
         let p = packed_key_prefix;
@@ -313,6 +317,9 @@ impl Meta {
         if known_valid {
             flags |= META_FLAG_KNOWN_VALID;
         }
+        if prior_gen {
+            flags |= META_FLAG_PRIOR_GEN;
+        }
         Self(packed, flags)
     }
 
@@ -328,6 +335,14 @@ impl Meta {
     #[inline]
     pub fn front(&self) -> bool {
         self.1 & META_FLAG_FRONT != 0
+    }
+
+    /// Was this entry from a prior generation?
+    /// Prior generation documents will not be combined with the current
+    /// generation.
+    #[inline]
+    pub fn prior_gen(&self) -> bool {
+        self.1 & META_FLAG_PRIOR_GEN != 0
     }
 
     /// Is this entry known to be valid? Known-valid entries skip validation
@@ -396,6 +411,9 @@ impl std::fmt::Debug for Meta {
         if self.known_valid() {
             s.field(&"V");
         }
+        if self.prior_gen() {
+            s.field(&"PG");
+        }
         s.finish()
     }
 }
@@ -408,6 +426,8 @@ const META_FLAG_NOT_ASSOCIATIVE: u8 = 0x02;
 const META_FLAG_DELETED: u8 = 0x04;
 // Flag marking this entry is known to be valid against its schema.
 const META_FLAG_KNOWN_VALID: u8 = 0x08;
+// Flag marking a prior generation entry.
+const META_FLAG_PRIOR_GEN: u8 = 0x10;
 
 // The number of used bytes within a Bump allocator.
 fn bump_mem_used(alloc: &bumpalo::Bump) -> usize {

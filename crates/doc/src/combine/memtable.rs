@@ -66,7 +66,7 @@ impl Entries {
     }
 
     fn compact(&mut self, alloc: &'static Bump) -> Result<(), Error> {
-        // `sort_ord` orders over (binding, key, !front):
+        // `sort_ord` orders over (binding, key, !prior_gen, !front):
         // For each (binding, key), we take front() entries first, and further
         // rely on sort preserving the order in which entries were added.
         // This maintains the left-to-right associative ordering of reductions.
@@ -80,6 +80,7 @@ impl Entries {
                     // Cold path: Meta prefix was equal, so compare the full key.
                     compare_root_keys(&self.spec.keys[l.meta.binding()], &l.root, &r.root)
                 })
+                .then_with(|| l.meta.prior_gen().cmp(&r.meta.prior_gen()).reverse())
                 .then_with(|| l.meta.front().cmp(&r.meta.front()).reverse())
         };
         let validators = &mut self.spec.validators;
@@ -234,6 +235,23 @@ impl MemTable {
 
     /// Add the document to the MemTable.
     pub fn add<'s>(&'s self, binding: u16, root: HeapNode<'s>, front: bool) -> Result<(), Error> {
+        self.add_with_flags(binding, root, front, false, false)
+    }
+
+    /// Add a document from a prior generation to the MemTable, that will not be
+    /// reduced with those from the current generation.
+    pub fn add_prior_gen<'s>(&'s self, binding: u16, root: HeapNode<'s>) -> Result<(), Error> {
+        self.add_with_flags(binding, root, true, true, true)
+    }
+
+    fn add_with_flags<'s>(
+        &'s self,
+        binding: u16,
+        root: HeapNode<'s>,
+        front: bool,
+        prior_gen: bool,
+        known_valid: bool,
+    ) -> Result<(), Error> {
         // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
         let root = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(root) };
@@ -245,12 +263,7 @@ impl MemTable {
             &mut entries.scratch,
             None,
         );
-        let meta = Meta::new(
-            binding,
-            &entries.scratch,
-            front,
-            false, // `known_valid`
-        );
+        let meta = Meta::new(binding, &entries.scratch, front, known_valid, prior_gen);
 
         entries.queued.push(HeapEntry {
             meta,
@@ -303,7 +316,13 @@ impl MemTable {
         let raw = embedded.as_u64le_slice();
         let root = HeapRoot::Embedded(raw.as_ptr(), raw.len() as u32);
 
-        let meta = Meta::from_packed_prefix(binding, packed_key_prefix, front, known_valid);
+        let meta = Meta::from_packed_prefix(
+            binding,
+            packed_key_prefix,
+            front,
+            known_valid,
+            false, // prior generation documents are surpressed by the shuffle reader
+        );
         entries.queued.push(HeapEntry { meta, root });
 
         if entries.should_compact() {
@@ -439,7 +458,10 @@ impl MemDrainer {
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {
-            if meta.0 != next.meta.0 || !compare_root_keys(keys, &root, &next.root).is_eq() {
+            if meta.0 != next.meta.0
+                || !compare_root_keys(keys, &root, &next.root).is_eq()
+                || meta.prior_gen()
+            {
                 self.in_group = false;
                 break;
             } else if !is_full && (!self.in_group || meta.not_associative()) {
@@ -643,6 +665,68 @@ mod test {
         memtable
             .add_embedded(binding, &packed_prefix, embedded, front, false)
             .unwrap();
+    }
+
+    #[test]
+    fn test_prior_gen_partition() {
+        let schema = build_schema(
+            &url::Url::parse("http://example/schema").unwrap(),
+            &json!({
+                "properties": { "v": { "type": "array", "reduce": { "strategy": "append" } } },
+                "reduce": { "strategy": "merge" }
+            }),
+        )
+        .unwrap();
+        let memtable = MemTable::new(Spec::with_one_binding(
+            true,
+            vec![Extractor::with_default(
+                "/key",
+                &SerPolicy::noop(),
+                json!("def"),
+            )],
+            "test",
+            Vec::new(),
+            Validator::new(schema).unwrap(),
+        ));
+
+        let add = |doc: Value, front: bool| {
+            memtable
+                .add(0, HeapNode::from_node(&doc, memtable.alloc()), front)
+                .unwrap()
+        };
+        let add_prior = |doc: Value| {
+            memtable
+                .add_prior_gen(0, HeapNode::from_node(&doc, memtable.alloc()))
+                .unwrap()
+        };
+
+        // Same key, prior + current generation: NOT reduced together — they drain
+        // as two docs (v stays ["fresh"], not ["stale","fresh"]).
+        add(json!({"key": "k", "v": ["fresh"]}), false);
+        add_prior(json!({"key": "k", "v": ["stale"]}));
+
+        // A schema-invalid prior-generation row drains without FailedValidation:
+        // add_prior_gen marks it `known_valid` (it's discarded downstream).
+        add_prior(json!({"key": "bad", "v": 42}));
+
+        let actual = memtable
+            .try_into_drainer()
+            .unwrap()
+            .map_ok(|doc| {
+                let root = serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap();
+                (root["v"].clone(), doc.meta.prior_gen(), doc.meta.front())
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(
+            actual,
+            vec![
+                (json!(42), true, true),          // "bad": invalid prior-gen, emitted as-is
+                (json!(["stale"]), true, true),   // "k": prior-gen, not merged forward
+                (json!(["fresh"]), false, false), // "k": current-gen, no stale merged in
+            ],
+        );
     }
 
     #[test]
