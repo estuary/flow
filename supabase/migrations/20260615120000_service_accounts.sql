@@ -28,10 +28,8 @@ comment on table internal.service_accounts is
 create index service_accounts_catalog_name_spgist on internal.service_accounts
   using spgist ((catalog_name::text));
 
--- API keys: long-lived credentials for service accounts, presented directly
--- as Authorization: Bearer credentials. Keys are evaluated statefully ONLY:
--- every request re-verifies the key against this table, and a key is never
--- exchanged for a signed JWT — which is what makes revocation immediate.
+-- API keys: long-lived credentials for service accounts. Presented directly
+-- as Authorization: Bearer credentials or exchanged for a short-lived (1-hour) access token.
 
 create table internal.api_keys (
   id                  public.flowid primary key not null default internal.id_generator(),
@@ -56,6 +54,6 @@ create table internal.api_keys (
 create index api_keys_service_account_id on internal.api_keys (service_account_id);
 
 comment on table internal.api_keys is
-  'Long-lived credentials for service accounts, verified statefully as bearer credentials on every request (never exchanged for JWTs).';
+  'Long-lived service-account credentials, verified statefully on every request as bearer credentials, or optionally exchanged for a short-lived access token.';
 
 commit;

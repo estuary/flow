@@ -217,8 +217,8 @@ impl ServiceAccountsMutation {
     /// what the account may access. Access is determined solely by the
     /// account's user_grants, which may span multiple prefixes.
     ///
-    /// The caller must have admin capability on the catalog name AND on each
-    /// granted prefix. Creates an auth.users row, an
+    /// The caller must have ManageServiceAccounts on the catalog name AND
+    /// CreateGrant on each granted prefix. Creates an auth.users row, an
     /// internal.service_accounts row, and a user_grants row per requested
     /// grant.
     async fn create_service_account(
@@ -252,13 +252,29 @@ impl ServiceAccountsMutation {
             }
         }
 
-        super::verify_authorization(env, catalog_name.as_str(), models::Capability::Admin).await?;
-        // Each grant requires the same authorization as granting a human user:
-        // admin capability on the granted prefix. This prevents a caller from
-        // provisioning an account with access they don't themselves administer.
+        // Managing the account (here, creating it under this anchor) requires
+        // ManageServiceAccounts on the catalog name — the same capability that
+        // gates listing in ServiceAccountsQuery, so the read and write surfaces
+        // agree. This is deliberately narrower than full Admin.
+        super::verify_authorization(
+            env,
+            catalog_name.as_str(),
+            models::authz::Capability::ManageServiceAccounts,
+        )
+        .await?;
+        // Granting the account access to a prefix requires CreateGrant on that
+        // prefix — the anti-escalation guard, distinct from managing the
+        // account: a caller can't hand a service account reach they couldn't
+        // grant anyone. (Human-user grant creation still lives in PostgREST;
+        // when it migrates to GraphQL it should gate on this same CreateGrant
+        // capability.)
         for grant in &grants {
-            super::verify_authorization(env, grant.prefix.as_str(), models::Capability::Admin)
-                .await?;
+            super::verify_authorization(
+                env,
+                grant.prefix.as_str(),
+                models::authz::Capability::CreateGrant,
+            )
+            .await?;
         }
 
         let mut txn = env.pg_pool.begin().await?;
@@ -328,11 +344,12 @@ impl ServiceAccountsMutation {
 
     /// Add a user_grant to a service account.
     ///
-    /// The caller must manage the service account (admin capability on its
-    /// catalog name) AND have admin capability on the granted prefix — the
-    /// same authorization as granting a human user. The second requirement
-    /// prevents a caller from extending an account's access beyond what they
-    /// themselves administer.
+    /// The caller must manage the service account (ManageServiceAccounts on its
+    /// catalog name) AND have CreateGrant on the granted prefix. The second
+    /// requirement prevents a caller from extending an account's access beyond
+    /// what they could grant anyone. (Human-user grant creation still lives in
+    /// PostgREST; when it migrates to GraphQL it should gate on this same
+    /// CreateGrant capability.)
     async fn add_service_account_grant(
         &self,
         ctx: &Context<'_>,
@@ -358,8 +375,14 @@ impl ServiceAccountsMutation {
         }
 
         let catalog_name = lookup_service_account(&env.pg_pool, user_id).await?;
-        super::verify_authorization(env, &catalog_name, models::Capability::Admin).await?;
-        super::verify_authorization(env, prefix.as_str(), models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            &catalog_name,
+            models::authz::Capability::ManageServiceAccounts,
+        )
+        .await?;
+        super::verify_authorization(env, prefix.as_str(), models::authz::Capability::CreateGrant)
+            .await?;
 
         let mut txn = env.pg_pool.begin().await?;
         crate::grants::upsert_user_grant(
@@ -386,7 +409,7 @@ impl ServiceAccountsMutation {
 
     /// Remove a user_grant from a service account.
     ///
-    /// The caller must manage the service account (admin capability on its
+    /// The caller must manage the service account (ManageServiceAccounts on its
     /// catalog name). Unlike addServiceAccountGrant, no capability on the
     /// grant's prefix is required: removal only ever narrows the account's
     /// access, so managers may remove ANY grant — including grants to
@@ -401,7 +424,12 @@ impl ServiceAccountsMutation {
         let claims = env.claims()?;
 
         let catalog_name = lookup_service_account(&env.pg_pool, user_id).await?;
-        super::verify_authorization(env, &catalog_name, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            &catalog_name,
+            models::authz::Capability::ManageServiceAccounts,
+        )
+        .await?;
 
         let deleted = sqlx::query!(
             "DELETE FROM public.user_grants WHERE user_id = $1 AND object_role = $2",
@@ -444,7 +472,12 @@ impl ServiceAccountsMutation {
         let claims = env.claims()?;
 
         let catalog_name = lookup_service_account(&env.pg_pool, user_id).await?;
-        super::verify_authorization(env, &catalog_name, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            &catalog_name,
+            models::authz::Capability::ManageServiceAccounts,
+        )
+        .await?;
 
         // valid_for is documented as an ISO 8601 duration (e.g. P90D, P1Y).
         // Reject anything that isn't ISO 8601 up front: the `::interval` cast
@@ -578,7 +611,12 @@ impl ServiceAccountsMutation {
         };
 
         let catalog_name = lookup_service_account(&env.pg_pool, key_owner).await?;
-        super::verify_authorization(env, &catalog_name, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            &catalog_name,
+            models::authz::Capability::ManageServiceAccounts,
+        )
+        .await?;
 
         sqlx::query!(
             "UPDATE internal.api_keys SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
@@ -1291,5 +1329,160 @@ mod test {
             )
             .await;
         assert!(remove_unmanaged["errors"].is_array());
+    }
+
+    /// The management gates accept the fine-grained capabilities the feature
+    /// defines, not only the full `Admin` bundle: a caller holding `TeamAdmin`
+    /// (which confers `ManageServiceAccounts` + `CreateGrant`) but NOT `Admin`
+    /// can manage service accounts, while the per-grant `CreateGrant` check
+    /// still bounds how far they can extend an account's reach.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_team_admin_manages_without_full_admin(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // Carol holds the TeamAdmin bundle on aliceCo/ and nothing else: her
+        // grant carries no legacy capability ('none'), so her bits come solely
+        // from the bundle — ManageServiceAccounts and CreateGrant, but none of
+        // the wider Admin-bundle bits. This is the caller class the gates were
+        // narrowed to admit. Seeded before the snapshot so authorization
+        // observes it.
+        let carol_uid = uuid::Uuid::from_bytes([0x33; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'carol@example.test')")
+            .bind(carol_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO public.user_grants (user_id, object_role, capability, bundles)
+             VALUES ($1, 'aliceCo/', 'none', ARRAY['team_admin']::capability_bundle[])",
+        )
+        .bind(carol_uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let carol_token = server.make_access_token(carol_uid, Some("carol@example.test"));
+
+        // Create succeeds: the anchor gate accepts ManageServiceAccounts, and
+        // the per-grant gate accepts CreateGrant on aliceCo/data/ (covered by
+        // Carol's aliceCo/ bundle) — all without her holding full Admin.
+        let create: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($grants: [ServiceAccountGrantInput!]!) {
+                        createServiceAccount(
+                            catalogName: "aliceCo/team-bot"
+                            displayName: "Team Bot"
+                            grants: $grants
+                        ) { id createdBy }
+                    }"#,
+                    "variables": {
+                        "grants": [ { "prefix": "aliceCo/data/", "capability": "read" } ]
+                    }
+                }),
+                Some(&carol_token),
+            )
+            .await;
+        assert!(
+            create["errors"].is_null(),
+            "a TeamAdmin without full Admin should create a service account: {create}"
+        );
+        let sa_user_id = create["data"]["createServiceAccount"]["id"]
+            .as_str()
+            .expect("should have id");
+        assert_eq!(
+            create["data"]["createServiceAccount"]["createdBy"],
+            "33333333-3333-3333-3333-333333333333",
+            "createdBy should be the calling team admin: {create}"
+        );
+
+        // The anchor-only mutation createApiKey also accepts ManageServiceAccounts.
+        let key: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($id: UUID!) {
+                        createApiKey(serviceAccountId: $id, label: "ci", validFor: "P30D") { id }
+                    }"#,
+                    "variables": { "id": sa_user_id }
+                }),
+                Some(&carol_token),
+            )
+            .await;
+        assert!(
+            key["errors"].is_null(),
+            "a TeamAdmin should mint an API key: {key}"
+        );
+
+        // addServiceAccountGrant to a prefix Carol can confer (she holds
+        // CreateGrant across aliceCo/) succeeds.
+        let add_ok: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($id: UUID!) {
+                        addServiceAccountGrant(serviceAccountId: $id, prefix: "aliceCo/ops/", capability: write)
+                    }"#,
+                    "variables": { "id": sa_user_id }
+                }),
+                Some(&carol_token),
+            )
+            .await;
+        assert!(
+            add_ok["errors"].is_null(),
+            "granting a prefix the team admin can confer should succeed: {add_ok}"
+        );
+
+        // Anti-escalation: Carol lacks CreateGrant on bobCo/, so she cannot
+        // extend the account there — managing an account does not let her widen
+        // its reach beyond what she could grant. This is the boundary now
+        // sitting at CreateGrant rather than Admin.
+        let add_escalation: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($id: UUID!) {
+                        addServiceAccountGrant(serviceAccountId: $id, prefix: "bobCo/", capability: read)
+                    }"#,
+                    "variables": { "id": sa_user_id }
+                }),
+                Some(&carol_token),
+            )
+            .await;
+        assert!(
+            add_escalation["errors"].is_array(),
+            "a team admin must not grant a prefix she lacks CreateGrant on: {add_escalation}"
+        );
+
+        // The same boundary binds at creation time: seeding a foreign grant fails.
+        let create_escalation: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createServiceAccount(
+                            catalogName: "aliceCo/overreach-bot"
+                            displayName: "overreach"
+                            grants: [{ prefix: "bobCo/", capability: read }]
+                        ) { id }
+                    }"#
+                }),
+                Some(&carol_token),
+            )
+            .await;
+        assert!(
+            create_escalation["errors"].is_array(),
+            "seeding a grant beyond the team admin's CreateGrant must fail: {create_escalation}"
+        );
     }
 }
