@@ -8393,6 +8393,12 @@ impl serde::Serialize for Persist {
         if !self.trigger_params_json.is_empty() {
             len += 1;
         }
+        if !self.set_active_backfills.is_empty() {
+            len += 1;
+        }
+        if !self.delete_active_backfills.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Persist", len)?;
         if self.seq_no != 0 {
             #[allow(clippy::needless_borrow)]
@@ -8458,6 +8464,14 @@ impl serde::Serialize for Persist {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("triggerParams", &crate::as_raw_json(&self.trigger_params_json)?)?;
         }
+        if !self.set_active_backfills.is_empty() {
+            let v: std::collections::HashMap<_, _> = self.set_active_backfills.iter()
+                .map(|(k, v)| (k, v.to_string())).collect();
+            struct_ser.serialize_field("setActiveBackfills", &v)?;
+        }
+        if !self.delete_active_backfills.is_empty() {
+            struct_ser.serialize_field("deleteActiveBackfills", &self.delete_active_backfills)?;
+        }
         struct_ser.end()
     }
 }
@@ -8500,6 +8514,10 @@ impl<'de> serde::Deserialize<'de> for Persist {
             "deleteTriggerParams",
             "trigger_params_json",
             "triggerParams",
+            "set_active_backfills",
+            "setActiveBackfills",
+            "delete_active_backfills",
+            "deleteActiveBackfills",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -8520,6 +8538,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
             MaxKeys,
             DeleteTriggerParams,
             TriggerParamsJson,
+            SetActiveBackfills,
+            DeleteActiveBackfills,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -8558,6 +8578,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
                             "maxKeys" | "max_keys" => Ok(GeneratedField::MaxKeys),
                             "deleteTriggerParams" | "delete_trigger_params" => Ok(GeneratedField::DeleteTriggerParams),
                             "triggerParams" | "trigger_params_json" => Ok(GeneratedField::TriggerParamsJson),
+                            "setActiveBackfills" | "set_active_backfills" => Ok(GeneratedField::SetActiveBackfills),
+                            "deleteActiveBackfills" | "delete_active_backfills" => Ok(GeneratedField::DeleteActiveBackfills),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -8593,6 +8615,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
                 let mut max_keys__ = None;
                 let mut delete_trigger_params__ = None;
                 let mut trigger_params_json__ = None;
+                let mut set_active_backfills__ = None;
+                let mut delete_active_backfills__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SeqNo => {
@@ -8709,6 +8733,24 @@ impl<'de> serde::Deserialize<'de> for Persist {
                                 Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
                             ;
                         }
+                        GeneratedField::SetActiveBackfills => {
+                            if set_active_backfills__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("setActiveBackfills"));
+                            }
+                            set_active_backfills__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<::pbjson::private::NumberDeserialize<u32>, ::pbjson::private::NumberDeserialize<u64>>>()?
+                                    .into_iter().map(|(k,v)| (k.0, v.0)).collect()
+                            );
+                        }
+                        GeneratedField::DeleteActiveBackfills => {
+                            if delete_active_backfills__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("deleteActiveBackfills"));
+                            }
+                            delete_active_backfills__ = 
+                                Some(map_.next_value::<Vec<::pbjson::private::NumberDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -8731,6 +8773,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
                     max_keys: max_keys__.unwrap_or_default(),
                     delete_trigger_params: delete_trigger_params__.unwrap_or_default(),
                     trigger_params_json: trigger_params_json__.unwrap_or_default(),
+                    set_active_backfills: set_active_backfills__.unwrap_or_default(),
+                    delete_active_backfills: delete_active_backfills__.unwrap_or_default(),
                 })
             }
         }
@@ -8949,6 +8993,9 @@ impl serde::Serialize for Recover {
         if !self.trigger_params_json.is_empty() {
             len += 1;
         }
+        if !self.active_backfills.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Recover", len)?;
         if !self.ack_intents.is_empty() {
             let v: std::collections::HashMap<_, _> = self.ack_intents.iter()
@@ -8994,6 +9041,11 @@ impl serde::Serialize for Recover {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("triggerParams", &crate::as_raw_json(&self.trigger_params_json)?)?;
         }
+        if !self.active_backfills.is_empty() {
+            let v: std::collections::HashMap<_, _> = self.active_backfills.iter()
+                .map(|(k, v)| (k, v.to_string())).collect();
+            struct_ser.serialize_field("activeBackfills", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -9024,6 +9076,8 @@ impl<'de> serde::Deserialize<'de> for Recover {
             "maxKeys",
             "trigger_params_json",
             "triggerParams",
+            "active_backfills",
+            "activeBackfills",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -9038,6 +9092,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
             LegacyCheckpoint,
             MaxKeys,
             TriggerParamsJson,
+            ActiveBackfills,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -9070,6 +9125,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
                             "legacyCheckpoint" | "legacy_checkpoint" => Ok(GeneratedField::LegacyCheckpoint),
                             "maxKeys" | "max_keys" => Ok(GeneratedField::MaxKeys),
                             "triggerParams" | "trigger_params_json" => Ok(GeneratedField::TriggerParamsJson),
+                            "activeBackfills" | "active_backfills" => Ok(GeneratedField::ActiveBackfills),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -9099,6 +9155,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
                 let mut legacy_checkpoint__ = None;
                 let mut max_keys__ = None;
                 let mut trigger_params_json__ = None;
+                let mut active_backfills__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AckIntents => {
@@ -9177,6 +9234,15 @@ impl<'de> serde::Deserialize<'de> for Recover {
                                 Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
                             ;
                         }
+                        GeneratedField::ActiveBackfills => {
+                            if active_backfills__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("activeBackfills"));
+                            }
+                            active_backfills__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<::pbjson::private::NumberDeserialize<u32>, ::pbjson::private::NumberDeserialize<u64>>>()?
+                                    .into_iter().map(|(k,v)| (k.0, v.0)).collect()
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -9193,6 +9259,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
                     legacy_checkpoint: legacy_checkpoint__,
                     max_keys: max_keys__.unwrap_or_default(),
                     trigger_params_json: trigger_params_json__.unwrap_or_default(),
+                    active_backfills: active_backfills__.unwrap_or_default(),
                 })
             }
         }

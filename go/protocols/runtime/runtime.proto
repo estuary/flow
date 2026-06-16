@@ -545,6 +545,11 @@ message Recover {
   map<uint32, bytes> max_keys = 9;
   // Persisted trigger parameters (materialize only), or empty.
   bytes trigger_params_json = 10 [json_name = "triggerParams"];
+  // Active-backfill begin clocks, keyed by binding index. Restored so the
+  // capture runtime can re-apply truncated-at journal labels on startup and
+  // resolve a BackfillComplete's truncated_at. Resolved from "AB:{state_key}"
+  // keys by the scan.
+  map<uint32, fixed64> active_backfills = 11;
 }
 
 // Persist is sent by the leader to shard zero when state must be durably
@@ -607,6 +612,15 @@ message Persist {
   // Materialization trigger parameters.
   // Effect: Put under "trigger-params" key.
   bytes trigger_params_json = 16 [ json_name = "triggerParams" ];
+  // Set active-backfill begin clocks for bindings that observed a
+  // BackfillBegin control checkpoint.
+  // Key: binding index; Value: begin clock.
+  // Effect: Put fixed64-LE under "AB:{state_key}" (state_key resolved by the encoder).
+  map<uint32, fixed64> set_active_backfills = 17;
+  // Clear active-backfill entries for bindings that observed a
+  // BackfillComplete control checkpoint. Applies after set_active_backfills.
+  // Effect: Delete "AB:{state_key}" (state_key resolved by the encoder).
+  repeated uint32 delete_active_backfills = 18;
 }
 
 // Persisted is sent by shard zero to the leader after the state is durable

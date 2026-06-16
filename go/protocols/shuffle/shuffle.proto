@@ -107,6 +107,32 @@ message Frontier {
   repeated JournalFrontier journals = 1;
   // Per-shard flushed LSN, indexed by shard_index.
   repeated uint64 flushed_lsn = 2;
+
+  // BackfillBegin is a binding's latest backfill-begin clock, keyed by the
+  // binding's stable journal_read_suffix.
+  message BackfillBegin {
+    // Binding's journal read suffix, stable across task versions.
+    string journal_read_suffix = 1;
+    // Clock of the binding's most recent backfill-begin.
+    fixed64 clock = 2;
+  }
+  // Latest backfill-begin clock for each binding in the checkpoint delta.
+  // Populated only on a terminal (empty-journals) frontier of a Progressed
+  // or NextCheckpoint sequence. Empty otherwise.
+  repeated BackfillBegin latest_backfill_begin = 3;
+
+  // BackfillComplete is a binding's latest backfill-complete clock, keyed by
+  // the binding's stable journal_read_suffix.
+  message BackfillComplete {
+    // Binding's journal read suffix, stable across task versions.
+    string journal_read_suffix = 1;
+    // Clock of the binding's most recent backfill-complete.
+    fixed64 clock = 2;
+  }
+  // Latest backfill-complete clock for each binding in the checkpoint delta.
+  // Populated only on a terminal (empty-journals) frontier of a Progressed
+  // or NextCheckpoint sequence. Empty otherwise.
+  repeated BackfillComplete latest_backfill_complete = 4;
 }
 
 // SessionRequest is sent by the Coordinator to manage the shuffle session.

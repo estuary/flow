@@ -580,6 +580,12 @@ pub struct Recover {
     /// Persisted trigger parameters (materialize only), or empty.
     #[prost(bytes = "bytes", tag = "10")]
     pub trigger_params_json: ::prost::bytes::Bytes,
+    /// Active-backfill begin clocks, keyed by binding index. Restored so the
+    /// capture runtime can re-apply truncated-at journal labels on startup and
+    /// resolve a BackfillComplete's truncated_at. Resolved from "AB:{state_key}"
+    /// keys by the scan.
+    #[prost(btree_map = "uint32, fixed64", tag = "11")]
+    pub active_backfills: ::prost::alloc::collections::BTreeMap<u32, u64>,
 }
 /// Persist is sent by the leader to shard zero when state must be durably
 /// written. Each field maps to a contractual WriteBatch effect on shard
@@ -661,6 +667,17 @@ pub struct Persist {
     /// Effect: Put under "trigger-params" key.
     #[prost(bytes = "bytes", tag = "16")]
     pub trigger_params_json: ::prost::bytes::Bytes,
+    /// Set active-backfill begin clocks for bindings that observed a
+    /// BackfillBegin control checkpoint.
+    /// Key: binding index; Value: begin clock.
+    /// Effect: Put fixed64-LE under "AB:{state_key}" (state_key resolved by the encoder).
+    #[prost(btree_map = "uint32, fixed64", tag = "17")]
+    pub set_active_backfills: ::prost::alloc::collections::BTreeMap<u32, u64>,
+    /// Clear active-backfill entries for bindings that observed a
+    /// BackfillComplete control checkpoint. Applies after set_active_backfills.
+    /// Effect: Delete "AB:{state_key}" (state_key resolved by the encoder).
+    #[prost(uint32, repeated, tag = "18")]
+    pub delete_active_backfills: ::prost::alloc::vec::Vec<u32>,
 }
 /// Persisted is sent by shard zero to the leader after the state is durable
 /// in the recovery log.

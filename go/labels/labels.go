@@ -36,7 +36,19 @@ const (
 	KeyEndMax = "ffffffff"
 	// ManagedByFlow is a value for the Gazette labels.ManagedBy label.
 	ManagedByFlow = "estuary.dev/flow"
+	// TruncatedAt is the publication timestamp after which journal data is current,
+	// determined by the last backfill-begin timestamp of the collection's capture.
+	//
+	// Its value is a fixed-width, 16-character hex encoding of a uint64 Gazette
+	// message.Clock. A reader raises its effective not_before to this clock to
+	// skip the stale pre-backfill prefix.
+	TruncatedAt = "estuary.dev/truncated-at"
 )
+
+// FlagControl is the CONTROL message flag (bit 2) marking application control
+// messages. Control messages are immediately committed metadata events and
+// never participate in a CONTINUE_TXN / ACK_TXN span.
+const FlagControl uint16 = 0x4
 
 // ShardSpec labels.
 const (

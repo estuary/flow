@@ -123,6 +123,41 @@ pub struct Frontier {
     /// Per-shard flushed LSN, indexed by shard_index.
     #[prost(uint64, repeated, tag = "2")]
     pub flushed_lsn: ::prost::alloc::vec::Vec<u64>,
+    /// Latest backfill-begin clock for each binding in the checkpoint delta.
+    /// Populated only on a terminal (empty-journals) frontier of a Progressed
+    /// or NextCheckpoint sequence. Empty otherwise.
+    #[prost(message, repeated, tag = "3")]
+    pub latest_backfill_begin: ::prost::alloc::vec::Vec<frontier::BackfillBegin>,
+    /// Latest backfill-complete clock for each binding in the checkpoint delta.
+    /// Populated only on a terminal (empty-journals) frontier of a Progressed
+    /// or NextCheckpoint sequence. Empty otherwise.
+    #[prost(message, repeated, tag = "4")]
+    pub latest_backfill_complete: ::prost::alloc::vec::Vec<frontier::BackfillComplete>,
+}
+/// Nested message and enum types in `Frontier`.
+pub mod frontier {
+    /// BackfillBegin is a binding's latest backfill-begin clock, keyed by the
+    /// binding's stable journal_read_suffix.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct BackfillBegin {
+        /// Binding's journal read suffix, stable across task versions.
+        #[prost(string, tag = "1")]
+        pub journal_read_suffix: ::prost::alloc::string::String,
+        /// Clock of the binding's most recent backfill-begin.
+        #[prost(fixed64, tag = "2")]
+        pub clock: u64,
+    }
+    /// BackfillComplete is a binding's latest backfill-complete clock, keyed by
+    /// the binding's stable journal_read_suffix.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct BackfillComplete {
+        /// Binding's journal read suffix, stable across task versions.
+        #[prost(string, tag = "1")]
+        pub journal_read_suffix: ::prost::alloc::string::String,
+        /// Clock of the binding's most recent backfill-complete.
+        #[prost(fixed64, tag = "2")]
+        pub clock: u64,
+    }
 }
 /// SessionRequest is sent by the Coordinator to manage the shuffle session.
 #[derive(Clone, PartialEq, ::prost::Message)]
