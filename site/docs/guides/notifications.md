@@ -29,6 +29,25 @@ Each task also displays its active and historical notifications within the dashb
 From the capture, collection, or materialization details overview page, select the **Alerts** tab.
 Active and historical notifications include the type of alert, when it was fired, any configured recipients, and alert details.
 
+## Scope notifications per environment
+
+Subscriptions are scoped by catalog prefix, and a subscription can target a sub-prefix such as a single environment (for example `acmeCo/prod/`). Subscriptions are additive: an alert notifies every subscription whose prefix is a parent of the failing task. To route environments differently, for example to page an on-call address for `acmeCo/prod/` but send `acmeCo/dev/` alerts to a team list, create a separate subscription for each prefix.
+
+You can also manage subscriptions with the flowctl CLI, which is the most direct way to scope a subscription to a sub-prefix:
+
+```bash
+# Subscribe an address to Task Failed alerts for one environment
+flowctl alerts subscriptions subscribe --prefix acmeCo/prod/ --email oncall@example.com --alert-type shard_failed
+
+# List current subscriptions under a prefix
+flowctl alerts subscriptions list --prefix acmeCo/
+
+# Remove a single alert type from a subscription (the others stay in place)
+flowctl alerts subscriptions unsubscribe --prefix acmeCo/ --email oncall@example.com --alert-type shard_failed
+```
+
+Catalog prefixes must end in `/`.
+
 ## Alert Types
 
 Alerts are broken out into different categories. These categories cover different failure modes, unexpected behavior, and warnings.
@@ -64,6 +83,8 @@ If the task remains in this chronically failing state and is unable to progress,
 
 Additional details about the failure will be available in the connector's **Alerts** tab.
 
+By default, the alert fires after 3 failures within an 8-hour window, and resolves once the task has been healthy for about 2 hours. You can change the failure threshold per prefix; see [Configure alert thresholds](#configure-alert-thresholds).
+
 ### Background Publication Failed Alerts
 
 Triggers when an automated background process needs to publish a spec, but is unable to because of publication errors. Background publications are performed on all specs for a variety of reasons. For example, updating inferred schemas, or updating materialization bindings to match the source capture. When these publications fail, tasks are likely to stop functioning correctly until the issue can be addressed.
@@ -95,6 +116,25 @@ All emails in the **Organization Notifications** table are automatically subscri
 * **Free Trial Ending**: Five days remain in a tenant's free trial
 * **Free Trial Stalled**: A tenant's free trial has ended and no payment method has been added
 * **Missing Payment Method**: No payment method is on file for a tenant
+
+## Configure alert thresholds
+
+Several alert conditions can be tuned per prefix or per task with `flowctl alerts configs`. Use this to reduce noise, or to apply different sensitivity to different environments. A more specific prefix overrides a broader one, field by field; any value you don't set inherits the default.
+
+The Task Failed alert fires after a number of failures within a rolling window. The defaults are 3 failures within 8 hours.
+
+```bash
+# Require 6 failures within 8 hours before alerting, for everything under acmeCo/
+flowctl alerts configs update --prefix acmeCo/ --set shardFailed.condition.failures=6
+
+# Apply a higher tolerance to a development environment
+flowctl alerts configs update --prefix acmeCo/dev/ --set shardFailed.condition.failures=20
+
+# View configured thresholds under a prefix
+flowctl alerts configs list --prefix acmeCo/
+```
+
+Other tunable conditions include the Task Failed counting window (`shardFailed.condition.per`, default 8 hours), the Idle threshold (`taskIdle.condition.idleFor`), and the Chronically Failing threshold (`taskChronicallyFailing.condition.failingFor`).
 
 ## Properties
 | Property | Title | Description | Type |
