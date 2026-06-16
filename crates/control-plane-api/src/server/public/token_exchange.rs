@@ -10,10 +10,12 @@ pub enum TokenRequest {
     },
 }
 
-#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct TokenResponse {
     pub access_token: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // `generate_access_token` omits this for multi-use tokens (no rotation),
+    // so it must default to `None` when absent from the SQL JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<RefreshTokenResponse>,
 }
 
@@ -49,12 +51,6 @@ async fn exchange_refresh_token(
     refresh_token_id: models::Id,
     secret: &str,
 ) -> Result<axum::Json<TokenResponse>, crate::ApiError> {
-    #[derive(Debug, serde::Deserialize)]
-    struct SqlResponse {
-        access_token: String,
-        refresh_token: Option<RefreshTokenResponse>,
-    }
-
     let response = sqlx::query!(
         "select generate_access_token($1, $2) as token",
         refresh_token_id as models::Id,
@@ -81,8 +77,8 @@ async fn exchange_refresh_token(
         }
     })?;
 
-    let parsed: SqlResponse =
-        serde_json::from_value(response.token.unwrap_or_default()).map_err(|err| {
+    let parsed: TokenResponse = serde_json::from_value(response.token.unwrap_or_default())
+        .map_err(|err| {
             tracing::error!(
                 ?err,
                 "generate_access_token returned an unparseable response"
@@ -90,8 +86,5 @@ async fn exchange_refresh_token(
             crate::ApiError::Status(tonic::Status::internal("invalid token response"))
         })?;
 
-    Ok(axum::Json(TokenResponse {
-        access_token: parsed.access_token,
-        refresh_token: parsed.refresh_token,
-    }))
+    Ok(axum::Json(parsed))
 }
