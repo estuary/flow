@@ -12,7 +12,6 @@ create table internal.service_accounts (
   -- user_grants rows, which are managed like any other user's and may span
   -- multiple prefixes.
   catalog_name  public.catalog_name not null,
-  display_name  text not null,
   created_by    uuid not null references auth.users (id),
   last_used_at  timestamptz,
   created_at    timestamptz not null default now(),

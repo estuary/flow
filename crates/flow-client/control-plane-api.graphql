@@ -1232,7 +1232,7 @@ type MutationRoot {
 	internal.service_accounts row, and a user_grants row per requested
 	grant.
 	"""
-	createServiceAccount(catalogName: Name!, displayName: String!, grants: [ServiceAccountGrantInput!]!): ServiceAccount!
+	createServiceAccount(catalogName: Name!, grants: [ServiceAccountGrantInput!]!): ServiceAccount!
 	"""
 	Add a user_grant to a service account.
 	
@@ -1684,7 +1684,6 @@ type RepublishRequested {
 
 type ServiceAccount {
 	id: UUID!
-	displayName: String!
 	catalogName: Name!
 	createdBy: UUID!
 	createdAt: DateTime!

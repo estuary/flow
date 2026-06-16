@@ -8,7 +8,6 @@ pub struct ServiceAccount {
     // surface in the public schema.
     #[graphql(name = "id")]
     pub user_id: uuid::Uuid,
-    pub display_name: String,
     pub catalog_name: models::Name,
     pub created_by: uuid::Uuid,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -100,7 +99,6 @@ impl ServiceAccountsQuery {
                     r#"
                     SELECT
                         sa.user_id,
-                        sa.display_name,
                         sa.catalog_name AS "catalog_name!: String",
                         sa.created_by,
                         sa.created_at AS "created_at!: chrono::DateTime<chrono::Utc>",
@@ -183,7 +181,6 @@ impl ServiceAccountsQuery {
                             TimestampCursor(r.created_at),
                             ServiceAccount {
                                 user_id: r.user_id,
-                                display_name: r.display_name,
                                 catalog_name: models::Name::new(&r.catalog_name),
                                 created_by: r.created_by,
                                 created_at: r.created_at,
@@ -225,7 +222,6 @@ impl ServiceAccountsMutation {
         &self,
         ctx: &Context<'_>,
         catalog_name: models::Name,
-        display_name: String,
         grants: Vec<ServiceAccountGrantInput>,
     ) -> async_graphql::Result<ServiceAccount> {
         let env = ctx.data::<crate::Envelope>()?;
@@ -289,7 +285,7 @@ impl ServiceAccountsMutation {
             sa_user_id,
             format!("sa+{}@service.estuary.dev", sa_user_id),
             serde_json::json!({
-                "full_name": display_name,
+                "full_name": catalog_name.as_str(),
             }),
         )
         .execute(&mut *txn)
@@ -297,13 +293,12 @@ impl ServiceAccountsMutation {
 
         let now = sqlx::query_scalar!(
             r#"
-            INSERT INTO internal.service_accounts (user_id, catalog_name, display_name, created_by)
-            VALUES ($1, $2::text::catalog_name, $3, $4)
+            INSERT INTO internal.service_accounts (user_id, catalog_name, created_by)
+            VALUES ($1, $2::text::catalog_name, $3)
             RETURNING created_at AS "created_at!: chrono::DateTime<chrono::Utc>"
             "#,
             sa_user_id,
             catalog_name.as_str(),
-            display_name,
             claims.sub,
         )
         .fetch_one(&mut *txn)
@@ -332,7 +327,6 @@ impl ServiceAccountsMutation {
 
         Ok(ServiceAccount {
             user_id: sa_user_id,
-            display_name,
             catalog_name,
             created_by: claims.sub,
             created_at: now,
@@ -709,14 +703,12 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($catalogName: Name!, $name: String!, $grants: [ServiceAccountGrantInput!]!) {
+                    mutation($catalogName: Name!, $grants: [ServiceAccountGrantInput!]!) {
                         createServiceAccount(
                             catalogName: $catalogName
-                            displayName: $name
                             grants: $grants
                         ) {
                             id
-                            displayName
                             catalogName
                             createdBy
                             createdAt
@@ -727,7 +719,6 @@ mod test {
                     }"#,
                     "variables": {
                         "catalogName": "aliceCo/ci-deploy-bot",
-                        "name": "CI Deploy Bot",
                         "grants": [
                             { "prefix": "aliceCo/", "capability": "admin" },
                             { "prefix": "aliceCo/data/", "capability": "read" }
@@ -744,7 +735,6 @@ mod test {
         );
         let sa = &create_response["data"]["createServiceAccount"];
         let sa_user_id = sa["id"].as_str().expect("should have id");
-        assert_eq!(sa["displayName"], "CI Deploy Bot");
         assert_eq!(sa["catalogName"], "aliceCo/ci-deploy-bot");
         assert_eq!(sa["apiKeys"].as_array().unwrap().len(), 0);
         assert_eq!(
@@ -774,7 +764,6 @@ mod test {
                     mutation {
                         createServiceAccount(
                             catalogName: "aliceCo/hacker-bot"
-                            displayName: "hacker bot"
                             grants: [{ prefix: "aliceCo/", capability: read }]
                         ) { id }
                     }"#
@@ -793,7 +782,7 @@ mod test {
                 &serde_json::json!({
                     "query": r#"
                     mutation {
-                        createServiceAccount(catalogName: "Not A Name", displayName: "x", grants: []) { id }
+                        createServiceAccount(catalogName: "Not A Name", grants: []) { id }
                     }"#
                 }),
                 Some(&alice_token),
@@ -816,7 +805,6 @@ mod test {
                     mutation {
                         createServiceAccount(
                             catalogName: "aliceCo/no-op-bot"
-                            displayName: "x"
                             grants: [{ prefix: "aliceCo/", capability: none }]
                         ) { id }
                     }"#
@@ -842,7 +830,6 @@ mod test {
                     mutation {
                         createServiceAccount(
                             catalogName: "aliceCo/overreach-bot"
-                            displayName: "overreach bot"
                             grants: [
                                 { prefix: "aliceCo/", capability: read },
                                 { prefix: "bobCo/", capability: read }
@@ -1015,7 +1002,6 @@ mod test {
                             edges {
                                 node {
                                     id
-                                    displayName
                                     catalogName
                                     apiKeys {
                                         id
@@ -1038,7 +1024,7 @@ mod test {
             .as_array()
             .expect("should have edges");
         assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0]["node"]["displayName"], "CI Deploy Bot");
+        assert_eq!(edges[0]["node"]["catalogName"], "aliceCo/ci-deploy-bot");
         let listed_key = &edges[0]["node"]["apiKeys"][0];
         assert_eq!(edges[0]["node"]["apiKeys"].as_array().unwrap().len(), 1);
         assert_eq!(listed_key["label"], "GitHub Actions");
@@ -1382,7 +1368,6 @@ mod test {
                     mutation($grants: [ServiceAccountGrantInput!]!) {
                         createServiceAccount(
                             catalogName: "aliceCo/team-bot"
-                            displayName: "Team Bot"
                             grants: $grants
                         ) { id createdBy }
                     }"#,
@@ -1472,7 +1457,6 @@ mod test {
                     mutation {
                         createServiceAccount(
                             catalogName: "aliceCo/overreach-bot"
-                            displayName: "overreach"
                             grants: [{ prefix: "bobCo/", capability: read }]
                         ) { id }
                     }"#
