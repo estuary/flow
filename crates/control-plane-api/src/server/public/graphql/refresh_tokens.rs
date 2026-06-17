@@ -495,7 +495,7 @@ mod test {
                         createServiceAccount(
                             catalogName: "aliceCo/refresh-token-bot"
                             grants: [{ prefix: "aliceCo/", capability: admin }]
-                        ) { id }
+                        ) { catalogName }
                     }"#
                 }),
                 Some(&alice_token),
@@ -505,13 +505,17 @@ mod test {
             create_sa["errors"].is_null(),
             "create SA should succeed: {create_sa}"
         );
-        let sa_user_id = create_sa["data"]["createServiceAccount"]["id"]
-            .as_str()
-            .expect("should have id");
 
-        // Mint an access token whose `sub` is the service account (an SA
-        // principal has no email), standing in for an authenticated SA caller.
-        let sa_token = server.make_access_token(uuid::Uuid::parse_str(sa_user_id).unwrap(), None);
+        // The API doesn't expose the SA's backing user_id, so read it from the
+        // DB to mint a token whose `sub` is the service account (an SA principal
+        // has no email), standing in for an authenticated SA caller.
+        let sa_user_id: uuid::Uuid = sqlx::query_scalar(
+            "SELECT user_id FROM internal.service_accounts WHERE catalog_name = 'aliceCo/refresh-token-bot'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let sa_token = server.make_access_token(sa_user_id, None);
 
         let sa_create_rt: serde_json::Value = server
             .graphql(

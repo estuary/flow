@@ -1326,7 +1326,7 @@ type MutationRoot {
 	PostgREST; when it migrates to GraphQL it should gate on this same
 	CreateGrant capability.)
 	"""
-	addServiceAccountGrant(serviceAccountId: UUID!, prefix: Prefix!, capability: Capability!): Boolean!
+	addServiceAccountGrant(catalogName: Name!, prefix: Prefix!, capability: Capability!): Boolean!
 	"""
 	Remove a user_grant from a service account.
 	
@@ -1336,7 +1336,7 @@ type MutationRoot {
 	access, so managers may remove ANY grant — including grants to
 	prefixes they don't themselves administer.
 	"""
-	removeServiceAccountGrant(serviceAccountId: UUID!, prefix: Prefix!): Boolean!
+	removeServiceAccountGrant(catalogName: Name!, prefix: Prefix!): Boolean!
 	"""
 	Create an API key for a service account.
 	
@@ -1346,7 +1346,7 @@ type MutationRoot {
 	The API key can be exchanged for an 1-hr access token via `POST /api/v1/auth/token`
 	or used directly as an `Authorization: Bearer` credential
 	"""
-	createApiKey(		serviceAccountId: UUID!,		label: String!,
+	createApiKey(		catalogName: Name!,		label: String!,
 		"""
 		ISO 8601 duration for key validity (e.g. P90D, P1Y)
 		"""
@@ -1759,7 +1759,6 @@ type RepublishRequested {
 }
 
 type ServiceAccount {
-	id: UUID!
 	catalogName: Name!
 	createdBy: UUID!
 	createdAt: DateTime!

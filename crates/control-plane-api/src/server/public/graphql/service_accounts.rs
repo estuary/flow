@@ -3,11 +3,9 @@ use async_graphql::{Context, types::connection};
 
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct ServiceAccount {
-    // Exposed as `id`: a service account's identifier happens to be its
-    // backing auth.users id, but that's an implementation detail we don't
-    // surface in the public schema.
-    #[graphql(name = "id")]
-    pub user_id: uuid::Uuid,
+    // A service account is addressed by its `catalog_name` handle. Its backing
+    // auth.users id is an implementation detail and is deliberately not exposed
+    // in the public schema; it can be added later if a need arises.
     pub catalog_name: models::Name,
     pub created_by: uuid::Uuid,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -188,7 +186,6 @@ impl ServiceAccountsQuery {
                         connection::Edge::new(
                             TimestampCursor(r.created_at),
                             ServiceAccount {
-                                user_id: r.user_id,
                                 catalog_name: models::Name::new(&r.catalog_name),
                                 created_by: r.created_by,
                                 created_at: r.created_at,
@@ -346,7 +343,6 @@ impl ServiceAccountsMutation {
         );
 
         Ok(ServiceAccount {
-            user_id: sa_user_id,
             catalog_name,
             created_by: claims.sub,
             created_at: now,
@@ -367,7 +363,7 @@ impl ServiceAccountsMutation {
     async fn add_service_account_grant(
         &self,
         ctx: &Context<'_>,
-        #[graphql(name = "serviceAccountId")] user_id: uuid::Uuid,
+        catalog_name: models::Name,
         prefix: models::Prefix,
         capability: models::Capability,
     ) -> async_graphql::Result<bool> {
@@ -388,15 +384,16 @@ impl ServiceAccountsMutation {
             ));
         }
 
-        let catalog_name = lookup_service_account(&env.pg_pool, user_id).await?;
         super::verify_authorization(
             env,
-            &catalog_name,
+            catalog_name.as_str(),
             models::authz::Capability::ManageServiceAccounts,
         )
         .await?;
         super::verify_authorization(env, prefix.as_str(), models::authz::Capability::CreateGrant)
             .await?;
+
+        let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
 
         let mut txn = env.pg_pool.begin().await?;
         crate::grants::upsert_user_grant(
@@ -431,19 +428,20 @@ impl ServiceAccountsMutation {
     async fn remove_service_account_grant(
         &self,
         ctx: &Context<'_>,
-        #[graphql(name = "serviceAccountId")] user_id: uuid::Uuid,
+        catalog_name: models::Name,
         prefix: models::Prefix,
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        let catalog_name = lookup_service_account(&env.pg_pool, user_id).await?;
         super::verify_authorization(
             env,
-            &catalog_name,
+            catalog_name.as_str(),
             models::authz::Capability::ManageServiceAccounts,
         )
         .await?;
+
+        let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
 
         let deleted = sqlx::query!(
             "DELETE FROM public.user_grants WHERE user_id = $1 AND object_role = $2",
@@ -478,20 +476,21 @@ impl ServiceAccountsMutation {
     async fn create_api_key(
         &self,
         ctx: &Context<'_>,
-        #[graphql(name = "serviceAccountId")] user_id: uuid::Uuid,
+        catalog_name: models::Name,
         label: String,
         #[graphql(desc = "ISO 8601 duration for key validity (e.g. P90D, P1Y)")] valid_for: String,
     ) -> async_graphql::Result<CreateApiKeyResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        let catalog_name = lookup_service_account(&env.pg_pool, user_id).await?;
         super::verify_authorization(
             env,
-            &catalog_name,
+            catalog_name.as_str(),
             models::authz::Capability::ManageServiceAccounts,
         )
         .await?;
+
+        let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
 
         // valid_for is documented as an ISO 8601 duration (e.g. P90D, P1Y).
         // Reject anything that isn't ISO 8601 up front: the `::interval` cast
@@ -608,10 +607,11 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        let key_owner = sqlx::query!(
+        let catalog_name = sqlx::query_scalar!(
             r#"
-            SELECT ak.service_account_id
+            SELECT sa.catalog_name AS "catalog_name!: String"
             FROM internal.api_keys ak
+            JOIN internal.service_accounts sa ON sa.user_id = ak.service_account_id
             WHERE ak.id = $1 AND ak.revoked_at IS NULL
             "#,
             key_id as models::Id,
@@ -619,12 +619,11 @@ impl ServiceAccountsMutation {
         .fetch_optional(&env.pg_pool)
         .await?;
 
-        let key_owner = match key_owner {
-            Some(row) => row.service_account_id,
+        let catalog_name = match catalog_name {
+            Some(name) => name,
             None => return Err(async_graphql::Error::new("API key not found")),
         };
 
-        let catalog_name = lookup_service_account(&env.pg_pool, key_owner).await?;
         super::verify_authorization(
             env,
             &catalog_name,
@@ -641,7 +640,7 @@ impl ServiceAccountsMutation {
 
         tracing::info!(
             %key_id,
-            service_account = %key_owner,
+            service_account = %catalog_name,
             %claims.sub,
             "revoked api key"
         );
@@ -666,20 +665,22 @@ pub(super) async fn is_service_account(
     Ok(exists)
 }
 
-/// Look up a service account's management anchor: admins of a prefix covering
-/// this catalog name may manage the account, independent of whatever its
-/// user_grants authorize.
-async fn lookup_service_account(
+/// Resolve a service account's backing `user_id` from its `catalog_name` handle.
+///
+/// Service accounts are addressed publicly by catalog name; the writes still
+/// need the backing auth.users id. Callers authorize against the catalog name
+/// *before* resolving, so a "not found" here is for an authorized namespace.
+async fn resolve_service_account(
     pg_pool: &sqlx::PgPool,
-    user_id: uuid::Uuid,
-) -> async_graphql::Result<String> {
+    catalog_name: &str,
+) -> async_graphql::Result<uuid::Uuid> {
     let row = sqlx::query_scalar!(
         r#"
-        SELECT catalog_name AS "catalog_name!: String"
+        SELECT user_id
         FROM internal.service_accounts
-        WHERE user_id = $1
+        WHERE catalog_name = $1::text::catalog_name
         "#,
-        user_id,
+        catalog_name,
     )
     .fetch_optional(pg_pool)
     .await?;
@@ -728,7 +729,6 @@ mod test {
                             catalogName: $catalogName
                             grants: $grants
                         ) {
-                            id
                             catalogName
                             createdBy
                             createdAt
@@ -754,7 +754,9 @@ mod test {
             "create should succeed: {create_response}"
         );
         let sa = &create_response["data"]["createServiceAccount"];
-        let sa_user_id = sa["id"].as_str().expect("should have id");
+        // The public API doesn't expose the backing user_id; fetch it from the
+        // DB for the row-level assertions below.
+        let sa_user_id = service_account_user_id(&pool, "aliceCo/ci-deploy-bot").await;
         assert_eq!(sa["catalogName"], "aliceCo/ci-deploy-bot");
         assert_eq!(sa["apiKeys"].as_array().unwrap().len(), 0);
 
@@ -769,20 +771,22 @@ mod test {
                         createServiceAccount(
                             catalogName: "aliceCo/ci-deploy-bot"
                             grants: [{ prefix: "aliceCo/", capability: admin }]
-                        ) { id }
+                        ) { catalogName }
                     }"#
                 }),
                 Some(&alice_token),
             )
             .await;
         assert!(
-            dup["errors"].as_array().is_some_and(|errs| errs
-                .iter()
-                .any(|e| e["message"].as_str().is_some_and(|m| m.contains("already exists")))),
+            dup["errors"]
+                .as_array()
+                .is_some_and(|errs| errs.iter().any(|e| e["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("already exists")))),
             "duplicate catalog name should be rejected: {dup}"
         );
         assert_eq!(
-            grant_count(&pool, sa_user_id).await,
+            grant_count(&pool, &sa_user_id).await,
             2,
             "each requested grant should mint a user_grants row"
         );
@@ -809,7 +813,7 @@ mod test {
                         createServiceAccount(
                             catalogName: "aliceCo/hacker-bot"
                             grants: [{ prefix: "aliceCo/", capability: read }]
-                        ) { id }
+                        ) { catalogName }
                     }"#
                 }),
                 Some(&bob_token),
@@ -826,7 +830,7 @@ mod test {
                 &serde_json::json!({
                     "query": r#"
                     mutation {
-                        createServiceAccount(catalogName: "Not A Name", grants: []) { id }
+                        createServiceAccount(catalogName: "Not A Name", grants: []) { catalogName }
                     }"#
                 }),
                 Some(&alice_token),
@@ -850,7 +854,7 @@ mod test {
                         createServiceAccount(
                             catalogName: "aliceCo/no-op-bot"
                             grants: [{ prefix: "aliceCo/", capability: none }]
-                        ) { id }
+                        ) { catalogName }
                     }"#
                 }),
                 Some(&alice_token),
@@ -878,7 +882,7 @@ mod test {
                                 { prefix: "aliceCo/", capability: read },
                                 { prefix: "bobCo/", capability: read }
                             ]
-                        ) { id }
+                        ) { catalogName }
                     }"#
                 }),
                 Some(&alice_token),
@@ -894,9 +898,9 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($userId: UUID!, $label: String!, $validFor: String!) {
+                    mutation($label: String!, $validFor: String!) {
                         createApiKey(
-                            serviceAccountId: $userId
+                            catalogName: "aliceCo/ci-deploy-bot"
                             label: $label
                             validFor: $validFor
                         ) {
@@ -905,7 +909,6 @@ mod test {
                         }
                     }"#,
                     "variables": {
-                        "userId": sa_user_id,
                         "label": "GitHub Actions",
                         "validFor": "P90D"
                     }
@@ -937,11 +940,10 @@ mod test {
                 .graphql(
                     &serde_json::json!({
                         "query": r#"
-                        mutation($userId: UUID!, $label: String!, $validFor: String!) {
-                            createApiKey(serviceAccountId: $userId, label: $label, validFor: $validFor) { id }
+                        mutation($label: String!, $validFor: String!) {
+                            createApiKey(catalogName: "aliceCo/ci-deploy-bot", label: $label, validFor: $validFor) { id }
                         }"#,
                         "variables": {
-                            "userId": sa_user_id,
                             "label": "bad valid_for",
                             "validFor": valid_for,
                         }
@@ -1044,7 +1046,6 @@ mod test {
                         serviceAccounts {
                             edges {
                                 node {
-                                    id
                                     catalogName
                                     lastUsedAt
                                     apiKeys {
@@ -1099,7 +1100,7 @@ mod test {
                 &serde_json::json!({
                     "query": r#"
                     query {
-                        serviceAccounts { edges { node { id } } }
+                        serviceAccounts { edges { node { catalogName } } }
                     }"#
                 }),
                 Some(&bob_token),
@@ -1246,6 +1247,19 @@ mod test {
             .unwrap()
         }
 
+        // The public API addresses service accounts by catalog name; tests that
+        // assert at the row level still need the backing user_id.
+        async fn service_account_user_id(pool: &sqlx::PgPool, catalog_name: &str) -> String {
+            sqlx::query_scalar!(
+                r#"SELECT user_id FROM internal.service_accounts WHERE catalog_name = $1::text::catalog_name"#,
+                catalog_name,
+            )
+            .fetch_one(pool)
+            .await
+            .unwrap()
+            .to_string()
+        }
+
         // === Grant management ===
         // Adding a grant requires BOTH managing the account and admin on the
         // granted prefix. Bob has neither, so he can't add a grant.
@@ -1253,10 +1267,9 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($userId: UUID!) {
-                        addServiceAccountGrant(serviceAccountId: $userId, prefix: "aliceCo/", capability: read)
-                    }"#,
-                    "variables": { "userId": sa_user_id }
+                    mutation {
+                        addServiceAccountGrant(catalogName: "aliceCo/ci-deploy-bot", prefix: "aliceCo/", capability: read)
+                    }"#
                 }),
                 Some(&bob_token),
             )
@@ -1272,10 +1285,9 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($userId: UUID!) {
-                        addServiceAccountGrant(serviceAccountId: $userId, prefix: "bobCo/", capability: read)
-                    }"#,
-                    "variables": { "userId": sa_user_id }
+                    mutation {
+                        addServiceAccountGrant(catalogName: "aliceCo/ci-deploy-bot", prefix: "bobCo/", capability: read)
+                    }"#
                 }),
                 Some(&alice_token),
             )
@@ -1290,23 +1302,22 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($userId: UUID!) {
-                        addServiceAccountGrant(serviceAccountId: $userId, prefix: "aliceCo/ops/", capability: write)
-                    }"#,
-                    "variables": { "userId": sa_user_id }
+                    mutation {
+                        addServiceAccountGrant(catalogName: "aliceCo/ci-deploy-bot", prefix: "aliceCo/ops/", capability: write)
+                    }"#
                 }),
                 Some(&alice_token),
             )
             .await;
         assert!(add["errors"].is_null(), "add grant should succeed: {add}");
-        assert_eq!(grant_count(&pool, sa_user_id).await, 3);
+        assert_eq!(grant_count(&pool, &sa_user_id).await, 3);
 
         // Removal requires only account management — no capability on the
         // grant's prefix. Seed a grant to bobCo/ directly (adding one via the
         // API requires admin on it), then alice removes it despite having no
         // bobCo/ access of her own.
         sqlx::query("INSERT INTO user_grants (user_id, object_role, capability) VALUES ($1, 'bobCo/', 'read')")
-            .bind(uuid::Uuid::parse_str(sa_user_id).unwrap())
+            .bind(uuid::Uuid::parse_str(&sa_user_id).unwrap())
             .execute(&pool)
             .await
             .unwrap();
@@ -1315,10 +1326,9 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($userId: UUID!) {
-                        removeServiceAccountGrant(serviceAccountId: $userId, prefix: "bobCo/")
-                    }"#,
-                    "variables": { "userId": sa_user_id }
+                    mutation {
+                        removeServiceAccountGrant(catalogName: "aliceCo/ci-deploy-bot", prefix: "bobCo/")
+                    }"#
                 }),
                 Some(&alice_token),
             )
@@ -1327,17 +1337,16 @@ mod test {
             remove_foreign["errors"].is_null(),
             "a manager may remove ANY grant, including one to a prefix they don't administer: {remove_foreign}"
         );
-        assert_eq!(grant_count(&pool, sa_user_id).await, 3);
+        assert_eq!(grant_count(&pool, &sa_user_id).await, 3);
 
         // Removing an absent grant reports not found.
         let remove_again: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($userId: UUID!) {
-                        removeServiceAccountGrant(serviceAccountId: $userId, prefix: "bobCo/")
-                    }"#,
-                    "variables": { "userId": sa_user_id }
+                    mutation {
+                        removeServiceAccountGrant(catalogName: "aliceCo/ci-deploy-bot", prefix: "bobCo/")
+                    }"#
                 }),
                 Some(&alice_token),
             )
@@ -1355,10 +1364,9 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($userId: UUID!) {
-                        removeServiceAccountGrant(serviceAccountId: $userId, prefix: "aliceCo/data/")
-                    }"#,
-                    "variables": { "userId": sa_user_id }
+                    mutation {
+                        removeServiceAccountGrant(catalogName: "aliceCo/ci-deploy-bot", prefix: "aliceCo/data/")
+                    }"#
                 }),
                 Some(&bob_token),
             )
@@ -1418,7 +1426,7 @@ mod test {
                         createServiceAccount(
                             catalogName: "aliceCo/team-bot"
                             grants: $grants
-                        ) { id createdBy }
+                        ) { catalogName createdBy }
                     }"#,
                     "variables": {
                         "grants": [ { "prefix": "aliceCo/data/", "capability": "read" } ]
@@ -1431,9 +1439,6 @@ mod test {
             create["errors"].is_null(),
             "a TeamAdmin without full Admin should create a service account: {create}"
         );
-        let sa_user_id = create["data"]["createServiceAccount"]["id"]
-            .as_str()
-            .expect("should have id");
         assert_eq!(
             create["data"]["createServiceAccount"]["createdBy"],
             "33333333-3333-3333-3333-333333333333",
@@ -1445,10 +1450,9 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($id: UUID!) {
-                        createApiKey(serviceAccountId: $id, label: "ci", validFor: "P30D") { id }
-                    }"#,
-                    "variables": { "id": sa_user_id }
+                    mutation {
+                        createApiKey(catalogName: "aliceCo/team-bot", label: "ci", validFor: "P30D") { id }
+                    }"#
                 }),
                 Some(&carol_token),
             )
@@ -1464,10 +1468,9 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($id: UUID!) {
-                        addServiceAccountGrant(serviceAccountId: $id, prefix: "aliceCo/ops/", capability: write)
-                    }"#,
-                    "variables": { "id": sa_user_id }
+                    mutation {
+                        addServiceAccountGrant(catalogName: "aliceCo/team-bot", prefix: "aliceCo/ops/", capability: write)
+                    }"#
                 }),
                 Some(&carol_token),
             )
@@ -1485,10 +1488,9 @@ mod test {
             .graphql(
                 &serde_json::json!({
                     "query": r#"
-                    mutation($id: UUID!) {
-                        addServiceAccountGrant(serviceAccountId: $id, prefix: "bobCo/", capability: read)
-                    }"#,
-                    "variables": { "id": sa_user_id }
+                    mutation {
+                        addServiceAccountGrant(catalogName: "aliceCo/team-bot", prefix: "bobCo/", capability: read)
+                    }"#
                 }),
                 Some(&carol_token),
             )
@@ -1507,7 +1509,7 @@ mod test {
                         createServiceAccount(
                             catalogName: "aliceCo/overreach-bot"
                             grants: [{ prefix: "bobCo/", capability: read }]
-                        ) { id }
+                        ) { catalogName }
                     }"#
                 }),
                 Some(&carol_token),

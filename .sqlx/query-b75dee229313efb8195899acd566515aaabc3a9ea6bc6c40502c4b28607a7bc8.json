@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT sa.catalog_name AS \"catalog_name!: String\"\n            FROM internal.api_keys ak\n            JOIN internal.service_accounts sa ON sa.user_id = ak.service_account_id\n            WHERE ak.id = $1 AND ak.revoked_at IS NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b75dee229313efb8195899acd566515aaabc3a9ea6bc6c40502c4b28607a7bc8"
+}
