@@ -923,10 +923,10 @@ mod test {
         }
 
         // === The API key authenticates directly as a bearer credential ===
-        // The Envelope verifies it against the database and constructs claims
-        // for the service account without minting (or verifying) a JWT. The
+        // The Envelope exchanges it for a short-lived signed access token and
+        // verifies that, resolving to the service account's identity. The
         // refreshTokens listing is empty (the account owns none), but a data
-        // response proves authentication resolved to the account's identity.
+        // response proves authentication succeeded.
         let via_bearer: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
@@ -969,8 +969,7 @@ mod test {
             "api_key exchange returns no refresh token: {exchanged}"
         );
 
-        // The exchanged token is valid for one hour — the exchange window, not
-        // the 5-minute expiry the bearer path stamps on its claims.
+        // The exchanged token is valid for one hour.
         use base64::Engine;
         let payload = access_token.split('.').nth(1).expect("jwt has a payload");
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD

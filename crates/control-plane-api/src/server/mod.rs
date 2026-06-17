@@ -286,8 +286,8 @@ pub async fn exchange_refresh_token(
 ///
 /// This is the sole check of an API key's validity — secret hash, expiry, and
 /// revocation — and it stamps the key's `last_used_at` in the same round-trip.
-/// Both the bearer path (`authenticate_api_key`) and the token-exchange endpoint
-/// (`token_exchange::exchange_api_key`) build a credential atop the verified
+/// Both the bearer path and the token-exchange endpoint route through
+/// [`exchange_api_key`], which mints a signed access token atop the verified
 /// identity.
 ///
 /// Secrets are hashed with SHA-256 rather than bcrypt: the secret is
@@ -330,22 +330,45 @@ pub async fn verify_api_key(pg_pool: &sqlx::PgPool, api_key: &str) -> tonic::Res
     )
     .fetch_optional(pg_pool)
     .await
-    .map_err(|err| tonic::Status::internal(format!("failed to authenticate api key: {err}")))?
+    .map_err(|err| {
+        // Log the database detail server-side; don't leak it to the caller.
+        tracing::error!(?err, "failed to verify service-account API key");
+        tonic::Status::internal("failed to verify API key")
+    })?
     .ok_or_else(|| tonic::Status::unauthenticated("invalid, expired, or revoked api key"))?;
 
     Ok(row.service_account_id)
 }
 
-/// Authenticate a service-account API key presented as a bearer credential,
-/// returning the claims it proves.
-pub async fn authenticate_api_key(
+/// Lifetime of an access token minted in the application layer. A signed token
+/// can't be revoked before it expires, so this bounds how long a minted token
+/// outlives a credential revocation. Used by [`exchange_api_key`] today; the
+/// refresh-token exchange will reuse it once that minting moves out of the SQL
+/// `generate_access_token` function and into the application layer.
+const ACCESS_TOKEN_TTL: chrono::Duration = chrono::Duration::hours(1);
+
+/// Exchange a service-account API key for a short-lived signed access token.
+///
+/// Verifies the key statefully via [`verify_api_key`] and mints a JWT for the
+/// verified service-account identity. This mirrors how a refresh token is
+/// exchanged (see [`exchange_refresh_token`]): the bearer path mints a token,
+/// verifies it, and discards it within the same request, while the
+/// `/api/v1/auth/token` endpoint returns it to the caller. Because both route
+/// through the same verification, a revoked or expired key can never yield a
+/// token.
+///
+/// On the bearer path the token's lifetime is moot — it's verified once and
+/// thrown away — but for the exchange endpoint it bounds how long a token
+/// outlives a key revocation. See [`ACCESS_TOKEN_TTL`].
+pub async fn exchange_api_key(
     pg_pool: &sqlx::PgPool,
+    jwt_encode_key: &tokens::jwt::EncodingKey,
     api_key: &str,
-) -> tonic::Result<tokens::Verified<crate::ControlClaims>> {
+) -> tonic::Result<String> {
     let user_id = verify_api_key(pg_pool, api_key).await?;
 
     let now = tokens::now();
-    let exp = now + chrono::Duration::minutes(5);
+    let exp = now + ACCESS_TOKEN_TTL;
 
     let claims = crate::ControlClaims {
         iat: now.timestamp() as u64,
@@ -356,11 +379,7 @@ pub async fn authenticate_api_key(
         email: None,
     };
 
-    // assert_authenticity mints the authentication proof — an authentication
-    // entry point. Like authenticate_refresh_token and unlike jwt::verify, no
-    // signature is checked; the proof rests on verify_api_key's stateful
-    // database check above. See the SECURITY notes on assert_authenticity.
-    Ok(tokens::Verified::assert_authenticity(claims, exp))
+    tokens::jwt::sign(&claims, jwt_encode_key)
 }
 
 /// Parse a data-plane claims token without verifying its signature.

@@ -43,20 +43,12 @@ pub async fn handle_post_token(
     }
 }
 
-// Lifetime of an access token minted by exchanging an API key. Matches the
-// refresh-token exchange (SQL `generate_access_token`), so both grant types
-// yield equivalent access tokens.
-const ACCESS_TOKEN_TTL: chrono::Duration = chrono::Duration::hours(1);
-
-// Exchange a service-account API key for an access token.
-//
-// An API key can already be presented directly as an `Authorization: Bearer`
-// credential, verified statefully against the database on every request. This
-// exchange path is a convenience for clients that prefer the standard OAuth
-// shape: present the long-lived key once, then carry a signed access token.
-//
-// No refresh token is returned: the API key itself is the durable credential,
-// and the client simply re-exchanges it when the access token expires.
+// Exchange a service-account API key for a short-lived access token. This is
+// the standard way to authenticate a service account: present the long-lived
+// key once, then carry the signed token. Presenting the key directly as an
+// `Authorization: Bearer` credential is also supported, as a convenience for
+// one-off requests; that path mints the same token internally, so both route
+// through `server::exchange_api_key`.
 async fn exchange_api_key(
     app: &crate::App,
     api_key: &str,
@@ -69,24 +61,9 @@ async fn exchange_api_key(
         )));
     }
 
-    // The same stateful verification the bearer path performs, including the
-    // last_used_at stamp — but here we mint a signed token for the verified
-    // identity rather than asserting request-scoped claims. The DB check, not
-    // the signature, is the source of trust; signing just lets the client
-    // reuse the result without a per-request round-trip.
-    let user_id = crate::server::verify_api_key(&app.pg_pool, api_key).await?;
-
-    let now = tokens::now();
-    let claims = crate::ControlClaims {
-        iat: now.timestamp() as u64,
-        exp: (now + ACCESS_TOKEN_TTL).timestamp() as u64,
-        sub: user_id,
-        role: "authenticated".to_string(),
-        aud: "authenticated".to_string(),
-        email: None,
-    };
-
-    let access_token = tokens::jwt::sign(&claims, &app.control_plane_jwt_encode_key)?;
+    let access_token =
+        crate::server::exchange_api_key(&app.pg_pool, &app.control_plane_jwt_encode_key, api_key)
+            .await?;
 
     Ok(axum::Json(TokenResponse {
         access_token,

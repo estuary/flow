@@ -494,7 +494,6 @@ mod test {
                     mutation {
                         createServiceAccount(
                             catalogName: "aliceCo/refresh-token-bot"
-                            displayName: "refresh-token bot"
                             grants: [{ prefix: "aliceCo/", capability: admin }]
                         ) { id }
                     }"#
@@ -510,9 +509,8 @@ mod test {
             .as_str()
             .expect("should have id");
 
-        // Mint an access token whose `sub` is the service account, mirroring
-        // the claims that stateful API-key bearer authentication constructs
-        // (no email for an SA principal).
+        // Mint an access token whose `sub` is the service account (an SA
+        // principal has no email), standing in for an authenticated SA caller.
         let sa_token = server.make_access_token(uuid::Uuid::parse_str(sa_user_id).unwrap(), None);
 
         let sa_create_rt: serde_json::Value = server

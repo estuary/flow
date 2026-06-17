@@ -1,3 +1,17 @@
+type AWSPrivateLink {
+	region: String!
+	azIds: [String!]!
+	serviceName: String!
+	serviceRegion: String
+}
+
+input AWSPrivateLinkInput {
+	region: String!
+	azIds: [String!]!
+	serviceName: String!
+	serviceRegion: String
+}
+
 """
 Status of the abandonment evaluation for a task.
 """
@@ -321,6 +335,20 @@ type AutoDiscoverStatus {
 	failure: AutoDiscoverFailure
 }
 
+type AzurePrivateLink {
+	serviceName: String!
+	location: String!
+	dnsName: String
+	resourceType: String
+}
+
+input AzurePrivateLinkInput {
+	serviceName: String!
+	location: String!
+	dnsName: String
+	resourceType: String
+}
+
 type BillingPaymentMethodPayload {
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
@@ -351,6 +379,8 @@ enum CapabilityBit {
 	CreateGrant
 	DeleteGrant
 	CreateInviteLink
+	ViewDataPlanePrivateNetworking
+	ModifyDataPlanePrivateNetworking
 	ManageServiceAccounts
 	Delegate
 	Assume
@@ -689,6 +719,30 @@ type DataPlane {
 	Azure application client ID for this data-plane.
 	"""
 	azureApplicationClientId: String
+	"""
+	Configured private link endpoints for this data-plane. Replacing this
+	list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
+	data-plane controller on its next poll. Returns an empty list to
+	callers that lack the `ViewDataPlanePrivateNetworking` capability on
+	this data plane.
+	"""
+	privateLinks: [PrivateLink!]!
+	"""
+	AWS PrivateLink endpoint provisioning results, opaque JSON exported by
+	the data-plane controller. Empty when no AWS endpoints are provisioned,
+	or when the caller lacks `ViewDataPlanePrivateNetworking`.
+	"""
+	awsLinkEndpoints: [JSON!]!
+	"""
+	Azure Private Link endpoint provisioning results, opaque JSON. Empty when
+	the caller lacks `ViewDataPlanePrivateNetworking`.
+	"""
+	azureLinkEndpoints: [JSON!]!
+	"""
+	GCP Private Service Connect endpoint provisioning results, opaque JSON.
+	Empty when the caller lacks `ViewDataPlanePrivateNetworking`.
+	"""
+	gcpPscEndpoints: [JSON!]!
 }
 
 """
@@ -773,6 +827,22 @@ type Error {
 type FieldProvenance {
 	path: String!
 	source: String
+}
+
+type GCPPrivateServiceConnect {
+	serviceAttachment: String!
+	region: String!
+	dnsZoneName: String!
+	dnsRecordNames: [String!]!
+	allPorts: Boolean!
+}
+
+input GCPPrivateServiceConnectInput {
+	serviceAttachment: String!
+	region: String!
+	dnsZoneName: String!
+	dnsRecordNames: [String!]!
+	allPorts: Boolean! = false
 }
 
 scalar Id
@@ -1202,11 +1272,24 @@ type MutationRoot {
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
 	"""
+	Replaces the configured private link endpoints on a private data plane.
+	
+	The provided list overwrites the entire `private_links` column; partial
+	updates are intentionally not supported. The data-plane controller
+	converges to the new configuration on its next poll. Returns the desired
+	private links state. The `*LinkEndpoints` provisioning results are not echoed here:
+	they lag this write until the controller converges, so callers needing them re-query `dataPlanes`.
+	
+	Requires the `ModifyDataPlanePrivateNetworking` capability on the
+	private data-plane name.
+	"""
+	updateDataPlanePrivateLinks(dataPlaneName: String!, privateLinks: [PrivateLinkInput!]!): [PrivateLink!]!
+	"""
 	Create a refresh token for the authenticated user.
 	"""
 	createRefreshToken(
 		"""
-		ISO 8601 duration for token validity (e.g. P90D)
+		ISO 8601 duration for token validity (e.g. P90D); must be greater than zero and at most one year
 		"""
 		validFor: String! = "P90D",		multiUse: Boolean! = true,		detail: String = null
 	): RefreshTokenResult!
@@ -1227,8 +1310,8 @@ type MutationRoot {
 	what the account may access. Access is determined solely by the
 	account's user_grants, which may span multiple prefixes.
 	
-	The caller must have admin capability on the catalog name AND on each
-	granted prefix. Creates an auth.users row, an
+	The caller must have ManageServiceAccounts on the catalog name AND
+	CreateGrant on each granted prefix. Creates an auth.users row, an
 	internal.service_accounts row, and a user_grants row per requested
 	grant.
 	"""
@@ -1236,17 +1319,18 @@ type MutationRoot {
 	"""
 	Add a user_grant to a service account.
 	
-	The caller must manage the service account (admin capability on its
-	catalog name) AND have admin capability on the granted prefix — the
-	same authorization as granting a human user. The second requirement
-	prevents a caller from extending an account's access beyond what they
-	themselves administer.
+	The caller must manage the service account (ManageServiceAccounts on its
+	catalog name) AND have CreateGrant on the granted prefix. The second
+	requirement prevents a caller from extending an account's access beyond
+	what they could grant anyone. (Human-user grant creation still lives in
+	PostgREST; when it migrates to GraphQL it should gate on this same
+	CreateGrant capability.)
 	"""
 	addServiceAccountGrant(serviceAccountId: UUID!, prefix: Prefix!, capability: Capability!): Boolean!
 	"""
 	Remove a user_grant from a service account.
 	
-	The caller must manage the service account (admin capability on its
+	The caller must manage the service account (ManageServiceAccounts on its
 	catalog name). Unlike addServiceAccountGrant, no capability on the
 	grant's prefix is required: removal only ever narrows the account's
 	access, so managers may remove ANY grant — including grants to
@@ -1259,10 +1343,8 @@ type MutationRoot {
 	Returns the key_id and the plaintext secret (flow_sa_...).
 	The secret is returned exactly once and cannot be retrieved again.
 	
-	The key is presented directly as an `Authorization: Bearer` credential.
-	It is verified statefully against the database on every request and is
-	never exchanged for an access token, so revoking it cuts off access
-	immediately.
+	The API key can be exchanged for an 1-hr access token via `POST /api/v1/auth/token`
+	or used directly as an `Authorization: Bearer` credential
 	"""
 	createApiKey(		serviceAccountId: UUID!,		label: String!,
 		"""
@@ -1280,29 +1362,8 @@ type MutationRoot {
 	inert (excluded from bearer authentication and listings) while
 	preserving the audit trail. Already-revoked keys are treated as not
 	found.
-	
-	Revocation is immediate: keys are verified statefully on every request
-	and never exchanged for access tokens, so there are no outstanding
-	minted credentials to wait out. The next request presenting this key
-	fails authentication.
 	"""
 	revokeApiKey(id: Id!): Boolean!
-	"""
-	Revoke ALL of a service account's API keys.
-	
-	The caller must manage the service account (admin capability on its
-	catalog name).
-	
-	This is the kill switch for a compromised or retired account: API keys
-	are its only means of authentication and are verified statefully on
-	every request, so revoking them all cuts off access immediately — the
-	account's next request fails authentication. Its user_grants are
-	untouched and may be cleaned up separately via
-	removeServiceAccountGrant.
-	
-	Idempotent: returns the number of keys revoked, zero if none remained.
-	"""
-	revokeApiKeys(serviceAccountId: UUID!): Int!
 }
 
 """
@@ -1426,6 +1487,22 @@ input PrefixesBy {
 	Filter returned prefixes by user capability.
 	"""
 	minCapability: Capability!
+}
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+union PrivateLink = AWSPrivateLink | AzurePrivateLink | GCPPrivateServiceConnect
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+input PrivateLinkInput @oneOf {
+	aws: AWSPrivateLinkInput
+	azure: AzurePrivateLinkInput
+	gcp: GCPPrivateServiceConnectInput
 }
 
 """
@@ -1625,7 +1702,6 @@ type RefreshTokenInfo {
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	multiUse: Boolean!
-	validFor: String!
 	uses: Int!
 	"""
 	True once the token's validity window has elapsed
@@ -2132,6 +2208,10 @@ directive @deprecated(reason: String = "No longer supported") on FIELD_DEFINITIO
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """
 directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one of its field be provided)
+"""
+directive @oneOf on INPUT_OBJECT
 """
 Directs the executor to skip this field or fragment when the `if` argument is true.
 """

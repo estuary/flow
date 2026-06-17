@@ -26,17 +26,12 @@ comment on table internal.service_accounts is
 create index service_accounts_catalog_name_spgist on internal.service_accounts
   using spgist ((catalog_name::text));
 
--- API keys: long-lived credentials for service accounts. Presented directly
--- as Authorization: Bearer credentials or exchanged for a short-lived (1-hour) access token.
+-- API keys: long-lived credentials for service accounts exchanged for a short-lived (1-hour) access token.
 
 create table internal.api_keys (
   id                  public.flowid primary key not null default internal.id_generator(),
   service_account_id  uuid not null references internal.service_accounts (user_id),
-  -- Hex-encoded SHA-256 of the key secret. A fast hash (not bcrypt) is the
-  -- right choice because stateful-only evaluation places verification in the
-  -- per-request hot path, and a slow hash would buy nothing: secrets are
-  -- high-entropy random values, so offline brute-force resistance is moot.
-  -- See the minting site in graphql/service_accounts.rs.
+  -- Hex-encoded SHA-256 of the key secret.
   secret_hash         text not null,
   label               text not null,
   expires_at          timestamptz not null,
@@ -52,6 +47,6 @@ create table internal.api_keys (
 create index api_keys_service_account_id on internal.api_keys (service_account_id);
 
 comment on table internal.api_keys is
-  'Long-lived service-account credentials, verified statefully on every request as bearer credentials, or optionally exchanged for a short-lived access token.';
+  'Long-lived service-account credentials, exchanged for a short-lived access token.';
 
 commit;
