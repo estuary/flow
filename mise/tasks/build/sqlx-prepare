@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #MISE description="Generate Rust sqlx prepared PostgreSQL queries"
 
-cargo install sqlx-cli
+# Pin to the version CI uses (see ci/sqlx-check). An unpinned install pulls
+# the latest release: sqlx-cli 0.9 requires DATABASE_URL in its own process
+# environment, where cargo's `[env]` (.cargo/config.toml) doesn't reach, so
+# it breaks the bare `cargo sqlx prepare` workflow that 0.8 supports.
+command -v cargo-sqlx >/dev/null || cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
 cargo sqlx prepare --workspace

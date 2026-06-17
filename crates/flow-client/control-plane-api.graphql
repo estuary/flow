@@ -1269,6 +1269,23 @@ type MutationRoot {
 	private data-plane name.
 	"""
 	updateDataPlanePrivateLinks(dataPlaneName: String!, privateLinks: [PrivateLinkInput!]!): [PrivateLink!]!
+	"""
+	Create a refresh token for the authenticated user.
+	"""
+	createRefreshToken(
+		"""
+		ISO 8601 duration for token validity (e.g. P90D); must be greater than zero and at most one year
+		"""
+		validFor: String! = "P90D",		multiUse: Boolean! = true,		detail: String = null
+	): RefreshTokenResult!
+	"""
+	Revoke a refresh token owned by the authenticated user.
+	
+	Rather than deleting the row, we zero its `valid_for` interval, which
+	marks the token as expired/invalid while preserving the audit trail.
+	Already-zeroed (revoked) tokens are treated as not found.
+	"""
+	revokeRefreshToken(id: Id!): Boolean!
 }
 
 """
@@ -1580,6 +1597,10 @@ type QueryRoot {
 	"""
 	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
 	tenant(name: String!): Tenant
+	"""
+	List refresh tokens owned by the authenticated user.
+	"""
+	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
 }
 
 """
@@ -1594,6 +1615,50 @@ type RedeemInviteLinkResult {
 	The capability level that was granted.
 	"""
 	capability: Capability!
+}
+
+type RefreshTokenInfo {
+	id: Id!
+	detail: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	multiUse: Boolean!
+	uses: Int!
+	"""
+	True once the token's validity window has elapsed
+	(now is past `updated_at + valid_for`).
+	"""
+	expired: Boolean!
+}
+
+type RefreshTokenInfoConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [RefreshTokenInfoEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type RefreshTokenInfoEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: RefreshTokenInfo!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+type RefreshTokenResult {
+	id: Id!
+	secret: String!
 }
 
 type RepublishRequested {
