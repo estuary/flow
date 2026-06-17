@@ -20,9 +20,14 @@ create table internal.service_accounts (
 comment on table internal.service_accounts is
   'Non-login identities that authenticate via API keys and are authorized through user_grants.';
 
+-- A catalog name is the service account's handle: it identifies the account
+-- within this table.
+create unique index service_accounts_catalog_name_key on internal.service_accounts
+  (catalog_name);
+
 -- The serviceAccounts query scopes results to a caller's admin prefixes with
 -- `catalog_name::text ^@ ANY($1)`. SP-GiST natively supports the `^@`
--- (starts-with) operator; a btree index would not be used by it.
+-- (starts-with) operator; the unique btree above would not be used by it.
 create index service_accounts_catalog_name_spgist on internal.service_accounts
   using spgist ((catalog_name::text));
 

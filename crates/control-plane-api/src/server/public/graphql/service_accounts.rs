@@ -310,7 +310,19 @@ impl ServiceAccountsMutation {
             claims.sub,
         )
         .fetch_one(&mut *txn)
-        .await?;
+        .await
+        .map_err(|err| {
+            // SQLSTATE 23505 is the unique-violation on `catalog_name`: a
+            // service account already claims this handle.
+            if err.as_database_error().and_then(|e| e.code()).as_deref() == Some("23505") {
+                async_graphql::Error::new(format!(
+                    "a service account already exists for catalog name '{}'",
+                    catalog_name.as_str(),
+                ))
+            } else {
+                err.into()
+            }
+        })?;
 
         for grant in &grants {
             crate::grants::upsert_user_grant(
@@ -745,6 +757,30 @@ mod test {
         let sa_user_id = sa["id"].as_str().expect("should have id");
         assert_eq!(sa["catalogName"], "aliceCo/ci-deploy-bot");
         assert_eq!(sa["apiKeys"].as_array().unwrap().len(), 0);
+
+        // === A catalog name is unique to one service account ===
+        // A second account cannot claim the same handle, even for an authorized
+        // caller.
+        let dup: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        createServiceAccount(
+                            catalogName: "aliceCo/ci-deploy-bot"
+                            grants: [{ prefix: "aliceCo/", capability: admin }]
+                        ) { id }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            dup["errors"].as_array().is_some_and(|errs| errs
+                .iter()
+                .any(|e| e["message"].as_str().is_some_and(|m| m.contains("already exists")))),
+            "duplicate catalog name should be rejected: {dup}"
+        );
         assert_eq!(
             grant_count(&pool, sa_user_id).await,
             2,
