@@ -27,6 +27,21 @@ The connector handles several known limitations of the Stripe API:
 - **Connected account child streams**: Resources like Persons, ExternalAccountCards, and ExternalBankAccount must be queried through parent account endpoints (e.g., `/v1/accounts/{id}/persons`), requiring per-account queries when capturing connected accounts.
 - **Events API retention**: Stripe retains events for 30 days. While other resources can backfill beyond this window using their own list endpoints, the Events stream is limited to the most recent 30 days regardless of the configured `start_date`. The connector gracefully handles this by treating Stripe's retention expiry as a completed backfill.
 
+### Streams removed by API version
+
+Some streams require a minimum [Stripe API version](https://docs.stripe.com/api/versioning) and behave differently depending on the API version in effect for your capture. By default, the connector uses your Stripe account's default API version. You can override this with the **API Version** advanced configuration field (see [Properties](#properties)).
+
+:::warning
+If the API version in effect is older than the minimum required by a stream, that stream will be removed. To restore a removed stream, set the **API Version** field to a version that meets the stream's minimum, or update your Stripe account's default API version.
+:::
+
+The following streams declare a minimum API version:
+
+| Stream | Minimum API version |
+|--------|---------------------|
+| **Subscriptions** | `2016-07-06` |
+| **SubscriptionItems** | `2016-07-06` |
+
 ## Supported data resources
 
 The following data resources are supported through the Stripe API:
@@ -60,6 +75,7 @@ The following data resources are supported through the Stripe API:
 * [Payouts](https://docs.stripe.com/api/payouts/list)
 * [Persons](https://docs.stripe.com/api/persons/list)
 * [Plans](https://docs.stripe.com/api/plans/list)
+* [Prices](https://docs.stripe.com/api/prices/list)
 * [Products](https://docs.stripe.com/api/products/list)
 * [Promotion codes](https://docs.stripe.com/api/promotion_codes/list)
 * [Refunds](https://docs.stripe.com/api/refunds/list)
@@ -73,6 +89,8 @@ The following data resources are supported through the Stripe API:
 * [Transfer reversals](https://docs.stripe.com/api/transfer_reversals/list)
 * [Transfers](https://docs.stripe.com/api/transfers/list)
 * [Usage records](https://docs.stripe.com/api/usage-record-summary/list)
+* [Value lists](https://docs.stripe.com/api/radar/value_lists/list)
+* [Value list items](https://docs.stripe.com/api/radar/value_list_items/list)
 
 By default, each resource is mapped to an Estuary collection through a separate binding.
 
@@ -115,6 +133,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/start_date` | Start Date | UTC date and time in the format `YYYY-MM-DDTHH:MM:SSZ`. Only data generated after this date will be replicated. | string | 30 days before the present date |
 | `/capture_connected_accounts` | Capture Connected Accounts | Whether to capture data from connected accounts. | boolean | `false` |`
 | `/advanced/incremental_window_size` | Max Incremental Window Size | Maximum time window to process in a single incremental sweep. This bounds how much catch-up work is done at once and helps prevent the connector from falling behind when there are a large number of changes in a short time frame. Uses ISO 8601 duration format (e.g. PT1H for 1 hour, PT30M for 30 minutes). | string | `P1D` |`
+| `/advanced/api_version` | API Version | The Stripe API version to use for all requests, e.g. `2024-06-20`. If left blank, the account's default API version is used. | string | `null` |
 
 #### Bindings
 
