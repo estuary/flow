@@ -165,7 +165,12 @@ This matters when you add or change a `DDL` override on a binding whose destinat
 
 To apply the new DDL, force the table to be dropped and recreated:
 
-1. **Use the `always_drop_tables_on_backfill` feature flag (recommended).** Add [`always_drop_tables_on_backfill`](./feature-flags.md#always_drop_tables_on_backfill) to the materialization's `advanced.feature_flags`, keep your `DDL` override, then [backfill the binding](/reference/backfilling-data/#materialization-backfill). The connector drops the table, recreates it with the new column type (running any `additional_table_create_sql`), and repopulates the data. Remove the flag afterward to restore the faster truncate behavior; the custom column type and any indexes survive later truncates.
+1. **Use the `always_drop_tables_on_backfill` feature flag (recommended).**
+   1. Add [`always_drop_tables_on_backfill`](./feature-flags.md#always_drop_tables_on_backfill) to the materialization's `advanced.feature_flags`
+   2. Keep your `DDL` override
+   3. [Backfill the binding](/reference/backfilling-data/#materialization-backfill)
+
+   The connector drops the table, recreates it with the new column type (running any `additional_table_create_sql`), and repopulates the data. Remove the flag afterward to restore the faster truncate behavior; the custom column type and any indexes survive later truncates.
 2. **Manually alter or drop the table.** Use your destination's tools to `ALTER` the column type (or `DROP` the table), then [backfill the binding](/reference/backfilling-data/#materialization-backfill) so the data is repopulated.
 
 See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill) for the full set of conditions that cause a backfill to drop and recreate versus truncate.
