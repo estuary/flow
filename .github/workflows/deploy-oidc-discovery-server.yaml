@@ -48,6 +48,8 @@ jobs:
           region: us-central1
           image: ${{ steps.image-tag.outputs.image }}
           port: 8080
+          # Egress via a dedicated subnet on the data-plane-controller VPC (its own NAT IP) for a stable outbound IP.
+          flags: '--network=data-plane-controller --subnet=control-plane-api-sn1 --vpc-egress=all-traffic'
 
           env_vars: |-
             DATABASE_CA=/etc/db-ca.crt
