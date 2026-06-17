@@ -1,6 +1,7 @@
 use crate::log;
 use proto_flow::shuffle;
 use proto_gazette::uuid::{Clock, Producer};
+use std::collections::BTreeMap;
 
 /// Frontier state of a single producer within a journal.
 #[derive(Debug, Clone)]
@@ -230,6 +231,7 @@ impl JournalFrontier {
         shuffle::Frontier {
             journals,
             flushed_lsn: vec![],
+            ..Default::default()
         }
     }
 }
@@ -252,6 +254,13 @@ pub struct Frontier {
     /// Per-shard flushed LSN (log read-through barrier), indexed by shard_index.
     /// Empty when not applicable (e.g. resume checkpoints).
     pub flushed_lsn: Vec<log::Lsn>,
+    /// Latest committed backfill-begin clock of the checkpoint delta, keyed by
+    /// `journal_read_suffix`. Folded from immediately-committed CONTROL
+    /// documents; does not participate in causal-hint sequencing.
+    pub latest_backfill_begin: BTreeMap<String, Clock>,
+    /// Latest committed backfill-complete clock of the checkpoint delta, keyed
+    /// by `journal_read_suffix`. See `latest_backfill_begin`.
+    pub latest_backfill_complete: BTreeMap<String, Clock>,
     /// Count of `ProducerFrontier` entries with `hinted_commit > last_commit`.
     /// A Frontier with a non-zero count is "partial": readable for processing
     /// (e.g. log scanning), but NOT a transactional boundary.
@@ -359,8 +368,24 @@ impl Frontier {
         Ok(Self {
             journals,
             flushed_lsn,
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
             unresolved_hints,
         })
+    }
+
+    /// Per-suffix max of two backfill clock maps. Used to fold a checkpoint
+    /// delta's backfill metadata into the cumulative base during `reduce`.
+    fn merge_backfill_clocks(
+        mut a: BTreeMap<String, Clock>,
+        b: BTreeMap<String, Clock>,
+    ) -> BTreeMap<String, Clock> {
+        for (suffix, clock) in b {
+            a.entry(suffix)
+                .and_modify(|current: &mut Clock| *current = (*current).max(clock))
+                .or_insert(clock);
+        }
+        a
     }
 
     /// Element-wise max of two per-shard `flushed_lsn` vectors.
@@ -389,15 +414,25 @@ impl Frontier {
     /// Both inputs may contain non-unique keys, which are reduced to single entries.
     pub fn reduce(self, other: Self) -> Self {
         let flushed_lsn = Self::merge_flushed_lsn(self.flushed_lsn, other.flushed_lsn);
+        let latest_backfill_begin =
+            Self::merge_backfill_clocks(self.latest_backfill_begin, other.latest_backfill_begin);
+        let latest_backfill_complete = Self::merge_backfill_clocks(
+            self.latest_backfill_complete,
+            other.latest_backfill_complete,
+        );
 
         if self.journals.is_empty() {
             return Self {
                 flushed_lsn,
+                latest_backfill_begin,
+                latest_backfill_complete,
                 ..other
             };
         } else if other.journals.is_empty() {
             return Self {
                 flushed_lsn,
+                latest_backfill_begin,
+                latest_backfill_complete,
                 ..self
             };
         }
@@ -440,6 +475,8 @@ impl Frontier {
         Self {
             journals: merged,
             flushed_lsn,
+            latest_backfill_begin,
+            latest_backfill_complete,
             unresolved_hints,
         }
     }
@@ -511,14 +548,42 @@ impl Frontier {
     pub fn encode(&self) -> shuffle::Frontier {
         let mut proto = JournalFrontier::encode(&self.journals);
         proto.flushed_lsn = self.flushed_lsn.iter().map(|lsn| lsn.as_u64()).collect();
+        proto.latest_backfill_begin = self
+            .latest_backfill_begin
+            .iter()
+            .map(|(suffix, clock)| shuffle::frontier::BackfillBegin {
+                journal_read_suffix: suffix.clone(),
+                clock: clock.as_u64(),
+            })
+            .collect();
+        proto.latest_backfill_complete = self
+            .latest_backfill_complete
+            .iter()
+            .map(|(suffix, clock)| shuffle::frontier::BackfillComplete {
+                journal_read_suffix: suffix.clone(),
+                clock: clock.as_u64(),
+            })
+            .collect();
         proto
     }
 
     /// Decode a proto `shuffle::Frontier` into a validated `Frontier`.
     pub fn decode(mut proto: shuffle::Frontier) -> Result<Self, Error> {
         let flushed_lsn = std::mem::take(&mut proto.flushed_lsn);
+        let latest_backfill_begin = std::mem::take(&mut proto.latest_backfill_begin)
+            .into_iter()
+            .map(|e| (e.journal_read_suffix, Clock::from_u64(e.clock)))
+            .collect();
+        let latest_backfill_complete = std::mem::take(&mut proto.latest_backfill_complete)
+            .into_iter()
+            .map(|e| (e.journal_read_suffix, Clock::from_u64(e.clock)))
+            .collect();
+
         let journals: Vec<JournalFrontier> = JournalFrontier::decode(proto).collect();
-        Self::new(journals, flushed_lsn)
+        let mut frontier = Self::new(journals, flushed_lsn)?;
+        frontier.latest_backfill_begin = latest_backfill_begin;
+        frontier.latest_backfill_complete = latest_backfill_complete;
+        Ok(frontier)
     }
 
     /// Extract producers with unresolved causal hints (`hinted_commit > last_commit`)
@@ -554,6 +619,8 @@ impl Frontier {
         Frontier {
             journals,
             flushed_lsn: vec![],
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
             unresolved_hints,
         }
     }
@@ -594,6 +661,7 @@ mod test {
     use super::*;
     use crate::testing::{jf, jf_with_bytes, pf, pf_tuple};
     use log::Lsn;
+    use std::collections::BTreeMap;
 
     #[test]
     fn test_producer_frontier_reduce() {
@@ -635,6 +703,8 @@ mod test {
                 ),
             ],
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(50), Lsn::from_u64(3)],
+            latest_backfill_begin: BTreeMap::from([("suffix/0".into(), Clock::from_u64(100))]),
+            latest_backfill_complete: BTreeMap::from([("suffix/1".into(), Clock::from_u64(140))]),
             unresolved_hints: 0,
         };
         let hints = Frontier {
@@ -643,6 +713,8 @@ mod test {
                 jf("journal/C", 1, vec![pf(0x03, 0, 300, 0)]),
             ],
             flushed_lsn: vec![Lsn::from_u64(40), Lsn::from_u64(20), Lsn::from_u64(30)],
+            latest_backfill_begin: BTreeMap::from([("suffix/0".into(), Clock::from_u64(120))]),
+            latest_backfill_complete: BTreeMap::from([("suffix/0".into(), Clock::from_u64(130))]),
             unresolved_hints: 2,
         };
         let r = reads.reduce(hints);
@@ -708,19 +780,44 @@ mod test {
             vec![Lsn::from_u64(40), Lsn::from_u64(50), Lsn::from_u64(30)],
             "element-wise max of flushed_lsn"
         );
+        // Per-suffix max of backfill clocks across both inputs.
+        assert_eq!(
+            r.latest_backfill_begin.get("suffix/0"),
+            Some(&Clock::from_u64(120))
+        );
+        assert_eq!(
+            r.latest_backfill_complete.get("suffix/0"),
+            Some(&Clock::from_u64(130))
+        );
+        assert_eq!(
+            r.latest_backfill_complete.get("suffix/1"),
+            Some(&Clock::from_u64(140))
+        );
 
-        // Identity: empty reduces are no-ops and preserve flushed_lsn.
+        // Identity: reducing with an empty frontier preserves all fields.
         let f = Frontier {
             journals: vec![jf("j", 0, vec![pf(0x01, 1, 0, -1)])],
             flushed_lsn: vec![Lsn::from_u64(10), Lsn::from_u64(20)],
+            latest_backfill_begin: BTreeMap::from([("suffix/0".into(), Clock::from_u64(100))]),
+            latest_backfill_complete: BTreeMap::from([("suffix/0".into(), Clock::from_u64(200))]),
             unresolved_hints: 0,
         };
         let r = f.clone().reduce(Frontier::default());
         assert_eq!(r.journals.len(), 1);
         assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
+        assert_eq!(r.latest_backfill_begin, f.latest_backfill_begin);
+        assert_eq!(r.latest_backfill_complete, f.latest_backfill_complete);
         let r = Frontier::default().reduce(f);
         assert_eq!(r.journals.len(), 1);
         assert_eq!(r.flushed_lsn, vec![Lsn::from_u64(10), Lsn::from_u64(20)]);
+        assert_eq!(
+            r.latest_backfill_begin.get("suffix/0"),
+            Some(&Clock::from_u64(100))
+        );
+        assert_eq!(
+            r.latest_backfill_complete.get("suffix/0"),
+            Some(&Clock::from_u64(200))
+        );
         assert!(
             Frontier::default()
                 .reduce(Frontier::default())
@@ -916,6 +1013,8 @@ mod test {
                 ),
             ],
             flushed_lsn: vec![],
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
             unresolved_hints: 2,
         };
 
@@ -927,6 +1026,8 @@ mod test {
                 jf("journal/B", 0, vec![pf(0x03, 250, 0, -600)]),
             ],
             flushed_lsn: vec![],
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
             unresolved_hints: 0,
         };
 
@@ -957,6 +1058,8 @@ mod test {
         let progressed2 = Frontier {
             journals: vec![jf("journal/B", 0, vec![pf(0x03, 400, 0, -900)])],
             flushed_lsn: vec![],
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
             unresolved_hints: 0,
         };
         let (advanced2, resolved2) = pending.resolve_hints(&progressed2);
@@ -980,11 +1083,15 @@ mod test {
         let mut pending = Frontier {
             journals: vec![jf("journal/X", 1, vec![pf(0x01, 0, 100, 0)])],
             flushed_lsn: vec![],
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
             unresolved_hints: 1,
         };
         let progressed = Frontier {
             journals: vec![jf("journal/X", 0, vec![pf(0x01, 200, 0, -500)])],
             flushed_lsn: vec![],
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
             unresolved_hints: 0,
         };
         assert_eq!(pending.resolve_hints(&progressed), (0, 0));
@@ -1034,6 +1141,8 @@ mod test {
                 jf("journal/C", 1, vec![pf(0x07, 0, 300, 0)]),    // unresolved
             ],
             flushed_lsn: vec![],
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
             unresolved_hints: 2,
         };
 
@@ -1075,6 +1184,8 @@ mod test {
         let no_hints = Frontier {
             journals: vec![jf("journal/A", 0, vec![pf(0x01, 100, 0, -200)])],
             flushed_lsn: vec![],
+            latest_backfill_begin: BTreeMap::new(),
+            latest_backfill_complete: BTreeMap::new(),
             unresolved_hints: 0,
         };
         assert!(no_hints.project_unresolved_hints().journals.is_empty());

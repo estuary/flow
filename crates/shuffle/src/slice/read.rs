@@ -2,6 +2,16 @@ use super::producer::ProducerState;
 use crate::ProducerMap;
 use proto_gazette::{broker, uuid};
 
+/// A control event parsed from a CONTROL document body.
+///
+/// CONTROL documents carry backfill metadata that is folded into the checkpoint
+/// frontier rather than appended to shuffle log segments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlEvent {
+    BackfillBegin,
+    BackfillComplete,
+}
+
 /// State about an active read, indexed by its `read.id()`.
 ///
 /// Each ReadState represents one (journal, binding) pair and is the
@@ -14,6 +24,16 @@ pub struct ReadState {
     pub binding_index: u16,
     /// The journal name (canonical, without the `;suffix` read metadata).
     pub journal: Box<str>,
+    /// Truncation boundary for this journal: the `estuary.dev/truncated-at`
+    /// label clock, or zero when absent. Documents published before it were
+    /// superseded by a backfill, so `sequence_document` suppresses their append.
+    pub truncated_at: uuid::Clock,
+    /// Latest `BackfillBegin` control-doc clock for this journal, awaiting the
+    /// next flush (zero = none).
+    pub backfill_begin: uuid::Clock,
+    /// Latest `BackfillComplete` control-doc clock for this journal, awaiting
+    /// the next flush (zero = none).
+    pub backfill_complete: uuid::Clock,
     /// Producers whose state is settled: either from the initial checkpoint
     /// or drained from `pending` at the start of a flush cycle.
     pub settled: ProducerMap<ProducerState>,
@@ -36,11 +56,15 @@ impl ReadState {
     pub fn recovered(
         binding_index: u16,
         journal: Box<str>,
+        truncated_at: uuid::Clock,
         settled: ProducerMap<ProducerState>,
     ) -> Self {
         Self {
             binding_index,
             journal,
+            truncated_at,
+            backfill_begin: uuid::Clock::zero(),
+            backfill_complete: uuid::Clock::zero(),
             settled,
             pending: Default::default(),
             read_offset: 0,
@@ -84,6 +108,8 @@ pub struct Meta {
     pub flags: uuid::Flags,
     /// Publication Producer of `doc` (extracted from its UUID).
     pub producer: uuid::Producer,
+    /// Parsed control event, when this document has the CONTROL flag set.
+    pub control: Option<ControlEvent>,
 }
 
 /// ReadyRead is a ReadLines which has one or more parsed documents.
@@ -127,7 +153,20 @@ pub fn extract_metas(
                 )
             })?;
 
-        let flags = if flags != uuid::Flags::ACK_TXN && validator.is_valid(archived) {
+        let has = |path: &str| json::Pointer::from_str(path).query(archived).is_some();
+        let control = if !flags.is_control() {
+            None
+        } else if has("/_meta/backfillBegin") {
+            Some(ControlEvent::BackfillBegin)
+        } else if has("/_meta/backfillComplete") {
+            Some(ControlEvent::BackfillComplete)
+        } else {
+            anyhow::bail!(
+                "journal {journal} offset {begin_offset}: control document not recognized"
+            );
+        };
+
+        let flags = if !flags.is_ack() && control.is_none() && validator.is_valid(archived) {
             uuid::Flags(flags.0 | crate::FLAGS_SCHEMA_VALID)
         } else {
             flags
@@ -139,6 +178,7 @@ pub fn extract_metas(
             clock,
             flags,
             producer,
+            control,
         };
         begin_offset = end_offset;
 
@@ -279,7 +319,8 @@ mod test {
 
     #[test]
     fn test_extract_metas() {
-        // Schema requires "required_field", exercising both valid and invalid paths.
+        // Schema requires "required_field", exercising valid, invalid, ACK bypass,
+        // and control doc paths.
         let schema = br#"{"type":"object","required":["required_field"]}"#;
         let bundle = doc::validation::build_bundle(schema).unwrap();
         let mut validator = doc::Validator::new(bundle).unwrap();
@@ -289,21 +330,38 @@ mod test {
         let c1 = clock.tick();
         let c2 = clock.tick();
         let c3 = clock.tick();
+        let c4 = clock.tick();
+        let c5 = clock.tick();
 
-        // Three docs exercise: non-zero base offset, offset chaining,
-        // OUTSIDE_TXN/CONTINUE_TXN/ACK_TXN flags, valid + invalid schema, ACK bypass.
         let json = [
+            // Valid schema, OUTSIDE_TXN.
             format!(
                 r#"{{"_meta":{{"uuid":"{}"}},"required_field":"present"}}"#,
                 make_uuid_str(p1, c1, uuid::Flags::OUTSIDE_TXN),
             ),
+            // Invalid schema, CONTINUE_TXN.
             format!(
                 r#"{{"_meta":{{"uuid":"{}"}},"other":"value"}}"#,
                 make_uuid_str(p1, c2, uuid::Flags::CONTINUE_TXN),
             ),
+            // ACK_TXN (skips validation).
             format!(
                 r#"{{"_meta":{{"uuid":"{}"}}}}"#,
                 make_uuid_str(p1, c3, uuid::Flags::ACK_TXN),
+            ),
+            // Control: backfillBegin (skips validation, parsed as a control event).
+            // CONTROL docs always carry `Flag_CONTROL` alone (0x4); the low
+            // transaction-semantics bits are implicitly OUTSIDE_TXN, so these
+            // documents are immediately committed and never participate in a
+            // CONTINUE_TXN / ACK_TXN span.
+            format!(
+                r#"{{"_meta":{{"uuid":"{}","backfillBegin":true}}}}"#,
+                make_uuid_str(p1, c4, uuid::Flags::CONTROL),
+            ),
+            // Control: backfillComplete.
+            format!(
+                r#"{{"_meta":{{"uuid":"{}","backfillComplete":true}}}}"#,
+                make_uuid_str(p1, c5, uuid::Flags::CONTROL),
             ),
         ]
         .join("\n")

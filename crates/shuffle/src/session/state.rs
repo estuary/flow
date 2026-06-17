@@ -368,6 +368,10 @@ impl CheckpointPipeline {
                 journals: peek_journals,
                 flushed_lsn: self.unresolved.flushed_lsn.clone(),
                 unresolved_hints: self.unresolved.unresolved_hints,
+                // Backfill metadata is checkpoint-delta state, not part of an
+                // unresolved peek used only for partial-progress log scanning.
+                latest_backfill_begin: Default::default(),
+                latest_backfill_complete: Default::default(),
             };
             self.floor_flushed_lsn(&mut peek);
 
@@ -1236,6 +1240,8 @@ mod test {
                 journals: vec![jf("journal/A", 0, vec![pf(0x01, 10, 100, -50)])],
                 flushed_lsn: vec![],
                 unresolved_hints: 1,
+                latest_backfill_begin: Default::default(),
+                latest_backfill_complete: Default::default(),
             },
             vec![0],
         );
@@ -1357,6 +1363,8 @@ mod test {
                 journals: vec![jf("journal/A", 0, vec![pf(0x01, 50, 200, -100)])],
                 flushed_lsn: vec![],
                 unresolved_hints: 0,
+                latest_backfill_begin: Default::default(),
+                latest_backfill_complete: Default::default(),
             },
             vec![0],
         );
@@ -1561,6 +1569,8 @@ mod test {
             journals: vec![jf("test/journal/F", 0, vec![pf(0x01, 100, 200, -500)])],
             flushed_lsn: vec![],
             unresolved_hints: 0,
+            latest_backfill_begin: Default::default(),
+            latest_backfill_complete: Default::default(),
         };
 
         // Checkpoint found in resume_checkpoint.
@@ -1849,6 +1859,8 @@ mod test {
             ],
             flushed_lsn: vec![],
             unresolved_hints: 0,
+            latest_backfill_begin: Default::default(),
+            latest_backfill_complete: Default::default(),
         };
         let mut pipeline = CheckpointPipeline::new(&resume, vec![0, 0]);
 

@@ -216,6 +216,10 @@ pub struct SequencedDoc {
     pub is_commit: bool,
     /// Updated producer state to commit after processing this document.
     pub producer_state: ProducerState,
+    /// Backfill-begin control-doc clock this document committed (zero = none).
+    pub backfill_begin: uuid::Clock,
+    /// Backfill-complete control-doc clock this document committed (zero = none).
+    pub backfill_complete: uuid::Clock,
 }
 
 /// Gate on `adjusted_clock` relative to `now`: if the clock is in the future,
@@ -309,6 +313,7 @@ pub fn sequence_document(
         producer,
         clock,
         flags,
+        control,
         begin_offset,
         end_offset,
     } = meta;
@@ -338,11 +343,19 @@ pub fn sequence_document(
         )
     })?;
 
+    let mut backfill_begin = uuid::Clock::zero();
+    let mut backfill_complete = uuid::Clock::zero();
+
     // Match over `outcome` to update `producer_state` and determine append/commit.
     let (is_append, is_commit) = match outcome {
         uuid::SequenceOutcome::OutsideCommit => {
             producer_state.offset = -*end_offset;
-            (true, true)
+            match control {
+                Some(super::read::ControlEvent::BackfillBegin) => backfill_begin = *clock,
+                Some(super::read::ControlEvent::BackfillComplete) => backfill_complete = *clock,
+                None => {}
+            }
+            (control.is_none(), true)
         }
         uuid::SequenceOutcome::OutsideDuplicate => (false, false),
         uuid::SequenceOutcome::ContinueBeginSpan => {
@@ -376,9 +389,13 @@ pub fn sequence_document(
         uuid::SequenceOutcome::AckDuplicate => (false, false),
     };
 
-    // A `notBefore` or `notAfter` suppresses document append, but doesn't impact
-    // the propagation of flush and progress reporting.
-    let is_append = is_append && *clock >= binding.not_before && *clock < binding.not_after;
+    // A `notBefore`/`notAfter` window and the journal's `truncated_at`
+    // truncation boundary all suppress document append, but don't impact the
+    // propagation of flush and progress reporting.
+    let is_append = is_append
+        && *clock >= binding.not_before
+        && *clock >= read_state.truncated_at
+        && *clock < binding.not_after;
 
     tracing::trace!(
         journal = %read_state.journal,
@@ -396,6 +413,8 @@ pub fn sequence_document(
         is_append,
         is_commit,
         producer_state,
+        backfill_begin,
+        backfill_complete,
     })
 }
 
@@ -594,6 +613,7 @@ mod test {
             flags,
             begin_offset,
             end_offset,
+            control: None,
         }
     }
 
@@ -630,9 +650,10 @@ mod test {
 
     impl TestState {
         fn commit(&mut self, read_id: usize, producer: Producer, seq: SequencedDoc) {
-            _ = self.reads[read_id]
-                .pending
-                .insert(producer, seq.producer_state);
+            let read = &mut self.reads[read_id];
+            read.backfill_begin = read.backfill_begin.max(seq.backfill_begin);
+            read.backfill_complete = read.backfill_complete.max(seq.backfill_complete);
+            _ = read.pending.insert(producer, seq.producer_state);
             if seq.is_commit {
                 self.flush.set_ready();
             }
@@ -725,6 +746,9 @@ mod test {
         s.reads.push(ReadState {
             binding_index: 0,
             journal: "test/journal/A".into(),
+            truncated_at: Clock::zero(),
+            backfill_begin: Clock::zero(),
+            backfill_complete: Clock::zero(),
             settled: producers,
             pending: Default::default(),
             read_offset: 0,
@@ -779,6 +803,9 @@ mod test {
         s.reads.push(ReadState {
             binding_index: 0,
             journal: "test/journal/A".into(),
+            truncated_at: Clock::zero(),
+            backfill_begin: Clock::zero(),
+            backfill_complete: Clock::zero(),
             settled: producers,
             pending: Default::default(),
             read_offset: 0,
@@ -812,8 +839,12 @@ mod test {
         s.commit(0, p3, seq);
 
         // Build frontier and start flush with 3 shards.
-        let frontier =
-            super::super::producer::build_flush_frontier(&mut s.reads, std::iter::empty(), 3);
+        let frontier = super::super::producer::build_flush_frontier(
+            &mut s.reads,
+            &s.bindings,
+            std::iter::empty(),
+            3,
+        );
         assert!(!frontier.journals.is_empty(), "flushing frontier built");
 
         let flush_cycle = s.flush.start(3, frontier);
@@ -883,6 +914,7 @@ mod test {
             }],
             flushed_lsn: vec![],
             unresolved_hints: 0,
+            ..Default::default()
         };
 
         // Request + flushed → has_progressed gates, take_progressed consumes.
@@ -939,6 +971,9 @@ mod test {
         s.reads.push(ReadState {
             binding_index: 0,
             journal: "test/journal/A".into(),
+            truncated_at: Clock::zero(),
+            backfill_begin: Clock::zero(),
+            backfill_complete: Clock::zero(),
             settled: producers,
             pending: Default::default(),
             read_offset: 0,
@@ -1032,6 +1067,129 @@ mod test {
             seq.producer_state.offset, -450,
             "rollback yields committed offset"
         );
+    }
+
+    #[test]
+    fn test_sequence_outside_txn_control_docs_commit_immediately() {
+        let bindings = vec![test_binding(0, true, None, "/suffix")];
+        let mut s = test_state(bindings);
+
+        let p1 = producer(0x01);
+
+        let (_offset, producers) = resolve_checkpoint(vec![checkpoint_entry(&p1, 0)]);
+        s.reads.push(ReadState {
+            binding_index: 0,
+            journal: "test/journal/A".into(),
+            truncated_at: Clock::zero(),
+            backfill_begin: Clock::zero(),
+            backfill_complete: Clock::zero(),
+            settled: producers,
+            pending: Default::default(),
+            read_offset: 0,
+            prev_read_offset: 0,
+            write_head: 0,
+            prev_write_head: 0,
+        });
+
+        // BackfillBegin as a CONTROL (implicitly OUTSIDE_TXN) doc commits the
+        // control clock immediately into backfill_begin; the doc itself is not
+        // appended (control docs never append).
+        let seq = sequence_document(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(10, 0),
+                flags: OUTSIDE,
+                begin_offset: 100,
+                end_offset: 150,
+                control: Some(super::super::read::ControlEvent::BackfillBegin),
+            },
+        )
+        .unwrap();
+        assert!(!seq.is_append, "control docs never append");
+        assert!(seq.is_commit, "OUTSIDE_TXN drives an immediate commit");
+        assert_eq!(
+            seq.backfill_begin,
+            Clock::from_unix(10, 0),
+            "reports its clock"
+        );
+        assert_eq!(seq.backfill_complete, Clock::zero());
+        s.commit(0, p1, seq);
+        assert_eq!(s.reads[0].backfill_begin, Clock::from_unix(10, 0));
+
+        // BackfillComplete reports its clock into backfill_complete; the begin
+        // clock already folded into the read is preserved (independent fields).
+        let seq = sequence_document(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(20, 0),
+                flags: OUTSIDE,
+                begin_offset: 150,
+                end_offset: 200,
+                control: Some(super::super::read::ControlEvent::BackfillComplete),
+            },
+        )
+        .unwrap();
+        assert!(!seq.is_append);
+        assert!(seq.is_commit);
+        assert_eq!(seq.backfill_begin, Clock::zero());
+        assert_eq!(seq.backfill_complete, Clock::from_unix(20, 0));
+        s.commit(0, p1, seq);
+        assert_eq!(s.reads[0].backfill_begin, Clock::from_unix(10, 0));
+        assert_eq!(s.reads[0].backfill_complete, Clock::from_unix(20, 0));
+
+        // A duplicate OUTSIDE_TXN control doc (same clock) is a no-op: not a
+        // commit, reports no clock, and leaves the read's state unchanged.
+        let seq = sequence_document(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(20, 0),
+                flags: OUTSIDE,
+                begin_offset: 200,
+                end_offset: 250,
+                control: Some(super::super::read::ControlEvent::BackfillComplete),
+            },
+        )
+        .unwrap();
+        assert!(!seq.is_append);
+        assert!(!seq.is_commit, "OutsideDuplicate suppresses flush");
+        assert_eq!(
+            seq.backfill_complete,
+            Clock::zero(),
+            "duplicate reports no clock"
+        );
+        s.commit(0, p1, seq);
+        assert_eq!(
+            s.reads[0].backfill_complete,
+            Clock::from_unix(20, 0),
+            "unchanged on duplicate"
+        );
+
+        // A fresh BackfillBegin with a later clock supersedes the prior begin via
+        // the commit-time max fold into the read.
+        let seq = sequence_document(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(30, 0),
+                flags: OUTSIDE,
+                begin_offset: 250,
+                end_offset: 300,
+                control: Some(super::super::read::ControlEvent::BackfillBegin),
+            },
+        )
+        .unwrap();
+        assert!(seq.is_commit);
+        assert_eq!(seq.backfill_begin, Clock::from_unix(30, 0));
+        s.commit(0, p1, seq);
+        assert_eq!(s.reads[0].backfill_begin, Clock::from_unix(30, 0));
+        assert_eq!(s.reads[0].backfill_complete, Clock::from_unix(20, 0));
     }
 
     /// Build a passthrough PartitionFilter that accepts any value for the given fields.
