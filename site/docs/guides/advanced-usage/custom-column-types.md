@@ -124,7 +124,7 @@ fields:
 
 **Behavior:**
 - The provided DDL string replaces the automatically generated column type
-- The connector uses this DDL verbatim when creating or altering the column
+- The connector uses this DDL verbatim when it creates the column—on initial table creation or when the table is dropped and recreated. It is not used to `ALTER` a column that already exists (see [Changing DDL on an existing column](#changing-ddl-on-an-existing-column))
 - **Important:** DDL only changes the column definition—it does NOT transform the data. The burden is on you to ensure the field's data is compatible with the specified column type.
 - When you specify custom DDL, the connector disables its normal type validation for that field
 
@@ -157,12 +157,27 @@ When combined:
 
 ## Troubleshooting
 
-### Column type mismatch errors
+### Changing DDL on an existing column
 
-If you change the DDL for an existing column, the connector may report a type mismatch. Options:
+Custom `DDL` is applied **only when the column is created**—on initial table creation or when the table is dropped and recreated. It is never used to `ALTER` a column that already exists.
 
-1. **Backfill the binding**: This recreates the table with the new column type
-2. **Manually alter the column**: Use your destination's tools to modify the column type, then republish
+This matters when you add or change a `DDL` override on a binding whose destination table already exists. [Backfilling the binding](/reference/backfilling-data/#materialization-backfill) does **not** necessarily apply the new type. When the existing columns are still type-compatible with the collection, the backfill runs `TRUNCATE TABLE`, which clears the rows but keeps the existing schema. Because the field's underlying type is unchanged—for example, narrowing `LONGTEXT` to `VARCHAR(255)` or changing numeric precision—the backfill detects no incompatible change and stays on the truncate path, so the new column type is not applied. Any `additional_table_create_sql` (such as an index) does not re-run either, since it only executes when the table is created.
+
+To apply the new DDL, force the table to be dropped and recreated:
+
+1. **Use the `always_drop_tables_on_backfill` feature flag (recommended).**
+   1. Add [`always_drop_tables_on_backfill`](./feature-flags.md#always_drop_tables_on_backfill) to the materialization's `advanced.feature_flags`
+   2. Keep your `DDL` override
+   3. [Backfill the binding](/reference/backfilling-data/#materialization-backfill)
+
+   The connector drops the table, recreates it with the new column type (running any `additional_table_create_sql`), and repopulates the data. Remove the flag afterward to restore the faster truncate behavior; the custom column type and any indexes survive later truncates.
+2. **Manually alter or drop the table.** Use your destination's tools to `ALTER` the column type (or `DROP` the table), then [backfill the binding](/reference/backfilling-data/#materialization-backfill) so the data is repopulated.
+
+See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill) for the full set of conditions that cause a backfill to drop and recreate versus truncate.
+
+:::caution
+When recreating a column with a length-limited type such as `VARCHAR(n)`, make sure `n` exceeds the longest value in that column, or the backfill will fail when it tries to store a value that is too long.
+:::
 
 ### Invalid DDL errors
 
