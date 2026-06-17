@@ -163,12 +163,15 @@ impl RefreshTokensMutation {
         .fetch_optional(&env.pg_pool)
         .await
         .map_err(|err| {
-            // Postgres raises SQLSTATE 22007 for malformed interval input,
-            // which is a client error rather than an internal fault.
-            if err.as_database_error().and_then(|e| e.code()).as_deref() == Some("22007") {
+            // Postgres raises SQLSTATE 22007 (invalid_datetime_format) for a
+            // malformed interval and 22015 (interval_field_overflow) for one too
+            // extreme to parse; both are client errors rather than internal faults.
+            let code = err.as_database_error().and_then(|e| e.code());
+            if matches!(code.as_deref(), Some("22007" | "22015")) {
                 async_graphql::Error::new("validFor must be a valid ISO 8601 duration (e.g. P90D)")
             } else {
-                async_graphql::Error::new(format!("failed to create refresh token: {err}"))
+                tracing::error!(?err, "failed to create refresh token");
+                async_graphql::Error::new("failed to create refresh token")
             }
         })?
         .ok_or_else(|| {
@@ -315,6 +318,27 @@ mod test {
                 "validFor {bad:?} should be rejected: {rejected}"
             );
         }
+
+        // An interval too extreme for Postgres to even parse (SQLSTATE 22015,
+        // interval_field_overflow) is surfaced as the same sanitized client
+        // error, not a leaked DB string or an internal fault.
+        let overflow: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($v: String!) {
+                        createRefreshToken(validFor: $v) { id }
+                    }"#,
+                    "variables": { "v": "P300000000000Y" }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            overflow["errors"][0]["message"],
+            "validFor must be a valid ISO 8601 duration (e.g. P90D)",
+            "an unparseable validFor should yield the sanitized client error: {overflow}"
+        );
 
         // === List refresh tokens (scoped to the authenticated user) ===
         let list: serde_json::Value = server
