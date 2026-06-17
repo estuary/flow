@@ -270,12 +270,26 @@ pub async fn exchange_refresh_token(
     .fetch_one(pg_pool)
     .await
     .map_err(|err| {
-        tonic::Status::unauthenticated(format!("failed to exchange refresh token: {err}"))
+        // `generate_access_token` signals an unusable credential (unknown id,
+        // bad secret, or expired token) by `raise`-ing, which surfaces as
+        // SQLSTATE P0001 — the only legitimate 401, collapsed into one generic
+        // message so the response doesn't reveal which check failed. Any other
+        // error is an internal fault: log the detail and don't leak it.
+        if err.as_database_error().and_then(|e| e.code()).as_deref() == Some("P0001") {
+            tonic::Status::unauthenticated("invalid, expired, or unknown refresh token")
+        } else {
+            tracing::error!(?err, "failed to exchange refresh token");
+            tonic::Status::internal("failed to exchange refresh token")
+        }
     })?;
 
     let GenerateTokenResponse { access_token } =
         serde_json::from_value(response.token.unwrap_or_default()).map_err(|err| {
-            tonic::Status::internal(format!("invalid access token generated: {err}"))
+            tracing::error!(
+                ?err,
+                "generate_access_token returned an unparseable response"
+            );
+            tonic::Status::internal("invalid token response")
         })?;
 
     Ok(access_token)

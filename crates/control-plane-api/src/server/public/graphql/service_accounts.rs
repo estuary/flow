@@ -67,13 +67,13 @@ impl ServiceAccountsQuery {
 
         let snapshot = env.snapshot();
         // Service accounts are visible to callers who can manage them: those
-        // holding ManageServiceAccounts on a prefix covering the account's
+        // holding ManageServiceAccount on a prefix covering the account's
         // catalog_name.
         let user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
             &snapshot.role_grants,
             &snapshot.user_grants,
             env.claims()?.sub,
-            models::authz::Capability::ManageServiceAccounts,
+            models::authz::Capability::ManageServiceAccount,
             None,
         );
 
@@ -219,7 +219,7 @@ impl ServiceAccountsMutation {
     /// what the account may access. Access is determined solely by the
     /// account's user_grants, which may span multiple prefixes.
     ///
-    /// The caller must have ManageServiceAccounts on the catalog name AND
+    /// The caller must have ManageServiceAccount on the catalog name AND
     /// CreateGrant on each granted prefix. Creates an auth.users row, an
     /// internal.service_accounts row, and a user_grants row per requested
     /// grant.
@@ -237,6 +237,17 @@ impl ServiceAccountsMutation {
                 "invalid catalog name: {err}"
             )));
         }
+        // Managing the account (here, creating it under this anchor) requires
+        // ManageServiceAccount on the catalog name — the same capability that
+        // gates listing in ServiceAccountsQuery, so the read and write surfaces
+        // agree. This is deliberately narrower than full Admin.
+        super::verify_authorization(
+            env,
+            catalog_name.as_str(),
+            models::authz::Capability::ManageServiceAccount,
+        )
+        .await?;
+
         for grant in &grants {
             if let Err(err) = validator::Validate::validate(&grant.prefix) {
                 return Err(async_graphql::Error::new(format!(
@@ -253,16 +264,6 @@ impl ServiceAccountsMutation {
             }
         }
 
-        // Managing the account (here, creating it under this anchor) requires
-        // ManageServiceAccounts on the catalog name — the same capability that
-        // gates listing in ServiceAccountsQuery, so the read and write surfaces
-        // agree. This is deliberately narrower than full Admin.
-        super::verify_authorization(
-            env,
-            catalog_name.as_str(),
-            models::authz::Capability::ManageServiceAccounts,
-        )
-        .await?;
         // Granting the account access to a prefix requires CreateGrant on that
         // prefix — the anti-escalation guard, distinct from managing the
         // account: a caller can't hand a service account reach they couldn't
@@ -282,19 +283,36 @@ impl ServiceAccountsMutation {
 
         let sa_user_id = uuid::Uuid::new_v4();
 
+        // Both the synthetic email and the catalog_name are unique and derived
+        // from the same handle, so either insert can raise the duplicate
+        // (SQLSTATE 23505) — and which one fires first depends on the
+        // environment (real Supabase enforces a unique email; the local stub
+        // does not). Map either violation to one clear message.
+        let duplicate_err = |err: sqlx::Error| -> async_graphql::Error {
+            if err.as_database_error().and_then(|e| e.code()).as_deref() == Some("23505") {
+                async_graphql::Error::new(format!(
+                    "a service account already exists for catalog name '{}'",
+                    catalog_name.as_str(),
+                ))
+            } else {
+                err.into()
+            }
+        };
+
         sqlx::query!(
             r#"
             INSERT INTO auth.users (id, email, raw_user_meta_data)
             VALUES ($1, $2, $3)
             "#,
             sa_user_id,
-            format!("sa+{}@service.estuary.dev", sa_user_id),
+            format!("{}@service_accounts.estuary.dev", catalog_name.as_str()),
             serde_json::json!({
                 "full_name": catalog_name.as_str(),
             }),
         )
         .execute(&mut *txn)
-        .await?;
+        .await
+        .map_err(duplicate_err)?;
 
         let now = sqlx::query_scalar!(
             r#"
@@ -308,18 +326,7 @@ impl ServiceAccountsMutation {
         )
         .fetch_one(&mut *txn)
         .await
-        .map_err(|err| {
-            // SQLSTATE 23505 is the unique-violation on `catalog_name`: a
-            // service account already claims this handle.
-            if err.as_database_error().and_then(|e| e.code()).as_deref() == Some("23505") {
-                async_graphql::Error::new(format!(
-                    "a service account already exists for catalog name '{}'",
-                    catalog_name.as_str(),
-                ))
-            } else {
-                err.into()
-            }
-        })?;
+        .map_err(duplicate_err)?;
 
         for grant in &grants {
             crate::grants::upsert_user_grant(
@@ -354,7 +361,7 @@ impl ServiceAccountsMutation {
 
     /// Add a user_grant to a service account.
     ///
-    /// The caller must manage the service account (ManageServiceAccounts on its
+    /// The caller must manage the service account (ManageServiceAccount on its
     /// catalog name) AND have CreateGrant on the granted prefix. The second
     /// requirement prevents a caller from extending an account's access beyond
     /// what they could grant anyone. (Human-user grant creation still lives in
@@ -370,6 +377,13 @@ impl ServiceAccountsMutation {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
+        super::verify_authorization(
+            env,
+            catalog_name.as_str(),
+            models::authz::Capability::ManageServiceAccount,
+        )
+        .await?;
+
         if let Err(err) = validator::Validate::validate(&prefix) {
             return Err(async_graphql::Error::new(format!(
                 "invalid grant prefix {}: {err}",
@@ -384,12 +398,6 @@ impl ServiceAccountsMutation {
             ));
         }
 
-        super::verify_authorization(
-            env,
-            catalog_name.as_str(),
-            models::authz::Capability::ManageServiceAccounts,
-        )
-        .await?;
         super::verify_authorization(env, prefix.as_str(), models::authz::Capability::CreateGrant)
             .await?;
 
@@ -420,7 +428,7 @@ impl ServiceAccountsMutation {
 
     /// Remove a user_grant from a service account.
     ///
-    /// The caller must manage the service account (ManageServiceAccounts on its
+    /// The caller must manage the service account (ManageServiceAccount on its
     /// catalog name). Unlike addServiceAccountGrant, no capability on the
     /// grant's prefix is required: removal only ever narrows the account's
     /// access, so managers may remove ANY grant — including grants to
@@ -437,7 +445,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::ManageServiceAccounts,
+            models::authz::Capability::ManageServiceAccount,
         )
         .await?;
 
@@ -486,7 +494,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::ManageServiceAccounts,
+            models::authz::Capability::ManageServiceAccount,
         )
         .await?;
 
@@ -519,16 +527,24 @@ impl ServiceAccountsMutation {
 
         let within_bounds = match within_bounds {
             Ok(ok) => ok,
-            // A 'P'-prefixed but malformed duration still fails the `::interval`
-            // cast (SQLSTATE 22007/22008); surface it as a client error, not a 500.
+            // A 'P'-prefixed value can still fail the `::interval` cast: Postgres
+            // raises SQLSTATE 22007 (invalid_datetime_format) / 22008
+            // (datetime_field_overflow) for a malformed duration and 22015
+            // (interval_field_overflow) for one too extreme to parse. All are
+            // client errors, not internal faults, so surface a sanitized message.
             Err(sqlx::Error::Database(db))
-                if matches!(db.code().as_deref(), Some("22007") | Some("22008")) =>
+                if matches!(db.code().as_deref(), Some("22007" | "22008" | "22015")) =>
             {
                 return Err(async_graphql::Error::new(
                     "invalid valid_for: expected an ISO 8601 duration, e.g. P90D or P1Y",
                 ));
             }
-            Err(err) => return Err(err.into()),
+            // Any other database error is an internal fault: log the detail
+            // server-side and don't leak it to the caller.
+            Err(err) => {
+                tracing::error!(?err, "failed to validate api key valid_for");
+                return Err(async_graphql::Error::new("failed to create api key"));
+            }
         };
 
         if !within_bounds {
@@ -552,8 +568,6 @@ impl ServiceAccountsMutation {
                 $1,
                 -- SHA-256 rather than bcrypt: the secret is high-entropy random,
                 -- so bcrypt isn't necessary here.
-                -- Refresh-token secrets will migrate to the same scheme once
-                -- the legacy postgREST token functions are retired.
                 encode(digest(nk.secret, 'sha256'), 'hex'),
                 $2,
                 now() + $3::text::interval,
@@ -592,7 +606,7 @@ impl ServiceAccountsMutation {
 
     /// Revoke an API key.
     ///
-    /// The caller must have admin capability on the owning service account's
+    /// The caller must have ManageServiceAccount capability on the owning service account's
     /// catalog name.
     ///
     /// Rather than deleting the row, we stamp `revoked_at`, which makes the key
@@ -627,7 +641,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             &catalog_name,
-            models::authz::Capability::ManageServiceAccounts,
+            models::authz::Capability::ManageServiceAccount,
         )
         .await?;
 
@@ -928,13 +942,14 @@ mod test {
 
         // === valid_for validation ===
         // Each case must be rejected, and the error message identifies the
-        // specific branch: non-ISO syntax, malformed ISO, non-positive, and
-        // over the one-year cap.
+        // specific branch: non-ISO syntax, malformed ISO, interval overflow,
+        // non-positive, and over the one-year cap.
         for (valid_for, want) in [
-            ("90 days", "ISO 8601"),           // Postgres syntax, not ISO 8601
-            ("Pfoo", "invalid valid_for"),     // 'P'-prefixed but unparseable
-            ("P0D", "positive"),               // zero duration
-            ("P2Y", "no greater than 1 year"), // exceeds the cap
+            ("90 days", "ISO 8601"),                 // Postgres syntax, not ISO 8601
+            ("Pfoo", "invalid valid_for"),           // 'P'-prefixed but unparseable
+            ("P300000000000Y", "invalid valid_for"), // overflows interval parsing (SQLSTATE 22015)
+            ("P0D", "positive"),                     // zero duration
+            ("P2Y", "no greater than 1 year"),       // exceeds the cap
         ] {
             let rejected: serde_json::Value = server
                 .graphql(
@@ -1376,7 +1391,7 @@ mod test {
 
     /// The management gates accept the fine-grained capabilities the feature
     /// defines, not only the full `Admin` bundle: a caller holding `TeamAdmin`
-    /// (which confers `ManageServiceAccounts` + `CreateGrant`) but NOT `Admin`
+    /// (which confers `ManageServiceAccount` + `CreateGrant`) but NOT `Admin`
     /// can manage service accounts, while the per-grant `CreateGrant` check
     /// still bounds how far they can extend an account's reach.
     #[sqlx::test(
@@ -1388,7 +1403,7 @@ mod test {
 
         // Carol holds the TeamAdmin bundle on aliceCo/ and nothing else: her
         // grant carries no legacy capability ('none'), so her bits come solely
-        // from the bundle — ManageServiceAccounts and CreateGrant, but none of
+        // from the bundle — ManageServiceAccount and CreateGrant, but none of
         // the wider Admin-bundle bits. This is the caller class the gates were
         // narrowed to admit. Seeded before the snapshot so authorization
         // observes it.
@@ -1415,7 +1430,7 @@ mod test {
 
         let carol_token = server.make_access_token(carol_uid, Some("carol@example.test"));
 
-        // Create succeeds: the anchor gate accepts ManageServiceAccounts, and
+        // Create succeeds: the anchor gate accepts ManageServiceAccount, and
         // the per-grant gate accepts CreateGrant on aliceCo/data/ (covered by
         // Carol's aliceCo/ bundle) — all without her holding full Admin.
         let create: serde_json::Value = server
@@ -1445,7 +1460,7 @@ mod test {
             "createdBy should be the calling team admin: {create}"
         );
 
-        // The anchor-only mutation createApiKey also accepts ManageServiceAccounts.
+        // The anchor-only mutation createApiKey also accepts ManageServiceAccount.
         let key: serde_json::Value = server
             .graphql(
                 &serde_json::json!({

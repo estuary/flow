@@ -26,7 +26,7 @@ pub enum Capability {
     // `ModifyDataPlanePrivateNetworking` permits mutating that same
     // configuration; the data-plane controller converges to it.
     ModifyDataPlanePrivateNetworking,
-    ManageServiceAccounts,
+    ManageServiceAccount,
     Delegate,
     Assume,
 }
@@ -109,7 +109,7 @@ impl CapabilityBundle {
                     | Self::ManageDataPlane.capabilities()
             }
             Self::Billing => EnumSet::empty(),
-            Self::TeamAdmin => CreateGrant | DeleteGrant | CreateInviteLink | ManageServiceAccounts,
+            Self::TeamAdmin => CreateGrant | DeleteGrant | CreateInviteLink | ManageServiceAccount,
             Self::ManageDataPlane => {
                 ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking
             }

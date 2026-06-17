@@ -381,7 +381,7 @@ enum CapabilityBit {
 	CreateInviteLink
 	ViewDataPlanePrivateNetworking
 	ModifyDataPlanePrivateNetworking
-	ManageServiceAccounts
+	ManageServiceAccount
 	Delegate
 	Assume
 }
@@ -1310,7 +1310,7 @@ type MutationRoot {
 	what the account may access. Access is determined solely by the
 	account's user_grants, which may span multiple prefixes.
 	
-	The caller must have ManageServiceAccounts on the catalog name AND
+	The caller must have ManageServiceAccount on the catalog name AND
 	CreateGrant on each granted prefix. Creates an auth.users row, an
 	internal.service_accounts row, and a user_grants row per requested
 	grant.
@@ -1319,7 +1319,7 @@ type MutationRoot {
 	"""
 	Add a user_grant to a service account.
 	
-	The caller must manage the service account (ManageServiceAccounts on its
+	The caller must manage the service account (ManageServiceAccount on its
 	catalog name) AND have CreateGrant on the granted prefix. The second
 	requirement prevents a caller from extending an account's access beyond
 	what they could grant anyone. (Human-user grant creation still lives in
@@ -1330,7 +1330,7 @@ type MutationRoot {
 	"""
 	Remove a user_grant from a service account.
 	
-	The caller must manage the service account (ManageServiceAccounts on its
+	The caller must manage the service account (ManageServiceAccount on its
 	catalog name). Unlike addServiceAccountGrant, no capability on the
 	grant's prefix is required: removal only ever narrows the account's
 	access, so managers may remove ANY grant — including grants to
@@ -1355,7 +1355,7 @@ type MutationRoot {
 	"""
 	Revoke an API key.
 	
-	The caller must have admin capability on the owning service account's
+	The caller must have ManageServiceAccount capability on the owning service account's
 	catalog name.
 	
 	Rather than deleting the row, we stamp `revoked_at`, which makes the key
