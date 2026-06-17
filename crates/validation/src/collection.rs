@@ -891,11 +891,10 @@ fn check_read_schema_redact_in_write_schema(
 // Scan `$defs` entries whose `$id` is one of the system-managed schema URIs
 // for any nested `redact` annotation. These subtrees are owned by the system:
 // discover overwrites `flow://connector-schema`, and validation-time inlining
-// replaces `flow://inferred-schema`, `flow://write-schema`, and
-// `flow://relaxed-write-schema`. Annotations placed inside them are silently
-// lost on the next publication. We discriminate by `$id` (the canonical URI
-// that drives `$ref` resolution), not by the `$defs` key (which is convention
-// only and can be renamed).
+// replaces `flow://write-schema` and `flow://relaxed-write-schema`. Annotations
+// placed inside them are silently lost on the next publication. We discriminate
+// by `$id` (the canonical URI that drives `$ref` resolution), not by the `$defs`
+// key (which is convention only and can be renamed).
 fn check_redact_in_managed_defs(
     scope: Scope,
     model: &models::Schema,
@@ -903,7 +902,6 @@ fn check_redact_in_managed_defs(
     errors: &mut tables::Errors,
 ) {
     const MANAGED_IDS: &[&str] = &[
-        models::Schema::REF_INFERRED_SCHEMA_URL,
         models::Schema::REF_WRITE_SCHEMA_URL,
         models::Schema::REF_RELAXED_WRITE_SCHEMA_URL,
         models::Schema::REF_CONNECTOR_SCHEMA_URL,
