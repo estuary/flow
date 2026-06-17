@@ -1,5 +1,5 @@
 ---
-description: This connector materializes Estuary collections into tables in a Google Cloud SQL for SQLServer database.
+description: Materialize data collections into a Google Cloud SQL for SQL Server database. Estuary's connector supports SSH tunneling and delta updates.
 ---
 
 # Google Cloud SQL for SQLServer

@@ -1,3 +1,6 @@
+---
+description: Use Estuary's connector to materialize data into MotherDuck tables with options for S3, GCS, or Azure Blob staging, sync schedules, and delta updates.
+---
 
 import ReactPlayer from "react-player";
 
@@ -18,8 +21,8 @@ To use this connector, you'll need:
 
 * A [MotherDuck](https://motherduck.com/) account and [Service
   Token](https://motherduck.com/docs/authenticating-to-motherduck#fetching-the-service-token).
-* An S3 bucket for staging temporary files, or a GCS bucket for staging
-  temporary files.  Cloudflare R2 can also be used via its S3-compatible API.
+* An S3, GCS, or Azure bucket for staging temporary files.
+  Cloudflare R2 can also be used via its S3-compatible API.
   An S3 bucket in `us-east-1` is recommended for best performance and costs,
   since MotherDuck is currently hosted in that region.
 

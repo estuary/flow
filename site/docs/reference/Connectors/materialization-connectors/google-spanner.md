@@ -1,3 +1,6 @@
+---
+description: Materialize Estuary data collection into Google Spanner tables, with settings to configure hard deletes, custom creation SQL, and optimizations.
+---
 
 # Google Spanner
 

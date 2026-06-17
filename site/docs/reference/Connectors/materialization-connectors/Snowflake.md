@@ -1,3 +1,6 @@
+---
+description: Use the Snowflake connector to materialize Estuary collections into Snowflake tables. Configure delta updates for Snowpipe Streaming, JWT auth, sync schedules, and timestamp types.
+---
 
 import ReactPlayer from "react-player";
 

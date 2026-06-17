@@ -1,3 +1,6 @@
+---
+description: Use the BigQuery connector to materialize Estuary collections into dataset tables. Supports IAM auth or service account credentials, delta updates, and sync schedules.
+---
 
 # Google BigQuery
 

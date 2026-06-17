@@ -1,3 +1,7 @@
+---
+description: Materialize data collections into Redshift with Estuary's connector. Configure SSH tunneling, sync schedules, hard deletes, and delta updates.
+---
+
 # Amazon Redshift
 
 This connector materializes Estuary collections into tables in an Amazon Redshift database.

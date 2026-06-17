@@ -1,3 +1,6 @@
+---
+description: Materialize data collections into tables in a Microsoft Azure Fabric Warehouse. Configure hard delete, delta update, and sync schedule settings.
+---
 
 import ReactPlayer from "react-player";
 

@@ -1,3 +1,6 @@
+---
+description: Materialize Estuary data collections into ClickHouse via Kafka-compatible topics and ClickPipes. Estuary acts as the broker and schema registry.
+---
 
 # ClickHouse
 

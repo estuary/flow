@@ -1,3 +1,6 @@
+---
+description: Use Estuary's SQLite connector to test out materializing data collections into an ephemeral demo database with no endpoint configuration required.
+---
 
 # SQLite
 

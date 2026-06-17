@@ -1,5 +1,5 @@
 ---
-description: This connector materializes Estuary collections into tables in a Microsoft SQLServer database.
+description: Materialize data collections into Microsoft SQL Server with Estuary's connector. Supports self-hosted or cloud database instances, SSH tunneling, and delta updates.
 ---
 
 # Microsoft SQLServer

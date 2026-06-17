@@ -1,5 +1,5 @@
 ---
-description: This connector materializes Estuary collections into tables in a Amazon RDS for SQL Server database.
+description: Materialize data collections into an Amazon RDS for SQL Server database. Estuary's connector supports SSH tunneling, IAM authentication, and delta updates.
 ---
 
 # Amazon RDS for SQL Server

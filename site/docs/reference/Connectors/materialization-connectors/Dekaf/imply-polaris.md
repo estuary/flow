@@ -1,3 +1,6 @@
+---
+description: Materialize Estuary data collections into Imply Polaris via Kafka-compatible topics. Configure auth details and topic names while Estuary acts as the broker and schema registry.
+---
 
 # Imply Polaris
 

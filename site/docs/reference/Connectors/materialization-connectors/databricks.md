@@ -1,3 +1,6 @@
+---
+description: Materialize collections into a Databricks SQL Warehouse with Estuary's connector. Configure delta updates, sync schedules, hard deletes, and custom creation SQL.
+---
 
 import ReactPlayer from "react-player";
 
