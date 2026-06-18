@@ -37,7 +37,10 @@ Open the capture YAML file. Auto-discover periodically re-runs discovery and rew
 Setting `addNewBindings` to `false` does **not** prevent this — it only stops new bindings from being added, not existing ones from being removed. Remove the `autoDiscover` block entirely (or set it to `null`) so auto-discover never runs:
 
 ```yaml
-autoDiscover: null
+captures:
+  acmeCo/sftp-capture:
+    autoDiscover: null
+    endpoint: {...}
 ```
 
 Disabling auto-discover does not affect schema inference, which is driven by your collection's read schema and continues regardless.
