@@ -317,6 +317,18 @@ mod tests {
                 invoice_pdf: Some("https://example.test/invoice.pdf".to_string()),
                 hosted_invoice_url: Some("https://example.test/hosted".to_string()),
                 payment_intent: Some(stripe::Expandable::Id("pi_test_123".parse().unwrap())),
+                // The loader matches list results to rows by this metadata, so
+                // it must mirror the row the billing_historical above produces:
+                // a Final invoice for the February 2024 period.
+                metadata: Some(
+                    billing::InvoiceMetadata {
+                        tenant: "invoicefields/".to_string(),
+                        invoice_type: billing::InvoiceType::Final,
+                        period_start: "2024-02-01".to_string(),
+                        period_end: "2024-02-29".to_string(),
+                    }
+                    .to_metadata_map(),
+                ),
                 ..Default::default()
             },
         );

@@ -3,12 +3,17 @@ use std::future::Future;
 use std::sync::Arc;
 
 use async_graphql::{Result, dataloader::Loader};
-use billing_types::{InvoiceSearch, StatusFilter};
+use billing_types::InvoiceMetadata;
 
 use crate::billing::{BillingProvider, InvoiceType};
 
-/// Compound key used by `StripeInvoiceLoader` to dedup search calls within a
-/// request: one Stripe search per (customer, period, type).
+/// Metadata identity that links a Stripe invoice back to a catalog invoice row:
+/// `(invoice_type, period_start, period_end)`, scoped to a single customer.
+type InvoiceIdentity = (InvoiceType, String, String);
+
+/// Compound key that identifies the Stripe invoice for one catalog invoice row.
+/// Batched keys are grouped by `customer_id`, so the loader resolves them with a
+/// single `list_invoices` call per customer.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct StripeInvoiceKey {
     pub(super) customer_id: stripe::CustomerId,
@@ -38,7 +43,13 @@ impl Loader<String> for CustomerDataLoader {
     }
 }
 
-/// Request-scoped loader that resolves a Stripe invoice by its metadata key.
+/// Request-scoped loader that resolves Stripe invoices for catalog invoice rows.
+///
+/// Every row in an `invoices` connection belongs to one tenant, hence one Stripe
+/// customer. The loader groups the batched keys by customer, issues a single
+/// `list_invoices` per customer, and matches each row locally by its metadata
+/// identity. Searching Stripe once per row instead would fan out one Search API
+/// call per invoice and burst past Stripe's rate limit on large pages.
 pub(crate) struct StripeInvoiceLoader(pub Arc<dyn BillingProvider>);
 
 impl Loader<StripeInvoiceKey> for StripeInvoiceLoader {
@@ -49,25 +60,63 @@ impl Loader<StripeInvoiceKey> for StripeInvoiceLoader {
         &self,
         keys: &[StripeInvoiceKey],
     ) -> Result<HashMap<StripeInvoiceKey, Self::Value>> {
-        fan_out_optional(keys, |key| {
-            let provider = self.0.clone();
-            let query = InvoiceSearch {
-                customer_id: Some(key.customer_id.as_str()),
-                invoice_type: Some(key.invoice_type),
-                period_start: Some(&key.date_start),
-                period_end: Some(&key.date_end),
-                status: StatusFilter::Exclude(stripe::InvoiceStatus::Draft),
+        let mut keys_by_customer: HashMap<stripe::CustomerId, Vec<&StripeInvoiceKey>> =
+            HashMap::new();
+        for key in keys {
+            keys_by_customer
+                .entry(key.customer_id.clone())
+                .or_default()
+                .push(key);
+        }
+
+        let mut resolved = HashMap::new();
+        for (customer_id, keys) in keys_by_customer {
+            let invoices = self
+                .0
+                .list_invoices(&customer_id)
+                .await
+                .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+
+            // Index the customer's invoices by metadata identity so each
+            // requested key resolves with no further Stripe calls. Drafts are
+            // skipped: they're in-progress and shouldn't surface amounts or
+            // PDFs. Invoices without our metadata (e.g. created outside the
+            // billing pipeline) can't be matched and are ignored. `or_insert`
+            // keeps the first match, which is the newest since Stripe lists
+            // invoices newest-first.
+            let mut by_identity: HashMap<InvoiceIdentity, stripe::Invoice> = HashMap::new();
+            for invoice in invoices {
+                if matches!(invoice.status, Some(stripe::InvoiceStatus::Draft)) {
+                    continue;
+                }
+                let Some(metadata) = invoice
+                    .metadata
+                    .as_ref()
+                    .and_then(InvoiceMetadata::from_metadata_map)
+                else {
+                    continue;
+                };
+                by_identity
+                    .entry((
+                        metadata.invoice_type,
+                        metadata.period_start,
+                        metadata.period_end,
+                    ))
+                    .or_insert(invoice);
             }
-            .to_query();
-            async move {
-                provider
-                    .search_invoices(&query)
-                    .await
-                    .map(|invoices| invoices.into_iter().next())
-                    .map_err(|err| async_graphql::Error::new(err.to_string()))
+
+            for key in keys {
+                let identity = (
+                    key.invoice_type,
+                    key.date_start.clone(),
+                    key.date_end.clone(),
+                );
+                if let Some(invoice) = by_identity.get(&identity) {
+                    resolved.insert(key.clone(), invoice.clone());
+                }
             }
-        })
-        .await
+        }
+        Ok(resolved)
     }
 }
 
