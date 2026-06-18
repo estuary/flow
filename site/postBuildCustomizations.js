@@ -2,7 +2,8 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 
 const outputDir = './build';
-const connectorsDir = `${outputDir}/reference/Connectors`;
+const capConnectorsDir = `${outputDir}/reference/Connectors/capture-connectors`;
+const matConnectorsDir = `${outputDir}/reference/Connectors/materialization-connectors`;
 const conceptsDir = `${outputDir}/concepts`;
 const connector = 'Connector';
 const concept = 'Concept';
@@ -23,14 +24,19 @@ const updatePageTitles = (params, titleAddition) => {
             const titleText = $title.text();
 
             if (
-                // Skip if we are on a specific "root" page
-                !titleText.toLowerCase().startsWith('dekaf integrations'.toLowerCase()) &&
-                !titleText.toLowerCase().startsWith('materialization protocol'.toLowerCase()) &&
-
                 // Skip if it is already there (whether at the beginning, in plural, etc)
                 !titleText.toLowerCase().includes(titleAddition.toLowerCase())
             ) {
-                const newTitle = titleText.replace(divider, ` ${titleAddition}${divider}`);
+                // Add 'Capture' or 'Materialization' to the title for connector ref pages
+                if (params.includes('capture-connectors')) {
+                    titleUpdate = `Capture ${titleAddition}`;
+                } else if (params.includes('materialization-connectors')) {
+                    titleUpdate = `Materialization ${titleAddition}`;
+                } else {
+                    titleUpdate = titleAddition;
+                }
+
+                const newTitle = titleText.replace(divider, ` ${titleUpdate}${divider}`);
                 console.debug(`  - updating    : ${fileFullPath}`)
                 console.debug(`    - new title : ${newTitle}`)
 
@@ -45,5 +51,6 @@ const updatePageTitles = (params, titleAddition) => {
 
 }
 
-updatePageTitles(connectorsDir, `${connector}`);
-updatePageTitles(conceptsDir, `${concept}`);
+updatePageTitles(capConnectorsDir, connector);
+updatePageTitles(matConnectorsDir, connector)
+updatePageTitles(conceptsDir, concept);
