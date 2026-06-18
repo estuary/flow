@@ -92,3 +92,6 @@ collections:
           source: ops/rollups/L1/BASE_NAME/catalog-stats
           shuffle:
             key: [/catalogName]
+      shards:
+        flags:
+          enable-runtime-v2: "true"

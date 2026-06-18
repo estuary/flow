@@ -121,7 +121,12 @@
               ]
             }
           }
-        ]
+        ],
+        "shards": {
+          "flags": {
+            "enable-runtime-v2": "true"
+          }
+        }
       }
     }
   }
