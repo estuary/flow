@@ -3,7 +3,7 @@ description: Review considerations when editing Estuary Data Flows, including do
 slug: /reference/editing/
 ---
 
-# Editing Considerations
+# Editing Data Flows Safely
 
 You can edit the components of your Data Flows in Estuary's web app and with flowctl, but before you do so, it's important to consider the implications of your changes.
 

@@ -3,7 +3,7 @@ sidebar_position: 3
 description: Customize Estuary materialized column types with castToString or DDL field configuration for precise control and to match destination-specific data types.
 ---
 
-# Custom Column Types
+# Customize Materialized Column Types
 
 Estuary automatically maps collection fields to appropriate column types in your destination. However, some scenarios require overriding these defaults. The `castToString` and `DDL` field configurations give you precise control over how individual fields are materialized.
 

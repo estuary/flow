@@ -3,7 +3,7 @@ sidebar_label: PostgreSQL Replication Slot Recovery
 description: Recover a PostgreSQL capture when the replication slot has been dropped or invalidated using XMIN backfills.
 ---
 
-# Recovering a PostgreSQL capture after replication slot loss
+# Recovering PostgreSQL Replication Slots
 
 Estuary's PostgreSQL CDC connector relies on a logical replication slot to track its position in the WAL (Write-Ahead Log). If that slot is dropped or invalidated, the capture will fail and cannot automatically recover. This guide explains how to identify the problem and restore the capture with minimal data re-processing.
 

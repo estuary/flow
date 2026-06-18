@@ -4,7 +4,7 @@ slug: /reference/reduction-strategies/composing-with-conditionals/
 sidebar_position: 30
 ---
 
-# Composing with conditionals
+# Composing Reductions with Conditionals
 
 Reduction strategies are JSON Schema [annotations](https://json-schema.org/draft/2019-09/json-schema-core.html#rfc.section.7.7). As such, their applicability at a given document location can be controlled through the use of [conditional](https://json-schema.org/understanding-json-schema/reference/conditionals.html) keywords within the schema, like `oneOf` or `if/then/else`. This means Estuary’s built-in strategies can be combined with schema conditionals to construct a wider variety of custom reduction behaviors.
 

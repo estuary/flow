@@ -3,7 +3,7 @@ sidebar_position: 3
 description: Build your first Estuary Data Flow from Amazon S3 to Snowflake. Guide covers capture setup, collections, materialization, and publishing.
 ---
 
-# Create Your First Dataflow with Amazon S3 and Snowflake
+# Amazon S3 to Snowflake Data Flow
 
 In this tutorial, you'll create your first complete **Data Flow** with Estuary using publicly available data.
 
