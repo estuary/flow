@@ -1,10 +1,10 @@
-use super::TimestampCursor;
+use super::{Sensitive, TimestampCursor};
 use async_graphql::{Context, types::connection};
 
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct RefreshTokenResult {
     pub id: models::Id,
-    pub secret: String,
+    pub secret: Sensitive,
 }
 
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
@@ -116,6 +116,9 @@ pub struct RefreshTokensMutation;
 #[async_graphql::Object]
 impl RefreshTokensMutation {
     /// Create a refresh token for the authenticated user.
+    ///
+    /// Service-account callers are rejected: their API keys are administered
+    /// via createApiKey and revokeApiKey.
     async fn create_refresh_token(
         &self,
         ctx: &Context<'_>,
@@ -129,6 +132,8 @@ impl RefreshTokensMutation {
     ) -> async_graphql::Result<RefreshTokenResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
+
+        super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
 
         // ISO 8601 durations begin with 'P'; considering this cheap and good enough validation for now.
         if !valid_for.starts_with('P') {
@@ -186,7 +191,7 @@ impl RefreshTokensMutation {
 
         Ok(RefreshTokenResult {
             id: row.id,
-            secret: row.secret,
+            secret: Sensitive::new(row.secret),
         })
     }
 
@@ -195,6 +200,9 @@ impl RefreshTokensMutation {
     /// Rather than deleting the row, we zero its `valid_for` interval, which
     /// marks the token as expired/invalid while preserving the audit trail.
     /// Already-zeroed (revoked) tokens are treated as not found.
+    ///
+    /// Service-account callers are rejected: their API keys are administered
+    /// via createApiKey and revokeApiKey.
     async fn revoke_refresh_token(
         &self,
         ctx: &Context<'_>,
@@ -202,6 +210,8 @@ impl RefreshTokensMutation {
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
+
+        super::service_accounts::verify_not_service_account(&env.pg_pool, claims.sub).await?;
 
         let result = sqlx::query!(
             "UPDATE refresh_tokens SET valid_for = interval '0' \
@@ -407,7 +417,7 @@ mod test {
             "bad refresh secret should be rejected with 401: {body}"
         );
         assert!(
-            body.contains("invalid, expired, or unknown refresh token"),
+            body.contains("invalid, expired, or unknown credential"),
             "bad refresh secret rejection body: {body}"
         );
 

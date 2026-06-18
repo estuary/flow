@@ -253,32 +253,20 @@ pub async fn exchange_refresh_token(
         id: models::Id,
         secret: String,
     }
-    #[derive(Debug, serde::Deserialize)]
-    struct GenerateTokenResponse {
-        access_token: String,
-    }
 
     let bearer = tokens::jwt::parse_base64(refresh_token)?;
     let bearer: RefreshToken = serde_json::from_slice(&bearer)
         .map_err(|err| tonic::Status::invalid_argument(format!("invalid bearer token: {err}")))?;
 
-    let response = sqlx::query!(
-        "select generate_access_token($1, $2) as token",
-        bearer.id as models::Id,
-        bearer.secret,
-    )
-    .fetch_one(pg_pool)
-    .await
-    .map_err(|err| {
-        tonic::Status::unauthenticated(format!("failed to exchange refresh token: {err}"))
-    })?;
+    // Reuse the same exchange-and-sanitize path as the POST /api/v1/auth/token
+    // endpoint. This path only needs a freshly minted access token to verify
+    // in-process; any refresh-token rotation in the response is irrelevant
+    // here, since single-use tokens are exchanged via that endpoint rather than
+    // presented as bearer credentials.
+    let response =
+        public::token_exchange::generate_access_token(pg_pool, bearer.id, &bearer.secret).await?;
 
-    let GenerateTokenResponse { access_token } =
-        serde_json::from_value(response.token.unwrap_or_default()).map_err(|err| {
-            tonic::Status::internal(format!("invalid access token generated: {err}"))
-        })?;
-
-    Ok(access_token)
+    Ok(response.access_token)
 }
 
 /// Parse a data-plane claims token without verifying its signature.

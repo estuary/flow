@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE public.refresh_tokens SET valid_for = interval '0' WHERE user_id = $1 AND valid_for <> interval '0'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51177ad92eabdb931a92bde6ac8fd8949e59fac6d86a6fd41fc694c65085c636"
+}
