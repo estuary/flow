@@ -49,7 +49,10 @@ jobs:
           image: ${{ steps.image-tag.outputs.image }}
           port: 8080
           # Egress via a dedicated subnet on the data-plane-controller VPC (its own NAT IP) for a stable outbound IP.
-          flags: '--network=data-plane-controller --subnet=control-plane-api-sn1 --vpc-egress=all-traffic'
+          # Keep one warm instance: direct VPC egress cold-starts take ~40s for the network interface to begin
+          # passing traffic, so a min instance avoids that delay on scale-from-zero and keeps a ready instance
+          # serving while additional instances warm up during a scale-up.
+          flags: '--network=data-plane-controller --subnet=control-plane-api-sn1 --vpc-egress=all-traffic --min-instances=1'
 
           env_vars: |-
             DATABASE_CA=/etc/db-ca.crt
