@@ -825,6 +825,11 @@ async fn get_or_create_customer_for_tenant(
                 join auth.users as users on user_grants.user_id = users.id
                 where users.email is not null and user_grants.object_role = $1
                 and user_grants.capability = 'admin'
+                -- Exclude service accounts: their synthetic addresses must
+                -- never be chosen as a tenant's Stripe billing contact.
+                and not exists (
+                  select 1 from internal.service_accounts sa where sa.user_id = users.id
+                )
                 order by users.created_at asc
             "#,
             tenant

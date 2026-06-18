@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT sa.catalog_name AS \"catalog_name!: String\"\n            FROM public.refresh_tokens rt\n            JOIN internal.service_accounts sa ON sa.user_id = rt.user_id\n            WHERE rt.id = $1 AND rt.valid_for <> interval '0'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3a653a108488d0351464fc9d193bc23cde331e451da6a7aaf01be99c9f6e39e0"
+}
