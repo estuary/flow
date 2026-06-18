@@ -272,6 +272,7 @@ impl serde::Serialize for append_request::Suspend {
             Self::NoResume => "SUSPEND_NO_RESUME",
             Self::IfFlushed => "SUSPEND_IF_FLUSHED",
             Self::Now => "SUSPEND_NOW",
+            Self::Keep => "SUSPEND_KEEP",
         };
         serializer.serialize_str(variant)
     }
@@ -287,6 +288,7 @@ impl<'de> serde::Deserialize<'de> for append_request::Suspend {
             "SUSPEND_NO_RESUME",
             "SUSPEND_IF_FLUSHED",
             "SUSPEND_NOW",
+            "SUSPEND_KEEP",
         ];
 
         struct GeneratedVisitor;
@@ -331,6 +333,7 @@ impl<'de> serde::Deserialize<'de> for append_request::Suspend {
                     "SUSPEND_NO_RESUME" => Ok(append_request::Suspend::NoResume),
                     "SUSPEND_IF_FLUSHED" => Ok(append_request::Suspend::IfFlushed),
                     "SUSPEND_NOW" => Ok(append_request::Suspend::Now),
+                    "SUSPEND_KEEP" => Ok(append_request::Suspend::Keep),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

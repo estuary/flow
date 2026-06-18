@@ -2080,6 +2080,37 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_redact_inside_inferred_schema_def_is_allowed() {
+    // Regression: a collection that pairs schema inference with redaction. The
+    // live inferred schema faithfully carries the write schema's `redact`
+    // annotation, and validation inlines it into `$defs/flow://inferred-schema`
+    // before the managed-defs scan runs. That system-generated `redact` must
+    // not be flagged as a misplacement, which previously trapped such
+    // collections in a failed-publish loop the moment their inferred schema
+    // next updated.
+    let errors = common::run_errors(
+        include_str!("schema_inference.yaml"),
+        r#"
+driver:
+  liveInferredSchemas:
+    testing/foobar:
+      properties:
+        timestamp:
+          redact: { strategy: sha256 }
+
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      writeSchema:
+        properties:
+          timestamp:
+            redact: { strategy: sha256 }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors, @"[]");
+}
+
+#[test]
 fn test_materialization_too_many_bindings() {
     let bindings_count = validation::MAX_BINDINGS + 1;
 

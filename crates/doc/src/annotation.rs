@@ -51,6 +51,9 @@ impl schema::Annotation for Annotation {
 
     fn uses_keyword(keyword: &str) -> bool {
         match keyword {
+            // `x-str-minimum` / `x-str-maximum` are enforced validation keywords
+            // not annotations so we need to preempt the starts_with("x-") check.
+            schema::keywords::X_STR_MINIMUM | schema::keywords::X_STR_MAXIMUM => false,
             "reduce" | "redact" | "secret" | "airbyte_secret" | "multiline" | "advanced"
             | "order" | "discriminator" => true,
             key if key.starts_with("x-") || key.starts_with("X-") => true,
@@ -96,6 +99,52 @@ mod test {
 
         let curi = Url::parse("https://example/schema").unwrap();
         build_schema::<Annotation>(&curi, &schema).unwrap();
+    }
+
+    #[test]
+    fn test_x_str_bounds_are_validation_keywords_not_annotations() {
+        use json::schema::Keyword;
+
+        let schema = json!({
+            "type": "string",
+            "format": "integer",
+            "x-str-minimum": "0",
+            "x-str-maximum": "100",
+            "x-other": "still an annotation",
+        });
+
+        let curi = Url::parse("https://example/schema").unwrap();
+        let built = build_schema::<Annotation>(&curi, &schema).unwrap();
+
+        let keywords: Vec<&str> = built.keywords.iter().map(|kw| kw.keyword()).collect();
+
+        // The bounds are present exactly once, as enforced validation keywords.
+        assert_eq!(
+            built
+                .keywords
+                .iter()
+                .filter(|kw| matches!(kw, Keyword::XStrMinimum { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            built
+                .keywords
+                .iter()
+                .filter(|kw| matches!(kw, Keyword::XStrMaximum { .. }))
+                .count(),
+            1
+        );
+        // They are NOT additionally captured as `x-` annotations, unlike `x-other`.
+        assert_eq!(
+            keywords.iter().filter(|k| **k == "x-str-minimum").count(),
+            1
+        );
+        assert_eq!(
+            keywords.iter().filter(|k| **k == "x-str-maximum").count(),
+            1
+        );
+        assert_eq!(keywords.iter().filter(|k| **k == "x-other").count(), 1);
     }
 
     #[test]

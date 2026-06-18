@@ -31,18 +31,23 @@ flowctl catalog pull-specs --name your-org/your-capture
 
 This creates a local `flow.yaml` file and subdirectories with your capture's specification.
 
-### 2. Prevent auto-discover from adding bindings
+### 2. Disable auto-discover
 
-Open the capture YAML file. Set `addNewBindings` to `false` so auto-discover won't overwrite your manual bindings. Keep `evolveIncompatibleCollections` enabled to preserve schema inference:
+Open the capture YAML file. Auto-discover periodically re-runs discovery and rewrites the capture's bindings to match what the connector reports. File source connectors only ever discover a single binding (the bucket/prefix root), so on its next run auto-discover will remove the extra bindings you add below.
+
+Setting `addNewBindings` to `false` does **not** prevent this — it only stops new bindings from being added, not existing ones from being removed. Remove the `autoDiscover` block entirely (or set it to `null`) so auto-discover never runs:
 
 ```yaml
-autoDiscover:
-  addNewBindings: false
-  evolveIncompatibleCollections: true
+captures:
+  acmeCo/sftp-capture:
+    autoDiscover: null
+    endpoint: {...}
 ```
 
+Disabling auto-discover does not affect schema inference, which is driven by your collection's read schema and continues regardless.
+
 :::tip
-In the web app, this corresponds to unchecking **Automatically add new collections** while keeping **Automatically keep schemas up to date** checked.
+In the web app, this corresponds to unchecking **Automatically keep schemas up to date** (under Schema Evolution) when editing the capture.
 :::
 
 ### 3. Add a new binding
@@ -136,9 +141,6 @@ This example captures CSV files from two directories on an SFTP server into sepa
 ```yaml
 captures:
   acmeCo/sftp-capture:
-    autoDiscover:
-      addNewBindings: false
-      evolveIncompatibleCollections: true
     endpoint:
       connector:
         image: "ghcr.io/estuary/source-sftp:dev"
@@ -200,9 +202,6 @@ This example captures JSON files from two S3 prefixes into the same collection.
 ```yaml
 captures:
   acmeCo/s3-capture:
-    autoDiscover:
-      addNewBindings: false
-      evolveIncompatibleCollections: true
     endpoint:
       connector:
         image: "ghcr.io/estuary/source-s3:dev"
@@ -247,6 +246,6 @@ The `stream` value is formatted as `bucket-name/prefix`. For example: `my-bucket
 
 - **Parser config is shared.** All bindings in a capture share the same endpoint-level parser configuration (compression, format, CSV options, etc.). You cannot mix file formats within a single capture — for example, capturing CSV from one path and JSON from another requires two separate captures.
 
-- **Auto-discover must not add bindings.** Set `addNewBindings: false` in your `autoDiscover` config. If left as `true`, auto-discover may overwrite your manually-added bindings on the next discovery cycle. You can keep `evolveIncompatibleCollections: true` to preserve schema inference.
+- **Disable auto-discover.** File source discovery returns a single binding (the bucket/prefix root), so if auto-discover runs it will remove your manually-added bindings on the next discovery cycle. Setting `addNewBindings: false` does not prevent this — remove the `autoDiscover` block (or set `autoDiscover: null`). This does not affect schema inference, which is driven by the collection's read schema.
 
 - **Target collections must exist.** When using Option B (separate collections), the target collection must be defined and published. If you reference a collection that doesn't exist, the publish will fail.

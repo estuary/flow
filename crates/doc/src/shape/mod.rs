@@ -60,6 +60,10 @@ pub struct StringShape {
     pub format: Option<Format>,
     pub max_length: Option<u32>,
     pub min_length: u32,
+    /// `x-str-minimum` value:  Minimum numeric value for number-ish formats
+    pub str_minimum: Option<Box<bigdecimal::BigDecimal>>,
+    /// `x-str-maximum` value:  Maximum numeric value for number-ish formats
+    pub str_maximum: Option<Box<bigdecimal::BigDecimal>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -142,6 +146,8 @@ impl StringShape {
             format: None,
             max_length: None,
             min_length: 0,
+            str_minimum: None,
+            str_maximum: None,
         }
     }
 }
@@ -291,8 +297,8 @@ mod test {
     fn shape_size_regression() {
         use super::{ArrayShape, ObjShape, Shape, StringShape};
         assert_eq!(std::mem::size_of::<ObjShape>(), 56);
-        assert_eq!(std::mem::size_of::<StringShape>(), 32);
+        assert_eq!(std::mem::size_of::<StringShape>(), 48);
         assert_eq!(std::mem::size_of::<ArrayShape>(), 48);
-        assert_eq!(std::mem::size_of::<Shape>(), 328);
+        assert_eq!(std::mem::size_of::<Shape>(), 344);
     }
 }

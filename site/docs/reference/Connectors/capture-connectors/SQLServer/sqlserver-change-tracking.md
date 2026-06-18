@@ -12,11 +12,13 @@ in a Microsoft SQL Server database into one or more Estuary collections.
 
 Estuary offers three main SQL Server capture connectors and their variants (platform-specific versions for managed providers). All three work across self-hosted and cloud-managed deployments.
 
-| Connector | Mechanism | Latency | Key Strengths |
-|-----------|-----------|---------|---------------|
-| **Change Tracking** (this connector) | Change tracking | Real-time | Computed columns, lower storage overhead |
-| [CDC](http://go.estuary.dev/source-sqlserver) | Log-based change capture | Real-time | Full audit history, tables without primary keys |
-| [Batch](http://go.estuary.dev/source-sqlserver-batch) | Periodic polling | Minutes to hours | Views, custom queries, minimal setup |
+| Connector | Mechanism | Latency | Read Replica Support | Key Strengths |
+|-----------|-----------|---------|----------------------|---------------|
+| **Change Tracking** (this connector) | Change tracking | Real-time | No | Computed columns, lower storage overhead |
+| [CDC](http://go.estuary.dev/source-sqlserver) | Log-based change capture | Real-time | Yes\* | Full audit history, tables without primary keys |
+| [Batch](http://go.estuary.dev/source-sqlserver-batch) | Periodic polling | Minutes to hours | Yes | Views, custom queries, minimal setup |
+
+\* CDC can capture from a read replica, but the CDC worker must run on the primary instance.
 
 **Choose Change Tracking when:**
 
@@ -50,6 +52,10 @@ Setup instructions are provided for the following platforms:
 ## Prerequisites
 
 To capture change events from SQL Server tables using this connector, you need:
+
+- A connection to the primary database instance. Change Tracking must capture
+  from the primary instance, as Change Tracking data is not available on read
+  replicas or secondary instances.
 
 - Primary keys on all tables you intend to capture. Change Tracking does not support tables without primary keys.
 

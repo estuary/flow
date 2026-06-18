@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -22,6 +23,9 @@ import (
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
+	"github.com/sirupsen/logrus"
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -31,6 +35,7 @@ import (
 	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/message"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
 // taskService is the subset of bindings.TaskService / bindings.TaskServiceV2
@@ -149,7 +154,7 @@ func newTaskBaseV2[TaskSpec pf.Task](
 		return nil, fmt.Errorf("creating V2 task service: %w", err)
 	}
 
-	return &taskBase[TaskSpec]{
+	var base = &taskBase[TaskSpec]{
 		container:    atomic.Pointer[pr.Container]{},
 		extractFn:    extractFn,
 		host:         host,
@@ -158,7 +163,17 @@ func newTaskBaseV2[TaskSpec pf.Task](
 		recorder:     recorder,
 		svc:          svc,
 		term:         *term,
-	}, nil
+	}
+
+	// V2 shards bypass Gazette's consumer transaction loop, which is what
+	// stores periodic primary FSMHints of V1 shards. Stand in for it here, as
+	// hints would otherwise never be written over the lifetime of a
+	// long-running primary.
+	if recorder != nil {
+		go base.storeHintsLoop(shard)
+	}
+
+	return base, nil
 }
 
 func (t *taskBase[TaskSpec]) initTerm(shard consumer.Shard) error {
@@ -353,6 +368,73 @@ func (t *taskBase[TaskSpec]) heartbeatLoop(shard consumer.Shard) {
 				"eventTarget", taskName,
 			)
 			return
+		}
+	}
+}
+
+// storeHintsLoop is a stand-in for the part of Gazette's consumer transaction
+// loop that periodically writes FSM hints between transactions. The consumer
+// transaction loop is bypassed in Runtime V2 shards, so this is currently
+// needed for hints to be written at any time other than graceful restarts.
+// 
+// The loop body transcribes gazette's `<-hintsCh` handler of
+// consumer.runTransactions (consumer/transaction.go) and the unexported
+// consumer.storeRecordedHints it calls (consumer/recovery.go), rebuilt from
+// exported API. Deviations:
+//   - We block on our own five-minute ticker; gazette's equivalent is private
+//     to its transaction loop and observed only in-between transactions,
+//     which V2 shards never run.
+//   - Errors which gazette fails the shard over are logged and retried at
+//     the next interval: a detached goroutine cannot fail the shard, and
+//     hints are advisory (recovery and log-pruning efficiency, not
+//     correctness).
+func (t *taskBase[TaskSpec]) storeHintsLoop(shard consumer.Shard) {
+	var ticker = time.NewTicker(5 * time.Minute) // Gazette's storeHintsInterval.
+	defer ticker.Stop()
+	var done = shard.PrimaryLoop().Done()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+		}
+
+		var hints, err = t.recorder.BuildHints()
+
+		// The remainder mirrors consumer.storeRecordedHints.
+		var key = shard.Spec().HintPrimaryKey()
+		var asn = shard.Assignment()
+
+		var val []byte
+		if err == nil {
+			if val, err = json.Marshal(hints); err != nil {
+				err = fmt.Errorf("json.Marshal(hints): %w", err)
+			}
+		}
+		if err == nil {
+			_, err = t.host.service.Etcd.Txn(shard.Context()).
+				// Verify our Assignment is still in effect (eg, we're still primary), then write |hints| to HintPrimaryKey.
+				// Compare CreateRevision to allow for a raced ReplicaState update.
+				If(clientv3.Compare(clientv3.CreateRevision(string(asn.Raw.Key)), "=", asn.Raw.CreateRevision)).
+				Then(clientv3.OpPut(key, string(val))).
+				Commit()
+		}
+
+		if err == nil || shard.Context().Err() != nil {
+			continue
+		} else if etcdErr, ok := err.(rpctypes.EtcdError); ok && etcdErr.Code() == codes.Unavailable {
+			// Recorded hints are advisory and can generally tolerate omitted
+			// updates. It's also annoying for temporary Etcd partitions to abort
+			// an otherwise-fine shard primary. So, log but allow shard processing
+			// to continue; we'll retry on the next hints flush interval.
+			logrus.WithFields(logrus.Fields{"key": key, "err": err}).
+				Warn("failed to store recorded FSMHints (will retry)")
+		} else {
+			// Gazette aborts the shard primary here. We cannot from this
+			// routine, so error loudly and retry at the next interval.
+			logrus.WithFields(logrus.Fields{"key": key, "err": err}).
+				Error("failed to store recorded FSMHints (will retry)")
 		}
 	}
 }

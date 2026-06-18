@@ -122,6 +122,19 @@ pub struct DataPlane {
     // connections. Set per-data-plane; not part of any Deployment template.
     #[serde(default, skip_serializing_if = "is_false")]
     pub disable_ipv6: bool,
+    // When true, sets `enableDnsHostnames` on the AWS VPC. Required for
+    // Route 53 Private Hosted Zones associated with this VPC to resolve.
+    // Side effect: AWS publishes externally resolvable
+    // `ec2-<ip>.compute.amazonaws.com` hostnames for every public-IP
+    // instance. Opt in only when a PHZ is actually required.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub enable_dns_hostnames: bool,
+    // When true, attaches the VPC's S3 gateway endpoint to each zone's
+    // private subnet route table so connector containers reach S3 through
+    // the gateway endpoint instead of the NAT gateway. Trade-off: source
+    // IP at S3 changes from the NAT EIP to the private-subnet IP.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub s3_endpoint_on_private_subnet: bool,
     pub deployments: Vec<Deployment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_limits: Option<ConnectorLimits>,
@@ -161,42 +174,10 @@ pub struct GCPBYOC {
     pub project_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum PrivateLink {
-    AWS(AWSPrivateLink),
-    Azure(AzurePrivateLink),
-    GCP(GCPPrivateServiceConnect),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct AWSPrivateLink {
-    pub region: String,
-    pub az_ids: Vec<String>,
-    pub service_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub service_region: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct AzurePrivateLink {
-    pub service_name: String,
-    pub location: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub dns_name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub resource_type: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct GCPPrivateServiceConnect {
-    pub service_attachment: String,
-    pub region: String,
-    pub dns_zone_name: String,
-    pub dns_record_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub all_ports: bool,
-}
+// Private-link config types live in the shared `models` crate so the GraphQL
+// API and the data-plane controller can speak the same shape. The DPC still
+// references them through this module, so re-export them here.
+pub use models::{AWSPrivateLink, AzurePrivateLink, GCPPrivateServiceConnect, PrivateLink};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -255,6 +236,10 @@ pub struct Deployment {
     pub tier: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    // One-shot flag requesting a rolling restart of this deployment's instances.
+    // Ansible rolls them one host at a time; cleared after a successful run.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub restart: bool,
 }
 
 fn default_tier() -> u8 {
@@ -306,6 +291,15 @@ pub struct AnsibleHost {
     pub geo_region: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vpc: Option<String>,
+    // CIDRs of the public and private subnets this host's template is
+    // attached to. Consumed by the est-dry-dock common role to identify
+    // iface_pub vs. iface_nat without hardcoding the legacy 10.0/16 and
+    // 10.1/16 defaults. Optional for backward compatibility with stack
+    // outputs produced before these were exported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_subnet_cidr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_subnet_cidr: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -440,6 +434,7 @@ impl DataPlane {
                         rollout: _,            // Allowed to change.
                         tier: _,               // Allowed to change.
                         tag: _,                // Allowed to change.
+                        restart: _,            // Allowed to change.
                     },
                     next @ Deployment {
                         current: next_current,
@@ -451,6 +446,7 @@ impl DataPlane {
                         rollout: _,            // Allowed to change.
                         tier: _,               // Allowed to change.
                         tag: _,                // Allowed to change.
+                        restart: _,            // Allowed to change.
                     },
                 ) => {
                     if cur_current != next_current
@@ -532,6 +528,7 @@ impl DataPlane {
                 template: last.template.clone(),
                 tier: last.tier,
                 tag: last.tag.clone(),
+                restart: false,
             };
 
             last.rollout = Some(Rollout {
@@ -618,8 +615,8 @@ mod test {
             PrivateLink::Azure(AzurePrivateLink {
                 location: "eastus".to_string(),
                 service_name: "service".to_string(),
-                resource_type: "managedInstance".to_string(),
-                dns_name: "privatelink.database.windows.net".to_string(),
+                resource_type: Some("managedInstance".to_string()),
+                dns_name: Some("privatelink.database.windows.net".to_string()),
             }),
         );
         assert_eq!(

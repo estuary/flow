@@ -3,6 +3,8 @@ sidebar_position: 6
 description: Set up Estuary's PostgreSQL capture connector with CDC, logical replication, and proper permissions using self-hosted and cloud platform guides.
 ---
 
+import ReactPlayer from "react-player";
+
 # PostgreSQL
 
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Estuary collections.
@@ -20,6 +22,8 @@ Setup instructions are provided for the following platforms:
 - [Amazon Aurora](#amazon-aurora)
 - [Google Cloud SQL](./google-cloud-sql-postgres/)
 - [Azure Database for PostgreSQL](#azure-database-for-postgresql)
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=10BLaiRc9uU?t=355" />
 
 ## Prerequisites
 

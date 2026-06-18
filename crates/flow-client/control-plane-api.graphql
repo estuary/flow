@@ -1,3 +1,17 @@
+type AWSPrivateLink {
+	region: String!
+	azIds: [String!]!
+	serviceName: String!
+	serviceRegion: String
+}
+
+input AWSPrivateLinkInput {
+	region: String!
+	azIds: [String!]!
+	serviceName: String!
+	serviceRegion: String
+}
+
 """
 Status of the abandonment evaluation for a task.
 """
@@ -312,6 +326,25 @@ type AutoDiscoverStatus {
 	failure: AutoDiscoverFailure
 }
 
+type AzurePrivateLink {
+	serviceName: String!
+	location: String!
+	dnsName: String
+	resourceType: String
+}
+
+input AzurePrivateLinkInput {
+	serviceName: String!
+	location: String!
+	dnsName: String
+	resourceType: String
+}
+
+type BillingPaymentMethodPayload {
+	paymentMethods: [PaymentMethod!]!
+	primaryPaymentMethod: PaymentMethod
+}
+
 input BoolFilter {
 	eq: Boolean
 }
@@ -337,8 +370,17 @@ enum CapabilityBit {
 	CreateGrant
 	DeleteGrant
 	CreateInviteLink
+	ViewDataPlanePrivateNetworking
+	ModifyDataPlanePrivateNetworking
 	Delegate
 	Assume
+}
+
+type CardPaymentMethodDetails {
+	brand: String
+	last4: String
+	expMonth: Int!
+	expYear: Int!
 }
 
 enum CatalogType {
@@ -346,6 +388,12 @@ enum CatalogType {
 	collection
 	materialization
 	test
+}
+
+enum ChargeStatus {
+	FAILED
+	PENDING
+	SUCCEEDED
 }
 
 scalar Collection
@@ -585,6 +633,10 @@ type Controller {
 	updatedAt: DateTime!
 }
 
+type CreateBillingSetupIntentPayload {
+	clientSecret: String!
+}
+
 """
 Result of creating a storage mapping.
 """
@@ -652,6 +704,30 @@ type DataPlane {
 	Azure application client ID for this data-plane.
 	"""
 	azureApplicationClientId: String
+	"""
+	Configured private link endpoints for this data-plane. Replacing this
+	list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
+	data-plane controller on its next poll. Returns an empty list to
+	callers that lack the `ViewDataPlanePrivateNetworking` capability on
+	this data plane.
+	"""
+	privateLinks: [PrivateLink!]!
+	"""
+	AWS PrivateLink endpoint provisioning results, opaque JSON exported by
+	the data-plane controller. Empty when no AWS endpoints are provisioned,
+	or when the caller lacks `ViewDataPlanePrivateNetworking`.
+	"""
+	awsLinkEndpoints: [JSON!]!
+	"""
+	Azure Private Link endpoint provisioning results, opaque JSON. Empty when
+	the caller lacks `ViewDataPlanePrivateNetworking`.
+	"""
+	azureLinkEndpoints: [JSON!]!
+	"""
+	GCP Private Service Connect endpoint provisioning results, opaque JSON.
+	Empty when the caller lacks `ViewDataPlanePrivateNetworking`.
+	"""
+	gcpPscEndpoints: [JSON!]!
 }
 
 """
@@ -687,6 +763,11 @@ type DataPlaneEdge {
 	A cursor for use in pagination
 	"""
 	cursor: String!
+}
+
+input DateFilter {
+	gt: NaiveDate
+	lt: NaiveDate
 }
 
 """
@@ -731,6 +812,22 @@ type Error {
 type FieldProvenance {
 	path: String!
 	source: String
+}
+
+type GCPPrivateServiceConnect {
+	serviceAttachment: String!
+	region: String!
+	dnsZoneName: String!
+	dnsRecordNames: [String!]!
+	allPorts: Boolean!
+}
+
+input GCPPrivateServiceConnectInput {
+	serviceAttachment: String!
+	region: String!
+	dnsZoneName: String!
+	dnsRecordNames: [String!]!
+	allPorts: Boolean! = false
 }
 
 scalar Id
@@ -831,6 +928,72 @@ type InviteLinkEdge {
 input InviteLinksFilter {
 	singleUse: BoolFilter
 	catalogPrefix: PrefixFilter
+}
+
+type Invoice {
+	dateStart: String!
+	dateEnd: String!
+	invoiceType: InvoiceType!
+	subtotal: Int!
+	lineItems: JSON!
+	extra: JSON!
+	amountDue: Int
+	status: String
+	invoicePdf: String
+	hostedInvoiceUrl: String
+	paymentDetails: InvoicePaymentDetails
+}
+
+type InvoiceConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [InvoiceEdge!]!
+	"""
+	A list of nodes.
+	"""
+	nodes: [Invoice!]!
+}
+
+"""
+An edge in a connection.
+"""
+type InvoiceEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Invoice!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+input InvoiceFilter {
+	dateStart: DateFilter
+	dateEnd: DateFilter
+	invoiceType: InvoiceTypeFilter
+}
+
+type InvoicePaymentDetails {
+	status: ChargeStatus!
+	receiptUrl: String
+	card: CardPaymentMethodDetails
+	usBankAccount: UsBankAccountPaymentMethodDetails
+}
+
+enum InvoiceType {
+	FINAL
+	PREVIEW
+	MANUAL
+}
+
+input InvoiceTypeFilter {
+	eq: InvoiceType
 }
 
 """
@@ -1010,6 +1173,9 @@ type LockFailure {
 }
 
 type MutationRoot {
+	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
+	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
+	deleteBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	"""
 	Create a storage mapping for the given catalog prefix.
 	
@@ -1090,7 +1256,48 @@ type MutationRoot {
 	The caller must have admin capability on the invite link's catalog prefix.
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
+	"""
+	Replaces the configured private link endpoints on a private data plane.
+	
+	The provided list overwrites the entire `private_links` column; partial
+	updates are intentionally not supported. The data-plane controller
+	converges to the new configuration on its next poll. Returns the desired
+	private links state. The `*LinkEndpoints` provisioning results are not echoed here:
+	they lag this write until the controller converges, so callers needing them re-query `dataPlanes`.
+	
+	Requires the `ModifyDataPlanePrivateNetworking` capability on the
+	private data-plane name.
+	"""
+	updateDataPlanePrivateLinks(dataPlaneName: String!, privateLinks: [PrivateLinkInput!]!): [PrivateLink!]!
+	"""
+	Create a refresh token for the authenticated user.
+	"""
+	createRefreshToken(
+		"""
+		ISO 8601 duration for token validity (e.g. P90D); must be greater than zero and at most one year
+		"""
+		validFor: String! = "P90D",		multiUse: Boolean! = true,		detail: String = null
+	): RefreshTokenResult!
+	"""
+	Revoke a refresh token owned by the authenticated user.
+	
+	Rather than deleting the row, we zero its `valid_for` interval, which
+	marks the token as expired/invalid while preserving the audit trail.
+	Already-zeroed (revoked) tokens are treated as not found.
+	"""
+	revokeRefreshToken(id: Id!): Boolean!
 }
+
+"""
+ISO 8601 calendar date without timezone.
+Format: %Y-%m-%d
+
+# Examples
+
+* `1994-11-13`
+* `2000-02-24`
+"""
+scalar NaiveDate
 
 scalar Name
 
@@ -1114,6 +1321,18 @@ type PageInfo {
 	When paginating forwards, the cursor to continue.
 	"""
 	endCursor: String
+}
+
+type PaymentMethod {
+	id: String!
+	type: String!
+	billingDetails: PaymentMethodBillingDetails!
+	card: CardPaymentMethodDetails
+	usBankAccount: UsBankAccountPaymentMethodDetails
+}
+
+type PaymentMethodBillingDetails {
+	name: String
 }
 
 """
@@ -1190,6 +1409,22 @@ input PrefixesBy {
 	Filter returned prefixes by user capability.
 	"""
 	minCapability: Capability!
+}
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+union PrivateLink = AWSPrivateLink | AzurePrivateLink | GCPPrivateServiceConnect
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+input PrivateLinkInput @oneOf {
+	aws: AWSPrivateLinkInput
+	azure: AzurePrivateLinkInput
+	gcp: GCPPrivateServiceConnectInput
 }
 
 """
@@ -1361,6 +1596,11 @@ type QueryRoot {
 	Returns a paginated list of connectors, optionally filtered by protocol.
 	"""
 	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
+	tenant(name: String!): Tenant
+	"""
+	List refresh tokens owned by the authenticated user.
+	"""
+	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
 }
 
 """
@@ -1375,6 +1615,50 @@ type RedeemInviteLinkResult {
 	The capability level that was granted.
 	"""
 	capability: Capability!
+}
+
+type RefreshTokenInfo {
+	id: Id!
+	detail: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	multiUse: Boolean!
+	uses: Int!
+	"""
+	True once the token's validity window has elapsed
+	(now is past `updated_at + valid_for`).
+	"""
+	expired: Boolean!
+}
+
+type RefreshTokenInfoConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [RefreshTokenInfoEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type RefreshTokenInfoEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: RefreshTokenInfo!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+type RefreshTokenResult {
+	id: Id!
+	secret: String!
 }
 
 type RepublishRequested {
@@ -1737,6 +2021,17 @@ input StorageMappingsBy {
 	underPrefix: Prefix
 }
 
+type Tenant {
+	name: String!
+	billing: TenantBilling!
+}
+
+type TenantBilling {
+	paymentMethods: [PaymentMethod!]!
+	primaryPaymentMethod: PaymentMethod
+	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
+}
+
 """
 A UUID is a unique 128-bit number, stored as 16 octets. UUIDs are parsed as
 Strings within GraphQL. UUIDs are used to assign unique identifiers to
@@ -1777,6 +2072,12 @@ URL is a String implementing the [URL Standard](http://url.spec.whatwg.org/)
 """
 scalar Url
 
+type UsBankAccountPaymentMethodDetails {
+	bankName: String
+	last4: String
+	accountHolderType: String
+}
+
 """
 Marks an element of a GraphQL schema as no longer supported.
 """
@@ -1785,6 +2086,10 @@ directive @deprecated(reason: String = "No longer supported") on FIELD_DEFINITIO
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """
 directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one of its field be provided)
+"""
+directive @oneOf on INPUT_OBJECT
 """
 Directs the executor to skip this field or fragment when the `if` argument is true.
 """

@@ -25,6 +25,8 @@ fn ex_projections() -> Vec<flow::Projection> {
                 content_type: "typ".to_string(),
                 format: "date".to_string(),
                 max_length: 12345,
+                str_minimum: "100".to_string(),
+                str_maximum: "18446744073709551615".to_string(),
             }),
             types: vec!["integer".to_string(), "string".to_string()],
             numeric: Some(inference::Numeric {

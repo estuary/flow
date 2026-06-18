@@ -12,11 +12,10 @@ To use this connector, you'll need:
 
 * A Google Cloud project with the [Bigtable API](https://cloud.google.com/bigtable/docs/reference/admin/rest) enabled.
 * A Bigtable [instance](https://cloud.google.com/bigtable/docs/instances-clusters-nodes) within that project, with **at least one table already created** (see [the note on the first table](#the-instance-must-contain-at-least-one-table) below).
-* A Google Cloud [service account](https://cloud.google.com/docs/authentication/getting-started) authorized for the Bigtable instance with both of the following [roles](https://cloud.google.com/bigtable/docs/access-control#roles):
-    * [`roles/bigtable.user`](https://cloud.google.com/bigtable/docs/access-control#roles) — for reading and writing rows.
-    * [`roles/bigtable.admin`](https://cloud.google.com/bigtable/docs/access-control#roles) — for creating tables and column families during the connector's Apply step.
+* A Google Cloud [service account](https://cloud.google.com/docs/authentication/getting-started) authorized for the Bigtable instance with the following [role](https://cloud.google.com/bigtable/docs/access-control#roles):
+    * [`roles/bigtable.admin`](https://cloud.google.com/bigtable/docs/access-control#roles) — for reading/writing rows and creating tables/column families during the connector's Apply step.
 
-  Both roles are required: the connector both administers tables and reads/writes their data. See [Setup](#setup) for detailed steps.
+  The admin role is required: the connector both administers tables and reads/writes their data. See [Setup](#setup) for detailed steps.
 
 ### Setup
 
@@ -47,15 +46,10 @@ To prepare your Bigtable instance and service account, complete the following st
      --project=my-gcp-project
    ```
 
-4. Grant the service account both `roles/bigtable.user` and `roles/bigtable.admin` on the Bigtable instance:
+4. Grant the service account `roles/bigtable.admin` on the Bigtable instance:
 
    ```bash
    SA="<service-account-email>"
-
-   gcloud bigtable instances add-iam-policy-binding my-instance \
-     --member="serviceAccount:${SA}" \
-     --role='roles/bigtable.user' \
-     --project=my-gcp-project
 
    gcloud bigtable instances add-iam-policy-binding my-instance \
      --member="serviceAccount:${SA}" \
@@ -63,7 +57,7 @@ To prepare your Bigtable instance and service account, complete the following st
      --project=my-gcp-project
    ```
 
-   You can also grant these roles at the project level if you prefer broader scoping. IAM bindings can take several minutes to propagate.
+   You can also grant this roles at the project level if you prefer broader scoping. IAM bindings can take several minutes to propagate.
 
 5. Authenticate the connector with the service account using one of:
 

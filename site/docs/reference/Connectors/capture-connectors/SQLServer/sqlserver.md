@@ -11,11 +11,13 @@ This connector uses change data capture (CDC) to continuously capture updates in
 
 Estuary offers three main SQL Server capture connectors and their variants (platform-specific versions for managed providers). All three work across self-hosted and cloud-managed deployments.
 
-| Connector | Mechanism | Latency | Key Strengths |
-|-----------|-----------|---------|---------------|
-| **CDC** (this connector) | Log-based change capture | Real-time | Full audit history, tables without primary keys |
-| [Change Tracking](http://go.estuary.dev/source-sqlserver-ct) | Change tracking | Real-time | Computed columns, lower storage overhead |
-| [Batch](http://go.estuary.dev/source-sqlserver-batch) | Periodic polling | Minutes to hours | Views, custom queries, minimal setup |
+| Connector | Mechanism | Latency | Read Replica Support | Key Strengths |
+|-----------|-----------|---------|----------------------|---------------|
+| **CDC** (this connector) | Log-based change capture | Real-time | Yes\* | Full audit history, tables without primary keys |
+| [Change Tracking](http://go.estuary.dev/source-sqlserver-ct) | Change tracking | Real-time | No | Computed columns, lower storage overhead |
+| [Batch](http://go.estuary.dev/source-sqlserver-batch) | Periodic polling | Minutes to hours | Yes | Views, custom queries, minimal setup |
+
+\* CDC can capture from a read replica, but the CDC worker must run on the primary instance.
 
 **Choose CDC when:**
 

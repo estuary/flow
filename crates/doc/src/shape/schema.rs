@@ -150,6 +150,8 @@ fn to_sub_schema(shape: Shape) -> Schema {
             format,
             max_length,
             min_length,
+            str_minimum,
+            str_maximum,
         } = string;
 
         if let Some(encoding) = content_encoding {
@@ -166,6 +168,20 @@ fn to_sub_schema(shape: Shape) -> Schema {
         }
         if let Some(max) = max_length {
             out.insert("maxLength".to_string(), serde_json::json!(max));
+        }
+        // Numeric-string bounds are serialized as decimal strings so that
+        // values exceeding 64-bit ranges round-trip without loss.
+        if let Some(min) = str_minimum {
+            out.insert(
+                keywords::X_STR_MINIMUM.to_string(),
+                serde_json::json!(min.to_string()),
+            );
+        }
+        if let Some(max) = str_maximum {
+            out.insert(
+                keywords::X_STR_MAXIMUM.to_string(),
+                serde_json::json!(max.to_string()),
+            );
         }
     }
 
@@ -287,6 +303,12 @@ mod tests {
                     "type": "object",
                     "additionalProperties": false,
                     "x-some-extension": [42, "hi"],
+                },
+                "numericStr": {
+                    "type": "string",
+                    "format": "integer",
+                    "x-str-minimum": "10",
+                    "x-str-maximum": "18446744073709551615", // u64::MAX, beyond i64
                 },
                 "number": {
                     "type": "number",

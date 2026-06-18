@@ -141,15 +141,8 @@ impl Format {
             Self::JsonPointer => JSON_POINTER_RE.is_match(val),
             Self::Regex => regex::Regex::new(val).is_ok(),
             Self::RelativeJsonPointer => RELATIVE_JSON_POINTER_RE.is_match(val),
-            Self::Integer => {
-                bigdecimal::BigDecimal::from_str(val)
-                    .map(|d| d.is_integer())
-                    .unwrap_or(false)
-                    && !val.contains("_")
-            }
-            Self::Number => {
-                bigdecimal::BigDecimal::from_str(val).is_ok() && !val.contains("_")
-                    || ["NaN", "Infinity", "-Infinity"].contains(&val)
+            Self::Integer | Self::Number => {
+                self.validate_number(val, Self::parse_numeric(val).as_ref())
             }
             Self::Sha256 =>
             // See also doc::redact::Strategy::apply() for Sha256.
@@ -158,6 +151,32 @@ impl Format {
                     && &val.as_bytes()[0..7] == b"sha256:"
                     && val[7..].bytes().all(|b| b.is_ascii_hexdigit())
             }
+        }
+    }
+
+    /// Parse `val` as a finite decimal number, or None if it isn't one.
+    /// The `_` digit separator is rejected because JSON disallows it
+    /// (and `bigdecimal` would otherwise accept it)
+    pub(crate) fn parse_numeric(val: &str) -> Option<bigdecimal::BigDecimal> {
+        if val.contains('_') {
+            return None;
+        }
+        bigdecimal::BigDecimal::from_str(val).ok()
+    }
+
+    /// Whether `val` satisfies this numeric format, given its already-parsed
+    /// value from [`Format::parse_numeric`].
+    pub(crate) fn validate_number(
+        &self,
+        val: &str,
+        parsed: Option<&bigdecimal::BigDecimal>,
+    ) -> bool {
+        match self {
+            Self::Integer => parsed.is_some_and(|d| d.is_integer()),
+            // The `number` format also admits the non-finite literals, which
+            // don't parse as a finite decimal.
+            Self::Number => parsed.is_some() || ["NaN", "Infinity", "-Infinity"].contains(&val),
+            _ => false,
         }
     }
 
@@ -352,5 +371,72 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_parse_numeric() {
+        use bigdecimal::BigDecimal;
+        use std::str::FromStr;
+
+        // Finite numbers (in any JSON spelling) parse to their exact value;
+        // `parse_numeric` is a thin wrapper over `BigDecimal::from_str`, so its
+        // result matches `from_str` representation and all.
+        for s in [
+            "0", "1234", "-1234", "1.234", "-1.234", "1234.00", "1e3", "-2.5e1",
+        ] {
+            assert_eq!(
+                Format::parse_numeric(s),
+                BigDecimal::from_str(s).ok(),
+                "parse_numeric({s:?})"
+            );
+        }
+
+        // Rejected: the `_` separator (JSON disallows it, though `bigdecimal`
+        // accepts it), the non-finite literals (valid `number` formats but not
+        // finite values), leading whitespace, and plain non-numbers.
+        for s in [
+            "1_234",
+            "NaN",
+            "Infinity",
+            "-Infinity",
+            " 12",
+            "12 ",
+            "abc",
+            "",
+        ] {
+            assert_eq!(Format::parse_numeric(s), None, "parse_numeric({s:?})");
+        }
+    }
+
+    #[test]
+    fn test_validate_number() {
+        use bigdecimal::BigDecimal;
+        use std::str::FromStr;
+        let dec = |s: &str| BigDecimal::from_str(s).unwrap();
+
+        // Integer accepts only integer-valued parses (incl. `1234.00`), and
+        // rejects fractional or unparsed values.
+        assert!(Format::Integer.validate_number("1234", Some(&dec("1234"))));
+        assert!(Format::Integer.validate_number("1234.00", Some(&dec("1234.00"))));
+        assert!(!Format::Integer.validate_number("1.5", Some(&dec("1.5"))));
+        assert!(!Format::Integer.validate_number("nope", None));
+
+        // Number accepts any finite parse, plus the non-finite literals (which
+        // don't parse, so they arrive as `None` and are matched on `val`).
+        assert!(Format::Number.validate_number("1.5", Some(&dec("1.5"))));
+        assert!(Format::Number.validate_number("NaN", None));
+        assert!(Format::Number.validate_number("Infinity", None));
+        assert!(Format::Number.validate_number("-Infinity", None));
+        assert!(!Format::Number.validate_number("nan", None)); // Case-sensitive.
+        assert!(!Format::Number.validate_number("nope", None));
+
+        // The verdict follows the *supplied* parse, never a re-parse of `val`:
+        // a string that wouldn't parse still validates when a parsed number is
+        // passed in. This is what lets `visit_string` parse once and share it.
+        assert!(Format::Number.validate_number("not-a-number", Some(&dec("42"))));
+        assert!(Format::Integer.validate_number("not-a-number", Some(&dec("42"))));
+
+        // Non-numeric formats never accept (the defensive catch-all arm).
+        assert!(!Format::Date.validate_number("2022-09-11", None));
     }
 }
