@@ -63,8 +63,14 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         pg_options = pg_options.ssl_mode(sqlx::postgres::PgSslMode::Prefer);
     }
 
+    // The port is bound only after this connection succeeds, so the acquire
+    // timeout doubles as the startup grace period. On Cloud Run with direct VPC
+    // egress, a fresh instance's network interface can take ~40s to begin
+    // passing traffic, during which all outbound connections fail. Allow well
+    // past that so the pool keeps retrying until egress is up rather than
+    // exiting and failing the deployment / scale-up.
     let pg_pool = sqlx::postgres::PgPoolOptions::new()
-        .acquire_timeout(std::time::Duration::from_secs(30))
+        .acquire_timeout(std::time::Duration::from_secs(120))
         .connect_with(pg_options)
         .await
         .context("connecting to database")?;
