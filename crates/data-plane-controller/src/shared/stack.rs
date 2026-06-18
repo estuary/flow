@@ -236,6 +236,10 @@ pub struct Deployment {
     pub tier: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    // One-shot flag requesting a rolling restart of this deployment's instances.
+    // Ansible rolls them one host at a time; cleared after a successful run.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub restart: bool,
 }
 
 fn default_tier() -> u8 {
@@ -430,6 +434,7 @@ impl DataPlane {
                         rollout: _,            // Allowed to change.
                         tier: _,               // Allowed to change.
                         tag: _,                // Allowed to change.
+                        restart: _,            // Allowed to change.
                     },
                     next @ Deployment {
                         current: next_current,
@@ -441,6 +446,7 @@ impl DataPlane {
                         rollout: _,            // Allowed to change.
                         tier: _,               // Allowed to change.
                         tag: _,                // Allowed to change.
+                        restart: _,            // Allowed to change.
                     },
                 ) => {
                     if cur_current != next_current
@@ -522,6 +528,7 @@ impl DataPlane {
                 template: last.template.clone(),
                 tier: last.tier,
                 tag: last.tag.clone(),
+                restart: false,
             };
 
             last.rollout = Some(Rollout {
