@@ -411,6 +411,11 @@ async fn fetch_row_state(
     config.model.name = Some(row.data_plane_name);
     config.model.fqdn = Some(row.data_plane_fqdn);
 
+    // The controller reads desired links from the `private_links` column, which
+    // the `data_plane_private_links` trigger keeps projected from the per-link
+    // rows. Reading the table directly is deferred to the contract change that
+    // drops this column, so the controller has no deploy-ordering dependency on
+    // the agent-api cutover.
     config.model.private_links = row.private_links.into_iter().map(|link| link.0).collect();
 
     let stack = if let Some(key) = row.pulumi_key {
@@ -618,6 +623,54 @@ impl automations::Outcome for Outcome {
             .execute(&mut *txn)
             .await
             .context("failed to publish exports into data_planes row")?;
+
+            // Record per-link observed status by joining each link to its
+            // provisioned endpoint on (provider, service_identity): present ->
+            // `provisioned` with the endpoint as `details`, absent -> `pending`.
+            // This is the temporary bridge until est-dry-dock emits a per-link
+            // result keyed by the link id (which will also enable `failed`).
+            _ = sqlx::query!(
+                r#"
+                WITH endpoints AS (
+                    SELECT 'aws'::text AS provider, ep ->> 'service_name' AS identity, ep AS detail
+                        FROM unnest($2::jsonb[]) AS ep
+                    UNION ALL
+                    SELECT 'azure'::text, ep ->> 'service_name', ep
+                        FROM unnest($3::jsonb[]) AS ep
+                    UNION ALL
+                    SELECT 'gcp'::text, ep ->> 'service_attachment', ep
+                        FROM unnest($4::jsonb[]) AS ep
+                ),
+                -- Providers for which this converge actually published endpoints.
+                -- A link is only re-evaluated when its provider published at
+                -- least one endpoint, so a transient empty or partial export
+                -- cannot flip an already-`provisioned` link back to `pending`
+                -- and null its details. A link's row is deleted (not emptied)
+                -- when it is removed, so a genuine teardown never relies on the
+                -- array going empty.
+                published_providers AS (
+                    SELECT DISTINCT provider FROM endpoints
+                )
+                UPDATE data_plane_private_links l SET
+                    status = CASE WHEN e.identity IS NOT NULL THEN 'provisioned' ELSE 'pending' END,
+                    details = e.detail,
+                    observed_at = now(),
+                    updated_at = now()
+                FROM data_plane_private_links l2
+                LEFT JOIN endpoints e
+                    ON e.provider = l2.provider AND e.identity = l2.service_identity
+                WHERE l.id = l2.id
+                  AND l2.data_plane_id = $1
+                  AND l2.provider IN (SELECT provider FROM published_providers)
+                "#,
+                self.data_plane_id as models::Id,
+                &aws_link_endpoints as &[serde_json::Value],
+                &azure_link_endpoints as &[serde_json::Value],
+                &gcp_psc_endpoints as &[serde_json::Value],
+            )
+            .execute(&mut *txn)
+            .await
+            .context("failed to update private link statuses")?;
         }
 
         Ok(automations::Action::Sleep(self.sleep))

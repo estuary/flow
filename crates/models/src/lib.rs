@@ -59,7 +59,9 @@ pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
     RecommendedDepth, TargetNamingStrategy,
 };
-pub use private_links::{AWSPrivateLink, AzurePrivateLink, GCPPrivateServiceConnect, PrivateLink};
+pub use private_links::{
+    AWSPrivateLink, AzurePrivateLink, GCPPrivateServiceConnect, PrivateLink, PrivateLinkProvider,
+};
 pub use raw_value::RawValue;
 pub use references::{
     CATALOG_PREFIX_RE, Capture, Collection, CompositeKey, Field, JsonPointer, Materialization,
