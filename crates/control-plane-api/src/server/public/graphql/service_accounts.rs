@@ -399,8 +399,12 @@ impl ServiceAccountsMutation {
 
         let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
 
+        // Overwrite rather than upsert: addServiceAccountGrant replaces the
+        // grant's capability outright, so a manager can narrow an existing
+        // grant (e.g. admin -> read) in a single call. `upsert_user_grant`
+        // would only ever raise the capability, silently ignoring a downgrade.
         let mut txn = env.pg_pool.begin().await?;
-        crate::grants::upsert_user_grant(
+        crate::grants::overwrite_user_grant(
             user_id,
             prefix.as_str(),
             capability,
@@ -1244,6 +1248,42 @@ mod test {
             )
             .await;
         assert!(add["errors"].is_null(), "add grant should succeed: {add}");
+        assert_eq!(grant_count(&pool, &sa_user_id).await, 3);
+
+        // aliceCo/ops/ now holds `write`. Adding a LOWER capability overwrites
+        // the existing grant in place: addServiceAccountGrant replaces the
+        // capability rather than only ever raising it, so a manager can narrow
+        // a grant in one call without removing it first.
+        let downgrade: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        addServiceAccountGrant(catalogName: "aliceCo/ci-deploy-bot", prefix: "aliceCo/ops/", capability: read)
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            downgrade["errors"].is_null(),
+            "narrowing a grant should succeed by overwriting it: {downgrade}"
+        );
+        // The grant is overwritten in place: capability lowered to read, with
+        // no additional row.
+        let ops_capability = sqlx::query_scalar!(
+            r#"SELECT capability AS "capability!: models::Capability"
+               FROM public.user_grants WHERE user_id = $1 AND object_role = 'aliceCo/ops/'"#,
+            uuid::Uuid::parse_str(&sa_user_id).unwrap(),
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            ops_capability,
+            models::Capability::Read,
+            "the grant should be overwritten to the requested lower capability"
+        );
         assert_eq!(grant_count(&pool, &sa_user_id).await, 3);
 
         // Removal requires only account management — no capability on the
