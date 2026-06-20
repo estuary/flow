@@ -249,18 +249,22 @@ been encrypted.
 Estuary supports customers encrypting secrets with keys from AWS Key Management Service, Google Cloud Platform KMS, and Azure Key Vault.
 
 :::important
-When deploying catalogs onto the managed Estuary runtime, you must grant **decrypt**
-access on your KMS key to the appropriate identity for your data plane. On GCP KMS,
-this is the `roles/cloudkms.cryptoKeyDecrypter` role. Estuary only decrypts your
-configuration at connector run time and never encrypts with your key, so the
-identity does not need encrypt access.
+When deploying catalogs onto the managed Estuary runtime, you must grant **decrypt-only**
+access on your KMS key to the appropriate identity for your data plane. Estuary
+decrypts your configuration only at connector run time and never encrypts with your
+key, so the identity never needs encrypt access. How you grant access depends on the
+provider:
 
-These identities vary by data plane. You can find your data plane's native-cloud
-identity under [Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings)
-in the Estuary dashboard. If your KMS provider differs from the cloud your data
-plane runs in (for example, encrypting with a GCP KMS key while your data plane
-runs on AWS), the identity you need may not be shown in the dashboard. Contact
-Estuary support to obtain it.
+- **GCP KMS**: grant the `roles/cloudkms.cryptoKeyDecrypter` role on the key to the data plane's GCP service account.
+- **AWS KMS**: add a key-policy statement allowing `kms:Decrypt` and `kms:DescribeKey` to the data plane's AWS IAM user.
+- **Azure Key Vault**: grant a decrypt key permission to the data plane's Azure application.
+
+Each data plane has a separate identity for GCP, AWS, and Azure, so you can use a KMS
+provider that differs from the cloud your data plane runs in (for example, a GCP KMS
+key with an AWS data plane). The dashboard surfaces your data plane's native-cloud
+identity under [Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings);
+the identity for a different provider may not be shown there, so contact Estuary
+support to obtain the one you need.
 :::
 
 The examples below provide a useful reference.
