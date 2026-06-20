@@ -8,6 +8,7 @@ pub struct ServiceAccount {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub grants: Vec<ServiceAccountGrant>,
     pub tokens: Vec<ServiceAccountTokenInfo>,
 }
 
@@ -16,6 +17,18 @@ pub struct ServiceAccount {
 pub struct ServiceAccountGrantInput {
     pub prefix: models::Prefix,
     pub capability: models::Capability,
+}
+
+/// A user_grant held by a service account: the prefix it may act on and the
+/// capability it holds there. An account's access is the union of its grants,
+/// which may span multiple prefixes independent of its catalog_name anchor.
+#[derive(Debug, Clone, async_graphql::SimpleObject)]
+pub struct ServiceAccountGrant {
+    pub prefix: models::Prefix,
+    pub capability: models::Capability,
+    pub detail: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// A service-account credential: a multi-use refresh token owned by the account
@@ -174,11 +187,55 @@ impl ServiceAccountsQuery {
                         });
                 }
 
+                // Grants are batch-loaded for the whole page in one query,
+                // mirroring tokens (same N+1 tradeoff). An account's reach is
+                // the union of these grants, so they're a list rather than a
+                // single capability.
+                let grant_rows = if user_ids.is_empty() {
+                    vec![]
+                } else {
+                    sqlx::query!(
+                        r#"
+                        SELECT
+                            g.user_id,
+                            g.object_role AS "prefix!: models::Prefix",
+                            g.capability AS "capability!: models::Capability",
+                            g.detail,
+                            g.created_at AS "created_at!: chrono::DateTime<chrono::Utc>",
+                            g.updated_at AS "updated_at!: chrono::DateTime<chrono::Utc>"
+                        FROM public.user_grants g
+                        WHERE g.user_id = ANY($1)
+                        ORDER BY g.object_role
+                        "#,
+                        &user_ids,
+                    )
+                    .fetch_all(&env.pg_pool)
+                    .await?
+                };
+
+                let mut grants_by_sa: std::collections::HashMap<
+                    uuid::Uuid,
+                    Vec<ServiceAccountGrant>,
+                > = std::collections::HashMap::new();
+                for gr in grant_rows {
+                    grants_by_sa
+                        .entry(gr.user_id)
+                        .or_default()
+                        .push(ServiceAccountGrant {
+                            prefix: gr.prefix,
+                            capability: gr.capability,
+                            detail: gr.detail,
+                            created_at: gr.created_at,
+                            updated_at: gr.updated_at,
+                        });
+                }
+
                 let edges: Vec<_> = sa_rows
                     .into_iter()
                     .take(limit)
                     .map(|r| {
                         let tokens = tokens_by_sa.remove(&r.user_id).unwrap_or_default();
+                        let grants = grants_by_sa.remove(&r.user_id).unwrap_or_default();
                         connection::Edge::new(
                             TimestampCursor(r.created_at),
                             ServiceAccount {
@@ -187,6 +244,7 @@ impl ServiceAccountsQuery {
                                 created_at: r.created_at,
                                 updated_at: r.updated_at,
                                 last_used_at: r.last_used_at,
+                                grants,
                                 tokens,
                             },
                         )
@@ -345,12 +403,26 @@ impl ServiceAccountsMutation {
             "created service account"
         );
 
+        // The seeded grants were just written in this transaction, so their
+        // detail and timestamps match what `overwrite_user_grant` persisted.
+        let grants = grants
+            .into_iter()
+            .map(|grant| ServiceAccountGrant {
+                prefix: grant.prefix,
+                capability: grant.capability,
+                detail: Some("service account grant".to_string()),
+                created_at: now,
+                updated_at: now,
+            })
+            .collect();
+
         Ok(ServiceAccount {
             catalog_name,
             created_by: claims.sub,
             created_at: now,
             updated_at: now,
             last_used_at: None,
+            grants,
             tokens: vec![],
         })
     }
@@ -472,6 +544,46 @@ impl ServiceAccountsMutation {
         );
 
         Ok(true)
+    }
+
+    /// Remove ALL user_grants from a service account, stripping its access in
+    /// one call.
+    ///
+    /// The caller must manage the service account (ManageServiceAccount on its
+    /// catalog name). As with removeServiceAccountGrant, no capability on the
+    /// grants' prefixes is required: removal only narrows access, so a manager
+    /// may clear grants to prefixes they don't themselves administer. Returns
+    /// the number of grants removed (0 if the account had none — not an error).
+    async fn remove_all_service_account_grants(
+        &self,
+        ctx: &Context<'_>,
+        catalog_name: models::Name,
+    ) -> async_graphql::Result<i32> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let claims = env.claims()?;
+
+        super::verify_authorization(
+            env,
+            catalog_name.as_str(),
+            models::authz::Capability::ManageServiceAccount,
+        )
+        .await?;
+
+        let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
+
+        let deleted = sqlx::query!("DELETE FROM public.user_grants WHERE user_id = $1", user_id,)
+            .execute(&env.pg_pool)
+            .await?;
+
+        tracing::info!(
+            %user_id,
+            %catalog_name,
+            removed = deleted.rows_affected(),
+            %claims.sub,
+            "removed all service account grants"
+        );
+
+        Ok(deleted.rows_affected() as i32)
     }
 
     /// Mint a credential for a service account.
@@ -646,6 +758,51 @@ impl ServiceAccountsMutation {
 
         Ok(true)
     }
+
+    /// Revoke ALL of a service account's tokens at once — the credential kill
+    /// switch.
+    ///
+    /// The caller must have ManageServiceAccount on the account's catalog name.
+    /// Like revokeServiceAccountToken, each token is made inert by zeroing its
+    /// `valid_for` interval (preserving the audit trail) rather than deleted;
+    /// already-revoked tokens are skipped. A service account's user_id only ever
+    /// owns its own minted credentials, so this targets exactly those. Returns
+    /// the number of tokens revoked (0 if none were active — not an error).
+    async fn revoke_all_service_account_tokens(
+        &self,
+        ctx: &Context<'_>,
+        catalog_name: models::Name,
+    ) -> async_graphql::Result<i32> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let claims = env.claims()?;
+
+        super::verify_authorization(
+            env,
+            catalog_name.as_str(),
+            models::authz::Capability::ManageServiceAccount,
+        )
+        .await?;
+
+        let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
+
+        let revoked = sqlx::query!(
+            "UPDATE public.refresh_tokens SET valid_for = interval '0' \
+             WHERE user_id = $1 AND valid_for <> interval '0'",
+            user_id,
+        )
+        .execute(&env.pg_pool)
+        .await?;
+
+        tracing::info!(
+            %user_id,
+            %catalog_name,
+            revoked = revoked.rows_affected(),
+            %claims.sub,
+            "revoked all service account tokens"
+        );
+
+        Ok(revoked.rows_affected() as i32)
+    }
 }
 
 /// Resolve a service account's backing `user_id` from its `catalog_name` handle.
@@ -717,6 +874,7 @@ mod test {
                             createdAt
                             updatedAt
                             lastUsedAt
+                            grants { prefix capability detail createdAt updatedAt }
                             tokens { id }
                         }
                     }"#,
@@ -742,6 +900,19 @@ mod test {
         let sa_user_id = service_account_user_id(&pool, "aliceCo/ci-deploy-bot").await;
         assert_eq!(sa["catalogName"], "aliceCo/ci-deploy-bot");
         assert_eq!(sa["tokens"].as_array().unwrap().len(), 0);
+
+        // The create response echoes the seeded grants in request order, each
+        // carrying the capability, the standard "service account grant" detail,
+        // and creation timestamps.
+        let created_grants = sa["grants"].as_array().unwrap();
+        assert_eq!(created_grants.len(), 2, "both seeded grants returned: {sa}");
+        assert_eq!(created_grants[0]["prefix"], "aliceCo/");
+        assert_eq!(created_grants[0]["capability"], "admin");
+        assert_eq!(created_grants[0]["detail"], "service account grant");
+        assert!(created_grants[0]["createdAt"].is_string());
+        assert!(created_grants[0]["updatedAt"].is_string());
+        assert_eq!(created_grants[1]["prefix"], "aliceCo/data/");
+        assert_eq!(created_grants[1]["capability"], "read");
 
         // === A catalog name is unique to one service account ===
         // A second account cannot claim the same handle, even for an authorized
@@ -987,6 +1158,7 @@ mod test {
                                 node {
                                     catalogName
                                     lastUsedAt
+                                    grants { prefix capability detail }
                                     tokens {
                                         id
                                         detail
@@ -1030,6 +1202,16 @@ mod test {
             edges[0]["node"]["lastUsedAt"].is_string(),
             "account lastUsedAt should be derived from its tokens' use: {list}"
         );
+        // The read-side grants resolver batch-loads from user_grants, ordered
+        // by prefix: the two seeded grants come back with their persisted
+        // capability and detail.
+        let listed_grants = edges[0]["node"]["grants"].as_array().unwrap();
+        assert_eq!(listed_grants.len(), 2, "both grants listed: {list}");
+        assert_eq!(listed_grants[0]["prefix"], "aliceCo/");
+        assert_eq!(listed_grants[0]["capability"], "admin");
+        assert_eq!(listed_grants[0]["detail"], "service account grant");
+        assert_eq!(listed_grants[1]["prefix"], "aliceCo/data/");
+        assert_eq!(listed_grants[1]["capability"], "read");
 
         // Bob sees no service accounts.
         let bob_list: serde_json::Value = server
@@ -1346,6 +1528,113 @@ mod test {
             )
             .await;
         assert!(remove_unmanaged["errors"].is_array());
+
+        // === Kill switches: revoke all tokens, remove all grants ===
+
+        // Mint two fresh credentials so revokeAllServiceAccountTokens has
+        // something to act on (the token minted earlier was already revoked).
+        for detail in ["ci-one", "ci-two"] {
+            let minted: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        mutation($detail: String!) {
+                            createServiceAccountToken(catalogName: "aliceCo/ci-deploy-bot", detail: $detail, validFor: "P30D") { id }
+                        }"#,
+                        "variables": { "detail": detail }
+                    }),
+                    Some(&alice_token),
+                )
+                .await;
+            assert!(minted["errors"].is_null(), "mint should succeed: {minted}");
+        }
+
+        // A non-manager cannot trip the kill switch.
+        let bob_revoke_all: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { revokeAllServiceAccountTokens(catalogName: "aliceCo/ci-deploy-bot") }"#
+                }),
+                Some(&bob_token),
+            )
+            .await;
+        assert!(
+            bob_revoke_all["errors"].is_array(),
+            "a non-manager must not revoke all tokens: {bob_revoke_all}"
+        );
+
+        // The manager revokes both active tokens in one call.
+        let revoke_all: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { revokeAllServiceAccountTokens(catalogName: "aliceCo/ci-deploy-bot") }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            revoke_all["data"]["revokeAllServiceAccountTokens"], 2,
+            "both active tokens should be revoked: {revoke_all}"
+        );
+
+        // A second call is an idempotent zero-count no-op (not an error),
+        // proving the first call's revocation persisted.
+        let revoke_all_again: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { revokeAllServiceAccountTokens(catalogName: "aliceCo/ci-deploy-bot") }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            revoke_all_again["data"]["revokeAllServiceAccountTokens"], 0,
+            "revoking again should be a zero-count no-op: {revoke_all_again}"
+        );
+
+        // A non-manager cannot strip an account's grants either.
+        let bob_remove_all: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { removeAllServiceAccountGrants(catalogName: "aliceCo/ci-deploy-bot") }"#
+                }),
+                Some(&bob_token),
+            )
+            .await;
+        assert!(
+            bob_remove_all["errors"].is_array(),
+            "a non-manager must not remove all grants: {bob_remove_all}"
+        );
+
+        // The manager strips every grant in one call. The account currently
+        // holds three: aliceCo/, aliceCo/data/, and aliceCo/ops/.
+        let remove_all: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { removeAllServiceAccountGrants(catalogName: "aliceCo/ci-deploy-bot") }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            remove_all["data"]["removeAllServiceAccountGrants"], 3,
+            "all three grants should be removed: {remove_all}"
+        );
+        assert_eq!(grant_count(&pool, &sa_user_id).await, 0);
+
+        // A second call is an idempotent zero-count no-op.
+        let remove_all_again: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"mutation { removeAllServiceAccountGrants(catalogName: "aliceCo/ci-deploy-bot") }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert_eq!(
+            remove_all_again["data"]["removeAllServiceAccountGrants"], 0,
+            "removing again should be a zero-count no-op: {remove_all_again}"
+        );
     }
 
     /// The management gates accept the fine-grained capabilities the feature

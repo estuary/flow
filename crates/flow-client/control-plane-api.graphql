@@ -1333,6 +1333,17 @@ type MutationRoot {
 	"""
 	removeServiceAccountGrant(catalogName: Name!, prefix: Prefix!): Boolean!
 	"""
+	Remove ALL user_grants from a service account, stripping its access in
+	one call.
+	
+	The caller must manage the service account (ManageServiceAccount on its
+	catalog name). As with removeServiceAccountGrant, no capability on the
+	grants' prefixes is required: removal only narrows access, so a manager
+	may clear grants to prefixes they don't themselves administer. Returns
+	the number of grants removed (0 if the account had none — not an error).
+	"""
+	removeAllServiceAccountGrants(catalogName: Name!): Int!
+	"""
 	Mint a credential for a service account.
 	
 	The credential is a multi-use refresh token owned by the account: its
@@ -1362,6 +1373,18 @@ type MutationRoot {
 	tokens are treated as not found.
 	"""
 	revokeServiceAccountToken(id: Id!): Boolean!
+	"""
+	Revoke ALL of a service account's tokens at once — the credential kill
+	switch.
+	
+	The caller must have ManageServiceAccount on the account's catalog name.
+	Like revokeServiceAccountToken, each token is made inert by zeroing its
+	`valid_for` interval (preserving the audit trail) rather than deleted;
+	already-revoked tokens are skipped. A service account's user_id only ever
+	owns its own minted credentials, so this targets exactly those. Returns
+	the number of tokens revoked (0 if none were active — not an error).
+	"""
+	revokeAllServiceAccountTokens(catalogName: Name!): Int!
 }
 
 """
@@ -1762,6 +1785,7 @@ type ServiceAccount {
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	lastUsedAt: DateTime
+	grants: [ServiceAccountGrant!]!
 	tokens: [ServiceAccountTokenInfo!]!
 }
 
@@ -1788,6 +1812,19 @@ type ServiceAccountEdge {
 	A cursor for use in pagination
 	"""
 	cursor: String!
+}
+
+"""
+A user_grant held by a service account: the prefix it may act on and the
+capability it holds there. An account's access is the union of its grants,
+which may span multiple prefixes independent of its catalog_name anchor.
+"""
+type ServiceAccountGrant {
+	prefix: Prefix!
+	capability: Capability!
+	detail: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
 }
 
 """
