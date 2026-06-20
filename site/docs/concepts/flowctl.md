@@ -217,6 +217,15 @@ You can find the image name and latest tag in the connector's [reference](/refer
 
 These commands use the same encryption mechanism as the dashboard and ensure that your secrets are encrypted whenever you send your specifications to Estuary.
 
+:::note
+Auto-encryption uses Estuary's managed encryption key, not a customer-managed
+(bring-your-own) KMS key. To encrypt your configurations with your own key, you
+must encrypt them yourself before publishing, as described in
+[Controlling encryption with `sops`](#controlling-encryption-with-sops). A
+plain-text config published without manual encryption is encrypted with Estuary's
+default key, and your own key is not used.
+:::
+
 This does not, by default, encrypt secrets in your local environment.
 If you want to encrypt local files, you can overwrite your local plain-text configuration with Estuary's encrypted version. To do so, run:
 
@@ -240,11 +249,18 @@ been encrypted.
 Estuary supports customers encrypting secrets with keys from AWS Key Management Service, Google Cloud Platform KMS, and Azure Key Vault.
 
 :::important
-When deploying catalogs onto the managed Estuary runtime, you must grant access to
-decrypt your KMS key to the appropriate identity for your data plane and KMS.
-These identities vary by data plane, find yours under
-[Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings)
-in the Estuary dashboard.
+When deploying catalogs onto the managed Estuary runtime, you must grant **decrypt**
+access on your KMS key to the appropriate identity for your data plane. On GCP KMS,
+this is the `roles/cloudkms.cryptoKeyDecrypter` role. Estuary only decrypts your
+configuration at connector run time and never encrypts with your key, so the
+identity does not need encrypt access.
+
+These identities vary by data plane. You can find your data plane's native-cloud
+identity under [Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings)
+in the Estuary dashboard. If your KMS provider differs from the cloud your data
+plane runs in (for example, encrypting with a GCP KMS key while your data plane
+runs on AWS), the identity you need may not be shown in the dashboard. Contact
+Estuary support to obtain it.
 :::
 
 The examples below provide a useful reference.
