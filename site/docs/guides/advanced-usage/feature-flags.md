@@ -116,7 +116,7 @@ Allows materializations to write to tables that already exist in the destination
 - **Default:** Disabled. New bindings fail if the target table already exists.
 - **Use case:** Migrating data from another system into Estuary-managed tables, or re-creating a materialization that was previously deleted.
 - **Caveats:**
-  - Enabling this flag disables load-key optimizations for affected bindings, which may impact performance. This is necessary to ensure merge operations work correctly with pre-existing data.
+  - Enabling this flag makes the connector load existing keys from the destination before merging, instead of skipping that lookup for keys it expects to be new. It is slightly slower but ensures merges and updates work correctly against rows that already exist in the table.
   - The connector cannot verify that existing table schemas are compatible.
   - This flag alone does **not** prevent backfill of the source collection. To avoid backfilling data into the existing table, also configure [`notBefore`](/reference/time-travel) or use "Only Changes" mode on the binding.
 - **Applies to:** All SQL and warehouse materialization connectors (PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, etc.)
@@ -129,6 +129,7 @@ Skips truncating destination tables when a backfill is triggered.
 - **Use case:** Preserving historical data in the destination when a schema change triggers an automatic backfill.
 - **Caveats:**
   - May result in duplicate or inconsistent data if the source collection contains updated versions of previously materialized documents.
+  - On a table that already contains data, pair this with [`allow_existing_tables_for_new_bindings`](#allow_existing_tables_for_new_bindings). Without it, a backfill can insert duplicate copies of rows whose keys already exist instead of updating them. `allow_existing_tables_for_new_bindings` makes the backfill match and update those rows in place, so they merge instead of duplicating.
   - If collection keys or the destination table schema change in incompatible ways, the connector will still drop and recreate the table even with this flag enabled.
 - **Applies to:** Most SQL and warehouse materialization connectors.
 
