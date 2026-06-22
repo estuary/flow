@@ -100,7 +100,7 @@ materializations:
             - event_type
             - error
 
-  ops/views/stats:
+  ops/views/catalog-stats:
     endpoint:
       connector:
         image: ghcr.io/estuary/materialize-bigtable:dev
