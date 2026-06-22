@@ -86,8 +86,21 @@ impl Client {
             None => "https://bigtable.googleapis.com".to_string(),
         };
 
-        let channel = transport::Channel::from_shared(endpoint.clone())
-            .with_context(|| format!("invalid BigTable endpoint {endpoint:?}"))?
+        let ep = transport::Channel::from_shared(endpoint.clone())
+            .with_context(|| format!("invalid BigTable endpoint {endpoint:?}"))?;
+
+        let ep = if cfg.emulator_host.is_some() {
+            ep
+        } else {
+            ep.tls_config(
+                transport::ClientTlsConfig::new()
+                    .with_native_roots()
+                    .assume_http2(true),
+            )
+            .context("configuring Bigtable TLS")?
+        };
+
+        let channel = ep
             .connect()
             .await
             .with_context(|| format!("connecting to BigTable {endpoint:?}"))?;
