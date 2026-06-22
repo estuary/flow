@@ -340,6 +340,30 @@ input AzurePrivateLinkInput {
 	resourceType: String
 }
 
+type BillingAddress {
+	line1: String
+	line2: String
+	city: String
+	state: String
+	postalCode: String
+	country: String
+}
+
+input BillingAddressInput {
+	line1: String
+	line2: String
+	city: String
+	state: String
+	postalCode: String
+	country: String
+}
+
+type BillingContact {
+	email: String
+	name: String
+	address: BillingAddress
+}
+
 type BillingPaymentMethodPayload {
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
@@ -372,6 +396,8 @@ enum CapabilityBit {
 	CreateInviteLink
 	ViewDataPlanePrivateNetworking
 	ModifyDataPlanePrivateNetworking
+	ViewBilling
+	EditBilling
 	Delegate
 	Assume
 }
@@ -1175,6 +1201,7 @@ type LockFailure {
 type MutationRoot {
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
+	setBillingContact(tenant: String!, email: String!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
 	deleteBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	"""
 	Create a storage mapping for the given catalog prefix.
@@ -1679,6 +1706,10 @@ type RepublishRequested {
 	lastBuildId: Id!
 }
 
+type SetBillingContactPayload {
+	contact: BillingContact!
+}
+
 """
 The shape of a connector status, which matches that of an ops::Log.
 """
@@ -2027,6 +2058,7 @@ type Tenant {
 }
 
 type TenantBilling {
+	contact: BillingContact!
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
 	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!

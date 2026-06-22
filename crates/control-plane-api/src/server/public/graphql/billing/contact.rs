@@ -1,3 +1,4 @@
+use anyhow::Context;
 use async_graphql::{InputObject, SimpleObject};
 
 #[derive(Debug, Clone, SimpleObject)]
@@ -70,7 +71,9 @@ pub async fn fetch_billing_contact(
 
     let address: Option<BillingAddress> = row
         .billing_address
-        .and_then(|v| serde_json::from_value(v).ok());
+        .map(serde_json::from_value)
+        .transpose()
+        .context("deserializing stored billing_address")?;
 
     Ok(BillingContact {
         email: row.billing_email,
@@ -88,11 +91,11 @@ pub struct UpdatedBillingContact {
 pub async fn update_billing_contact(
     pool: &sqlx::PgPool,
     tenant: &str,
-    email: Option<&str>,
-    name: Option<&str>,
-    address: Option<&BillingAddress>,
+    email: &str,
+    name: &str,
+    address: &BillingAddress,
 ) -> anyhow::Result<UpdatedBillingContact> {
-    let address_json = address.map(|a| serde_json::to_value(a)).transpose()?;
+    let address_json = serde_json::to_value(address)?;
 
     let row = sqlx::query!(
         r#"
@@ -115,7 +118,9 @@ pub async fn update_billing_contact(
 
     let address: Option<BillingAddress> = row
         .billing_address
-        .and_then(|v| serde_json::from_value(v).ok());
+        .map(serde_json::from_value)
+        .transpose()
+        .context("deserializing stored billing_address")?;
 
     Ok(UpdatedBillingContact {
         email: row.billing_email,

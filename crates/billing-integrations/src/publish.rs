@@ -807,7 +807,9 @@ async fn get_or_create_customer_for_tenant(
         let billing_address: Option<stripe::Address> = billing_row
             .as_ref()
             .and_then(|r| r.billing_address.as_ref())
-            .and_then(|v| serde_json::from_value::<stripe::Address>(v.clone()).ok());
+            .map(|v| serde_json::from_value::<stripe::Address>(v.clone()))
+            .transpose()
+            .context("deserializing billing_address")?;
 
         let new_customer = stripe::Customer::create(
             &create_client,
@@ -830,13 +832,11 @@ async fn get_or_create_customer_for_tenant(
         )
         .await?;
 
-        // Wake the tenant controller so it can reconcile any remaining mismatch.
-        sqlx::query("SELECT internal.wake_tenant_controller($1::catalog_tenant)")
-            .bind(&tenant)
-            .execute(db_client)
-            .await
-            .ok();
-
+        // No controller wake here: the customer is created with the DB's
+        // billing email and address, and the billing name (customer metadata)
+        // is reconciled by the tenant controller when the contact is edited.
+        // Waking it during an invoicing run would add a Stripe lookup per new
+        // customer for no contact change.
         new_customer
     } else {
         return Ok(None);

@@ -177,14 +177,30 @@ impl BillingProvider for StripeBillingProvider {
         &self,
         customer_id: &stripe::CustomerId,
         email: Option<&str>,
+        name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
+        // The human billing name is written to customer metadata, not Stripe's
+        // `Customer.name`. `Customer.name` is the tenant slug that the
+        // `internal.tenant_alerts` and `internal.free_trial_alerts` views join
+        // `stripe.customers` on, so overwriting it would drop the tenant out of
+        // those views once the change syncs back through the customer CDC mirror.
+        // TODO(billing): migrate those views to join on the
+        // `estuary.dev/tenant_name` metadata key, then move the name back onto
+        // `Customer.name` and retire this metadata field.
+        let metadata = name.map(|name| {
+            std::collections::HashMap::from([(
+                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                name.to_string(),
+            )])
+        });
         let customer = stripe::Customer::update(
             &self.client,
             customer_id,
             stripe::UpdateCustomer {
                 email,
                 address,
+                metadata,
                 ..Default::default()
             },
         )

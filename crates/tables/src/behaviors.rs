@@ -766,11 +766,15 @@ mod test {
             vec![
                 (
                     "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
+                    CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities()
+                        | Delegate,
                 ),
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
+                    CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities()
+                        | Delegate,
                 ),
                 (
                     "carolCo/data/",
@@ -869,6 +873,7 @@ mod test {
                 (
                     "bobCo/shared/",
                     CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities()
                         | CapabilityBundle::TeamAdmin.capabilities(),
                 ),
             ],
@@ -956,6 +961,7 @@ mod test {
                 (
                     "bobCo/shared/",
                     CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities()
                         | CapabilityBundle::TeamAdmin.capabilities(),
                 ),
             ],
@@ -1017,6 +1023,7 @@ mod test {
                 (
                     "bobCo/shared/",
                     CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities()
                         | CapabilityBundle::TeamAdmin.capabilities(),
                 ),
             ],
@@ -1342,7 +1349,12 @@ mod test {
             user_id,
             vec![
                 ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
-                ("bobCo/", CapabilityBundle::Viewer.capabilities() | Delegate),
+                (
+                    "bobCo/",
+                    CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities()
+                        | Delegate,
+                ),
             ],
         );
 
@@ -1446,8 +1458,17 @@ mod test {
             user_id,
             vec![
                 ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
-                ("bobCo/", CapabilityBundle::Viewer.capabilities() | Assume),
-                ("carolCo/", CapabilityBundle::Viewer.capabilities()),
+                (
+                    "bobCo/",
+                    CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities()
+                        | Assume,
+                ),
+                (
+                    "carolCo/",
+                    CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities(),
+                ),
             ],
         );
     }
@@ -1571,7 +1592,9 @@ mod test {
             vec![
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
+                    CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities()
+                        | Delegate,
                 ),
                 (
                     "carolCo/data/",
@@ -1624,7 +1647,9 @@ mod test {
                 ("bobCo/", CapabilityBundle::Viewer.capabilities() | Assume),
                 (
                     "carolCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
+                    CapabilityBundle::Viewer.capabilities()
+                        | CapabilityBundle::Billing.capabilities()
+                        | Delegate,
                 ),
             ],
         );

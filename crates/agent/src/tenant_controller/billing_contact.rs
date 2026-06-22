@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use control_plane_api::billing::BillingProvider;
+use control_plane_api::billing::{BillingProvider, CUSTOMER_NAME_METADATA_KEY};
 
 use super::TenantRow;
 
@@ -87,35 +87,48 @@ async fn do_reconcile(
         return Ok(());
     };
 
+    // Desired state comes from the DB. A NULL column means "no desired value",
+    // so it never counts as a mismatch and is never pushed to Stripe.
     let desired_email = tenant_row.billing_email.as_deref();
+    let desired_name = tenant_row.billing_name.as_deref();
     let desired_address: Option<stripe::Address> = tenant_row
         .billing_address
         .as_ref()
-        .and_then(|v| serde_json::from_value(v.clone()).ok());
+        .map(|v| serde_json::from_value(v.clone()))
+        .transpose()
+        .context("deserializing stored billing_address")?;
 
     let current_email = customer.email.as_deref();
-    let current_address = customer.address.as_ref();
+    // The billing name lives in customer metadata, not `Customer.name` (the
+    // tenant slug). See `StripeBillingProvider::update_customer_billing_profile`.
+    let current_name = customer
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get(CUSTOMER_NAME_METADATA_KEY))
+        .map(String::as_str);
 
-    let email_matches = desired_email == current_email;
-    let address_matches = match (&desired_address, current_address) {
-        (None, None) => true,
-        (Some(desired), Some(current)) => addresses_match(desired, current),
-        _ => false,
+    let email_mismatch = desired_email.is_some() && desired_email != current_email;
+    let name_mismatch = desired_name.is_some() && desired_name != current_name;
+    let address_mismatch = match (&desired_address, customer.address.as_ref()) {
+        (None, _) => false,
+        (Some(_), None) => true,
+        (Some(desired), Some(current)) => !addresses_match(desired, current),
     };
 
-    if email_matches && address_matches {
+    if !email_mismatch && !name_mismatch && !address_mismatch {
         return Ok(());
     }
 
     provider
-        .update_customer_billing_profile(&customer.id, desired_email, desired_address)
+        .update_customer_billing_profile(&customer.id, desired_email, desired_name, desired_address)
         .await
         .context("updating Stripe customer billing profile")?;
 
     tracing::info!(
         tenant = %tenant_row.tenant,
-        email_changed = !email_matches,
-        address_changed = !address_matches,
+        email_changed = email_mismatch,
+        name_changed = name_mismatch,
+        address_changed = address_mismatch,
         "reconciled billing contact with Stripe",
     );
 

@@ -18,7 +18,7 @@ use async_graphql::{
 impl Tenant {
     async fn billing(&self, ctx: &Context<'_>) -> Result<TenantBilling> {
         let env = ctx.data::<crate::Envelope>()?;
-        verify_authorization(env, &self.name, models::Capability::Admin).await?;
+        verify_authorization(env, &self.name, models::authz::Capability::ViewBilling).await?;
         let provider = billing_provider(ctx)?;
         Ok(TenantBilling::new(self.name.clone(), provider))
     }
@@ -45,14 +45,9 @@ impl TenantBilling {
             .map_err(|err| async_graphql::Error::new(err.to_string()))
     }
 
-    async fn payment_methods(&self) -> Result<Vec<PaymentMethod>> {
-        let Some(customer) = self
-            .provider
-            .as_ref()
-            .find_customer(&self.tenant)
-            .await
-            .map_err(|err| async_graphql::Error::new(err.to_string()))?
-        else {
+    async fn payment_methods(&self, ctx: &Context<'_>) -> Result<Vec<PaymentMethod>> {
+        let loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
+        let Some(customer) = loader.load_one(self.tenant.clone()).await? else {
             return Ok(Vec::new());
         };
         let methods = self

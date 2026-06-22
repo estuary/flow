@@ -55,6 +55,7 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         &self,
         customer_id: &stripe::CustomerId,
         email: Option<&str>,
+        name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer>;
 

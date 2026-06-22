@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT tenant as \"tenant!\", billing_email, billing_address\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
+  "query": "\n        SELECT tenant as \"tenant!\", billing_email, billing_name, billing_address\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -15,6 +15,11 @@
       },
       {
         "ordinal": 2,
+        "name": "billing_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
         "name": "billing_address",
         "type_info": "Jsonb"
       }
@@ -27,8 +32,9 @@
     "nullable": [
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "8bfd02c887caaa241c882648dd654d7eac863fa14c282dcb648313e700da6785"
+  "hash": "223ecce568fda7dee4ecc94116d4b8faa8978c90398261af1a27a20c451dcc24"
 }
