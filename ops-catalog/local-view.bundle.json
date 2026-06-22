@@ -146,7 +146,7 @@
         }
       ]
     },
-    "ops/views/stats": {
+    "ops/views/catalog-stats": {
       "endpoint": {
         "connector": {
           "image": "ghcr.io/estuary/materialize-bigtable:dev",
