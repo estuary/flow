@@ -15,6 +15,7 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         tenant: &str,
         user_email: &str,
         user_name: Option<&str>,
+        billing_name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer>;
 
@@ -76,13 +77,14 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         tenant: &str,
         email: &str,
         full_name: Option<&str>,
+        billing_name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         if let Some(existing) = self.find_customer(tenant).await? {
             return Ok(existing);
         }
 
-        self.create_customer(tenant, email, full_name, address)
+        self.create_customer(tenant, email, full_name, billing_name, address)
             .await
     }
 }

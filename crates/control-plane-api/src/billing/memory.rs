@@ -111,17 +111,23 @@ impl BillingProvider for InMemoryBillingProvider {
         tenant: &str,
         _user_email: &str,
         _user_name: Option<&str>,
+        billing_name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut state = self.state.lock().unwrap();
         let id = format!("cus_mock_{}", tenant.replace('/', ""));
+        // Mirror the Stripe impl: the billing name lives in customer metadata.
+        let mut metadata = HashMap::from([(TENANT_METADATA_KEY.to_string(), tenant.to_string())]);
+        if let Some(billing_name) = billing_name {
+            metadata.insert(
+                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                billing_name.to_string(),
+            );
+        }
         let customer = stripe::Customer {
             id: id.parse().unwrap(),
             address,
-            metadata: Some(HashMap::from([(
-                TENANT_METADATA_KEY.to_string(),
-                tenant.to_string(),
-            )])),
+            metadata: Some(metadata),
             ..Default::default()
         };
         state.customers.push(customer.clone());
