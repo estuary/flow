@@ -229,6 +229,7 @@ impl BillingProvider for InMemoryBillingProvider {
         &self,
         customer_id: &stripe::CustomerId,
         email: Option<&str>,
+        name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut state = self.state.lock().unwrap();
@@ -237,8 +238,23 @@ impl BillingProvider for InMemoryBillingProvider {
             .iter_mut()
             .find(|c| &c.id == customer_id)
             .ok_or_else(|| anyhow::anyhow!("customer not found: {customer_id}"))?;
-        customer.email = email.map(str::to_string);
-        customer.address = address;
+        // Mirror Stripe's update semantics: a `None` argument leaves the field
+        // unchanged, and the name lives in metadata rather than `Customer.name`.
+        if let Some(email) = email {
+            customer.email = Some(email.to_string());
+        }
+        if let Some(address) = address {
+            customer.address = Some(address);
+        }
+        if let Some(name) = name {
+            customer
+                .metadata
+                .get_or_insert_with(Default::default)
+                .insert(
+                    billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                    name.to_string(),
+                );
+        }
         Ok(customer.clone())
     }
 }

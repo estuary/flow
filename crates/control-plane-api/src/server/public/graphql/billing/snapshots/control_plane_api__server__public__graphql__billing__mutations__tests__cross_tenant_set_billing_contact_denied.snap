@@ -12,7 +12,7 @@ expression: cross_tenant_response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: contacttest@example.test is not authorized to access prefix or name 'contactvictim/' with required capability admin",
+      "message": "PermissionDenied: contacttest@example.test is not authorized to access prefix or name 'contactvictim/' with required capability EditBilling",
       "path": [
         "setBillingContact"
       ]

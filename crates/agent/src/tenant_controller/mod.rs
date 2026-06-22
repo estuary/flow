@@ -31,6 +31,7 @@ impl TenantController {
 pub(crate) struct TenantRow {
     pub tenant: String,
     pub billing_email: Option<String>,
+    pub billing_name: Option<String>,
     pub billing_address: Option<serde_json::Value>,
 }
 
@@ -41,7 +42,7 @@ async fn fetch_tenant_by_controller_task(
     let row = sqlx::query_as!(
         TenantRow,
         r#"
-        SELECT tenant as "tenant!", billing_email, billing_address
+        SELECT tenant as "tenant!", billing_email, billing_name, billing_address
         FROM tenants
         WHERE controller_task_id = $1
         "#,
@@ -76,9 +77,18 @@ impl Executor for TenantController {
             return Ok(Action::Done);
         };
 
+        // A wake message means the desired billing contact changed. Cancel any
+        // pending retry backoff so the new state is reconciled now rather than
+        // after the backoff window (a timer-driven poll arrives with an empty
+        // inbox and keeps its backoff).
+        let woken_by_message = !inbox.is_empty();
         inbox.drain(..);
 
         let billing_status = state.billing_contact.get_or_insert_with(Default::default);
+        if woken_by_message {
+            billing_status.failures = 0;
+            billing_status.next_retry = None;
+        }
         let billing_outcome =
             billing_contact::reconcile(billing_status, &tenant_row, &self.billing_provider).await?;
 
