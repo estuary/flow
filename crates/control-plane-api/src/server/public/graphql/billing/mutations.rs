@@ -68,6 +68,7 @@ impl BillingMutation {
                 tenant.as_str(),
                 customer_email,
                 full_name.as_deref(),
+                billing_contact.name.as_deref(),
                 stripe_address,
             )
             .await

@@ -48,6 +48,7 @@ impl BillingProvider for StripeBillingProvider {
         tenant: &str,
         user_email: &str,
         user_name: Option<&str>,
+        billing_name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut metadata = HashMap::from([
@@ -56,6 +57,16 @@ impl BillingProvider for StripeBillingProvider {
         ]);
         if let Some(name) = user_name {
             metadata.insert("created_by_user_name".to_string(), name.to_string());
+        }
+        // The billing-contact name is stored in metadata, not `Customer.name`; see
+        // `update_customer_billing_profile`. Set it at creation alongside email and
+        // address so a contact captured before the customer existed is reflected,
+        // rather than waiting for the tenant controller to observe a later edit.
+        if let Some(billing_name) = billing_name {
+            metadata.insert(
+                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                billing_name.to_string(),
+            );
         }
 
         let description = format!("Represents the billing entity for Flow tenant '{tenant}'");
