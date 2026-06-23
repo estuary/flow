@@ -124,3 +124,48 @@ kcat -C \
     -s avro \
     -r https://{Your_Org/Your_Prefix/Your_Materialization}:{Your_Auth_Token}@dekaf.estuary-data.com
 ```
+
+## Testing a Dekaf topic with kcat
+
+When a consumer reports missing or unexpected records, read the topic directly with
+[kcat](https://github.com/edenhill/kcat) to isolate whether Dekaf is serving the records
+from how your client consumes them (partitions, offsets, deserialization). Start from the
+consume example above and adjust as described below.
+
+:::tip
+That example pins a single partition with `-p 0`, which reads only that partition. On a
+multi-partition topic that makes records on the other partitions look missing — omit `-p`
+to read every partition, and add `-e` so kcat exits at end-of-topic instead of waiting for
+more messages.
+:::
+
+**Confirm the topic is served and list its partitions** using metadata mode (`-L`):
+
+```shell
+kcat -L \
+    -X security.protocol=SASL_SSL \
+    -X sasl.mechanism=PLAIN \
+    -X sasl.username="Your_Org/Your_Prefix/Your_Materialization" \
+    -X sasl.password="Your_Auth_Token" \
+    -b dekaf.estuary-data.com:9092
+```
+
+**Count how many records are being served** across all partitions (connection flags
+abbreviated as `...`):
+
+```shell
+kcat -C -e -q ... -t "Your_Topic_Name" -o beginning -f '%k\n' | wc -l
+```
+
+**Locate a specific record** and see which partition and offset it landed on:
+
+```shell
+kcat -C -e -q ... -t "Your_Topic_Name" -o beginning -f 'p=%p o=%o key=%k\n' | grep Your_Key
+```
+
+Format tokens: `%p` partition, `%o` offset, `%k` key, `%T` timestamp, `%s` payload.
+
+If a record shows up here but not in your application, the problem is client-side: check
+your consumer-group offsets and your deserializer. Permissive Avro/JSON decoders can
+silently drop records that fail to decode — switch to a strict or fail-fast mode to surface
+the error rather than discarding the record.
