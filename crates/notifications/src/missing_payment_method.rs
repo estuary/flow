@@ -25,7 +25,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
 <div style="margin-top: 15px;">
     <p style="font-weight: bold; font-size: 19px; margin-bottom: 5px;">Where is my data stored?</p>
     <div style="border-left: 4px solid lightgrey; padding-left: 12px; margin-bottom: 15px;">
-        <p class="body-text" style="margin-bottom: 0;">By default, all collection data is stored in an Estuary-owned cloud storage bucket with a 30 day retention policy. Now that you have a paid account, you can update this to store data in your own cloud storage bucket. We support GCS, S3, and Azure Blob storage.</p>
+        <p class="body-text" style="margin-bottom: 0;">By default, all collection data is stored in an Estuary-owned cloud storage bucket with a 20 day retention policy. Now that you have a paid account, you can update this to store data in your own cloud storage bucket. We support GCS, S3, and Azure Blob storage.</p>
     </div>
 </div>
 
