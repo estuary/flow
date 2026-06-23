@@ -273,7 +273,7 @@ fn to_vars(list: &List) -> Vec<list_live_specs_query::LiveSpecsBy> {
     for prefix in list.name_selector.prefix.iter() {
         vars.push(list_live_specs_query::LiveSpecsBy {
             names: None,
-            prefix: Some(models::Prefix::new(prefix)),
+            prefix: Some(normalize_prefix(prefix)),
             catalog_type,
             data_plane_name: data_plane_name.clone(),
         });
@@ -293,4 +293,43 @@ fn to_vars(list: &List) -> Vec<list_live_specs_query::LiveSpecsBy> {
         });
     }
     vars
+}
+
+/// Normalizes a user-supplied `--prefix` value by appending a trailing '/' when
+/// it's missing. Estuary prefixes must end in a '/' (for example, `acmeCo/`).
+/// When the slash is omitted, the control plane treats the value as an
+/// unrecognized catalog name and returns a misleading `PermissionDenied` error
+/// even for fully-authorized users, so we fix it up here at the CLI boundary.
+/// An empty prefix is left as-is: it's a valid selector meaning "everything the
+/// user can access", and a bare "/" would be rejected.
+fn normalize_prefix(prefix: &str) -> models::Prefix {
+    if prefix.is_empty() || prefix.ends_with('/') {
+        models::Prefix::new(prefix)
+    } else {
+        models::Prefix::new(format!("{prefix}/"))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::normalize_prefix;
+
+    #[test]
+    fn test_normalize_prefix() {
+        // A missing trailing slash is the reported foot-gun, and is filled in.
+        assert_eq!(normalize_prefix("acmeCo").as_str(), "acmeCo/");
+        assert_eq!(
+            normalize_prefix("acmeCo/widgets").as_str(),
+            "acmeCo/widgets/"
+        );
+        // Already-normalized prefixes pass through unchanged.
+        assert_eq!(normalize_prefix("acmeCo/").as_str(), "acmeCo/");
+        assert_eq!(
+            normalize_prefix("acmeCo/widgets/").as_str(),
+            "acmeCo/widgets/"
+        );
+        // An empty prefix stays empty (a valid "everything" selector); we must
+        // not turn it into the invalid "/".
+        assert_eq!(normalize_prefix("").as_str(), "");
+    }
 }
