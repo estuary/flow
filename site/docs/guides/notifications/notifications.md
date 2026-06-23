@@ -1,7 +1,9 @@
 ---
-sidebar_position: 2
 slug: /reference/notifications/
 ---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
 
 # Notifications
 
@@ -9,14 +11,44 @@ Estuary lets you configure email notifications to send out alerts for various ev
 
 To configure alert subscriptions:
 
-* Navigate to the **Admin** section of Estuary's dashboard
-* Select the [**Settings**](https://dashboard.estuary.dev/admin/settings) tab
-* If you have access to more than one prefix, select your desired tenant from the **Prefix** dropdown
-* Under the **Organization Notifications** section, click **Configure Notifications** to create a new subscription or **Edit** an existing one
-* Enter your desired prefix, email, and [alert types](#alert-types)
-* Save your alert subscription
+<Tabs>
+<TabItem value="In the dashboard" default>
+
+1. Navigate to the **Admin** section of Estuary's dashboard
+2. Select the [**Settings**](https://dashboard.estuary.dev/admin/settings) tab
+3. If you have access to more than one prefix, select your desired tenant from the **Prefix** dropdown
+4. Under the **Organization Notifications** section, click **Configure Notifications** to create a new subscription or **Edit** an existing one
+5. Enter your desired prefix, email, and [alert types](#alert-types)
+6. Save your alert subscription
+
+</TabItem>
+<TabItem value="Using flowctl">
+
+1. Open an [authenticated `flowctl` session](/guides/get-started-with-flowctl)
+2. Manage your alert subscriptions with the `flowctl alerts subscriptions` command.
+For example:
+
+   ```shell
+   # View a list of existing alert subscriptions for a tenant
+   flowctl alerts subscriptions list --prefix acmeCo/
+
+   # Subscribe an address to a set of common alert notifications
+   flowctl alerts subscriptions subscribe --prefix acmeCo/ --email acme@example.com
+
+   # Subscribe an address to specific notifications
+   # Note: using the same email with the same prefix will update the existing
+   # subscription instead of creating a new one
+   flowctl alerts subscriptions subscribe --prefix acmeCo/ --email acme@example.com --alert-type data_movement_stalled --alert-type shard_failed
+
+   # See all alert type options and other usage information
+   flowctl alerts subscriptions subscribe -h
+   ```
+
+</TabItem>
+</Tabs>
 
 You can create multiple alert subscriptions with different configurations to subscribe additional emails or direct specific alert types to certain addresses.
+See [customization options](./customize-alerts.md) for examples.
 
 :::tip
 Use a mailing list email rather than an individual's email for your alert subscriptions.
@@ -28,25 +60,6 @@ Alternatively, you can use an email tied to [Slack](#send-alerts-to-slack) to se
 Each task also displays its active and historical notifications within the dashboard.
 From the capture, collection, or materialization details overview page, select the **Alerts** tab.
 Active and historical notifications include the type of alert, when it was fired, any configured recipients, and alert details.
-
-## Scope notifications per environment
-
-Subscriptions are scoped by catalog prefix, and a subscription can target a sub-prefix such as a single environment (for example `acmeCo/prod/`). Subscriptions are additive: an alert notifies every subscription whose prefix is a parent of the failing task. To route environments differently, for example to page an on-call address for `acmeCo/prod/` but send `acmeCo/dev/` alerts to a team list, create a separate subscription for each prefix.
-
-You can also manage subscriptions with the flowctl CLI, which is the most direct way to scope a subscription to a sub-prefix:
-
-```bash
-# Subscribe an address to Task Failed alerts for one environment
-flowctl alerts subscriptions subscribe --prefix acmeCo/prod/ --email oncall@example.com --alert-type shard_failed
-
-# List current subscriptions under a prefix
-flowctl alerts subscriptions list --prefix acmeCo/
-
-# Remove a single alert type from a subscription (the others stay in place)
-flowctl alerts subscriptions unsubscribe --prefix acmeCo/ --email oncall@example.com --alert-type shard_failed
-```
-
-Catalog prefixes must end in `/`.
 
 ## Alert Types
 
@@ -83,7 +96,7 @@ If the task remains in this chronically failing state and is unable to progress,
 
 Additional details about the failure will be available in the connector's **Alerts** tab.
 
-By default, the alert fires after 3 failures within an 8-hour window, and resolves once the task has been healthy for about 2 hours. You can change the failure threshold per prefix; see [Configure alert thresholds](#configure-alert-thresholds).
+By default, the alert fires after 3 failures within an 8-hour window, and resolves once the task has been healthy for about 2 hours. You can change the failure threshold per prefix; see [Configure alert thresholds](./customize-alerts.md#configure-alert-thresholds).
 
 ### Background Publication Failed Alerts
 
@@ -116,25 +129,6 @@ All emails in the **Organization Notifications** table are automatically subscri
 * **Free Trial Ending**: Five days remain in a tenant's free trial
 * **Free Trial Stalled**: A tenant's free trial has ended and no payment method has been added
 * **Missing Payment Method**: No payment method is on file for a tenant
-
-## Configure alert thresholds
-
-Several alert conditions can be tuned per prefix or per task with `flowctl alerts configs`. Use this to reduce noise, or to apply different sensitivity to different environments. A more specific prefix overrides a broader one, field by field; any value you don't set inherits the default.
-
-The Task Failed alert fires after a number of failures within a rolling window. The defaults are 3 failures within 8 hours.
-
-```bash
-# Require 6 failures within 8 hours before alerting, for everything under acmeCo/
-flowctl alerts configs update --prefix acmeCo/ --set shardFailed.condition.failures=6
-
-# Apply a higher tolerance to a development environment
-flowctl alerts configs update --prefix acmeCo/dev/ --set shardFailed.condition.failures=20
-
-# View configured thresholds under a prefix
-flowctl alerts configs list --prefix acmeCo/
-```
-
-Other tunable conditions include the Task Failed counting window (`shardFailed.condition.per`, default 8 hours), the Idle threshold (`taskIdle.condition.idleFor`), and the Chronically Failing threshold (`taskChronicallyFailing.condition.failingFor`).
 
 ## Properties
 | Property | Title | Description | Type |
