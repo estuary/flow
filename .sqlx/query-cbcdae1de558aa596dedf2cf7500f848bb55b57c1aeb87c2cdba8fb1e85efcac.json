@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT config AS \"config!: sqlx::types::Json<stack::PrivateLink>\"\n        FROM data_plane_private_links\n        WHERE data_plane_id = $1\n        ORDER BY created_at, id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "config!: sqlx::types::Json<stack::PrivateLink>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cbcdae1de558aa596dedf2cf7500f848bb55b57c1aeb87c2cdba8fb1e85efcac"
+}
