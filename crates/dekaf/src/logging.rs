@@ -34,6 +34,8 @@ pub fn install() {
     // We want to be able to control Dekaf's own logging output via the RUST_LOG environment variable like usual.
     let fmt_layer = tracing_subscriber::fmt::Layer::default()
         .with_writer(std::io::stderr)
+        // Only emit ANSI color codes when stderr is a TTY, so they don't bloat container logs.
+        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
         .with_filter(
             tracing_subscriber::EnvFilter::builder()
                 .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
