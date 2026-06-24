@@ -1,5 +1,5 @@
 use bytes::BufMut;
-use proto_gazette::uuid;
+use proto_gazette::{broker, uuid};
 
 /// Publisher is responsible for transactional publishing of documents to
 /// journal partitions, creating partitions on-demand and as needed.
@@ -304,6 +304,54 @@ impl Publisher {
         Ok(())
     }
 
+    /// Apply (or re-apply) the `estuary.dev/truncated-at` journal label to the
+    /// partitions of each active backfill. Journals already at the target value
+    /// are skipped, making the operation idempotent across restarts and
+    /// re-applies.
+    pub async fn apply_truncated_at_labels(
+        &mut self,
+        active_backfills: &std::collections::BTreeMap<usize, u64>,
+    ) -> tonic::Result<()> {
+        for (&index, &clock) in active_backfills {
+            let target = labels::truncated_at_value(clock);
+
+            let super::Binding::Mapped(binding) = &self.bindings[index] else {
+                return Err(tonic::Status::internal(format!(
+                    "binding {index} has an active backfill but is not a Mapped collection binding"
+                )));
+            };
+            let client = self.binding_clients[index].client();
+
+            // Re-list and retry until a full pass applies without losing a CAS
+            // race. Advancing the label is idempotent, so partitions already at
+            // the target are skipped on the retry and the loop converges once any
+            // racing writer (a concurrent split or activation) settles.
+            loop {
+                let listing = client
+                    .list(broker::ListRequest {
+                        selector: Some(broker::LabelSelector {
+                            include: Some(labels::build_set([(
+                                "name:prefix",
+                                binding.partitions_prefix.as_str(),
+                            )])),
+                            exclude: None,
+                        }),
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|err| match err {
+                        gazette::Error::Grpc(status) => status,
+                        other => tonic::Status::internal(other.to_string()),
+                    })?;
+
+                if advance_truncated_at_labels(client, listing, &target).await? {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Access the lazy Client and partitions watch for the Mapped binding at
     /// `index`. Panics if the binding is Fixed. Primarily used by tests.
     pub fn mapped_binding_client(
@@ -319,5 +367,160 @@ impl Publisher {
                 panic!("binding {index} is Fixed, not Mapped")
             }
         }
+    }
+}
+
+/// Advance the `estuary.dev/truncated-at` label of every journal in `listing`
+/// to `target`, applying each individually.
+///
+/// Returns `Ok(false)` if an apply lost a CAS race -- a journal's spec changed
+/// between the list and the apply (e.g. a concurrent split or activation) -- so
+/// the caller should re-list for fresh `mod_revision`s and retry. Journals
+/// advanced before the race stay committed and are skipped on the retry.
+/// Returns `Ok(true)` once a full pass commits.
+async fn advance_truncated_at_labels(
+    client: &gazette::journal::Client,
+    listing: broker::ListResponse,
+    target: &str,
+) -> tonic::Result<bool> {
+    for journal in listing.journals {
+        let Some(change) = truncated_at_label_change(journal, target)? else {
+            continue;
+        };
+
+        match client
+            .apply(broker::ApplyRequest {
+                changes: vec![change],
+            })
+            .await
+        {
+            Ok(_) => {}
+            Err(gazette::Error::BrokerStatus(broker::Status::EtcdTransactionFailed)) => {
+                return Ok(false);
+            }
+            Err(err) => {
+                return Err(match err {
+                    gazette::Error::Grpc(status) => status,
+                    other => tonic::Status::internal(other.to_string()),
+                });
+            }
+        }
+    }
+    Ok(true)
+}
+
+/// Build the apply Change that advances `journal`'s `estuary.dev/truncated-at`
+/// label to `target`, or `None` if the journal is already at or beyond it. The
+/// fixed-width hex encoding sorts lexically by clock, so the skip covers both an
+/// equal label (idempotent) and a newer one (a later backfill already applied,
+/// or clock skew across a restart) -- the label only ever advances.
+fn truncated_at_label_change(
+    journal: broker::list_response::Journal,
+    target: &str,
+) -> tonic::Result<Option<broker::apply_request::Change>> {
+    let Some(mut spec) = journal.spec else {
+        return Err(tonic::Status::internal(
+            "list response journal is missing its spec",
+        ));
+    };
+    let current = spec
+        .labels
+        .as_ref()
+        .and_then(|set| labels::maybe_one(set, labels::TRUNCATED_AT).ok())
+        .unwrap_or("");
+
+    if current >= target {
+        return Ok(None);
+    }
+
+    spec.labels = Some(labels::set_value(
+        spec.labels.take().unwrap_or_default(),
+        labels::TRUNCATED_AT,
+        target,
+    ));
+
+    Ok(Some(broker::apply_request::Change {
+        expect_mod_revision: journal.mod_revision,
+        upsert: Some(spec),
+        delete: String::new(),
+    }))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    // A list-response journal carrying `truncated_at` (when Some) plus an
+    // unrelated label, used to check the advance decision and that other labels
+    // survive the upsert.
+    fn journal(mod_revision: i64, truncated_at: Option<&str>) -> broker::list_response::Journal {
+        let mut set = labels::build_set([("estuary.dev/collection", "the/collection")]);
+        if let Some(value) = truncated_at {
+            set = labels::set_value(set, labels::TRUNCATED_AT, value);
+        }
+        broker::list_response::Journal {
+            spec: Some(broker::JournalSpec {
+                name: "the/collection/pivot=00".to_string(),
+                labels: Some(set),
+                ..Default::default()
+            }),
+            mod_revision,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_truncated_at_label_change_advances_only() {
+        let target = labels::truncated_at_value(0x20);
+
+        // No label yet, an older label, and an equal-then-newer label: the
+        // decision is "advance only" -- skip unless strictly older than target.
+        let absent = truncated_at_label_change(journal(1, None), &target).unwrap();
+        assert!(absent.is_some(), "absent label advances");
+
+        let older = labels::truncated_at_value(0x10);
+        let older = truncated_at_label_change(journal(1, Some(&older)), &target).unwrap();
+        assert!(older.is_some(), "older label advances");
+
+        let equal = truncated_at_label_change(journal(1, Some(&target)), &target).unwrap();
+        assert!(equal.is_none(), "equal label is skipped (idempotent)");
+
+        let newer = labels::truncated_at_value(0x30);
+        let newer = truncated_at_label_change(journal(1, Some(&newer)), &target).unwrap();
+        assert!(newer.is_none(), "newer label is never regressed");
+    }
+
+    #[test]
+    fn test_truncated_at_label_change_builds_upsert() {
+        let target = labels::truncated_at_value(0x20);
+        let prior = labels::truncated_at_value(0x10);
+
+        let change = truncated_at_label_change(journal(42, Some(&prior)), &target)
+            .unwrap()
+            .expect("older label advances");
+
+        // The CAS guard carries the listed revision, and the upsert sets the
+        // target label while preserving the journal's unrelated labels.
+        assert_eq!(change.expect_mod_revision, 42);
+        let set = change.upsert.unwrap().labels.unwrap();
+        assert_eq!(
+            labels::maybe_one(&set, labels::TRUNCATED_AT).unwrap(),
+            target
+        );
+        assert_eq!(
+            labels::maybe_one(&set, "estuary.dev/collection").unwrap(),
+            "the/collection"
+        );
+    }
+
+    #[test]
+    fn test_truncated_at_label_change_requires_spec() {
+        let target = labels::truncated_at_value(0x20);
+        let no_spec = broker::list_response::Journal {
+            spec: None,
+            mod_revision: 1,
+            ..Default::default()
+        };
+        assert!(truncated_at_label_change(no_spec, &target).is_err());
     }
 }
