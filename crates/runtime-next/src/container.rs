@@ -391,6 +391,10 @@ where
         .await
         .with_context(|| format!("failed to run docker command {args:?}"))?;
 
+    if let Some(err) = docker_daemon_unavailable_error(&output.stderr) {
+        return Err(err).with_context(|| format!("docker command {args:?} failed"));
+    }
+
     if !output.status.success() {
         anyhow::bail!(
             "docker command {args:?} failed: {}",
@@ -398,6 +402,22 @@ where
         );
     }
     Ok(output.stdout)
+}
+
+fn docker_daemon_unavailable_error(stderr: &[u8]) -> Option<anyhow::Error> {
+    let stderr = String::from_utf8_lossy(stderr);
+
+    if stderr.contains("Cannot connect to the Docker daemon")
+        || stderr.contains("Is the docker daemon running?")
+    {
+        Some(anyhow::anyhow!(
+            "Docker daemon is not running. Start Docker Desktop or your container runtime and retry. \
+             Set DOCKER_CLI=podman if using Podman. flowctl preview and flowctl catalog test \
+             require Docker for TypeScript and Python derivations, captures, and materializations."
+        ))
+    } else {
+        None
+    }
 }
 
 async fn docker_pull(image: &str) -> anyhow::Result<()> {
@@ -881,6 +901,25 @@ mod test {
             source: ParseBoolError,
         }
         "###);
+    }
+
+    #[test]
+    fn detects_docker_daemon_unavailable_from_stderr() {
+        let stderr = b"Cannot connect to the Docker daemon at unix:///Users/test/.docker/run/docker.sock. Is the docker daemon running?\n";
+        let err = super::docker_daemon_unavailable_error(stderr).unwrap();
+        let message = format!("{err:#}");
+
+        assert!(message.contains("Docker daemon is not running"));
+        assert!(message.contains("flowctl preview"));
+        assert!(message.contains("flowctl catalog test"));
+        assert!(message.contains("DOCKER_CLI=podman"));
+    }
+
+    #[test]
+    fn ignores_unrelated_docker_stderr() {
+        let stderr = b"Unable to find image locally\n";
+
+        assert!(super::docker_daemon_unavailable_error(stderr).is_none());
     }
 
     #[test]
