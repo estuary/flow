@@ -110,6 +110,9 @@ In the future, other open-source materialization connectors from third parties c
 * HTTP Webhook
   * [Configuration](./http-webhook.md)
   * Package - ghcr.io/estuary/materialize-webhook:v1
+* HubSpot
+  * [Configuration](./hubspot.md)
+  * Package - ghcr.io/estuary/materialize-hubspot:v1
 * Imply Polaris
   * [Configuration](./Dekaf/imply-polaris.md)
 * Materialize
