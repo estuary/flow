@@ -384,13 +384,31 @@ where
         .await
         .with_context(|| format!("failed to run docker command {args:?}"))?;
 
-    if !output.status.success() {
+    docker_cmd_output(args, output)
+}
+
+fn docker_cmd_output<S>(args: &[S], output: std::process::Output) -> anyhow::Result<Vec<u8>>
+where
+    S: AsRef<std::ffi::OsStr> + std::fmt::Debug,
+{
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if is_docker_daemon_unavailable(&stderr) {
         anyhow::bail!(
-            "docker command {args:?} failed: {}",
-            String::from_utf8_lossy(&output.stderr),
+            "Docker daemon is not running or unreachable. Start Docker Desktop (or your configured container runtime) and retry. If using Podman, set DOCKER_CLI=podman. `flowctl preview` and `flowctl catalog test` require a running container runtime for TypeScript/Python derivations, captures, and materializations."
         );
     }
+
+    if !output.status.success() {
+        anyhow::bail!("docker command {args:?} failed: {}", stderr);
+    }
     Ok(output.stdout)
+}
+
+fn is_docker_daemon_unavailable(stderr: &str) -> bool {
+    stderr.contains("Cannot connect to the Docker daemon")
+        || stderr.contains("Is the docker daemon running?")
+        || stderr.contains("docker daemon is not running")
 }
 
 async fn docker_pull(image: &str) -> anyhow::Result<()> {
@@ -685,10 +703,19 @@ async fn inspect_image_and_copy(
 
 #[cfg(test)]
 mod test {
-    use super::{parse_image_inspection, sanitize_event_type, start};
+    use super::{docker_cmd_output, parse_image_inspection, sanitize_event_type, start};
     use futures::stream::StreamExt;
     use proto_flow::flow;
     use serde_json::json;
+    use std::os::unix::process::ExitStatusExt;
+
+    fn docker_output(code: i32, stdout: &[u8], stderr: &[u8]) -> std::process::Output {
+        std::process::Output {
+            status: std::process::ExitStatus::from_raw(code),
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
 
     #[tokio::test]
     async fn test_http_ingest_spec() {
@@ -867,6 +894,34 @@ mod test {
             source: ParseBoolError,
         }
         "###);
+    }
+
+    #[test]
+    fn docker_cmd_reports_daemon_unavailable_when_docker_exits_successfully() {
+        let output = docker_output(
+            0,
+            b"[]\n",
+            b"Cannot connect to the Docker daemon at unix:///Users/example/.docker/run/docker.sock. Is the docker daemon running?\n",
+        );
+
+        insta::assert_debug_snapshot!(
+            docker_cmd_output(&["inspect", "ghcr.io/estuary/derive-typescript:local"], output).unwrap_err(),
+            @r###""Docker daemon is not running or unreachable. Start Docker Desktop (or your configured container runtime) and retry. If using Podman, set DOCKER_CLI=podman. `flowctl preview` and `flowctl catalog test` require a running container runtime for TypeScript/Python derivations, captures, and materializations.""###
+        );
+    }
+
+    #[test]
+    fn docker_cmd_preserves_non_daemon_failures() {
+        let output = docker_output(
+            1,
+            b"",
+            b"Error response from daemon: pull access denied for missing-image\n",
+        );
+
+        insta::assert_debug_snapshot!(
+            docker_cmd_output(&["pull", "missing-image", "--quiet"], output).unwrap_err(),
+            @r###""docker command [\"pull\", \"missing-image\", \"--quiet\"] failed: Error response from daemon: pull access denied for missing-image\n""###
+        );
     }
 
     #[test]
