@@ -612,15 +612,23 @@ message Persist {
   // Materialization trigger parameters.
   // Effect: Put under "trigger-params" key.
   bytes trigger_params_json = 16 [ json_name = "triggerParams" ];
-  // Set active-backfill begin clocks for bindings that observed a
-  // BackfillBegin control checkpoint.
-  // Key: binding index; Value: begin clock.
-  // Effect: Put fixed64-LE under "AB:{state_key}" (state_key resolved by the encoder).
-  map<uint32, fixed64> set_active_backfills = 17;
-  // Clear active-backfill entries for bindings that observed a
-  // BackfillComplete control checkpoint. Applies after set_active_backfills.
-  // Effect: Delete "AB:{state_key}" (state_key resolved by the encoder).
-  repeated uint32 delete_active_backfills = 18;
+  // The active-backfill change this transaction observed, if any. At most one
+  // per commit — a backfill control signal stands alone in its transaction.
+  oneof active_backfill_change {
+    // BackfillBegin: record the binding's begin clock.
+    // Effect: Put fixed64-LE under "AB:{state_key}" (state_key resolved by the encoder).
+    ActiveBackfillBegin begin = 17;
+    // BackfillComplete: clear the binding's active-backfill entry.
+    // Effect: Delete "AB:{state_key}" (state_key resolved by the encoder).
+    uint32 complete_binding = 18;
+  }
+}
+
+// ActiveBackfillBegin records a binding's backfill begin clock — its
+// authoritative truncated_at — staged by a committing Persist.
+message ActiveBackfillBegin {
+  uint32 binding = 1;
+  fixed64 truncated_at = 2;
 }
 
 // Persisted is sent by shard zero to the leader after the state is durable

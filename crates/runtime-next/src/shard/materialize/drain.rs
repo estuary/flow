@@ -50,9 +50,27 @@ impl Drainer {
         bindings: &[Binding],
         codec: connector_init::Codec,
     ) -> anyhow::Result<Option<materialize::Request>> {
-        let Some(doc::combine::DrainedDoc { meta, root }) = self.drainer.drain_next()? else {
+        let Some(doc::combine::DrainedDoc { mut meta, mut root }) = self.drainer.drain_next()?
+        else {
             return Ok(None);
         };
+
+        // Prior-generation entries are stale loaded rows (they predate the
+        // binding's backfill `truncated_at`); they're never stored, they only
+        // prove the destination row exists. The combiner emits the run of
+        // prior-generation rows for a key ahead of that key's current-generation
+        // document, so skip the run and store the current-generation doc that
+        // follows, as an UPDATE (exists=true). A doc with no prior-generation rows
+        // ahead of it stores normally, with exists from `front`.
+        let mut exists = meta.front();
+        while meta.prior_gen() {
+            let next = self
+                .drainer
+                .drain_next()?
+                .expect("a prior-generation run is followed by its current-generation sibling");
+            (meta, root) = (next.meta, next.root);
+            exists = true;
+        }
 
         let binding_index = meta.binding();
         let binding = &bindings[binding_index];
@@ -138,7 +156,7 @@ impl Drainer {
             binding: binding_index as u32,
             delete: meta.deleted(),
             doc_json,
-            exists: meta.front(),
+            exists,
             key_json,
             key_packed,
             values_json,
@@ -169,6 +187,99 @@ impl Drainer {
         } = self;
         let accumulator = Accumulator::from_drainer(drainer, parser)?;
         Ok((accumulator, shuffle_reader, shuffle_remainders, active))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::super::{Binding, task::combine_spec};
+    use super::Drainer;
+    use serde_json::{Value, json};
+    use std::collections::VecDeque;
+
+    fn test_binding() -> Binding {
+        Binding {
+            collection_name: "test/collection".to_string(),
+            delta_updates: false,
+            document_uuid_ptr: json::Pointer::from(""),
+            journal_read_suffix: String::new(),
+            key_extractors: vec![doc::Extractor::with_default(
+                "/key",
+                &doc::SerPolicy::noop(),
+                json!(""),
+            )],
+            read_schema_json: bytes::Bytes::from_static(
+                br#"{
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string" },
+                        "v": { "type": "array", "reduce": { "strategy": "append" } }
+                    },
+                    "reduce": { "strategy": "merge" }
+                }"#,
+            ),
+            ser_policy: doc::SerPolicy::noop(),
+            state_key: "test/collection".to_string(),
+            store_document: true,
+            value_plan: doc::ExtractorPlan::new(&[]),
+        }
+    }
+
+    #[test]
+    fn prior_gen_pairing_sets_exists_without_reducing() {
+        let bindings = vec![test_binding()];
+        let mut accumulator = crate::Accumulator::new(combine_spec(&bindings).unwrap()).unwrap();
+
+        {
+            let memtable = accumulator.memtable().unwrap();
+            let add = |doc: Value, front: bool| {
+                let n = doc::HeapNode::from_node(&doc, memtable.alloc());
+                memtable.add(0, n, front).unwrap();
+            };
+            let add_prior = |doc: Value| {
+                let n = doc::HeapNode::from_node(&doc, memtable.alloc());
+                memtable.add_prior_gen(0, n).unwrap();
+            };
+
+            // "straddle": a prior-generation loaded row plus its current-generation source.
+            add_prior(json!({"key": "straddle", "v": ["stale"]}));
+            add(json!({"key": "straddle", "v": ["fresh"]}), false);
+
+            // "normal": an ordinary (current-generation) loaded row reduced with a source.
+            add(json!({"key": "normal", "v": ["loaded"]}), true);
+            add(json!({"key": "normal", "v": ["src"]}), false);
+
+            // "srconly": a source-only key, no loaded row.
+            add(json!({"key": "srconly", "v": ["only"]}), false);
+        }
+
+        let shuffle_reader = shuffle::log::Reader::new(std::path::Path::new("/dev/null"), 0);
+        let mut drainer = Drainer::new(accumulator, shuffle_reader, VecDeque::new()).unwrap();
+
+        let mut stores = Vec::new();
+        while let Some(req) = drainer
+            .step(&bindings, connector_init::Codec::Json)
+            .unwrap()
+        {
+            let store = req.store.expect("drained request is a Store");
+            stores.push((
+                serde_json::from_slice::<Value>(&store.doc_json).unwrap(),
+                store.exists,
+            ));
+        }
+
+        // One (stored document, exists) per key, in key order — the prior-generation
+        // "straddle" doc is never emitted on its own. Note "straddle" stores ["fresh"]
+        // (NOT ["stale","fresh"]): its stale value is dropped, and exists=true is
+        // forced onto the surviving current-generation source.
+        assert_eq!(
+            stores,
+            vec![
+                (json!({"key": "normal", "v": ["loaded", "src"]}), true),
+                (json!({"key": "srconly", "v": ["only"]}), false),
+                (json!({"key": "straddle", "v": ["fresh"]}), true),
+            ],
+        );
     }
 }
 

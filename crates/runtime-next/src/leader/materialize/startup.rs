@@ -119,6 +119,7 @@ pub(super) async fn run(
         legacy_checkpoint,
         max_keys,
         trigger_params_json: pending_trigger_params,
+        active_backfills: _, // capture-only state
     } = recv_recovers(shard_rx, &task.peers)
         .await
         .context("receiving Recover fan-in")?;

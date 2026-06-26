@@ -43,6 +43,15 @@ use proto_gazette::uuid;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+/// A control message observed within an isolated connector checkpoint.
+#[derive(Debug, Clone, Copy)]
+pub enum ControlMessage {
+    /// A backfill is beginning for `binding`.
+    BackfillBegin { binding: u32 },
+    /// A backfill has completed for `binding`.
+    BackfillComplete { binding: u32 },
+}
+
 /// Per-transaction aggregated state threaded through Head/Tail FSMs.
 #[derive(Debug, Default, Clone)]
 pub struct Extents {
@@ -63,6 +72,8 @@ pub struct Extents {
     sourced_schemas: BTreeMap<u32, doc::Shape>,
     // Was a synthetic checkpoint injected due to hard-bound violation?
     synthetic_checkpoint: bool,
+    // A control message observed in this transaction.
+    control: Option<ControlMessage>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -85,6 +96,10 @@ pub enum ConnectorRx {
     Checkpoint(capture::response::Checkpoint),
     /// Connector emitted a SourcedSchema.
     SourcedSchema { binding: u32, shape: doc::Shape },
+    /// Connector signaled the start of a backfill for `binding`.
+    BackfillBegin { binding: u32 },
+    /// Connector signaled the completion of a backfill for `binding`.
+    BackfillComplete { binding: u32 },
     /// Connector closed its output stream.
     Eof,
 }
@@ -96,6 +111,8 @@ impl ConnectorRx {
             Self::Captured(_) => "Captured",
             Self::Checkpoint(_) => "Checkpoint",
             Self::SourcedSchema { .. } => "SourcedSchema",
+            Self::BackfillBegin { .. } => "BackfillBegin",
+            Self::BackfillComplete { .. } => "BackfillComplete",
             Self::Eof => "Eof",
         }
     }
@@ -117,6 +134,7 @@ pub enum Tail {
     Recover(TailRecover),
     Acknowledge(TailAcknowledge),
     WriteIntents(TailWriteIntents),
+    ApplyLabels(TailApplyLabels),
     Done(TailDone),
 }
 
@@ -141,6 +159,8 @@ pub enum Action {
     Drain {
         // Per-binding shapes folded from transaction SourcedSchema messages.
         sourced_schemas: BTreeMap<u32, doc::Shape>,
+        // A control message to publish during this drain, if any.
+        control: Option<ControlMessage>,
     },
     /// Publish a stats document as CONTINUE_TXN to the ops stats journal.
     WriteStats { stats: ops::proto::Stats },
@@ -153,6 +173,8 @@ pub enum Action {
     WriteIntents {
         ack_intents: BTreeMap<String, bytes::Bytes>,
     },
+    /// Apply journal truncation labels for the shard's active backfills.
+    ApplyTruncatedLabels,
     /// Rotate accumulating and draining combiners.
     Rotate { extents: Extents },
     /// Emit an error.
@@ -172,6 +194,7 @@ impl Action {
             Self::Persist { .. } => "Persist",
             Self::Acknowledge { .. } => "Acknowledge",
             Self::WriteIntents { .. } => "WriteIntents",
+            Self::ApplyTruncatedLabels => "ApplyTruncatedLabels",
             Self::Rotate { .. } => "Rotate",
             Self::Error(_) => "Error",
         }
@@ -219,6 +242,7 @@ impl Tail {
         acknowledge_done: bool,
         drain_finished: &mut Option<DrainedCapture>,
         intents_write_idle: bool,
+        labels_apply_idle: bool,
         now: uuid::Clock,
         persist_done: bool,
         task: &Task,
@@ -232,6 +256,7 @@ impl Tail {
             Self::Recover(s) => s.step(task),
             Self::Acknowledge(s) => s.step(acknowledge_done),
             Self::WriteIntents(s) => s.step(intents_write_idle),
+            Self::ApplyLabels(s) => s.step(labels_apply_idle),
             Self::Done(_) => (Action::Idle, self),
         }
     }
@@ -245,6 +270,7 @@ impl Tail {
             Self::Recover(_) => "Recover",
             Self::Acknowledge(_) => "Acknowledge",
             Self::WriteIntents(_) => "WriteIntents",
+            Self::ApplyLabels(_) => "ApplyLabels",
             Self::Done(_) => "Done",
         }
     }
@@ -299,6 +325,16 @@ impl HeadIdle {
             Duration::ZERO
         };
 
+        let ready_is_control = matches!(
+            ready,
+            ConnectorRx::BackfillBegin { .. } | ConnectorRx::BackfillComplete { .. }
+        );
+        // A control transaction is isolated and never reaches the size trigger,
+        // so force a prompt close rather than idle to the age timeout.
+        if self.extents.control.is_some() || (ready_is_control && is_open) {
+            *close_requested = true;
+        }
+
         let close_policy::Decision {
             may_close,
             may_extend,
@@ -317,8 +353,9 @@ impl HeadIdle {
         });
 
         // Should we extend with a ready next connector checkpoint sequence?
-        if self.extents.synthetic_checkpoint {
-            // Don't extend transactions after a synthetic checkpoint.
+        if self.extents.synthetic_checkpoint || self.extents.control.is_some() {
+            // Don't extend once a synthetic checkpoint was injected or a control
+            // signal isolated this transaction as a hard boundary.
         } else if may_extend
             && matches!(
                 ready,
@@ -330,6 +367,21 @@ impl HeadIdle {
             if !is_open {
                 self.extents.open = now;
             }
+            return (
+                Action::PollAgain,
+                Head::Extend(HeadExtend {
+                    inner: self,
+                    sequence_bytes: 0,
+                }),
+            );
+        }
+
+        // A pending control message with no open transaction opens a fresh one
+        // (it stands alone). Unlike the data-extend path above this is not gated
+        // on `may_extend`: a control message is always admitted into its own
+        // isolated transaction immediately.
+        if ready_is_control && !is_open {
+            self.extents.open = now;
             return (
                 Action::PollAgain,
                 Head::Extend(HeadExtend {
@@ -408,6 +460,16 @@ impl HeadExtend {
         match std::mem::take(ready) {
             ConnectorRx::Pending => (Action::Idle, Head::Extend(self)),
             ConnectorRx::Captured(captured) => {
+                if self.inner.extents.control.is_some() {
+                    return (
+                        Action::Error(anyhow::anyhow!(
+                            "capture connector emitted a document after a backfill \
+                             control message in the same checkpoint; control \
+                             messages must stand alone"
+                        )),
+                        Head::Stop,
+                    );
+                }
                 let extents = &mut self.inner.extents;
 
                 let extent = extents.bindings.entry(captured.binding).or_default();
@@ -421,6 +483,16 @@ impl HeadExtend {
                 (Action::Captured { captured }, Head::Extend(self))
             }
             ConnectorRx::SourcedSchema { binding, shape } => {
+                if self.inner.extents.control.is_some() {
+                    return (
+                        Action::Error(anyhow::anyhow!(
+                            "capture connector emitted a SourcedSchema after a backfill \
+                             control message in the same checkpoint; control messages \
+                             must stand alone"
+                        )),
+                        Head::Stop,
+                    );
+                }
                 let extents = &mut self.inner.extents;
 
                 let entry = extents
@@ -429,6 +501,35 @@ impl HeadExtend {
                     .or_insert(doc::Shape::nothing());
                 *entry = doc::Shape::union(std::mem::replace(entry, doc::Shape::nothing()), shape);
 
+                (Action::Idle, Head::Extend(self))
+            }
+            ctrl @ (ConnectorRx::BackfillBegin { .. } | ConnectorRx::BackfillComplete { .. }) => {
+                let extents = &mut self.inner.extents;
+                // A control message must be the only message in its connector
+                // checkpoint: reject if any document, schema, or prior control
+                // signal already accrued into this (its own) transaction.
+                if extents.captured_docs != 0
+                    || !extents.sourced_schemas.is_empty()
+                    || extents.control.is_some()
+                {
+                    return (
+                        Action::Error(anyhow::anyhow!(
+                            "capture connector backfill control message must stand \
+                             alone in its checkpoint, with no other documents"
+                        )),
+                        Head::Stop,
+                    );
+                }
+                extents.control = Some(match ctrl {
+                    ConnectorRx::BackfillBegin { binding } => {
+                        ControlMessage::BackfillBegin { binding }
+                    }
+                    ConnectorRx::BackfillComplete { binding } => {
+                        ControlMessage::BackfillComplete { binding }
+                    }
+                    _ => unreachable!("matched a backfill control variant"),
+                });
+                // Await the terminating Checkpoint of this isolated sequence.
                 (Action::Idle, Head::Extend(self))
             }
             ConnectorRx::Checkpoint(checkpoint) => {
@@ -456,6 +557,7 @@ impl HeadExtend {
 pub struct DrainedCapture {
     pub connector_patches: bytes::Bytes,
     pub bindings: BTreeMap<u32, ops::proto::stats::DocsAndBytes>,
+    pub control: Option<proto::persist::ActiveBackfillChange>,
 }
 
 #[derive(Debug)]
@@ -466,11 +568,16 @@ pub struct TailBegin {
 impl TailBegin {
     pub fn step(self) -> (Action, Tail) {
         let Self { mut extents } = self;
-        // Sourced shapes belong to the drain, not to stats; lift them out of
-        // Extents into the Drain action and let the rest of Extents flow on.
+        // Sourced shapes and any control message belong to the drain, not to
+        // stats; lift them out of Extents into the Drain action and let the
+        // rest of Extents flow on.
         let sourced_schemas = std::mem::take(&mut extents.sourced_schemas);
+        let control = extents.control.take();
         (
-            Action::Drain { sourced_schemas },
+            Action::Drain {
+                sourced_schemas,
+                control,
+            },
             Tail::Drain(TailDrain { extents }),
         )
     }
@@ -491,6 +598,7 @@ impl TailDrain {
         let DrainedCapture {
             connector_patches,
             bindings,
+            control,
         } = drained;
 
         // Fold per-binding drained measures into the transaction extents.
@@ -506,6 +614,7 @@ impl TailDrain {
             Tail::WriteStats(TailWriteStats {
                 connector_patches,
                 extents,
+                control,
             }),
         )
     }
@@ -515,6 +624,7 @@ impl TailDrain {
 pub struct TailWriteStats {
     pub connector_patches: bytes::Bytes,
     pub extents: Extents,
+    pub control: Option<proto::persist::ActiveBackfillChange>,
 }
 
 impl TailWriteStats {
@@ -532,6 +642,7 @@ impl TailWriteStats {
         let Self {
             connector_patches,
             extents,
+            control,
         } = self;
         let ack_intents = std::mem::take(ack_intents);
         let seq_no = now.as_u64();
@@ -540,12 +651,14 @@ impl TailWriteStats {
         // intents (so a crash before WriteIntents is recoverable) and the
         // connector-state patches. `delete_ack_intents` first clears the prior
         // transaction's per-journal intents — a journal written last transaction
-        // but not this one would otherwise leave a stale entry.
+        // but not this one would otherwise leave a stale entry. `control` stages
+        // the binding's active-backfill change atomically with the commit.
         let persist = proto::Persist {
             seq_no,
             ack_intents: ack_intents.clone(),
             connector_patches_json: connector_patches,
             delete_ack_intents: true,
+            active_backfill_change: control,
             ..Default::default()
         };
 
@@ -660,6 +773,27 @@ impl TailWriteIntents {
         // follow-up Persist clears them from RocksDB: the next transaction's
         // commit Persist overwrites them, and an idle capture simply re-writes
         // the same idempotent intents on its next recovery.
+        //
+        // Post-commit, re-apply truncated-at journal labels for the shard's
+        // active backfills. The actor skips the IO when no labels are dirty,
+        // so this hop is cheap for ordinary transactions.
+        (
+            Action::ApplyTruncatedLabels,
+            Tail::ApplyLabels(TailApplyLabels {}),
+        )
+    }
+}
+
+/// TailApplyLabels awaits the post-commit truncated-at journal-label apply,
+/// then completes the transaction.
+#[derive(Debug)]
+pub struct TailApplyLabels {}
+
+impl TailApplyLabels {
+    pub fn step(self, labels_apply_idle: bool) -> (Action, Tail) {
+        if !labels_apply_idle {
+            return (Action::Idle, Tail::ApplyLabels(self));
+        }
         (Action::Idle, Tail::Done(TailDone {}))
     }
 }
@@ -721,6 +855,7 @@ mod tests {
         combiner_bytes: u64,
         drain_finished: Option<DrainedCapture>,
         intents_idle: bool,
+        labels_idle: bool,
         now: uuid::Clock,
         pending_ack_intents: BTreeMap<String, Bytes>,
         persist_done: bool,
@@ -750,6 +885,7 @@ mod tests {
                 self.acknowledge_done,
                 &mut self.drain_finished,
                 self.intents_idle,
+                self.labels_idle,
                 self.now,
                 self.persist_done,
                 &self.task,
@@ -766,6 +902,7 @@ mod tests {
             combiner_bytes: 0,
             drain_finished: None,
             intents_idle: true,
+            labels_idle: true,
             now: uuid::Clock::from_unix(1_700_000_000, 0),
             pending_ack_intents: BTreeMap::new(),
             persist_done: true,
@@ -872,6 +1009,11 @@ mod tests {
         ctx.intents_idle = true;
         let (action, t) = ctx.step_tail(tail);
         tail = t;
+        // Post-commit: a no-op ApplyLabels hop (no active backfills), then Done.
+        assert!(matches!(action, Action::ApplyTruncatedLabels));
+        assert!(matches!(tail, Tail::ApplyLabels(_)));
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
         assert!(matches!(action, Action::Idle));
         assert!(matches!(tail, Tail::Done(_)));
 
@@ -950,7 +1092,9 @@ mod tests {
         let (action, t) = ctx.step_tail(tail);
         tail = t;
         match action {
-            Action::Drain { sourced_schemas } => assert!(sourced_schemas.contains_key(&0)),
+            Action::Drain {
+                sourced_schemas, ..
+            } => assert!(sourced_schemas.contains_key(&0)),
             other => panic!("expected Drain, got {other:?}"),
         }
         assert!(matches!(tail, Tail::Drain(_)));
@@ -988,6 +1132,7 @@ mod tests {
         // Resume txn 1's Tail. The staged drain output drives WriteStats.
         ctx.drain_finished = Some(DrainedCapture {
             connector_patches: Bytes::from_static(b"[{\"cursor\":\"lsn-1\"}\t]"),
+            control: None,
             bindings: BTreeMap::from([
                 (
                     0,
@@ -1016,7 +1161,7 @@ mod tests {
         {
           "_meta": {},
           "shard": {},
-          "ts": "2023-11-14T22:13:20.000004+00:00",
+          "ts": "2023-11-14T22:13:20.000005+00:00",
           "openSecondsTotal": 0.000008,
           "txnCount": 1,
           "capture": {
@@ -1029,7 +1174,7 @@ mod tests {
                 "docsTotal": 2,
                 "bytesTotal": 50
               },
-              "lastPublishedAt": "2023-11-14T22:13:20.000012+00:00"
+              "lastPublishedAt": "2023-11-14T22:13:20.000013+00:00"
             },
             "test/collectionB": {
               "right": {
@@ -1040,7 +1185,7 @@ mod tests {
                 "docsTotal": 1,
                 "bytesTotal": 25
               },
-              "lastPublishedAt": "2023-11-14T22:13:20.000012+00:00"
+              "lastPublishedAt": "2023-11-14T22:13:20.000013+00:00"
             }
           }
         }
@@ -1132,6 +1277,11 @@ mod tests {
         ctx.intents_idle = true;
         let (action, t) = ctx.step_tail(tail);
         tail = t;
+        // Post-commit ApplyLabels hop (no active backfills), then Done.
+        assert!(matches!(action, Action::ApplyTruncatedLabels));
+        assert!(matches!(tail, Tail::ApplyLabels(_)));
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
         assert!(matches!(action, Action::Idle));
         assert!(matches!(tail, Tail::Done(_)));
 
@@ -1172,6 +1322,11 @@ mod tests {
         let (action, t) = ctx.step_tail(tail);
         tail = t;
         assert!(matches!(action, Action::WriteIntents { .. }));
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        // Post-commit ApplyLabels hop (no active backfills), then Done.
+        assert!(matches!(action, Action::ApplyTruncatedLabels));
+        assert!(matches!(tail, Tail::ApplyLabels(_)));
         let (action, t) = ctx.step_tail(tail);
         tail = t;
         assert!(matches!(action, Action::Idle));
@@ -1267,12 +1422,18 @@ mod tests {
         // the connector already being Pending) and only rarely `Eof`, so traces
         // spend their time accumulating and committing rather than stopping early.
         fn random_connector_rx(rng: &mut SmallRng) -> ConnectorRx {
-            match rng.random_range(0..12) {
+            match rng.random_range(0..13) {
                 0..=4 => captured(rng.random_range(0..3), b"{\"v\":1}"),
                 5..=8 => checkpoint(),
                 9..=10 => ConnectorRx::SourcedSchema {
                     binding: rng.random_range(0..3),
                     shape: doc::Shape::nothing(),
+                },
+                11 if rng.random_bool(0.5) => ConnectorRx::BackfillBegin {
+                    binding: rng.random_range(0..3),
+                },
+                11 => ConnectorRx::BackfillComplete {
+                    binding: rng.random_range(0..3),
                 },
                 _ => ConnectorRx::Eof,
             }
@@ -1316,6 +1477,21 @@ mod tests {
             if rng.random_bool(0.30) {
                 ctx.drain_finished = Some(DrainedCapture {
                     connector_patches: Bytes::from_static(b"[{\"c\":1}\t]"),
+                    // Independently of the trace's actual control flow, sometimes
+                    // stage a control change so it threads Drain → WriteStats →
+                    // Persist.active_backfill_change.
+                    control: match rng.random_range(0..3) {
+                        0 => Some(proto::persist::ActiveBackfillChange::Begin(
+                            proto::ActiveBackfillBegin {
+                                binding: rng.random_range(0..3),
+                                truncated_at: rng.random_range(1..1_000_000),
+                            },
+                        )),
+                        1 => Some(proto::persist::ActiveBackfillChange::CompleteBinding(
+                            rng.random_range(0..3),
+                        )),
+                        _ => None,
+                    },
                     bindings: BTreeMap::from([(
                         rng.random_range(0..3),
                         ops::proto::stats::DocsAndBytes {
@@ -1384,5 +1560,259 @@ mod tests {
             .tests(200)
             .max_tests(400)
             .quickcheck(prop as fn(u64) -> bool);
+    }
+
+    /// A backfill control transaction, end to end.
+    #[test]
+    fn control_transaction_commits_active_backfill() {
+        let mut ctx = mk_ctx(mk_task(false));
+        let mut head = Head::Idle(HeadIdle::default());
+        // Tail is Done, so Head may rotate the moment the control txn seals.
+        let tail = Tail::Done(TailDone::default());
+
+        // A BackfillBegin with no open transaction opens its own isolated one.
+        ctx.ready = ConnectorRx::BackfillBegin { binding: 0 };
+        let (action, h) = ctx.step_head(head, &tail);
+        head = h;
+        assert!(matches!(action, Action::PollAgain));
+        assert!(matches!(head, Head::Extend(_)));
+
+        // HeadExtend folds the control message into `extents.control`.
+        let (action, h) = ctx.step_head(head, &tail);
+        head = h;
+        assert!(matches!(action, Action::Idle));
+        let Head::Extend(extend) = &head else {
+            panic!("expected Extend, got {}", head.kind());
+        };
+        assert!(matches!(
+            extend.inner.extents.control,
+            Some(ControlMessage::BackfillBegin { binding: 0 }),
+        ));
+
+        // The terminating Checkpoint completes the isolated sequence.
+        ctx.ready = checkpoint();
+        let (action, h) = ctx.step_head(head, &tail);
+        head = h;
+        assert!(matches!(action, Action::Checkpoint { .. }));
+        assert!(matches!(head, Head::Idle(_)));
+
+        // A document now waits behind the sealed control transaction. It can
+        // neither extend the (refuse-extend) control txn nor open its own.
+        ctx.ready = captured(0, b"{}");
+        let (action, _head) = ctx.step_head(head, &tail);
+        assert!(
+            ctx.close_requested,
+            "the sealed control transaction requests a prompt close",
+        );
+        let extents = match action {
+            Action::Rotate { extents } => extents,
+            other => panic!("expected Rotate, got {other:?}"),
+        };
+
+        // Begin lifts the control message into the Drain action.
+        let mut tail = Tail::Begin(TailBegin { extents });
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        match action {
+            Action::Drain { control, .. } => assert!(matches!(
+                control,
+                Some(ControlMessage::BackfillBegin { binding: 0 }),
+            )),
+            other => panic!("expected Drain, got {other:?}"),
+        }
+
+        // The drain published the CONTROL document, assigned it a clock, and
+        // returns the resulting active-backfill change to be committed.
+        ctx.drain_finished = Some(DrainedCapture {
+            connector_patches: Bytes::new(),
+            bindings: BTreeMap::new(),
+            control: Some(proto::persist::ActiveBackfillChange::Begin(
+                proto::ActiveBackfillBegin {
+                    binding: 0,
+                    truncated_at: 0xABCD,
+                },
+            )),
+        });
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::WriteStats { .. }));
+
+        // WriteStats yields the Persist, which carries the control change verbatim.
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        let persist = match action {
+            Action::Persist { persist } => persist,
+            other => panic!("expected Persist, got {other:?}"),
+        };
+        assert_eq!(
+            persist.active_backfill_change,
+            Some(proto::persist::ActiveBackfillChange::Begin(
+                proto::ActiveBackfillBegin {
+                    binding: 0,
+                    truncated_at: 0xABCD,
+                },
+            )),
+        );
+
+        // The remaining commit drains to Done: Persist → Recover → WriteIntents
+        // (no explicit acks) → ApplyLabels → Done.
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::PollAgain));
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::WriteIntents { .. }));
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::ApplyTruncatedLabels));
+        assert!(matches!(tail, Tail::ApplyLabels(_)));
+
+        // A control transaction makes the active-backfill set dirty, so the
+        // post-commit label apply actually runs: hold in ApplyLabels while that
+        // IO is in flight, then complete to Done once it lands.
+        ctx.labels_idle = false;
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::Idle));
+        assert!(matches!(tail, Tail::ApplyLabels(_)));
+
+        ctx.labels_idle = true;
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::Idle));
+        assert!(matches!(tail, Tail::Done(_)));
+    }
+
+    /// A control message opens its own transaction immediately, ungated by the
+    /// close policy: even when `may_extend` is false (so a data message would not
+    /// open one), a BackfillBegin is admitted into its own isolated transaction.
+    #[test]
+    fn control_opens_transaction_ignoring_close_policy() {
+        let mut ctx = mk_ctx(mk_task(false));
+        // Narrow the policy and load the combiner so `may_extend` is false.
+        ctx.task.close_policy.combiner_usage_bytes = 0..10_000;
+        ctx.combiner_bytes = 1_000_000;
+        let tail = Tail::Done(TailDone::default());
+
+        // A Captured into a closed Head does NOT open a transaction.
+        ctx.ready = captured(0, b"{}");
+        let (action, head) = ctx.step_head(Head::Idle(HeadIdle::default()), &tail);
+        assert!(
+            !matches!(action, Action::PollAgain) && matches!(head, Head::Idle(_)),
+            "a data message must not open while may_extend is false, got {action:?}",
+        );
+
+        // A BackfillBegin DOES open its own isolated transaction.
+        ctx.ready = ConnectorRx::BackfillBegin { binding: 1 };
+        let (action, head) = ctx.step_head(Head::Idle(HeadIdle::default()), &tail);
+        assert!(matches!(action, Action::PollAgain));
+        assert!(matches!(head, Head::Extend(_)));
+    }
+
+    /// A control message arriving while a *data* transaction is open forces that
+    /// transaction to close first, so the control lands in its own isolated
+    /// transaction rather than mixing into the open one.
+    #[test]
+    fn incoming_control_closes_open_data_transaction() {
+        let mut ctx = mk_ctx(mk_task(false));
+        let head = Head::Idle(HeadIdle {
+            extents: Extents {
+                checkpoints: 1, // is_open
+                captured_docs: 3,
+                ..Default::default()
+            },
+            last_close: ctx.now,
+        });
+        // A BackfillBegin waits behind the open data transaction.
+        ctx.ready = ConnectorRx::BackfillBegin { binding: 0 };
+
+        let (action, head) = ctx.step_head(head, &Tail::Done(TailDone::default()));
+        assert!(
+            ctx.close_requested,
+            "an incoming control message requests the open transaction's close",
+        );
+        let extents = match action {
+            Action::Rotate { extents } => extents,
+            other => panic!("expected Rotate, got {other:?}"),
+        };
+        // The rotated transaction carries the data; the control is still queued in
+        // `ready`, to stand alone in the next transaction.
+        assert!(extents.control.is_none());
+        assert!(matches!(head, Head::Idle(_)));
+    }
+
+    /// The "a control message stands alone in its checkpoint" invariant: mixing a
+    /// control message with documents or schemas in the same checkpoint sequence,
+    /// in either order, fails the task.
+    #[test]
+    fn control_must_stand_alone() {
+        // (label, pre-accrued extents, the violating ready message)
+        let cases: Vec<(&str, Extents, ConnectorRx)> = vec![
+            (
+                "captured after control",
+                Extents {
+                    control: Some(ControlMessage::BackfillBegin { binding: 0 }),
+                    ..Default::default()
+                },
+                captured(0, b"{}"),
+            ),
+            (
+                "sourced_schema after control",
+                Extents {
+                    control: Some(ControlMessage::BackfillBegin { binding: 0 }),
+                    ..Default::default()
+                },
+                ConnectorRx::SourcedSchema {
+                    binding: 0,
+                    shape: doc::Shape::nothing(),
+                },
+            ),
+            (
+                "control after captured",
+                Extents {
+                    captured_docs: 1,
+                    ..Default::default()
+                },
+                ConnectorRx::BackfillBegin { binding: 0 },
+            ),
+            (
+                "control after sourced_schema",
+                Extents {
+                    sourced_schemas: BTreeMap::from([(0, doc::Shape::nothing())]),
+                    ..Default::default()
+                },
+                ConnectorRx::BackfillBegin { binding: 0 },
+            ),
+            (
+                "control after control",
+                Extents {
+                    control: Some(ControlMessage::BackfillBegin { binding: 0 }),
+                    ..Default::default()
+                },
+                ConnectorRx::BackfillComplete { binding: 1 },
+            ),
+        ];
+
+        for (label, extents, ready) in cases {
+            let mut ctx = mk_ctx(mk_task(false));
+            ctx.ready = ready;
+            let head = Head::Extend(HeadExtend {
+                inner: HeadIdle {
+                    extents,
+                    last_close: ctx.now,
+                },
+                sequence_bytes: 0,
+            });
+
+            let (action, head) = ctx.step_head(head, &Tail::Done(TailDone::default()));
+            let Action::Error(error) = action else {
+                panic!("{label}: expected Error, got {action:?}");
+            };
+            assert!(
+                format!("{error:?}").contains("stand alone"),
+                "{label}: {error:?}",
+            );
+            assert!(matches!(head, Head::Stop), "{label}");
+        }
     }
 }

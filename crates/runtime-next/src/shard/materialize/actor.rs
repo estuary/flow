@@ -24,6 +24,15 @@ pub(super) enum Phase {
 pub(super) struct Actor {
     // Task binding specifications.
     bindings: Vec<Binding>,
+    // Cumulative backfill-begin clock per binding.
+    backfill_begin: Vec<u64>,
+    // Truncation boundary (begin clock) of the latest completed backfill per
+    // binding.
+    backfill_complete: Vec<u64>,
+    // Backfill-begin clock the connector has been notified of per binding.
+    notified_backfill_begin: Vec<u64>,
+    // Backfill-complete clock the connector has been notified of per binding.
+    notified_backfill_complete: Vec<u64>,
     // FIFO of outbound connector requests, drained head-first into
     // `connector_tx` as channel capacity permits.
     connector_pending: Vec<materialize::Request>,
@@ -67,10 +76,17 @@ impl Actor {
         codec: connector_init::Codec,
         leader_tx: mpsc::UnboundedSender<proto::Materialize>,
         max_keys: Vec<(Bytes, Bytes)>,
+        notified_backfill_begin: Vec<u64>,
+        notified_backfill_complete: Vec<u64>,
         metrics: super::Metrics,
     ) -> Self {
+        let l = bindings.len();
         Self {
             bindings,
+            backfill_begin: vec![0; l],
+            backfill_complete: vec![0; l],
+            notified_backfill_begin,
+            notified_backfill_complete,
             connector_pending: Vec::new(),
             connector_tx,
             db: Some((db, binding_state_keys)),
@@ -332,6 +348,21 @@ impl Actor {
             let frontier =
                 shuffle::Frontier::decode(proto).context("invalid Frontier on L:Load")?;
 
+            // Resolve cumulative per-binding backfill-begin (truncated_at) clocks
+            // from the Frontier, keyed by each binding's journal_read_suffix.
+            for (begin, binding) in self.backfill_begin.iter_mut().zip(self.bindings.iter()) {
+                *begin = frontier
+                    .latest_backfill_begin
+                    .get(&binding.journal_read_suffix)
+                    .map_or(0, |clock| clock.as_u64());
+            }
+            for (complete, binding) in self.backfill_complete.iter_mut().zip(self.bindings.iter()) {
+                *complete = frontier
+                    .latest_backfill_complete
+                    .get(&binding.journal_read_suffix)
+                    .map_or(0, |clock| clock.as_u64());
+            }
+
             let Phase::Idle {
                 accumulator,
                 shuffle_reader,
@@ -341,16 +372,25 @@ impl Actor {
                 anyhow::bail!("L:Load received while actor is not idle");
             };
 
-            let scanner =
-                scan::Scanner::new(accumulator, frontier, shuffle_reader, shuffle_remainders)?;
+            let scanner = scan::Scanner::new(
+                accumulator,
+                frontier,
+                shuffle_reader,
+                shuffle_remainders,
+                self.backfill_begin.clone(),
+            )?;
             return Ok((Phase::Scanning(scanner), false));
         } else if let Some(proto::materialize::Flush {
             connector_patches_json,
         }) = msg.flush
         {
+            let (backfill_begins, backfill_completes) = self.backfill_flush_notifications();
             self.connector_pending.push(materialize::Request {
                 flush: Some(materialize::request::Flush {
                     state_patches_json: connector_patches_json,
+                    backfill_begins,
+                    backfill_completes,
+                    ..Default::default()
                 }),
                 ..Default::default()
             });
@@ -403,6 +443,13 @@ impl Actor {
         } else if let Some(persist) = msg.persist {
             let seq_no = persist.seq_no;
 
+            if self.notified_backfill_begin != self.backfill_begin
+                || self.notified_backfill_complete != self.backfill_complete
+            {
+                self.notified_backfill_begin = self.backfill_begin.clone();
+                self.notified_backfill_complete = self.backfill_complete.clone();
+            }
+
             let (db, binding_state_keys) = self
                 .db
                 .take()
@@ -420,6 +467,41 @@ impl Actor {
         }
 
         Ok((phase, false))
+    }
+
+    /// Compute connector backfill notifications for bindings whose in-flight
+    /// begin/complete clock is ahead of the notified baseline. The `timestamp`
+    /// is always the begin clock — the truncation boundary — as a wall-clock
+    /// Timestamp. The baseline advances at commit, so each notification fires
+    /// once and is not re-sent across a clean restart.
+    fn backfill_flush_notifications(
+        &self,
+    ) -> (
+        Vec<materialize::request::flush::BackfillBegin>,
+        Vec<materialize::request::flush::BackfillComplete>,
+    ) {
+        let mut begins = Vec::new();
+        let mut completes = Vec::new();
+
+        for binding in 0..self.backfill_begin.len() {
+            let begin = self.backfill_begin[binding];
+            if begin > self.notified_backfill_begin[binding] {
+                begins.push(materialize::request::flush::BackfillBegin {
+                    binding: binding as u32,
+                    timestamp: proto_gazette::uuid::Clock::from_u64(begin).to_pb_json_timestamp(),
+                });
+            }
+
+            let complete = self.backfill_complete[binding];
+            if complete > self.notified_backfill_complete[binding] {
+                completes.push(materialize::request::flush::BackfillComplete {
+                    binding: binding as u32,
+                    timestamp: proto_gazette::uuid::Clock::from_u64(complete)
+                        .to_pb_json_timestamp(),
+                });
+            }
+        }
+        (begins, completes)
     }
 
     fn on_connector_response(
@@ -472,7 +554,33 @@ impl Actor {
                 accumulator.parse_json_doc(&doc_json).with_context(|| {
                     format!("parsing loaded doc for {}", binding_spec.collection_name)
                 })?;
-            memtable.add(binding_index as u16, doc, true)?;
+
+            // A loaded row is prior-generation when it predates the binding's
+            // backfill `truncated_at`: the combiner then won't reduce it with
+            // same-key current-generation source documents, and the drain path
+            // discards it. Skip the lookup entirely when no backfill is active.
+            let begin = self.backfill_begin[binding_index];
+            let prior_gen = if begin == 0 {
+                false
+            } else if let Some(doc::HeapNode::String(uuid)) =
+                binding_spec.document_uuid_ptr.query(&doc)
+            {
+                let (_, clock, _) = proto_gazette::uuid::parse_str(uuid).with_context(|| {
+                    format!(
+                        "loaded doc for {} has an unparseable document UUID {uuid:?}",
+                        binding_spec.collection_name,
+                    )
+                })?;
+                clock.as_u64() < begin
+            } else {
+                false
+            };
+
+            if prior_gen {
+                memtable.add_prior_gen(binding_index as u16, doc)?;
+            } else {
+                memtable.add(binding_index as u16, doc, true)?;
+            }
         } else if let Some(materialize::response::Flushed { state }) = resp.flushed {
             let bindings = std::mem::take(&mut self.flushed).into_values().collect();
             _ = self.leader_tx.send(proto::Materialize {
@@ -567,6 +675,10 @@ mod tests {
         (
             Actor {
                 bindings: Vec::new(),
+                backfill_begin: Vec::new(),
+                backfill_complete: Vec::new(),
+                notified_backfill_begin: Vec::new(),
+                notified_backfill_complete: Vec::new(),
                 connector_pending: Vec::new(),
                 connector_tx,
                 db: None,
@@ -664,6 +776,10 @@ mod tests {
 
         let actor = Actor {
             bindings: Vec::new(),
+            backfill_begin: Vec::new(),
+            backfill_complete: Vec::new(),
+            notified_backfill_begin: Vec::new(),
+            notified_backfill_complete: Vec::new(),
             connector_pending: Vec::new(),
             connector_tx: actor_to_conn_tx,
             db: Some((db, Vec::new())),
@@ -855,5 +971,298 @@ mod tests {
         // Confirm the Persist round-tripped: scan back the last_applied bytes.
         let (_db, recover) = db.scan(Vec::new()).await.unwrap();
         assert_eq!(recover.last_applied.as_ref(), b"persisted-spec-bytes");
+    }
+
+    #[tokio::test]
+    async fn backfill_notifications_fire_once_and_survive_restart() {
+        let (mut actor, _leader_rx, mut connector_rx) = make_actor();
+        actor.backfill_begin = vec![0];
+        actor.backfill_complete = vec![0];
+        actor.notified_backfill_begin = vec![0];
+        actor.notified_backfill_complete = vec![0];
+
+        // Backfill 1 begins. The real L:Flush handler stages a C:Flush carrying
+        // the begin notification to the connector.
+        actor.backfill_begin[0] = 10;
+        let (phase, _stop) = actor
+            .on_leader_message(
+                make_idle_phase(),
+                Some(Ok(proto::Materialize {
+                    flush: Some(proto::materialize::Flush {
+                        connector_patches_json: Bytes::new(),
+                    }),
+                    ..Default::default()
+                })),
+            )
+            .unwrap();
+        _ = actor.try_connector_tx();
+        let flush = connector_rx.recv().await.unwrap().flush.unwrap();
+        assert_eq!(
+            flush.backfill_begins.len(),
+            1,
+            "begin1 forwarded to connector"
+        );
+        assert_eq!(flush.backfill_begins[0].binding, 0);
+        assert!(flush.backfill_completes.is_empty());
+
+        // Flush forwards but does not commit; the baseline holds until Persist.
+        assert_eq!(actor.notified_backfill_begin, vec![0]);
+
+        // The real L:Persist handler commits, advancing the durable baseline to
+        // the in-flight clocks so begin1 isn't re-sent.
+        let db = crate::shard::RocksDB::open(None).await.unwrap();
+        actor.db = Some((db, Vec::new()));
+        _ = actor
+            .on_leader_message(
+                phase,
+                Some(Ok(proto::Materialize {
+                    persist: Some(proto::Persist {
+                        seq_no: 1,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })),
+            )
+            .unwrap();
+        assert_eq!(actor.notified_backfill_begin, vec![10], "begin1 committed");
+
+        // The remaining rounds poke the trackers directly to exercise the edge
+        // detection compactly. `backfill_flush_notifications` is exactly what the
+        // L:Flush handler above calls; committing is `notified_* := backfill_*`.
+        actor.backfill_complete[0] = 20; // complete1 > begin1
+        let (begins, completes) = actor.backfill_flush_notifications();
+        assert_eq!((begins.len(), completes.len()), (0, 1), "complete1 fires");
+        actor.notified_backfill_complete[0] = 20; // commit
+
+        // Backfill 2 begins (begin2 > complete1); its completion hasn't arrived,
+        // so the only complete clock is still complete1 (< begin2) — no completion.
+        actor.backfill_begin[0] = 30;
+        let (begins, completes) = actor.backfill_flush_notifications();
+        assert_eq!(
+            (begins.len(), completes.len()),
+            (1, 0),
+            "begin2 surfaces; no completion while it's in flight",
+        );
+        actor.notified_backfill_begin[0] = 30; // commit
+
+        // Restart mid-backfill-2: the notified baseline reseeds from the DURABLE
+        // committed frontier (begin2=30, complete1=20), NOT to 0; the in-flight
+        // clocks reload to the same committed values from the first Load.
+        actor.notified_backfill_begin = vec![30];
+        actor.notified_backfill_complete = vec![20];
+        actor.backfill_begin = vec![30];
+        actor.backfill_complete = vec![20];
+        let (begins, completes) = actor.backfill_flush_notifications();
+        assert!(
+            begins.is_empty() && completes.is_empty(),
+            "a clean restart re-fires nothing: the notified baseline already \
+             covers begin2 and complete1",
+        );
+
+        // Backfill 2's own completion (complete2 > begin2) finally fires once.
+        actor.backfill_complete[0] = 40;
+        let (_begins, completes) = actor.backfill_flush_notifications();
+        assert_eq!(completes.len(), 1, "begin2's real completion fires");
+    }
+
+    // A full-reduction binding storing the root document, keyed on /key, whose
+    // `v` array reduces by append. `document_uuid_ptr` lets the shard read each
+    // loaded row's UUID to classify it against the backfill boundary.
+    fn backfill_binding() -> Binding {
+        Binding {
+            collection_name: "test/collection".to_string(),
+            delta_updates: false,
+            document_uuid_ptr: json::Pointer::from("/_meta/uuid"),
+            journal_read_suffix: "test/collection/pivot=00".to_string(),
+            key_extractors: vec![doc::Extractor::with_default(
+                "/key",
+                &doc::SerPolicy::noop(),
+                serde_json::json!(""),
+            )],
+            read_schema_json: bytes::Bytes::from_static(
+                br#"{
+                    "type": "object",
+                    "properties": {
+                        "key": { "type": "string" },
+                        "v": { "type": "array", "reduce": { "strategy": "append" } }
+                    },
+                    "reduce": { "strategy": "merge" }
+                }"#,
+            ),
+            ser_policy: doc::SerPolicy::noop(),
+            state_key: "test/collection".to_string(),
+            store_document: true,
+            value_plan: doc::ExtractorPlan::new(&[]),
+        }
+    }
+
+    #[tokio::test]
+    async fn backfill_load_classifies_loaded_docs_through_drain() {
+        let producer = proto_gazette::uuid::Producer::from_bytes([0x01, 0, 0, 0, 0, 0]);
+        let flags = proto_gazette::uuid::Flags(0);
+        let mk_uuid = |clock| proto_gazette::uuid::build(producer, clock, flags).to_string();
+        // The boundary, plus a row clock below it (stale) and above it (fresh).
+        let truncated_at = proto_gazette::uuid::Clock::from_unix(1_700_000_000, 0);
+        let stale = mk_uuid(proto_gazette::uuid::Clock::from_unix(1_699_999_999, 0));
+        let fresh = mk_uuid(proto_gazette::uuid::Clock::from_unix(1_700_000_001, 0));
+
+        let (mut actor, _leader_rx, _connector_rx) = make_actor();
+        actor.bindings = vec![backfill_binding()];
+        actor.backfill_begin = vec![0];
+        actor.backfill_complete = vec![0];
+        actor.notified_backfill_begin = vec![0];
+        actor.notified_backfill_complete = vec![0];
+
+        let accumulator = crate::Accumulator::new(
+            super::super::task::combine_spec(&[backfill_binding()]).unwrap(),
+        )
+        .unwrap();
+        let shuffle_dir = tempfile::tempdir().unwrap();
+        let shuffle_reader = shuffle::log::Reader::new(shuffle_dir.path(), 0);
+        let idle = Phase::Idle {
+            accumulator,
+            shuffle_reader,
+            shuffle_remainders: VecDeque::new(),
+        };
+
+        // L:Load — the Frontier carries the binding's `truncated_at`, which the
+        // handler densifies into `backfill_begin` before entering the scan.
+        let mut frontier = shuffle::Frontier::new(Vec::new(), vec![0u64]).unwrap();
+        frontier
+            .latest_backfill_begin
+            .insert(actor.bindings[0].journal_read_suffix.clone(), truncated_at);
+
+        let (mut phase, _stop) = actor
+            .on_leader_message(
+                idle,
+                Some(Ok(proto::Materialize {
+                    load: Some(proto::materialize::Load {
+                        frontier: Some(frontier.encode()),
+                    }),
+                    ..Default::default()
+                })),
+            )
+            .unwrap();
+
+        assert_eq!(
+            actor.backfill_begin,
+            vec![truncated_at.as_u64()],
+            "begin clock densified from Frontier"
+        );
+        assert_eq!(
+            actor.backfill_complete,
+            vec![0],
+            "no completion present in Frontier"
+        );
+        assert!(
+            matches!(phase, Phase::Scanning(_)),
+            "L:Load enters the scan"
+        );
+
+        // Three C:Loaded rows, classified against the boundary as they arrive.
+        let loaded = |key: &str, v: &str, uuid: Option<&str>| {
+            let doc = match uuid {
+                Some(u) => serde_json::json!({"key": key, "v": [v], "_meta": {"uuid": u}}),
+                None => serde_json::json!({"key": key, "v": [v]}),
+            };
+            materialize::Response {
+                loaded: Some(materialize::response::Loaded {
+                    binding: 0,
+                    doc_json: Bytes::from(serde_json::to_vec(&doc).unwrap()),
+                }),
+                ..Default::default()
+            }
+        };
+        for resp in [
+            loaded("straddle", "stale", Some(&stale)), // older than the boundary
+            loaded("normal", "loaded", Some(&fresh)),  // newer than the boundary
+            loaded("nouuid", "kept", None),            // no UUID to compare
+        ] {
+            actor
+                .on_connector_response(&mut phase, Some(Ok(resp)))
+                .unwrap();
+        }
+
+        // Inject the current-generation source documents the scan would surface,
+        // pairing one against each loaded row.
+        let Phase::Scanning(mut scanner) = phase else {
+            panic!("expected Scanning phase after L:Load");
+        };
+        {
+            let memtable = scanner.accumulator().memtable().unwrap();
+            for (key, v) in [("straddle", "fresh"), ("normal", "src"), ("nouuid", "add")] {
+                let doc = serde_json::json!({"key": key, "v": [v]});
+                let node = doc::HeapNode::from_node(&doc, memtable.alloc());
+                memtable.add(0, node, false).unwrap();
+            }
+        }
+
+        // Drain and collect each stored (key, v, exists).
+        let (accumulator, shuffle_reader, shuffle_remainders, _active) = scanner.into_parts();
+        let mut drainer =
+            drain::Drainer::new(accumulator, shuffle_reader, shuffle_remainders).unwrap();
+
+        let mut stores = Vec::new();
+        while let Some(req) = drainer
+            .step(&actor.bindings, connector_init::Codec::Json)
+            .unwrap()
+        {
+            let store = req.store.expect("drained request is a Store");
+            let doc: serde_json::Value = serde_json::from_slice(&store.doc_json).unwrap();
+            stores.push((
+                doc.get("key").and_then(|k| k.as_str()).unwrap().to_string(),
+                doc.get("v").cloned().unwrap(),
+                store.exists,
+            ));
+        }
+
+        // Drained in key order. "straddle" is prior-generation: its stale ["stale"]
+        // is dropped (NOT reduced) and only the current-gen source ["fresh"] stores,
+        // with exists=true. "normal" (newer than the boundary) and "nouuid" (no UUID)
+        // load normally, reducing their loaded value forward.
+        assert_eq!(
+            stores,
+            vec![
+                (
+                    "normal".to_string(),
+                    serde_json::json!(["loaded", "src"]),
+                    true
+                ),
+                (
+                    "nouuid".to_string(),
+                    serde_json::json!(["kept", "add"]),
+                    true
+                ),
+                ("straddle".to_string(), serde_json::json!(["fresh"]), true),
+            ],
+        );
+    }
+
+    #[tokio::test]
+    async fn loaded_doc_with_corrupt_uuid_errors() {
+        let (mut actor, _leader_rx, _connector_rx) = make_actor();
+        actor.bindings = vec![backfill_binding()];
+        actor.backfill_begin = vec![10]; // active backfill
+        actor.backfill_complete = vec![0];
+        actor.notified_backfill_begin = vec![0];
+        actor.notified_backfill_complete = vec![0];
+
+        // /_meta/uuid is present and a string, but not a valid v1 UUID.
+        let doc = serde_json::json!({"key": "k", "v": ["x"], "_meta": {"uuid": "not-a-uuid"}});
+        let mut phase = make_idle_phase();
+        let result = actor.on_connector_response(
+            &mut phase,
+            Some(Ok(materialize::Response {
+                loaded: Some(materialize::response::Loaded {
+                    binding: 0,
+                    doc_json: Bytes::from(serde_json::to_vec(&doc).unwrap()),
+                }),
+                ..Default::default()
+            })),
+        );
+        assert!(
+            result.is_err(),
+            "a corrupt document UUID fails the transaction"
+        );
     }
 }

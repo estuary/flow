@@ -196,6 +196,35 @@ impl Publisher {
         }
     }
 
+    /// Publish a synthesized backfill CONTROL document to `binding_index`'s
+    /// collection journal and return the UUID clock the publisher assigned to
+    /// it. For a `BackfillControl::Begin` that clock is the authoritative
+    /// `truncated_at`.
+    pub async fn publish_control(
+        &mut self,
+        binding_index: usize,
+        control: BackfillControl,
+    ) -> tonic::Result<uuid::Clock> {
+        match self {
+            Self::Real(p) => {
+                let mut assigned = uuid::Clock::zero();
+                p.enqueue(
+                    |uuid| {
+                        let (_, clock, _) = uuid::parse(uuid).map_err(|err| {
+                            tonic::Status::internal(format!("parsing assigned control UUID: {err}"))
+                        })?;
+                        assigned = clock;
+                        Ok((binding_index + 1, build_control_body(uuid, control)))
+                    },
+                    uuid::Flags::CONTROL,
+                )
+                .await?;
+                Ok(assigned)
+            }
+            Self::Preview { .. } => Ok(uuid::Clock::zero()),
+        }
+    }
+
     /// Flush all currently buffered documents.
     pub async fn flush(&mut self) -> tonic::Result<()> {
         match self {
@@ -217,6 +246,28 @@ impl Publisher {
         match self {
             Self::Real(p) => Some(p.commit_intents()),
             Self::Preview { .. } => None,
+        }
+    }
+
+    /// Apply (or re-apply) the `estuary.dev/truncated-at` journal label for the
+    /// shard's active backfills. `active_backfills` is keyed by task-binding
+    /// index (the actor's own indexing); the value is the backfill's begin-clock.
+    ///
+    /// Task-binding index `i` maps to publisher binding `i + 1` (binding 0 is
+    /// the fixed ops-stats journal), mirroring `publish_doc` / `publish_control`.
+    pub async fn apply_truncated_at_labels(
+        &mut self,
+        active_backfills: &BTreeMap<u32, u64>,
+    ) -> tonic::Result<()> {
+        match self {
+            Self::Real(p) => {
+                let mapped: BTreeMap<usize, u64> = active_backfills
+                    .iter()
+                    .map(|(&binding, &clock)| (binding as usize + 1, clock))
+                    .collect();
+                p.apply_truncated_at_labels(&mapped).await
+            }
+            Self::Preview { .. } => Ok(()),
         }
     }
 
@@ -256,6 +307,62 @@ pub fn producer_from_bytes(publisher_id: &[u8]) -> anyhow::Result<uuid::Producer
         .try_into()
         .context("Task.publisher_id is not a 6-byte producer identity")?;
     Ok(uuid::Producer::from_bytes(bytes))
+}
+
+/// A synthesized backfill CONTROL signal to publish for a binding.
+///
+/// `Complete` carries the begin-clock as its `truncated_at`; `Begin` has none --
+/// its own assigned clock becomes the authoritative `truncated_at`, returned by
+/// [`Publisher::publish_control`].
+pub enum BackfillControl {
+    Begin,
+    Complete { truncated_at: u64 },
+}
+
+/// Build the small JSON body of a synthesized backfill CONTROL document.
+///
+/// The consumer (shuffle slice reader) reads only `/_meta/uuid` plus
+/// `/_meta/backfillBegin` / `/_meta/backfillComplete`; `truncatedAt` (an
+/// RFC3339 UTC timestamp) and the key range are informational. `_meta.uuid` is
+/// the real assigned UUID, so the reader resolves the same clock and CONTROL
+/// flags from it.
+fn build_control_body(uuid: uuid::Uuid, control: BackfillControl) -> serde_json::Value {
+    let mut meta = serde_json::Map::new();
+    meta.insert(
+        "uuid".to_string(),
+        serde_json::Value::String(uuid.to_string()),
+    );
+    match control {
+        BackfillControl::Begin => {
+            meta.insert("backfillBegin".to_string(), serde_json::Value::Bool(true));
+        }
+        BackfillControl::Complete { truncated_at } => {
+            meta.insert(
+                "backfillComplete".to_string(),
+                serde_json::Value::Bool(true),
+            );
+            // `truncatedAt` is a human-facing RFC3339 UTC rendering of the begin
+            // clock, which is wall-clock-derived and so always representable.
+            let (seconds, nanos) = uuid::Clock::from_u64(truncated_at).to_unix();
+            let dt = chrono::DateTime::from_timestamp(seconds as i64, nanos)
+                .expect("wall-clock-derived gazette clock is within chrono's range");
+            meta.insert(
+                "truncatedAt".to_string(),
+                serde_json::Value::String(dt.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)),
+            );
+        }
+    }
+    // Single-shard, full-key-range captures: the control message covers the
+    // entire key space. (Multi-shard synchronized backfills are future work.)
+    meta.insert(
+        "keyBegin".to_string(),
+        serde_json::Value::String("00000000".to_string()),
+    );
+    meta.insert(
+        "keyEnd".to_string(),
+        serde_json::Value::String("ffffffff".to_string()),
+    );
+    serde_json::json!({ "_meta": meta })
 }
 
 /// Patch a document UUID placeholder in-place after the publisher has assigned
@@ -335,5 +442,53 @@ mod test {
         assert!(producer_from_bytes(b"").is_err());
         assert!(producer_from_bytes(b"\x01\x02\x03\x04\x05").is_err());
         assert!(producer_from_bytes(b"\x01\x02\x03\x04\x05\x06\x07").is_err());
+    }
+
+    fn control_uuid() -> uuid::Uuid {
+        uuid::build(
+            new_producer(),
+            uuid::Clock::from_unix(1_600_000_000, 0),
+            uuid::Flags::CONTROL,
+        )
+    }
+
+    #[test]
+    fn build_control_body_begin_omits_truncated_at() {
+        let uuid = control_uuid();
+        let body = build_control_body(uuid, BackfillControl::Begin);
+        let meta = &body["_meta"];
+
+        // The reader recovers the clock and CONTROL flags from `_meta.uuid`.
+        assert_eq!(meta["uuid"].as_str(), Some(uuid.to_string().as_str()));
+        assert_eq!(meta["backfillBegin"].as_bool(), Some(true));
+        // A begin carries no completion marker and no `truncatedAt`: its own
+        // assigned clock is the boundary.
+        assert!(meta.get("backfillComplete").is_none());
+        assert!(meta.get("truncatedAt").is_none());
+        // The single-shard control covers the full key range.
+        assert_eq!(meta["keyBegin"].as_str(), Some("00000000"));
+        assert_eq!(meta["keyEnd"].as_str(), Some("ffffffff"));
+    }
+
+    #[test]
+    fn build_control_body_complete_renders_truncated_at() {
+        let uuid = control_uuid();
+        // A fixed unix time pins the RFC3339 rendering: UTC `Z`, and no
+        // fractional seconds at a whole-second clock.
+        let clock = uuid::Clock::from_unix(1_700_000_000, 0);
+        let body = build_control_body(
+            uuid,
+            BackfillControl::Complete {
+                truncated_at: clock.as_u64(),
+            },
+        );
+        let meta = &body["_meta"];
+
+        assert_eq!(meta["uuid"].as_str(), Some(uuid.to_string().as_str()));
+        assert_eq!(meta["backfillComplete"].as_bool(), Some(true));
+        assert!(meta.get("backfillBegin").is_none());
+        assert_eq!(meta["truncatedAt"].as_str(), Some("2023-11-14T22:13:20Z"));
+        assert_eq!(meta["keyBegin"].as_str(), Some("00000000"));
+        assert_eq!(meta["keyEnd"].as_str(), Some("ffffffff"));
     }
 }

@@ -271,6 +271,8 @@ where
         mut leader_rx,
         leader_tx,
         max_keys,
+        notified_backfill_begin,
+        notified_backfill_complete,
         shuffle_reader,
     } = startup::run(
         controller_rx,
@@ -298,6 +300,8 @@ where
         codec,
         leader_tx,
         max_keys,
+        notified_backfill_begin,
+        notified_backfill_complete,
         metrics,
     )
     .serve(

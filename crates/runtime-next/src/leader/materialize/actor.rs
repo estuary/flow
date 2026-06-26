@@ -11,6 +11,12 @@ use tokio::sync::mpsc;
 
 /// Actor leads transactions of an established materialization task session.
 pub struct Actor {
+    // Cumulative per-`journal_read_suffix` backfill-begin clock, accumulated
+    // across all transactions of the session.
+    backfill_begin: BTreeMap<String, uuid::Clock>,
+    // Cumulative per-`journal_read_suffix` backfill-complete clock, accumulated
+    // across all transactions of the session.
+    backfill_complete: BTreeMap<String, uuid::Clock>,
     // Client used for trigger dispatch.
     http_client: reqwest::Client,
     // Future for an in-flight ACK intents write, if any.
@@ -38,6 +44,8 @@ pub struct Actor {
 
 impl Actor {
     pub fn new(
+        backfill_begin: BTreeMap<String, uuid::Clock>,
+        backfill_complete: BTreeMap<String, uuid::Clock>,
         http_client: reqwest::Client,
         legacy_checkpoint: Option<shuffle::Frontier>,
         metrics: super::Metrics,
@@ -46,6 +54,8 @@ impl Actor {
         task: Task,
     ) -> Self {
         Self {
+            backfill_begin,
+            backfill_complete,
             http_client,
             intents_write_fut: None,
             legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
@@ -121,7 +131,7 @@ impl Actor {
                 "leader materialize Actor::serve iteration"
             );
 
-            let action: fsm::Action;
+            let mut action: fsm::Action;
             let prev_kind = tail.kind();
             (action, tail) = tail.step(
                 self.intents_write_fut.is_none(),
@@ -141,6 +151,7 @@ impl Actor {
                     "transition",
                 );
             }
+            self.merge_backfill_clocks(&mut action);
             let tail_wake_after = self.dispatch(action)?;
 
             let action: fsm::Action;
@@ -191,7 +202,10 @@ impl Actor {
 
                     Duration::ZERO
                 }
-                action => self.dispatch(action)?,
+                mut action => {
+                    self.merge_backfill_clocks(&mut action);
+                    self.dispatch(action)?
+                }
             };
             let wake_after = std::cmp::min(head_wake_after, tail_wake_after);
 
@@ -323,6 +337,52 @@ impl Actor {
             .context("closing shuffle Session on Stop")?;
 
         Ok(())
+    }
+
+    /// Stamp session-cumulative backfill clocks onto an outgoing `Load` or
+    /// `Persist` frontier (folding a `Load` delta into the cumulative maps first),
+    /// so each carries the full truncation boundary.
+    fn merge_backfill_clocks(&mut self, action: &mut fsm::Action) {
+        match action {
+            fsm::Action::Load { frontier } => {
+                for (suffix, clock) in &frontier.latest_backfill_begin {
+                    let entry = self.backfill_begin.entry(suffix.clone()).or_insert(*clock);
+                    *entry = (*entry).max(*clock);
+                }
+                for (suffix, clock) in &frontier.latest_backfill_complete {
+                    let entry = self
+                        .backfill_complete
+                        .entry(suffix.clone())
+                        .or_insert(*clock);
+                    *entry = (*entry).max(*clock);
+                }
+                frontier.latest_backfill_begin = self.backfill_begin.clone();
+                frontier.latest_backfill_complete = self.backfill_complete.clone();
+            }
+            fsm::Action::Persist { persist } => {
+                if let Some(frontier) = &mut persist.committed_frontier {
+                    frontier.latest_backfill_begin = self
+                        .backfill_begin
+                        .iter()
+                        .map(|(suffix, clock)| shuffle::proto::frontier::BackfillBegin {
+                            journal_read_suffix: suffix.clone(),
+                            clock: clock.as_u64(),
+                        })
+                        .collect();
+                    frontier.latest_backfill_complete = self
+                        .backfill_complete
+                        .iter()
+                        .map(
+                            |(suffix, clock)| shuffle::proto::frontier::BackfillComplete {
+                                journal_read_suffix: suffix.clone(),
+                                clock: clock.as_u64(),
+                            },
+                        )
+                        .collect();
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Execute the outgoing-IO primitive for an Action.
@@ -597,6 +657,8 @@ mod tests {
             triggers: None,
         };
         let actor = Actor::new(
+            BTreeMap::new(),
+            BTreeMap::new(),
             reqwest::Client::new(),
             None,
             super::super::Metrics::new("test/task/shard"),
@@ -716,5 +778,105 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn merge_backfill_clocks_load_advances_and_stamps() {
+        let (mut actor, _rxs) = mk_actor(1);
+        actor.backfill_begin = BTreeMap::from([("a".to_string(), uuid::Clock::from_u64(5))]);
+        actor.backfill_complete = BTreeMap::from([("a".to_string(), uuid::Clock::from_u64(4))]);
+
+        // Incoming Load delta: an older "a" (must not regress the cumulative) and
+        // a fresh "b".
+        let mut action = fsm::Action::Load {
+            frontier: shuffle::Frontier {
+                latest_backfill_begin: BTreeMap::from([
+                    ("a".to_string(), uuid::Clock::from_u64(3)),
+                    ("b".to_string(), uuid::Clock::from_u64(7)),
+                ]),
+                latest_backfill_complete: BTreeMap::from([(
+                    "b".to_string(),
+                    uuid::Clock::from_u64(6),
+                )]),
+                ..Default::default()
+            },
+        };
+        actor.merge_backfill_clocks(&mut action);
+
+        let want_begin = BTreeMap::from([
+            ("a".to_string(), uuid::Clock::from_u64(5)), // kept 5, not regressed to 3
+            ("b".to_string(), uuid::Clock::from_u64(7)),
+        ]);
+        let want_complete = BTreeMap::from([
+            ("a".to_string(), uuid::Clock::from_u64(4)),
+            ("b".to_string(), uuid::Clock::from_u64(6)),
+        ]);
+
+        // The cumulative maps advance (max-fold), never regress.
+        assert_eq!(actor.backfill_begin, want_begin);
+        assert_eq!(actor.backfill_complete, want_complete);
+
+        // The outgoing frontier carries the full cumulative set ("a"=5 was never
+        // in the delta), not just the delta.
+        let fsm::Action::Load { frontier } = &action else {
+            panic!("expected Load");
+        };
+        assert_eq!(frontier.latest_backfill_begin, want_begin);
+        assert_eq!(frontier.latest_backfill_complete, want_complete);
+    }
+
+    #[test]
+    fn merge_backfill_clocks_persist_stamps() {
+        let (mut actor, _rxs) = mk_actor(1);
+        actor.backfill_begin = BTreeMap::from([("a".to_string(), uuid::Clock::from_u64(5))]);
+        actor.backfill_complete = BTreeMap::from([("a".to_string(), uuid::Clock::from_u64(4))]);
+
+        let mut action = fsm::Action::Persist {
+            persist: proto::Persist {
+                committed_frontier: Some(shuffle::proto::Frontier::default()),
+                ..Default::default()
+            },
+        };
+        actor.merge_backfill_clocks(&mut action);
+
+        let fsm::Action::Persist { persist } = &action else {
+            panic!("expected Persist");
+        };
+        let frontier = persist.committed_frontier.as_ref().unwrap();
+        assert_eq!(
+            frontier.latest_backfill_begin,
+            vec![shuffle::proto::frontier::BackfillBegin {
+                journal_read_suffix: "a".to_string(),
+                clock: 5,
+            }],
+        );
+        assert_eq!(
+            frontier.latest_backfill_complete,
+            vec![shuffle::proto::frontier::BackfillComplete {
+                journal_read_suffix: "a".to_string(),
+                clock: 4,
+            }],
+        );
+    }
+
+    #[test]
+    fn merge_backfill_clocks_noop_cases() {
+        let (mut actor, _rxs) = mk_actor(1);
+        actor.backfill_begin = BTreeMap::from([("a".to_string(), uuid::Clock::from_u64(5))]);
+
+        // A Persist without a committed frontier has nothing to stamp...
+        let mut persist = fsm::Action::Persist {
+            persist: proto::Persist::default(),
+        };
+        actor.merge_backfill_clocks(&mut persist);
+
+        // ...and a non-Load/Persist action is ignored.
+        let mut store = fsm::Action::Store;
+        actor.merge_backfill_clocks(&mut store);
+
+        assert_eq!(
+            actor.backfill_begin,
+            BTreeMap::from([("a".to_string(), uuid::Clock::from_u64(5))]),
+        );
     }
 }

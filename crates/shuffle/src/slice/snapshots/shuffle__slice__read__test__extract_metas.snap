@@ -1,5 +1,6 @@
 ---
 source: crates/shuffle/src/slice/read.rs
+assertion_line: 397
 expression: metas
 ---
 [
@@ -39,12 +40,14 @@ expression: metas
     },
     Meta {
         begin_offset: 12641,
-        end_offset: 12723,
+        end_offset: 12760,
         clock: Clock(1000s 5000ns),
         flags: Flags(4 (OUTSIDE_TXN|CONTROL)),
         producer: Producer(01:00:00:00:00:00),
         control: Some(
-            BackfillComplete,
+            BackfillComplete {
+                truncated_at: Clock(1700000000s 0ns),
+            },
         ),
     },
 ]

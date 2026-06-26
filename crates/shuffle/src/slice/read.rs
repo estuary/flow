@@ -9,7 +9,11 @@ use proto_gazette::{broker, uuid};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlEvent {
     BackfillBegin,
-    BackfillComplete,
+    /// Carries the `truncated_at` (begin clock) the complete reports, parsed from
+    /// its `_meta.truncatedAt` RFC3339 body field.
+    BackfillComplete {
+        truncated_at: uuid::Clock,
+    },
 }
 
 /// State about an active read, indexed by its `read.id()`.
@@ -159,7 +163,25 @@ pub fn extract_metas(
         } else if has("/_meta/backfillBegin") {
             Some(ControlEvent::BackfillBegin)
         } else if has("/_meta/backfillComplete") {
-            Some(ControlEvent::BackfillComplete)
+            // The complete reports the boundary it completed as an RFC3339
+            // `_meta.truncatedAt`; recover the begin clock from it so we don't
+            // depend on having read the matching BackfillBegin.
+            let truncated_at = json::Pointer::from_str("/_meta/truncatedAt")
+                .query(archived)
+                .and_then(|node| match node {
+                    doc::ArchivedNode::String(s) => chrono::DateTime::parse_from_rfc3339(s).ok(),
+                    _ => None,
+                })
+                .map(|dt| {
+                    uuid::Clock::from_unix(dt.timestamp() as u64, dt.timestamp_subsec_nanos())
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "journal {journal} offset {begin_offset}: \
+                         BackfillComplete is missing a valid /_meta/truncatedAt"
+                    )
+                })?;
+            Some(ControlEvent::BackfillComplete { truncated_at })
         } else {
             anyhow::bail!(
                 "journal {journal} offset {begin_offset}: control document not recognized"
@@ -358,9 +380,10 @@ mod test {
                 r#"{{"_meta":{{"uuid":"{}","backfillBegin":true}}}}"#,
                 make_uuid_str(p1, c4, uuid::Flags::CONTROL),
             ),
-            // Control: backfillComplete.
+            // Control: backfillComplete, carrying the begin boundary it completed
+            // as an RFC3339 `truncatedAt`.
             format!(
-                r#"{{"_meta":{{"uuid":"{}","backfillComplete":true}}}}"#,
+                r#"{{"_meta":{{"uuid":"{}","backfillComplete":true,"truncatedAt":"2023-11-14T22:13:20Z"}}}}"#,
                 make_uuid_str(p1, c5, uuid::Flags::CONTROL),
             ),
         ]

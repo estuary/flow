@@ -352,7 +352,9 @@ pub fn sequence_document(
             producer_state.offset = -*end_offset;
             match control {
                 Some(super::read::ControlEvent::BackfillBegin) => backfill_begin = *clock,
-                Some(super::read::ControlEvent::BackfillComplete) => backfill_complete = *clock,
+                Some(super::read::ControlEvent::BackfillComplete { truncated_at }) => {
+                    backfill_complete = *truncated_at
+                }
                 None => {}
             }
             (control.is_none(), true)
@@ -1118,8 +1120,6 @@ mod test {
         s.commit(0, p1, seq);
         assert_eq!(s.reads[0].backfill_begin, Clock::from_unix(10, 0));
 
-        // BackfillComplete reports its clock into backfill_complete; the begin
-        // clock already folded into the read is preserved (independent fields).
         let seq = sequence_document(
             &s.reads[0],
             &s.bindings[0],
@@ -1129,17 +1129,19 @@ mod test {
                 flags: OUTSIDE,
                 begin_offset: 150,
                 end_offset: 200,
-                control: Some(super::super::read::ControlEvent::BackfillComplete),
+                control: Some(super::super::read::ControlEvent::BackfillComplete {
+                    truncated_at: Clock::from_unix(10, 0),
+                }),
             },
         )
         .unwrap();
         assert!(!seq.is_append);
         assert!(seq.is_commit);
         assert_eq!(seq.backfill_begin, Clock::zero());
-        assert_eq!(seq.backfill_complete, Clock::from_unix(20, 0));
+        assert_eq!(seq.backfill_complete, Clock::from_unix(10, 0));
         s.commit(0, p1, seq);
         assert_eq!(s.reads[0].backfill_begin, Clock::from_unix(10, 0));
-        assert_eq!(s.reads[0].backfill_complete, Clock::from_unix(20, 0));
+        assert_eq!(s.reads[0].backfill_complete, Clock::from_unix(10, 0));
 
         // A duplicate OUTSIDE_TXN control doc (same clock) is a no-op: not a
         // commit, reports no clock, and leaves the read's state unchanged.
@@ -1152,7 +1154,9 @@ mod test {
                 flags: OUTSIDE,
                 begin_offset: 200,
                 end_offset: 250,
-                control: Some(super::super::read::ControlEvent::BackfillComplete),
+                control: Some(super::super::read::ControlEvent::BackfillComplete {
+                    truncated_at: Clock::from_unix(10, 0),
+                }),
             },
         )
         .unwrap();
@@ -1166,7 +1170,7 @@ mod test {
         s.commit(0, p1, seq);
         assert_eq!(
             s.reads[0].backfill_complete,
-            Clock::from_unix(20, 0),
+            Clock::from_unix(10, 0),
             "unchanged on duplicate"
         );
 
@@ -1189,7 +1193,7 @@ mod test {
         assert_eq!(seq.backfill_begin, Clock::from_unix(30, 0));
         s.commit(0, p1, seq);
         assert_eq!(s.reads[0].backfill_begin, Clock::from_unix(30, 0));
-        assert_eq!(s.reads[0].backfill_complete, Clock::from_unix(20, 0));
+        assert_eq!(s.reads[0].backfill_complete, Clock::from_unix(10, 0));
     }
 
     /// Build a passthrough PartitionFilter that accepts any value for the given fields.

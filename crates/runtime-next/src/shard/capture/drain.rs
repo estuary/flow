@@ -11,6 +11,8 @@
 //! it owns the publisher for its duration and hands it back via [`Output`].
 
 use crate::leader::capture::{Task, fsm};
+use crate::proto;
+use crate::publish;
 use anyhow::Context;
 use bytes::Bytes;
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,6 +45,7 @@ pub(super) async fn drain_and_publish(
     mut publisher: crate::Publisher,
     task: std::sync::Arc<Task>,
     sourced_schemas: BTreeMap<u32, doc::Shape>,
+    (control, active_backfill_begin): (Option<fsm::ControlMessage>, Option<u64>),
     mut shapes: Vec<doc::Shape>,
     metrics: super::Metrics,
 ) -> anyhow::Result<Output> {
@@ -58,6 +61,47 @@ pub(super) async fn drain_and_publish(
     let mut updated_inferences = BTreeSet::<usize>::new();
 
     apply_sourced_schemas(&mut shapes, &task, sourced_schemas, &mut updated_inferences)?;
+
+    // A control message stands alone in its (isolated) transaction, so no ordinary
+    // captured documents are drained in the same pass; its CONTROL document is
+    // published first, taking the lowest clock — the authoritative `truncated_at`.
+    let drained_control = match control {
+        Some(fsm::ControlMessage::BackfillBegin { binding }) => {
+            let clock = publisher
+                .publish_control(binding as usize, publish::BackfillControl::Begin)
+                .await
+                .map_err(crate::status_to_anyhow)
+                .context("publishing BackfillBegin control document")?;
+            Some(proto::persist::ActiveBackfillChange::Begin(
+                proto::ActiveBackfillBegin {
+                    binding,
+                    truncated_at: clock.as_u64(),
+                },
+            ))
+        }
+        Some(fsm::ControlMessage::BackfillComplete { binding }) => {
+            // Orphaned complete (no active backfill, e.g. a begin was never
+            // observed): publish nothing, change nothing.
+            if let Some(begin_clock) = active_backfill_begin {
+                _ = publisher
+                    .publish_control(
+                        binding as usize,
+                        publish::BackfillControl::Complete {
+                            truncated_at: begin_clock,
+                        },
+                    )
+                    .await
+                    .map_err(crate::status_to_anyhow)
+                    .context("publishing BackfillComplete control document")?;
+                Some(proto::persist::ActiveBackfillChange::CompleteBinding(
+                    binding,
+                ))
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
 
     // State-Update-Wire-Format stream of this transaction's connector patches:
     // a `[`, then `,`-separated compact-JSON patches each terminated by `\t`,
@@ -140,6 +184,7 @@ pub(super) async fn drain_and_publish(
         drained: fsm::DrainedCapture {
             connector_patches: Bytes::from(connector_patches),
             bindings: drained,
+            control: drained_control,
         },
         publisher,
         shapes,

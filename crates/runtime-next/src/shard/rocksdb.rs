@@ -133,6 +133,8 @@ impl RocksDB {
                 let mut recover = proto::Recover::default();
                 let mut committed_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
                 let mut hinted_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
+                let mut committed_backfill_begin = std::collections::BTreeMap::new();
+                let mut committed_backfill_complete = std::collections::BTreeMap::new();
 
                 let mut it = self.db.raw_iterator();
                 it.seek_to_first();
@@ -142,6 +144,8 @@ impl RocksDB {
                         &mut recover,
                         &mut committed_frontier,
                         &mut hinted_frontier,
+                        &mut committed_backfill_begin,
+                        &mut committed_backfill_complete,
                         key,
                         value,
                         &binding_state_keys,
@@ -194,6 +198,14 @@ impl RocksDB {
                     *slot =
                         (!frontier.is_empty()).then(|| shuffle::JournalFrontier::encode(&frontier));
                 }
+
+                // Fold the persisted cumulative backfill clocks onto the
+                // recovered committed Frontier (keyed by journal_read_suffix).
+                recovery::fold_backfill_clocks(
+                    &mut recover,
+                    committed_backfill_begin,
+                    committed_backfill_complete,
+                );
 
                 Ok((self, recover))
             })

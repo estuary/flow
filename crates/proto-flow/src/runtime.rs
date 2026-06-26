@@ -667,17 +667,35 @@ pub struct Persist {
     /// Effect: Put under "trigger-params" key.
     #[prost(bytes = "bytes", tag = "16")]
     pub trigger_params_json: ::prost::bytes::Bytes,
-    /// Set active-backfill begin clocks for bindings that observed a
-    /// BackfillBegin control checkpoint.
-    /// Key: binding index; Value: begin clock.
-    /// Effect: Put fixed64-LE under "AB:{state_key}" (state_key resolved by the encoder).
-    #[prost(btree_map = "uint32, fixed64", tag = "17")]
-    pub set_active_backfills: ::prost::alloc::collections::BTreeMap<u32, u64>,
-    /// Clear active-backfill entries for bindings that observed a
-    /// BackfillComplete control checkpoint. Applies after set_active_backfills.
-    /// Effect: Delete "AB:{state_key}" (state_key resolved by the encoder).
-    #[prost(uint32, repeated, tag = "18")]
-    pub delete_active_backfills: ::prost::alloc::vec::Vec<u32>,
+    /// The active-backfill change this transaction observed, if any. At most one
+    /// per commit — a backfill control signal stands alone in its transaction.
+    #[prost(oneof = "persist::ActiveBackfillChange", tags = "17, 18")]
+    pub active_backfill_change: ::core::option::Option<persist::ActiveBackfillChange>,
+}
+/// Nested message and enum types in `Persist`.
+pub mod persist {
+    /// The active-backfill change this transaction observed, if any. At most one
+    /// per commit — a backfill control signal stands alone in its transaction.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum ActiveBackfillChange {
+        /// BackfillBegin: record the binding's begin clock.
+        /// Effect: Put fixed64-LE under "AB:{state_key}" (state_key resolved by the encoder).
+        #[prost(message, tag = "17")]
+        Begin(super::ActiveBackfillBegin),
+        /// BackfillComplete: clear the binding's active-backfill entry.
+        /// Effect: Delete "AB:{state_key}" (state_key resolved by the encoder).
+        #[prost(uint32, tag = "18")]
+        CompleteBinding(u32),
+    }
+}
+/// ActiveBackfillBegin records a binding's backfill begin clock — its
+/// authoritative truncated_at — staged by a committing Persist.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ActiveBackfillBegin {
+    #[prost(uint32, tag = "1")]
+    pub binding: u32,
+    #[prost(fixed64, tag = "2")]
+    pub truncated_at: u64,
 }
 /// Persisted is sent by shard zero to the leader after the state is durable
 /// in the recovery log.

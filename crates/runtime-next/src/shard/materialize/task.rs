@@ -89,7 +89,7 @@ fn build_binding(
         delta_updates,
         deprecated_shuffle: _,
         field_selection,
-        journal_read_suffix: _,
+        journal_read_suffix,
         not_after: _,
         not_before: _,
         partition_selector: _,
@@ -118,7 +118,7 @@ fn build_binding(
         partition_template: _,
         projections,
         read_schema_json,
-        uuid_ptr: _,
+        uuid_ptr,
         write_schema_json,
     } = collection.as_ref().context("missing collection")?;
 
@@ -165,6 +165,8 @@ fn build_binding(
     Ok(Binding {
         collection_name: collection_name.clone(),
         delta_updates: *delta_updates,
+        document_uuid_ptr: json::Pointer::from(uuid_ptr.as_str()),
+        journal_read_suffix: journal_read_suffix.clone(),
         key_extractors,
         read_schema_json,
         ser_policy,

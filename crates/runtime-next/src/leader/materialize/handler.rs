@@ -204,6 +204,9 @@ where
         )
         .await?;
 
+        let backfill_begin = committed_frontier.latest_backfill_begin.clone();
+        let backfill_complete = committed_frontier.latest_backfill_complete.clone();
+
         let head = fsm::Head::Idle(fsm::HeadIdle {
             last_close: committed_close,
             idempotent_replay,
@@ -226,6 +229,8 @@ where
         };
 
         let mut actor = actor::Actor::new(
+            backfill_begin,
+            backfill_complete,
             service.http_client.clone(),
             legacy_checkpoint,
             metrics,

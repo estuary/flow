@@ -19,6 +19,8 @@ pub(super) struct Scanner {
     buf: bytes::BytesMut,
     // Active bindings of this scan, indexed on binding index.
     active: HashMap<u32, LoadedBinding>,
+    // Cumulative per-binding backfill-begin clocks.
+    backfill_begin: Vec<u64>,
 }
 
 impl Scanner {
@@ -27,6 +29,7 @@ impl Scanner {
         frontier: shuffle::Frontier,
         shuffle_reader: shuffle::log::Reader,
         shuffle_remainders: VecDeque<shuffle::log::Remainder>,
+        backfill_begin: Vec<u64>,
     ) -> anyhow::Result<Self> {
         let scan = shuffle::log::FrontierScan::new(frontier, shuffle_reader, shuffle_remainders)
             .context("failed to begin a FrontierScan")?;
@@ -36,6 +39,7 @@ impl Scanner {
             scan,
             buf: bytes::BytesMut::new(),
             active: HashMap::new(),
+            backfill_begin,
         })
     }
 
@@ -83,6 +87,14 @@ impl Scanner {
             let binding = bindings
                 .get(meta.binding.to_native() as usize)
                 .context("scan entry has invalid meta.binding")?;
+
+            // Suppress source documents published before this binding's
+            // backfill `truncated_at`: a later full-refresh superseded them, so
+            // they must not be materialized.
+            let begin = self.backfill_begin[binding_index as usize];
+            if meta.clock.to_native() < begin {
+                continue;
+            }
 
             memtable
                 .add_embedded(

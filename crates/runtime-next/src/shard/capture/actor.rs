@@ -30,6 +30,7 @@ pub(super) struct Actor {
     connector_tx: mpsc::Sender<Request>,
     // Per-session metrics counters.
     metrics: super::Metrics,
+    is_control_producer: bool,
 
     // --- Parked resources: `Some` unless borrowed by an in-flight future. ---
     // RocksDB is parked with its per-binding state keys.
@@ -45,9 +46,26 @@ pub(super) struct Actor {
     acknowledge_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
     drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output>>>,
     intents_write_fut: Option<BoxFuture<'static, tonic::Result<crate::Publisher>>>,
-    persist_fut: Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, Vec<String>)>>>,
+    labels_apply_fut:
+        Option<BoxFuture<'static, (crate::Publisher, BTreeMap<u32, u64>, tonic::Result<()>)>>,
+    persist_fut: Option<
+        BoxFuture<
+            'static,
+            anyhow::Result<(
+                (crate::shard::RocksDB, Vec<String>),
+                Option<proto::persist::ActiveBackfillChange>,
+            )>,
+        >,
+    >,
     stats_write_fut:
         Option<BoxFuture<'static, tonic::Result<(crate::Publisher, BTreeMap<String, Bytes>)>>>,
+
+    // `truncated_at` clock of each binding with an in-progress backfill —
+    // present from its BackfillBegin until its BackfillComplete commits.
+    active_backfills: BTreeMap<u32, u64>,
+    // True when `active_backfills` differs from what's reflected in journal
+    // labels.
+    labels_dirty: bool,
 
     // --- Hand-offs staged between FSM steps. ---
     // Drain output, staged for `TailDrain`.
@@ -65,18 +83,22 @@ struct DrainInput {
 
 impl Actor {
     pub fn new(
+        active_backfills: BTreeMap<u32, u64>,
         binding_state_keys: Vec<String>,
         connector_tx: mpsc::Sender<Request>,
         db: crate::shard::RocksDB,
+        is_control_producer: bool,
         metrics: super::Metrics,
         publisher: crate::Publisher,
         shapes: Vec<doc::Shape>,
         task: std::sync::Arc<Task>,
     ) -> Self {
+        let labels_dirty = !active_backfills.is_empty();
         Self {
             task,
             connector_tx,
             metrics,
+            is_control_producer,
             db: Some((db, binding_state_keys)),
             publisher: Some(publisher),
             shapes: Some(shapes),
@@ -84,8 +106,11 @@ impl Actor {
             acknowledge_fut: None,
             drain_fut: None,
             intents_write_fut: None,
+            labels_apply_fut: None,
             persist_fut: None,
             stats_write_fut: None,
+            active_backfills,
+            labels_dirty,
             drain_finished: None,
             pending_ack_intents: BTreeMap::new(),
         }
@@ -146,6 +171,7 @@ impl Actor {
                 self.acknowledge_fut.is_none(),
                 &mut self.drain_finished,
                 self.intents_write_fut.is_none(),
+                self.labels_apply_fut.is_none(),
                 now,
                 self.persist_fut.is_none(),
                 &self.task,
@@ -239,8 +265,20 @@ impl Actor {
                     self.stats_write_fut = None;
                 }
                 Some(result) = maybe_fut(&mut self.persist_fut) => {
-                    self.db = Some(result?);
+                    let (db, change) = result?;
+                    self.db = Some(db);
                     self.persist_fut = None;
+                    match change {
+                        Some(proto::persist::ActiveBackfillChange::Begin(begin)) => {
+                            self.active_backfills.insert(begin.binding, begin.truncated_at);
+                            self.labels_dirty = true;
+                        }
+                        Some(proto::persist::ActiveBackfillChange::CompleteBinding(binding)) => {
+                            self.active_backfills.remove(&binding);
+                            self.labels_dirty = true;
+                        }
+                        None => {}
+                    }
                 }
                 Some(result) = maybe_fut(&mut self.acknowledge_fut) => {
                     result?;
@@ -251,6 +289,13 @@ impl Actor {
                         .context("writing capture ACK intents")?;
                     self.publisher = Some(publisher);
                     self.intents_write_fut = None;
+                }
+                Some((publisher, active_backfills, result)) = maybe_fut(&mut self.labels_apply_fut) => {
+                    result.context("applying truncated-at journal labels")?;
+                    self.publisher = Some(publisher);
+                    self.active_backfills = active_backfills;
+                    self.labels_apply_fut = None;
+                    self.labels_dirty = false;
                 }
                 // Process controller messages next.
                 msg = controller_rx.next() => {
@@ -349,7 +394,10 @@ impl Actor {
                 false // Re-poll to allow for close on connector idle-ness.
             }
 
-            fsm::Action::Drain { sourced_schemas } => {
+            fsm::Action::Drain {
+                sourced_schemas,
+                control,
+            } => {
                 let DrainInput { drainer, parser } = self
                     .drain_input
                     .take()
@@ -358,6 +406,12 @@ impl Actor {
                 let shapes = self.shapes.take().context("missing capture shape state")?;
                 let task = std::sync::Arc::clone(&self.task);
                 let metrics = self.metrics.clone();
+                let active_backfill_begin = match &control {
+                    Some(fsm::ControlMessage::BackfillComplete { binding }) => {
+                        self.active_backfills.get(binding).copied()
+                    }
+                    _ => None,
+                };
                 self.drain_fut = Some(
                     async move {
                         drain::drain_and_publish(
@@ -366,6 +420,7 @@ impl Actor {
                             publisher,
                             task,
                             sourced_schemas,
+                            (control, active_backfill_begin),
                             shapes,
                             metrics,
                         )
@@ -408,7 +463,7 @@ impl Actor {
                             .persist(&persist, &binding_state_keys)
                             .await
                             .context("Persisting capture state")?;
-                        Ok((db, binding_state_keys))
+                        Ok(((db, binding_state_keys), persist.active_backfill_change))
                     }
                     .boxed(),
                 );
@@ -442,6 +497,25 @@ impl Actor {
                     .boxed(),
                 );
                 true
+            }
+
+            fsm::Action::ApplyTruncatedLabels => {
+                if !self.labels_dirty || self.active_backfills.is_empty() {
+                    false
+                } else {
+                    let mut publisher =
+                        self.publisher.take().context("missing capture publisher")?;
+                    let active_backfills = std::mem::take(&mut self.active_backfills);
+                    self.labels_apply_fut = Some(
+                        async move {
+                            let result =
+                                publisher.apply_truncated_at_labels(&active_backfills).await;
+                            (publisher, active_backfills, result)
+                        }
+                        .boxed(),
+                    );
+                    true
+                }
             }
 
             fsm::Action::Error(error) => return Err(error),
@@ -489,7 +563,7 @@ impl Actor {
     ) -> anyhow::Result<()> {
         let verify = crate::verify(
             "Capture",
-            "Captured, SourcedSchema, or Checkpoint",
+            "Captured, SourcedSchema, Checkpoint, BackfillBegin, or BackfillComplete",
             "connector",
         );
         let Some(response) = msg else {
@@ -517,6 +591,34 @@ impl Actor {
                 "received Checkpoint from connector",
             );
             fsm::ConnectorRx::Checkpoint(checkpoint)
+        } else if let Some(response::BackfillBegin { binding }) = response.backfill_begin {
+            if !self.is_control_producer {
+                anyhow::bail!(
+                    "connector emitted BackfillBegin for binding {binding}, but this \
+                     capture shard is not the backfill control producer"
+                );
+            }
+            service_kit::event!(
+                tracing::Level::INFO,
+                "connector",
+                binding,
+                "received BackfillBegin from connector",
+            );
+            fsm::ConnectorRx::BackfillBegin { binding }
+        } else if let Some(response::BackfillComplete { binding }) = response.backfill_complete {
+            if !self.is_control_producer {
+                anyhow::bail!(
+                    "connector emitted BackfillComplete for binding {binding}, but this \
+                     capture shard is not the backfill control producer"
+                );
+            }
+            service_kit::event!(
+                tracing::Level::INFO,
+                "connector",
+                binding,
+                "received BackfillComplete from connector",
+            );
+            fsm::ConnectorRx::BackfillComplete { binding }
         } else {
             return Err(verify.fail_msg(response));
         };
@@ -671,9 +773,11 @@ mod tests {
         let shapes = task.binding_shapes_by_index(Default::default());
 
         let actor = Actor::new(
+            BTreeMap::new(),
             vec!["stateA".to_string(), "stateB".to_string()],
             connector_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
+            true,
             super::super::Metrics::new("test/shard"),
             publisher,
             shapes,
@@ -732,6 +836,173 @@ mod tests {
         assert_eq!(
             recover.connector_state_json.as_ref(),
             br#"{"cursor":"lsn-9"}"#
+        );
+    }
+
+    /// Backfill lifecycle across a restart: a Begin persists the active backfill, a
+    /// fresh session recovers it, a Complete removes it, and an orphaned Complete
+    /// (never-begun binding) is a no-op. `truncated_at` is 0 — the preview
+    /// publisher's no-op control clock. Each control message is sealed by its own
+    /// terminating Checkpoint.
+    #[tokio::test]
+    async fn serve_backfill_lifecycle() {
+        // One capture session over `db`: feed `responses`, drain `expect_acks`
+        // Acknowledges (one per committed control transaction, so each commits
+        // before Stop), then Stop and return the db.
+        async fn run_capture_session(
+            db: crate::shard::RocksDB,
+            active_backfills: BTreeMap<u32, u64>,
+            responses: Vec<tonic::Result<Response>>,
+            expect_acks: usize,
+        ) -> crate::shard::RocksDB {
+            let (connector_tx, mut actor_to_conn_rx) =
+                mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+            let (conn_resp_tx, conn_resp_rx) =
+                mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
+            let (controller_tx, controller_rx) =
+                mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
+
+            let task = std::sync::Arc::new(mk_task(true));
+            let collection_specs: Vec<flow::CollectionSpec> = task
+                .bindings
+                .iter()
+                .map(|b| flow::CollectionSpec {
+                    name: b.collection_name.clone(),
+                    ..Default::default()
+                })
+                .collect();
+            let publisher = crate::Publisher::new_preview(collection_specs.iter());
+            let shapes = task.binding_shapes_by_index(Default::default());
+
+            let actor = Actor::new(
+                active_backfills,
+                vec!["stateA".to_string(), "stateB".to_string()],
+                connector_tx,
+                db,
+                true,
+                super::super::Metrics::new("test/shard"),
+                publisher,
+                shapes,
+                task,
+            );
+
+            let serve = tokio::spawn(async move {
+                let mut controller_rx = UnboundedReceiverStream::new(controller_rx);
+                actor
+                    .serve(
+                        ReceiverStream::new(conn_resp_rx),
+                        &mut controller_rx,
+                        fsm::Head::Idle(fsm::HeadIdle::default()),
+                        fsm::Tail::Recover(fsm::TailRecover {
+                            checkpoints: 0,
+                            ack_intents: BTreeMap::new(),
+                        }),
+                    )
+                    .await
+            });
+
+            for response in responses {
+                conn_resp_tx.send(response).await.unwrap();
+            }
+            for _ in 0..expect_acks {
+                assert!(actor_to_conn_rx.recv().await.unwrap().acknowledge.is_some());
+            }
+
+            controller_tx
+                .send(Ok(proto::Capture {
+                    stop: Some(proto::Stop {}),
+                    ..Default::default()
+                }))
+                .unwrap();
+            let (db, _shapes) = serve.await.unwrap().unwrap();
+            db
+        }
+
+        let state_keys = || vec![("stateA".to_string(), 0u32), ("stateB".to_string(), 1u32)];
+
+        let db = run_capture_session(
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            BTreeMap::new(),
+            vec![
+                Ok(Response {
+                    backfill_begin: Some(response::BackfillBegin { binding: 0 }),
+                    ..Default::default()
+                }),
+                checkpoint(br#"{"cursor":"1"}"#),
+            ],
+            1,
+        )
+        .await;
+        let (db, recover) = db.scan(state_keys()).await.unwrap();
+        assert_eq!(
+            recover.active_backfills,
+            BTreeMap::from([(0u32, 0u64)]),
+            "begin persisted the active backfill",
+        );
+
+        let db = run_capture_session(
+            db,
+            recover.active_backfills,
+            vec![
+                Ok(Response {
+                    backfill_complete: Some(response::BackfillComplete { binding: 0 }),
+                    ..Default::default()
+                }),
+                checkpoint(br#"{"cursor":"2"}"#),
+                Ok(Response {
+                    backfill_complete: Some(response::BackfillComplete { binding: 1 }),
+                    ..Default::default()
+                }),
+                checkpoint(br#"{"cursor":"3"}"#),
+            ],
+            2,
+        )
+        .await;
+        let (_db, recover) = db.scan(state_keys()).await.unwrap();
+        assert_eq!(
+            recover.active_backfills,
+            BTreeMap::new(),
+            "complete removed binding 0; orphaned complete for binding 1 was a no-op",
+        );
+    }
+
+    /// A shard recovered mid-backfill (non-empty `active_backfills`) re-applies its
+    /// truncated-at labels on the first `ApplyTruncatedLabels` rather than skipping
+    /// — the restart case a false `labels_dirty` seed would silently break.
+    #[tokio::test]
+    async fn recovered_active_backfills_reapply_labels() {
+        let (connector_tx, _connector_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+        let task = std::sync::Arc::new(mk_task(true));
+        let collection_specs: Vec<flow::CollectionSpec> = task
+            .bindings
+            .iter()
+            .map(|b| flow::CollectionSpec {
+                name: b.collection_name.clone(),
+                ..Default::default()
+            })
+            .collect();
+        let publisher = crate::Publisher::new_preview(collection_specs.iter());
+        let shapes = task.binding_shapes_by_index(Default::default());
+
+        let mut actor = Actor::new(
+            BTreeMap::from([(0u32, 5u64)]), // recovered mid-backfill
+            vec!["stateA".to_string(), "stateB".to_string()],
+            connector_tx,
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            true,
+            super::super::Metrics::new("test/shard"),
+            publisher,
+            shapes,
+            task.clone(),
+        );
+
+        let mut accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
+        actor
+            .dispatch(fsm::Action::ApplyTruncatedLabels, &mut accumulator)
+            .unwrap();
+        assert!(
+            actor.labels_apply_fut.is_some(),
+            "recovered active backfills must re-apply labels, not skip",
         );
     }
 

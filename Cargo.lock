@@ -7994,6 +7994,7 @@ dependencies = [
  "anyhow",
  "build",
  "bytes",
+ "chrono",
  "doc",
  "e2e-support",
  "flow-client-next",

@@ -75,6 +75,8 @@ pub(super) struct Startup {
     pub leader_rx: tonic::Streaming<proto::Materialize>,
     pub leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     pub max_keys: Vec<(bytes::Bytes, bytes::Bytes)>,
+    pub notified_backfill_begin: Vec<u64>,
+    pub notified_backfill_complete: Vec<u64>,
     pub shuffle_reader: shuffle::log::Reader,
 }
 
@@ -143,6 +145,9 @@ where
         .scan(sorted_state_keys)
         .await
         .context("scanning RocksDB")?;
+
+    let (notified_backfill_begin, notified_backfill_complete) =
+        recovered_backfill_baselines(&recover, &bindings);
 
     _ = leader_tx.send(proto::Materialize {
         recover: Some(recover),
@@ -302,6 +307,109 @@ where
         leader_rx,
         leader_tx,
         max_keys,
+        notified_backfill_begin,
+        notified_backfill_complete,
         shuffle_reader,
     })
+}
+
+fn recovered_backfill_baselines(
+    recover: &proto::Recover,
+    bindings: &[Binding],
+) -> (Vec<u64>, Vec<u64>) {
+    let frontier = recover.committed_frontier.as_ref();
+
+    let begin = bindings
+        .iter()
+        .map(|b| {
+            frontier
+                .and_then(|f| {
+                    f.latest_backfill_begin
+                        .iter()
+                        .find(|e| e.journal_read_suffix == b.journal_read_suffix)
+                })
+                .map_or(0, |e| e.clock)
+        })
+        .collect();
+    let complete = bindings
+        .iter()
+        .map(|b| {
+            frontier
+                .and_then(|f| {
+                    f.latest_backfill_complete
+                        .iter()
+                        .find(|e| e.journal_read_suffix == b.journal_read_suffix)
+                })
+                .map_or(0, |e| e.clock)
+        })
+        .collect();
+
+    (begin, complete)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn binding(suffix: &str) -> Binding {
+        Binding {
+            collection_name: String::new(),
+            delta_updates: false,
+            document_uuid_ptr: json::Pointer::from(""),
+            journal_read_suffix: suffix.to_string(),
+            key_extractors: Vec::new(),
+            read_schema_json: bytes::Bytes::new(),
+            ser_policy: doc::SerPolicy::noop(),
+            state_key: String::new(),
+            store_document: false,
+            value_plan: doc::ExtractorPlan::new(&[]),
+        }
+    }
+
+    #[test]
+    fn recovered_baselines_densify_by_suffix() {
+        use proto_flow::shuffle::frontier::{BackfillBegin, BackfillComplete};
+
+        let recover = proto::Recover {
+            committed_frontier: Some(proto_flow::shuffle::Frontier {
+                // Ordered differently than `bindings`, and "x/9" has no binding.
+                latest_backfill_begin: vec![
+                    BackfillBegin {
+                        journal_read_suffix: "c/2".to_string(),
+                        clock: 30,
+                    },
+                    BackfillBegin {
+                        journal_read_suffix: "a/0".to_string(),
+                        clock: 10,
+                    },
+                    BackfillBegin {
+                        journal_read_suffix: "x/9".to_string(),
+                        clock: 99,
+                    },
+                ],
+                // "a/0" began but hasn't completed; "c/2" has both.
+                latest_backfill_complete: vec![BackfillComplete {
+                    journal_read_suffix: "c/2".to_string(),
+                    clock: 25,
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        // "b/1" has no recovered clocks at all.
+        let bindings = vec![binding("a/0"), binding("b/1"), binding("c/2")];
+
+        let (begin, complete) = recovered_backfill_baselines(&recover, &bindings);
+        assert_eq!(
+            begin,
+            vec![10, 0, 30],
+            "matched by suffix, not position; missing -> 0",
+        );
+        assert_eq!(
+            complete,
+            vec![0, 0, 25],
+            "complete resolves independently of begin",
+        );
+    }
 }

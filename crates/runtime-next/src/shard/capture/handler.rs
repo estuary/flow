@@ -301,6 +301,7 @@ where
         .context("scanning RocksDB")?;
     let proto::Recover {
         ack_intents,
+        active_backfills,
         connector_state_json,
         last_applied,
         ..
@@ -389,10 +390,16 @@ where
     // binding layout, and stow the session's final shapes back when it ends.
     let shapes = task.binding_shapes_by_index(std::mem::take(shapes_by_key));
 
+    // Only a shard covering the entire key range may produce/handle backfill
+    // control messages (the authoritative full-range truncation producer).
+    let is_control_producer = range.key_begin == 0 && range.key_end == u32::MAX;
+
     let (db, shapes) = super::actor::Actor::new(
+        active_backfills,
         binding_state_keys,
         connector_tx,
         db,
+        is_control_producer,
         metrics,
         publisher,
         shapes,
