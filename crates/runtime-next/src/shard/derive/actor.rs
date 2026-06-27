@@ -20,7 +20,7 @@ enum Phase {
 }
 
 /// Shard-side derivation reactor for one joined leader session.
-pub(super) struct Actor {
+pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // FIFO of outbound connector requests, drained head-first into
     // `connector_tx` as channel capacity permits.
     connector_pending: Vec<derive::Request>,
@@ -34,13 +34,16 @@ pub(super) struct Actor {
     db_persist_fut:
         Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Persisted)>>>,
     // Output-combiner drain + publish future, when in flight.
-    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output>>>,
+    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
     // Channel for sending to the leader.
     leader_tx: mpsc::UnboundedSender<proto::Derive>,
     // Per-session metrics counters.
     metrics: super::Metrics,
+    // Logger through which the drain reports inferred-schema updates. Cloned
+    // into each drain future.
+    logger: L,
     // Publisher for derived documents; parked while a drain borrows it.
-    publisher: Option<crate::Publisher>,
+    publisher: Option<P>,
     // C:Published measures of the open transaction (reset at each L:Store).
     published_docs: u64,
     published_bytes: u64,
@@ -56,14 +59,15 @@ pub(super) struct Actor {
     write_shape: Option<doc::Shape>,
 }
 
-impl Actor {
+impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         codec: connector_init::Codec,
         connector_tx: mpsc::Sender<derive::Request>,
         db: crate::shard::RocksDB,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
         metrics: super::Metrics,
-        publisher: crate::Publisher,
+        logger: L,
+        publisher: P,
         task: Arc<Task>,
         write_shape: doc::Shape,
     ) -> Self {
@@ -76,6 +80,7 @@ impl Actor {
             drain_fut: None,
             leader_tx,
             metrics,
+            logger,
             publisher: Some(publisher),
             published_docs: 0,
             published_bytes: 0,
@@ -89,18 +94,18 @@ impl Actor {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<R, C, L>(
+    pub async fn serve<Ctrl, Conn, Ldr>(
         mut self,
         accumulator: crate::Accumulator,
-        connector_rx: &mut C,
-        controller_rx: &mut R,
-        leader_rx: &mut L,
+        connector_rx: &mut Conn,
+        controller_rx: &mut Ctrl,
+        leader_rx: &mut Ldr,
         shuffle_reader: shuffle::log::Reader,
     ) -> anyhow::Result<crate::shard::RocksDB>
     where
-        R: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
-        C: futures::Stream<Item = tonic::Result<derive::Response>> + Send + Unpin + 'static,
-        L: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
+        Ctrl: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
+        Conn: futures::Stream<Item = tonic::Result<derive::Response>> + Send + Unpin + 'static,
+        Ldr: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
     {
         // Source-document validators, indexed by transform. Built once and lent
         // to each `Scanner::step` to re-validate documents that the shuffle read
@@ -396,10 +401,19 @@ impl Actor {
 
             let task = Arc::clone(&self.task);
             let metrics = self.metrics.clone();
+            let logger = self.logger.clone();
             self.drain_fut = Some(
                 async move {
-                    drain::drain_and_publish(drainer, parser, publisher, task, write_shape, metrics)
-                        .await
+                    drain::drain_and_publish(
+                        drainer,
+                        parser,
+                        publisher,
+                        task,
+                        write_shape,
+                        metrics,
+                        logger,
+                    )
+                    .await
                 }
                 .boxed(),
             );
@@ -555,7 +569,6 @@ mod tests {
     use super::super::task::Transform;
     use super::*;
     use proto_flow::derive::response;
-    use proto_flow::flow;
     use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
     fn test_task() -> Task {
@@ -585,7 +598,7 @@ mod tests {
         let (actor_to_leader_tx, _leader_rx) = mpsc::unbounded_channel::<proto::Derive>();
         let task = Arc::new(test_task());
 
-        let spec = flow::CollectionSpec {
+        let spec = proto_flow::flow::CollectionSpec {
             name: task.collection_name.clone(),
             partition_template: Some(proto_gazette::broker::JournalSpec {
                 name: "test/derived/v1".to_string(),
@@ -593,7 +606,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let publisher = crate::Publisher::new_test_real([&spec]);
+        let publisher = crate::JournalPublisher::new_test_real([&spec]);
         let write_shape = task.write_shape.clone();
 
         let mut actor = Actor::new(
@@ -602,6 +615,7 @@ mod tests {
             crate::shard::RocksDB::open(None).await.unwrap(),
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
+            crate::TracingLogger,
             publisher,
             task,
             write_shape,
@@ -681,10 +695,6 @@ mod tests {
 
         let task = Arc::new(test_task());
         let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
-        let publisher = crate::Publisher::new_preview([&flow::CollectionSpec {
-            name: task.collection_name.clone(),
-            ..Default::default()
-        }]);
         let write_shape = task.write_shape.clone();
         let db = crate::shard::RocksDB::open(None).await.unwrap();
         let shuffle_dir = tempfile::tempdir().unwrap();
@@ -696,7 +706,8 @@ mod tests {
             db,
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
-            publisher,
+            crate::TracingLogger,
+            crate::publish::NoopPublisher,
             task,
             write_shape,
         );

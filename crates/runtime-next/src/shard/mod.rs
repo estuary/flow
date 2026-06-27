@@ -2,7 +2,7 @@ pub mod capture;
 pub mod derive;
 pub mod materialize;
 pub(crate) mod recovery;
-mod rocksdb;
+pub mod rocksdb;
 mod service;
 pub mod split_policy;
 
@@ -41,9 +41,9 @@ pub type SplitFuture =
 /// A dispatched journal stays "due" until its outcome lands: the actor's
 /// single-flight parking of the returned future is what prevents duplicate
 /// dispatch, and an RPC error leaves a still-hot journal due for retry.
-pub fn start_due_split(
+pub fn start_due_split<P: crate::Publisher>(
     policy: &mut crate::shard::split_policy::SplitPolicy,
-    publisher: &crate::Publisher,
+    publisher: &P,
     now: std::time::Instant,
 ) -> Option<SplitFuture> {
     use futures::FutureExt;
@@ -304,8 +304,7 @@ mod tests {
     /// re-evaluated forever.
     #[test]
     fn start_due_split_terminally_ignores_unsplittable_journals() {
-        let publisher =
-            crate::Publisher::new_preview(std::iter::empty::<&proto_flow::flow::CollectionSpec>());
+        let publisher = crate::publish::NoopPublisher;
         let (mut policy, now) = due_policy();
 
         assert!(start_due_split(&mut policy, &publisher, now).is_none());
@@ -328,7 +327,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let publisher = crate::Publisher::new_test_real([&spec]);
+        let publisher = crate::JournalPublisher::new_test_real([&spec]);
 
         let (mut policy, now) = due_policy();
         let j2 = "test/collection/v1/pivot=80";

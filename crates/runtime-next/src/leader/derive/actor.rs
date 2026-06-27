@@ -10,31 +10,33 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Actor leads transactions of an established derivation task session.
-pub struct Actor {
+pub struct Actor<P: crate::Publisher, L: crate::Logger> {
     // Future for an in-flight ACK intents write, if any.
-    intents_write_fut: Option<BoxFuture<'static, tonic::Result<crate::Publisher>>>,
+    intents_write_fut: Option<BoxFuture<'static, tonic::Result<P>>>,
     // Optional full Frontier and Checkpoint, used for V1 rollback support.
     legacy_checkpoint: Option<(shuffle::Frontier, consumer::Checkpoint)>,
     // Per-task metrics counters.
     metrics: super::Metrics,
+    // Logger of task-centric state changes and events.
+    logger: L,
     // Publisher for stats and ACK intents, parked while no async operation is in-flight.
-    parked_publisher: Option<crate::Publisher>,
+    parked_publisher: Option<P>,
     // ACK intents to persist and append at later transaction stages.
     pending_ack_intents: BTreeMap<String, Bytes>,
     // One channel to each shard for synchronously sending it messages.
     shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Derive>>>,
     // Future for an in-flight stats flush, if any, yielding ACK intents.
-    stats_write_fut:
-        Option<BoxFuture<'static, tonic::Result<(crate::Publisher, BTreeMap<String, Bytes>)>>>,
+    stats_write_fut: Option<BoxFuture<'static, tonic::Result<(P, BTreeMap<String, Bytes>)>>>,
     // Task being executed by this actor.
     task: Task,
 }
 
-impl Actor {
+impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         legacy_checkpoint: Option<shuffle::Frontier>,
         metrics: super::Metrics,
-        publisher: crate::Publisher,
+        logger: L,
+        publisher: P,
         shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Derive>>>,
         task: Task,
     ) -> Self {
@@ -42,6 +44,7 @@ impl Actor {
             intents_write_fut: None,
             legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
             metrics,
+            logger,
             parked_publisher: Some(publisher),
             pending_ack_intents: BTreeMap::new(),
             shard_tx,
@@ -51,11 +54,11 @@ impl Actor {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve(
+    pub async fn serve<S: crate::leader::ShuffleSession>(
         &mut self,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
-        mut session: shuffle::SessionClient,
+        mut session: S,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Derive>>>,
     ) -> anyhow::Result<()> {
         service_kit::event!(
@@ -355,6 +358,9 @@ impl Actor {
             }
 
             fsm::Action::Persist { persist } => {
+                self.logger
+                    .event(crate::LogEvent::Persist { persist: &persist });
+
                 service_kit::event!(tracing::Level::DEBUG, "shard", "sending L:Persist");
                 let _ = self.shard_tx[0].send(Ok(proto::Derive {
                     persist: Some(persist),

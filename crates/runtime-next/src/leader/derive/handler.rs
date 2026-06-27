@@ -4,8 +4,13 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
-pub(crate) async fn serve<R>(
-    service: crate::Service,
+pub(crate) async fn serve<
+    R,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    L: crate::LoggerFactory,
+>(
+    service: crate::Service<S, P, L>,
     authz: proto_grpc::Authorizer,
     request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
@@ -20,8 +25,13 @@ where
         .await
 }
 
-async fn serve_inner<R>(
-    service: crate::Service,
+async fn serve_inner<
+    R,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    L: crate::LoggerFactory,
+>(
+    service: crate::Service<S, P, L>,
     authz: proto_grpc::Authorizer,
     mut request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
@@ -180,6 +190,7 @@ where
         let startup::Startup {
             committed_close,
             committed_frontier,
+            logger,
             pending_ack_intents,
             publisher,
             session,
@@ -211,7 +222,14 @@ where
             Some(committed_frontier)
         };
 
-        let mut actor = actor::Actor::new(legacy_checkpoint, metrics, publisher, shard_tx, task);
+        let mut actor = actor::Actor::new(
+            legacy_checkpoint,
+            metrics,
+            logger,
+            publisher,
+            shard_tx,
+            task,
+        );
         handler.set_phase("running");
         actor.serve(head, tail, session, shard_rx).await
     }

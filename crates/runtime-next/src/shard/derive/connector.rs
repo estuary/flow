@@ -12,8 +12,9 @@ use unseal;
 /// Unlike the materialize / capture connector starts, derivations don't perform
 /// an IAM token-exchange Spec pre-dance (no derive connector uses IAM today),
 /// and they support an in-process `Sqlite` connector alongside image / local.
-pub async fn start<L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
+    logger: &L::Logger,
     log_level: ops::LogLevel,
     mut initial: derive::Request,
 ) -> anyhow::Result<(
@@ -52,7 +53,7 @@ pub async fn start<L: crate::LogHandler>(
 
             let (rx, container, codec) = crate::image_connector::serve(
                 image,
-                service.log_handler.clone(),
+                logger.clone(),
                 log_level,
                 &service.container_network,
                 connector_rx,
@@ -87,7 +88,7 @@ pub async fn start<L: crate::LogHandler>(
             let rx = crate::local_connector::serve(
                 command,
                 env,
-                service.log_handler.clone(),
+                logger.clone(),
                 log_level,
                 codec,
                 connector_rx,

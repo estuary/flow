@@ -100,18 +100,18 @@ impl Actor {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<R, C, L>(
+    pub async fn serve<Ctrl, Conn, Ldr>(
         mut self,
         accumulator: crate::Accumulator,
-        connector_rx: &mut C,
-        controller_rx: &mut R,
-        leader_rx: &mut L,
+        connector_rx: &mut Conn,
+        controller_rx: &mut Ctrl,
+        leader_rx: &mut Ldr,
         shuffle_reader: shuffle::log::Reader,
     ) -> anyhow::Result<crate::shard::RocksDB>
     where
-        R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
-        C: futures::Stream<Item = tonic::Result<materialize::Response>> + Send + Unpin + 'static,
-        L: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
+        Ctrl: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
+        Conn: futures::Stream<Item = tonic::Result<materialize::Response>> + Send + Unpin + 'static,
+        Ldr: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
     {
         let mut phase = Phase::Idle {
             accumulator,

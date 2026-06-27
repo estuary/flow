@@ -6,8 +6,8 @@ use proto_flow::materialize;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
-pub(crate) async fn serve<R, L: crate::LogHandler>(
-    service: crate::shard::Service<L>,
+pub(crate) async fn serve<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: crate::shard::Service<P, L>,
     mut controller_rx: R,
     controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
 ) -> anyhow::Result<()>
@@ -72,8 +72,8 @@ where
     Ok(())
 }
 
-pub async fn serve_unary<L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+pub async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
     request: materialize::Request,
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Materialize> {
@@ -81,8 +81,9 @@ pub async fn serve_unary<L: crate::LogHandler>(
     let is_validate = request.validate.is_some();
     let is_apply = request.apply.is_some();
 
+    let logger = service.logger_factory.open(&service.task_name);
     let (connector_tx, mut connector_rx, _container, _codec, _token_restart_at) =
-        connector::start(service, log_level, request).await?;
+        connector::start(service, &logger, log_level, request).await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     // Read connector response, and verify it matches the request type.
@@ -124,8 +125,8 @@ pub async fn serve_unary<L: crate::LogHandler>(
     Ok(response)
 }
 
-async fn serve_session_loop<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session_loop<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     session_loop: proto::SessionLoop,
@@ -164,8 +165,8 @@ where
     Ok(())
 }
 
-async fn serve_session<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
@@ -193,8 +194,8 @@ where
     .await
 }
 
-async fn serve_session_inner<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session_inner<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
@@ -228,6 +229,7 @@ where
     handler.set_field("etcd_mod_revision", join.etcd_mod_revision);
     handler.set_phase("joining");
 
+    let logger = service.logger_factory.open(&service.task_name);
     let metrics = super::Metrics::new(&shard_id);
 
     service_kit::event!(
@@ -282,6 +284,7 @@ where
         leader_rx,
         leader_tx,
         log_level,
+        &logger,
         service,
         shard_index,
         shuffle_directory,
