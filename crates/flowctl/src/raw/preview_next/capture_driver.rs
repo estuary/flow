@@ -12,7 +12,9 @@
 //! interpreting the output as a workload signal requires a range-partitioning
 //! connector.
 
+use crate::raw::preview_next::Controls;
 use crate::raw::preview_next::services::Run;
+use anyhow::Context;
 use prost::Message;
 use proto_flow::{flow, runtime as cruntime};
 use runtime_next::proto;
@@ -24,6 +26,7 @@ pub async fn run_sessions(
     run: &Run,
     spec: &flow::CaptureSpec,
     session_targets: Vec<u32>,
+    controls: Controls,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
     let join_shards =
@@ -37,16 +40,25 @@ pub async fn run_sessions(
             // own auto-managed tempdir via RocksDB::open(None).
             rocksdb_path: (i == 0).then(|| run.rocksdb_path.clone()),
             network: run.network.clone(),
-            log_handler: run.log_handler,
             registry: run.registry.clone(),
         };
         let spec = spec.clone();
         let join_shard = join_shards[i as usize].clone();
         let session_targets = session_targets.clone();
+        let controls = controls.clone();
         let stop_token = stop_token.clone();
 
         handles.push(tokio::spawn(async move {
-            drive_one_shard(run_handle, spec, i, join_shard, session_targets, stop_token).await
+            drive_one_shard(
+                run_handle,
+                spec,
+                i,
+                join_shard,
+                session_targets,
+                controls,
+                stop_token,
+            )
+            .await
         }));
     }
 
@@ -78,7 +90,6 @@ pub async fn run_sessions(
 struct RunHandle {
     rocksdb_path: Option<String>,
     network: String,
-    log_handler: fn(&::ops::Log),
     registry: service_kit::Registry,
 }
 
@@ -88,23 +99,18 @@ async fn drive_one_shard(
     shard_index: u32,
     join_shard: proto::join::Shard,
     session_targets: Vec<u32>,
+    controls: Controls,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
     let task_name = format!("preview-capture-{shard_index:03}");
 
-    let publisher_factory: gazette::journal::ClientFactory = std::sync::Arc::new({
-        move |_authz_sub: String, _authz_obj: String| -> gazette::journal::Client {
-            unreachable!("live Publisher is not used by preview ({_authz_sub}, {_authz_obj})")
-        }
-    });
-
     let shard_svc = runtime_next::shard::Service::new(
         cruntime::Plane::Local,
         run.network,
-        run.log_handler,
         None,
         task_name,
-        publisher_factory,
+        controls.publisher_factory.clone(),
+        controls.observer_factory.clone(),
         run.registry,
         None, // No AuthN+AuthZ signer (local loopback).
     );
@@ -112,6 +118,23 @@ async fn drive_one_shard(
     let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
     let mut response_rx = shard_svc.spawn_capture(UnboundedReceiverStream::new(request_rx));
     let spec_bytes: bytes::Bytes = spec.encode_to_vec().into();
+
+    // Seed shard zero's RocksDB with any `--initial-state` before the runtime
+    // opens it at SessionLoop, so it recovers the state on its first scan.
+    // Only shard zero carries a tracked `rocksdb_path`.
+    if let Some(rocksdb_path) = &run.rocksdb_path {
+        if !controls.initial_state_json.is_empty() {
+            runtime_next::seed_initial_connector_state(
+                cruntime::RocksDbDescriptor {
+                    rocksdb_path: rocksdb_path.clone(),
+                    rocksdb_env_memptr: 0,
+                },
+                &controls.initial_state_json,
+            )
+            .await
+            .context("seeding --initial-state into shard-zero RocksDB")?;
+        }
+    }
 
     let rocksdb_descriptor = run.rocksdb_path.map(|p| cruntime::RocksDbDescriptor {
         rocksdb_path: p,
@@ -156,7 +179,6 @@ async fn drive_one_shard(
             .send(Ok(proto::Capture {
                 task: Some(proto::Task {
                     spec: spec_bytes.clone(),
-                    preview: true,
                     max_transactions: target_txns,
                     sqlite_vfs_uri: String::new(),
                     publisher_id: Default::default(),
