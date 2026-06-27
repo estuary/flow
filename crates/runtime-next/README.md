@@ -58,14 +58,25 @@ communicate solely by gRPC; no shared memory.
 
 ```
 src/
-├── lib.rs             # crate root, shared helpers (Verify, LogHandler, Accumulator)
+├── lib.rs             # crate root, shared helpers (Verify, Accumulator)
 ├── task_service.rs    # CGO entry point: binds UDS, serves Shard service
-├── publish.rs         # Rust journal publishing (used by both leader and shard)
+├── publish.rs         # Publisher / PublisherFactory traits + JournalPublisher
+│                       #   (journal-IO) impls; leader & shard are monomorphized over
+│                       #   the factory (preview installs its own from flowctl, so this
+│                       #   crate is preview-agnostic)
+├── observe.rs         # Observer / ObserverFactory traits: the user-facing event seam
+│                       #   (connector log sink + persist / applied / inferred-schema /
+│                       #   container-lifecycle events, each defaulting to tracing).
+│                       #   Production shards install FnObserverFactory (logs → task-log
+│                       #   file); leaders & tests install NoopObserver
 ├── patches.rs         # wire format for connector-state patch streams
 │
 ├── leader/            # sidecar Leader service
 │   ├── service.rs       # gRPC entry, per-task Join rendezvous
 │   ├── join.rs          # protocol primitives for joining shards into a session
+│   ├── shuffle.rs       # ShuffleSession / ShuffleSessionFactory traits + ShuffleServiceFactory
+│   │                     #   (journal-reading Session) impl; leader is monomorphized over the
+│   │                     #   factory (preview installs its own fixture replay from flowctl)
 │   └── materialize/
 │       ├── handler.rs       # gRPC stream handler, dispatches to startup/actor
 │       ├── startup.rs       # Recover / Open / Apply / Recovered phase

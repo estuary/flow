@@ -30,7 +30,11 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
         return Ok(RuntimeProtocol::Materialize);
     }
     if !image.ends_with(":local") {
-        docker_pull(image).await.context("pulling image")?;
+        // No session observer in this inspection-only path; the NoopObserver's
+        // default `image_pull_retry` keeps the legacy tracing::warn behavior.
+        docker_pull(image, &crate::NoopObserver)
+            .await
+            .context("pulling image")?;
     }
 
     let inspect_output = docker_cmd(&["inspect", image])
@@ -47,11 +51,12 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
 }
 
 /// Start an image connector container, returning its description and a dialed tonic Channel.
-/// The container is attached to the given `network`, and its logs are dispatched to `log_handler`.
-/// `task_name` and `task_type` are used only to label the container.
-pub async fn start(
+/// The container is attached to the given `network`, and its logs and lifecycle
+/// events are reported through `observer`. `task_name` and `task_type` are used
+/// only to label the container.
+pub async fn start<O: crate::Observer>(
     image: &str,
-    log_handler: impl crate::LogHandler,
+    observer: O,
     log_level: ops::LogLevel,
     network: &str,
     task_name: &str,
@@ -60,7 +65,7 @@ pub async fn start(
 ) -> anyhow::Result<(
     runtime::Container,
     tonic::transport::Channel,
-    Guard,
+    Guard<O>,
     connector_init::Codec,
 )> {
     validate_connector_image(image, plane)?;
@@ -92,7 +97,7 @@ pub async fn start(
     // and parsing its advertised network ports.
     let ((), (image_inspection, codec)) = futures::try_join!(
         find_connector_init_and_copy(tmp_connector_init.path()),
-        inspect_image_and_copy(image, tmp_docker_inspect.path()),
+        inspect_image_and_copy(image, tmp_docker_inspect.path(), &observer),
     )?;
 
     // Close our open files but retain a deletion guard.
@@ -194,9 +199,10 @@ pub async fn start(
     // our inner flow-connector-init process to produce its startup log.
     let (ready_tx, ready_rx) = oneshot::channel::<()>();
 
-    // Service process stderr by decoding ops::Logs and sending to our handler.
+    // Service process stderr by decoding ops::Logs and reporting to the observer.
     let stderr = process.stderr.take().unwrap();
     let quoted_task_name: bytes::Bytes = format!("\"{task_name}\"").into();
+    let log_observer = observer.clone();
     tokio::spawn(async move {
         let mut stderr = tokio::io::BufReader::new(stderr);
         let mut line = String::new();
@@ -226,7 +232,7 @@ pub async fn start(
             let (log, consume) = decoder.line_to_log(&line, stderr.buffer());
             stderr.consume(consume);
             let sanitized = sanitize_event_type(&quoted_task_name, log);
-            log_handler.log(&sanitized);
+            log_observer.log(&sanitized);
         }
     });
 
@@ -258,7 +264,9 @@ pub async fn start(
             format!("failed to connect to container connector-init at {init_address}")
         })?;
 
-    tracing::info!(
+    // Low-level network / codec detail stays at debug; the user-facing "started"
+    // event is reported to the observer below (whose default logs it at info).
+    tracing::debug!(
         %image,
         %init_address,
         %ip_addr,
@@ -268,23 +276,28 @@ pub async fn start(
         ?codec,
         %task_name,
         ?task_type,
-        "started connector container"
+        "dialed connector container"
     );
     let usage_rate = image_inspection.usage_rate;
     let network_ports = image_inspection.network_ports;
 
+    let container = runtime::Container {
+        ip_addr: format!("{ip_addr}"),
+        network_ports,
+        usage_rate,
+        mapped_host_ports,
+    };
+    observer.container_started(image, &container);
+
     Ok((
-        runtime::Container {
-            ip_addr: format!("{ip_addr}"),
-            network_ports,
-            usage_rate,
-            mapped_host_ports,
-        },
+        container,
         channel,
         Guard {
             _tmp_connector_init: tmp_connector_init,
             _tmp_docker_inspect: tmp_docker_inspect,
             _process: process,
+            image: image.to_string(),
+            observer,
         },
         codec,
     ))
@@ -346,10 +359,19 @@ fn sanitize_event_type(quoted_task_name: &bytes::Bytes, mut log: ops::Log) -> op
 
 /// Guard contains a running image container instance,
 /// which will be stopped and cleaned up when the Guard is dropped.
-pub struct Guard {
+/// Its drop reports a `container_stopped` event through the observer.
+pub struct Guard<O: crate::Observer> {
     _tmp_connector_init: tempfile::TempPath,
     _tmp_docker_inspect: tempfile::TempPath,
     _process: async_process::Child,
+    image: String,
+    observer: O,
+}
+
+impl<O: crate::Observer> Drop for Guard<O> {
+    fn drop(&mut self) {
+        self.observer.container_stopped(&self.image);
+    }
 }
 
 fn unique_container_name() -> String {
@@ -396,7 +418,7 @@ where
     Ok(output.stdout)
 }
 
-async fn docker_pull(image: &str) -> anyhow::Result<()> {
+async fn docker_pull(image: &str, observer: &impl crate::Observer) -> anyhow::Result<()> {
     const MAX_RETRIES: u32 = 3;
     const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -412,13 +434,7 @@ async fn docker_pull(image: &str) -> anyhow::Result<()> {
             || err_str.contains("unexpected EOF");
 
         if is_transient && attempt < MAX_RETRIES {
-            tracing::warn!(
-                %image,
-                attempt,
-                max_retries = MAX_RETRIES,
-                error = %err,
-                "transient error pulling image (will retry)"
-            );
+            observer.image_pull_retry(image, attempt, &err_str);
             tokio::time::sleep(RETRY_DELAY).await;
         } else {
             return Err(err);
@@ -670,9 +686,12 @@ async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Res
 async fn inspect_image_and_copy(
     image: &str,
     tmp_path: &std::path::Path,
+    observer: &impl crate::Observer,
 ) -> anyhow::Result<(ImageInspection, connector_init::Codec)> {
     if !image.ends_with(":local") {
-        docker_pull(image).await.context("pulling image")?;
+        docker_pull(image, observer)
+            .await
+            .context("pulling image")?;
     }
 
     let inspect_content = docker_cmd(&["inspect", image])
@@ -711,7 +730,7 @@ mod test {
 
         let (container, channel, _guard, _codec) = start(
             "ghcr.io/estuary/source-http-ingest:dev",
-            ops::tracing_log_handler,
+            crate::NoopObserver,
             ops::LogLevel::Debug,
             "",
             "a-task-name",
@@ -772,7 +791,7 @@ mod test {
 
         let Err(err) = start(
             "alpine", // Not a connector.
-            ops::tracing_log_handler,
+            crate::NoopObserver,
             ops::LogLevel::Debug,
             "",
             "a-task-name",

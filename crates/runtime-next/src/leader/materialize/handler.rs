@@ -4,8 +4,13 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
-pub(crate) async fn serve<R>(
-    service: crate::Service,
+pub(crate) async fn serve<
+    R,
+    Shuffle: crate::ShuffleSessionFactory,
+    Pub: crate::PublisherFactory,
+    Obs: crate::ObserverFactory,
+>(
+    service: crate::Service<Shuffle, Pub, Obs>,
     authz: proto_grpc::Authorizer,
     request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
@@ -23,8 +28,13 @@ where
         .await
 }
 
-async fn serve_inner<R>(
-    service: crate::Service,
+async fn serve_inner<
+    R,
+    Shuffle: crate::ShuffleSessionFactory,
+    Pub: crate::PublisherFactory,
+    Obs: crate::ObserverFactory,
+>(
+    service: crate::Service<Shuffle, Pub, Obs>,
     authz: proto_grpc::Authorizer,
     mut request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
@@ -187,6 +197,7 @@ where
             committed_close,
             committed_frontier,
             idempotent_replay,
+            observer,
             pending_ack_intents,
             pending_trigger_params,
             publisher,
@@ -230,6 +241,7 @@ where
             service.http_client.clone(),
             legacy_checkpoint,
             metrics,
+            observer,
             publisher,
             shard_tx,
             task,

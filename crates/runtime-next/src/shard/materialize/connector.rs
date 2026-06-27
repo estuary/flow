@@ -9,8 +9,9 @@ use zeroize::Zeroize;
 // Start a materialization connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses,
 // plus OpenExtras with decrypted trigger configs and connector metadata.
-pub async fn start<L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+pub async fn start<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: &crate::shard::Service<Pub, Obs>,
+    observer: &Obs::Observer,
     log_level: ops::LogLevel,
     mut initial: materialize::Request,
 ) -> anyhow::Result<(
@@ -45,7 +46,7 @@ pub async fn start<L: crate::LogHandler>(
 
             let (rx, container, codec) = crate::image_connector::serve(
                 image.clone(),
-                service.log_handler.clone(),
+                observer.clone(),
                 log_level,
                 &service.container_network,
                 connector_rx,
@@ -82,7 +83,7 @@ pub async fn start<L: crate::LogHandler>(
             let rx = crate::local_connector::serve(
                 command,
                 env,
-                service.log_handler.clone(),
+                observer.clone(),
                 log_level,
                 codec,
                 connector_rx,

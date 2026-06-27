@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 
 /// Outcomes of the leader protocol startup phase.
-pub(super) struct Startup {
+pub(super) struct Startup<Pub: crate::Publisher, Shuffle: crate::leader::ShuffleSession> {
     // Clock at which the last-committed transaction closed.
     pub committed_close: uuid::Clock,
     // Fully committed Frontier.
@@ -19,9 +19,9 @@ pub(super) struct Startup {
     // Recovered ACK intents of the last transaction.
     pub pending_ack_intents: BTreeMap<String, Bytes>,
     // Publisher for writing stats and ACK intents.
-    pub publisher: crate::Publisher,
+    pub publisher: Pub,
     // Initiated shuffle session for the task and topology.
-    pub session: shuffle::SessionClient,
+    pub session: Shuffle,
     // Task definition.
     pub task: Task,
 }
@@ -32,17 +32,21 @@ pub(super) struct Startup {
     skip_all,
     fields(shard_zero = %shard_ids[0], shards = shard_ids.len())
 )]
-pub(super) async fn run(
+pub(super) async fn run<
+    Shuffle: crate::ShuffleSessionFactory,
+    Pub: crate::PublisherFactory,
+    Obs: crate::ObserverFactory,
+>(
     build: String,
     drop_v1_rollback: bool,
     ops_stats_journal: String,
     reactors: Vec<String>,
     shard_rx: &mut Vec<BoxStream<'static, tonic::Result<proto::Derive>>>,
     shard_tx: &Vec<mpsc::UnboundedSender<tonic::Result<proto::Derive>>>,
-    service: &crate::Service,
+    service: &crate::Service<Shuffle, Pub, Obs>,
     shard_ids: Vec<String>,
     shard_shuffles: Vec<shuffle::proto::Shard>,
-) -> anyhow::Result<Startup> {
+) -> anyhow::Result<Startup<Pub::Publisher, Shuffle::Session>> {
     let n_shards = reactors.len();
     assert_eq!(n_shards, shard_rx.len());
     assert_eq!(n_shards, shard_tx.len());
@@ -76,7 +80,6 @@ pub(super) async fn run(
 
     // Build task definition.
     let proto::Task {
-        preview,
         max_transactions,
         spec: spec_bytes,
         sqlite_vfs_uri: _,
@@ -89,19 +92,16 @@ pub(super) async fn run(
         .await
         .context("building task definition")?;
 
-    // Initialize publisher.
-    let publisher = if preview {
-        crate::Publisher::new_preview([])
-    } else {
-        crate::Publisher::new_real(
+    // Open a publisher for stats and ACK intents (no collection bindings).
+    let publisher = service
+        .publisher_factory
+        .open(
             shard_ids[0].clone(), // Shard zero is AuthZ subject.
             crate::publish::producer_from_bytes(&publisher_id)?,
-            &service.publisher_factory,
             &ops_stats_journal,
-            [], // No additional bindings.
+            &[],
         )
-        .context("creating publisher")?
-    };
+        .context("opening publisher")?;
 
     // Receive Recover fan-in.
     let proto::Recover {
@@ -301,14 +301,11 @@ pub(super) async fn run(
     let shuffle_task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::Derivation(spec)),
     };
-    let session = shuffle::SessionClient::open(
-        &service.shuffle_service,
-        shuffle_task,
-        shard_shuffles,
-        resume_frontier,
-    )
-    .await
-    .context("opening shuffle Session")?;
+    let session = service
+        .shuffle_factory
+        .open(shuffle_task, shard_shuffles, resume_frontier)
+        .await
+        .context("opening shuffle session")?;
 
     Ok(Startup {
         committed_close,

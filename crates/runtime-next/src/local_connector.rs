@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 pub fn serve<Request, Response>(
     command: Vec<String>,                // Connector to run.
     env: BTreeMap<String, String>,       // Environment variables.
-    log_handler: impl crate::LogHandler, // Handler for connector logs.
+    observer: impl crate::Observer,      // Observer for connector logs.
     log_level: ops::LogLevel,            // Log-level of the container, if known.
     codec: connector_init::Codec,        // Codec spoken by the connector.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
@@ -22,11 +22,15 @@ where
     connector.env("LOG_FORMAT", "json");
     connector.env("LOG_LEVEL", log_level.or(ops::LogLevel::Info).as_str_name());
 
+    // Local connectors have no container lifecycle; the observer is used only as
+    // the connector log sink.
+    let log_sink = move |log: &ops::Log| observer.log(log);
+
     let container_rx = connector_init::rpc::bidi::<Request, Response, _, _>(
         connector,
         codec,
         tokio_stream::wrappers::ReceiverStream::new(request_rx).map(Result::Ok),
-        log_handler.clone().as_fn(),
+        log_sink,
     )?;
 
     Ok(container_rx)

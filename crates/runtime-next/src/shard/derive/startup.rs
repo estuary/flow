@@ -61,7 +61,7 @@ pub async fn dial_and_join(
     }
 }
 
-pub(super) struct Startup {
+pub(super) struct Startup<Pub: crate::Publisher> {
     pub accumulator: crate::Accumulator,
     pub codec: connector_init::Codec,
     pub connector_rx: BoxStream<'static, tonic::Result<derive::Response>>,
@@ -69,13 +69,13 @@ pub(super) struct Startup {
     pub db: crate::shard::RocksDB,
     pub leader_rx: tonic::Streaming<proto::Derive>,
     pub leader_tx: mpsc::UnboundedSender<proto::Derive>,
-    pub publisher: crate::Publisher,
+    pub publisher: Pub,
     pub shuffle_reader: shuffle::log::Reader,
     pub task: Task,
     pub write_shape: doc::Shape,
 }
 
-pub(super) async fn run<R, L: crate::LogHandler>(
+pub(super) async fn run<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     db: crate::shard::RocksDB,
@@ -84,12 +84,13 @@ pub(super) async fn run<R, L: crate::LogHandler>(
     mut leader_rx: tonic::Streaming<proto::Derive>,
     leader_tx: mpsc::UnboundedSender<proto::Derive>,
     log_level: ops::LogLevel,
-    service: &crate::shard::Service<L>,
+    observer: &Obs::Observer,
+    service: &crate::shard::Service<Pub, Obs>,
     shard_id: String,
     shard_index: u32,
     shard_producer: proto_gazette::uuid::Producer,
     shuffle_directory: String,
-) -> anyhow::Result<Startup>
+) -> anyhow::Result<Startup<Pub::Publisher>>
 where
     R: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
 {
@@ -114,7 +115,6 @@ where
 
     let proto::Task {
         max_transactions: _,
-        preview,
         spec: spec_bytes,
         sqlite_vfs_uri,
         publisher_id: _, // Consumed above; the leader, not this shard, uses it.
@@ -127,18 +127,15 @@ where
 
     // The derived collection is the single additional publisher binding;
     // publisher binding zero is the fixed ops-stats journal.
-    let publisher = if preview {
-        crate::Publisher::new_preview([&spec])
-    } else {
-        crate::Publisher::new_real(
+    let publisher = service
+        .publisher_factory
+        .open(
             shard_id, // Shard ID is AuthZ subject.
             shard_producer,
-            &service.publisher_factory,
             &labeling.stats_journal,
-            [&spec],
+            &[&spec],
         )
-        .context("creating publisher")?
-    };
+        .context("opening publisher")?;
 
     // Scan and send L:Recover state from RocksDB. Derivations have no max-keys
     // (connector state is a singleton), but the committed/hinted frontier is
@@ -223,7 +220,7 @@ where
     }
 
     let (connector_tx, mut connector_rx, container, codec) =
-        super::connector::start(service, log_level, initial).await?;
+        super::connector::start(service, observer, log_level, initial).await?;
 
     let verify = crate::verify("Derive", "Opened", "connector");
     let opened = match verify.not_eof(connector_rx.next().await)? {

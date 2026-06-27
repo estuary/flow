@@ -61,10 +61,14 @@ impl TaskService {
         let shard_svc = shard::Service::new(
             crate::proto::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?,
             container_network,
-            log_handler,
             Some(tokio_context.set_log_level_fn()),
             task_name,
-            publisher_factory,
+            crate::JournalPublisherFactory::new(publisher_factory),
+            // Each session's Observer writes connector logs to the task-log file
+            // (the same encoded-JSON handler the runtime's own tracing uses) and
+            // surfaces runtime events through their tracing defaults, which the Go
+            // runtime forwards to the task's ops-log journal.
+            crate::FnObserverFactory::new(log_handler),
             // Inert registry: TaskService is the CGO entry point and does not
             // serve an admin surface; event! tracks still capture per-handler.
             service_kit::Registry::default(),

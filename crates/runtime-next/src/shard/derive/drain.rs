@@ -12,7 +12,7 @@ use anyhow::Context;
 use bytes::Bytes;
 
 /// Resources and results handed back to the actor when a drain completes.
-pub(super) struct Output {
+pub(super) struct Output<Pub: crate::Publisher> {
     /// The drained combiner, recycled as the next transaction's accumulator.
     pub accumulator: crate::Accumulator,
     /// Documents drained from the combiner and published this transaction.
@@ -22,21 +22,22 @@ pub(super) struct Output {
     /// This shard's publisher commit, or None when nothing was published.
     pub publisher_commit: Option<crate::proto::derive::stored::PublisherCommit>,
     /// The publisher, borrowed for the drain's journal appends.
-    pub publisher: crate::Publisher,
+    pub publisher: Pub,
     /// The collection's inferred write shape, possibly widened this transaction.
     pub write_shape: doc::Shape,
 }
 
 /// Drain the rotated output combiner: publish each derived document, fold it
 /// into inference, then flush and snapshot the publisher commit.
-pub(super) async fn drain_and_publish(
+pub(super) async fn drain_and_publish<Pub: crate::Publisher, O: crate::Observer>(
     drainer: doc::combine::Drainer,
     parser: simd_doc::Parser,
-    mut publisher: crate::Publisher,
+    mut publisher: Pub,
     task: std::sync::Arc<Task>,
     mut write_shape: doc::Shape,
     metrics: super::Metrics,
-) -> anyhow::Result<Output> {
+    observer: O,
+) -> anyhow::Result<Output<Pub>> {
     // Resync the publisher clock to wall-clock time at the start of this
     // transaction's stream of published documents. Each `publish_doc` and the
     // closing `commit_intents` then tick it up by a single microsecond, so
@@ -93,12 +94,9 @@ pub(super) async fn drain_and_publish(
         );
 
     if updated_inference {
-        let serialized = doc::shape::schema::to_schema(write_shape.clone());
-        tracing::info!(
-            schema = ?ops::DebugJson(serialized),
-            collection_name = %task.collection_name,
-            "inferred schema updated",
-        );
+        let schema = serde_json::to_value(doc::shape::schema::to_schema(write_shape.clone()))
+            .unwrap_or_default();
+        observer.inferred_schema(&task.collection_name, None, &schema);
         metrics.inferred_schema_updates.increment(1);
     }
 

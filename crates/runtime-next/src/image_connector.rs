@@ -8,9 +8,9 @@ pub type StartRpcFuture<Response> =
 
 /// Serve an image-based connector by starting a container, dialing connector-init,
 /// and then starting a gRPC request.
-pub async fn serve<Request, Response, StartRpc, L: crate::LogHandler>(
+pub async fn serve<Request, Response, StartRpc, O: crate::Observer>(
     image: String,                       // Container image to run.
-    log_handler: L,                      // Handler for connector logs.
+    observer: O,                         // Observer for connector logs and lifecycle.
     log_level: ops::LogLevel,            // Log-level of the connector, if known.
     network: &str,                       // Container network to use.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
@@ -19,7 +19,7 @@ pub async fn serve<Request, Response, StartRpc, L: crate::LogHandler>(
     task_type: ops::TaskType,            // Type of this task, for labeling container.
     plane: crate::Plane,                 // Data-plane context in which the connector is running.
 ) -> anyhow::Result<(
-    impl Stream<Item = tonic::Result<Response>> + Send + use<Request, Response, StartRpc, L>,
+    impl Stream<Item = tonic::Result<Response>> + Send + use<Request, Response, StartRpc, O>,
     crate::proto::Container,
     connector_init::Codec,
 )>
@@ -31,13 +31,7 @@ where
         + 'static,
 {
     let (container, channel, guard, codec) = container::start(
-        &image,
-        log_handler.clone(),
-        log_level,
-        &network,
-        &task_name,
-        task_type,
-        plane,
+        &image, observer, log_level, &network, &task_name, task_type, plane,
     )
     .await?;
 

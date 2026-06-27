@@ -78,7 +78,7 @@ impl Drainer {
 
         // Serialize the root document so that we can account for its bytes
         // in reported measures. When the binding doesn't store the document,
-        // count bytes against a sink rather than allocating into `self.buf`.
+        // count bytes against a publisher rather than allocating into `self.buf`.
         let serialized = &binding
             .ser_policy
             .on_owned_with_truncation_indicator(&root, &truncation_indicator);

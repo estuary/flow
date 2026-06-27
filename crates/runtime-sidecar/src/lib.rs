@@ -113,8 +113,11 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
         Some(shuffle_signer),
     );
     let runtime_svc = runtime_next::Service::new(
-        shuffle_svc.clone(),
-        publisher_factory,
+        runtime_next::leader::ShuffleServiceFactory::new(shuffle_svc.clone()),
+        runtime_next::JournalPublisherFactory::new(publisher_factory),
+        // Inert observer: the sidecar leader will later publish runtime events
+        // directly (async) to the task's ops-log journal; for now they're inert.
+        runtime_next::NoopObserverFactory,
         registry.clone(),
         false, // Don't disarm, enforce AuthN+AuthZ.
     );

@@ -111,6 +111,29 @@ impl RocksDB {
             .context("RocksDB Persist write")
     }
 
+    /// Seed the connector-state singleton with `initial_state_json`, as if a
+    /// connector had produced it, before any Recover scan observes the DB.
+    ///
+    /// Used by the `flowctl preview --initial-state` harness, which opens shard
+    /// zero's RocksDB by path and seeds it before handing the path to the
+    /// runtime. A `Put` (not `Merge`) establishes the exact base document, so a
+    /// later connector state patch merges atop it; the value is read back
+    /// verbatim as `Recover.connector_state_json`.
+    pub async fn seed_initial_connector_state(
+        self,
+        initial_state_json: &[u8],
+    ) -> anyhow::Result<Self> {
+        let mut wb = rocksdb::WriteBatch::default();
+        wb.put(recovery::KEY_CONNECTOR_STATE, initial_state_json);
+
+        let mut wo = rocksdb::WriteOptions::new();
+        wo.set_sync(true);
+
+        self.write_opt(wb, wo)
+            .await
+            .context("RocksDB seed connector state write")
+    }
+
     /// Scan the entire DB into a [`proto::Recover`] using a blocking
     /// background thread. Returns `(self, Recover)`.
     ///

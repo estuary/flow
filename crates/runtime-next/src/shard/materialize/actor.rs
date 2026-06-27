@@ -483,6 +483,8 @@ impl Actor {
                 ..Default::default()
             });
         } else if let Some(materialize::response::StartedCommit { state }) = resp.started_commit {
+            // The connector-state update is forwarded to the leader, which
+            // reduces it across shards and observes it once per transaction.
             _ = self.leader_tx.send(proto::Materialize {
                 started_commit: Some(proto::materialize::StartedCommit {
                     connector_patches_json: patches::encode_connector_state(state),

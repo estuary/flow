@@ -1158,7 +1158,7 @@ fn build_stats_doc(
 
     Ok(ops::proto::Stats {
         meta: Some(ops::proto::Meta {
-            uuid: String::new(), // Stamped by Publisher::enqueue()
+            uuid: String::new(), // Stamped by publisher::Publisher::enqueue()
         }),
         shard: Some(task.shard_ref.clone()),
         timestamp: extents.open.to_pb_json_timestamp(),

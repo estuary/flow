@@ -35,6 +35,7 @@ mod local_connector;
 mod tokio_context;
 
 pub mod leader;
+pub mod observe;
 pub mod patches;
 pub mod publish;
 pub mod shard;
@@ -42,8 +43,13 @@ mod task_service;
 
 pub use container::flow_runtime_protocol;
 
-pub use leader::Service;
-pub use publish::{Publisher, new_producer};
+pub use leader::{Service, ShuffleServiceFactory, ShuffleSession, ShuffleSessionFactory};
+pub use observe::{
+    FnObserver, FnObserverFactory, NoopObserver, NoopObserverFactory, Observer, ObserverFactory,
+};
+pub use publish::{
+    JournalPublisher, JournalPublisherFactory, Publisher, PublisherFactory, new_producer,
+};
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
 
@@ -129,18 +135,33 @@ pub fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
     }
 }
 
-pub trait LogHandler: Send + Sync + Clone + 'static {
-    fn log(&self, log: &ops::Log);
-
-    fn as_fn(self) -> impl Fn(&ops::Log) + Send + Sync + 'static {
-        move |log| self.log(log)
-    }
+/// Seed shard zero's RocksDB at `descriptor` with an initial connector state,
+/// then close it. The `flowctl preview --initial-state` harness calls this
+/// before handing the same path to the runtime via a `SessionLoop`, so the
+/// runtime recovers the seeded state on its first scan exactly as if a prior
+/// connector session had persisted it. Production never calls this.
+pub async fn seed_initial_connector_state(
+    descriptor: proto_flow::runtime::RocksDbDescriptor,
+    initial_state_json: &[u8],
+) -> anyhow::Result<()> {
+    let db = shard::rocksdb::RocksDB::open(Some(descriptor)).await?;
+    let _db = db.seed_initial_connector_state(initial_state_json).await?;
+    Ok(())
 }
 
-impl<T: Fn(&ops::Log) + Send + Sync + Clone + 'static> LogHandler for T {
-    fn log(&self, log: &ops::Log) {
-        self(log)
-    }
+/// Re-open shard zero's RocksDB at `descriptor` and return its reduced connector
+/// state — the exact `Recover.connector_state_json` the runtime itself would
+/// recover (empty if none was ever persisted). The `flowctl preview
+/// --output-state` harness calls this after the session loop has closed the
+/// runtime's own handle, to emit the run's final reduced state. Reuses the
+/// normal recovery `scan`, so it stays consistent with how the runtime reads
+/// state; production never calls this.
+pub async fn read_final_connector_state(
+    descriptor: proto_flow::runtime::RocksDbDescriptor,
+) -> anyhow::Result<bytes::Bytes> {
+    let db = shard::rocksdb::RocksDB::open(Some(descriptor)).await?;
+    let (_db, recover) = db.scan(Vec::new()).await?;
+    Ok(recover.connector_state_json)
 }
 
 struct Accumulator(doc::combine::Accumulator, simd_doc::Parser);

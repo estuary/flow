@@ -6,8 +6,8 @@ use proto_flow::materialize;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
-pub(crate) async fn serve<R, L: crate::LogHandler>(
-    service: crate::shard::Service<L>,
+pub(crate) async fn serve<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: crate::shard::Service<Pub, Obs>,
     mut controller_rx: R,
     controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
 ) -> anyhow::Result<()>
@@ -72,8 +72,8 @@ where
     Ok(())
 }
 
-pub async fn serve_unary<L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+pub async fn serve_unary<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: &crate::shard::Service<Pub, Obs>,
     request: materialize::Request,
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Materialize> {
@@ -81,8 +81,11 @@ pub async fn serve_unary<L: crate::LogHandler>(
     let is_validate = request.validate.is_some();
     let is_apply = request.apply.is_some();
 
+    // A standalone Spec / Validate / Apply connector invocation (no session):
+    // open a throwaway observer purely as the connector log sink.
+    let observer = service.observer_factory.open(&service.task_name);
     let (connector_tx, mut connector_rx, _container, _codec) =
-        connector::start(service, log_level, request).await?;
+        connector::start(service, &observer, log_level, request).await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     // Read connector response, and verify it matches the request type.
@@ -124,8 +127,8 @@ pub async fn serve_unary<L: crate::LogHandler>(
     Ok(response)
 }
 
-async fn serve_session_loop<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session_loop<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: &crate::shard::Service<Pub, Obs>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     session_loop: proto::SessionLoop,
@@ -164,8 +167,8 @@ where
     Ok(())
 }
 
-async fn serve_session<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: &crate::shard::Service<Pub, Obs>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
@@ -193,8 +196,8 @@ where
     .await
 }
 
-async fn serve_session_inner<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session_inner<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: &crate::shard::Service<Pub, Obs>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
@@ -259,6 +262,11 @@ where
 
     handler.set_phase("starting");
 
+    // One Observer per session, used as the connector log sink by `startup::run`'s
+    // connector start. (The materialize shard produces no documents, so there's no
+    // inferred-schema reporting and the Actor needs no observer.)
+    let observer = service.observer_factory.open(&service.task_name);
+
     let startup::Startup {
         accumulator,
         bindings,
@@ -281,6 +289,7 @@ where
         leader_rx,
         leader_tx,
         log_level,
+        &observer,
         service,
         shard_index,
         shuffle_directory,

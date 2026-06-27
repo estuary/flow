@@ -6,8 +6,8 @@ use proto_flow::derive;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
-pub(crate) async fn serve<R, L: crate::LogHandler>(
-    service: crate::shard::Service<L>,
+pub(crate) async fn serve<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: crate::shard::Service<Pub, Obs>,
     mut controller_rx: R,
     controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
 ) -> anyhow::Result<()>
@@ -76,16 +76,19 @@ where
     Ok(())
 }
 
-pub async fn serve_unary<L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+pub async fn serve_unary<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: &crate::shard::Service<Pub, Obs>,
     request: derive::Request,
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Derive> {
     let is_spec = request.spec.is_some();
     let is_validate = request.validate.is_some();
 
+    // A standalone Spec / Validate connector invocation (no session): open a
+    // throwaway observer purely as the connector log sink.
+    let observer = service.observer_factory.open(&service.task_name);
     let (connector_tx, mut connector_rx, _container, _codec) =
-        connector::start(service, log_level, request).await?;
+        connector::start(service, &observer, log_level, request).await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     let verify = crate::verify("Derive", "unary response", "connector");
@@ -111,8 +114,8 @@ pub async fn serve_unary<L: crate::LogHandler>(
     Ok(response)
 }
 
-async fn serve_session_loop<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session_loop<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: &crate::shard::Service<Pub, Obs>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     session_loop: proto::SessionLoop,
@@ -154,8 +157,8 @@ where
     Ok(())
 }
 
-async fn serve_session<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: &crate::shard::Service<Pub, Obs>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     db: crate::shard::RocksDB,
@@ -182,8 +185,8 @@ where
     .await
 }
 
-async fn serve_session_inner<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session_inner<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+    service: &crate::shard::Service<Pub, Obs>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     db: crate::shard::RocksDB,
@@ -248,6 +251,11 @@ where
 
     handler.set_phase("starting");
 
+    // One Observer per session: the connector log sink (used by `startup::run`'s
+    // connector start) and the drain's inferred-schema reporter (handed to the
+    // Actor below).
+    let observer = service.observer_factory.open(&service.task_name);
+
     let startup::Startup {
         accumulator,
         codec,
@@ -269,6 +277,7 @@ where
         leader_rx,
         leader_tx,
         log_level,
+        &observer,
         service,
         shard_id,
         shard_index,
@@ -285,6 +294,7 @@ where
         db,
         leader_tx,
         metrics,
+        observer,
         publisher,
         std::sync::Arc::new(task),
         write_shape,

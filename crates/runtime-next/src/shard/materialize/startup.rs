@@ -78,7 +78,7 @@ pub(super) struct Startup {
     pub shuffle_reader: shuffle::log::Reader,
 }
 
-pub(super) async fn run<R, L: crate::LogHandler>(
+pub(super) async fn run<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
@@ -87,7 +87,8 @@ pub(super) async fn run<R, L: crate::LogHandler>(
     mut leader_rx: tonic::Streaming<proto::Materialize>,
     leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     log_level: ops::LogLevel,
-    service: &crate::shard::Service<L>,
+    observer: &Obs::Observer,
+    service: &crate::shard::Service<Pub, Obs>,
     shard_index: u32,
     shuffle_directory: String,
 ) -> anyhow::Result<Startup>
@@ -116,7 +117,6 @@ where
 
     let proto::Task {
         max_transactions: _,
-        preview: _,
         spec: spec_bytes,
         sqlite_vfs_uri: _,
         publisher_id: _,
@@ -127,6 +127,7 @@ where
         .context("invalid Task materialization")?;
     let (bindings, shard_ref) =
         super::task::build_bindings(&spec, &labeling).context("building task definition")?;
+    let binding_state_keys: Vec<String> = bindings.iter().map(|b| b.state_key.clone()).collect();
     // Reserved for future logging; the actor and scan/drain activities
     // don't presently need shard identity.
     let _ = shard_ref;
@@ -151,8 +152,6 @@ where
         recover: Some(recover),
         ..Default::default()
     });
-
-    let binding_state_keys: Vec<String> = bindings.iter().map(|b| b.state_key.clone()).collect();
 
     // Read and execute L:Apply and L:Persist from the leader until L:Open.
     let open = loop {
@@ -245,7 +244,7 @@ where
         ..Default::default()
     };
     let (connector_tx, mut connector_rx, container, codec) =
-        super::connector::start(service, log_level, initial).await?;
+        super::connector::start(service, observer, log_level, initial).await?;
 
     // Read C:Opened from the connector.
     let verify = crate::verify("Materialize", "Opened", "connector");

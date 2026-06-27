@@ -6,6 +6,9 @@
 //! preview`, or a unit-test harness. From this crate's perspective the
 //! controller is just the peer of the bidi stream that commands the
 //! runtime and bounds its lifecycle.
+//!
+//! `Service` is monomorphized over its [`PublisherFactory`](crate::PublisherFactory)
+//! `Pub`, so the publish path is statically dispatched.
 
 use crate::proto;
 use futures::Stream;
@@ -15,43 +18,44 @@ use tokio_stream::wrappers;
 /// Service is the implementation of the controller-facing `Shard` gRPC
 /// service trait, hosting one shard's transaction loop.
 #[derive(Clone)]
-pub struct Service<L: crate::LogHandler> {
+pub struct Service<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory> {
     pub plane: crate::Plane,
     pub container_network: String,
-    pub log_handler: L,
     pub set_log_level: Option<std::sync::Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
     pub task_name: String,
-    pub publisher_factory: gazette::journal::ClientFactory,
+    pub publisher_factory: Pub,
+    pub observer_factory: Obs,
     pub registry: service_kit::Registry,
     pub data_plane_signer: Option<proto_grpc::Signer>,
 }
 
-impl<L: crate::LogHandler> Service<L> {
+impl<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory> Service<Pub, Obs> {
     /// Build a new Shard Service.
     /// - `plane`: the type of data plane in which this Service is operating.
     /// - `container_network`: the Docker container network used for connector containers.
-    /// - `log_handler`: handler to which connector logs are dispatched.
     /// - `set_log_level`: callback for adjusting the log level implied by runtime requests.
     /// - `task_name`: name which is used to label any started connector containers.
-    /// - `publisher_factory`: client factory for creating and appending to collection partitions.
+    /// - `publisher_factory`: opens publishers for appending to collection partitions.
+    /// - `observer_factory`: opens an Observer per session, which sinks connector
+    ///   logs and reports runtime events.
     /// - `registry`: in-flight handler registry, shared with any co-hosted admin surface.
     pub fn new(
         plane: crate::Plane,
         container_network: String,
-        log_handler: L,
         set_log_level: Option<std::sync::Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
         task_name: String,
-        publisher_factory: gazette::journal::ClientFactory,
+        publisher_factory: Pub,
+        observer_factory: Obs,
         registry: service_kit::Registry,
         data_plane_signer: Option<proto_grpc::Signer>,
     ) -> Self {
         Self {
             plane,
             container_network,
-            log_handler,
             set_log_level,
             task_name,
             publisher_factory,
+            observer_factory,
             registry,
             data_plane_signer,
         }
@@ -137,7 +141,9 @@ impl<L: crate::LogHandler> Service<L> {
 }
 
 #[tonic::async_trait]
-impl<L: crate::LogHandler> proto_grpc::runtime::shard_server::Shard for Service<L> {
+impl<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>
+    proto_grpc::runtime::shard_server::Shard for Service<Pub, Obs>
+{
     type CaptureStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Capture>>;
     type DeriveStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;
     type MaterializeStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Materialize>>;

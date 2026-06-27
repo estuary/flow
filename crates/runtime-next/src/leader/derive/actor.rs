@@ -10,31 +10,33 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Actor leads transactions of an established derivation task session.
-pub struct Actor {
+pub struct Actor<P: crate::Publisher, O: crate::Observer> {
     // Future for an in-flight ACK intents write, if any.
-    intents_write_fut: Option<BoxFuture<'static, tonic::Result<crate::Publisher>>>,
+    intents_write_fut: Option<BoxFuture<'static, tonic::Result<P>>>,
     // Optional full Frontier and Checkpoint, used for V1 rollback support.
     legacy_checkpoint: Option<(shuffle::Frontier, consumer::Checkpoint)>,
     // Per-task metrics counters.
     metrics: super::Metrics,
+    // Observer of actor lifecycle events.
+    observer: O,
     // Publisher for stats and ACK intents, parked while no async operation is in-flight.
-    parked_publisher: Option<crate::Publisher>,
+    parked_publisher: Option<P>,
     // ACK intents to persist and append at later transaction stages.
     pending_ack_intents: BTreeMap<String, Bytes>,
     // One channel to each shard for synchronously sending it messages.
     shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Derive>>>,
     // Future for an in-flight stats flush, if any, yielding ACK intents.
-    stats_write_fut:
-        Option<BoxFuture<'static, tonic::Result<(crate::Publisher, BTreeMap<String, Bytes>)>>>,
+    stats_write_fut: Option<BoxFuture<'static, tonic::Result<(P, BTreeMap<String, Bytes>)>>>,
     // Task being executed by this actor.
     task: Task,
 }
 
-impl Actor {
+impl<P: crate::Publisher, O: crate::Observer> Actor<P, O> {
     pub fn new(
         legacy_checkpoint: Option<shuffle::Frontier>,
         metrics: super::Metrics,
-        publisher: crate::Publisher,
+        observer: O,
+        publisher: P,
         shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Derive>>>,
         task: Task,
     ) -> Self {
@@ -42,6 +44,7 @@ impl Actor {
             intents_write_fut: None,
             legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
             metrics,
+            observer,
             parked_publisher: Some(publisher),
             pending_ack_intents: BTreeMap::new(),
             shard_tx,
@@ -51,11 +54,11 @@ impl Actor {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve(
+    pub async fn serve<Shuffle: crate::leader::ShuffleSession>(
         &mut self,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
-        mut session: shuffle::SessionClient,
+        mut session: Shuffle,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Derive>>>,
     ) -> anyhow::Result<()> {
         service_kit::event!(
@@ -246,7 +249,7 @@ impl Actor {
                     }
                     shard_rx.push(next_shard_rx((shard_index, rx)));
                 }
-                // Receive a requested NextCheckpoint frontier.
+                // Receive a requested next checkpoint.
                 result = session.recv_checkpoint(), if checkpoint_requested => {
                     let frontier = result?;
                     let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) = frontier.measures();
@@ -355,6 +358,11 @@ impl Actor {
             }
 
             fsm::Action::Persist { persist } => {
+                // Observe the Persist as it's emitted. The observer renders the
+                // committing transaction's connector-state delta and ignores
+                // persists carrying none (idempotent replays, ACK-only persists).
+                self.observer.persist(&persist);
+
                 service_kit::event!(tracing::Level::DEBUG, "shard", "sending L:Persist");
                 let _ = self.shard_tx[0].send(Ok(proto::Derive {
                     persist: Some(persist),
@@ -385,7 +393,7 @@ impl Actor {
                         () = publisher.publish_stats(stats).await?;
 
                         // Build ACK intents from all shard publisher_commits
-                        // plus the leader's own stats-publisher commit.
+                        // plus the leader's own stats commit intent.
                         let mut all_commits: Vec<(uuid::Producer, uuid::Clock, Vec<String>)> =
                             publisher_commits
                                 .into_iter()
