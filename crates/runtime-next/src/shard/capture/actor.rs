@@ -23,7 +23,7 @@ use tokio::sync::mpsc;
 /// resource (`db`, `publisher`, ...) is `None` exactly while its future runs,
 /// and is restored when that future completes — the "parking" pattern shared
 /// with the materialize leader actor.
-pub(super) struct Actor {
+pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // --- Task and IO endpoints, fixed for the session. ---
     // `task` is shared (Arc) so the drain future can hold its own handle.
     task: std::sync::Arc<Task>,
@@ -32,11 +32,13 @@ pub(super) struct Actor {
     metrics: super::Metrics,
     // When Some, a deadline at which we begin a graceful session stop.
     token_restart_at: Option<tokio::time::Instant>,
+    // Logger of task-centric state changes and events.
+    logger: L,
 
     // --- Parked resources: `Some` unless borrowed by an in-flight future. ---
     // RocksDB is parked with its per-binding state keys.
     db: Option<(crate::shard::RocksDB, Vec<String>)>,
-    publisher: Option<crate::Publisher>,
+    publisher: Option<P>,
     // Inferred per-binding write-shapes. Seeded from prior sessions at
     // construction, parked into the drain future, handed back at session end.
     shapes: Option<Vec<doc::Shape>>,
@@ -48,12 +50,11 @@ pub(super) struct Actor {
 
     // --- In-flight IO futures; `None` when idle. ---
     acknowledge_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
-    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output>>>,
-    intents_write_fut: Option<BoxFuture<'static, tonic::Result<crate::Publisher>>>,
+    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
+    intents_write_fut: Option<BoxFuture<'static, tonic::Result<P>>>,
     persist_fut: Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, Vec<String>)>>>,
     split_fut: Option<crate::shard::SplitFuture>,
-    stats_write_fut:
-        Option<BoxFuture<'static, tonic::Result<(crate::Publisher, BTreeMap<String, Bytes>)>>>,
+    stats_write_fut: Option<BoxFuture<'static, tonic::Result<(P, BTreeMap<String, Bytes>)>>>,
 
     // --- Hand-offs staged between FSM steps. ---
     // Drain output, staged for `TailDrain`.
@@ -69,13 +70,14 @@ struct DrainInput {
     parser: simd_doc::Parser,
 }
 
-impl Actor {
+impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         binding_state_keys: Vec<String>,
         connector_tx: mpsc::Sender<Request>,
         db: crate::shard::RocksDB,
         metrics: super::Metrics,
-        publisher: crate::Publisher,
+        logger: L,
+        publisher: P,
         shapes: Vec<doc::Shape>,
         task: std::sync::Arc<Task>,
         token_restart_at: Option<std::time::SystemTime>,
@@ -93,6 +95,7 @@ impl Actor {
             connector_tx,
             metrics,
             token_restart_at,
+            logger,
             db: Some((db, binding_state_keys)),
             publisher: Some(publisher),
             shapes: Some(shapes),
@@ -110,16 +113,16 @@ impl Actor {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<R, C>(
+    pub async fn serve<Ctrl, Conn>(
         mut self,
-        connector_rx: C,
-        controller_rx: &mut R,
+        connector_rx: Conn,
+        controller_rx: &mut Ctrl,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
     ) -> anyhow::Result<(crate::shard::RocksDB, Vec<doc::Shape>)>
     where
-        R: futures::Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
-        C: futures::Stream<Item = tonic::Result<Response>> + Send + Unpin + 'static,
+        Ctrl: futures::Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
+        Conn: futures::Stream<Item = tonic::Result<Response>> + Send + Unpin + 'static,
     {
         let mut connector_rx = std::pin::pin!(connector_rx);
 
@@ -243,7 +246,7 @@ impl Actor {
 
                 // Prioritize completions of Tail IO first.
                 Some(result) = maybe_fut(&mut self.drain_fut) => {
-                    let output : drain::Output = result?;
+                    let output: drain::Output<P> = result?;
                     accumulator_idle = Some(output.accumulator);
                     self.publisher = Some(output.publisher);
                     self.shapes = Some(output.shapes);
@@ -421,6 +424,7 @@ impl Actor {
                 let shapes = self.shapes.take().context("missing capture shape state")?;
                 let task = std::sync::Arc::clone(&self.task);
                 let metrics = self.metrics.clone();
+                let logger = self.logger.clone();
                 self.drain_fut = Some(
                     async move {
                         drain::drain_and_publish(
@@ -431,6 +435,7 @@ impl Actor {
                             sourced_schemas,
                             shapes,
                             metrics,
+                            logger,
                         )
                         .await
                     }
@@ -463,6 +468,9 @@ impl Actor {
             }
 
             fsm::Action::Persist { persist } => {
+                self.logger
+                    .event(crate::LogEvent::Persist { persist: &persist });
+
                 let (db, binding_state_keys) =
                     self.db.take().context("Persist while RocksDB is busy")?;
                 self.persist_fut = Some(
@@ -707,7 +715,7 @@ mod tests {
     }
 
     /// Drive `Actor::serve` end-to-end over mpsc channels standing in for the
-    /// connector and controller, with a real RocksDB and a preview Publisher.
+    /// connector and controller, with a real RocksDB.
     ///
     /// The connector emits two Captured documents (into distinct bindings) and a
     /// Checkpoint carrying connector state. The actor accumulates them, closes
@@ -729,16 +737,6 @@ mod tests {
             mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
 
         let task = std::sync::Arc::new(mk_task(true));
-        // Preview only reads each spec's `name`; a minimal spec per binding suffices.
-        let collection_specs: Vec<flow::CollectionSpec> = task
-            .bindings
-            .iter()
-            .map(|b| flow::CollectionSpec {
-                name: b.collection_name.clone(),
-                ..Default::default()
-            })
-            .collect();
-        let publisher = crate::Publisher::new_preview(collection_specs.iter());
         let shapes = task.binding_shapes_by_index(Default::default());
 
         let actor = Actor::new(
@@ -746,7 +744,8 @@ mod tests {
             connector_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
             super::super::Metrics::new("test/shard"),
-            publisher,
+            crate::TracingLogger,
+            crate::publish::NoopPublisher,
             shapes,
             task,
             None,
@@ -823,7 +822,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let publisher = crate::Publisher::new_test_real([&spec]);
+        let publisher = crate::JournalPublisher::new_test_real([&spec]);
         let shapes = task.binding_shapes_by_index(Default::default());
 
         let mut actor = Actor::new(
@@ -831,6 +830,7 @@ mod tests {
             connector_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
             super::super::Metrics::new("test/shard"),
+            crate::TracingLogger,
             publisher,
             shapes,
             task,

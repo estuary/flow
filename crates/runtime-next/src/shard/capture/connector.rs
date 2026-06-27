@@ -9,8 +9,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use unseal;
 use zeroize::Zeroize;
 
-pub async fn start<L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
+    logger: &L::Logger,
     log_level: ops::LogLevel,
     mut initial: Request,
 ) -> anyhow::Result<(
@@ -45,7 +46,7 @@ pub async fn start<L: crate::LogHandler>(
             // Captures don't have conditional JSON fields, so _codec is unused.
             let (rx, container, _codec) = crate::image_connector::serve(
                 image,
-                service.log_handler.clone(),
+                logger.clone(),
                 log_level,
                 &service.container_network,
                 connector_rx,
@@ -79,7 +80,7 @@ pub async fn start<L: crate::LogHandler>(
             let rx = crate::local_connector::serve(
                 command,
                 env,
-                service.log_handler.clone(),
+                logger.clone(),
                 log_level,
                 codec,
                 connector_rx,

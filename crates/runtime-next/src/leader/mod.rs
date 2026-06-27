@@ -5,6 +5,7 @@ use join::{JoinOutcome, JoinSlot, PendingJoin, validate as validate_join};
 pub mod close_policy;
 pub mod frontier_mapping;
 mod service;
+mod shuffle;
 
 // Task-specific handling.
 pub mod capture; // `pub` because it's directly used by shard actor.
@@ -12,6 +13,7 @@ mod derive;
 mod materialize;
 
 pub use service::Service;
+pub use shuffle::{ShuffleServiceFactory, ShuffleSession, ShuffleSessionFactory};
 
 /// Shard-label feature flag (under the `estuary.dev/flag/` prefix) that, when
 /// set to `"true"`, tells the leader to drop V1 rollback support for the task.

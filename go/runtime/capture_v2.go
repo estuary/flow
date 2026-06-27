@@ -149,7 +149,6 @@ func (c *captureAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.En
 	_ = c.client.Send(&pr.Capture{
 		Task: &pr.Task{
 			Spec:            specBytes,
-			Preview:         false,
 			MaxTransactions: 0,
 		},
 	})

@@ -113,8 +113,11 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
         Some(shuffle_signer),
     );
     let runtime_svc = runtime_next::Service::new(
-        shuffle_svc.clone(),
-        publisher_factory,
+        runtime_next::leader::ShuffleServiceFactory::new(shuffle_svc.clone()),
+        runtime_next::JournalPublisherFactory::new(publisher_factory),
+        // Events render as sidecar tracing until the Logger that publishes
+        // the task's log stream (async) to its ops-log journal exists.
+        runtime_next::TracingLoggerFactory,
         registry.clone(),
         false, // Don't disarm, enforce AuthN+AuthZ.
     );

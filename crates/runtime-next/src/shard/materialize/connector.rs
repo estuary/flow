@@ -11,8 +11,9 @@ use zeroize::Zeroize;
 // plus OpenExtras with decrypted trigger configs and connector metadata,
 // plus a deadline for gracefully restarting the session ahead of injected
 // IAM credential expiry (None when the task doesn't use IAM auth).
-pub async fn start<L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
+    logger: &L::Logger,
     log_level: ops::LogLevel,
     mut initial: materialize::Request,
 ) -> anyhow::Result<(
@@ -48,7 +49,7 @@ pub async fn start<L: crate::LogHandler>(
 
             let (rx, container, codec) = crate::image_connector::serve(
                 image.clone(),
-                service.log_handler.clone(),
+                logger.clone(),
                 log_level,
                 &service.container_network,
                 connector_rx,
@@ -85,7 +86,7 @@ pub async fn start<L: crate::LogHandler>(
             let rx = crate::local_connector::serve(
                 command,
                 env,
-                service.log_handler.clone(),
+                logger.clone(),
                 log_level,
                 codec,
                 connector_rx,

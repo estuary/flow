@@ -4,6 +4,10 @@ use anyhow::Context;
 use proto_flow::runtime::RocksDbDescriptor;
 use tokio::runtime;
 
+/// Re-exported so [`RocksDB::scan`]'s error type is nameable by out-of-crate
+/// callers (e.g. `flowctl preview`) now that this module is public.
+pub use super::recovery::DecodeError;
+
 /// RocksDB database used for task state.
 pub struct RocksDB {
     db: rocksdb::DB,
@@ -109,6 +113,28 @@ impl RocksDB {
         self.write_opt(wb, wo)
             .await
             .context("RocksDB Persist write")
+    }
+
+    /// Durably (`set_sync`) `Put` `base` as the connector-state document at
+    /// [`recovery::KEY_CONNECTOR_STATE`], replacing any prior value. A `Put`
+    /// (not `Merge`) establishes the exact base document, so a connector's later
+    /// state patches merge atop it, and it's read back verbatim as
+    /// `Recover.connector_state_json`.
+    ///
+    /// Shared by [`Self::seed_connector_state`], which seeds `{}` during the
+    /// runtime's own recovery scan, and by the `flowctl preview
+    /// --initial-state` harness, which seeds an arbitrary base by opening shard
+    /// zero's RocksDB by path before any Recover scan observes it.
+    pub async fn put_connector_state_base(self, base: &[u8]) -> anyhow::Result<Self> {
+        let mut wb = rocksdb::WriteBatch::default();
+        wb.put(recovery::KEY_CONNECTOR_STATE, base);
+
+        let mut wo = rocksdb::WriteOptions::new();
+        wo.set_sync(true);
+
+        self.write_opt(wb, wo)
+            .await
+            .context("RocksDB connector-state base write")
     }
 
     /// Scan the entire DB into a [`proto::Recover`] using a blocking
@@ -219,16 +245,7 @@ impl RocksDB {
             return Ok(self);
         }
 
-        let mut wb = rocksdb::WriteBatch::default();
-        wb.put(recovery::KEY_CONNECTOR_STATE, b"{}");
-        let mut wo = rocksdb::WriteOptions::new();
-        wo.set_sync(true);
-
-        let db = self
-            .write_opt(wb, wo)
-            .await
-            .context("seeding initial connector state")?;
-
+        let db = self.put_connector_state_base(b"{}").await?;
         recover.connector_state_json = bytes::Bytes::from_static(b"{}");
         Ok(db)
     }

@@ -20,7 +20,7 @@
 //! partitioned collection.
 
 use runtime_next::shard::split_policy::SplitPolicy;
-use runtime_next::{Publisher, shard};
+use runtime_next::{JournalPublisher, JournalPublisherFactory, Publisher, PublisherFactory, shard};
 
 use proto_gazette::{broker, uuid};
 use publisher::SplitOutcome;
@@ -99,8 +99,26 @@ impl KeyPool {
     }
 }
 
+/// Open a real single-collection publisher over `factory`, mirroring how a
+/// shard opens its [`JournalPublisher`] in production. Binding zero is the
+/// fixed ops-stats journal (never appended to here); the collection is binding
+/// one.
+fn open_publisher(
+    factory: &gazette::journal::ClientFactory,
+    spec: &proto_flow::flow::CollectionSpec,
+) -> JournalPublisher {
+    JournalPublisherFactory::new(factory.clone())
+        .open(
+            "test".to_string(),
+            runtime_next::new_producer(),
+            "testing/ops/stats",
+            &[spec],
+        )
+        .expect("open JournalPublisher")
+}
+
 /// Publish one transaction of `ids` as documents.
-async fn publish_txn(publisher: &mut Publisher, ids: &[String], payload: &str) {
+async fn publish_txn(publisher: &mut JournalPublisher, ids: &[String], payload: &str) {
     let docs = ids
         .iter()
         .map(|id| serde_json::json!({"id": id, "payload": payload}))
@@ -110,10 +128,8 @@ async fn publish_txn(publisher: &mut Publisher, ids: &[String], payload: &str) {
 
 /// Publish one transaction of arbitrary collection documents, stamping each
 /// with its assigned UUID under `/_meta/uuid`.
-async fn publish_txn_docs(publisher: &mut Publisher, docs: Vec<serde_json::Value>) {
-    let Publisher::Real(inner) = publisher else {
-        unreachable!("test publisher is Real");
-    };
+async fn publish_txn_docs(publisher: &mut JournalPublisher, docs: Vec<serde_json::Value>) {
+    let inner = publisher.inner_mut();
     for mut doc in docs {
         inner
             .enqueue(
@@ -133,7 +149,7 @@ async fn publish_txn_docs(publisher: &mut Publisher, docs: Vec<serde_json::Value
 
 /// Drain this transaction's throttle samples into owned pairs, releasing the
 /// publisher borrow so `start_due_split` can take it afterwards.
-fn take_samples(publisher: &mut Publisher) -> Vec<(String, bool)> {
+fn take_samples(publisher: &mut JournalPublisher) -> Vec<(String, bool)> {
     publisher
         .take_throttle_samples()
         .into_iter()
@@ -161,7 +177,7 @@ fn observe(policy: &mut SplitPolicy, samples: &[(String, bool)], now: Instant) {
 /// the loop simply re-evaluates against the refreshed watch.
 async fn dispatch_one_split(
     policy: &mut SplitPolicy,
-    publisher: &Publisher,
+    publisher: &JournalPublisher,
     now: Instant,
     split_count: &mut usize,
     at_floor: &mut BTreeSet<String>,
@@ -371,14 +387,7 @@ async fn journal_auto_split_converges_to_floor() {
     spec.partition_template.as_mut().unwrap().max_append_rate = TEST_MAX_APPEND_RATE;
     let partitions_prefix = format!("{}/", spec.partition_template.as_ref().unwrap().name);
 
-    let mut publisher = Publisher::new_real(
-        "test".to_string(),
-        runtime_next::new_producer(),
-        &factory,
-        "testing/ops/stats", // Fixed binding zero; never appended to.
-        [&spec],
-    )
-    .expect("Publisher::new_real");
+    let mut publisher = open_publisher(&factory, &spec);
 
     let mut policy = SplitPolicy::with_config(aggressive_config());
 
@@ -546,22 +555,8 @@ async fn concurrent_journal_split_loses_cas_race() {
 
     // Two publishers stand in for two shards of one task. Each holds its own
     // partition watch and split policy.
-    let mut pub_a = Publisher::new_real(
-        "test".to_string(),
-        runtime_next::new_producer(),
-        &factory,
-        "testing/ops/stats",
-        [&spec],
-    )
-    .expect("Publisher::new_real");
-    let mut pub_b = Publisher::new_real(
-        "test".to_string(),
-        runtime_next::new_producer(),
-        &factory,
-        "testing/ops/stats",
-        [&spec],
-    )
-    .expect("Publisher::new_real");
+    let mut pub_a = open_publisher(&factory, &spec);
+    let mut pub_b = open_publisher(&factory, &spec);
 
     // Any observed journal is instantly due, and the cooldown is long enough
     // that a completed attempt is observable as suppression.
@@ -702,14 +697,7 @@ async fn journal_split_lost_cas_is_non_destructive() {
     let (data_plane, spec, factory) = start_fixture("testing/autosplit").await;
     let partitions_prefix = format!("{}/", spec.partition_template.as_ref().unwrap().name);
 
-    let mut publisher = Publisher::new_real(
-        "test".to_string(),
-        runtime_next::new_producer(),
-        &factory,
-        "testing/ops/stats",
-        [&spec],
-    )
-    .expect("Publisher::new_real");
+    let mut publisher = open_publisher(&factory, &spec);
 
     // One document creates the full-range partition.
     let payload: String = "x".repeat(256);
@@ -805,14 +793,7 @@ async fn journal_auto_split_preserves_document_completeness() {
     spec.partition_template.as_mut().unwrap().max_append_rate = TEST_MAX_APPEND_RATE;
     let partitions_prefix = format!("{}/", spec.partition_template.as_ref().unwrap().name);
 
-    let mut publisher = Publisher::new_real(
-        "test".to_string(),
-        runtime_next::new_producer(),
-        &factory,
-        "testing/ops/stats",
-        [&spec],
-    )
-    .expect("Publisher::new_real");
+    let mut publisher = open_publisher(&factory, &spec);
     let mut policy = SplitPolicy::with_config(aggressive_config());
 
     let payload: String = "x".repeat(PAYLOAD_LEN);
@@ -929,14 +910,7 @@ async fn journal_auto_split_respects_logical_partitions() {
     spec.partition_template.as_mut().unwrap().max_append_rate = TEST_MAX_APPEND_RATE;
     let partitions_prefix = format!("{}/", spec.partition_template.as_ref().unwrap().name);
 
-    let mut publisher = Publisher::new_real(
-        "test".to_string(),
-        runtime_next::new_producer(),
-        &factory,
-        "testing/ops/stats",
-        [&spec],
-    )
-    .expect("Publisher::new_real");
+    let mut publisher = open_publisher(&factory, &spec);
     let mut policy = SplitPolicy::with_config(aggressive_config());
 
     let payload: String = "x".repeat(PAYLOAD_LEN);

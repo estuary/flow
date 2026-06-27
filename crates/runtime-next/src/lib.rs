@@ -35,6 +35,7 @@ mod local_connector;
 mod tokio_context;
 
 pub mod leader;
+pub mod logger;
 pub mod patches;
 pub mod publish;
 pub mod shard;
@@ -42,8 +43,13 @@ mod task_service;
 
 pub use container::flow_runtime_protocol;
 
-pub use leader::Service;
-pub use publish::{Publisher, new_producer};
+pub use leader::{Service, ShuffleServiceFactory, ShuffleSession, ShuffleSessionFactory};
+pub use logger::{
+    FnLogger, FnLoggerFactory, LogEvent, Logger, LoggerFactory, TracingLogger, TracingLoggerFactory,
+};
+pub use publish::{
+    JournalPublisher, JournalPublisherFactory, Publisher, PublisherFactory, new_producer,
+};
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
 
@@ -126,20 +132,6 @@ pub fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
         // For all other Status types, pass through the Status in order to preserve a
         // capability to lossless-ly downcast back to the Status later.
         _ => anyhow::Error::new(status),
-    }
-}
-
-pub trait LogHandler: Send + Sync + Clone + 'static {
-    fn log(&self, log: &ops::Log);
-
-    fn as_fn(self) -> impl Fn(&ops::Log) + Send + Sync + 'static {
-        move |log| self.log(log)
-    }
-}
-
-impl<T: Fn(&ops::Log) + Send + Sync + Clone + 'static> LogHandler for T {
-    fn log(&self, log: &ops::Log) {
-        self(log)
     }
 }
 
