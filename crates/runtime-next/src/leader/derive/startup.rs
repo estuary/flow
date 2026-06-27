@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 
 /// Outcomes of the leader protocol startup phase.
+// FIXME: use `P` (publisher), `S` (shuffle), and `O` (observer) consistently for all type parameter names in this crate.
 pub(super) struct Startup<Pub: crate::Publisher, Shuffle: crate::leader::ShuffleSession> {
     // Clock at which the last-committed transaction closed.
     pub committed_close: uuid::Clock,
@@ -305,7 +306,7 @@ pub(super) async fn run<
         .shuffle_factory
         .open(shuffle_task, shard_shuffles, resume_frontier)
         .await
-        .context("opening shuffle session")?;
+        .context("opening shuffle Session")?;
 
     Ok(Startup {
         committed_close,

@@ -22,7 +22,7 @@ pub(super) struct Startup<
     pub committed_frontier: shuffle::Frontier,
     // Is the first transaction an idempotent replay of a recovered hinted Frontier?
     pub idempotent_replay: bool,
-    // Observer for runtime events (connector-state persists, Apply actions).
+    // Observer of task-centric state changes and events.
     pub observer: O,
     // Recovered ACK intents of the last transaction.
     pub pending_ack_intents: BTreeMap<String, Bytes>,
@@ -342,7 +342,7 @@ pub(super) async fn run<
     // then the first transaction must be an idempotent replay of the hinted frontier.
     let idempotent_replay = resume_frontier.unresolved_hints != 0;
 
-    // Open the checkpoint source with the recovered resume Frontier.
+    // Open the shuffle Session with the recovered resume Frontier.
     let shuffle_task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::Materialization(spec)),
     };
@@ -350,7 +350,7 @@ pub(super) async fn run<
         .shuffle_factory
         .open(shuffle_task, shard_shuffles, resume_frontier)
         .await
-        .context("opening shuffle session")?;
+        .context("opening shuffle Session")?;
 
     Ok(Startup {
         committed_close,
@@ -471,7 +471,7 @@ async fn apply_loop<O: crate::Observer>(
                     tracing::Level::INFO,
                     "leader",
                     iteration,
-                    action_description = action_description,
+                    action_description,
                     patches = service_kit::event::debug(connector_patches_json.clone()),
                     "connector Apply completed",
                 );

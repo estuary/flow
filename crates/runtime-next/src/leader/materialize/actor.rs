@@ -19,9 +19,7 @@ pub struct Actor<P: crate::Publisher, O: crate::Observer> {
     legacy_checkpoint: Option<(shuffle::Frontier, consumer::Checkpoint)>,
     // Per-task metrics counters and gauges.
     metrics: super::Metrics,
-    // Observer through which each committing Persist is reported as it's emitted.
-    // A no-op in production; an output-capturing harness records connector-state
-    // lines.
+    // Observer of task-centric state changes and events.
     observer: O,
     // Publisher for stats and ACK intents, parked while no async operation is in-flight.
     parked_publisher: Option<P>,
@@ -394,10 +392,6 @@ impl<P: crate::Publisher, O: crate::Observer> Actor<P, O> {
             }
 
             fsm::Action::Persist { persist } => {
-                // Observe the Persist as it's emitted. Only the committing Persist
-                // (bearing a committed_frontier) carries this transaction's
-                // StartedCommit connector-state delta; the observer renders that
-                // and ignores the empty idempotent-replay / post-Acknowledge ones.
                 self.observer.persist(&persist);
 
                 service_kit::event!(tracing::Level::DEBUG, "shard", "sending L:Persist");

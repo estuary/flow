@@ -94,6 +94,7 @@ pub trait Observer: Clone + Send + Sync + 'static {
     /// task) and `None` for derivations (a single derived collection). The default
     /// logs at info, matching the legacy `"inferred schema updated"` line — so it
     /// surfaces in task logs whenever the task's log level is info or finer.
+    // FIXME this should take a doc::shape::Schema, not a serde_json::Value
     fn inferred_schema(
         &self,
         collection_name: &str,

@@ -30,9 +30,7 @@ pub(super) struct Actor<P: crate::Publisher, O: crate::Observer> {
     connector_tx: mpsc::Sender<Request>,
     // Per-session metrics counters.
     metrics: super::Metrics,
-    // Observer through which each committing Persist is reported as it's emitted.
-    // A no-op in production; an output-capturing harness records connector-state
-    // lines.
+    // Observer of task-centric state changes and events.
     observer: O,
 
     // --- Parked resources: `Some` unless borrowed by an in-flight future. ---

@@ -17,7 +17,7 @@ pub struct Actor<P: crate::Publisher, O: crate::Observer> {
     legacy_checkpoint: Option<(shuffle::Frontier, consumer::Checkpoint)>,
     // Per-task metrics counters.
     metrics: super::Metrics,
-    // Observer of actor lifecycle events.
+    // Observer of task-centric state changes and events.
     observer: O,
     // Publisher for stats and ACK intents, parked while no async operation is in-flight.
     parked_publisher: Option<P>,
@@ -54,11 +54,11 @@ impl<P: crate::Publisher, O: crate::Observer> Actor<P, O> {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<Shuffle: crate::leader::ShuffleSession>(
+    pub async fn serve<S: crate::leader::ShuffleSession>(
         &mut self,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
-        mut session: Shuffle,
+        mut session: S,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Derive>>>,
     ) -> anyhow::Result<()> {
         service_kit::event!(
@@ -249,7 +249,7 @@ impl<P: crate::Publisher, O: crate::Observer> Actor<P, O> {
                     }
                     shard_rx.push(next_shard_rx((shard_index, rx)));
                 }
-                // Receive a requested next checkpoint.
+                // Receive a requested NextCheckpoint frontier.
                 result = session.recv_checkpoint(), if checkpoint_requested => {
                     let frontier = result?;
                     let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) = frontier.measures();
@@ -358,9 +358,6 @@ impl<P: crate::Publisher, O: crate::Observer> Actor<P, O> {
             }
 
             fsm::Action::Persist { persist } => {
-                // Observe the Persist as it's emitted. The observer renders the
-                // committing transaction's connector-state delta and ignores
-                // persists carrying none (idempotent replays, ACK-only persists).
                 self.observer.persist(&persist);
 
                 service_kit::event!(tracing::Level::DEBUG, "shard", "sending L:Persist");
@@ -393,7 +390,7 @@ impl<P: crate::Publisher, O: crate::Observer> Actor<P, O> {
                         () = publisher.publish_stats(stats).await?;
 
                         // Build ACK intents from all shard publisher_commits
-                        // plus the leader's own stats commit intent.
+                        // plus the leader's own stats-publisher commit.
                         let mut all_commits: Vec<(uuid::Producer, uuid::Clock, Vec<String>)> =
                             publisher_commits
                                 .into_iter()

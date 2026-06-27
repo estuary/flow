@@ -6,11 +6,11 @@ use tracing::Instrument;
 
 pub(crate) async fn serve<
     R,
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    O: crate::ObserverFactory,
 >(
-    service: crate::Service<Shuffle, Pub, Obs>,
+    service: crate::Service<S, P, O>,
     authz: proto_grpc::Authorizer,
     request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
@@ -27,11 +27,11 @@ where
 
 async fn serve_inner<
     R,
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    O: crate::ObserverFactory,
 >(
-    service: crate::Service<Shuffle, Pub, Obs>,
+    service: crate::Service<S, P, O>,
     authz: proto_grpc::Authorizer,
     mut request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
@@ -221,6 +221,7 @@ where
             Some(committed_frontier)
         };
 
+        // FIXME: here, and also for other task startup flows, the observer should be built and returned via startup::Startup.
         let observer = service.observer_factory.open(&task_name);
         let mut actor = actor::Actor::new(
             legacy_checkpoint,

@@ -32,15 +32,12 @@ pub struct ServiceImpl<
     /// In-progress Materialize session Joins, keyed by task name.
     pub(crate) materialize_joins:
         std::sync::Mutex<HashMap<String, super::PendingJoin<proto::Materialize>>>,
-    /// Factory used by leader sessions to obtain checkpoint Frontiers. The
-    /// standard factory reads journals; fixture previews supply their own.
+    /// Factory used by leader sessions to open a [`ShuffleSession`](crate::ShuffleSession).
     pub(crate) shuffle_factory: Shuffle,
-    /// Factory used by leader sessions to publish stats and ACK intents. The
-    /// standard factory performs Gazette journal IO; previews supply their own.
+    /// Factory used by leader sessions to open a [`Publisher`](crate::Publisher) of stats and ACK intents.
     pub(crate) publisher_factory: Pub,
     /// Factory used by leader sessions to open an [`Observer`](crate::Observer)
-    /// for runtime events (connector-state persists, Apply actions). Production
-    /// installs a no-op; previews render observations as preview lines.
+    /// of task-centric state changes and events.
     pub(crate) observer_factory: Obs,
     /// Process-wide HTTP client used by the actor to deliver trigger webhooks.
     pub(crate) http_client: reqwest::Client,

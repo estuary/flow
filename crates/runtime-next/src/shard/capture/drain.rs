@@ -88,7 +88,6 @@ pub(super) async fn drain_and_publish<Pub: crate::Publisher, O: crate::Observer>
                 &doc::SerPolicy::noop().on_owned(&doc),
             )
             .expect("connector state serialization cannot fail");
-
             connector_patches.push(b'\t');
             continue;
         }
