@@ -94,15 +94,18 @@ pub trait Observer: Clone + Send + Sync + 'static {
     /// task) and `None` for derivations (a single derived collection). The default
     /// logs at info, matching the legacy `"inferred schema updated"` line — so it
     /// surfaces in task logs whenever the task's log level is info or finer.
-    // FIXME this should take a doc::shape::Schema, not a serde_json::Value
+    ///
+    /// `schema` is the representative JSON Schema of the widened write-shape, as
+    /// produced by [`doc::shape::schema::to_schema`]; an Observer that forwards
+    /// it structurally avoids re-parsing a `serde_json::Value`.
     fn inferred_schema(
         &self,
         collection_name: &str,
         binding: Option<usize>,
-        schema: &serde_json::Value,
+        schema: &schemars::Schema,
     ) {
         tracing::info!(
-            schema = ?ops::DebugJson(schema),
+            schema = ?ops::DebugJson(schema.as_value()),
             %collection_name,
             ?binding,
             "inferred schema updated",

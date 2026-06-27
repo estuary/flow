@@ -5,16 +5,13 @@ use tokio::sync::mpsc;
 
 /// Service is the implementation of the Leader gRPC service trait.
 pub struct Service<
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
->(Arc<ServiceImpl<Shuffle, Pub, Obs>>);
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    O: crate::ObserverFactory,
+>(Arc<ServiceImpl<S, P, O>>);
 
-impl<
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
-> Clone for Service<Shuffle, Pub, Obs>
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, O: crate::ObserverFactory> Clone
+    for Service<S, P, O>
 {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -23,9 +20,9 @@ impl<
 
 /// ServiceImpl holds shared implementation state for the Leader gRPC service.
 pub struct ServiceImpl<
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    O: crate::ObserverFactory,
 > {
     /// In-progress Derive session Joins, keyed by task name.
     pub(crate) derive_joins: std::sync::Mutex<HashMap<String, super::PendingJoin<proto::Derive>>>,
@@ -33,12 +30,12 @@ pub struct ServiceImpl<
     pub(crate) materialize_joins:
         std::sync::Mutex<HashMap<String, super::PendingJoin<proto::Materialize>>>,
     /// Factory used by leader sessions to open a [`ShuffleSession`](crate::ShuffleSession).
-    pub(crate) shuffle_factory: Shuffle,
+    pub(crate) shuffle_factory: S,
     /// Factory used by leader sessions to open a [`Publisher`](crate::Publisher) of stats and ACK intents.
-    pub(crate) publisher_factory: Pub,
+    pub(crate) publisher_factory: P,
     /// Factory used by leader sessions to open an [`Observer`](crate::Observer)
     /// of task-centric state changes and events.
-    pub(crate) observer_factory: Obs,
+    pub(crate) observer_factory: O,
     /// Process-wide HTTP client used by the actor to deliver trigger webhooks.
     pub(crate) http_client: reqwest::Client,
     /// Registry of in-flight Leader session handlers, for the admin surface.
@@ -47,16 +44,13 @@ pub struct ServiceImpl<
     pub(crate) disarm_auth: bool,
 }
 
-impl<
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
-> Service<Shuffle, Pub, Obs>
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, O: crate::ObserverFactory>
+    Service<S, P, O>
 {
     pub fn new(
-        shuffle_factory: Shuffle,
-        publisher_factory: Pub,
-        observer_factory: Obs,
+        shuffle_factory: S,
+        publisher_factory: P,
+        observer_factory: O,
         registry: service_kit::Registry,
         disarm_auth: bool,
     ) -> Self {
@@ -123,13 +117,10 @@ impl<
     }
 }
 
-impl<
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
-> std::ops::Deref for Service<Shuffle, Pub, Obs>
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, O: crate::ObserverFactory>
+    std::ops::Deref for Service<S, P, O>
 {
-    type Target = ServiceImpl<Shuffle, Pub, Obs>;
+    type Target = ServiceImpl<S, P, O>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -137,11 +128,8 @@ impl<
 }
 
 #[tonic::async_trait]
-impl<
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
-> proto_grpc::runtime::leader_server::Leader for Service<Shuffle, Pub, Obs>
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, O: crate::ObserverFactory>
+    proto_grpc::runtime::leader_server::Leader for Service<S, P, O>
 {
     type DeriveStream =
         tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;

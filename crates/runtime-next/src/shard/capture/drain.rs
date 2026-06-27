@@ -24,29 +24,29 @@ use std::collections::{BTreeMap, BTreeSet};
 const SOURCED_SCHEMA_COMPLEXITY_LIMIT: usize = 10_000;
 
 /// Resources and results handed back to the actor when a drain completes.
-pub(super) struct Output<Pub: crate::Publisher> {
+pub(super) struct Output<P: crate::Publisher> {
     /// The drained combiner, recycled as the next transaction's `idle_accumulator`.
     pub(super) accumulator: crate::Accumulator,
     /// Per-transaction connector patches and stats, staged for the TailFSM.
     pub(super) drained: fsm::DrainedCapture,
     /// The publisher, borrowed for the drain's journal appends.
-    pub(super) publisher: Pub,
+    pub(super) publisher: P,
     /// Per-binding inferred write-shapes, carried across sessions of the shard.
     pub(super) shapes: Vec<doc::Shape>,
 }
 
 /// Drain a rotated combiner: apply sourced schemas to inference, publish each
 /// captured document, and accumulate the connector-state patch stream.
-pub(super) async fn drain_and_publish<Pub: crate::Publisher, O: crate::Observer>(
+pub(super) async fn drain_and_publish<P: crate::Publisher, O: crate::Observer>(
     mut drainer: doc::combine::Drainer,
     parser: simd_doc::Parser,
-    mut publisher: Pub,
+    mut publisher: P,
     task: std::sync::Arc<Task>,
     sourced_schemas: BTreeMap<u32, doc::Shape>,
     mut shapes: Vec<doc::Shape>,
     metrics: super::Metrics,
     observer: O,
-) -> anyhow::Result<Output<Pub>> {
+) -> anyhow::Result<Output<P>> {
     // Resync the publisher clock to wall-clock time at the start of this
     // transaction's stream of published documents. Each `publish_doc` and the
     // closing `commit_intents` then tick it up by a single microsecond, so
@@ -126,8 +126,7 @@ pub(super) async fn drain_and_publish<Pub: crate::Publisher, O: crate::Observer>
         // `to_schema` emits the shape's annotations, including the
         // `x-complexity-limit` set by `apply_sourced_schemas` or the
         // per-session default seeded by `Task::binding_shapes_by_index`.
-        let schema = serde_json::to_value(doc::shape::schema::to_schema(shapes[*binding].clone()))
-            .unwrap_or_default();
+        let schema = doc::shape::schema::to_schema(shapes[*binding].clone());
         observer.inferred_schema(
             &task.bindings[*binding].collection_name,
             Some(*binding),

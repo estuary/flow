@@ -78,7 +78,7 @@ pub(super) struct Startup {
     pub shuffle_reader: shuffle::log::Reader,
 }
 
-pub(super) async fn run<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+pub(super) async fn run<R, P: crate::PublisherFactory, O: crate::ObserverFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
@@ -87,8 +87,8 @@ pub(super) async fn run<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFac
     mut leader_rx: tonic::Streaming<proto::Materialize>,
     leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     log_level: ops::LogLevel,
-    observer: &Obs::Observer,
-    service: &crate::shard::Service<Pub, Obs>,
+    observer: &O::Observer,
+    service: &crate::shard::Service<P, O>,
     shard_index: u32,
     shuffle_directory: String,
 ) -> anyhow::Result<Startup>

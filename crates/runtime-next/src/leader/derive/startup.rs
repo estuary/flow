@@ -11,18 +11,20 @@ use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 
 /// Outcomes of the leader protocol startup phase.
-// FIXME: use `P` (publisher), `S` (shuffle), and `O` (observer) consistently for all type parameter names in this crate.
-pub(super) struct Startup<Pub: crate::Publisher, Shuffle: crate::leader::ShuffleSession> {
+pub(super) struct Startup<P: crate::Publisher, S: crate::leader::ShuffleSession, O: crate::Observer>
+{
     // Clock at which the last-committed transaction closed.
     pub committed_close: uuid::Clock,
     // Fully committed Frontier.
     pub committed_frontier: shuffle::Frontier,
+    // Observer of task-centric state changes and events.
+    pub observer: O,
     // Recovered ACK intents of the last transaction.
     pub pending_ack_intents: BTreeMap<String, Bytes>,
     // Publisher for writing stats and ACK intents.
-    pub publisher: Pub,
+    pub publisher: P,
     // Initiated shuffle session for the task and topology.
-    pub session: Shuffle,
+    pub session: S,
     // Task definition.
     pub task: Task,
 }
@@ -34,9 +36,9 @@ pub(super) struct Startup<Pub: crate::Publisher, Shuffle: crate::leader::Shuffle
     fields(shard_zero = %shard_ids[0], shards = shard_ids.len())
 )]
 pub(super) async fn run<
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    O: crate::ObserverFactory,
 >(
     build: String,
     drop_v1_rollback: bool,
@@ -44,10 +46,10 @@ pub(super) async fn run<
     reactors: Vec<String>,
     shard_rx: &mut Vec<BoxStream<'static, tonic::Result<proto::Derive>>>,
     shard_tx: &Vec<mpsc::UnboundedSender<tonic::Result<proto::Derive>>>,
-    service: &crate::Service<Shuffle, Pub, Obs>,
+    service: &crate::Service<S, P, O>,
     shard_ids: Vec<String>,
     shard_shuffles: Vec<shuffle::proto::Shard>,
-) -> anyhow::Result<Startup<Pub::Publisher, Shuffle::Session>> {
+) -> anyhow::Result<Startup<P::Publisher, S::Session, O::Observer>> {
     let n_shards = reactors.len();
     assert_eq!(n_shards, shard_rx.len());
     assert_eq!(n_shards, shard_tx.len());
@@ -92,6 +94,11 @@ pub(super) async fn run<
     let mut task = Task::new(build, &spec, max_transactions, peers)
         .await
         .context("building task definition")?;
+
+    // Open an Observer for runtime events, bound to the task. Derivations have no
+    // Apply loop, so it reports no startup observations; it's assembled here so the
+    // handler receives a complete set of startup outputs (mirroring materialize).
+    let observer = service.observer_factory.open(&task.shard_ref.name);
 
     // Open a publisher for stats and ACK intents (no collection bindings).
     let publisher = service
@@ -311,6 +318,7 @@ pub(super) async fn run<
     Ok(Startup {
         committed_close,
         committed_frontier,
+        observer,
         pending_ack_intents,
         publisher,
         session,

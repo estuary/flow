@@ -8,7 +8,7 @@
 //! runtime and bounds its lifecycle.
 //!
 //! `Service` is monomorphized over its [`PublisherFactory`](crate::PublisherFactory)
-//! `Pub`, so the publish path is statically dispatched.
+//! `P`, so the publish path is statically dispatched.
 
 use crate::proto;
 use futures::Stream;
@@ -18,18 +18,18 @@ use tokio_stream::wrappers;
 /// Service is the implementation of the controller-facing `Shard` gRPC
 /// service trait, hosting one shard's transaction loop.
 #[derive(Clone)]
-pub struct Service<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory> {
+pub struct Service<P: crate::PublisherFactory, O: crate::ObserverFactory> {
     pub plane: crate::Plane,
     pub container_network: String,
     pub set_log_level: Option<std::sync::Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
     pub task_name: String,
-    pub publisher_factory: Pub,
-    pub observer_factory: Obs,
+    pub publisher_factory: P,
+    pub observer_factory: O,
     pub registry: service_kit::Registry,
     pub data_plane_signer: Option<proto_grpc::Signer>,
 }
 
-impl<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory> Service<Pub, Obs> {
+impl<P: crate::PublisherFactory, O: crate::ObserverFactory> Service<P, O> {
     /// Build a new Shard Service.
     /// - `plane`: the type of data plane in which this Service is operating.
     /// - `container_network`: the Docker container network used for connector containers.
@@ -44,8 +44,8 @@ impl<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory> Service<Pub, Obs
         container_network: String,
         set_log_level: Option<std::sync::Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
         task_name: String,
-        publisher_factory: Pub,
-        observer_factory: Obs,
+        publisher_factory: P,
+        observer_factory: O,
         registry: service_kit::Registry,
         data_plane_signer: Option<proto_grpc::Signer>,
     ) -> Self {
@@ -141,8 +141,8 @@ impl<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory> Service<Pub, Obs
 }
 
 #[tonic::async_trait]
-impl<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>
-    proto_grpc::runtime::shard_server::Shard for Service<Pub, Obs>
+impl<P: crate::PublisherFactory, O: crate::ObserverFactory> proto_grpc::runtime::shard_server::Shard
+    for Service<P, O>
 {
     type CaptureStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Capture>>;
     type DeriveStream = wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;

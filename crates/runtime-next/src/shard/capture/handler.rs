@@ -1,5 +1,5 @@
 use super::connector;
-use crate::Observer as _; // For `.applied()` / `.persist()` on the associated `Obs::Observer`.
+use crate::Observer as _; // For `.applied()` / `.persist()` on the associated `O::Observer`.
 use crate::leader::capture::fsm;
 use crate::proto;
 use anyhow::Context;
@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
-pub(crate) async fn serve<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
-    service: crate::shard::Service<Pub, Obs>,
+pub(crate) async fn serve<R, P: crate::PublisherFactory, O: crate::ObserverFactory>(
+    service: crate::shard::Service<P, O>,
     mut controller_rx: R,
     controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
 ) -> anyhow::Result<()>
@@ -101,8 +101,8 @@ where
     Ok(())
 }
 
-async fn serve_unary<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
-    service: &crate::shard::Service<Pub, Obs>,
+async fn serve_unary<P: crate::PublisherFactory, O: crate::ObserverFactory>(
+    service: &crate::shard::Service<P, O>,
     request: capture::Request,
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Capture> {
@@ -144,8 +144,8 @@ async fn serve_unary<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
     Ok(response)
 }
 
-async fn serve_session_loop<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
-    service: &crate::shard::Service<Pub, Obs>,
+async fn serve_session_loop<R, P: crate::PublisherFactory, O: crate::ObserverFactory>(
+    service: &crate::shard::Service<P, O>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     session_loop: proto::SessionLoop,
@@ -188,8 +188,8 @@ where
     Ok(())
 }
 
-async fn serve_session<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
-    service: &crate::shard::Service<Pub, Obs>,
+async fn serve_session<R, P: crate::PublisherFactory, O: crate::ObserverFactory>(
+    service: &crate::shard::Service<P, O>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     db: crate::shard::RocksDB,
@@ -219,8 +219,8 @@ where
     .await
 }
 
-async fn serve_session_inner<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
-    service: &crate::shard::Service<Pub, Obs>,
+async fn serve_session_inner<R, P: crate::PublisherFactory, O: crate::ObserverFactory>(
+    service: &crate::shard::Service<P, O>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     db: crate::shard::RocksDB,
@@ -434,9 +434,9 @@ where
 /// against partially-advanced state — the connector's Apply must be idempotent
 /// across repeated invocations of the same target spec (see the `C:Apply` proto
 /// comment).
-async fn apply_loop<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
-    service: &crate::shard::Service<Pub, Obs>,
-    observer: &Obs::Observer,
+async fn apply_loop<P: crate::PublisherFactory, O: crate::ObserverFactory>(
+    service: &crate::shard::Service<P, O>,
+    observer: &O::Observer,
     mut db: crate::shard::RocksDB,
     binding_state_keys: &[String],
     last_applied: &bytes::Bytes,

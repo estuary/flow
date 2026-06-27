@@ -9,9 +9,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use unseal;
 use zeroize::Zeroize;
 
-pub async fn start<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
-    service: &crate::shard::Service<Pub, Obs>,
-    observer: &Obs::Observer,
+pub async fn start<P: crate::PublisherFactory, O: crate::ObserverFactory>(
+    service: &crate::shard::Service<P, O>,
+    observer: &O::Observer,
     log_level: ops::LogLevel,
     mut initial: Request,
 ) -> anyhow::Result<(

@@ -6,11 +6,11 @@ use tracing::Instrument;
 
 pub(crate) async fn serve<
     R,
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    O: crate::ObserverFactory,
 >(
-    service: crate::Service<Shuffle, Pub, Obs>,
+    service: crate::Service<S, P, O>,
     authz: proto_grpc::Authorizer,
     request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
@@ -30,11 +30,11 @@ where
 
 async fn serve_inner<
     R,
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    O: crate::ObserverFactory,
 >(
-    service: crate::Service<Shuffle, Pub, Obs>,
+    service: crate::Service<S, P, O>,
     authz: proto_grpc::Authorizer,
     mut request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,

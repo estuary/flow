@@ -11,11 +11,8 @@ use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 
 /// Outcomes of the leader protocol startup phase.
-pub(super) struct Startup<
-    Pub: crate::Publisher,
-    Shuffle: crate::leader::ShuffleSession,
-    O: crate::Observer,
-> {
+pub(super) struct Startup<P: crate::Publisher, S: crate::leader::ShuffleSession, O: crate::Observer>
+{
     // Clock at which the last-committed transaction closed.
     pub committed_close: uuid::Clock,
     // Fully committed Frontier.
@@ -29,9 +26,9 @@ pub(super) struct Startup<
     // Recovered variables for the task.
     pub pending_trigger_params: Bytes,
     // Publisher for writing stats and ACK intents.
-    pub publisher: Pub,
+    pub publisher: P,
     // Initiated shuffle session for the task and topology.
-    pub session: Shuffle,
+    pub session: S,
     // Task definition.
     pub task: Task,
 }
@@ -43,9 +40,9 @@ pub(super) struct Startup<
     fields(shard_zero = %shard_ids[0], shards = shard_ids.len())
 )]
 pub(super) async fn run<
-    Shuffle: crate::ShuffleSessionFactory,
-    Pub: crate::PublisherFactory,
-    Obs: crate::ObserverFactory,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    O: crate::ObserverFactory,
 >(
     build: String,
     drop_v1_rollback: bool,
@@ -53,10 +50,10 @@ pub(super) async fn run<
     reactors: Vec<String>,
     shard_rx: &mut Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
     shard_tx: &Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
-    service: &crate::Service<Shuffle, Pub, Obs>,
+    service: &crate::Service<S, P, O>,
     shard_ids: Vec<String>,
     shard_shuffles: Vec<shuffle::proto::Shard>,
-) -> anyhow::Result<Startup<Pub::Publisher, Shuffle::Session, Obs::Observer>> {
+) -> anyhow::Result<Startup<P::Publisher, S::Session, O::Observer>> {
     let n_shards = reactors.len();
     assert_eq!(n_shards, shard_rx.len());
     assert_eq!(n_shards, shard_tx.len());

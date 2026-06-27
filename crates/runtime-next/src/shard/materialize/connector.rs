@@ -9,9 +9,9 @@ use zeroize::Zeroize;
 // Start a materialization connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses,
 // plus OpenExtras with decrypted trigger configs and connector metadata.
-pub async fn start<Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
-    service: &crate::shard::Service<Pub, Obs>,
-    observer: &Obs::Observer,
+pub async fn start<P: crate::PublisherFactory, O: crate::ObserverFactory>(
+    service: &crate::shard::Service<P, O>,
+    observer: &O::Observer,
     log_level: ops::LogLevel,
     mut initial: materialize::Request,
 ) -> anyhow::Result<(

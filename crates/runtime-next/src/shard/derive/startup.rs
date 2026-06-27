@@ -61,7 +61,7 @@ pub async fn dial_and_join(
     }
 }
 
-pub(super) struct Startup<Pub: crate::Publisher> {
+pub(super) struct Startup<P: crate::Publisher> {
     pub accumulator: crate::Accumulator,
     pub codec: connector_init::Codec,
     pub connector_rx: BoxStream<'static, tonic::Result<derive::Response>>,
@@ -69,13 +69,13 @@ pub(super) struct Startup<Pub: crate::Publisher> {
     pub db: crate::shard::RocksDB,
     pub leader_rx: tonic::Streaming<proto::Derive>,
     pub leader_tx: mpsc::UnboundedSender<proto::Derive>,
-    pub publisher: Pub,
+    pub publisher: P,
     pub shuffle_reader: shuffle::log::Reader,
     pub task: Task,
     pub write_shape: doc::Shape,
 }
 
-pub(super) async fn run<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFactory>(
+pub(super) async fn run<R, P: crate::PublisherFactory, O: crate::ObserverFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     db: crate::shard::RocksDB,
@@ -84,13 +84,13 @@ pub(super) async fn run<R, Pub: crate::PublisherFactory, Obs: crate::ObserverFac
     mut leader_rx: tonic::Streaming<proto::Derive>,
     leader_tx: mpsc::UnboundedSender<proto::Derive>,
     log_level: ops::LogLevel,
-    observer: &Obs::Observer,
-    service: &crate::shard::Service<Pub, Obs>,
+    observer: &O::Observer,
+    service: &crate::shard::Service<P, O>,
     shard_id: String,
     shard_index: u32,
     shard_producer: proto_gazette::uuid::Producer,
     shuffle_directory: String,
-) -> anyhow::Result<Startup<Pub::Publisher>>
+) -> anyhow::Result<Startup<P::Publisher>>
 where
     R: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
 {

@@ -20,7 +20,7 @@ enum Phase {
 }
 
 /// Shard-side derivation reactor for one joined leader session.
-pub(super) struct Actor<Pub: crate::Publisher, O: crate::Observer> {
+pub(super) struct Actor<P: crate::Publisher, O: crate::Observer> {
     // FIFO of outbound connector requests, drained head-first into
     // `connector_tx` as channel capacity permits.
     connector_pending: Vec<derive::Request>,
@@ -34,7 +34,7 @@ pub(super) struct Actor<Pub: crate::Publisher, O: crate::Observer> {
     db_persist_fut:
         Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Persisted)>>>,
     // Output-combiner drain + publish future, when in flight.
-    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<Pub>>>>,
+    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
     // Channel for sending to the leader.
     leader_tx: mpsc::UnboundedSender<proto::Derive>,
     // Per-session metrics counters.
@@ -43,7 +43,7 @@ pub(super) struct Actor<Pub: crate::Publisher, O: crate::Observer> {
     // into each drain future.
     observer: O,
     // Publisher for derived documents; parked while a drain borrows it.
-    publisher: Option<Pub>,
+    publisher: Option<P>,
     // C:Published measures of the open transaction (reset at each L:Store).
     published_docs: u64,
     published_bytes: u64,
@@ -59,7 +59,7 @@ pub(super) struct Actor<Pub: crate::Publisher, O: crate::Observer> {
     write_shape: Option<doc::Shape>,
 }
 
-impl<Pub: crate::Publisher, O: crate::Observer> Actor<Pub, O> {
+impl<P: crate::Publisher, O: crate::Observer> Actor<P, O> {
     pub fn new(
         codec: connector_init::Codec,
         connector_tx: mpsc::Sender<derive::Request>,
@@ -67,7 +67,7 @@ impl<Pub: crate::Publisher, O: crate::Observer> Actor<Pub, O> {
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
         metrics: super::Metrics,
         observer: O,
-        publisher: Pub,
+        publisher: P,
         task: Arc<Task>,
         write_shape: doc::Shape,
     ) -> Self {

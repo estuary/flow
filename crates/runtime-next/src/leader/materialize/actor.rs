@@ -63,11 +63,11 @@ impl<P: crate::Publisher, O: crate::Observer> Actor<P, O> {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<Shuffle: crate::leader::ShuffleSession>(
+    pub async fn serve<S: crate::leader::ShuffleSession>(
         &mut self,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
-        mut session: Shuffle,
+        mut session: S,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
     ) -> anyhow::Result<()> {
         service_kit::event!(

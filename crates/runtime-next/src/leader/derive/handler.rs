@@ -190,6 +190,7 @@ where
         let startup::Startup {
             committed_close,
             committed_frontier,
+            observer,
             pending_ack_intents,
             publisher,
             session,
@@ -221,8 +222,6 @@ where
             Some(committed_frontier)
         };
 
-        // FIXME: here, and also for other task startup flows, the observer should be built and returned via startup::Startup.
-        let observer = service.observer_factory.open(&task_name);
         let mut actor = actor::Actor::new(
             legacy_checkpoint,
             metrics,
