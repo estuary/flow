@@ -42,6 +42,8 @@ To meet these requirements, do the following:
 
 The `SELECT` permission can be restricted to just the tables that need to be
 captured, but automatic discovery requires `information_schema` access as well.
+It cannot be restricted to a subset of columns within a table; see
+[Column-level permissions](#column-level-permissions) for details.
 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture IDENTIFIED BY 'secret';
@@ -104,6 +106,26 @@ This is desirable in most cases, as it ensures that a complete view of your tabl
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
+
+## Column-level permissions
+
+The capture user's `SELECT` privilege can be limited to specific tables, but not to a
+subset of columns within a table. Column-scoped grants do not restrict what the connector
+captures, and they prevent it from running:
+
+- During backfill, the connector reads each table with `SELECT *`, which requires `SELECT`
+  on every column. A column-scoped grant such as `GRANT SELECT (col1, col2) ON db.tbl`
+  makes the backfill (and the connector's per-table validation check) fail with a
+  `cannot read from table` error.
+- Ongoing changes are read from the binary log, not with `SELECT` queries. The binary log
+  is authorized by the global `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges and
+  contains every column of a changed row, so column-level grants have no effect on what is
+  streamed during replication.
+
+Grant table-level `SELECT` (as shown in [Setup](#setup)) so the connector can read its
+tables. To keep specific columns, such as sensitive fields, out of the pipeline, use
+[redaction](/features/redaction.md) to drop or hash those fields at capture time so they
+never land in the collection.
 
 ## Configuration
 
