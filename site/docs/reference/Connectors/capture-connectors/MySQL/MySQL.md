@@ -56,8 +56,9 @@ To meet these requirements, follow the steps for your hosting type.
 
 The `SELECT` permission can be restricted to just the tables that need to be
 captured, but automatic discovery requires `information_schema` access as well.
-It cannot be restricted to a subset of columns within a table; see
-[Column-level permissions](#column-level-permissions) for details.
+It cannot be restricted to a subset of columns within a table, because the connector
+reads ongoing changes from the binary log, which always includes every column. See
+[Column-level permissions unsupported](#column-level-permissions-unsupported) for details.
 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
@@ -153,8 +154,9 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 
 The `SELECT` permission can be restricted to just the tables that need to be
 captured, but automatic discovery requires `information_schema` access as well.
-It cannot be restricted to a subset of columns within a table; see
-[Column-level permissions](#column-level-permissions) for details.
+It cannot be restricted to a subset of columns within a table, because the connector
+reads ongoing changes from the binary log, which always includes every column. See
+[Column-level permissions unsupported](#column-level-permissions-unsupported) for details.
 
 :::tip
 Your username must be specified in the format `username@servername`.
@@ -217,20 +219,20 @@ However, you may find it appropriate to skip the backfill, especially for extrem
 
 In this case, you may turn off backfilling on a per-table basis. See [properties](#properties) for details.
 
-## Column-level permissions
+## Column-level permissions unsupported
 
 The capture user's `SELECT` privilege can be limited to specific tables, but not to a
-subset of columns within a table. Column-scoped grants do not restrict what the connector
-captures, and they prevent it from running:
+subset of columns within a table, because most of what the connector reads never goes
+through `SELECT`:
 
-- During backfill, the connector reads each table with `SELECT *`, which requires `SELECT`
-  on every column. A column-scoped grant such as `GRANT SELECT (col1, col2) ON db.tbl`
-  makes the backfill (and the connector's per-table validation check) fail with a
-  `cannot read from table` error.
 - Ongoing changes are read from the binary log, not with `SELECT` queries. The binary log
   is authorized by the global `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges and
   contains every column of a changed row, so column-level grants have no effect on what is
   streamed during replication.
+- The initial backfill does use `SELECT`, but reads each table with `SELECT *` (as does the
+  connector's per-table validation check), which requires `SELECT` on every column. A
+  column-scoped grant such as `GRANT SELECT (col1, col2) ON db.tbl` makes the backfill and
+  the validation check fail with a `cannot read from table` error.
 
 Grant table-level `SELECT` (as shown in [Setup](#setup)) so the connector can read its
 tables. To keep specific columns, such as sensitive fields, out of the pipeline, use
