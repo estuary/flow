@@ -281,8 +281,9 @@ impl HeadIdle {
                 return (Action::Idle, Head::Idle(self));
             }
         }
-        // Restart condition: hold until `task.restart`, and then Stop this session.
-        if matches!(ready, ConnectorRx::Eof) && !is_open {
+        // Restart condition: once the Tail has drained, hold until `task.restart`
+        // and then Stop this session.
+        if matches!(ready, ConnectorRx::Eof) && !is_open && tail_done {
             return match uuid::Clock::delta(task.restart, now) {
                 Duration::ZERO => (Action::PollAgain, Head::Stop),
                 wake_after => (Action::Sleep { wake_after }, Head::Idle(self)),
@@ -1250,6 +1251,48 @@ mod tests {
         tail = t;
         assert!(matches!(action, Action::WriteIntents { .. }));
         assert!(matches!(tail, Tail::WriteIntents(_)));
+    }
+
+    /// Regression: a connector EOF must not step Head to Stop while the Tail is
+    /// still committing the just-rotated final transaction. This mirrors a
+    /// source-s3 sweep that finishes and exits (EOF) after the poll `interval`
+    /// has already elapsed — so `restart` is in the past and the EOF branch is
+    /// immediately stop-eligible. Head must hold at Idle until the Tail reaches
+    /// Done; otherwise the actor loop (`while !Head::Stop`) exits with the final
+    /// transaction's documents and connector checkpoint abandoned uncommitted.
+    #[test]
+    fn eof_waits_for_tail_to_finish_before_stopping() {
+        let mut ctx = mk_ctx(mk_task(true));
+        // The connector has exited: its output stream is at EOF.
+        ctx.ready = ConnectorRx::Eof;
+
+        // Head sits Idle with no open transaction — the state immediately after
+        // rotating the sweep's final transaction into the Tail.
+        let head = Head::Idle(HeadIdle::default());
+
+        // The Tail is still committing that final transaction (not yet Done).
+        let tail = Tail::Begin(TailBegin {
+            extents: Extents::default(),
+        });
+
+        // With the Tail mid-commit, Head must NOT stop: it holds Idle so the
+        // actor loop keeps stepping the Tail through to its commit.
+        let (action, head) = ctx.step_head(head, &tail);
+        assert!(
+            matches!(head, Head::Idle(_)),
+            "Head must hold Idle while the Tail commits the final transaction, got {head:?}",
+        );
+        assert!(matches!(action, Action::Idle));
+
+        // Once the Tail is Done, the EOF branch stops the session — immediately,
+        // since `restart` is in the past (rather than sleeping until it).
+        let tail = Tail::Done(TailDone::default());
+        let (action, head) = ctx.step_head(head, &tail);
+        assert!(
+            matches!(head, Head::Stop),
+            "Head must stop once the Tail is Done, got {head:?}",
+        );
+        assert!(matches!(action, Action::PollAgain));
     }
 
     /// Fuzz Head and Tail by perturbing every Ctx field at each step. Random
