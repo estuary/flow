@@ -295,10 +295,11 @@ where
         .map(|(i, b)| (b.state_key.clone(), i as u32))
         .collect();
     sorted_state_keys.sort();
-    let (mut db, recover) = db
+    let (mut db, mut recover) = db
         .scan(sorted_state_keys)
         .await
         .context("scanning RocksDB")?;
+    db = db.seed_connector_state(&mut recover).await?;
     let proto::Recover {
         ack_intents,
         connector_state_json,
@@ -331,7 +332,7 @@ where
             capture: Some(spec.clone()),
             version: version.clone(),
             range: Some(range.clone()),
-            state_json: non_empty_state(&connector_state_json),
+            state_json: connector_state_json,
         }),
         ..Default::default()
     };
@@ -459,7 +460,7 @@ async fn apply_loop<L: crate::LogHandler>(
             version: next_version.to_string(),
             last_capture: last_spec.clone(),
             last_version: last_version.clone(),
-            state_json: non_empty_state(connector_state_json),
+            state_json: connector_state_json.clone(),
         };
 
         let (connector_tx, mut connector_rx, _container) = connector::start(
@@ -537,16 +538,6 @@ async fn apply_loop<L: crate::LogHandler>(
         "capture apply loop did not converge after {MAX_APPLY_ITERATIONS} iterations; \
          connector continues to return state patches"
     );
-}
-
-/// Connector `state_json` defaults to an empty JSON object when no state has
-/// been persisted yet, since connectors expect a JSON document.
-fn non_empty_state(connector_state_json: &bytes::Bytes) -> bytes::Bytes {
-    if connector_state_json.is_empty() {
-        bytes::Bytes::from_static(b"{}")
-    } else {
-        connector_state_json.clone()
-    }
 }
 
 fn labels_build_for(spec: &flow::CaptureSpec) -> String {
