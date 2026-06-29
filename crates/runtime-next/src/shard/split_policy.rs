@@ -110,14 +110,20 @@ impl SplitPolicy {
         let max_dt = self.config.max_sample_dt;
         let min_span = self.config.min_observation_span;
 
-        let throttle = self
-            .journals
-            .entry(journal.to_owned())
-            .or_insert_with(|| JournalThrottle {
-                ewma: 0.0,
-                last_ts: now,
-                not_before: now + min_span,
-            });
+        let throttle = if let Some(throttle) = self.journals.get_mut(journal) {
+            throttle
+        } else if throttled {
+            // Only start tracking a journal if it has been throttled at least once.
+            self.journals
+                .entry(journal.to_owned())
+                .or_insert_with(|| JournalThrottle {
+                    ewma: 0.0,
+                    last_ts: now,
+                    not_before: now + min_span,
+                })
+        } else {
+            return;
+        };
 
         // Clamp `dt` to cap `alpha`.  Prevent the first sample after a long game
         // from spiking the EWMA all the way to 1.0 and triggering a split immediately.

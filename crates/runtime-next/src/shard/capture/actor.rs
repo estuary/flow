@@ -303,9 +303,11 @@ impl Actor {
     /// at most one persistently-throttled journal — off the hot path, parked
     /// as `split_fut`.
     fn observe_throttle(&mut self) {
-        let Some(publisher) = self.publisher.as_mut() else {
-            return;
-        };
+        // Callers ensure the publisher is Some whenever this is called, so unwrap here.
+        let publisher = self
+            .publisher
+            .as_mut()
+            .expect("publisher is Some whenever observe_throttle is called");
         let now = std::time::Instant::now();
         crate::shard::observe_throttle_samples(
             &mut self.split_policy,
