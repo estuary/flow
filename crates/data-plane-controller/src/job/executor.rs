@@ -393,7 +393,6 @@ async fn fetch_row_state(
             logs_token,
             data_plane_name,
             data_plane_fqdn,
-            private_links AS "private_links: Vec<sqlx::types::Json<stack::PrivateLink>>",
             pulumi_key AS "pulumi_key",
             pulumi_stack AS "pulumi_stack!"
         FROM data_planes
@@ -411,12 +410,23 @@ async fn fetch_row_state(
     config.model.name = Some(row.data_plane_name);
     config.model.fqdn = Some(row.data_plane_fqdn);
 
-    // The controller reads desired links from the `private_links` column, which
-    // the `data_plane_private_links` trigger keeps projected from the per-link
-    // rows. Reading the table directly is deferred to the contract change that
-    // drops this column, so the controller has no deploy-ordering dependency on
-    // the agent-api cutover.
-    config.model.private_links = row.private_links.into_iter().map(|link| link.0).collect();
+    // Desired links are read directly from `data_plane_private_links`, ordered
+    // deterministically. The id is intentionally not handed to est-dry-dock;
+    // only the link `config` is, preserving the prior wire shape.
+    let link_rows = sqlx::query!(
+        r#"
+        SELECT config AS "config!: sqlx::types::Json<stack::PrivateLink>"
+        FROM data_plane_private_links
+        WHERE data_plane_id = $1
+        ORDER BY created_at, id
+        "#,
+        row.data_plane_id as models::Id,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to fetch data-plane private links")?;
+
+    config.model.private_links = link_rows.into_iter().map(|r| r.config.0).collect();
 
     let stack = if let Some(key) = row.pulumi_key {
         stack::PulumiStack {
