@@ -147,7 +147,7 @@ where
     }
 
     fn rawline_to_log(&self, line: &str, lookahead: &[u8]) -> (Log, usize) {
-        let mut message = line[..line.len() - 1].to_string(); // Strip single trailing \n.
+        let mut message = line.strip_suffix('\n').unwrap_or(line).to_string();
         let mut consumed: usize = 0;
 
         // Attempt to consume additional whole lines of unstructured text.
@@ -360,9 +360,18 @@ Final line without a newline, which is not grouped into previous lines"#,
           {
             "ts": "2022-08-08T23:08:10+00:00",
             "level": "warn",
-            "message": "Final line without a newline, which is not grouped into previous line"
+            "message": "Final line without a newline, which is not grouped into previous lines"
           }
         ]
         "###);
+    }
+
+    #[test]
+    fn rawline_keeps_last_char_of_final_line_without_newline() {
+        let decoder = Decoder::new(|| std::time::UNIX_EPOCH);
+        let (log, _) = decoder.line_to_log("a final diagnostic", b"");
+        assert_eq!(log.message, "a final diagnostic");
+        let (log, _) = decoder.line_to_log("connector crashed ☃", b"");
+        assert_eq!(log.message, "connector crashed ☃");
     }
 }
