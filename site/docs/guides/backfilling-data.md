@@ -306,6 +306,33 @@ For example, Postgres currently deletes or requires users to drop logical replic
 
 5. Resume database writes.
 
+### Preventing backfills during a failover or regional cutover
+
+A planned failover - promoting a standby, or switching an [Amazon Aurora Global Database](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html) over to a secondary region - breaks CDC continuity the same way an upgrade does, because the new writer does not carry the old writer's CDC position:
+
+- **PostgreSQL**: a logical replication slot is not replicated to a promoted standby or to an Aurora Global Database secondary region. The new writer has no slot, and Postgres can only create a fresh slot at the *current* WAL position, never an earlier one. Your publication and watermarks table are present on the promoted cluster (they are replicated with the data volume); only the slot is missing.
+- **MySQL**: binlog coordinates are specific to each server, so the file and offset tracked against the old writer are meaningless on the new one. Capture from the **writer** endpoint - reader endpoints report `log_bin = OFF` and fail the connector's prerequisite check.
+
+If you can pause writes, you can avoid a full backfill using the same approach as for an [upgrade](#preventing-backfills-during-database-upgrades), with one extra step when the failover also changes the database host:
+
+1. Pause database writes so no further changes can occur.
+
+2. Monitor the current capture to ensure it is fully up-to-date.
+
+3. Perform the failover (promote the standby or the secondary region).
+
+4. Edit the capture and, in a single publish:
+   - If the new writer has a different host - for example a promoted Aurora Global Database secondary, which has its own regional endpoint - update the capture's `address` to the new writer endpoint. Changing `address` on its own is not enough: the connector resumes from the stored CDC position and fails (MySQL `ERROR 1236`, or a PostgreSQL replication slot / LSN mismatch).
+   - Backfill all bindings using the ["Only Changes" backfill mode](#resource-configuration-backfill-modes) with "Incremental Backfill (Advanced)" selected. This resets the CDC position to the new writer's current end without re-reading table contents.
+
+5. Resume database writes on the new writer.
+
+Because writes were paused from the moment the capture caught up until the new position was established, no changes fall in the gap, so there is no data loss and no full backfill.
+
+:::note
+If the new writer is reachable over [AWS PrivateLink](/private-byoc/privatelink), you can register the standby region's endpoint with Estuary ahead of time so its DNS name is ready before you need it. See [cross-region PrivateLink](/private-byoc/privatelink#cross-region).
+:::
+
 ## Resource configuration backfill modes
 
 The connectors that use CDC (Change Data Capture) allow fine-grained control of backfills for individual tables. These bindings include a "Backfill Mode" dropdown in their resource configuration. This setting then translates to a `mode` field for that resource in the specification. For example:
