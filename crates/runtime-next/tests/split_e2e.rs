@@ -583,16 +583,19 @@ async fn concurrent_journal_split_loses_cas_race() {
     let ids = vec![keys.next().0];
     publish_txn(&mut pub_a, &ids, &payload).await;
     let samples = take_samples(&mut pub_a);
-    observe(&mut policy_a, &samples, Instant::now());
     assert_eq!(samples.len(), 1);
     let parent = samples[0].0.clone();
+    // The policy only tracks a journal once it's been throttled at least once,
+    // and these tiny appends don't throttle. Fabricate the throttled sample;
+    // with `threshold: -1.0` a single throttled observation makes it due.
+    policy_a.observe(&parent, true, Instant::now());
 
     let ids = vec![keys.next().0];
     publish_txn(&mut pub_b, &ids, &payload).await;
     let samples = take_samples(&mut pub_b);
-    observe(&mut policy_b, &samples, Instant::now());
     assert_eq!(samples.len(), 1);
     assert_eq!(samples[0].0, parent);
+    policy_b.observe(&parent, true, Instant::now());
 
     // Dispatch both contenders concurrently. One Split + one Lost is
     // deterministic, not probabilistic: `join!` first-polls both futures in
@@ -657,9 +660,11 @@ async fn concurrent_journal_split_loses_cas_race() {
         let ids: Vec<String> = (0..16).map(|_| keys.next().0).collect();
         publish_txn(loser_pub, &ids, &payload).await;
         let samples = take_samples(loser_pub);
-        observe(loser_policy, &samples, Instant::now());
 
         if samples.iter().any(|(journal, _)| journal == &rhs) {
+            // RHS now receives writes; fabricate its throttled observation so it
+            // becomes due (same reason as the parent above).
+            loser_policy.observe(&rhs, true, Instant::now());
             break;
         }
     }
