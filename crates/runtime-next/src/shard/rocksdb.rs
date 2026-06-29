@@ -200,6 +200,38 @@ impl RocksDB {
             .await
             .unwrap()
     }
+
+    /// Durably seed `{}` as the connector-state base when none was recovered,
+    /// reflecting it in `recover`. A no-op if state is already present.
+    ///
+    /// Connector state is only ever updated via Merge, and the merge operator
+    /// treats the first operand on an absent key as the base document — where a
+    /// JSON `null` is a literal value, not a deletion. Without a base, a
+    /// connector's first checkpoint of e.g. `{"k": null}` is retained verbatim
+    /// instead of reducing to `{}`; a `{}` base makes it a genuine merge patch.
+    ///
+    /// Call only on the connector-state-bearing shard: the capture shard, or
+    /// shard zero of a derivation/materialization, whose recovered state the
+    /// leader broadcasts to its peers. Other shards must recover empty so their
+    /// `Recover` stays `default()`.
+    pub async fn seed_connector_state(self, recover: &mut proto::Recover) -> anyhow::Result<Self> {
+        if !recover.connector_state_json.is_empty() {
+            return Ok(self);
+        }
+
+        let mut wb = rocksdb::WriteBatch::default();
+        wb.put(recovery::KEY_CONNECTOR_STATE, b"{}");
+        let mut wo = rocksdb::WriteOptions::new();
+        wo.set_sync(true);
+
+        let db = self
+            .write_opt(wb, wo)
+            .await
+            .context("seeding initial connector state")?;
+
+        recover.connector_state_json = bytes::Bytes::from_static(b"{}");
+        Ok(db)
+    }
 }
 
 // Unpack a RocksDbDescriptor into its rocksdb::Options and path.
@@ -568,6 +600,35 @@ mod test {
         assert_eq!(
             state.connector_state_json,
             bytes::Bytes::from_static(br#"{"a":"c","ans":42,"d":"e","n":null}"#)
+        );
+    }
+
+    #[tokio::test]
+    async fn fresh_task_seeds_connector_state_base() {
+        let db = RocksDB::open(None).await.unwrap();
+
+        let (db, mut recover) = db.scan(Vec::new()).await.unwrap();
+        let db = db.seed_connector_state(&mut recover).await.unwrap();
+        assert_eq!(
+            recover.connector_state_json,
+            bytes::Bytes::from_static(b"{}")
+        );
+
+        let db = db
+            .persist::<&str>(
+                &proto::Persist {
+                    connector_patches_json: bytes::Bytes::from_static(b"[{\"stateKey\":null}\t]"),
+                    ..Default::default()
+                },
+                &[],
+            )
+            .await
+            .unwrap();
+
+        let (_db, recover) = db.scan(Vec::new()).await.unwrap();
+        assert_eq!(
+            recover.connector_state_json,
+            bytes::Bytes::from_static(b"{}")
         );
     }
 

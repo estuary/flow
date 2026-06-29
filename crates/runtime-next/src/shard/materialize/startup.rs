@@ -139,10 +139,13 @@ where
         .collect();
     sorted_state_keys.sort();
 
-    let (mut db, recover) = db
+    let (mut db, mut recover) = db
         .scan(sorted_state_keys)
         .await
         .context("scanning RocksDB")?;
+    if shard_index == 0 {
+        db = db.seed_connector_state(&mut recover).await?;
+    }
 
     _ = leader_tx.send(proto::Materialize {
         recover: Some(recover),

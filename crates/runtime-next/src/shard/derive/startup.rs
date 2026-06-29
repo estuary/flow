@@ -151,10 +151,13 @@ where
         .collect();
     sorted_state_keys.sort();
 
-    let (mut db, recover) = db
+    let (mut db, mut recover) = db
         .scan(sorted_state_keys)
         .await
         .context("scanning RocksDB")?;
+    if shard_index == 0 {
+        db = db.seed_connector_state(&mut recover).await?;
+    }
 
     _ = leader_tx.send(proto::Derive {
         recover: Some(recover),
@@ -207,7 +210,7 @@ where
             collection: Some(open_spec),
             version,
             range,
-            state_json: non_empty_state(&connector_state_json),
+            state_json: connector_state_json,
         }),
         ..Default::default()
     };
@@ -267,14 +270,4 @@ where
         task,
         write_shape,
     })
-}
-
-/// Connector `state_json` defaults to an empty JSON object when no state has
-/// been persisted, since connectors expect a JSON document.
-fn non_empty_state(connector_state_json: &bytes::Bytes) -> bytes::Bytes {
-    if connector_state_json.is_empty() {
-        bytes::Bytes::from_static(b"{}")
-    } else {
-        connector_state_json.clone()
-    }
 }
