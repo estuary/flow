@@ -205,6 +205,7 @@ pub async fn start(
         }
         std::mem::drop(ready_tx); // Signal that we're ready.
 
+        let decoder = ops::decode::Decoder::new(std::time::SystemTime::now);
         loop {
             line.clear();
 
@@ -217,15 +218,10 @@ pub async fn start(
                 Ok(_) => (),
             }
 
-            match serde_json::from_str(&line) {
-                Ok(log) => {
-                    let sanitized = sanitize_event_type(&quoted_task_name, log);
-                    log_handler.log(&sanitized)
-                }
-                Err(error) => {
-                    tracing::error!(?error, %line, "failed to parse ops::Log from container");
-                }
-            }
+            let (log, consume) = decoder.line_to_log(&line, stderr.buffer());
+            stderr.consume(consume);
+            let sanitized = sanitize_event_type(&quoted_task_name, log);
+            log_handler.log(&sanitized);
         }
     });
 
