@@ -1,8 +1,7 @@
-//! End-to-end integration test of automatic journal splitting (design doc
-//! "stream G2"): a real etcd + gazette broker, a real `Publisher`, and real
-//! broker flow-control driving `SplitPolicy` → `shard::start_due_split` →
-//! `shard::finish_split` until the collection's partitions converge to the
-//! min-width floor.
+//! End-to-end integration test of automatic journal splitting: a real
+//! etcd + gazette broker, a real `Publisher`, and real broker flow-control
+//! driving `SplitPolicy` → `shard::start_due_split` → `shard::finish_split`
+//! until the collection's partitions converge to the min-width floor.
 //!
 //! The test owns the per-transaction loop that the capture / derive actors
 //! run in production: publish, drain throttle samples, observe, dispatch at

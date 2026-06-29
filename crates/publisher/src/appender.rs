@@ -1,7 +1,6 @@
 use futures::StreamExt;
 use proto_gazette::broker;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
 
 /// An Appender manages a pipeline of sequential appends directed to a single journal.
 pub struct Appender {
@@ -24,9 +23,9 @@ pub struct Appender {
     check_registers: Option<Box<broker::LabelSelector>>,
     /// Accumulated `delayed_chunks` summed across every append RPC issued to
     /// this journal since the last `take_throttle_samples()`.
-    delayed_chunks: Arc<AtomicI64>,
+    delayed_chunks: i64,
     /// Accumulated `total_chunks` summed across every append RPC
-    total_chunks: Arc<AtomicI64>,
+    total_chunks: i64,
 }
 
 type UpdateFn = Box<
@@ -39,8 +38,9 @@ type UpdateFn = Box<
 enum AppendState {
     /// No append is in flight. The UpdateFn is ready for the next spawned task.
     Idle(UpdateFn),
-    /// An append RPC is running in the background.
-    InFlight(tokio::task::JoinHandle<UpdateFn>),
+    /// An append RPC is running in the background. On completion it yields the
+    /// UpdateFn plus its `(delayed_chunks, total_chunks)` counts.
+    InFlight(tokio::task::JoinHandle<(UpdateFn, i64, i64)>),
     /// Transiently empty while `update` is held on the stack during `start_flush`.
     /// Must not be observed outside of that scope.
     Empty,
@@ -64,8 +64,8 @@ impl Appender {
             watch,
             state: AppendState::Idle(update),
             check_registers: None,
-            delayed_chunks: Arc::new(AtomicI64::new(0)),
-            total_chunks: Arc::new(AtomicI64::new(0)),
+            delayed_chunks: 0,
+            total_chunks: 0,
         }
     }
 
@@ -128,7 +128,14 @@ impl Appender {
     /// On return `self.buffer` is empty.
     pub async fn start_flush(&mut self) -> tonic::Result<()> {
         let mut update = match std::mem::replace(&mut self.state, AppendState::Empty) {
-            AppendState::InFlight(handle) => handle.await.expect("append task panicked"),
+            AppendState::InFlight(handle) => {
+                // Fold the completed append's throttle counts into our running totals
+                let (update, delayed_chunks, total_chunks) =
+                    handle.await.expect("append task panicked");
+                self.delayed_chunks += delayed_chunks;
+                self.total_chunks += total_chunks;
+                update
+            }
             AppendState::Idle(update) => update,
             AppendState::Empty => panic!("AppendState::Empty outside of start_flush"),
         };
@@ -156,8 +163,6 @@ impl Appender {
         let barrier = self.barrier;
         let buffer = self.buffer.split().freeze();
         let client = self.client.clone();
-        let delayed_chunks = self.delayed_chunks.clone();
-        let total_chunks = self.total_chunks.clone();
 
         let request = proto_gazette::broker::AppendRequest {
             header,
@@ -185,13 +190,11 @@ impl Appender {
             loop {
                 match stream.next().await {
                     Some(Ok(response)) => {
-                        // Accumulate throttle counts here where every AppendResponse
-                        // lands.  Relaxed is sufficient, we're just summing counts
-                        total_chunks.fetch_add(response.total_chunks, Ordering::Relaxed);
-                        delayed_chunks.fetch_add(response.delayed_chunks, Ordering::Relaxed);
-
+                        // Return this response's throttle counts for the join to fold in
+                        let (delayed_chunks, total_chunks) =
+                            (response.delayed_chunks, response.total_chunks);
                         update(Ok((response, barrier)));
-                        return update;
+                        return (update, delayed_chunks, total_chunks);
                     }
                     Some(Err(gazette::RetryError {
                         attempt,
@@ -208,7 +211,7 @@ impl Appender {
                                 other => tonic::Status::internal(other.to_string()),
                             };
                             update(Err(err));
-                            return update;
+                            return (update, 0, 0);
                         }
                     }
                     None => unreachable!("append stream does not EOF without Ok response"),
@@ -314,9 +317,11 @@ impl AppenderGroup {
     pub fn take_throttle_samples(&mut self) -> Vec<ThrottleSample<'_>> {
         let mut samples = Vec::new();
 
-        for (journal, appender) in self.active.iter() {
-            let total_chunks = appender.total_chunks.swap(0, Ordering::Relaxed);
-            let delayed_chunks = appender.delayed_chunks.swap(0, Ordering::Relaxed);
+        for (journal, appender) in self.active.iter_mut() {
+            let total_chunks = appender.total_chunks;
+            let delayed_chunks = appender.delayed_chunks;
+            appender.total_chunks = 0;
+            appender.delayed_chunks = 0;
 
             if total_chunks == 0 {
                 continue;
@@ -404,20 +409,20 @@ mod test {
         let mut group = AppenderGroup::new();
 
         // Simulate two append RPCs to journal/a within one cycle — as the
-        // spawned append task's fetch_add would — to prove the accumulators
+        // `start_flush` join would fold them in — to prove the accumulators
         // sum across RPCs rather than overwrite (the watch's last-writer-wins
         // behavior we're working around).
         {
             let a = group.activate("journal/a", &client);
-            a.total_chunks.fetch_add(10, Ordering::Relaxed);
-            a.delayed_chunks.fetch_add(3, Ordering::Relaxed);
-            a.total_chunks.fetch_add(5, Ordering::Relaxed);
-            a.delayed_chunks.fetch_add(2, Ordering::Relaxed);
+            a.total_chunks += 10;
+            a.delayed_chunks += 3;
+            a.total_chunks += 5;
+            a.delayed_chunks += 2;
         }
         {
             // journal/b was appended to but never throttled.
             let b = group.activate("journal/b", &client);
-            b.total_chunks.fetch_add(7, Ordering::Relaxed);
+            b.total_chunks += 7;
         }
 
         let mut samples = group.take_throttle_samples();
