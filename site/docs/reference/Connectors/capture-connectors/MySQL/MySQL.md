@@ -324,7 +324,7 @@ The `"binlog retention period is too short"` error should normally be fixed by s
 
 MySQL binlog coordinates are specific to each server, so they do not carry over when you fail over to a new writer, for example by promoting a standby or switching an [Amazon Aurora Global Database](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html) over to a secondary region. After a failover, the capture's stored position is invalid on the new writer and replication fails with `ERROR 1236`. Always capture from the **writer** endpoint; reader endpoints report `log_bin = OFF` and fail the prerequisite check.
 
-If the failover is planned and you can pause writes, you can re-establish the capture on the new writer without a full backfill. See [Preventing backfills during a failover or regional cutover](/reference/backfilling-data/#preventing-backfills-during-a-failover-or-regional-cutover).
+If the failover is planned and you can pause writes, you can re-establish the capture on the new writer without a full backfill. See [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers).
 
 ### Empty Collection Key
 

@@ -98,7 +98,7 @@ When accessing services cross-region, you must use the **regional** DNS name (e.
 
 #### Pre-registering a standby region for disaster recovery
 
-If you run an [Amazon Aurora Global Database](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html) or another multi-region failover topology, you can register the standby region's endpoint service with Estuary ahead of time. The cross-region endpoint sits idle and does not affect your live connection, and the DNS name Estuary returns is stable. When you fail over, repoint the capture's `address` to that DNS name and follow [Preventing backfills during a failover or regional cutover](/reference/backfilling-data/#preventing-backfills-during-a-failover-or-regional-cutover) to resume CDC without a full backfill.
+If you run an [Amazon Aurora Global Database](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html) or another multi-region failover topology, you can register the standby region's endpoint service with Estuary ahead of time. The cross-region endpoint sits idle and does not affect your live connection, and the DNS name Estuary returns is stable. When you fail over, repoint the capture's `address` to that DNS name and follow [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers) to resume CDC without a full backfill.
 
 ### Variations
 
