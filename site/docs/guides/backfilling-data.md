@@ -283,7 +283,7 @@ In this case, many connectors allow you to turn off backfilling on a per-stream 
 
 ### Preventing backfills during database upgrades and failovers
 
-During an upgrade, some databases invalidate a replication slot, binlog position, CDC tables, or similar. As Estuary relies on these methods to keep its place, upgrades will disrupt the Estuary pipeline in these cases. The same is true of a failover or promotion that moves the capture onto a new writer - for example a standby promotion, a migration to a new instance, or switching an [Amazon Aurora Global Database](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-global-database.html) over to a secondary region - because the new writer does not carry the old writer's CDC position.
+During an upgrade, some databases invalidate a replication slot, binlog position, CDC tables, or similar. As Estuary relies on these methods to keep its place, upgrades will disrupt the Estuary pipeline in these cases. The same is true of a failover or promotion that moves the capture onto a new writer - for example a standby promotion or a migration to a new instance - because the new writer does not carry the old writer's CDC position.
 
 - If the operation **will not** affect these resources, the Estuary connector should simply resume when it completes and no action is required.
 - If the operation **will** affect these or similar resources, you may need to trigger a backfill afterward.
@@ -292,7 +292,7 @@ The easiest and most bulletproof solution when this happens is to backfill all b
 
 However, it is common to want to avoid a full backfill when performing this sort of database maintenance, as these backfills may take some time and require a significant amount of extra data movement even if nothing has actually changed. Some connectors provide features which may be used to accomplish this, however they typically require some amount of extra setup or user knowledge to guarantee certain invariants (put simply: if there were a more efficient way to re-establish consistency in the general case, that's what we would already be doing when asked to backfill the data again).
 
-For example, Postgres deletes or requires users to drop logical replication slots during a major version upgrade, and a promoted standby or Aurora Global Database secondary does not carry the slot at all. To prevent a full backfill, follow these steps:
+For example, Postgres deletes or requires users to drop logical replication slots during a major version upgrade. To prevent a full backfill, follow these steps:
 
 1. Pause database writes so no further changes can occur.
 
@@ -304,12 +304,12 @@ For example, Postgres deletes or requires users to drop logical replication slot
 4. Backfill all bindings of the capture using the ["Only Changes" backfill mode](#resource-configuration-backfill-modes) and make sure to select "Incremental Backfill (Advanced)" from the drop down.
    - This will not cause a full backfill. "Backfilling" all bindings at once resets the WAL (Write-Ahead Log) or binlog position for the capture, essentially allowing it to "jump ahead" to the current end. The "Only Changes" mode will skip re-reading existing table content. Incremental backfill will append new data to your current collection.
    - **4a. Same host** (in-place upgrade): no other change is needed.
-   - **4b. New host** (failover, promotion, or migration to a new instance): in the same edit, also update the capture's `address` to the new writer's endpoint. Changing `address` on its own is not enough - the connector resumes from the stored position and fails (MySQL `ERROR 1236`, or a PostgreSQL replication slot / LSN mismatch). For MySQL, point at the **writer** endpoint; reader endpoints report `log_bin = OFF` and fail the prerequisite check.
+   - **4b. New host** (failover, promotion, or migration to a new instance): in the same edit, also update the capture's `address` to the new writer's endpoint. Changing `address` on its own is not enough - the connector would try to resume from a stored CDC position that does not exist on the new server.
 
 5. Resume database writes (on the new writer, if the host changed).
 
 :::note
-If a host change lands you on a database in another region reachable over [AWS PrivateLink](/private-byoc/privatelink), you can register that region's endpoint with Estuary ahead of time so its DNS name is ready before you need it. See [cross-region PrivateLink](/private-byoc/privatelink#cross-region).
+If the new writer is reachable over [AWS PrivateLink](/private-byoc/privatelink), you can register its endpoint with Estuary ahead of time so the DNS name is ready before you need it. See [Pre-registering an endpoint ahead of time](/private-byoc/privatelink#pre-registering-an-endpoint-ahead-of-time).
 :::
 
 ## Resource configuration backfill modes
