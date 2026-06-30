@@ -445,13 +445,6 @@ impl Worker {
             .deployments
             .retain_mut(stack::Deployment::mark_current);
 
-        // Ansible has rolled any deployments with `restart` set, so consume the
-        // one-shot flag. With skip_serializing_if it simply vanishes from the
-        // written-back config, making the restart fire exactly once.
-        for deployment in state.stack.config.model.deployments.iter_mut() {
-            deployment.restart = false;
-        }
-
         // Compute dekaf addresses based on whether Dekaf is deployed with current > 0.
         let dekaf_deployed = state
             .stack
