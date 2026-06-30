@@ -13,7 +13,7 @@ To use this connector, you'll need:
 - At least one Estuary collection
 
 :::tip
-If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
+If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](/guides/create-dataflow). You'll be referred back to this connector-specific documentation at the appropriate steps.
 :::
 
 ## Configuration
@@ -77,9 +77,9 @@ You must configure your Elasticsearch cluster to allow connections from Estuary.
 
 Alternatively, you can allow secure connections via SSH tunneling. To do so:
 
-1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
+1. Refer to the [guide](/guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
-2. Configure your connector as described in the [configuration](#configuration) section above, with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+2. Configure your connector as described in the [configuration](#configuration) section above, with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using. See [Connecting to endpoints on secure networks](/concepts/connectors/#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 ## Delta updates
 
@@ -107,9 +107,9 @@ The options supported currently are:
   :::note
 
   Fields with `type: string` will have `keyword` index mappings created for
-  them only they are part of the key.
+  them only if they are part of the key.
 
-An example JSON configuration for this field configurations is shown below:
+An example JSON configuration for this field configuration is shown below:
 
 ```json
 {
