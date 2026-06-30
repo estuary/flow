@@ -185,8 +185,22 @@ impl Service {
             // connection unexpectedly.
             // See: https://github.com/grpc/grpc/blob/master/doc/keepalive.md
             .http2_keep_alive_interval(std::time::Duration::from_secs(301))
-            .initial_connection_window_size(i32::MAX as u32)
-            .connect_lazy();
+            .initial_connection_window_size(i32::MAX as u32);
+
+        let channel = if endpoint.starts_with("http://") {
+            // In-process `http://` loopback used by `flowctl preview` and
+            // tests.
+            channel
+        } else {
+            channel
+                .tls_config(
+                    tonic::transport::ClientTlsConfig::new()
+                        .with_native_roots()
+                        .assume_http2(true),
+                )
+                .map_err(|err| tonic::Status::internal(err.to_string()))?
+        }
+        .connect_lazy();
 
         guard.insert(endpoint.to_string(), channel.clone());
         Ok(channel)

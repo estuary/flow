@@ -300,6 +300,8 @@ pub struct AnsibleHost {
     pub public_subnet_cidr: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub private_subnet_cidr: Option<String>,
+    #[serde(default)]
+    pub restart: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

@@ -90,6 +90,59 @@ pub async fn user_task_authorization(
     ))
 }
 
+/// Authorize the user for administrative operations over a task's shards
+/// and recovery logs, returning the task's ops journal names and
+/// Admin-capability shard + journal clients.
+pub async fn user_task_admin(
+    rest: &flow_client_next::rest::Client,
+    user_tokens: &tokens::PendingWatch<UserToken>,
+    router: &gazette::Router,
+    task: &str,
+    data_plane: models::Name,
+) -> anyhow::Result<(
+    String,
+    String,
+    gazette::shard::Client,
+    gazette::journal::Client,
+)> {
+    let (ops_logs_journal, ops_stats_journal) = {
+        let watch = tokens::watch(workflows::UserTaskAuth {
+            client: rest.clone(),
+            user_tokens: user_tokens.clone(),
+            task: models::Name::new(task),
+            capability: models::Capability::Read,
+        });
+        let ready = watch.ready().await.token();
+        let model = ready.result()?;
+
+        (
+            model.ops_logs_journal.clone(),
+            model.ops_stats_journal.clone(),
+        )
+    };
+
+    let watch = tokens::watch(workflows::UserPrefixAuth {
+        client: rest.clone(),
+        user_tokens: user_tokens.clone(),
+        prefix: models::Prefix::new(format!("{task}/")),
+        data_plane,
+        capability: models::Capability::Admin,
+    });
+    let journal_client = workflows::user_prefix_auth::new_journal_client(
+        gazette::journal::Client::new_fragment_client(),
+        router.clone(),
+        watch.clone(),
+    );
+    let shard_client = workflows::user_prefix_auth::new_shard_client(router.clone(), watch);
+
+    Ok((
+        ops_logs_journal,
+        ops_stats_journal,
+        shard_client,
+        journal_client,
+    ))
+}
+
 /// Authorize the user to access a catalog prefix within a data-plane,
 /// returning the authorization model (broker/reactor addresses and tokens).
 pub async fn user_prefix_authorization(

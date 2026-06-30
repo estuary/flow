@@ -4,20 +4,53 @@ description: Configure Estuary email notifications for data movement, auto-disco
 slug: /reference/notifications/
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Notifications
 
 Estuary lets you configure email notifications to send out alerts for various events on your tenant.
 
 To configure alert subscriptions:
 
-* Navigate to the **Admin** section of Estuary's dashboard
-* Select the [**Settings**](https://dashboard.estuary.dev/admin/settings) tab
-* If you have access to more than one prefix, select your desired tenant from the **Prefix** dropdown
-* Under the **Organization Notifications** section, click **Configure Notifications** to create a new subscription or **Edit** an existing one
-* Enter your desired prefix, email, and [alert types](#alert-types)
-* Save your alert subscription
+<Tabs>
+<TabItem value="In the dashboard" default>
+
+1. Navigate to the **Admin** section of Estuary's dashboard
+2. Select the [**Settings**](https://dashboard.estuary.dev/admin/settings) tab
+3. If you have access to more than one prefix, select your desired tenant from the **Prefix** dropdown
+4. Under the **Organization Notifications** section, click **Configure Notifications** to create a new subscription or **Edit** an existing one
+5. Enter your desired prefix, email, and [alert types](#alert-types)
+6. Save your alert subscription
+
+</TabItem>
+<TabItem value="Using flowctl">
+
+1. Open an [authenticated `flowctl` session](/guides/get-started-with-flowctl)
+2. Manage your alert subscriptions with the `flowctl alerts subscriptions` command.
+For example:
+
+   ```shell
+   # View a list of existing alert subscriptions for a tenant
+   flowctl alerts subscriptions list --prefix acmeCo/
+
+   # Subscribe an address to a set of common alert notifications
+   flowctl alerts subscriptions subscribe --prefix acmeCo/ --email acme@example.com
+
+   # Subscribe an address to specific notifications
+   # Note: using the same email with the same prefix will update the existing
+   # subscription instead of creating a new one
+   flowctl alerts subscriptions subscribe --prefix acmeCo/ --email acme@example.com --alert-type data_movement_stalled --alert-type shard_failed
+
+   # See all alert type options and other usage information
+   flowctl alerts subscriptions subscribe -h
+   ```
+
+</TabItem>
+</Tabs>
 
 You can create multiple alert subscriptions with different configurations to subscribe additional emails or direct specific alert types to certain addresses.
+See [customization options](./customize-alerts.md) for examples.
 
 :::tip
 Use a mailing list email rather than an individual's email for your alert subscriptions.
@@ -64,6 +97,8 @@ If the task keeps failing, the alert type may progress from "Task Failed" to "Ta
 If the task remains in this chronically failing state and is unable to progress, the task may be disabled ("Task Auto-Disabled (Failing)") until you can address the root cause of the failure.
 
 Additional details about the failure will be available in the connector's **Alerts** tab.
+
+By default, the alert fires after 3 failures within an 8-hour window, and resolves once the task has been healthy for about 2 hours. You can change the failure threshold per prefix; see [Configure alert thresholds](./customize-alerts.md#configure-alert-thresholds).
 
 ### Background Publication Failed Alerts
 

@@ -80,6 +80,7 @@ more of your Estuary collections to your desired tables in the database.
 | **`/schema`**                         | Database Schema          | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables. | string  | Required         |
 | `/hardDelete`                         | Hard Delete              | If enabled, items deleted in the source will also be deleted from the destination.                                                                               | boolean | `false`          |
 | **`/stagingBucket`**                  | Staging Bucket           | The type of staging bucket to use.                                                                                                    | [Staging Bucket](#staging-bucket)  | Required         |
+| `/advanced/no_flow_document`          | Exclude Flow Document    | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false`          |
 
 #### Staging Bucket
 

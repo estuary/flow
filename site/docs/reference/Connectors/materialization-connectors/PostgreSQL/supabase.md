@@ -49,6 +49,7 @@ Use the below properties to configure a Supabase materialization, which will dir
 | `/hardDelete` | Hard Delete | If this option is enabled, items deleted in the source will also be deleted from the destination. Otherwise, `_meta/op` in the destination will signify whether rows have been deleted (soft-delete). | boolean | `false` |
 | `/advanced` | Advanced Options | Options for advanced users. You should not typically need to modify these. | object |   |
 | `/advanced/sslmode` | SSL Mode | Overrides SSL connection behavior by setting the 'sslmode' parameter. | string |   |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 
 ##### Authentication
 

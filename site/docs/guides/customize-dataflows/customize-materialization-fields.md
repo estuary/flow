@@ -299,6 +299,54 @@ bindings:
         flow_document: {}
 ```
 
+## Excluding `flow_document` with Standard Updates
+
+With **standard updates**, the `flow_document` field is normally required: the connector stores the complete document in the destination table and reads it back during transactions to fully reduce updates.
+(With [delta updates](#delta-updates-and-flow_document), `flow_document` is already excluded by default.)
+
+For wide tables, this document column can account for a large share of destination storage, since it duplicates the data of every other column.
+
+Many SQL and data warehouse materialization connectors offer an **Exclude Flow Document** advanced endpoint option (`advanced/no_flow_document`) that removes this requirement.
+This includes Snowflake, BigQuery, Databricks, Amazon Redshift, ClickHouse, MotherDuck, Google Cloud Spanner, Azure Fabric Warehouse, PostgreSQL, MySQL, and SQL Server, along with their variants.
+
+**Through the UI**: Enable **Exclude Flow Document** under the connector's **Advanced Options** in the endpoint configuration.
+
+**In the specification file**: Set `no_flow_document` in the endpoint configuration's `advanced` section:
+
+```yaml
+materializations:
+  acmeCo/example/materialization:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-snowflake:dev
+        config:
+          # ...other endpoint configuration...
+          advanced:
+            no_flow_document: true
+```
+
+When this option is enabled, the connector reconstructs the document from the materialized top-level columns whenever it needs it, rather than reading a stored document column.
+For this to work, the document must be fully reconstructable from the table, so every required top-level field in the collection's schema becomes a required field in field selection.
+
+### Effect on existing tables
+
+Enabling **Exclude Flow Document** does not modify a table that has already been materialized:
+
+* The existing `flow_document` column is not dropped, and its existing values are not removed.
+* `flow_document` remains a required field in the binding's field selection, and the connector continues to write it.
+
+The option takes effect for new bindings, or for existing bindings once they are [backfilled](/reference/backfilling-data/).
+
+For most SQL and warehouse destinations, a routine backfill [truncates and repopulates the existing table](/reference/backfilling-data/#schema-changes-during-backfill) rather than dropping it.
+The truncate clears the stored document values — which is where the storage savings come from — but the now-unused `flow_document` column itself remains in the table as an empty, nullable column.
+Since Estuary no longer writes to it, you can manually drop the leftover column if you want it gone.
+
+A new binding, or a backfill that takes the [drop-and-recreate path](/reference/backfilling-data/#schema-changes-during-backfill), creates the table without the `flow_document` column entirely.
+
+:::note
+The main motivation for this option is saving destination storage. For an existing table, those savings are only realized after a backfill clears the stored documents.
+:::
+
 ## Pruned fields
 
 Estuary's schema inference tracks unique field locations. To prevent excessively large schemas, there's a complexity limit:

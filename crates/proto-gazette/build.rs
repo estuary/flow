@@ -22,6 +22,7 @@ fn main() {
         .register_descriptors(&std::fs::read(b.descriptor_path).expect("read descriptors"))
         .unwrap()
         .btree_map(["."])
+        .ignore_unknown_fields()
         .build(&[".protocol", ".consumer", ".recoverylog"])
         .expect("building pbjson");
 }

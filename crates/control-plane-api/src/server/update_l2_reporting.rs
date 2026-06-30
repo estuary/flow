@@ -109,6 +109,7 @@ pub async fn update_l2_reporting(
     let models::Derivation {
         transforms: l2_stats_new_transforms,
         using: l2_stats_new_using,
+        shards: l2_stats_new_shards,
         ..
     } = &mut l2_stats_new
         .model
@@ -209,13 +210,7 @@ export class Derivation extends Types.IDerivation {"#
 
         l2_stats_new_transforms.push(models::TransformDef {
             name: models::Transform::new(&data_plane.ops_l2_stats_transform),
-            source: models::Source::Source(models::FullSource {
-                name: data_plane.ops_l1_stats_name.clone(),
-                partitions: None,
-                // Initial cutover: avoid back-filling history into the new rollup.
-                not_before: Some(time::macros::datetime!(2026-05-14 00:00:00 UTC)),
-                not_after: None,
-            }),
+            source: models::Source::Collection(data_plane.ops_l1_stats_name.clone()),
             disable: !data_plane.enable_l2,
 
             backfill: 0,
@@ -283,6 +278,11 @@ export class Derivation extends Types.IDerivation {"#
     l2_stats_new_module.push_str("\n}\n");
     *l2_stats_new_module_raw =
         models::RawValue::from_value(&serde_json::json!(l2_stats_new_module));
+
+    l2_stats_new_shards.flags.insert(
+        models::Token::new("enable-runtime-v2"),
+        models::Token::new("true"),
+    );
 
     let draft = tables::DraftCatalog {
         collections: tables::DraftCollections::from_iter([

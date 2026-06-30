@@ -22,6 +22,7 @@ fn main() {
         .register_descriptors(&std::fs::read(b.descriptor_path).expect("read descriptors"))
         .unwrap()
         .btree_map(["."]) // Make ordering stable for snapshots.
+        .ignore_unknown_fields()
         .build(&[
             ".flow",
             ".capture",

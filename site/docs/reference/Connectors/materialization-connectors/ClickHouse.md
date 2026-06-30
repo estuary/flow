@@ -76,7 +76,7 @@ Use the below properties to configure a ClickHouse materialization, which will d
 | **`/database`** | Database | Name of the ClickHouse database to materialize to. | string | Required |
 | `/hardDelete` | Hard Delete | If enabled, items deleted in the source will also be deleted from the destination. By default, deletions are tracked via `_meta/op` (soft-delete). | boolean | `false` |
 | `/advanced/sslmode` | SSL Mode | Controls the TLS connection behavior. Options: `disable`, `require`, `verify-full`. | string | `verify-full` |
-| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document column will not be required for standard updates. | boolean | `false` |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document column will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 
 #### Bindings
 
