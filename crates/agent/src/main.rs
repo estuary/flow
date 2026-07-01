@@ -127,6 +127,7 @@ struct Args {
     /// Optional api key for sending alert notification emails via resend. If
     /// not provided, then sending alert emails will be disabled, and any alert
     /// emails that would be sent will instead be logged as warnings.
+    #[derivative(Debug = "ignore")]
     #[clap(
         long,
         env,
