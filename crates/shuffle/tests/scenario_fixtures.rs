@@ -77,6 +77,7 @@ fn build_shards(
                 }),
                 endpoint: endpoint.to_string(),
                 directory: directory.to_str().unwrap().to_string(),
+                ..Default::default()
             }
         })
         .collect()

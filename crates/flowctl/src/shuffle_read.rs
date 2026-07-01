@@ -123,6 +123,7 @@ pub async fn drain_task(
         }),
         endpoint: peer_endpoint.clone(),
         directory: log_dir.to_string_lossy().into_owned(),
+        ..Default::default()
     }];
 
     let mut session =

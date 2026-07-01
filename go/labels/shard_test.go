@@ -30,6 +30,7 @@ func TestParsingShardLabels(t *testing.T) {
 		SplitSource, "a-source",
 		LogsJournal, "logs/journal",
 		StatsJournal, "stats/journal",
+		ShuffleDiskLimit, "134217728",
 	)
 	var out, err = ParseShardLabels(set)
 	require.NoError(t, err)
@@ -44,12 +45,13 @@ func TestParsingShardLabels(t *testing.T) {
 			RClockBegin: 0xcccccccc,
 			RClockEnd:   0xdddddddd,
 		},
-		SplitSource:  "a-source",
-		SplitTarget:  "",
-		TaskName:     "a/task",
-		TaskType:     ops.TaskType_capture,
-		LogsJournal:  "logs/journal",
-		StatsJournal: "stats/journal",
+		SplitSource:           "a-source",
+		SplitTarget:           "",
+		TaskName:              "a/task",
+		TaskType:              ops.TaskType_capture,
+		LogsJournal:           "logs/journal",
+		StatsJournal:          "stats/journal",
+		ShuffleDiskLimitBytes: 134217728,
 		Flags: map[string]string{
 			"buffer-size":      "1024",
 			"enable-new-thing": "true",
@@ -121,6 +123,13 @@ func TestParsingShardLabels(t *testing.T) {
 	_, err = ParseShardLabels(set)
 	require.Regexp(t, "expected one label .* \\(got \\[a-source source-2\\]\\)", err.Error())
 	set.Remove(SplitSource)
+
+	// Case: invalid shuffle disk limit.
+	set.SetValue(ShuffleDiskLimit, "not-a-number")
+	_, err = ParseShardLabels(set)
+	require.EqualError(t, err,
+		"invalid shuffle disk limit \"not-a-number\": strconv.ParseUint: parsing \"not-a-number\": invalid syntax")
+	set.Remove(ShuffleDiskLimit)
 
 	// Case: range parse error is passed through.
 	set.SetValue(KeyBegin, "whoops")

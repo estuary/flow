@@ -422,6 +422,9 @@ impl serde::Serialize for ShardLabeling {
         if !self.flags.is_empty() {
             len += 1;
         }
+        if self.shuffle_disk_limit_bytes != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("ops.ShardLabeling", len)?;
         if !self.build.is_empty() {
             struct_ser.serialize_field("build", &self.build)?;
@@ -460,6 +463,11 @@ impl serde::Serialize for ShardLabeling {
         if !self.flags.is_empty() {
             struct_ser.serialize_field("flags", &self.flags)?;
         }
+        if self.shuffle_disk_limit_bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("shuffleDiskLimitBytes", ToString::to_string(&self.shuffle_disk_limit_bytes).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -488,6 +496,8 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
             "stats_journal",
             "statsJournal",
             "flags",
+            "shuffle_disk_limit_bytes",
+            "shuffleDiskLimitBytes",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -503,6 +513,7 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
             LogsJournal,
             StatsJournal,
             Flags,
+            ShuffleDiskLimitBytes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -536,6 +547,7 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                             "logsJournal" | "logs_journal" => Ok(GeneratedField::LogsJournal),
                             "statsJournal" | "stats_journal" => Ok(GeneratedField::StatsJournal),
                             "flags" => Ok(GeneratedField::Flags),
+                            "shuffleDiskLimitBytes" | "shuffle_disk_limit_bytes" => Ok(GeneratedField::ShuffleDiskLimitBytes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -566,6 +578,7 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                 let mut logs_journal__ = None;
                 let mut stats_journal__ = None;
                 let mut flags__ = None;
+                let mut shuffle_disk_limit_bytes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Build => {
@@ -636,6 +649,14 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                                 map_.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
+                        GeneratedField::ShuffleDiskLimitBytes => {
+                            if shuffle_disk_limit_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("shuffleDiskLimitBytes"));
+                            }
+                            shuffle_disk_limit_bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -653,6 +674,7 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                     logs_journal: logs_journal__.unwrap_or_default(),
                     stats_journal: stats_journal__.unwrap_or_default(),
                     flags: flags__.unwrap_or_default(),
+                    shuffle_disk_limit_bytes: shuffle_disk_limit_bytes__.unwrap_or_default(),
                 })
             }
         }

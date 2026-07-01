@@ -2132,6 +2132,9 @@ impl serde::Serialize for Shard {
         if !self.directory.is_empty() {
             len += 1;
         }
+        if self.shuffle_disk_limit_bytes != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("shuffle.Shard", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -2144,6 +2147,11 @@ impl serde::Serialize for Shard {
         }
         if !self.directory.is_empty() {
             struct_ser.serialize_field("directory", &self.directory)?;
+        }
+        if self.shuffle_disk_limit_bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("shuffleDiskLimitBytes", ToString::to_string(&self.shuffle_disk_limit_bytes).as_str())?;
         }
         struct_ser.end()
     }
@@ -2159,6 +2167,8 @@ impl<'de> serde::Deserialize<'de> for Shard {
             "range",
             "endpoint",
             "directory",
+            "shuffle_disk_limit_bytes",
+            "shuffleDiskLimitBytes",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2167,6 +2177,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
             Range,
             Endpoint,
             Directory,
+            ShuffleDiskLimitBytes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2193,6 +2204,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
                             "range" => Ok(GeneratedField::Range),
                             "endpoint" => Ok(GeneratedField::Endpoint),
                             "directory" => Ok(GeneratedField::Directory),
+                            "shuffleDiskLimitBytes" | "shuffle_disk_limit_bytes" => Ok(GeneratedField::ShuffleDiskLimitBytes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2216,6 +2228,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
                 let mut range__ = None;
                 let mut endpoint__ = None;
                 let mut directory__ = None;
+                let mut shuffle_disk_limit_bytes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -2242,6 +2255,14 @@ impl<'de> serde::Deserialize<'de> for Shard {
                             }
                             directory__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::ShuffleDiskLimitBytes => {
+                            if shuffle_disk_limit_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("shuffleDiskLimitBytes"));
+                            }
+                            shuffle_disk_limit_bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2252,6 +2273,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
                     range: range__,
                     endpoint: endpoint__.unwrap_or_default(),
                     directory: directory__.unwrap_or_default(),
+                    shuffle_disk_limit_bytes: shuffle_disk_limit_bytes__.unwrap_or_default(),
                 })
             }
         }

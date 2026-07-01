@@ -1630,6 +1630,7 @@ mod test {
             }),
             endpoint: String::new(),
             directory: "/test/dir".to_string(),
+            ..Default::default()
         };
         assert!(validate_shard_ranges(&[full]).is_ok());
 
@@ -1643,6 +1644,7 @@ mod test {
             }),
             endpoint: String::new(),
             directory: "/test/dir".to_string(),
+            ..Default::default()
         };
 
         // Valid r-clock splitting within a single key group.
@@ -1694,6 +1696,7 @@ mod test {
                 }),
                 endpoint: String::new(),
                 directory: "/test/dir".to_string(),
+                ..Default::default()
             },
         ])
         .unwrap_err();
@@ -1710,6 +1713,7 @@ mod test {
             }),
             endpoint: String::new(),
             directory: "/test/dir".to_string(),
+            ..Default::default()
         }])
         .unwrap_err();
         assert!(format!("{err}").contains("no '/' prefix"), "{err}");

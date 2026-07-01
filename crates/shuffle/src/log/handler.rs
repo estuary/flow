@@ -48,11 +48,18 @@ where
         log_shard_index,
     } = open.open.context("first message must be Open")?;
 
-    // Identity and directory of the shard hosting this Log instance.
-    let (shard_id, directory) = shards
+    // Identity, directory, and per-task shuffle disk limit of the shard hosting
+    // this Log instance. A zero limit means the task didn't set the
+    // `estuary.dev/shuffle-disk-limit` label, so we fall back to the
+    // Service-wide default.
+    let (shard_id, directory, task_disk_limit_bytes) = shards
         .get(log_shard_index as usize)
-        .map(|s| (s.id.as_str(), &s.directory))
+        .map(|s| (s.id.as_str(), &s.directory, s.shuffle_disk_limit_bytes))
         .context("Open log_shard_index out of range")?;
+    let shuffle_disk_limit_bytes = match task_disk_limit_bytes {
+        0 => service.shuffle_disk_limit_bytes,
+        limit => limit,
+    };
     let authz = authz.authorize_id(shard_id)?;
 
     handler.set_label(shard_id);
@@ -60,6 +67,7 @@ where
     handler.set_field("log_shard_index", log_shard_index);
     handler.set_field("shards", shards.len());
     handler.set_field("directory", directory);
+    handler.set_field("shuffle_disk_limit_bytes", shuffle_disk_limit_bytes);
     handler.set_field("token", serde_json::to_string(&authz.claims()).unwrap());
     handler.set_phase("joining");
 
@@ -159,7 +167,7 @@ where
             session_id,
             shards,
             log_shard_index,
-            disk_backlog_threshold: service.disk_backlog_threshold,
+            shuffle_disk_limit_bytes,
         },
         append_heap: super::heap::AppendHeap::new(),
         slice_prev_journal: vec![String::new(); shard_count],

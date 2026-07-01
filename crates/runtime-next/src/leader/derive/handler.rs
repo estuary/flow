@@ -165,6 +165,7 @@ where
             range: labeling.range,
             directory,
             endpoint,
+            shuffle_disk_limit_bytes: labeling.shuffle_disk_limit_bytes,
         });
 
         // Labels are identical across shards (enforced by Join equality check).

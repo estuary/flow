@@ -58,9 +58,10 @@ pub struct Args {
     #[arg(long, env = "GAZETTE_ZONE", default_value = "local")]
     pub gazette_zone: String,
 
-    /// On-disk shuffle log overflow threshold in bytes. Default is 2 GiB.
-    #[arg(long, env = "DISK_BACKLOG_THRESHOLD", default_value_t = shuffle::DEFAULT_DISK_BACKLOG_THRESHOLD)]
-    pub disk_backlog_threshold: u64,
+    /// Data-plane default shuffle disk limit in bytes, used when a task doesn't
+    /// set its own `estuary.dev/shuffle-disk-limit` label. Default is 2 GiB.
+    #[arg(long, env = "SHUFFLE_DISK_LIMIT_BYTES", default_value_t = shuffle::DEFAULT_SHUFFLE_DISK_LIMIT_BYTES)]
+    pub shuffle_disk_limit_bytes: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -107,7 +108,7 @@ pub async fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<
     let shuffle_svc = shuffle::Service::new(
         args.peer_endpoint,
         read_factory,
-        args.disk_backlog_threshold,
+        args.shuffle_disk_limit_bytes,
         registry.clone(),
         Some(shuffle_signer),
     );
