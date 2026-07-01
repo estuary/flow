@@ -26,3 +26,32 @@ pub async fn upsert_user_grant(
 
     Ok(())
 }
+
+/// Upsert a user grant, unconditionally replacing the capability and detail of
+/// any existing grant. Unlike [`upsert_user_grant`], this does not guard against
+/// downgrades: the supplied `capability` always wins.
+pub async fn overwrite_user_grant(
+    user: Uuid,
+    prefix: &str,
+    capability: models::Capability,
+    detail: Option<String>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"insert into user_grants (user_id, object_role, capability, detail)
+          values ($1, $2, $3, $4)
+        on conflict (user_id, object_role) do update set
+          capability = $3,
+          updated_at = now(),
+          detail = $4
+        "#,
+        user,
+        prefix as &str,
+        capability as models::Capability,
+        detail as Option<String>,
+    )
+    .execute(&mut **txn)
+    .await?;
+
+    Ok(())
+}

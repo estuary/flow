@@ -131,13 +131,15 @@ jobs:
       - run: mise run local:bigtable
       - run: mise run ci:nextest-run
 
+      - run: mise run ci:doctest
+      - run: mise run ci:gotest
+      - run: mise run ci:catalog-test
+      - run: mise run build:flow-schema
+
+      # Run last so its flakiness can't skip the test steps above. It still gates
+      # the job on failure, surfacing genuine Stripe regressions.
       - name: Stripe integration test
         env:
           STRIPE_API_KEY: ${{ secrets.STRIPE_TESTMODE_API_KEY }}
         if: env.STRIPE_API_KEY != ''
         run: cargo nextest run --frozen --run-ignored ignored-only -E 'test(graphql_billing_live_stripe)'
-
-      - run: mise run ci:doctest
-      - run: mise run ci:gotest
-      - run: mise run ci:catalog-test
-      - run: mise run build:flow-schema

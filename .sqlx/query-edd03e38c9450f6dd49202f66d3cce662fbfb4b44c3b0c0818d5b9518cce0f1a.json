@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        SELECT\n                            rt.id AS \"id!: models::Id\",\n                            rt.user_id,\n                            rt.detail,\n                            rt.created_by AS \"created_by!: uuid::Uuid\",\n                            rt.created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n                            (rt.updated_at + rt.valid_for) AS \"expires_at!: chrono::DateTime<chrono::Utc>\",\n                            CASE WHEN rt.uses > 0 THEN rt.updated_at END AS \"last_used_at: chrono::DateTime<chrono::Utc>\"\n                        FROM public.refresh_tokens rt\n                        WHERE rt.user_id = ANY($1)\n                          AND rt.valid_for <> interval '0'\n                        ORDER BY rt.created_at DESC\n                        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "detail",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by!: uuid::Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_used_at: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "edd03e38c9450f6dd49202f66d3cce662fbfb4b44c3b0c0818d5b9518cce0f1a"
+}
