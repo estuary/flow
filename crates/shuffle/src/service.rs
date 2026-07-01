@@ -4,11 +4,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-/// Default on-disk shuffle-log overflow threshold, in bytes (2 GiB), before a
-/// LogActor engages back-pressure. The single home for this value: the runtime
-/// sidecar's `--disk-backlog-threshold` CLI default and flowctl's in-process
-/// loopback Services all reference it so they cannot drift apart.
-pub const DEFAULT_DISK_BACKLOG_THRESHOLD: u64 = 2 * 1024 * 1024 * 1024;
+/// Default shuffle disk limit, in bytes (2 GiB), before a LogActor engages
+/// back-pressure. The single home for this value: the runtime sidecar's
+/// `--shuffle-disk-limit-bytes` CLI default and flowctl's in-process loopback
+/// Services all reference it so they cannot drift apart. Tasks may override
+/// this default per-shard via the `estuary.dev/shuffle-disk-limit` label.
+pub const DEFAULT_SHUFFLE_DISK_LIMIT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// Service is the implementation of the Shuffle gRPC service trait.
 #[derive(Clone)]
@@ -20,9 +21,10 @@ pub struct ServiceImpl {
     pub(crate) peer_endpoint: String,
     /// Factory for building Gazette journal Clients.
     pub(crate) journal_client_factory: gazette::journal::ClientFactory,
-    /// Disk backlog threshold in bytes before LogActor engages back-pressure.
-    /// Applied uniformly across every task served by this Service.
-    pub(crate) disk_backlog_threshold: u64,
+    /// Default shuffle disk limit in bytes before a LogActor engages
+    /// back-pressure, used for any task that doesn't set a per-shard override
+    /// via the `estuary.dev/shuffle-disk-limit` label.
+    pub(crate) shuffle_disk_limit_bytes: u64,
     /// Transport channels to dialed peers.
     pub(crate) channels: std::sync::Mutex<HashMap<String, tonic::transport::Channel>>,
     /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
@@ -38,14 +40,14 @@ impl Service {
     pub fn new(
         peer_endpoint: String,
         journal_client_factory: gazette::journal::ClientFactory,
-        disk_backlog_threshold: u64,
+        shuffle_disk_limit_bytes: u64,
         registry: service_kit::Registry,
         signer: Option<proto_grpc::Signer>,
     ) -> Self {
         Self(Arc::new(ServiceImpl {
             peer_endpoint,
             journal_client_factory,
-            disk_backlog_threshold,
+            shuffle_disk_limit_bytes,
             channels: std::sync::Mutex::new(HashMap::new()),
             log_joins: std::sync::Mutex::new(HashMap::new()),
             registry,
@@ -55,7 +57,7 @@ impl Service {
 
     /// Build a Service for an in-process loopback peer (e.g. `flowctl collections
     /// read` or `flowctl preview`): no AuthN+AuthZ signer is needed because the
-    /// only peer is ourselves, and the disk-backlog threshold takes its default.
+    /// only peer is ourselves, and the shuffle disk limit takes its default.
     pub fn new_loopback(
         peer_endpoint: String,
         journal_client_factory: gazette::journal::ClientFactory,
@@ -64,7 +66,7 @@ impl Service {
         Self::new(
             peer_endpoint,
             journal_client_factory,
-            DEFAULT_DISK_BACKLOG_THRESHOLD,
+            DEFAULT_SHUFFLE_DISK_LIMIT_BYTES,
             registry,
             None, // No AuthN+AuthZ signer (local loopback).
         )

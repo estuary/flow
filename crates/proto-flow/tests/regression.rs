@@ -762,6 +762,7 @@ fn ex_shard_labeling() -> ops::ShardLabeling {
         .into(),
         logs_journal: "ops/logs/one=capture/two=the%2Ftask%2Fname".to_string(),
         stats_journal: "ops/stats/one=capture/two=the%2Ftask%2Fname".to_string(),
+        shuffle_disk_limit_bytes: 134_217_728,
     }
 }
 

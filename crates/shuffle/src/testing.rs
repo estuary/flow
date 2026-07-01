@@ -79,6 +79,7 @@ pub fn test_shards_3() -> Vec<shuffle::Shard> {
             }),
             endpoint: String::new(),
             directory: "/test/log/shard-0".to_string(),
+            ..Default::default()
         },
         shuffle::Shard {
             id: "test/task/shard-1".to_string(),
@@ -90,6 +91,7 @@ pub fn test_shards_3() -> Vec<shuffle::Shard> {
             }),
             endpoint: String::new(),
             directory: "/test/log/shard-1".to_string(),
+            ..Default::default()
         },
         shuffle::Shard {
             id: "test/task/shard-2".to_string(),
@@ -101,6 +103,7 @@ pub fn test_shards_3() -> Vec<shuffle::Shard> {
             }),
             endpoint: String::new(),
             directory: "/test/log/shard-2".to_string(),
+            ..Default::default()
         },
     ]
 }

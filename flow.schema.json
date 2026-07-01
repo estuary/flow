@@ -1252,7 +1252,7 @@
           "additionalProperties": false,
           "patternProperties": {
             "^[\\p{Letter}\\p{Number}\\-_\\.]+$": {
-              "type": "string"
+              "$ref": "#/$defs/Token"
             }
           }
         },
@@ -1299,6 +1299,13 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "shuffleDiskLimit": {
+          "title": "Maximum shuffle disk usage before back-pressure, in bytes.",
+          "description": "Bounds the aggregate size of buffered, sealed shuffle segment files on a\nshard's disk. When exceeded, the shuffle reader back-pressures upstream\njournal reads (released once the backlog falls below half).\nIf not set, the data-plane default (currently 2 GiB) is used.\nEXPERIMENTAL: this field MAY be removed.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 67108864
         }
       },
       "additionalProperties": false,
@@ -1735,6 +1742,14 @@
         "collection",
         "documents"
       ]
+    },
+    "Token": {
+      "description": "Token is Unicode letters, numbers, '-', '_', or '.'.",
+      "type": "string",
+      "examples": [
+        "token"
+      ],
+      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+$"
     },
     "Transform": {
       "description": "Transform names are Unicode letters, numbers, '-', '_', or '.'.",

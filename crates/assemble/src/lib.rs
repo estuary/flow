@@ -387,6 +387,7 @@ pub fn shard_template(
         min_txn_duration,
         read_channel_size,
         ring_buffer_size,
+        shuffle_disk_limit,
         log_level,
         flags,
     } = shard;
@@ -469,6 +470,12 @@ pub fn shard_template(
             &format!("{}{}", labels::FLAG_PREFIX, name.as_str()),
             value,
         );
+    }
+
+    // When set, carry the per-task shuffle disk limit as a label. When absent,
+    // the shuffle Service falls back to its data-plane-wide default.
+    if let Some(limit) = shuffle_disk_limit {
+        labels = labels::add_value(labels, labels::SHUFFLE_DISK_LIMIT, &limit.to_string());
     }
 
     consumer::ShardSpec {
