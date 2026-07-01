@@ -10,6 +10,7 @@ struct State {
     invoices: Vec<(stripe::CustomerId, stripe::Invoice)>,
     payment_intents: Vec<stripe::PaymentIntent>,
     setup_intent_counter: u64,
+    update_billing_profile_calls: usize,
 }
 
 /// In-memory `BillingProvider` used by tests and local development.
@@ -21,6 +22,12 @@ pub struct InMemoryBillingProvider {
 impl InMemoryBillingProvider {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Number of `update_customer_billing_profile` calls, letting tests assert
+    /// that an already-synced customer is not needlessly rewritten.
+    pub fn update_billing_profile_call_count(&self) -> usize {
+        self.state.lock().unwrap().update_billing_profile_calls
     }
 
     pub fn add_customer(&self, tenant: &str, id: &str, default_pm: Option<&str>) {
@@ -239,6 +246,7 @@ impl BillingProvider for InMemoryBillingProvider {
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut state = self.state.lock().unwrap();
+        state.update_billing_profile_calls += 1;
         let customer = state
             .customers
             .iter_mut()
