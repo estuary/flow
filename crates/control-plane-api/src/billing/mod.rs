@@ -1,5 +1,5 @@
 pub mod db;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod memory;
 pub mod provider;
 pub mod stripe_impl;
@@ -11,7 +11,7 @@ pub use db::{
     DbInvoiceRow, InvoiceCursor, InvoiceQuery, fetch_invoice_rows_backward,
     fetch_invoice_rows_forward,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub use memory::InMemoryBillingProvider;
 pub use provider::{BillingProvider, default_payment_method_id};
 pub use stripe_impl::StripeBillingProvider;
