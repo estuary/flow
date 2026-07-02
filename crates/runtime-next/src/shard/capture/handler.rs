@@ -332,6 +332,9 @@ where
             version: version.clone(),
             range: Some(range.clone()),
             state_json: non_empty_state(&connector_state_json),
+            // Populated by `connector::start` with the matched endpoint's inner
+            // sealed configuration, which is not yet extracted from `spec` here.
+            sealed_config_json: Default::default(),
         }),
         ..Default::default()
     };
