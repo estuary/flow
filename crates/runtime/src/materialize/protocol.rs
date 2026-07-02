@@ -382,9 +382,14 @@ pub async fn recv_connector_acked_or_loaded_or_flushed(
                 queue_connector_state_update(&state, &mut wb).context("invalid Acknowledged")?;
                 db.write_opt(wb, rocksdb::WriteOptions::default()).await?;
             }
+            // Decode via PersistedTriggerParams: a per-config map written by
+            // the V2 runtime ahead of a rollback merges into the one window
+            // that V1 fires every config with.
             if let Some(compiled) = compiled_triggers
-                && let Some(variables) =
-                    db.load_trigger_params::<models::TriggerVariables>().await?
+                && let Some(params) = db
+                    .load_trigger_params::<models::triggers::PersistedTriggerParams>()
+                    .await?
+                && let Some(variables) = params.into_merged()
             {
                 let compiled = std::sync::Arc::clone(compiled);
                 let http_client = http_client.clone();
@@ -690,6 +695,7 @@ mod test {
             payload_template: template.to_string(),
             timeout: std::time::Duration::from_secs(5),
             max_attempts: 3,
+            interval: None,
         }
     }
 
