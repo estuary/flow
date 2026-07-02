@@ -3208,9 +3208,6 @@ impl serde::Serialize for response::validated::Binding {
         if self.case_insensitive_fields {
             len += 1;
         }
-        if !self.constraints.is_empty() {
-            len += 1;
-        }
         if !self.resource_path.is_empty() {
             len += 1;
         }
@@ -3226,9 +3223,6 @@ impl serde::Serialize for response::validated::Binding {
         let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated.Binding", len)?;
         if self.case_insensitive_fields {
             struct_ser.serialize_field("caseInsensitiveFields", &self.case_insensitive_fields)?;
-        }
-        if !self.constraints.is_empty() {
-            struct_ser.serialize_field("constraints", &self.constraints)?;
         }
         if !self.resource_path.is_empty() {
             struct_ser.serialize_field("resourcePath", &self.resource_path)?;
@@ -3254,7 +3248,6 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
         const FIELDS: &[&str] = &[
             "case_insensitive_fields",
             "caseInsensitiveFields",
-            "constraints",
             "resource_path",
             "resourcePath",
             "delta_updates",
@@ -3268,7 +3261,6 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             CaseInsensitiveFields,
-            Constraints,
             ResourcePath,
             DeltaUpdates,
             SerPolicy,
@@ -3296,7 +3288,6 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                     {
                         match value {
                             "caseInsensitiveFields" | "case_insensitive_fields" => Ok(GeneratedField::CaseInsensitiveFields),
-                            "constraints" => Ok(GeneratedField::Constraints),
                             "resourcePath" | "resource_path" => Ok(GeneratedField::ResourcePath),
                             "deltaUpdates" | "delta_updates" => Ok(GeneratedField::DeltaUpdates),
                             "serPolicy" | "ser_policy" => Ok(GeneratedField::SerPolicy),
@@ -3321,7 +3312,6 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut case_insensitive_fields__ = None;
-                let mut constraints__ = None;
                 let mut resource_path__ = None;
                 let mut delta_updates__ = None;
                 let mut ser_policy__ = None;
@@ -3333,14 +3323,6 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                                 return Err(serde::de::Error::duplicate_field("caseInsensitiveFields"));
                             }
                             case_insensitive_fields__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Constraints => {
-                            if constraints__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("constraints"));
-                            }
-                            constraints__ = Some(
-                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
-                            );
                         }
                         GeneratedField::ResourcePath => {
                             if resource_path__.is_some() {
@@ -3373,7 +3355,6 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                 }
                 Ok(response::validated::Binding {
                     case_insensitive_fields: case_insensitive_fields__.unwrap_or_default(),
-                    constraints: constraints__.unwrap_or_default(),
                     resource_path: resource_path__.unwrap_or_default(),
                     delta_updates: delta_updates__.unwrap_or_default(),
                     ser_policy: ser_policy__,

@@ -1932,35 +1932,54 @@ Outcome {
                 bindings: [
                     Binding {
                         case_insensitive_fields: false,
-                        constraints: {
-                            "F1": Constraint {
-                                r#type: FieldOptional,
-                                reason: "optional",
-                                folded_field: "",
-                            },
-                            "f_one": Constraint {
-                                r#type: LocationRecommended,
-                                reason: "recommended",
-                                folded_field: "",
-                            },
-                            "f_two": Constraint {
-                                r#type: FieldRequired,
-                                reason: "field required",
-                                folded_field: "",
-                            },
-                            "flow_document": Constraint {
-                                r#type: LocationRequired,
-                                reason: "location required",
-                                folded_field: "",
-                            },
-                        },
                         resource_path: [
                             "table",
                             "path",
                         ],
                         delta_updates: false,
                         ser_policy: None,
-                        projection_constraints: [],
+                        projection_constraints: [
+                            ProjectionConstraint {
+                                field: "F1",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: FieldOptional,
+                                        reason: "optional",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                            ProjectionConstraint {
+                                field: "f_one",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: LocationRecommended,
+                                        reason: "recommended",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                            ProjectionConstraint {
+                                field: "f_two",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: FieldRequired,
+                                        reason: "field required",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                            ProjectionConstraint {
+                                field: "flow_document",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: LocationRequired,
+                                        reason: "location required",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                        ],
                     },
                 ],
             },
