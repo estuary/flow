@@ -164,16 +164,32 @@ impl BillingProvider for StripeBillingProvider {
         Ok(pm)
     }
 
-    async fn search_invoices(&self, query: &str) -> anyhow::Result<Vec<stripe::Invoice>> {
-        stripe_search(
-            &self.client,
-            "invoices",
-            SearchParams {
-                query: query.to_string(),
-                ..Default::default()
-            },
-        )
-        .await
+    async fn list_invoices(
+        &self,
+        customer_id: &stripe::CustomerId,
+    ) -> anyhow::Result<Vec<stripe::Invoice>> {
+        // Page through all of the customer's invoices. Stripe caps `limit` at
+        // 100 and paginates with a `starting_after` object-ID cursor.
+        let mut all = Vec::new();
+        let mut starting_after: Option<stripe::InvoiceId> = None;
+        loop {
+            let mut params = stripe::ListInvoices::new();
+            params.customer = Some(customer_id.clone());
+            params.limit = Some(100);
+            params.starting_after = starting_after.clone();
+
+            let page = stripe::Invoice::list(&self.client, &params).await?;
+            let next_cursor = page.data.last().map(|invoice| invoice.id.clone());
+            all.extend(page.data);
+
+            if !page.has_more {
+                break;
+            }
+            // `has_more` is true, so the page was non-empty and `next_cursor`
+            // is set; advance past the last invoice we just collected.
+            starting_after = next_cursor;
+        }
+        Ok(all)
     }
 
     async fn retrieve_payment_intent(

@@ -45,7 +45,13 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         payment_method_id: &stripe::PaymentMethodId,
     ) -> anyhow::Result<stripe::PaymentMethod>;
 
-    async fn search_invoices(&self, query: &str) -> anyhow::Result<Vec<stripe::Invoice>>;
+    /// List a customer's invoices, newest first. The resolver matches these to
+    /// catalog invoice rows locally by metadata, so this uses the standard list
+    /// endpoint rather than the more aggressively rate-limited Search API.
+    async fn list_invoices(
+        &self,
+        customer_id: &stripe::CustomerId,
+    ) -> anyhow::Result<Vec<stripe::Invoice>>;
 
     async fn retrieve_payment_intent(
         &self,

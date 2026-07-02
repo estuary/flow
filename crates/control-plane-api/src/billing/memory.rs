@@ -215,12 +215,15 @@ impl BillingProvider for InMemoryBillingProvider {
         Ok(method)
     }
 
-    async fn search_invoices(&self, query: &str) -> anyhow::Result<Vec<stripe::Invoice>> {
+    async fn list_invoices(
+        &self,
+        customer_id: &stripe::CustomerId,
+    ) -> anyhow::Result<Vec<stripe::Invoice>> {
         let state = self.state.lock().unwrap();
         Ok(state
             .invoices
             .iter()
-            .filter(|(customer_id, _)| query.contains(customer_id.as_str()))
+            .filter(|(id, _)| id == customer_id)
             .map(|(_, invoice)| invoice.clone())
             .collect())
     }
