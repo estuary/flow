@@ -238,6 +238,9 @@ where
             version,
             state_json: connector_state_json,
             range,
+            // Populated by `connector::start` with the matched endpoint's inner
+            // sealed configuration, which is not yet extracted from `spec` here.
+            sealed_config_json: Default::default(),
         }),
         ..Default::default()
     };
