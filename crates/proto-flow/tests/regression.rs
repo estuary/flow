@@ -693,29 +693,6 @@ fn ex_materialize_response() -> materialize::Response {
             bindings: vec![materialize::response::validated::Binding {
                 resource_path: vec!["some".to_string(), "path".to_string()],
                 case_insensitive_fields: true,
-                constraints: [
-                    (
-                        "req_field".to_string(),
-                        materialize::response::validated::Constraint {
-                            r#type:
-                                materialize::response::validated::constraint::Type::FieldRequired
-                                    as i32,
-                            reason: "is required".to_string(),
-                            folded_field: "REQ_FIELD".to_string(),
-                        },
-                    ),
-                    (
-                        "opt_field".to_string(),
-                        materialize::response::validated::Constraint {
-                            r#type:
-                                materialize::response::validated::constraint::Type::FieldOptional
-                                    as i32,
-                            reason: "is optional".to_string(),
-                            folded_field: String::new(),
-                        },
-                    ),
-                ]
-                .into(),
                 projection_constraints: vec![
                     materialize::response::validated::ProjectionConstraint {
                         field: "flow_document".to_string(),

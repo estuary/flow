@@ -353,8 +353,8 @@ pub mod response {
     /// Nested message and enum types in `Validated`.
     pub mod validated {
         /// ProjectionConstraint pairs a projection field name with a single Constraint.
-        /// Unlike the legacy `constraints` map, a repeated list of ProjectionConstraint
-        /// allows multiple constraints to be expressed for the same field simultaneously.
+        /// A repeated list of ProjectionConstraint allows multiple constraints to be
+        /// expressed for the same field simultaneously.
         /// For example, INCOMPATIBLE and LOCATION_REQUIRED on the same field signals that
         /// the field is required but the existing destination column has an incompatible
         /// type, and a backfill is needed.
@@ -493,17 +493,6 @@ pub mod response {
             /// (for example) "myField" and "MyField" from co-existing within a table.
             #[prost(bool, tag = "5")]
             pub case_insensitive_fields: bool,
-            /// Constraints imposed by the connector, keyed by field name.
-            /// Projections of the CollectionSpec which are missing from
-            /// constraints are implicitly forbidden.
-            ///
-            /// Deprecated: use projection_constraints instead. When projection_constraints
-            /// is non-empty it is authoritative and this map is ignored by the control
-            /// plane. This field is retained for backward compatibility with connectors
-            /// that have not yet migrated to the list form.
-            #[prost(btree_map = "string, message", tag = "1")]
-            pub constraints:
-                ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, Constraint>,
             /// Components of the resource path which fully qualify the resource
             /// identified by this binding.
             ///
@@ -533,12 +522,11 @@ pub mod response {
             #[prost(message, optional, tag = "4")]
             pub ser_policy: ::core::option::Option<super::super::super::flow::SerPolicy>,
             /// Constraints on each projection, as a list that allows multiple constraints
-            /// per projection field. When non-empty, this field is authoritative and the
-            /// legacy `constraints` map is ignored.
+            /// per projection field. Projections of the CollectionSpec which are missing
+            /// from this list are implicitly forbidden.
             ///
-            /// Connectors should populate this field instead of `constraints`. The list
-            /// form allows expressing compound requirements that a single constraint type
-            /// cannot capture. For example, emitting both INCOMPATIBLE and
+            /// The list form allows expressing compound requirements that a single
+            /// constraint type cannot capture. For example, emitting both INCOMPATIBLE and
             /// LOCATION_REQUIRED for the same field signals that the field is required
             /// but the existing destination column is incompatible; a backfill is required.
             #[prost(message, repeated, tag = "6")]

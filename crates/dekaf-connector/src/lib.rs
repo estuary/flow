@@ -6,7 +6,6 @@ use proto_flow::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Copy)]
 #[serde(rename_all = "snake_case")]
@@ -152,7 +151,6 @@ where
                         Ok::<proto_flow::materialize::response::validated::Binding, anyhow::Error>(
                             validated::Binding {
                                 case_insensitive_fields: false,
-                                constraints: BTreeMap::new(),
                                 delta_updates: true,
                                 projection_constraints,
                                 resource_path: vec![resource_config.topic_name],
