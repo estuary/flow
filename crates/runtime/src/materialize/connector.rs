@@ -52,12 +52,13 @@ pub async fn start<L: LogHandler>(
         .boxed()
     }
 
+    // Sealed endpoint configuration, extracted from the matched endpoint and
+    // decrypted later, once the connector's spec response is available. `None`
+    // for Dekaf, which decrypts its own config outside this path.
+    let sealed_config;
     let (mut connector_rx, connector_image) = match endpoint {
-        models::MaterializationEndpoint::Connector(models::ConnectorConfig {
-            image,
-            config: sealed_config,
-        }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+        models::MaterializationEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+            sealed_config = Some(config);
 
             let rx = crate::image_connector::serve(
                 attach_container,
@@ -87,11 +88,11 @@ pub async fn start<L: LogHandler>(
         }
         models::MaterializationEndpoint::Local(models::LocalConfig {
             command,
-            config: sealed_config,
+            config,
             env,
             protobuf,
         }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+            sealed_config = Some(config);
 
             let rx = crate::local_connector::serve(
                 command,
@@ -105,10 +106,17 @@ pub async fn start<L: LogHandler>(
 
             (rx, String::new())
         }
-        models::MaterializationEndpoint::Dekaf(_) => (
-            dekaf_connector::connector(connector_rx).boxed(),
-            String::new(),
-        ),
+        models::MaterializationEndpoint::Dekaf(_) => {
+            // Dekaf is in-process Rust and consumes prost requests directly. It
+            // decrypts its own (nested) endpoint config, so there's nothing to
+            // decrypt or overlay here.
+            sealed_config = None;
+
+            (
+                dekaf_connector::connector(connector_rx).boxed(),
+                String::new(),
+            )
+        }
     };
 
     // Send an initial Spec request which may direct us to perform an IAM token exchange.
@@ -127,6 +135,14 @@ pub async fn start<L: LogHandler>(
         Response { spec: Some(r), .. } => r,
         response => return verify.fail(response),
     };
+
+    // Decrypt the sealed endpoint configuration into the connector request.
+    //
+    // TODO(wgd): Extract-then-merge overlay fields and validate that any fields
+    // touched by the overlay are nonsensitive in spec_response.config_schema_json
+    if let Some(sealed_config) = &sealed_config {
+        *config_json = unseal::decrypt_sops(sealed_config).await?.into();
+    }
 
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
         config_json,
