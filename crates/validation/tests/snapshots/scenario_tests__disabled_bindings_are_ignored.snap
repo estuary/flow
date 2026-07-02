@@ -1948,24 +1948,33 @@ Outcome {
                 bindings: [
                     Binding {
                         case_insensitive_fields: false,
-                        constraints: {
-                            "flow_document": Constraint {
-                                r#type: LocationRequired,
-                                reason: "location required",
-                                folded_field: "",
-                            },
-                            "id": Constraint {
-                                r#type: FieldOptional,
-                                reason: "optional",
-                                folded_field: "",
-                            },
-                        },
                         resource_path: [
                             "enabled-stream",
                         ],
                         delta_updates: false,
                         ser_policy: None,
-                        projection_constraints: [],
+                        projection_constraints: [
+                            ProjectionConstraint {
+                                field: "flow_document",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: LocationRequired,
+                                        reason: "location required",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                            ProjectionConstraint {
+                                field: "id",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: FieldOptional,
+                                        reason: "optional",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                        ],
                     },
                 ],
             },
