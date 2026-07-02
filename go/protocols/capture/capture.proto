@@ -182,6 +182,15 @@ message Request {
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "state"
     ];
+    // Sealed (encrypted) endpoint configuration of this capture.
+    // This is the SOPS-encrypted document from which the runtime derived the
+    // decrypted `capture.config_json`, including any `sops` metadata stanza.
+    // Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
+    // overlay fields without re-encrypting the configuration.
+    bytes sealed_config_json = 5 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "sealedConfig"
+    ];
   }
   Open open = 5;
 
