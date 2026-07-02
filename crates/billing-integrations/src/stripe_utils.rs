@@ -1,4 +1,4 @@
-use billing_types::{InvoiceMetadata, SearchParams, stripe_search};
+use billing_types::{InvoiceMetadata, InvoiceType, SearchParams, stripe_search};
 use num_format::{Locale, ToFormattedString};
 use std::ops::{Deref, DerefMut};
 
@@ -82,6 +82,14 @@ impl Invoice {
     }
     pub fn status(&self) -> Option<stripe::InvoiceStatus> {
         self.0.status.clone()
+    }
+
+    pub fn is_manual(&self) -> bool {
+        self.0
+            .metadata
+            .as_ref()
+            .and_then(InvoiceMetadata::from_metadata_map)
+            .is_some_and(|m| m.invoice_type == InvoiceType::Manual)
     }
 
     pub fn period_start(&self) -> Option<String> {
