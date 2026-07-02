@@ -330,8 +330,11 @@ impl Invoice {
             .await?
         {
             match invoice.status {
+                // Manual invoices are excluded from --recreate-finalized: an
+                // already-sent (open) manual invoice must not be voided and
+                // reissued, and a manual draft is refreshed via the Update arm below.
                 Some(stripe::InvoiceStatus::Open | stripe::InvoiceStatus::Draft)
-                    if recreate_finalized =>
+                    if recreate_finalized && !matches!(self.invoice_type, InvoiceType::Manual) =>
                 {
                     Ok(InvoiceAction::Create {
                         replace: Some(invoice.id),
@@ -803,9 +806,20 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
 
                         if cmd.clean_up {
                             let task_res: Result<(), anyhow::Error> = async {
+                                // FreeTier / FutureTrialStart / LessThanMinimum skip in
+                                // classify's Phase 1 without a Stripe lookup, so their Skip
+                                // action carries no customer. Look one up here so --clean-up
+                                // can still remove a stale draft for those tenants.
                                 let customer = match customer {
                                     Some(c) => c,
-                                    None => return Ok(()),
+                                    None => {
+                                        match find_customer(&client, &response.billed_prefix)
+                                            .await?
+                                        {
+                                            Some(c) => c,
+                                            None => return Ok(()),
+                                        }
+                                    }
                                 };
                                 let customer_id = customer.id.to_string();
 
