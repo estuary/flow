@@ -198,12 +198,6 @@ fn main() -> Result<(), anyhow::Error> {
 }
 
 async fn async_main(args: Args) -> Result<(), anyhow::Error> {
-    // Bind early in the application lifecycle, to not fail requests which may dispatch
-    // as soon as the process is up (for example, Tilt on local stacks).
-    let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
-        .await
-        .context("failed to bind server port")?;
-
     let flowctl_go = locate_bin::locate("flowctl-go")?;
 
     // The HOSTNAME variable will be set to the name of the pod in k8s
@@ -230,24 +224,40 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     };
 
     let pg_pool = sqlx::postgres::PgPoolOptions::new()
-            .acquire_timeout(std::time::Duration::from_secs(5))
-            .after_release(|conn, meta| {
-                let fut = async move {
-                    let r =tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                                        conn.ping()
-                                    });
-                    if let Err(err) = r.await {
-                        tracing::warn!(error = ?err, conn_meta = ?meta, "connection was put back in a bad state, removing from the pool");
-                        Ok(false)
-                    } else {
-                        Ok(true) // connection is good
-                    }
-                };
-                fut.boxed()
-            })
-            .connect_with(pg_options)
-        .await
-        .context("connecting to database")?;
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .after_release(|conn, meta| {
+            let fut = async move {
+                let r = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    conn.ping()
+                });
+                if let Err(err) = r.await {
+                    tracing::warn!(error = ?err, conn_meta = ?meta, "connection was put back in a bad state, removing from the pool");
+                    Ok(false)
+                } else {
+                    Ok(true) // connection is good
+                }
+            };
+            fut.boxed()
+        })
+        .connect_lazy_with(pg_options);
+
+    // A fresh Cloud Run instance with direct VPC egress can take tens of seconds
+    // before its network interface passes outbound traffic. Retry the initial
+    // connection against a generous deadline, rather than raising the pool's
+    // acquire_timeout, which also bounds request-path acquires at runtime.
+    let connect_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+    loop {
+        match pg_pool.acquire().await {
+            Ok(_) => break,
+            Err(err) if tokio::time::Instant::now() < connect_deadline => {
+                tracing::warn!(error = ?err, "initial database connection failed; retrying");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            Err(err) => {
+                return Err(anyhow::Error::new(err).context("connecting to database"));
+            }
+        }
+    }
 
     // Periodically log information about the connection pool to aid in debugging.
     let pool_copy = pg_pool.clone();
@@ -339,6 +349,12 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         &args.allow_origin,
         alert_config_defaults,
     )?;
+    // Bind only now that the database is connected and we're able to serve.
+    // Cloud Run's TCP startup probe gates traffic on this port being open:
+    // binding earlier routes requests to an instance that cannot yet serve them.
+    let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
+        .await
+        .context("failed to bind server port")?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
