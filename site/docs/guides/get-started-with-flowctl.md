@@ -64,7 +64,17 @@ Once you've installed flowctl and are ready to begin working, authenticate your 
 
 The token will expire after a predetermined duration. Repeat this process to re-authenticate.
 
+## Drive flowctl from an AI coding agent
+
+You don't have to run flowctl commands by hand. AI assistants like Claude Code, Cursor, and GitHub Copilot can build and operate your pipelines for you:
+
+- **[Agent skills](../features/agent-skills.md)** give your assistant step-by-step playbooks for each connector and operation, so it knows the exact flowctl commands and spec shapes to use. Ask it to "capture my Postgres into Snowflake" and it does the work.
+- **[MCP integration](../features/mcp-integration.md)** connects your assistant to Estuary's documentation, so its answers stay accurate while you code.
+
+See [Using coding agents with Estuary](../features/using-coding-agents.md) for the full setup.
+
 # Next steps
 
 1. [flowctl concepts](../concepts/flowctl.md): Learn more about using flowctl.
 2. [User guides](../guides/flowctl/README.md): Check out some of the detailed user guides to see flowctl in action.
+3. [Using coding agents with Estuary](../features/using-coding-agents.md): Let an AI assistant build and operate your pipelines.
