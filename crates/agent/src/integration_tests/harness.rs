@@ -177,6 +177,7 @@ pub struct TestHarness {
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
     pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
+    pub runtime_v2_new_captures: bool,
     // Control plane API app instance for GraphQL queries
     control_plane_app: Option<Arc<control_plane_api::App>>,
 }
@@ -278,6 +279,7 @@ impl HarnessBuilder {
             directive_exec,
             control_plane_app: None,
             alert_sender: alerts::TestSender::new(),
+            runtime_v2_new_captures: false,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -1118,6 +1120,7 @@ impl TestHarness {
             task_types::PUBLICATIONS => Server::new().register(PublicationsExecutor {
                 publisher: self.publisher.clone(),
                 pg_pool: self.pool.clone(),
+                runtime_v2_new_captures: self.runtime_v2_new_captures,
             }),
             task_types::DISCOVERS => Server::new().register(DiscoverExecutor {
                 handler: self.discover_handler.clone(),

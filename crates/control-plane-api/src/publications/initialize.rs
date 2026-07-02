@@ -1,3 +1,4 @@
+use anyhow::Context;
 use itertools::Itertools;
 use models::Capability;
 use std::future::Future;
@@ -94,6 +95,75 @@ impl Initialize for ExpandDraft {
         );
 
         draft.add_live(expanded_catalog);
+
+        Ok(())
+    }
+}
+
+pub struct RuntimeV2Rollout {
+    /// When true, newly-created captures without an explicit flag run runtime v2.
+    pub new_captures: bool,
+}
+
+impl Initialize for RuntimeV2Rollout {
+    #[tracing::instrument(level = "debug", skip_all, err)]
+    async fn initialize(
+        &self,
+        db: &sqlx::PgPool,
+        _user_id: Uuid,
+        draft: &mut tables::DraftCatalog,
+    ) -> anyhow::Result<()> {
+        if !self.new_captures {
+            return Ok(());
+        }
+        let flag = models::Token::new(models::ENABLE_RUNTIME_V2);
+
+        // Candidate captures: drafted, not a touch or deletion, whose model
+        // hasn't set the flag explicitly.
+        let is_candidate = |row: &tables::DraftCapture| {
+            !row.is_touch
+                && row
+                    .model
+                    .as_ref()
+                    .is_some_and(|model| !model.shards.flags.contains_key(&flag))
+        };
+        let candidates = draft
+            .captures
+            .iter()
+            .filter(|row| is_candidate(row))
+            .map(|row| row.capture.to_string())
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return Ok(());
+        }
+
+        // Only *new* captures are enabled. A candidate that already has a
+        // non-tombstone live spec is an update, so it's left as-is. A tombstone
+        // (`spec is null`, a deleted spec a controller hasn't yet reaped) is
+        // excluded by `spec is not null`, so re-creating a capture counts as new.
+        let existing: std::collections::HashSet<String> = sqlx::query!(
+            r#"select catalog_name
+               from live_specs
+               where catalog_name = any($1::text[]) and spec is not null"#,
+            &candidates as &[String],
+        )
+        .fetch_all(db)
+        .await
+        .context("fetching existing capture names")?
+        .into_iter()
+        .map(|row| row.catalog_name)
+        .collect();
+
+        for row in draft.captures.iter_mut() {
+            if is_candidate(row) && !existing.contains(row.capture.as_str()) {
+                row.model
+                    .as_mut()
+                    .unwrap()
+                    .shards
+                    .flags
+                    .insert(flag.clone(), models::Token::new("true"));
+            }
+        }
 
         Ok(())
     }
