@@ -23,7 +23,8 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     connector_init::Codec,
     Option<std::time::SystemTime>,
 )> {
-    let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
+    let (endpoint, config_json, connector_type, catalog_name, sealed_config_json) =
+        extract_endpoint(&mut initial)?;
     let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
     fn start_rpc(
@@ -154,6 +155,14 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             tokens.zeroize();
         }
     }
+
+    // Provide the connector with the sealed endpoint configuration alongside the
+    // decrypted `config_json`, so it may emit `configUpdate`s which adjust its own
+    // `sops.overlay` without re-encrypting the configuration. Only present on Open.
+    if let (Some(sealed_config_json), Some(sealed_config)) = (sealed_config_json, sealed_config) {
+        *sealed_config_json = sealed_config.into();
+    }
+
     _ = connector_tx.try_send(initial);
 
     Ok((
@@ -172,11 +181,12 @@ fn extract_endpoint<'r>(
     &'r mut bytes::Bytes,
     i32,
     Option<String>,
+    Option<&'r mut bytes::Bytes>,
 )> {
-    let (connector_type, config_json, catalog_name) = match request {
+    let (connector_type, config_json, catalog_name, sealed_config_json) = match request {
         materialize::Request {
             spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json, None),
+        } => (spec.connector_type, &mut spec.config_json, None, None),
         materialize::Request {
             validate: Some(validate),
             ..
@@ -184,6 +194,7 @@ fn extract_endpoint<'r>(
             validate.connector_type,
             &mut validate.config_json,
             Some(validate.name.clone()),
+            None,
         ),
         materialize::Request {
             apply: Some(apply), ..
@@ -194,18 +205,29 @@ fn extract_endpoint<'r>(
                 .as_mut()
                 .context("`apply` missing required `materialization`")?;
 
-            (inner.connector_type, &mut inner.config_json, catalog_name)
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                catalog_name,
+                None,
+            )
         }
         materialize::Request {
             open: Some(open), ..
         } => {
             let catalog_name = open.materialization.as_ref().map(|m| m.name.clone());
+            let sealed_config_json = &mut open.sealed_config_json;
             let inner = open
                 .materialization
                 .as_mut()
                 .context("`open` missing required `materialization`")?;
 
-            (inner.connector_type, &mut inner.config_json, catalog_name)
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                catalog_name,
+                Some(sealed_config_json),
+            )
         }
         request => {
             return Err(
@@ -222,6 +244,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else if connector_type == flow::materialization_spec::ConnectorType::Local as i32 {
         Ok((
@@ -231,6 +254,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else if connector_type == flow::materialization_spec::ConnectorType::Dekaf as i32 {
         Ok((
@@ -240,6 +264,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");
