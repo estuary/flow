@@ -35,12 +35,12 @@ pub async fn start<L: crate::LogHandler>(
         .boxed()
     }
 
+    // Sealed endpoint configuration, extracted from the matched endpoint and
+    // decrypted later, once the connector's spec response is available.
+    let sealed_config;
     let (mut connector_rx, container) = match endpoint {
-        models::CaptureEndpoint::Connector(models::ConnectorConfig {
-            image,
-            config: sealed_config,
-        }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+        models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+            sealed_config = config;
             // Captures don't have conditional JSON fields, so _codec is unused.
             let (rx, container, _codec) = crate::image_connector::serve(
                 image,
@@ -64,16 +64,16 @@ pub async fn start<L: crate::LogHandler>(
         }
         models::CaptureEndpoint::Local(models::LocalConfig {
             command,
-            config: sealed_config,
+            config,
             env,
             protobuf,
         }) => {
+            sealed_config = config;
             let codec = if protobuf {
                 connector_init::Codec::Proto
             } else {
                 connector_init::Codec::Json
             };
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
             let rx = crate::local_connector::serve(
                 command,
@@ -101,6 +101,12 @@ pub async fn start<L: crate::LogHandler>(
         Response { spec: Some(r), .. } => r,
         response => return Err(verify.fail_msg(response)),
     };
+
+    // Decrypt the sealed endpoint configuration into the connector request.
+    //
+    // TODO(wgd): Extract-then-merge overlay fields and validate that any fields
+    // touched by the overlay are nonsensitive in spec_response.config_schema_json
+    *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
         config_json,

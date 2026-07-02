@@ -41,12 +41,12 @@ pub async fn start<L: LogHandler>(
         .boxed()
     }
 
+    // Sealed endpoint configuration, extracted from the matched endpoint and
+    // decrypted later, once the connector's spec response is available.
+    let sealed_config;
     let mut connector_rx = match endpoint {
-        models::CaptureEndpoint::Connector(models::ConnectorConfig {
-            image,
-            config: sealed_config,
-        }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+        models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+            sealed_config = config;
 
             crate::image_connector::serve(
                 attach_container,
@@ -72,11 +72,11 @@ pub async fn start<L: LogHandler>(
         }
         models::CaptureEndpoint::Local(models::LocalConfig {
             command,
-            config: sealed_config,
+            config,
             env,
             protobuf,
         }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+            sealed_config = config;
 
             crate::local_connector::serve(
                 command,
@@ -90,7 +90,7 @@ pub async fn start<L: LogHandler>(
         }
     };
 
-    // Send an initial Spec request which may direct us to perform an IAM token exchange.
+    // Send an initial Spec request
     connector_tx
         .try_send(Request {
             spec: Some(request::Spec {
@@ -107,6 +107,13 @@ pub async fn start<L: LogHandler>(
         response => return verify.fail(response),
     };
 
+    // Decrypt the sealed endpoint configuration into the connector request.
+    //
+    // TODO(wgd): Extract-then-merge overlay fields and validate that any fields
+    // touched by the overlay are nonsensitive in spec_response.config_schema_json
+    *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+
+    // The spec response may direct us to perform an IAM token exchange.
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
         config_json,
         &spec_response.config_schema_json,
