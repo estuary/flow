@@ -295,6 +295,7 @@ mod test {
             payload_template: template.to_string(),
             timeout: std::time::Duration::from_secs(5),
             max_attempts: 3,
+            interval: None,
         }
     }
 

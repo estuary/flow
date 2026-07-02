@@ -43,6 +43,14 @@ expression: schema
             "secret": true
           }
         },
+        "interval": {
+          "title": "Minimum interval between deliveries for this trigger.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h|d)$"
+        },
         "maxAttempts": {
           "title": "Maximum number of delivery attempts (including the initial attempt).",
           "description": "The task is failed if all attempts are exhausted without a successful delivery.",

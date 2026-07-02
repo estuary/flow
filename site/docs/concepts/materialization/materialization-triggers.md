@@ -10,8 +10,9 @@ been materialized — for example, to kick off a dbt run, send a Slack message,
 or call a custom API.
 
 Triggers are configured on the materialization itself and fire once per
-committed transaction. Each trigger sends an HTTP request whose URL, method,
-headers, and JSON body you define. The body is a
+committed transaction (or at most once per `interval`, when one is set). Each
+trigger sends an HTTP request whose URL, method, headers, and JSON body you
+define. The body is a
 [Handlebars](https://handlebarsjs.com/) template that can reference transaction
 metadata and secret header values.
 
@@ -91,6 +92,10 @@ materializations:
           # Maximum number of delivery attempts (including the initial attempt).
           # Optional. Default: 3.
           maxAttempts: 3
+          # Minimum interval between deliveries. When set, bursts of
+          # transactions collapse into at most one delivery per interval.
+          # Optional. Default: unset (fire on every transaction).
+          interval: 30m
 ```
 
 ## Properties
@@ -104,6 +109,7 @@ materializations:
 | **`/triggers/config/*/payloadTemplate`** | Payload Template | Handlebars template that renders to the JSON request body. | string | |
 | **`/triggers/config/*/timeout`** | Timeout | Request timeout for each delivery attempt. Must be greater than 0. The task is failed if all attempts are exhausted without a successful delivery. | string (duration) | `30s` |
 | **`/triggers/config/*/maxAttempts`** | Max Attempts | Maximum number of delivery attempts (including the initial attempt). | integer | `3` |
+| **`/triggers/config/*/interval`** | Interval | Minimum interval between deliveries. A burst of transactions collapses into at most one delivery per interval, covering the full span. Unset: fire on every transaction. | string (duration) | unset |
 
 ## Template variables
 
@@ -287,6 +293,6 @@ after initial publication without re-entering all secret header values:
 - `method`
 - `headers` (keys and encrypted values)
 
-The remaining fields (`payloadTemplate`, `timeout`, `maxAttempts`) are
-excluded from the SOPS integrity check, so you can modify them freely without
-needing to re-enter your secret header values.
+The remaining fields (`payloadTemplate`, `timeout`, `maxAttempts`, `interval`)
+are excluded from the SOPS integrity check, so you can modify them freely
+without needing to re-enter your secret header values.
