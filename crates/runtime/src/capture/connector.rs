@@ -18,7 +18,8 @@ pub async fn start<L: LogHandler>(
     BoxStream<'static, anyhow::Result<Response>>,
 )> {
     let log_level = initial.get_internal()?.log_level();
-    let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
+    let (endpoint, config_json, connector_type, catalog_name, sealed_config_json) =
+        extract_endpoint(&mut initial)?;
     let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
     fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
@@ -131,6 +132,13 @@ pub async fn start<L: LogHandler>(
         }
     }
 
+    // Provide the connector with the sealed endpoint configuration alongside the
+    // decrypted `config_json`, so it may emit `configUpdate`s which adjust its own
+    // `sops.overlay` without re-encrypting the configuration. Only present on Open.
+    if let Some(sealed_config_json) = sealed_config_json {
+        *sealed_config_json = sealed_config.into();
+    }
+
     connector_tx.try_send(initial).unwrap();
 
     Ok((connector_tx, connector_rx))
@@ -143,11 +151,12 @@ fn extract_endpoint<'r>(
     &'r mut bytes::Bytes,
     i32,
     Option<String>,
+    Option<&'r mut bytes::Bytes>,
 )> {
-    let (connector_type, config_json, catalog_name) = match request {
+    let (connector_type, config_json, catalog_name, sealed_config_json) = match request {
         Request {
             spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json, None),
+        } => (spec.connector_type, &mut spec.config_json, None, None),
         Request {
             discover: Some(discover),
             ..
@@ -155,6 +164,7 @@ fn extract_endpoint<'r>(
             discover.connector_type,
             &mut discover.config_json,
             Some(discover.name.clone()),
+            None,
         ),
         Request {
             validate: Some(validate),
@@ -163,6 +173,7 @@ fn extract_endpoint<'r>(
             validate.connector_type,
             &mut validate.config_json,
             Some(validate.name.clone()),
+            None,
         ),
         Request {
             apply: Some(apply), ..
@@ -173,18 +184,29 @@ fn extract_endpoint<'r>(
                 .as_mut()
                 .context("`apply` missing required `capture`")?;
 
-            (inner.connector_type, &mut inner.config_json, catalog_name)
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                catalog_name,
+                None,
+            )
         }
         Request {
             open: Some(open), ..
         } => {
             let catalog_name = open.capture.as_ref().map(|c| c.name.clone());
+            let sealed_config_json = &mut open.sealed_config_json;
             let inner = open
                 .capture
                 .as_mut()
                 .context("`open` missing required `capture`")?;
 
-            (inner.connector_type, &mut inner.config_json, catalog_name)
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                catalog_name,
+                Some(sealed_config_json),
+            )
         }
         request => return verify("client", "valid first request").fail(request),
     };
@@ -197,6 +219,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else if connector_type == ConnectorType::Local as i32 {
         Ok((
@@ -206,6 +229,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");
