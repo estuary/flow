@@ -117,10 +117,10 @@ const input = {
     },
     validated: {
       resourcePath: ["users"],
-      constraints: {
-        "id": { type: "FIELD_REQUIRED", reason: "Primary key" },
-        "name": { type: "FIELD_OPTIONAL", reason: "User data" }
-      },
+      projectionConstraints: [
+        { field: "id", constraint: { type: "FIELD_REQUIRED", reason: "Primary key" } },
+        { field: "name", constraint: { type: "FIELD_OPTIONAL", reason: "User data" } }
+      ],
       caseInsensitiveFields: false
     }
   }
