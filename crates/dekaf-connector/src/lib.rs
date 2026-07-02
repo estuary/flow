@@ -6,7 +6,6 @@ use proto_flow::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Copy)]
 #[serde(rename_all = "snake_case")]
@@ -135,25 +134,25 @@ where
                             parsed_outer_config.variant.clone()
                         ))?;
 
-                        let constraints = binding
+                        let projection_constraints = binding
                             .collection
                             .context("collection must exist")?
                             .projections
                             .iter()
-                            .map(|projection| {
-                                (
-                                    projection.field.clone(),
-                                    constraint_for_projection(&projection, &parsed_inner_config),
-                                )
+                            .map(|projection| validated::ProjectionConstraint {
+                                field: projection.field.clone(),
+                                constraint: Some(constraint_for_projection(
+                                    &projection,
+                                    &parsed_inner_config,
+                                )),
                             })
-                            .collect::<BTreeMap<_, _>>();
+                            .collect::<Vec<_>>();
 
                         Ok::<proto_flow::materialize::response::validated::Binding, anyhow::Error>(
                             validated::Binding {
                                 case_insensitive_fields: false,
-                                constraints,
                                 delta_updates: true,
-                                projection_constraints: Vec::new(),
+                                projection_constraints,
                                 resource_path: vec![resource_config.topic_name],
                                 ser_policy: None,
                             },

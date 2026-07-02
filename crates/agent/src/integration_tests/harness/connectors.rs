@@ -211,26 +211,25 @@ impl Connectors for TestConnectors {
                                 .get("deltaUpdates")
                                 .and_then(|d| d.as_bool())
                                 .unwrap_or(false);
-                            let constraints = collection
+                            let projection_constraints = collection
                                 .projections
                                 .iter()
-                                .map(|p| {
-                                    (
-                                        p.field.clone(),
+                                .map(|p| materialize::response::validated::ProjectionConstraint {
+                                    field: p.field.clone(),
+                                    constraint: Some(
                                         materialize::response::validated::Constraint {
                                             r#type: 3,
                                             reason: "all fields are recommended in tests"
                                                 .to_string(),
                                             folded_field: String::new(),
                                         },
-                                    )
+                                    ),
                                 })
                                 .collect();
                             let resource_path = mock_resource_path(&resource_config);
                             materialize::response::validated::Binding {
                                 case_insensitive_fields: false,
-                                constraints,
-                                projection_constraints: Vec::new(),
+                                projection_constraints,
                                 resource_path,
                                 delta_updates,
                                 ser_policy: None,
