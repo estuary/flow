@@ -122,24 +122,36 @@ fn test_field_selection() {
             },
             "validated": {
                 "resourcePath": ["test_table"],
-                "constraints": {
-                    "id": {
-                        "type": "FIELD_OPTIONAL",
-                        "reason": "Available field"
+                "projectionConstraints": [
+                    {
+                        "field": "id",
+                        "constraint": {
+                            "type": "FIELD_OPTIONAL",
+                            "reason": "Available field"
+                        }
                     },
-                    "flow_published_at": {
-                        "type": "FIELD_OPTIONAL",
-                        "reason": "Available field"
+                    {
+                        "field": "flow_published_at",
+                        "constraint": {
+                            "type": "FIELD_OPTIONAL",
+                            "reason": "Available field"
+                        }
                     },
-                    "value": {
-                        "type": "FIELD_OPTIONAL",
-                        "reason": "Available field"
+                    {
+                        "field": "value",
+                        "constraint": {
+                            "type": "FIELD_OPTIONAL",
+                            "reason": "Available field"
+                        }
                     },
-                    "bad": {
-                        "type": "FIELD_FORBIDDEN",
-                        "reason": "Not today, pal."
+                    {
+                        "field": "bad",
+                        "constraint": {
+                            "type": "FIELD_FORBIDDEN",
+                            "reason": "Not today, pal."
+                        }
                     }
-                },
+                ],
                 "deltaUpdates": false
             }
         }
