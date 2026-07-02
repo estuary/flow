@@ -628,6 +628,9 @@ fn ex_materialize_request() -> materialize::Request {
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
             state_json: json!({"connector": {"state": 42}}).to_string().into(),
+            sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
+                .to_string()
+                .into(),
         }),
         acknowledge: Some(materialize::request::Acknowledge {
             state_patches_json: json!([{"acked": true}]).to_string().into(),
