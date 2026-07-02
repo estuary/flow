@@ -102,11 +102,12 @@ pub async fn start<L: crate::LogHandler>(
         response => return Err(verify.fail_msg(response)),
     };
 
-    // Decrypt the sealed endpoint configuration into the connector request.
-    //
-    // TODO(wgd): Extract-then-merge overlay fields and validate that any fields
-    // touched by the overlay are nonsensitive in spec_response.config_schema_json
-    *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+    // Decrypt the sealed endpoint configuration into the connector request, applying
+    // any nonsensitive `sops.overlay` properties subject to schema validation.
+    *config_json =
+        unseal::overlay::decrypt_with_overlay(&sealed_config, &spec_response.config_schema_json)
+            .await?
+            .into();
 
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
         config_json,
