@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary&#39;s [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can&#39;t find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)." data-mcp-enabled="true" data-mcp-server-url="https://estuary.mcp.kapa.ai"></script><link rel="stylesheet" href="/pr-preview/pr-3085/assets/css/styles.5d76ff13.css">
-<script src="/pr-preview/pr-3085/assets/js/runtime~main.e5020a22.js" defer="defer"></script>
-<script src="/pr-preview/pr-3085/assets/js/main.c0547dae.js" defer="defer"></script>
+<script src="/pr-preview/pr-3085/assets/js/runtime~main.00a7ac07.js" defer="defer"></script>
+<script src="/pr-preview/pr-3085/assets/js/main.db1f3734.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -94,6 +94,8 @@ This lets you transfer data between your private or BYOC deployment and external
 <li class=""><strong>Connection request never appears in your console</strong>: check that Estuary&#x27;s principal is on <strong>Allow principals</strong> <em>and</em> that the data plane region is in your endpoint service&#x27;s Supported Regions list.</li>
 <li class=""><strong>Connection accepted but the connector still fails to resolve the host</strong>: verify the connector is using the <em>regional</em> DNS name returned by Estuary, not a zonal variant.</li>
 </ul>
+<h4 class="anchor anchorTargetStickyNavbar_Vzrq" id="pre-registering-an-endpoint-ahead-of-time">Pre-registering an endpoint ahead of time<a href="#pre-registering-an-endpoint-ahead-of-time" class="hash-link" aria-label="Direct link to Pre-registering an endpoint ahead of time" title="Direct link to Pre-registering an endpoint ahead of time" translate="no">​</a></h4>
+<p>You can register an additional endpoint service with Estuary before you need it, such as a standby or backup database kept ready for upgrades, failover, or disaster recovery. It sits idle without affecting your live connection, and the DNS name Estuary returns is stable, so cutting over is just a matter of repointing the capture&#x27;s <code>address</code>. See <a class="" href="/pr-preview/pr-3085/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers">Preventing backfills during database upgrades and failovers</a>.</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="variations">Variations<a href="#variations" class="hash-link" aria-label="Direct link to Variations" title="Direct link to Variations" translate="no">​</a></h3>
 <p>Certain services may use AWS PrivateLink in unique ways. More detailed instructions for these services are provided below.</p>
 <p><strong>MongoDB</strong></p>
