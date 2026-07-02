@@ -97,6 +97,11 @@ pub struct ShardTemplate {
     pub flags: BTreeMap<super::Token, super::Token>,
 }
 
+/// The `enable-runtime-v2` [`ShardTemplate::flags`] key, which selects the V2
+/// task runtime. It's emitted as the `estuary.dev/flag/enable-runtime-v2` shard
+/// label (`labels::RUNTIME_V2_FLAG`) at build time.
+pub const ENABLE_RUNTIME_V2: &str = "enable-runtime-v2";
+
 impl ShardTemplate {
     pub fn example() -> Self {
         Self {
