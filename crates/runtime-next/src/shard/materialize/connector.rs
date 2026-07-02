@@ -40,12 +40,13 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         .boxed()
     }
 
+    // Sealed endpoint configuration, extracted from the matched endpoint and
+    // decrypted later, once the connector's spec response is available. `None`
+    // for Dekaf, which decrypts its own config outside this path.
+    let sealed_config;
     let (mut connector_rx, container, codec) = match endpoint {
-        models::MaterializationEndpoint::Connector(models::ConnectorConfig {
-            image,
-            config: sealed_config,
-        }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+        models::MaterializationEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+            sealed_config = Some(config);
 
             let (rx, container, codec) = crate::image_connector::serve(
                 image.clone(),
@@ -72,16 +73,16 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         }
         models::MaterializationEndpoint::Local(models::LocalConfig {
             command,
-            config: sealed_config,
+            config,
             env,
             protobuf,
         }) => {
+            sealed_config = Some(config);
             let codec = if protobuf {
                 connector_init::Codec::Proto
             } else {
                 connector_init::Codec::Json
             };
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
             let rx = crate::local_connector::serve(
                 command,
@@ -96,7 +97,11 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             (rx, None, codec)
         }
         models::MaterializationEndpoint::Dekaf(_) => {
-            // Dekaf is in-process Rust and consumes prost requests directly.
+            // Dekaf is in-process Rust and consumes prost requests directly. It
+            // decrypts its own (nested) endpoint config, so there's nothing to
+            // decrypt or overlay here.
+            sealed_config = None;
+
             let rx = dekaf_connector::connector(ReceiverStream::new(connector_rx))
                 .map_err(crate::anyhow_to_status)
                 .boxed();
@@ -119,6 +124,14 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         materialize::Response { spec: Some(r), .. } => r,
         response => return Err(verify.fail_msg(response)),
     };
+
+    // Decrypt the sealed endpoint configuration into the connector request.
+    //
+    // TODO(wgd): Extract-then-merge overlay fields and validate that any fields
+    // touched by the overlay are nonsensitive in spec_response.config_schema_json
+    if let Some(sealed_config) = &sealed_config {
+        *config_json = unseal::decrypt_sops(sealed_config).await?.into();
+    }
 
     let mut token_restart_at = None;
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
