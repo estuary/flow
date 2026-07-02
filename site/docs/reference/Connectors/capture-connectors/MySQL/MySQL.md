@@ -320,6 +320,12 @@ The concern is that if a capture is disabled or the server becomes unreachable f
 
 The `"binlog retention period is too short"` error should normally be fixed by setting a longer retention period as described in these setup instructions. However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
 
+### Failover and Host Changes
+
+MySQL binlog coordinates are specific to each server, so they do not carry over when you fail over to a new writer, for example by promoting a standby. After a failover, the capture's stored position is invalid on the new writer and replication fails with `ERROR 1236`. Always capture from the **writer** endpoint; reader endpoints report `log_bin = OFF` and fail the prerequisite check.
+
+If the failover is planned and you can pause writes, you can re-establish the capture on the new writer without a full backfill. See [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers).
+
 ### Empty Collection Key
 
 Every Estuary collection must declare a [key](/concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](/concepts/collections.md#empty-keys).

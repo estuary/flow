@@ -240,6 +240,8 @@ In this case, you may turn off backfilling on a per-table basis. See [properties
 
 If the replication slot is dropped or invalidated — for example after a major version upgrade, a failover, or a WAL size limit being exceeded — the capture will fail and require manual recovery. See [PostgreSQL replication slot recovery](/guides/troubleshooting/postgres-replication-slot-recovery) for step-by-step instructions.
 
+If the failover is planned and you can pause writes, you can re-establish the capture without a full backfill. See [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers).
+
 ## WAL Retention and Tuning Parameters
 
 Postgres logical replication works by reading change events from the writeahead log,
