@@ -1,3 +1,7 @@
+---
+description: Track Chargebee subscription and billing data in Estuary, including customers, invoices, transactions, and orders, using a Chargebee API key.
+---
+
 # Chargebee Native
 
 This connector captures data from Chargebee into Estuary collections in real-time. It is a native implementation that provides enhanced performance and reliability compared to the third-party connector.

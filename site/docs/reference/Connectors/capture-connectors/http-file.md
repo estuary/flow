@@ -1,3 +1,7 @@
+---
+description: Capture data from an HTTP endpoint with the HTTP File connector, including data in Avro, CSV, JSON, Protobuf, or W3C logs format, with the option to configure compression and parser settings.
+---
+
 # HTTP File
 
 This connector captures data from an HTTP endpoint into an Estuary collection.

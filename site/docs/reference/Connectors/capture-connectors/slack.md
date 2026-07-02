@@ -1,3 +1,7 @@
+---
+description: Capture Slack workspace data with Estuary's connector, including channels, members, messages, threads, users, and files.
+---
+
 # Slack
 
 This connector captures data from Slack into Estuary collections.

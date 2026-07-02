@@ -1,3 +1,7 @@
+---
+description: Materialize data collections into MySQL with Estuary's connector. Supports self-hosted or cloud database instances, SSH tunneling, custom create SQL, and delta updates.
+---
+
 # MySQL
 
 This connector materializes Estuary collections into tables in a MySQL database.

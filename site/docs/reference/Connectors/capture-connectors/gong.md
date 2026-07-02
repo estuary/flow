@@ -1,3 +1,7 @@
+---
+description: Capture Gong revenue intelligence data with Estuary's connector, including calls, users, and scorecards, using API key authentication. Configure start date and call lookback windows.
+---
+
 # Gong
 
 This connector captures data from Gong into Estuary collections.

@@ -1,3 +1,6 @@
+---
+description: Understand Estuary pricing for data volume and connector task hours, how private or BYOC deployments affect pricing, PAYG billing vs. annual plans, and free tiers and trials.
+---
 
 # Estuary Pricing
 

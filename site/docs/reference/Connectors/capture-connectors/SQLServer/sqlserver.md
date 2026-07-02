@@ -1,5 +1,6 @@
 ---
 sidebar_position: 3
+description: Set up Estuary's Microsoft SQL Server CDC connector with automatic capture instance management and change table cleanup using self-hosted and cloud platform guides.
 ---
 
 # Microsoft SQL Server

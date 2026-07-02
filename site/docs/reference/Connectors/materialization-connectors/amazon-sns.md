@@ -1,3 +1,6 @@
+---
+description: Materialize Estuary data collection into Amazon Simple Notification Service (SNS) topics in this delta-updates connector.
+---
 
 # Amazon SNS
 

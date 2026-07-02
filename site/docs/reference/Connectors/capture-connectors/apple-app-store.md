@@ -1,3 +1,6 @@
+---
+description: Pull Apple App Store data into Estuary, including customer reviews and analytics reports for installs, sessions, and crashes.
+---
 
 # Apple App Store
 

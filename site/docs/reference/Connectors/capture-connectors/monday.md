@@ -1,3 +1,7 @@
+---
+description: Sync Monday.com work data with Estuary's connector, including boards, items, users, teams, and tags, using API token authentication.
+---
+
 # Monday
 
 This connector captures data from Monday.com into Estuary collections.

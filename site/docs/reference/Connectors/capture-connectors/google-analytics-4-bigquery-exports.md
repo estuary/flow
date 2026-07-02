@@ -1,3 +1,7 @@
+---
+description: Use the GA4 BigQuery Exports connector to capture daily events, users, and pseudonymous users tables with service account authentication.
+---
+
 # Google Analytics 4 Bigquery Exports
 
 This connector captures data from Google Analytics 4 BigQuery exports into

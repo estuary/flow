@@ -1,3 +1,7 @@
+---
+description: Capture Genesys data with Estuary's connector, including campaigns, conversations, queues, teams, and users, using an OAuth app.
+---
+
 # Genesys
 
 This connector captures data from Genesys into Estuary collections.

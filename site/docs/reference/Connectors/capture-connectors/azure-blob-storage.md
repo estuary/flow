@@ -1,3 +1,7 @@
+---
+description: Capture Azure Blob Storage files with Estuary's connector, with configuration options for regex filters, parser settings, and file formats.
+---
+
 # Azure Blob Storage
 
 This connector captures data from an Azure Blob Storage Account.

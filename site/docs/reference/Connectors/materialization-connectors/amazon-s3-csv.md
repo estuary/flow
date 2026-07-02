@@ -1,5 +1,5 @@
 ---
-description: This connector materializes delta updates of Estuary collections into files in an S3 bucket per the CSV format described in RFC-4180.
+description: Write delta updates of Estuary collections into an S3 bucket as compressed CSV files. Configure the upload interval, maximum file size, and file path.
 ---
 
 # CSV Files in Amazon S3

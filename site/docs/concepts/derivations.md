@@ -1,5 +1,6 @@
 ---
 sidebar_position: 5
+description: Create continuous transformations in Estuary using derivations. Supports SQL, TypeScript, and Python. Join collections or modify data in-flight.
 ---
 
 import Mermaid from '@theme/Mermaid';

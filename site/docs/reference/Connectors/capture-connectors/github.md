@@ -1,3 +1,6 @@
+---
+description: Sync GitHub repository and organization data with Estuary, including issues, pull requests, commits, releases, workflows, and teams, using OAuth2 or token setup.
+---
 
 # GitHub
 

@@ -1,3 +1,6 @@
+---
+description: Receive webhook data with the HTTP Ingest connector as JSON payloads. Configure custom paths, CORS, signature verification, and authentication requirements.
+---
 
 # HTTP Ingest (Webhook)
 

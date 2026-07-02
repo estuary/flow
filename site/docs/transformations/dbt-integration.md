@@ -1,4 +1,5 @@
 ---
+description: Learn how to configure Estuary’s dbt Cloud integration to trigger dbt jobs when new data is materialized and automate transformations.
 slug: /guides/dbt-integration/
 ---
 

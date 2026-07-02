@@ -1,5 +1,6 @@
 ---
 sidebar_position: 4
+description: Learn how Estuary connectors work for captures and materializations, including configuration, Docker images, flowctl, SSH tunneling, and open architecture.
 ---
 
 import Tabs from '@theme/Tabs';

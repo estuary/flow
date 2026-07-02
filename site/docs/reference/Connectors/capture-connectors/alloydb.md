@@ -1,3 +1,6 @@
+---
+description: Capture AlloyDB table updates with Estuary's CDC connector. Setup guide for logical decoding, replication slots, publications, watermarks tables, and SSH tunneling.
+---
 
 # AlloyDB
 

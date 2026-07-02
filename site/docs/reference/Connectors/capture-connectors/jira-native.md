@@ -1,3 +1,6 @@
+---
+description: Capture Jira data into Estuary collections, including issues, projects, sprints, users, and workflows.
+---
 
 # Jira
 

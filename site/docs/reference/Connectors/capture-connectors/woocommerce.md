@@ -1,3 +1,6 @@
+---
+description: Sync WooCommerce store data with Estuary's connector, including orders, customers, products, refunds, coupons, and shipping, using a WooCommerce API key and secret.
+---
 
 # WooCommerce
 This connector captures data from WooCommerce into Estuary collections.

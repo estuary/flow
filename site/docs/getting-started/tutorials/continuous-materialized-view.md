@@ -1,5 +1,6 @@
 ---
 sidebar_position: 4
+description: Create a continuously updated PostgreSQL materialized view with Estuary derivations. Demo covers using flowctl, SQL transformations, and publishing steps.
 ---
 
 import Tabs from '@theme/Tabs';

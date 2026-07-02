@@ -1,3 +1,6 @@
+---
+description: Capture Jira webhook deliveries with the HTTP Ingest connector. Configure webhook paths, capture query parameters, and set authentication details.
+---
 
 # Jira HTTP Ingest (Webhook)
 

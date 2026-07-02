@@ -1,3 +1,7 @@
+---
+description: Use the NetSuite SuiteAnalytics connector to load tables, such as Transactions, Reports, and Lists. Setup guide walks through NetSuite connection, special columns, and sync modes.
+---
+
 import ReactPlayer from "react-player";
 
 # NetSuite SuiteAnalytics Connect

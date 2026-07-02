@@ -1,3 +1,6 @@
+---
+description: Turn Datadog webhook deliveries into Estuary collections with the HTTP Ingest connector. Configure custom paths and authentication.
+---
 
 # Datadog HTTP Ingest (Webhook)
 

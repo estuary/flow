@@ -1,3 +1,7 @@
+---
+description: Capture SFTP server files from a directory with Estuary's connector. Supports subdirectory capture, regex filters, and parser settings related to compression and file formats.
+---
+
 # SFTP
 
 This connector captures data from an SFTP server.

@@ -1,3 +1,7 @@
+---
+description: Use the SQL Server Batch Query connector to capture tables, views, and custom SQL queries with configurable cursors, polling schedules, and SSH tunneling.
+---
+
 # SQL Server Batch Query Connector
 
 This connector captures data from SQL Server databases into Estuary collections by

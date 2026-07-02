@@ -1,3 +1,7 @@
+---
+description: Configure Azure IAM authentication for supported connectors in Estuary using your data plane's OIDC value and an Azure App Registration.
+---
+
 # Azure IAM Authentication
 
 Estuary supports IAM authentication with Azure services such as Azure SQL and Azure Storage using an application created by you which has access to the resources, and has trusted identity tokens signed by us as the OIDC (OpenID Connect) provider. Note however that not all connectors currently support using IAM authentication.

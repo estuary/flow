@@ -1,3 +1,6 @@
+---
+description: Capture Marketo marketing data with Estuary's connector, including activities, campaigns, leads, lists, and programs, using Marketo developer application credentials.
+---
 
 # Marketo
 

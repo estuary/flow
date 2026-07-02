@@ -1,4 +1,5 @@
 ---
+description: Build a real-time Firestore to Snowflake Data Flow with Estuary, including service account setup, capture, collections, materialization, and publishing.
 slug: /guides/system-specific-dataflows/firestore-to-dwh/
 ---
 

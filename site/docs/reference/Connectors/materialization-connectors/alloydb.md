@@ -1,3 +1,6 @@
+---
+description: Materialize data collections into AlloyDB with Estuary's connector. Supports IAM auth, SSH tunneling, custom create SQL, hard deletes, and delta updates.
+---
 
 # AlloyDB
 

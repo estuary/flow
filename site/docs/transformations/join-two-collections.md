@@ -1,4 +1,5 @@
 ---
+description: Build a TypeScript derivation that joins customer and order collections in real time using flowctl. Covers shuffle keys, reduction strategies, and generating stub files.
 slug: /guides/howto_join_two_collections_typescript/
 ---
 

@@ -1,3 +1,7 @@
+---
+description: Use the TimescaleDB connector to materialize data collections into tables or hypertables, with settings for delta updates, hard deletes, and additional creation SQL.
+---
+
 # TimescaleDB
 
 This connector materializes Estuary collections into tables in a TimescaleDB database.

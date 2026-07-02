@@ -1,3 +1,7 @@
+---
+description: Track incident.io operational data in Estuary, including incidents, severities, roles, timestamps, users, and custom fields, using an API key.
+---
+
 # Incident.io
 
 This connector captures data from Incident.io into Estuary collections.

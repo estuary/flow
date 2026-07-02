@@ -1,3 +1,6 @@
+---
+description: Turn Iterate survey and response data into Estuary collections with the connector, using an API access token. Supports configurable interval schedules.
+---
 
 # Iterate
 

@@ -1,3 +1,7 @@
+---
+description: Use the Recharge connector to sync subscription commerce data, including customers, charges, orders, products, and discounts, using access token authentication.
+---
+
 # Recharge
 
 This connector captures data from Recharge into Estuary collections.

@@ -1,5 +1,6 @@
 ---
 sidebar_position: 2
+description: Configure Estuary prefix-based access control to isolate between environments, regions, or teams with user grants, role grants, storage mappings, and data plane access.
 slug: /guides/prefix-access-control/
 ---
 

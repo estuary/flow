@@ -1,3 +1,6 @@
+---
+description: Bring files from a OneDrive folder into Estuary with the connector. Configure path filters and parser settings related to compression and file format.
+---
 
 # OneDrive
 

@@ -1,3 +1,7 @@
+---
+description: Use Estuary's Zendesk Support connector to sync support data like tickets, comments, users, organizations, and SLA policies, using OAuth2 or API token authentication.
+---
+
 # Zendesk Support Real-Time
 
 This connector captures data from Zendesk into Estuary collections.

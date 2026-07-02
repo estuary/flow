@@ -1,3 +1,6 @@
+---
+description: Treat Estuary data pipelines as code, manage connectors and collections with flow.yaml specification files, and integrate flowctl publish commands in a CI/CD workflow.
+---
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';

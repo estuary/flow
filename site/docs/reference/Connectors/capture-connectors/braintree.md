@@ -1,3 +1,7 @@
+---
+description: Track Braintree payment data in Estuary, including customers, transactions, disputes, subscriptions, and merchant accounts.
+---
+
 # Braintree
 
 This connector captures data from Braintree into Estuary collections.

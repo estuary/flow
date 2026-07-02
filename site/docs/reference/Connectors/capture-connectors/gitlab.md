@@ -1,3 +1,6 @@
+---
+description: Configure GitLab data capture from groups and projects to ingest issues, pipelines, commits, jobs, and releases, using OAuth2 or access token authentication.
+---
 
 # GitLab
 

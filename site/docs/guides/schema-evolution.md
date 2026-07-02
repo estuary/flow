@@ -1,3 +1,7 @@
+---
+description: Handle Estuary schema changes safely with automatic evolution and guidance on collection key updates, new fields, type changes, and backfills.
+---
+
 # Schema Evolution
 
 When collection specifications and schemas change, you must make corresponding changes in other parts of your Data Flow to avoid errors. In this guide, you'll learn how to respond to different types of collection changes.

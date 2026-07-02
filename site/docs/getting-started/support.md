@@ -1,3 +1,6 @@
+---
+description: Learn how to get Estuary support through Slack and email. Report issues to GitHub, subscribe to status updates, and temporarily share data access for troubleshooting.
+---
 
 # Support
 

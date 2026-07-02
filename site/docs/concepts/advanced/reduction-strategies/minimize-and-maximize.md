@@ -1,5 +1,5 @@
 ---
-description: Using the minimize and maximize reduction strategies
+description: Learn about Estuary's minimize and maximize reduction strategies to reduce document fields to their smallest or largest values.
 slug: /reference/reduction-strategies/minimize-and-maximize/
 sidebar_position: 4
 ---

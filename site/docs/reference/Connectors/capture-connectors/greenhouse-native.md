@@ -1,3 +1,7 @@
+---
+description: Move Greenhouse recruiting data from the Harvest API into Estuary, including candidates, applications, jobs, offers, interviews, and users.
+---
+
 # Greenhouse
 
 This connector captures data from [Greenhouse](https://www.greenhouse.com/) into Estuary collections.
