@@ -425,7 +425,8 @@ expression: json_test(msg)
       "rClockBegin": 2291772091,
       "rClockEnd": 3437096703
     },
-    "state": {"connector":{"state":42}}
+    "state": {"connector":{"state":42}},
+    "sealedConfig": {"encrypted":"c2VjcmV0","sops":{"mac":"abc"}}
   },
   "acknowledge": {
     "checkpoints": 32

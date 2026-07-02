@@ -440,6 +440,9 @@ fn ex_capture_request() -> capture::Request {
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
             state_json: json!({"connector": {"state": 42}}).to_string().into(),
+            sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
+                .to_string()
+                .into(),
         }),
         acknowledge: Some(capture::request::Acknowledge { checkpoints: 32 }),
         internal: ex_internal(),
