@@ -731,11 +731,11 @@ type DataPlane {
 	"""
 	azureApplicationClientId: String
 	"""
-	Configured private link endpoints for this data-plane. Replacing this
-	list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
-	data-plane controller on its next poll. Returns an empty list to
-	callers that lack the `ViewDataPlanePrivateNetworking` capability on
-	this data plane.
+	Configured private links for this data-plane, each with its
+	controller-observed provisioning status. Mutating links (via
+	`addDataPlanePrivateLink` and friends) triggers reconvergence by the
+	data-plane controller. Returns an empty list to callers that lack the
+	`ViewDataPlanePrivateNetworking` capability on this data plane.
 	"""
 	privateLinks: [PrivateLink!]!
 	"""
@@ -1284,18 +1284,24 @@ type MutationRoot {
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
 	"""
-	Replaces the configured private link endpoints on a private data plane.
-	
-	The provided list overwrites the entire `private_links` column; partial
-	updates are intentionally not supported. The data-plane controller
-	converges to the new configuration on its next poll. Returns the desired
-	private links state. The `*LinkEndpoints` provisioning results are not echoed here:
-	they lag this write until the controller converges, so callers needing them re-query `dataPlanes`.
-	
-	Requires the `ModifyDataPlanePrivateNetworking` capability on the
-	private data-plane name.
+	Adds a private link to a private data plane. The data-plane controller
+	converges to provision it on its next poll; the returned link starts
+	`pending`. Requires `ModifyDataPlanePrivateNetworking` on the data plane.
 	"""
-	updateDataPlanePrivateLinks(dataPlaneName: String!, privateLinks: [PrivateLinkInput!]!): [PrivateLink!]!
+	addDataPlanePrivateLink(dataPlaneName: String!, config: PrivateLinkConfigInput!): PrivateLink!
+	"""
+	Replaces the configuration of an existing private link by id. Changing
+	the configuration resets its observed status to `pending` until the
+	controller reconverges. Requires `ModifyDataPlanePrivateNetworking` on
+	the owning data plane.
+	"""
+	updateDataPlanePrivateLink(id: Id!, config: PrivateLinkConfigInput!): PrivateLink!
+	"""
+	Removes a private link by id. The controller tears down its endpoint on
+	the next converge. Requires `ModifyDataPlanePrivateNetworking` on the
+	owning data plane. Returns the removed link id.
+	"""
+	removeDataPlanePrivateLink(id: Id!): Id!
 	"""
 	Create a refresh token for the authenticated user.
 	"""
@@ -1439,19 +1445,83 @@ input PrefixesBy {
 }
 
 """
-Private link configuration for a customer-owned data plane: AWS
-PrivateLink, Azure Private Link, or GCP Private Service Connect.
+A configured private link and its controller-observed provisioning status.
 """
-union PrivateLink = AWSPrivateLink | AzurePrivateLink | GCPPrivateServiceConnect
+type PrivateLink {
+	"""
+	Stable identifier of this private link.
+	"""
+	id: Id!
+	"""
+	Cloud provider of the link.
+	"""
+	provider: PrivateLinkProvider!
+	"""
+	The link configuration (AWS PrivateLink, Azure Private Link, or GCP PSC).
+	"""
+	config: PrivateLinkConfig!
+	"""
+	Controller-observed provisioning status.
+	"""
+	status: PrivateLinkProvisioningStatus!
+	"""
+	Provider-specific provisioning details (DNS entries, IPs) once
+	provisioned; opaque JSON exported by the data-plane controller.
+	"""
+	details: JSON
+	"""
+	Failure detail when `status` is `failed`.
+	"""
+	error: String
+	"""
+	When the controller last observed this link's status.
+	"""
+	observedAt: DateTime
+}
 
 """
 Private link configuration for a customer-owned data plane: AWS
 PrivateLink, Azure Private Link, or GCP Private Service Connect.
 """
-input PrivateLinkInput @oneOf {
+union PrivateLinkConfig = AWSPrivateLink | AzurePrivateLink | GCPPrivateServiceConnect
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+input PrivateLinkConfigInput @oneOf {
 	aws: AWSPrivateLinkInput
 	azure: AzurePrivateLinkInput
 	gcp: GCPPrivateServiceConnectInput
+}
+
+"""
+Cloud provider of a private link. Distinct from a data plane's provider
+(a private link is never local) and used to disambiguate the service
+identity, since AWS and Azure links both key on `service_name`.
+"""
+enum PrivateLinkProvider {
+	AWS
+	AZURE
+	GCP
+}
+
+"""
+Controller-observed provisioning status of a configured private link.
+"""
+enum PrivateLinkProvisioningStatus {
+	"""
+	No matching provisioned endpoint exists yet.
+	"""
+	PENDING
+	"""
+	A provisioned endpoint matching this link exists.
+	"""
+	PROVISIONED
+	"""
+	Provisioning failed; see `error`.
+	"""
+	FAILED
 }
 
 """

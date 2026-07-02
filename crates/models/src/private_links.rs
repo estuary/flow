@@ -10,13 +10,59 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(
     feature = "async-graphql",
     derive(async_graphql::Union, async_graphql::OneofObject),
-    graphql(name = "PrivateLink", input_name = "PrivateLinkInput")
+    graphql(name = "PrivateLinkConfig", input_name = "PrivateLinkConfigInput")
 )]
 #[serde(untagged)]
 pub enum PrivateLink {
     AWS(AWSPrivateLink),
     Azure(AzurePrivateLink),
     GCP(GCPPrivateServiceConnect),
+}
+
+/// Cloud provider of a private link. Distinct from a data plane's provider
+/// (a private link is never local) and used to disambiguate the service
+/// identity, since AWS and Azure links both key on `service_name`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "async-graphql", derive(async_graphql::Enum))]
+#[serde(rename_all = "lowercase")]
+pub enum PrivateLinkProvider {
+    Aws,
+    Azure,
+    Gcp,
+}
+
+impl PrivateLinkProvider {
+    /// Lowercase wire/DB representation (`aws`/`azure`/`gcp`).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PrivateLinkProvider::Aws => "aws",
+            PrivateLinkProvider::Azure => "azure",
+            PrivateLinkProvider::Gcp => "gcp",
+        }
+    }
+}
+
+impl PrivateLink {
+    /// The provider's service identifier for this link: `service_name` for AWS
+    /// and Azure, `service_attachment` for GCP. These are required fields, so
+    /// every link has one. It is the stable per-link identity and the join key
+    /// against the data plane's provisioned endpoint results.
+    pub fn service_identity(&self) -> &str {
+        match self {
+            PrivateLink::AWS(link) => &link.service_name,
+            PrivateLink::Azure(link) => &link.service_name,
+            PrivateLink::GCP(link) => &link.service_attachment,
+        }
+    }
+
+    /// The cloud provider of this link, derived from its variant.
+    pub fn provider(&self) -> PrivateLinkProvider {
+        match self {
+            PrivateLink::AWS(_) => PrivateLinkProvider::Aws,
+            PrivateLink::Azure(_) => PrivateLinkProvider::Azure,
+            PrivateLink::GCP(_) => PrivateLinkProvider::Gcp,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,5 +240,33 @@ mod tests {
         assert!(!g.all_ports);
         // False default is skipped on serialize.
         assert!(!serde_json::to_string(&gcp).unwrap().contains("all_ports"));
+    }
+
+    #[test]
+    fn service_identity_and_provider_per_variant() {
+        let aws: PrivateLink = serde_json::from_str(
+            r#"{"region":"us-east-1","az_ids":["use1-az1"],"service_name":"com.amazonaws.vpce.us-east-1.vpce-svc-abc"}"#,
+        ).unwrap();
+        assert_eq!(
+            aws.service_identity(),
+            "com.amazonaws.vpce.us-east-1.vpce-svc-abc"
+        );
+        assert_eq!(aws.provider(), PrivateLinkProvider::Aws);
+
+        let azure: PrivateLink =
+            serde_json::from_str(r#"{"service_name":"/subscriptions/x/svc","location":"eastus"}"#)
+                .unwrap();
+        assert_eq!(azure.service_identity(), "/subscriptions/x/svc");
+        assert_eq!(azure.provider(), PrivateLinkProvider::Azure);
+
+        let gcp: PrivateLink = serde_json::from_str(
+            r#"{"service_attachment":"projects/p/regions/r/serviceAttachments/sa","region":"r","dns_zone_name":"z","dns_record_names":["n"]}"#,
+        ).unwrap();
+        assert_eq!(
+            gcp.service_identity(),
+            "projects/p/regions/r/serviceAttachments/sa"
+        );
+        assert_eq!(gcp.provider(), PrivateLinkProvider::Gcp);
+        assert_eq!(gcp.provider().as_str(), "gcp");
     }
 }

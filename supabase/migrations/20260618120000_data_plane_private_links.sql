@@ -1,0 +1,180 @@
+-- Model private links as first-class rows with a stable identity and
+-- data-plane-controller-owned observed status, replacing the flat
+-- `data_planes.private_links` JSON array as the source of truth.
+--
+-- During the transition a trigger projects rows back into the
+-- `data_planes.private_links` column, so the controller (which still reads that
+-- column until its own cutover) keeps working unchanged. A later migration
+-- drops the projection and the legacy `private_links` / `*_link_endpoints`
+-- columns once the controller reads and writes this table directly.
+
+begin;
+
+create table public.data_plane_private_links (
+    id public.flowid primary key not null default internal.id_generator(),
+    data_plane_id public.flowid not null
+        references public.data_planes (id) on delete cascade,
+    -- Cloud provider of the link, stored so consumers need not parse `config`
+    -- to learn the variant and so the controller selects the matching endpoint
+    -- output array. AWS and Azure links both key on `service_name`, so the
+    -- provider is what disambiguates them.
+    provider text not null check (provider in ('aws', 'azure', 'gcp')),
+    -- The polymorphic link configuration: the same element shape as the legacy
+    -- `data_planes.private_links` array; round-trips `models::PrivateLink`.
+    config jsonb not null,
+    -- The provider's service identifier, used as the join key against the
+    -- controller's provisioned endpoint outputs and to enforce uniqueness. A
+    -- data plane is single-cloud, so this is unambiguous within a data plane.
+    service_identity text generated always as
+        (coalesce(config ->> 'service_name', config ->> 'service_attachment')) stored,
+    -- Observed state, written by the data-plane controller. `status` is
+    -- `pending` until a converge matches a provisioned endpoint; `failed` is
+    -- reserved for when est-dry-dock reports per-link errors (a later change).
+    status text not null default 'pending' check (status in ('pending', 'provisioned', 'failed')),
+    details jsonb,
+    error text,
+    observed_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    constraint data_plane_private_links_unique_identity
+        unique (data_plane_id, service_identity)
+);
+
+comment on table public.data_plane_private_links is
+    'Per-link private networking configuration (desired) and controller-observed status for a data plane.';
+
+create index data_plane_private_links_data_plane_id_idx
+    on public.data_plane_private_links (data_plane_id);
+
+-- Access mirrors `data_planes`: a user read-authorized to the parent data plane
+-- may select (a `read` grant already conveys ViewDataPlanePrivateNetworking).
+-- Writes go only through agent-api (service_role); the finer View/Modify
+-- capability gating lives in the agent-api resolvers.
+alter table public.data_plane_private_links enable row level security;
+
+create policy "Users must be read-authorized to the parent data plane"
+    on public.data_plane_private_links
+    for select
+    using (exists (
+        select 1
+        from public.data_planes dp
+        where dp.id = data_plane_private_links.data_plane_id
+          and exists (
+              select 1
+              from public.auth_roles('read'::public.grant_capability) r(role_prefix, capability)
+              where (dp.data_plane_name)::text ^@ (r.role_prefix)::text
+          )
+    ));
+
+grant all on table public.data_plane_private_links to service_role;
+grant select on table public.data_plane_private_links to reporting_user;
+grant select (
+    id, data_plane_id, provider, config, service_identity,
+    status, details, error, observed_at, created_at, updated_at
+) on table public.data_plane_private_links to authenticated;
+
+-- Pre-flight: abort the migration on legacy `private_links` data the new
+-- table's invariants cannot represent, rather than silently dropping or
+-- corrupting it. A duplicate (data_plane_id, service_identity) would collide on
+-- the unique constraint, and an element missing both `service_name` and
+-- `service_attachment` would produce a NULL generated `service_identity` that
+-- bypasses uniqueness and later fails the resolver's non-null `PrivateLink`
+-- decode. Both indicate data that needs hand-correction before this migration.
+do $$
+declare
+    v_missing bigint;
+    v_dupes bigint;
+begin
+    select count(*) into v_missing
+    from public.data_planes dp,
+         lateral unnest(dp.private_links) as elem
+    where coalesce(elem ->> 'service_name', elem ->> 'service_attachment') is null;
+
+    if v_missing > 0 then
+        raise exception
+            'cannot backfill data_plane_private_links: % private_links element(s) lack a service_name/service_attachment',
+            v_missing;
+    end if;
+
+    select count(*) into v_dupes from (
+        select 1
+        from public.data_planes dp,
+             lateral unnest(dp.private_links) as elem
+        group by dp.id, coalesce(elem ->> 'service_name', elem ->> 'service_attachment')
+        having count(*) > 1
+    ) d;
+
+    if v_dupes > 0 then
+        raise exception
+            'cannot backfill data_plane_private_links: % data plane(s) have duplicate private_links service identities',
+            v_dupes;
+    end if;
+end $$;
+
+-- Backfill one row per element of every existing `private_links` array. Done
+-- before the trigger exists, so it does not reproject or wake anything; the
+-- column already holds the source data, so column and table are consistent. No
+-- `on conflict` clause: the pre-flight above has proven there are no collisions,
+-- so any conflict here is an unexpected invariant break that should abort.
+insert into public.data_plane_private_links (data_plane_id, provider, config)
+select
+    dp.id,
+    case
+        when (elem ->> 'service_attachment') is not null then 'gcp'
+        when (elem ->> 'az_ids') is not null then 'aws'
+        else 'azure'
+    end,
+    elem::jsonb
+from public.data_planes dp,
+     lateral unnest(dp.private_links) as elem;
+
+-- When a link's desired configuration changes (an insert, a delete, or a
+-- `config`/`provider` update; see the trigger's `update of` scope below):
+-- reproject the rows back into the parent's `data_planes.private_links` column
+-- (the controller still reads it until its cutover), and send the parent's
+-- controller task a `Converge` message so it applies the new desired
+-- configuration promptly rather than waiting for the next idle poll. The
+-- message must deserialize into the data-plane-controller's
+-- externally-tagged `Message` enum, whose `Converge` unit variant is the JSON
+-- string `"converge"` (this is not the `{"type":...}` shape the live-specs
+-- controller uses). The not-idle guard on `data_planes` only blocks
+-- `config`/`deploy_branch`, so projecting `private_links` is allowed mid-converge.
+create function internal.on_data_plane_private_links_change() returns trigger
+    language plpgsql security definer
+    set search_path to ''
+    as $$
+declare
+    v_data_plane_id public.flowid := coalesce(new.data_plane_id, old.data_plane_id);
+    v_controller_task_id public.flowid;
+begin
+    update public.data_planes dp set
+        private_links = coalesce((
+            select array_agg(l.config::json order by l.created_at, l.id)
+            from public.data_plane_private_links l
+            where l.data_plane_id = v_data_plane_id
+        ), array[]::json[])
+    where dp.id = v_data_plane_id
+    returning dp.controller_task_id into v_controller_task_id;
+
+    if v_controller_task_id is not null then
+        perform internal.send_to_task(
+            v_controller_task_id,
+            '00:00:00:00:00:00:00:00'::public.flowid,
+            '"converge"'::json
+        );
+    end if;
+
+    return null;
+end;
+$$;
+
+-- Scoped to inserts, deletes, and updates that touch the user-owned desired
+-- columns (`config`/`provider`). The controller's post-converge status write
+-- only sets `status`/`details`/`observed_at`/`updated_at`, so it does not fire
+-- this trigger; were it to, each converge would reproject, wake the controller,
+-- and re-trigger itself in an unbounded reconverge loop.
+create trigger on_data_plane_private_links_change
+    after insert or delete or update of config, provider on public.data_plane_private_links
+    for each row execute function internal.on_data_plane_private_links_change();
+
+commit;

@@ -15,6 +15,51 @@ pub enum DataPlaneCloudProvider {
     Local,
 }
 
+/// Controller-observed provisioning status of a configured private link.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum PrivateLinkProvisioningStatus {
+    /// No matching provisioned endpoint exists yet.
+    Pending,
+    /// A provisioned endpoint matching this link exists.
+    Provisioned,
+    /// Provisioning failed; see `error`.
+    Failed,
+}
+
+impl PrivateLinkProvisioningStatus {
+    fn from_db(s: &str) -> async_graphql::Result<Self> {
+        match s {
+            "pending" => Ok(Self::Pending),
+            "provisioned" => Ok(Self::Provisioned),
+            "failed" => Ok(Self::Failed),
+            other => Err(async_graphql::Error::new(format!(
+                "unknown private link status {other:?}"
+            ))),
+        }
+    }
+}
+
+/// A configured private link and its controller-observed provisioning status.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(name = "PrivateLink")]
+pub struct DataPlanePrivateLink {
+    /// Stable identifier of this private link.
+    pub id: models::Id,
+    /// Cloud provider of the link.
+    pub provider: models::PrivateLinkProvider,
+    /// The link configuration (AWS PrivateLink, Azure Private Link, or GCP PSC).
+    pub config: models::PrivateLink,
+    /// Controller-observed provisioning status.
+    pub status: PrivateLinkProvisioningStatus,
+    /// Provider-specific provisioning details (DNS entries, IPs) once
+    /// provisioned; opaque JSON exported by the data-plane controller.
+    pub details: Option<async_graphql::Json<serde_json::Value>>,
+    /// Failure detail when `status` is `failed`.
+    pub error: Option<String>,
+    /// When the controller last observed this link's status.
+    pub observed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// A data plane where tasks execute and collections are stored.
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
@@ -46,13 +91,14 @@ pub struct DataPlane {
     pub azure_application_name: Option<String>,
     /// Azure application client ID for this data-plane.
     pub azure_application_client_id: Option<String>,
-    // The four private-networking fields below are gated behind
-    // `ViewDataPlanePrivateNetworking` and resolved by `ComplexObject` methods.
-    // They are stored as raw JSON and skipped from the derived object so the
-    // capability check lives with the field rather than the construction site;
-    // see the resolvers below.
+    // The private-networking fields below are gated behind
+    // `ViewDataPlanePrivateNetworking` and resolved by `ComplexObject` methods,
+    // so the capability check lives with the field rather than the construction
+    // site; see the resolvers below. `control_id` lets the `private_links`
+    // resolver query the `data_plane_private_links` table; the endpoint arrays
+    // are raw JSON exported by the controller.
     #[graphql(skip)]
-    raw_private_links: Vec<serde_json::Value>,
+    control_id: models::Id,
     #[graphql(skip)]
     raw_aws_link_endpoints: Vec<serde_json::Value>,
     #[graphql(skip)]
@@ -63,15 +109,15 @@ pub struct DataPlane {
 
 #[ComplexObject]
 impl DataPlane {
-    /// Configured private link endpoints for this data-plane. Replacing this
-    /// list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
-    /// data-plane controller on its next poll. Returns an empty list to
-    /// callers that lack the `ViewDataPlanePrivateNetworking` capability on
-    /// this data plane.
+    /// Configured private links for this data-plane, each with its
+    /// controller-observed provisioning status. Mutating links (via
+    /// `addDataPlanePrivateLink` and friends) triggers reconvergence by the
+    /// data-plane controller. Returns an empty list to callers that lack the
+    /// `ViewDataPlanePrivateNetworking` capability on this data plane.
     async fn private_links(
         &self,
         ctx: &Context<'_>,
-    ) -> async_graphql::Result<Vec<models::PrivateLink>> {
+    ) -> async_graphql::Result<Vec<DataPlanePrivateLink>> {
         if !super::may_access(
             ctx,
             &self.name,
@@ -79,15 +125,37 @@ impl DataPlane {
         )? {
             return Ok(Vec::new());
         }
-        self.raw_private_links
-            .iter()
-            .enumerate()
-            .map(|(idx, raw)| {
-                serde_json::from_value::<models::PrivateLink>(raw.clone()).map_err(|err| {
-                    async_graphql::Error::new(format!(
-                        "failed to parse private_links[{idx}] for data plane {}: {err}",
-                        self.name,
-                    ))
+        let env = ctx.data::<crate::Envelope>()?;
+
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                id as "id: models::Id",
+                config as "config!: sqlx::types::Json<models::PrivateLink>",
+                status,
+                details as "details: sqlx::types::Json<serde_json::Value>",
+                error,
+                observed_at as "observed_at: chrono::DateTime<chrono::Utc>"
+            FROM data_plane_private_links
+            WHERE data_plane_id = $1
+            ORDER BY created_at, id
+            "#,
+            self.control_id as models::Id,
+        )
+        .fetch_all(&env.pg_pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let config = row.config.0;
+                Ok(DataPlanePrivateLink {
+                    id: row.id,
+                    provider: config.provider(),
+                    config,
+                    status: PrivateLinkProvisioningStatus::from_db(&row.status)?,
+                    details: row.details.map(|d| async_graphql::Json(d.0)),
+                    error: row.error,
+                    observed_at: row.observed_at,
                 })
             })
             .collect()
@@ -176,7 +244,6 @@ async fn fetch_data_plane_details(
             dp.aws_iam_user_arn,
             dp.azure_application_name,
             dp.azure_application_client_id,
-            dp.private_links as "private_links!: Vec<serde_json::Value>",
             dp.aws_link_endpoints as "aws_link_endpoints: Vec<serde_json::Value>",
             dp.azure_link_endpoints as "azure_link_endpoints: Vec<serde_json::Value>",
             dp.gcp_psc_endpoints as "gcp_psc_endpoints: Vec<serde_json::Value>"
@@ -199,7 +266,6 @@ async fn fetch_data_plane_details(
                     aws_iam_user_arn: row.aws_iam_user_arn,
                     azure_application_name: row.azure_application_name,
                     azure_application_client_id: row.azure_application_client_id,
-                    private_links: row.private_links,
                     aws_link_endpoints: row.aws_link_endpoints.unwrap_or_default(),
                     azure_link_endpoints: row.azure_link_endpoints.unwrap_or_default(),
                     gcp_psc_endpoints: row.gcp_psc_endpoints.unwrap_or_default(),
@@ -215,7 +281,6 @@ struct DataPlaneDetails {
     aws_iam_user_arn: Option<String>,
     azure_application_name: Option<String>,
     azure_application_client_id: Option<String>,
-    private_links: Vec<serde_json::Value>,
     aws_link_endpoints: Vec<serde_json::Value>,
     azure_link_endpoints: Vec<serde_json::Value>,
     gcp_psc_endpoints: Vec<serde_json::Value>,
@@ -420,7 +485,7 @@ impl DataPlanesQuery {
                     azure_application_name: details.and_then(|d| d.azure_application_name.clone()),
                     azure_application_client_id: details
                         .and_then(|d| d.azure_application_client_id.clone()),
-                    raw_private_links: details.map(|d| d.private_links.clone()).unwrap_or_default(),
+                    control_id: dp.control_id,
                     raw_aws_link_endpoints: details
                         .map(|d| d.aws_link_endpoints.clone())
                         .unwrap_or_default(),
@@ -444,41 +509,88 @@ impl DataPlanesQuery {
 #[derive(Debug, Default)]
 pub struct DataPlanesMutation;
 
+/// Structural check: the name must sit under `ops/dp/private/` with at least
+/// one path segment beyond it. Anything more specific (cluster suffix shape,
+/// owning prefix shape) is the data plane's problem; an unknown but well-formed
+/// name falls out as "not found" when no `data_planes` row matches.
+fn require_private_dp_name(name: &str) -> async_graphql::Result<()> {
+    if name
+        .strip_prefix("ops/dp/private/")
+        .is_none_or(|rest| !rest.contains('/') || rest.starts_with('/'))
+    {
+        return Err(async_graphql::Error::new(format!(
+            "{name} is not a private data-plane name"
+        )));
+    }
+    Ok(())
+}
+
+/// Maps a unique-violation on `(data_plane_id, service_identity)` to a clear
+/// message; other database errors propagate unchanged.
+fn map_link_db_error(err: sqlx::Error) -> async_graphql::Error {
+    if let sqlx::Error::Database(db) = &err {
+        if db.is_unique_violation() {
+            return async_graphql::Error::new(
+                "a private link with this service identity already exists on this data plane",
+            );
+        }
+    }
+    async_graphql::Error::new(err.to_string())
+}
+
+/// Resolves the owning data-plane name for an id-addressed private link and
+/// authorizes the caller to modify it. A link that does not exist and a link the
+/// caller may not modify both return the same "not found" error, so an
+/// unauthorized caller cannot probe which link ids exist. This deliberately uses
+/// the visibility gate ([`super::may_access`]) rather than the hard gate
+/// ([`super::verify_authorization`]) so a denial is hidden as not-found instead
+/// of surfacing as a distinguishable permission-denied that names the data plane.
+async fn resolve_modifiable_link_data_plane(
+    ctx: &Context<'_>,
+    id: models::Id,
+) -> async_graphql::Result<String> {
+    let env = ctx.data::<crate::Envelope>()?;
+    let not_found = || async_graphql::Error::new(format!("private link '{id}' not found"));
+
+    let Some(data_plane_name) = sqlx::query_scalar!(
+        r#"
+        SELECT dp.data_plane_name
+        FROM data_plane_private_links l
+        JOIN data_planes dp ON dp.id = l.data_plane_id
+        WHERE l.id = $1
+        "#,
+        id as models::Id,
+    )
+    .fetch_optional(&env.pg_pool)
+    .await?
+    else {
+        return Err(not_found());
+    };
+
+    if !super::may_access(
+        ctx,
+        &data_plane_name,
+        models::authz::Capability::ModifyDataPlanePrivateNetworking,
+    )? {
+        return Err(not_found());
+    }
+
+    Ok(data_plane_name)
+}
+
 #[async_graphql::Object]
 impl DataPlanesMutation {
-    /// Replaces the configured private link endpoints on a private data plane.
-    ///
-    /// The provided list overwrites the entire `private_links` column; partial
-    /// updates are intentionally not supported. The data-plane controller
-    /// converges to the new configuration on its next poll. Returns the desired
-    /// private links state. The `*LinkEndpoints` provisioning results are not echoed here:
-    /// they lag this write until the controller converges, so callers needing them re-query `dataPlanes`.
-    ///
-    /// Requires the `ModifyDataPlanePrivateNetworking` capability on the
-    /// private data-plane name.
-    pub async fn update_data_plane_private_links(
+    /// Adds a private link to a private data plane. The data-plane controller
+    /// converges to provision it on its next poll; the returned link starts
+    /// `pending`. Requires `ModifyDataPlanePrivateNetworking` on the data plane.
+    pub async fn add_data_plane_private_link(
         &self,
         ctx: &Context<'_>,
         data_plane_name: String,
-        private_links: Vec<models::PrivateLink>,
-    ) -> async_graphql::Result<Vec<models::PrivateLink>> {
+        config: models::PrivateLink,
+    ) -> async_graphql::Result<DataPlanePrivateLink> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
-
-        // Structural check only: the name must sit under `ops/dp/private/` and
-        // have at least one path segment beyond it. Anything more specific
-        // (cluster suffix shape, owning prefix shape) is the data plane's
-        // problem, not the mutation's; an unknown name falls out as "not
-        // found" when the UPDATE matches zero rows.
-        if data_plane_name
-            .strip_prefix("ops/dp/private/")
-            .is_none_or(|rest| !rest.contains('/') || rest.starts_with('/'))
-        {
-            return Err(async_graphql::Error::new(format!(
-                "{data_plane_name} is not a private data-plane name"
-            )));
-        }
-
+        require_private_dp_name(&data_plane_name)?;
         super::verify_authorization(
             env,
             &data_plane_name,
@@ -486,19 +598,26 @@ impl DataPlanesMutation {
         )
         .await?;
 
-        let bound: Vec<sqlx::types::Json<&models::PrivateLink>> =
-            private_links.iter().map(sqlx::types::Json).collect();
+        let provider = config.provider();
         let row = sqlx::query!(
-            r#"UPDATE data_planes
-               SET private_links = $2, updated_at = now()
-               WHERE data_plane_name = $1
-               RETURNING private_links as "private_links!: Vec<serde_json::Value>"
+            r#"
+            INSERT INTO data_plane_private_links (data_plane_id, provider, config)
+            SELECT dp.id, $2, $3
+            FROM data_planes dp WHERE dp.data_plane_name = $1
+            RETURNING
+                id as "id: models::Id",
+                status,
+                details as "details: sqlx::types::Json<serde_json::Value>",
+                error,
+                observed_at as "observed_at: chrono::DateTime<chrono::Utc>"
             "#,
             data_plane_name,
-            &bound as &[sqlx::types::Json<&models::PrivateLink>],
+            provider.as_str(),
+            sqlx::types::Json(&config) as sqlx::types::Json<&models::PrivateLink>,
         )
         .fetch_optional(&env.pg_pool)
-        .await?;
+        .await
+        .map_err(map_link_db_error)?;
 
         let Some(row) = row else {
             return Err(async_graphql::Error::new(format!(
@@ -506,22 +625,94 @@ impl DataPlanesMutation {
             )));
         };
 
-        tracing::info!(
-            %data_plane_name,
-            link_count = row.private_links.len(),
-            %claims.sub,
-            "updated data plane private links",
-        );
+        tracing::info!(%data_plane_name, link_id = %row.id, "added data plane private link");
 
-        row.private_links
-            .into_iter()
-            .map(serde_json::from_value::<models::PrivateLink>)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| {
-                async_graphql::Error::new(format!(
-                    "stored private_links for {data_plane_name} did not round-trip: {err}"
-                ))
-            })
+        Ok(DataPlanePrivateLink {
+            id: row.id,
+            provider,
+            config,
+            status: PrivateLinkProvisioningStatus::from_db(&row.status)?,
+            details: row.details.map(|d| async_graphql::Json(d.0)),
+            error: row.error,
+            observed_at: row.observed_at,
+        })
+    }
+
+    /// Replaces the configuration of an existing private link by id. Changing
+    /// the configuration resets its observed status to `pending` until the
+    /// controller reconverges. Requires `ModifyDataPlanePrivateNetworking` on
+    /// the owning data plane.
+    pub async fn update_data_plane_private_link(
+        &self,
+        ctx: &Context<'_>,
+        id: models::Id,
+        config: models::PrivateLink,
+    ) -> async_graphql::Result<DataPlanePrivateLink> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let _data_plane_name = resolve_modifiable_link_data_plane(ctx, id).await?;
+
+        let provider = config.provider();
+        let row = sqlx::query!(
+            r#"
+            UPDATE data_plane_private_links SET
+                provider = $2,
+                config = $3,
+                status = 'pending',
+                details = NULL,
+                error = NULL,
+                observed_at = NULL,
+                updated_at = now()
+            WHERE id = $1
+            RETURNING
+                status,
+                details as "details: sqlx::types::Json<serde_json::Value>",
+                error,
+                observed_at as "observed_at: chrono::DateTime<chrono::Utc>"
+            "#,
+            id as models::Id,
+            provider.as_str(),
+            sqlx::types::Json(&config) as sqlx::types::Json<&models::PrivateLink>,
+        )
+        .fetch_optional(&env.pg_pool)
+        .await
+        .map_err(map_link_db_error)?
+        // The row was authorized by `resolve_modifiable_link_data_plane` above,
+        // but a concurrent remove (or a cascading data-plane teardown) can delete
+        // it before this UPDATE runs. Report the same existence-hiding not-found
+        // rather than leaking a raw "no rows returned" sqlx error.
+        .ok_or_else(|| async_graphql::Error::new(format!("private link '{id}' not found")))?;
+
+        Ok(DataPlanePrivateLink {
+            id,
+            provider,
+            config,
+            status: PrivateLinkProvisioningStatus::from_db(&row.status)?,
+            details: row.details.map(|d| async_graphql::Json(d.0)),
+            error: row.error,
+            observed_at: row.observed_at,
+        })
+    }
+
+    /// Removes a private link by id. The controller tears down its endpoint on
+    /// the next converge. Requires `ModifyDataPlanePrivateNetworking` on the
+    /// owning data plane. Returns the removed link id.
+    pub async fn remove_data_plane_private_link(
+        &self,
+        ctx: &Context<'_>,
+        id: models::Id,
+    ) -> async_graphql::Result<models::Id> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let data_plane_name = resolve_modifiable_link_data_plane(ctx, id).await?;
+
+        _ = sqlx::query!(
+            "DELETE FROM data_plane_private_links WHERE id = $1",
+            id as models::Id,
+        )
+        .execute(&env.pg_pool)
+        .await?;
+
+        tracing::info!(link_id = %id, %data_plane_name, "removed data plane private link");
+        Ok(id)
     }
 }
 
@@ -609,24 +800,15 @@ mod tests {
                                     azureLinkEndpoints
                                     gcpPscEndpoints
                                     privateLinks {
-                                        __typename
-                                        ... on AWSPrivateLink {
-                                            region
-                                            azIds
-                                            serviceName
-                                        }
-                                        ... on AzurePrivateLink {
-                                            serviceName
-                                            location
-                                            dnsName
-                                            resourceType
-                                        }
-                                        ... on GCPPrivateServiceConnect {
-                                            serviceAttachment
-                                            region
-                                            dnsZoneName
-                                            dnsRecordNames
-                                            allPorts
+                                        id
+                                        provider
+                                        status
+                                        details
+                                        config {
+                                            __typename
+                                            ... on AWSPrivateLink { region azIds serviceName }
+                                            ... on AzurePrivateLink { serviceName location dnsName resourceType }
+                                            ... on GCPPrivateServiceConnect { serviceAttachment region dnsZoneName dnsRecordNames allPorts }
                                         }
                                     }
                                 }
@@ -730,7 +912,7 @@ mod tests {
         // does not carry.
         let bob_denied: serde_json::Value = server
             .graphql(
-                &update_mutation("ops/dp/private/aliceCo/aws-us-east-1-c1", VALID_AWS_INPUT),
+                &add_mutation("ops/dp/private/aliceCo/aws-us-east-1-c1", VALID_AWS_INPUT),
                 Some(&bob_token),
             )
             .await;
@@ -808,7 +990,7 @@ mod tests {
         // Modify is denied: ModifyDataPlanePrivateNetworking flowed only
         // through the now-cleared `manage_data_plane` bundle on the edge.
         let denied: serde_json::Value = server
-            .graphql(&update_mutation(dp, VALID_AWS_INPUT), Some(&alice_token))
+            .graphql(&add_mutation(dp, VALID_AWS_INPUT), Some(&alice_token))
             .await;
         assert_eq!(
             first_error_message(&denied),
@@ -816,62 +998,11 @@ mod tests {
         );
     }
 
-    // A malformed `private_links` row produces a field-level error that names
-    // the data plane and the failing index. Because `privateLinks` is declared
-    // `[PrivateLink!]!` (non-null), the error null-propagates up to the
-    // nullable root and the whole `data` field comes back as null; the error
-    // path locates the offending edge.
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(
-            path = "../../../fixtures",
-            scripts("data_planes", "alice", "private_links")
-        )
-    )]
-    async fn test_graphql_data_planes_malformed_private_link(pool: sqlx::PgPool) {
-        let _guard = test_server::init();
+    // ===== per-link CRUD mutation tests =====
 
-        // Corrupt the private_links column for the private dp before snapshot.
-        sqlx::query(
-            r#"UPDATE data_planes
-               SET private_links = array['{"not":"a private link"}'::json]
-               WHERE data_plane_name = 'ops/dp/private/aliceCo/aws-us-east-1-c1'"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        let server =
-            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
-                .await;
-
-        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
-
-        let response: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"
-                    query {
-                        dataPlanes {
-                            edges {
-                                node {
-                                    name
-                                    privateLinks { __typename }
-                                }
-                            }
-                        }
-                    }
-                    "#
-                }),
-                Some(&token),
-            )
-            .await;
-
-        insta::assert_json_snapshot!("data_planes_malformed_private_link", response);
-    }
-
-    // ===== updateDataPlanePrivateLinks mutation tests =====
-
+    // The `*_INPUT` constants are `PrivateLinkConfigInput` @oneOf values. The
+    // AWS one matches the fixture's existing AWS link (used to exercise the
+    // duplicate-identity guard); `NEW_AWS_INPUT` is a distinct link to add.
     const VALID_AWS_INPUT: &str = r#"{
         "aws": {
             "region": "us-east-1",
@@ -879,126 +1010,58 @@ mod tests {
             "serviceName": "com.amazonaws.vpce.us-east-1.vpce-svc-abc123"
         }
     }"#;
-    const VALID_AZURE_INPUT: &str = r#"{
-        "azure": {
-            "serviceName": "/subscriptions/x/resourceGroups/rg/providers/Microsoft.Network/privateLinkServices/svc",
-            "location": "eastus",
-            "dnsName": "privatelink.database.windows.net",
-            "resourceType": ""
-        }
-    }"#;
-    const VALID_GCP_INPUT: &str = r#"{
-        "gcp": {
-            "serviceAttachment": "projects/p/regions/us-central1/serviceAttachments/sa",
-            "region": "us-central1",
-            "dnsZoneName": "z",
-            "dnsRecordNames": ["r1"],
-            "allPorts": true
+    const NEW_AWS_INPUT: &str = r#"{
+        "aws": {
+            "region": "us-east-1",
+            "azIds": ["use1-az1"],
+            "serviceName": "com.amazonaws.vpce.us-east-1.vpce-svc-new999"
         }
     }"#;
 
-    fn update_mutation(name: &str, links_json: &str) -> serde_json::Value {
-        // The mutation echoes the stored links as the `PrivateLink` union, so
-        // the selection set spreads each variant's discriminating fields.
+    fn add_mutation(name: &str, config_json: &str) -> serde_json::Value {
         serde_json::json!({
             "query": r#"
-            mutation($name: String!, $links: [PrivateLinkInput!]!) {
-                updateDataPlanePrivateLinks(dataPlaneName: $name, privateLinks: $links) {
-                    __typename
-                    ... on AWSPrivateLink { region serviceName }
-                    ... on AzurePrivateLink { serviceName location }
-                    ... on GCPPrivateServiceConnect { serviceAttachment region }
+            mutation($name: String!, $config: PrivateLinkConfigInput!) {
+                addDataPlanePrivateLink(dataPlaneName: $name, config: $config) {
+                    id
+                    provider
+                    status
+                    config {
+                        __typename
+                        ... on AWSPrivateLink { serviceName }
+                        ... on AzurePrivateLink { serviceName }
+                        ... on GCPPrivateServiceConnect { serviceAttachment }
+                    }
                 }
             }"#,
             "variables": {
                 "name": name,
-                "links": serde_json::from_str::<serde_json::Value>(&format!("[{links_json}]")).unwrap(),
+                "config": serde_json::from_str::<serde_json::Value>(config_json).unwrap(),
             }
         })
     }
 
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(
-            path = "../../../fixtures",
-            scripts("data_planes", "alice", "private_links")
-        )
-    )]
-    async fn test_update_private_links_happy_path(pool: sqlx::PgPool) {
-        let _guard = test_server::init();
+    fn update_link_mutation(id: &str, config_json: &str) -> serde_json::Value {
+        serde_json::json!({
+            "query": r#"
+            mutation($id: Id!, $config: PrivateLinkConfigInput!) {
+                updateDataPlanePrivateLink(id: $id, config: $config) {
+                    id status config { __typename ... on AWSPrivateLink { serviceName } }
+                }
+            }"#,
+            "variables": {
+                "id": id,
+                "config": serde_json::from_str::<serde_json::Value>(config_json).unwrap(),
+            }
+        })
+    }
 
-        let server = test_server::TestServer::start(
-            pool.clone(),
-            test_server::snapshot(pool.clone(), false).await,
-        )
-        .await;
-        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
-
-        let dp = "ops/dp/private/aliceCo/aws-us-east-1-c1";
-        let links = format!("{VALID_AWS_INPUT},{VALID_AZURE_INPUT},{VALID_GCP_INPUT}");
-
-        let updated_at_before: chrono::DateTime<chrono::Utc> =
-            sqlx::query_scalar("SELECT updated_at FROM data_planes WHERE data_plane_name = $1")
-                .bind(dp)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-
-        let response: serde_json::Value = server
-            .graphql(&update_mutation(dp, &links), Some(&alice_token))
-            .await;
-        // The mutation echoes the three submitted links in order, one per
-        // union variant.
-        let echoed = response["data"]["updateDataPlanePrivateLinks"]
-            .as_array()
-            .unwrap_or_else(|| panic!("expected echoed links, got: {response}"));
-        let typenames: Vec<&str> = echoed
-            .iter()
-            .map(|l| l["__typename"].as_str().unwrap())
-            .collect();
-        assert_eq!(
-            typenames,
-            [
-                "AWSPrivateLink",
-                "AzurePrivateLink",
-                "GCPPrivateServiceConnect"
-            ],
-        );
-        assert_eq!(echoed[0]["region"], "us-east-1");
-
-        // Postgres `now()` is `transaction_timestamp()` at microsecond
-        // precision, so two distinct transactions return distinct values.
-        let updated_at_after: chrono::DateTime<chrono::Utc> =
-            sqlx::query_scalar("SELECT updated_at FROM data_planes WHERE data_plane_name = $1")
-                .bind(dp)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert!(
-            updated_at_after > updated_at_before,
-            "updated_at must advance on a successful mutation"
-        );
-
-        // Calling again with a single AWS link replaces the entire array
-        // rather than merging.
-        let response: serde_json::Value = server
-            .graphql(&update_mutation(dp, VALID_AWS_INPUT), Some(&alice_token))
-            .await;
-        let echoed = response["data"]["updateDataPlanePrivateLinks"]
-            .as_array()
-            .unwrap_or_else(|| panic!("expected echoed links, got: {response}"));
-        assert_eq!(echoed.len(), 1);
-        assert_eq!(echoed[0]["__typename"], "AWSPrivateLink");
-
-        // Confirm the second call replaced (rather than merged) the array.
-        let stored_count: i64 = sqlx::query_scalar(
-            "SELECT array_length(private_links, 1)::bigint FROM data_planes WHERE data_plane_name = $1",
-        )
-        .bind(dp)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(stored_count, 1);
+    fn remove_link_mutation(id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "query": r#"
+            mutation($id: Id!) { removeDataPlanePrivateLink(id: $id) }"#,
+            "variables": { "id": id }
+        })
     }
 
     /// Extracts the first error message from a GraphQL response, or panics
@@ -1009,53 +1072,16 @@ mod tests {
             .unwrap_or_else(|| panic!("expected an error, got: {response}"))
     }
 
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(
-            path = "../../../fixtures",
-            scripts("data_planes", "alice", "private_links")
+    async fn count_links(pool: &sqlx::PgPool, dp: &str) -> i64 {
+        sqlx::query_scalar(
+            r#"SELECT count(*) FROM data_plane_private_links l
+               JOIN data_planes dp ON dp.id = l.data_plane_id
+               WHERE dp.data_plane_name = $1"#,
         )
-    )]
-    async fn test_update_private_links_authorization(pool: sqlx::PgPool) {
-        let _guard = test_server::init();
-
-        // Create a bob who has no grants on the private dp.
-        sqlx::query(
-            "INSERT INTO auth.users (id, email) VALUES \
-             ('22222222-2222-2222-2222-222222222222', 'bob@example.test')",
-        )
-        .execute(&pool)
+        .bind(dp)
+        .fetch_one(pool)
         .await
-        .unwrap();
-
-        let server =
-            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
-                .await;
-        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
-        let bob_token =
-            server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), Some("bob@example.test"));
-
-        let dp = "ops/dp/private/aliceCo/aws-us-east-1-c1";
-
-        // Alice has read on the private dp via the aliceCo/ -> ops/dp/private/aliceCo/
-        // role grant installed by the private_links fixture.
-        let alice_ok: serde_json::Value = server
-            .graphql(&update_mutation(dp, VALID_AWS_INPUT), Some(&alice_token))
-            .await;
-        let echoed = alice_ok["data"]["updateDataPlanePrivateLinks"]
-            .as_array()
-            .unwrap_or_else(|| panic!("alice with `read` should succeed: {alice_ok}"));
-        assert_eq!(echoed.len(), 1);
-        assert_eq!(echoed[0]["__typename"], "AWSPrivateLink");
-
-        // Bob has no grants and should be rejected.
-        let bob_denied: serde_json::Value = server
-            .graphql(&update_mutation(dp, VALID_AWS_INPUT), Some(&bob_token))
-            .await;
-        assert_eq!(
-            first_error_message(&bob_denied),
-            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1' with required capability ModifyDataPlanePrivateNetworking",
-        );
+        .unwrap()
     }
 
     #[sqlx::test(
@@ -1065,22 +1091,182 @@ mod tests {
             scripts("data_planes", "alice", "private_links")
         )
     )]
-    async fn test_update_private_links_name_validation(pool: sqlx::PgPool) {
+    async fn test_add_private_link(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+        let dp = "ops/dp/private/aliceCo/aws-us-east-1-c1";
+
+        // A new link is created `pending` (no endpoint provisioned yet) as a
+        // fourth row alongside the three from the fixture.
+        let added: serde_json::Value = server
+            .graphql(&add_mutation(dp, NEW_AWS_INPUT), Some(&alice_token))
+            .await;
+        let link = &added["data"]["addDataPlanePrivateLink"];
+        assert_eq!(link["provider"], "AWS", "got: {added}");
+        assert_eq!(link["status"], "PENDING");
+        assert_eq!(
+            link["config"]["serviceName"],
+            "com.amazonaws.vpce.us-east-1.vpce-svc-new999"
+        );
+        assert!(link["id"].is_string());
+        assert_eq!(count_links(&pool, dp).await, 4);
+
+        // Adding a link whose service identity already exists on the data plane
+        // is rejected by the unique constraint.
+        let dup: serde_json::Value = server
+            .graphql(&add_mutation(dp, VALID_AWS_INPUT), Some(&alice_token))
+            .await;
+        assert_eq!(
+            first_error_message(&dup),
+            "a private link with this service identity already exists on this data plane",
+        );
+        assert_eq!(count_links(&pool, dp).await, 4);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_update_and_remove_private_link(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+        let dp = "ops/dp/private/aliceCo/aws-us-east-1-c1";
+
+        // The fixture's AWS link id; it is `provisioned`. Replacing its config
+        // resets the observed status to `pending`.
+        let aws_id = "0000000000000a01";
+        let updated: serde_json::Value = server
+            .graphql(
+                &update_link_mutation(aws_id, NEW_AWS_INPUT),
+                Some(&alice_token),
+            )
+            .await;
+        let link = &updated["data"]["updateDataPlanePrivateLink"];
+        assert_eq!(link["id"], aws_id, "got: {updated}");
+        assert_eq!(link["status"], "PENDING");
+        assert_eq!(
+            link["config"]["serviceName"],
+            "com.amazonaws.vpce.us-east-1.vpce-svc-new999"
+        );
+
+        // Removing a link returns its id and drops the row.
+        let removed: serde_json::Value = server
+            .graphql(&remove_link_mutation(aws_id), Some(&alice_token))
+            .await;
+        assert_eq!(
+            removed["data"]["removeDataPlanePrivateLink"], aws_id,
+            "got: {removed}"
+        );
+        assert_eq!(count_links(&pool, dp).await, 2);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_private_link_mutation_authorization(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // bob has no grants on the private dp.
+        sqlx::query(
+            "INSERT INTO auth.users (id, email) VALUES \
+             ('22222222-2222-2222-2222-222222222222', 'bob@example.test')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+        let bob_token =
+            server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), Some("bob@example.test"));
+        let dp = "ops/dp/private/aliceCo/aws-us-east-1-c1";
+
+        // Alice (read + manage_data_plane bundle) can add.
+        let alice_ok: serde_json::Value = server
+            .graphql(&add_mutation(dp, NEW_AWS_INPUT), Some(&alice_token))
+            .await;
+        assert_eq!(
+            alice_ok["data"]["addDataPlanePrivateLink"]["provider"], "AWS",
+            "got: {alice_ok}"
+        );
+
+        // Bob is rejected for lacking ModifyDataPlanePrivateNetworking. The
+        // name-addressed `add` openly names the prefix, because the caller
+        // supplied the name and so reveals nothing they did not already know.
+        let bob_denied: serde_json::Value = server
+            .graphql(&add_mutation(dp, NEW_AWS_INPUT), Some(&bob_token))
+            .await;
+        assert_eq!(
+            first_error_message(&bob_denied),
+            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1' with required capability ModifyDataPlanePrivateNetworking",
+        );
+
+        // An id-addressed mutation on a link Bob may not modify must return the
+        // same "not found" as a missing id, never a permission error that would
+        // confirm the link (or its data plane) exists. `0000000000000a01` is the
+        // fixture's existing AWS link.
+        let aws_id = "0000000000000a01";
+        for probe in [
+            update_link_mutation(aws_id, NEW_AWS_INPUT),
+            remove_link_mutation(aws_id),
+        ] {
+            let response: serde_json::Value = server.graphql(&probe, Some(&bob_token)).await;
+            let message = first_error_message(&response);
+            assert!(
+                message.contains("not found") && !message.contains("PermissionDenied"),
+                "expected an existence-hiding not-found error, got: {response}"
+            );
+        }
+
+        // Bob's denied remove did not actually delete: Alice's added link plus
+        // the three from the fixture remain.
+        assert_eq!(count_links(&pool, dp).await, 4);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_add_private_link_name_validation(pool: sqlx::PgPool) {
         let _guard = test_server::init();
         let server =
             test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
                 .await;
         let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
 
-        // Names outside `ops/dp/private/<tenant>/...` are rejected by the
-        // structural check before any auth or DB work.
+        // Names outside `ops/dp/private/<tenant>/...` are rejected before any
+        // auth or DB work.
         let cases: &[&str] = &[
             "ops/dp/public/aws-us-west-2-c1",
             "ops/dp/private/aws-us-east-1-c1",
         ];
         for name in cases {
             let response: serde_json::Value = server
-                .graphql(&update_mutation(name, VALID_AWS_INPUT), Some(&alice_token))
+                .graphql(&add_mutation(name, NEW_AWS_INPUT), Some(&alice_token))
                 .await;
             assert_eq!(
                 first_error_message(&response),
@@ -1089,13 +1275,11 @@ mod tests {
             );
         }
 
-        // A structurally-valid name that alice is authorized for (the
-        // fixture's aliceCo/ -> ops/dp/private/aliceCo/ role grant covers any
-        // sub-prefix) but which matches no data_planes row: the UPDATE
-        // affects zero rows and reports not-found.
+        // A well-formed name alice is authorized for but with no matching
+        // data_planes row reports not-found.
         let response: serde_json::Value = server
             .graphql(
-                &update_mutation("ops/dp/private/aliceCo/aws-us-east-2-c9", VALID_AWS_INPUT),
+                &add_mutation("ops/dp/private/aliceCo/aws-us-east-2-c9", NEW_AWS_INPUT),
                 Some(&alice_token),
             )
             .await;

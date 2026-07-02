@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT dp.data_plane_name\n        FROM data_plane_private_links l\n        JOIN data_planes dp ON dp.id = l.data_plane_id\n        WHERE l.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "data_plane_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6bbf6e17a0043b9d6c161e25e30317a4decd2c98dca9722338bee8daa249701c"
+}

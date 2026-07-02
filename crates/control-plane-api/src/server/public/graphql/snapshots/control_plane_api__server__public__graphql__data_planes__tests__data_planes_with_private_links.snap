@@ -10,8 +10,13 @@ expression: response
           "node": {
             "awsLinkEndpoints": [
               {
-                "endpoint_id": "vpce-0123456789abcdef0",
-                "state": "available"
+                "dns_entries": [
+                  {
+                    "dns_name": "vpce-0123abc.vpce-svc-abc123.us-east-1.vpce.amazonaws.com",
+                    "hosted_zone_id": "Z7HUB22EVRPK5"
+                  }
+                ],
+                "service_name": "com.amazonaws.vpce.us-east-1.vpce-svc-abc123"
               }
             ],
             "azureLinkEndpoints": [],
@@ -19,31 +24,57 @@ expression: response
             "name": "ops/dp/private/aliceCo/aws-us-east-1-c1",
             "privateLinks": [
               {
-                "__typename": "AWSPrivateLink",
-                "azIds": [
-                  "use1-az1",
-                  "use1-az2"
-                ],
-                "region": "us-east-1",
-                "serviceName": "com.amazonaws.vpce.us-east-1.vpce-svc-abc123"
+                "config": {
+                  "__typename": "AWSPrivateLink",
+                  "azIds": [
+                    "use1-az1",
+                    "use1-az2"
+                  ],
+                  "region": "us-east-1",
+                  "serviceName": "com.amazonaws.vpce.us-east-1.vpce-svc-abc123"
+                },
+                "details": {
+                  "dns_entries": [
+                    {
+                      "dns_name": "vpce-0123abc.vpce-svc-abc123.us-east-1.vpce.amazonaws.com",
+                      "hosted_zone_id": "Z7HUB22EVRPK5"
+                    }
+                  ],
+                  "service_name": "com.amazonaws.vpce.us-east-1.vpce-svc-abc123"
+                },
+                "id": "0000000000000a01",
+                "provider": "AWS",
+                "status": "PROVISIONED"
               },
               {
-                "__typename": "AzurePrivateLink",
-                "dnsName": "privatelink.database.windows.net",
-                "location": "eastus",
-                "resourceType": null,
-                "serviceName": "/subscriptions/x/resourceGroups/rg/providers/Microsoft.Network/privateLinkServices/svc"
+                "config": {
+                  "__typename": "AzurePrivateLink",
+                  "dnsName": "privatelink.database.windows.net",
+                  "location": "eastus",
+                  "resourceType": null,
+                  "serviceName": "/subscriptions/x/resourceGroups/rg/providers/Microsoft.Network/privateLinkServices/svc"
+                },
+                "details": null,
+                "id": "0000000000000a02",
+                "provider": "AZURE",
+                "status": "PENDING"
               },
               {
-                "__typename": "GCPPrivateServiceConnect",
-                "allPorts": true,
-                "dnsRecordNames": [
-                  "r1",
-                  "r2"
-                ],
-                "dnsZoneName": "z",
-                "region": "us-central1",
-                "serviceAttachment": "projects/p/regions/us-central1/serviceAttachments/sa"
+                "config": {
+                  "__typename": "GCPPrivateServiceConnect",
+                  "allPorts": true,
+                  "dnsRecordNames": [
+                    "r1",
+                    "r2"
+                  ],
+                  "dnsZoneName": "z",
+                  "region": "us-central1",
+                  "serviceAttachment": "projects/p/regions/us-central1/serviceAttachments/sa"
+                },
+                "details": null,
+                "id": "0000000000000a03",
+                "provider": "GCP",
+                "status": "PENDING"
               }
             ]
           }
