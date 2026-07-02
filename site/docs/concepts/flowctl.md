@@ -217,6 +217,15 @@ You can find the image name and latest tag in the connector's [reference](/refer
 
 These commands use the same encryption mechanism as the dashboard and ensure that your secrets are encrypted whenever you send your specifications to Estuary.
 
+:::note
+Auto-encryption uses Estuary's managed encryption key, not a customer-managed
+(bring-your-own) KMS key. To encrypt your configurations with your own key, you
+must encrypt them yourself before publishing, as described in
+[Controlling encryption with `sops`](#controlling-encryption-with-sops). A
+plain-text config published without manual encryption is encrypted with Estuary's
+default key, and your own key is not used.
+:::
+
 This does not, by default, encrypt secrets in your local environment.
 If you want to encrypt local files, you can overwrite your local plain-text configuration with Estuary's encrypted version. To do so, run:
 
@@ -240,11 +249,22 @@ been encrypted.
 Estuary supports customers encrypting secrets with keys from AWS Key Management Service, Google Cloud Platform KMS, and Azure Key Vault.
 
 :::important
-When deploying catalogs onto the managed Estuary runtime, you must grant access to
-decrypt your KMS key to the appropriate identity for your data plane and KMS.
-These identities vary by data plane, find yours under
-[Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings)
-in the Estuary dashboard.
+When deploying catalogs onto the managed Estuary runtime, you must grant **decrypt-only**
+access on your KMS key to the appropriate identity for your data plane. Estuary
+decrypts your configuration only at connector run time and never encrypts with your
+key, so the identity never needs encrypt access. How you grant access depends on the
+provider:
+
+- **GCP KMS**: grant the `roles/cloudkms.cryptoKeyDecrypter` role on the key to the data plane's GCP service account.
+- **AWS KMS**: add a key-policy statement allowing `kms:Decrypt` and `kms:DescribeKey` to the data plane's AWS IAM user.
+- **Azure Key Vault**: grant a decrypt key permission to the data plane's Azure application.
+
+Each data plane has a separate identity for GCP, AWS, and Azure, so you can use a KMS
+provider that differs from the cloud your data plane runs in (for example, a GCP KMS
+key with an AWS data plane). The dashboard surfaces your data plane's native-cloud
+identity under [Admin > Settings > Data Planes](https://dashboard.estuary.dev/admin/settings);
+the identity for a different provider may not be shown there, so contact Estuary
+support to obtain the one you need.
 :::
 
 The examples below provide a useful reference.
