@@ -54,8 +54,10 @@ To meet these requirements, follow the steps for your hosting type.
 
 1. Create the `flow_capture` user with replication permission, and the ability to read all tables.
 
-The `SELECT` permission can be restricted to just the tables that need to be
-captured, but automatic discovery requires `information_schema` access as well.
+Grant `SELECT` on all tables or restrict it to the tables to be captured. `SELECT`
+permissions must be at the table level, not the column level. Automatic discovery also
+requires `information_schema` access. To keep specific columns, such as sensitive fields,
+out of the capture, use [redaction](/features/redaction.md) rather than column-level grants.
 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
@@ -149,8 +151,10 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 3. Using [MySQL workbench](https://docs.microsoft.com/en-us/azure/mysql/single-server/connect-workbench) or your preferred client,
    create the `flow_capture` user with replication permission, and the ability to read all tables.
 
-The `SELECT` permission can be restricted to just the tables that need to be
-captured, but automatic discovery requires `information_schema` access as well.
+Grant `SELECT` on all tables or restrict it to the tables to be captured. `SELECT`
+permissions must be at the table level, not the column level. Automatic discovery also
+requires `information_schema` access. To keep specific columns, such as sensitive fields,
+out of the capture, use [redaction](/features/redaction.md) rather than column-level grants.
 
 :::tip
 Your username must be specified in the format `username@servername`.
