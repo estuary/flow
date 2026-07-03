@@ -86,6 +86,13 @@ impl Format {
                 .is_ok()
             }
             Self::DateTime => {
+                // Since 0.3.37, `time`'s RFC3339 parser accepts any byte as the
+                // date/time separator (time-rs/time#700). JSON Schema's `date-time`
+                // is the RFC3339 ABNF rule, which permits only `T` (case-insensitive),
+                // so check the separator ourselves.
+                if !matches!(val.as_bytes().get(10), Some(b'T' | b't')) {
+                    return false;
+                }
                 time::OffsetDateTime::parse(val, &time::format_description::well_known::Rfc3339)
                     .is_ok()
             }
@@ -214,6 +221,10 @@ mod test {
             ("date-time", "2022-09-11T10:31:25+00:00", true),
             ("date-time", "2022-09-11T10:31:25-00:00", true),
             ("datetime", "2022-09-11T10:31:25.123Z", true), // Accepted alias.
+            ("date-time", "2022-09-11 10:31:25.123Z", false), // Space separator (regression: time-rs/time#700).
+            ("date-time", "2022-09-11x10:31:25.123Z", false), // Arbitrary separator.
+            ("date-time", "2022-09-11t10:31:25.123Z", true), // Lowercase `t` is valid per RFC3339 ABNF.
+            ("date-time", "2022-09-11", false),              // Date only, no separator position.
             ("date-time", "10:31:25.123Z", false),
             ("time", "10:31:25.123Z", true),
             ("time", "10:31:25.123z", true),
