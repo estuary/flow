@@ -266,7 +266,7 @@ impl HeadIdle {
 
         // Termination condition: stop at a clean transaction boundary.
         if stopping && !is_open && tail_done {
-            return (Action::Idle, Head::Stop);
+            return (Action::PollAgain, Head::Stop);
         }
         // Clear stale close_requested from after prior transaction close.
         if !is_open {
@@ -841,7 +841,7 @@ impl HeadStartCommit {
             // (commit) without starting any post-commit activity: that's left
             // for the next session, which will recover our commit state and
             // resume from Tail::Begin.
-            (Action::Idle, Head::Stop)
+            (Action::PollAgain, Head::Stop)
         } else {
             // Rotate to begin a next transaction. `idempotent_replay`
             // is one-shot — only the first transaction of a session may replay
@@ -1727,11 +1727,13 @@ mod tests {
         }
 
         // Final Persisted under stopping: HeadStartCommit chained
-        // (next_action, next_state) = (Idle, Head::Stop) — no Rotate.
+        // (next_action, next_state) = (PollAgain, Head::Stop) — no Rotate.
+        // PollAgain (not Idle) lets the actor loop exit `while !Head::Stop`
+        // immediately rather than parking for a 60s ACTOR_TICK_INTERVAL.
         ctx.shard_rx = Some(mk_head_persisted(&head));
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;
-        assert!(matches!(action, Action::Idle));
+        assert!(matches!(action, Action::PollAgain));
         assert!(matches!(head, Head::Stop));
         assert!(matches!(tail, Tail::Done(_)));
     }
