@@ -25,7 +25,7 @@ materializations:
   test/soak/views:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:13946b2
+        image: ghcr.io/estuary/materialize-postgres:dev
         config:
           address: supabase_db_flow:5432
           database: postgres
