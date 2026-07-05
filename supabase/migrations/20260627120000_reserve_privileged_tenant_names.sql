@@ -7,6 +7,10 @@
 -- The onboarding existence check (control_plane_api::directives::beta_onboard::tenant_exists)
 -- compares case-insensitively, so a single lowercase entry covers all case variants.
 -- Idempotent: safe to re-run and coexists with any names already inserted directly.
+--
+-- estuary_support/ (and the estuarysupport/ variant) is the support role, which holds grants
+-- across many tenants. That role has no `tenants` row, so the name is otherwise provisionable;
+-- reserving it prevents a user from claiming it and inheriting fleet-wide support access.
 
 insert into internal.illegal_tenant_names (name) values
   ('admin/'),
@@ -21,5 +25,7 @@ insert into internal.illegal_tenant_names (name) values
   ('everyone/'),
   ('internal/'),
   ('system/'),
-  ('billing/')
+  ('billing/'),
+  ('estuary_support/'),
+  ('estuarysupport/')
 on conflict (name) do nothing;
