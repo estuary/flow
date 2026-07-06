@@ -15,8 +15,8 @@ fn main() -> Result<(), anyhow::Error> {
     // Process-global handler registry. Service-kit's trace layer consults this
     // for per-handler verbosity overrides, and its event layer records opt-in
     // `event!` breadcrumbs onto registered handlers. Both are inert unless a
-    // command (today: `raw preview-next --debug-port`) actually registers
-    // handlers and serves the admin surface that lets an operator flip them on.
+    // command (today: `preview --debug-port`) actually registers handlers and
+    // serves the admin surface that lets an operator flip them on.
     let registry = service_kit::Registry::new();
 
     let env_filter = EnvFilter::builder()
