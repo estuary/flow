@@ -110,6 +110,16 @@ Keep READMEs current - update with code changes.
 
 ## Development Guidelines
 
+### Customer data
+- NEVER write customer data into any git-checked file (source, tests, comments,
+  fixtures, snapshots, docs, commit messages). This is absolute.
+- This explicitly includes customer task/catalog names (e.g. tenant prefixes and
+  collection paths), endpoint configs, credentials, hostnames, and any data
+  values sampled from a customer's system.
+- When a real-world example is needed — such as reproducing a bug report — use a
+  fictitious tenant like `acmeCo/` and invented names that preserve the relevant
+  shape (length, nesting depth) without the original identifiers.
+
 ### Implementation
 - Use `var myVar = ...` in Go. Do NOT use `myVar := ...` (unless required due to shadowing)
 - Write comments that document "why" - rationale, broader context, and non-obvious detail
