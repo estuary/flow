@@ -32,6 +32,8 @@ pub struct Actor {
         Option<BoxFuture<'static, tonic::Result<(crate::Publisher, BTreeMap<String, Bytes>)>>>,
     // Task being executed by this actor.
     task: Task,
+    // Leader-lifetime trigger debounce accumulator and last-fire times.
+    trigger_debounce: fsm::TriggerDebounce,
     // Future for an in-flight trigger dispatch, if any.
     trigger_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
 }
@@ -55,6 +57,7 @@ impl Actor {
             shard_tx,
             stats_write_fut: None,
             task,
+            trigger_debounce: fsm::TriggerDebounce::default(),
             trigger_fut: None,
         }
     }
@@ -124,6 +127,7 @@ impl Actor {
             let action: fsm::Action;
             let prev_kind = tail.kind();
             (action, tail) = tail.step(
+                &self.trigger_debounce,
                 self.intents_write_fut.is_none(),
                 now,
                 &mut ready_shard_rx,
@@ -148,6 +152,7 @@ impl Actor {
             (action, head) = head.step(
                 &mut binding_bytes_behind,
                 &mut close_requested,
+                &mut self.trigger_debounce,
                 &mut self.legacy_checkpoint,
                 now,
                 &mut ready_frontier,

@@ -119,8 +119,8 @@ async fn decrypt_and_compile_triggers(
 
     models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
 
-    let compiled = triggers::CompiledTriggers::compile(decrypted.config)
-        .context("compiling trigger templates")?;
+    let compiled =
+        triggers::CompiledTriggers::compile(decrypted).context("compiling trigger templates")?;
 
     Ok(compiled)
 }
