@@ -464,7 +464,20 @@ async fn handle_api(
         }
 
         ApiKey::Fetch => {
-            let (header, request) = dec_request(frame, version)?;
+            let (header, request) = dec_request::<messages::FetchRequest>(frame.clone(), version)?;
+            if request
+                .topics
+                .iter()
+                .any(|t| t.partitions.iter().any(|p| p.fetch_offset == 0))
+            {
+                tracing::debug!(
+                    ?version,
+                    ?header,
+                    ?request,
+                    frame = hex::encode(&frame),
+                    "request contains a zero fetch_offset"
+                );
+            }
             Ok(enc_resp(out, &header, session.fetch(request).await?))
         }
 
