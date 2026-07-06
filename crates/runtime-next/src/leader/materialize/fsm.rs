@@ -168,6 +168,7 @@ impl Head {
         self,
         binding_bytes_behind: &mut [i64],
         close_requested: &mut bool,
+        debounce: &mut TriggerDebounce,
         legacy_checkpoint: &mut Option<(shuffle::Frontier, consumer::Checkpoint)>,
         now: uuid::Clock,
         ready_frontier: &mut Option<shuffle::Frontier>,
@@ -178,13 +179,23 @@ impl Head {
         task: &Task,
     ) -> (Action, Head) {
         match self {
-            Head::Idle(s) => s.step(now, close_requested, ready_frontier, stopping, tail, task),
+            Head::Idle(s) => s.step(
+                now,
+                close_requested,
+                debounce,
+                ready_frontier,
+                stopping,
+                tail,
+                task,
+            ),
             Head::Extend(s) => s.step(shard_rx),
             Head::Flush(s) => s.step(now, shard_rx, task),
             Head::Persist(s) => s.step(shard_rx),
             Head::Store(s) => s.step(binding_bytes_behind, shard_rx, task),
             Head::WriteStats(s) => s.step(legacy_checkpoint, stats_write_idle, task),
-            Head::StartCommit(s) => s.step(legacy_checkpoint, now, shard_rx, stopping),
+            Head::StartCommit(s) => {
+                s.step(debounce, legacy_checkpoint, now, shard_rx, stopping, task)
+            }
             Head::Stop => panic!("HeadFSM::Stop observed at step boundary"),
         }
     }
@@ -207,6 +218,7 @@ impl Tail {
     /// Dispatch to the current sub-state's `step()`.
     pub fn step(
         self,
+        debounce: &TriggerDebounce,
         intents_write_idle: bool,
         now: uuid::Clock,
         shard_rx: &mut Option<(usize, proto::Materialize)>,
@@ -218,7 +230,7 @@ impl Tail {
             Tail::Begin(s) => s.step(stopping, task),
             Tail::WriteIntents(s) => s.step(intents_write_idle),
             Tail::Acknowledge(s) => s.step(now, shard_rx, task),
-            Tail::Trigger(s) => s.step(now, trigger_call_running),
+            Tail::Trigger(s) => s.step(debounce, now, trigger_call_running),
             Tail::Persist(s) => s.step(shard_rx),
             Tail::Done(_) => (Action::Idle, self),
         }
@@ -256,6 +268,7 @@ impl HeadIdle {
         mut self,
         now: uuid::Clock,
         close_requested: &mut bool,
+        debounce: &mut TriggerDebounce,
         ready_frontier: &mut Option<shuffle::Frontier>,
         stopping: bool,
         tail: &mut Tail,
@@ -325,8 +338,31 @@ impl HeadIdle {
             );
         }
 
-        // Should we begin to close the transaction?
+        // No transaction is open. Fire a debounced window that has come
+        // due while the task is quiet.
         if !is_open {
+            if let Tail::Done(done) = tail
+                && let Some(compiled) = &task.triggers
+            {
+                if let Some(window) = debounce.take_due(now, compiled.interval) {
+                    let shard_patches = std::mem::take(&mut done.shard_patches);
+                    *tail = Tail::Trigger(TailTrigger { shard_patches });
+
+                    return (
+                        Action::CallTrigger {
+                            triggers: compiled.clone(),
+                            trigger_params: serde_json::to_vec(&window)
+                                .expect("TriggerVariables always serialize")
+                                .into(),
+                        },
+                        Head::Idle(self),
+                    );
+                }
+                // Nothing due: wake when the pending window comes due.
+                if let Some(wake_after) = debounce.next_due(now, compiled.interval) {
+                    return (Action::Sleep { wake_after }, Head::Idle(self));
+                }
+            }
             return (Action::Idle, Head::Idle(self));
         } else if may_close {
             let Self { mut extents, .. } = self;
@@ -625,9 +661,7 @@ impl HeadStore {
         // We've received all expected Stored responses.
 
         let Self {
-            extents,
-            mut pending,
-            ..
+            extents, pending, ..
         } = self;
 
         // Fold deltas from the extents Frontier into per-binding "bytes behind" gauges.
@@ -636,33 +670,6 @@ impl HeadStore {
                 continue; // Reachable if shuffle service reports invalid binding indices.
             };
             *entry += jf.bytes_behind_delta;
-        }
-
-        // Compose the trigger payload now that we have a complete txn-wide view.
-        if task.triggers.is_some() && !extents.bindings.is_empty() {
-            let collection_names: Vec<String> = extents
-                .bindings
-                .keys()
-                .filter_map(|idx| task.binding_collection_names.get(*idx as usize).cloned())
-                .collect();
-
-            let mut it = extents
-                .bindings
-                .values()
-                .map(|extents| (extents.min_source_clock, extents.max_source_clock));
-            let init = it.next().unwrap_or_default();
-            let (min, max) = it.fold(init, |(min, max), (a, b)| (min.min(a), max.max(b)));
-
-            pending.trigger_params = serde_json::to_vec(&models::TriggerVariables {
-                collection_names,
-                connector_image: task.connector_image.clone(),
-                materialization_name: task.shard_ref.name.clone(),
-                flow_published_at_min: tokens::DateTime::from(min.to_time()).to_rfc3339(),
-                flow_published_at_max: tokens::DateTime::from(max.to_time()).to_rfc3339(),
-                run_id: tokens::DateTime::from(extents.open.to_time()).to_rfc3339(),
-            })
-            .unwrap()
-            .into();
         }
 
         let action = match build_stats_doc(task, &extents, binding_bytes_behind) {
@@ -768,10 +775,12 @@ pub struct HeadStartCommit {
 impl HeadStartCommit {
     pub fn step(
         mut self,
+        debounce: &mut TriggerDebounce,
         legacy_checkpoint: &Option<(shuffle::Frontier, consumer::Checkpoint)>,
         now: uuid::Clock,
         shard_rx: &mut Option<(usize, proto::Materialize)>,
         stopping: bool,
+        task: &Task,
     ) -> (Action, Head) {
         // Did we receive an expected StartedCommit response?
         if let Some((
@@ -809,6 +818,12 @@ impl HeadStartCommit {
             ..
         } = self;
 
+        // Merge this transaction's window into the debounce accumulator
+        if let Some(window) = compute_trigger_window(task, &extents) {
+            debounce.accumulate(&window);
+        }
+        let (trigger_params_json, delete_trigger_params) = debounce.to_persist();
+
         let Extents {
             close, frontier, ..
         } = extents;
@@ -828,9 +843,10 @@ impl HeadStartCommit {
             committed_frontier: Some(shuffle::JournalFrontier::encode(&frontier.journals)),
             connector_patches_json: take_patches(&mut pending.persist_patches),
             delete_ack_intents: true,
+            delete_trigger_params,
             legacy_checkpoint,
             max_keys: std::mem::take(&mut pending.max_key_deltas),
-            trigger_params_json: pending.trigger_params.clone(),
+            trigger_params_json,
             ..Default::default()
         };
 
@@ -843,6 +859,16 @@ impl HeadStartCommit {
             // resume from Tail::Begin.
             (Action::PollAgain, Head::Stop)
         } else {
+            // Move a due window out of the accumulator; the Tail delivers it
+            // post-Acknowledge and then persists the emptied accumulator.
+            if let Some(compiled) = &task.triggers
+                && let Some(window) = debounce.take_due(now, compiled.interval)
+            {
+                pending.trigger_params = serde_json::to_vec(&window)
+                    .expect("TriggerVariables always serialize")
+                    .into();
+            }
+
             // Rotate to begin a next transaction. `idempotent_replay`
             // is one-shot — only the first transaction of a session may replay
             // recovered hints, so post-Rotate HeadIdle is always non-replay.
@@ -1038,7 +1064,12 @@ pub struct TailTrigger {
 }
 
 impl TailTrigger {
-    pub fn step(self, now: uuid::Clock, trigger_call_running: bool) -> (Action, Tail) {
+    pub fn step(
+        self,
+        debounce: &TriggerDebounce,
+        now: uuid::Clock,
+        trigger_call_running: bool,
+    ) -> (Action, Tail) {
         if trigger_call_running {
             return (Action::Idle, Tail::Trigger(self));
         }
@@ -1046,10 +1077,12 @@ impl TailTrigger {
         let Self { shard_patches } = self;
 
         let seq_no = now.as_u64();
+        let (trigger_params_json, delete_trigger_params) = debounce.to_persist();
         let action = Action::Persist {
             persist: proto::Persist {
                 seq_no,
-                delete_trigger_params: true,
+                delete_trigger_params,
+                trigger_params_json,
                 ..Default::default()
             },
         };
@@ -1101,6 +1134,99 @@ impl TailPersist {
 #[derive(Debug, Default)]
 pub struct TailDone {
     pub shard_patches: bytes::Bytes,
+}
+
+/// Leader-lifetime debounce state for materialization triggers. Accumulates
+/// per-transaction windows and gates firing to at most once per the task's
+/// configured trigger `interval`.
+#[derive(Debug, Default)]
+pub struct TriggerDebounce {
+    /// Accumulated, not-yet-fired window. Persisted.
+    pub pending: Option<models::TriggerVariables>,
+    /// Wall-clock of the last fire. In-memory only.
+    pub last_fire: Option<uuid::Clock>,
+}
+
+impl TriggerDebounce {
+    /// Merge one committed transaction's `window` into the accumulator.
+    pub fn accumulate(&mut self, window: &models::TriggerVariables) {
+        match &mut self.pending {
+            Some(acc) => acc.merge(window),
+            None => self.pending = Some(window.clone()),
+        }
+    }
+
+    /// Remove and return the accumulated window if it's due to fire now
+    pub fn take_due(
+        &mut self,
+        now: uuid::Clock,
+        interval: Option<Duration>,
+    ) -> Option<models::TriggerVariables> {
+        let due = match (interval, self.last_fire) {
+            (Some(interval), Some(last)) => uuid::Clock::delta(now, last) >= interval,
+            _ => true, // No interval configured, or never fired.
+        };
+        if !due {
+            return None;
+        }
+        let window = self.pending.take()?;
+        self.last_fire = Some(now);
+        Some(window)
+    }
+
+    /// Duration until the pending window comes due, or None when no window is
+    /// pending or it has no future deadline.
+    pub fn next_due(&self, now: uuid::Clock, interval: Option<Duration>) -> Option<Duration> {
+        if self.pending.is_none() {
+            return None;
+        }
+        let (Some(interval), Some(last)) = (interval, self.last_fire) else {
+            return None;
+        };
+        Some(interval.saturating_sub(uuid::Clock::delta(now, last)))
+    }
+
+    /// Encode the accumulator for a `proto::Persist`
+    pub fn to_persist(&self) -> (bytes::Bytes, bool) {
+        match &self.pending {
+            None => (bytes::Bytes::new(), true),
+            Some(window) => (
+                serde_json::to_vec(window)
+                    .expect("TriggerVariables always serialize")
+                    .into(),
+                false,
+            ),
+        }
+    }
+}
+
+/// Compose this transaction's trigger window from its committed `extents`, or None
+fn compute_trigger_window(task: &Task, extents: &Extents) -> Option<models::TriggerVariables> {
+    if task.triggers.is_none() || extents.bindings.is_empty() {
+        return None;
+    }
+
+    let collection_names: Vec<String> = extents
+        .bindings
+        .keys()
+        .filter_map(|idx| task.binding_collection_names.get(*idx as usize).cloned())
+        .collect();
+
+    let mut it = extents
+        .bindings
+        .values()
+        .map(|extents| (extents.min_source_clock, extents.max_source_clock));
+    let init = it.next().unwrap_or_default();
+    let (min, max) = it.fold(init, |(min, max), (a, b)| (min.min(a), max.max(b)));
+
+    Some(models::TriggerVariables {
+        collection_names,
+        connector_image: task.connector_image.clone(),
+        materialization_name: task.shard_ref.name.clone(),
+        flow_published_at_min: tokens::DateTime::from(min.to_time()).to_rfc3339(),
+        flow_published_at_max: tokens::DateTime::from(max.to_time()).to_rfc3339(),
+        run_id: tokens::DateTime::from(extents.open.to_time()).to_rfc3339(),
+    })
 }
 
 // Extend separate accrued patches for a future Persist vs future shard broadcast,
@@ -1183,6 +1309,7 @@ mod tests {
     struct Ctx {
         binding_bytes_behind: Vec<i64>,
         close_requested: bool,
+        debounce: TriggerDebounce,
         intents_idle: bool,
         legacy_checkpoint: Option<(shuffle::Frontier, consumer::Checkpoint)>,
         now: uuid::Clock,
@@ -1201,6 +1328,7 @@ mod tests {
             head.step(
                 &mut self.binding_bytes_behind,
                 &mut self.close_requested,
+                &mut self.debounce,
                 &mut self.legacy_checkpoint,
                 self.now,
                 &mut self.ready_frontier,
@@ -1215,6 +1343,7 @@ mod tests {
         fn step_tail(&mut self, tail: Tail) -> (Action, Tail) {
             self.now.tick();
             tail.step(
+                &self.debounce,
                 self.intents_idle,
                 self.now,
                 &mut self.shard_rx,
@@ -1239,7 +1368,20 @@ mod tests {
             peers: (0..n_shards).map(|i| format!("shard-{i}")).collect(),
             shard_ref: ops::ShardRef::default(),
             triggers: Some(std::sync::Arc::new(
-                super::super::triggers::CompiledTriggers::compile(vec![]).unwrap(),
+                super::super::triggers::CompiledTriggers::compile(models::Triggers {
+                    // No interval: fire every transaction that materializes data
+                    interval: None,
+                    config: vec![models::TriggerConfig {
+                        url: "https://example.com/hook".to_string(),
+                        method: models::HttpMethod::POST,
+                        headers: Default::default(),
+                        payload_template: "{}".to_string(),
+                        timeout: Duration::from_secs(30),
+                        max_attempts: 3,
+                    }],
+                    sops: None,
+                })
+                .unwrap(),
             )),
         }
     }
@@ -1383,6 +1525,7 @@ mod tests {
         let mut ctx = Ctx {
             binding_bytes_behind: vec![0; task.binding_collection_names.len()],
             close_requested: false,
+            debounce: TriggerDebounce::default(),
             intents_idle: true,
             legacy_checkpoint: None,
             now: uuid::Clock::from_unix(1_700_000_000, 0),
@@ -1739,12 +1882,167 @@ mod tests {
     }
 
     /// Verifies aggregation of L:Loaded `max_key_delta` across shards and Load cycles.
+    // On recovery, `handler` seeds `Tail::Begin` with the persisted trigger
+    // accumulator as the window to fire. The Tail must re-fire it verbatim
+    // (at-least-once), and it flows independently of the live (empty) accumulator.
+    #[test]
+    fn recovery_refires_persisted_accumulator() {
+        let recovered = models::TriggerVariables::placeholder();
+        let serialized = serde_json::to_vec(&recovered).unwrap();
+
+        let mut ctx = Ctx {
+            binding_bytes_behind: vec![0; 1],
+            close_requested: false,
+            debounce: TriggerDebounce::default(),
+            intents_idle: true,
+            legacy_checkpoint: None,
+            now: uuid::Clock::from_unix(1_700_000_000, 0),
+            pending_ack_intents: BTreeMap::new(),
+            ready_frontier: None,
+            shard_rx: None,
+            stats_idle: false,
+            stopping: false,
+            task: mk_task(1),
+            trigger_running: false,
+        };
+
+        // Recovery injects the persisted accumulator as the Tail's to_fire set.
+        let mut tail = Tail::Begin(TailBegin {
+            pending: PendingDeltas {
+                trigger_params: Bytes::from(serialized),
+                ..Default::default()
+            },
+        });
+
+        // Begin → Acknowledge.
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::Acknowledge { .. }));
+
+        // Single shard Acknowledged, no patches → WriteIntents (CallTrigger chained).
+        ctx.shard_rx = Some(mk_acknowledged(0, b""));
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::WriteIntents { .. }));
+
+        // Intents written → CallTrigger carrying the recovered window verbatim.
+        let (action, _t) = ctx.step_tail(tail);
+        let params = match action {
+            Action::CallTrigger { trigger_params, .. } => trigger_params,
+            other => panic!("expected CallTrigger, got {other:?}"),
+        };
+        let fired: models::TriggerVariables = serde_json::from_slice(&params).unwrap();
+        assert_eq!(fired, recovered, "recovered accumulator re-fires verbatim");
+        assert!(
+            ctx.debounce.pending.is_none(),
+            "recovery re-fire does not touch the live accumulator",
+        );
+    }
+
+    // A debounced window fires from Idle once its interval elapses, with no
+    // further transaction: HeadIdle sleeps until the deadline, then emits
+    // CallTrigger and rotates the Tail through its normal fire →
+    // Persist(reduced accumulator) → Done sequence.
+    #[test]
+    fn idle_fires_debounced_window_after_interval() {
+        let mut task = mk_task(1);
+        task.triggers = Some(std::sync::Arc::new(
+            super::super::triggers::CompiledTriggers::compile(models::Triggers {
+                interval: Some(Duration::from_secs(600)),
+                config: vec![models::TriggerConfig {
+                    url: "https://example.com/hook".to_string(),
+                    method: models::HttpMethod::POST,
+                    headers: Default::default(),
+                    payload_template: "{}".to_string(),
+                    timeout: Duration::from_secs(30),
+                    max_attempts: 3,
+                }],
+                sops: None,
+            })
+            .unwrap(),
+        ));
+
+        let t0 = uuid::Clock::from_unix(1_700_000_000, 0);
+        let mut ctx = Ctx {
+            binding_bytes_behind: vec![0; 1],
+            close_requested: false,
+            debounce: TriggerDebounce::default(),
+            intents_idle: true,
+            legacy_checkpoint: None,
+            now: t0,
+            pending_ack_intents: BTreeMap::new(),
+            ready_frontier: None,
+            shard_rx: None,
+            stats_idle: false,
+            stopping: false,
+            task,
+            trigger_running: false,
+        };
+
+        // Seed: triggers last fired at t0, and a window accumulated since.
+        ctx.debounce.last_fire = Some(t0);
+        ctx.debounce.pending = Some(models::TriggerVariables::placeholder());
+
+        let mut tail = Tail::Done(TailDone {
+            shard_patches: Bytes::new(),
+        });
+        let mut head = Head::Idle(HeadIdle::default());
+
+        // Idle before the deadline: Head sleeps until the window comes due.
+        ctx.now = uuid::Clock::from_unix(1_700_000_100, 0); // t0 + 100s.
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        let Action::Sleep { wake_after } = action else {
+            panic!("expected Sleep, got {action:?}");
+        };
+        assert!(
+            wake_after > Duration::from_secs(499) && wake_after <= Duration::from_secs(500),
+            "expected ~500s until due, got {wake_after:?}",
+        );
+
+        // Past the deadline: fire from Idle, with no transaction in flight.
+        ctx.now = uuid::Clock::from_unix(1_700_000_601, 0); // t0 + 601s.
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        let params = match action {
+            Action::CallTrigger { trigger_params, .. } => trigger_params,
+            other => panic!("expected CallTrigger, got {other:?}"),
+        };
+        let fired: models::TriggerVariables = serde_json::from_slice(&params).unwrap();
+        assert_eq!(fired, models::TriggerVariables::placeholder());
+        assert!(matches!(head, Head::Idle(_)));
+        assert!(matches!(tail, Tail::Trigger(_)));
+        assert!(ctx.debounce.pending.is_none());
+        assert_eq!(ctx.debounce.last_fire, Some(ctx.now));
+
+        // Trigger completes → Persist deleting the (now empty) accumulator → Done.
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        let persist = match action {
+            Action::Persist { persist } => persist,
+            other => panic!("expected Persist, got {other:?}"),
+        };
+        assert!(persist.delete_trigger_params);
+        assert!(persist.trigger_params_json.is_empty());
+
+        ctx.shard_rx = Some(mk_tail_persisted(&tail));
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::Idle));
+        assert!(matches!(tail, Tail::Done(_)));
+
+        // Head is quiescent again: nothing pending, no timer to arm.
+        let (action, _h) = ctx.step_head(head, &mut tail);
+        assert!(matches!(action, Action::Idle));
+    }
+
     #[test]
     fn loaded_max_key_delta_reduction() {
         let task = mk_task(2);
         let mut ctx = Ctx {
             binding_bytes_behind: vec![0; task.binding_collection_names.len()],
             close_requested: false,
+            debounce: TriggerDebounce::default(),
             intents_idle: true,
             legacy_checkpoint: None,
             now: uuid::Clock::from_unix(1_700_000_000, 0),
@@ -1986,6 +2284,7 @@ mod tests {
             let mut ctx = Ctx {
                 binding_bytes_behind: vec![0; 3],
                 close_requested: false,
+                debounce: TriggerDebounce::default(),
                 intents_idle: false,
                 legacy_checkpoint: None,
                 now: uuid::Clock::from_unix(1_700_000_000, 0),
@@ -2030,5 +2329,62 @@ mod tests {
             .tests(200)
             .max_tests(400)
             .quickcheck(prop as fn(u64) -> bool);
+    }
+}
+
+#[cfg(test)]
+mod debounce_tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn window(collection: &str, min: &str, max: &str) -> models::TriggerVariables {
+        models::TriggerVariables {
+            collection_names: vec![collection.to_string()],
+            connector_image: "img".to_string(),
+            materialization_name: "mat".to_string(),
+            flow_published_at_min: min.to_string(),
+            flow_published_at_max: max.to_string(),
+            run_id: min.to_string(),
+        }
+    }
+
+    fn t(secs: u64) -> uuid::Clock {
+        uuid::Clock::from_unix(secs, 0)
+    }
+
+    // A burst of transactions within one interval collapses into a single
+    // delivery whose window spans the union of the collapsed transactions.
+    #[test]
+    fn burst_within_interval_collapses_to_one_fire() {
+        let interval = Some(Duration::from_secs(600));
+        let mut d = TriggerDebounce::default();
+
+        // First qualifying txn: never fired, so it's due immediately.
+        d.accumulate(&window("c", "t00", "t00"));
+        assert!(d.take_due(t(0), interval).is_some(), "first txn fires");
+
+        // Two more txns inside the 600s window: accumulated but suppressed.
+        d.accumulate(&window("c", "t01", "t01"));
+        assert!(d.take_due(t(60), interval).is_none(), "debounced at t=60");
+        d.accumulate(&window("c", "t02", "t02"));
+        assert!(d.take_due(t(120), interval).is_none(), "debounced at t=120");
+
+        // Once the interval elapses, the single fire covers the merged window.
+        let w = d.take_due(t(600), interval).expect("fires once elapsed");
+        assert_eq!(w.flow_published_at_min, "t01", "min spans the burst");
+        assert_eq!(w.flow_published_at_max, "t02", "max spans the burst");
+        assert!(d.pending.is_none(), "accumulator drained after fire");
+    }
+
+    // With no interval, every qualifying transaction fires (pre-debounce behavior).
+    #[test]
+    fn no_interval_fires_every_transaction() {
+        let mut d = TriggerDebounce::default();
+
+        for i in 0..3 {
+            d.accumulate(&window("c", "t", "t"));
+            assert!(d.take_due(t(i), None).is_some(), "fires on txn {i}");
+            assert!(d.pending.is_none());
+        }
     }
 }

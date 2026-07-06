@@ -1890,6 +1890,15 @@ expression: "&schema"
           "items": {
             "$ref": "#/$defs/TriggerConfig"
           }
+        },
+        "interval": {
+          "title": "Minimum interval between trigger deliveries.",
+          "description": "A burst of transactions within the interval collapses into a single\ndelivery covering the full span.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h|d)$"
         }
       },
       "additionalProperties": false,
