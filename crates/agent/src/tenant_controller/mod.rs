@@ -1,10 +1,11 @@
 mod billing_contact;
+mod quotas;
 
-use std::sync::Arc;
-
+use crate::storage::tenants::{Tenant, TenantStore};
 use anyhow::Context;
 use automations::{Action, Executor, task_types};
 use control_plane_api::billing::BillingProvider;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -20,38 +21,19 @@ pub struct TenantControllerState {
 
 pub struct TenantController {
     billing_provider: Option<Arc<dyn BillingProvider>>,
+    tenant_provider: Arc<dyn TenantStore>,
 }
 
 impl TenantController {
-    pub fn new(billing_provider: Option<Arc<dyn BillingProvider>>) -> Self {
-        Self { billing_provider }
+    pub fn new(
+        billing_provider: Option<Arc<dyn BillingProvider>>,
+        tenant_provider: Arc<dyn TenantStore>,
+    ) -> Self {
+        Self {
+            billing_provider,
+            tenant_provider,
+        }
     }
-}
-
-pub(crate) struct TenantRow {
-    pub tenant: String,
-    pub billing_email: Option<String>,
-    pub billing_name: Option<String>,
-    pub billing_address: Option<serde_json::Value>,
-}
-
-async fn fetch_tenant_by_controller_task(
-    pool: &sqlx::PgPool,
-    task_id: models::Id,
-) -> anyhow::Result<Option<TenantRow>> {
-    let row = sqlx::query_as!(
-        TenantRow,
-        r#"
-        SELECT tenant as "tenant!", billing_email, billing_name, billing_address
-        FROM tenants
-        WHERE controller_task_id = $1
-        "#,
-        task_id as models::Id,
-    )
-    .fetch_optional(pool)
-    .await?;
-
-    Ok(row)
 }
 
 impl Executor for TenantController {
@@ -63,13 +45,15 @@ impl Executor for TenantController {
 
     async fn poll<'s>(
         &'s self,
-        pool: &'s sqlx::PgPool,
+        _pool: &'s sqlx::PgPool,
         task_id: models::Id,
         _parent_id: Option<models::Id>,
         state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
-        let Some(tenant_row) = fetch_tenant_by_controller_task(pool, task_id)
+        let Some(tenant_row) = self
+            .tenant_provider
+            .get_tenant_by_controller_task(task_id)
             .await
             .context("fetching tenant for controller task")?
         else {
@@ -89,9 +73,17 @@ impl Executor for TenantController {
             billing_status.failures = 0;
             billing_status.next_retry = None;
         }
-        let billing_outcome =
-            billing_contact::reconcile(billing_status, &tenant_row, &self.billing_provider).await?;
+        let billing_outcome = billing_contact::reconcile(
+            billing_status,
+            &tenant_row,
+            &self.billing_provider,
+            &self.tenant_provider,
+        )
+        .await?;
 
+        // let quota_update =
+        //     quotas::update_quotas(billing_status, &tenant_row, &self.billing_provider, pool)
+        //         .await?;
         match billing_outcome {
             billing_contact::Outcome::Idle => Ok(Action::Suspend),
             billing_contact::Outcome::WaitForRetry(duration) => Ok(Action::Sleep(duration)),

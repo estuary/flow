@@ -109,6 +109,8 @@ impl BillingMutation {
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
 
+        // TODO: Add function call in sql to PERFORM internal.wake_tenant_controller(NEW.tenant);
+
         let primary_payment_method = billing::default_payment_method_id(&updated_customer)
             .and_then(|id| methods.iter().find(|m| m.id.as_str() == id))
             .map(PaymentMethod::from);

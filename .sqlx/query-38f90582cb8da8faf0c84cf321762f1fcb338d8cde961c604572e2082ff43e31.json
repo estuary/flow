@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT tenant as \"tenant!\", billing_email, billing_name, billing_address, payment_provider as \"payment_provider: PaymentProvider\"\n            FROM tenants\n            WHERE controller_task_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "billing_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "billing_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "billing_address",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "payment_provider: PaymentProvider",
+        "type_info": {
+          "Custom": {
+            "name": "payment_provider_type",
+            "kind": {
+              "Enum": [
+                "stripe",
+                "external"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "38f90582cb8da8faf0c84cf321762f1fcb338d8cde961c604572e2082ff43e31"
+}

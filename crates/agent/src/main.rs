@@ -2,6 +2,7 @@
 // Links in the allocator crate, which sets the global allocator to jemalloc
 extern crate allocator;
 
+use agent::storage::tenants::{PgTenantStore, TenantStore};
 use anyhow::Context;
 use axum::http;
 use clap::Parser;
@@ -326,6 +327,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             )) as Arc<dyn control_plane_api::billing::BillingProvider>
         });
     let tenant_controller_billing_provider = billing_provider.clone();
+    let tenant_store: Arc<dyn TenantStore> = Arc::new(PgTenantStore::new(pg_pool.clone()));
     let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
@@ -364,6 +366,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             ))
             .register(agent::tenant_controller::TenantController::new(
                 tenant_controller_billing_provider,
+                tenant_store,
             ));
 
         if args.serve_alert_notifications {
