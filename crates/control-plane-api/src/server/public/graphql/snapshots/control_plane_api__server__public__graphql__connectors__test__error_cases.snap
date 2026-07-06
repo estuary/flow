@@ -47,7 +47,7 @@ expression: "serde_json::json!({\n    \"noTagDelimiter\": no_tag, \"noConnectorP
             "line": 1
           }
         ],
-        "message": "status: 'The request does not have valid authentication credentials', self: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+        "message": "code: 'The request does not have valid authentication credentials', message: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
         "path": [
           "connectors"
         ]

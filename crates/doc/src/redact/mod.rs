@@ -102,12 +102,15 @@ impl Strategy {
                     HeapNode::Array(tape_length, _) | HeapNode::Object(tape_length, _) => {
                         tape_delta = -*tape_length + 1; // Replace subtree with a scalar.
 
-                        serde_json::to_writer(&mut sha256, &crate::SerPolicy::noop().on(node))
+                        // sha2 0.11's digest types no longer implement `io::Write`, so
+                        // serialize into a buffer and feed its bytes to the hasher.
+                        let buf = serde_json::to_vec(&crate::SerPolicy::noop().on(node))
                             .expect("JSON serialization of HeapNode should not fail");
+                        sha256.update(&buf);
                     }
                 }
 
-                let digest = format!("sha256:{:x}", sha256.finalize());
+                let digest = format!("sha256:{}", hex::encode(sha256.finalize()));
                 *node = HeapNode::String(BumpStr::from_str(&digest, alloc));
 
                 Ok(Outcome::Modified { tape_delta })

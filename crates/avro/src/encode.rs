@@ -332,7 +332,7 @@ fn zig_zag(b: &mut Vec<u8>, z: i64) {
 lazy_static::lazy_static! {
     // The set of allowed characters in an AVRO field name.
     static ref ISO8601_DURATION : regex::Regex = regex::Regex::new(r"P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?").unwrap();
-    static ref TIME_FORMAT_DATE : Vec<time::format_description::FormatItem<'static>> = time::format_description::parse("[year]-[month]-[day]").unwrap();
+    static ref TIME_FORMAT_DATE : Vec<time::format_description::BorrowedFormatItem<'static>> = time::format_description::parse_borrowed::<1>("[year]-[month]-[day]").unwrap();
 }
 
 #[cfg(test)]

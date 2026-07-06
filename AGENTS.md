@@ -129,6 +129,14 @@ Keep READMEs current - update with code changes.
 - Decompose IO and POD processing into separate routines where possible.
   Routines should gravitate towards IO or processing, and not mix both.
 
+### Dependencies
+- Enable Cargo dependency features in the workspace `Cargo.toml`
+  (`[workspace.dependencies]`), NOT in individual crate `Cargo.toml`s -
+  even though `foo = { workspace = true, features = [...] }` is valid.
+  A uniform feature set lets each dependency compile once and be shared,
+  instead of rebuilding it with a different feature union when testing
+  different workspace crates. Keep each feature list alphabetized.
+
 ### Testing
 - Prefer snapshots over fine-grain assertions (`insta` / `cupaloy`)
 

@@ -77,7 +77,12 @@ fxhash = "0"
 gcp_auth = "0.12"
 googleapis-tonic-google-bigtable-v2 = "0.36"
 graphql_client = "*"
-handlebars = "6"
+# Held below 6.4, which added an unconditional `serde_json/preserve_order`
+# dependency. That flips serde_json::Value map ordering from sorted (BTreeMap)
+# to insertion order (IndexMap) process-wide, changing serialized JSON key order
+# for specs, API responses, and ~550 snapshots. Relax when we deliberately adopt
+# preserve_order (and regenerate snapshots).
+handlebars = ">=6, <6.4"
 hex = "0"
 hexdump = "0"
 humantime = "2"
@@ -179,7 +184,12 @@ webpki = "0"
 tempfile = "3"
 tempdir = "0"
 thiserror = "2"
-time = { version = "0", features = [
+# Pinned to 0.3.47: starting in 0.3.48, `[offset_hour]` parsing stopped rejecting
+# out-of-range offsets (e.g. +24:00), so our `time` JSON-schema format validator
+# (crates/json/src/schema/formats.rs) wrongly accepts invalid time strings.
+# 0.3.47 is also the floor required by another dependency. Relax once time
+# restores strict offset validation (or harden the validator to not rely on it).
+time = { version = "=0.3.47", features = [
     "serde-well-known",
     "macros",
     "formatting",
@@ -189,6 +199,7 @@ time = { version = "0", features = [
 # Instead, use the async-process crate which encapsulates a work-around.
 tokio = { version = "1", features = [
     "fs",
+    "io-std",
     "io-util",
     "macros",
     "net",
@@ -236,8 +247,11 @@ aws-credential-types = "1"
 aws-msk-iam-sasl-signer = "1"
 aws-sdk-sts = "1"
 
-# Used for the agent http server
-axum = { version = "0", features = ["macros"] }
+# Used for the agent http server.
+# Held below axum 0.8.9, which tightened `Handler` trait bounds in a way that
+# breaks the `OperationHandler` blanket impl of our pinned `aide` rev (see below).
+# Relax once `aide` ships a release compatible with axum >= 0.8.9.
+axum = { version = "=0.8.8", features = ["macros"] }
 axum-server = { version = "0.7.3", features = ["tls-rustls"] }
 axum-extra = { version = "0", features = ["typed-header", "query"] }
 async-graphql = { version = "7", features = [
@@ -255,8 +269,13 @@ assert_cmd = "2"
 criterion = "0"
 glob = "0"
 insta = { version = "1", features = ["redactions", "json", "yaml"] }
-rand = { version = "0", features = ["small_rng"] }
-rand_distr = { version = "0" }
+# Held on the rand 0.9 line: rand 0.10 removed the `small_rng` feature and
+# reworked the `Rng`/`RngExt` traits, which would require migrating ~24 files
+# of first-party rand usage across ~10 crates. `rand_distr` is capped at 0.5
+# (the last release built against rand 0.9) so it unifies with our rand 0.9;
+# 0.6 requires rand 0.10. Relax both together in a dedicated rand 0.10 migration.
+rand = { version = "0.9", features = ["small_rng"] }
+rand_distr = { version = "0.5" }
 rdkafka = "0"
 schema_registry_converter = { version = "4", features = [
     "easy",

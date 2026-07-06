@@ -89,6 +89,6 @@ fn fuzz_redaction() {
     }
 
     quickcheck::QuickCheck::new()
-        .r#gen(quickcheck::Gen::new(500))
+        .rng(quickcheck::Gen::new(500))
         .quickcheck(inner_test as fn(ArbitraryValue) -> bool);
 }

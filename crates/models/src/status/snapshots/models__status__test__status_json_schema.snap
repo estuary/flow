@@ -240,8 +240,44 @@ expression: schema
           "default": {}
         },
         "alerts": {
-          "additionalProperties": {
-            "$ref": "#/$defs/ControllerAlert"
+          "additionalProperties": false,
+          "properties": {
+            "auto_discover_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "background_publication_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "data_movement_stalled": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial_ending": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial_stalled": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "missing_payment_method": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "shard_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_auto_disabled_failing": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_auto_disabled_idle": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_chronically_failing": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_idle": {
+              "$ref": "#/$defs/ControllerAlert"
+            }
           },
           "type": "object"
         },
@@ -309,8 +345,44 @@ expression: schema
           "default": {}
         },
         "alerts": {
-          "additionalProperties": {
-            "$ref": "#/$defs/ControllerAlert"
+          "additionalProperties": false,
+          "properties": {
+            "auto_discover_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "background_publication_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "data_movement_stalled": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial_ending": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial_stalled": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "missing_payment_method": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "shard_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_auto_disabled_failing": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_auto_disabled_idle": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_chronically_failing": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_idle": {
+              "$ref": "#/$defs/ControllerAlert"
+            }
           },
           "type": "object"
         },
@@ -539,8 +611,44 @@ expression: schema
           "default": {}
         },
         "alerts": {
-          "additionalProperties": {
-            "$ref": "#/$defs/ControllerAlert"
+          "additionalProperties": false,
+          "properties": {
+            "auto_discover_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "background_publication_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "data_movement_stalled": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial_ending": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial_stalled": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "missing_payment_method": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "shard_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_auto_disabled_failing": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_auto_disabled_idle": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_chronically_failing": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_idle": {
+              "$ref": "#/$defs/ControllerAlert"
+            }
           },
           "type": "object"
         },
@@ -901,8 +1009,44 @@ expression: schema
     "TestStatus": {
       "properties": {
         "alerts": {
-          "additionalProperties": {
-            "$ref": "#/$defs/ControllerAlert"
+          "additionalProperties": false,
+          "properties": {
+            "auto_discover_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "background_publication_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "data_movement_stalled": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial_ending": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "free_trial_stalled": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "missing_payment_method": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "shard_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_auto_disabled_failing": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_auto_disabled_idle": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_chronically_failing": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "task_idle": {
+              "$ref": "#/$defs/ControllerAlert"
+            }
           },
           "type": "object"
         },

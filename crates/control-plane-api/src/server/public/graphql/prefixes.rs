@@ -199,7 +199,7 @@ mod tests {
                   "line": 3
                 }
               ],
-              "message": "status: 'The request does not have valid authentication credentials', self: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
+              "message": "code: 'The request does not have valid authentication credentials', message: \"This is an authenticated API but the request is missing a required Authorization: Bearer token\"",
               "path": [
                 "prefixes"
               ]
