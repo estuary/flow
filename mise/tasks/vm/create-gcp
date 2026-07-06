@@ -35,13 +35,14 @@ gcloud compute instances create ${INSTANCE_NAME} \
   --project ${usage_project:?} \
   --zone ${usage_zone:?} \
   --machine-type ${usage_machine_type:?} \
+  --enable-nested-virtualization \
   --image-family ${usage_image_family:?} \
   --image-project ubuntu-os-cloud \
   --network-interface subnet=default \
   --metadata ssh-keys="${SSH_KEYS}" \
   --tags dev-vm \
-  --labels dev-vm=true,owner=${USERNAME} \
-  --boot-disk-size 128GB \
+  --labels dev-vm=true,owner=${USERNAME},drataexclude=test-equipment \
+  --boot-disk-size 256GB \
   --boot-disk-type hyperdisk-balanced \
 
 # Add additional ssh configuration if not already present.
