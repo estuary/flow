@@ -10,6 +10,11 @@ begin;
 -- functions perform the single sanctioned role_grants write as their owner. A
 -- caller therefore cannot write arbitrary grants and cannot escalate their own
 -- access. See ADR estuary/security#746.
+--
+-- Every unrestricted tenant carries a permanent estuary_support/ grant (created
+-- by the tenant-insert trigger). These functions must never delete such a grant,
+-- so a role_grants row is treated as temporary -- and eligible for deletion --
+-- only while an unrevoked internal.support_access row records ownership of it.
 
 -- Source of truth for temporary grants, separate from role_grants so expiry can
 -- never touch the permanent estuary_support/ grants every tenant receives.
@@ -38,7 +43,8 @@ create function internal.grant_support_access(
 returns internal.support_access
 language plpgsql
 security definer
-set search_path = pg_catalog, public, internal, pg_temp
+-- https://www.postgresql.org/docs/current/sql-createfunction.html#SQL-CREATEFUNCTION-SECURITY
+set search_path to ''
 as $$
 declare
   v_row internal.support_access;
@@ -56,6 +62,17 @@ begin
   values ('estuary_support/', p_tenant, 'admin',
           format('temporary support access by %s: %s', session_user, p_reason))
   on conflict (subject_role, object_role) do nothing;
+
+  -- If the grant already existed, it is ours only when an unrevoked tracking row
+  -- owns it (the caller is extending a temporary window). Otherwise it is the
+  -- permanent grant of an unrestricted tenant: refuse, or the tracking row below
+  -- would mark that permanent grant for deletion by expire_support_access().
+  if not found and not exists (
+    select 1 from internal.support_access
+    where object_role = p_tenant and revoked_at is null
+  ) then
+    raise exception 'tenant % already has standing support access', p_tenant;
+  end if;
 
   insert into internal.support_access (id, object_role, granted_by, reason, expires_at)
   values (internal.id_generator(), p_tenant, session_user, p_reason, now() + p_duration)
@@ -78,9 +95,18 @@ create function internal.revoke_support_access(
 returns void
 language plpgsql
 security definer
-set search_path = pg_catalog, public, internal, pg_temp
+set search_path to ''
 as $$
 begin
+  -- Refuse tenants without an active tracking row: their estuary_support/ grant
+  -- (if any) is the permanent one, which this function must never delete.
+  if not exists (
+    select 1 from internal.support_access
+    where object_role = p_tenant and revoked_at is null
+  ) then
+    raise exception 'tenant % has no temporary support access to revoke', p_tenant;
+  end if;
+
   delete from public.role_grants
   where subject_role = 'estuary_support/' and object_role = p_tenant;
 
@@ -95,26 +121,36 @@ $$;
 comment on function internal.revoke_support_access(public.catalog_prefix) is
   'Detach estuary_support/ from a tenant and mark its support_access rows revoked.';
 
--- Sweep expired grants. Only deletes role_grants rows that have a support_access
--- record, so it can never revoke the permanent estuary_support/ grants. Intended
--- to be run on a schedule; see the pg_cron note at the end of this file.
+-- Sweep expired grants. Only deletes role_grants rows owned by a support_access
+-- record whose every window has closed, so it can never revoke the permanent
+-- estuary_support/ grants. Intended to be run on a schedule; see the pg_cron
+-- note at the end of this file.
 create function internal.expire_support_access()
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public, internal, pg_temp
+set search_path to ''
 as $$
 declare
   v_tenant public.catalog_prefix;
   v_count  integer := 0;
 begin
   for v_tenant in
-    select object_role from internal.support_access
+    select distinct object_role from internal.support_access
     where revoked_at is null and expires_at <= now()
   loop
+    -- Overlapping windows (a grant extended before it lapsed) share one
+    -- role_grants row, which must survive until the last window closes.
+    continue when exists (
+      select 1 from internal.support_access
+      where object_role = v_tenant and revoked_at is null and expires_at > now()
+    );
+
     delete from public.role_grants
     where subject_role = 'estuary_support/' and object_role = v_tenant;
-    v_count := v_count + 1;
+    if found then
+      v_count := v_count + 1;
+    end if;
   end loop;
 
   update internal.support_access
