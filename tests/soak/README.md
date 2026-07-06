@@ -31,7 +31,7 @@ surfaces as a downstream contradiction. Each document carries (see
 
 An account `id` is an integer in `[key_begin, key_begin + idRange)`, where `key_begin` is
 the shard's owned key range (from shard labels when published; an even u32 split under
-`preview-next --shards N`). Transfers stay within a shard's window, so each shard's
+`preview --shards N`). Transfers stay within a shard's window, so each shard's
 conservation is self-contained. On a shard **split** both children fork the parent's
 state but own disjoint windows: the low child keeps `key_begin` and its accounts; the
 high child gets a fresh window and (after pruning inherited out-of-window ids on `Open`)
@@ -52,7 +52,7 @@ requires reading both at a causally-consistent cut within one transaction. A tor
 
 One file per task, each under a component directory that also homes that task's
 connector. Every file imports just the upstream specs it sources from, so each can be fed
-to `flowctl raw preview-next` alone, building only what it needs. Full chain: `source`
+to `flowctl preview` alone, building only what it needs. Full chain: `source`
 (capture) → `events/{alpha,beta,gamma}` → `accounts` (derivation) → `{views, ledger}`
 (materializations); every task carries `enable-runtime-v2`, and top-level `flow.yaml`
 imports all of them for a whole-chain publish.
@@ -257,7 +257,7 @@ Supabase Docker network").
 
 ## Running
 
-### In-process (`flowctl raw preview-next`)
+### In-process (`flowctl preview`)
 
 Fastest loop: `runtime-next` in-process, no reactor/publish/auth (see
 `plans/runtime-v2/preview-harness.md`).
@@ -266,20 +266,20 @@ Fastest loop: `runtime-next` in-process, no reactor/publish/auth (see
 FLOWCTL=~/cargo-target/debug/flowctl
 
 # Single unbounded session, stop after 4s.
-"$FLOWCTL" raw preview-next --source tests/soak/capture/flow.yaml \
+"$FLOWCTL" preview --source tests/soak/capture/flow.yaml \
   --name test/soak/source --sessions=-1 --timeout 4s
 
 # Cross-session exactly-once: 3 sessions × 3 txns over one persistent RocksDB tempdir.
-"$FLOWCTL" raw preview-next --source tests/soak/capture/flow.yaml \
+"$FLOWCTL" preview --source tests/soak/capture/flow.yaml \
   --name test/soak/source --sessions 3,3,3 --timeout 30s
 
 # Shard scale-out: N synthetic shards split the u32 space into disjoint windows.
 # (Lower `idRange` in the config to force seq>0 reuse.)
-"$FLOWCTL" raw preview-next --source tests/soak/capture/flow.yaml \
+"$FLOWCTL" preview --source tests/soak/capture/flow.yaml \
   --name test/soak/source --shards 4 --sessions=-1 --timeout 4s
 ```
 
-The `accounts` derivation and `ledger` also run under preview-next, with two extra
+The `accounts` derivation and `ledger` also run under preview, with two extra
 requirements. They are **image connectors** (derive-typescript needs Docker/Deno/a musl
 `flow-connector-init` entrypoint — see the preview-harness doc), and — unlike the capture
 — they **read source journals from the local stack**, so the upstream tasks must already
@@ -292,12 +292,12 @@ export SSL_CERT_FILE=~/flow-local/ca.crt
 
 # Derivation — union, in-order, oracle, conservation. Add --shards N for real cross-shard
 # Flush scatter/gather; --sessions 3,3,3 for the cross-session exactly-once probe.
-"$FLOWCTL" --profile local raw preview-next --source tests/soak/derivation/flow.yaml \
+"$FLOWCTL" --profile local preview --source tests/soak/derivation/flow.yaml \
   --name test/soak/accounts --sessions=-1 --timeout 8s
 
 # Ledger — Loads, max-keys/exists, oracle integrity, StartedCommit→Acknowledge
 # conservation. Same --shards / --sessions variations apply.
-"$FLOWCTL" --profile local raw preview-next --source tests/soak/materialization/ledger.flow.yaml \
+"$FLOWCTL" --profile local preview --source tests/soak/materialization/ledger.flow.yaml \
   --name test/soak/ledger --sessions=-1 --timeout 8s
 ```
 
