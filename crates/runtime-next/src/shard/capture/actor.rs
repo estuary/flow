@@ -30,6 +30,8 @@ pub(super) struct Actor {
     connector_tx: mpsc::Sender<Request>,
     // Per-session metrics counters.
     metrics: super::Metrics,
+    // When Some, a deadline at which we begin a graceful session stop.
+    token_restart_at: Option<tokio::time::Instant>,
 
     // --- Parked resources: `Some` unless borrowed by an in-flight future. ---
     // RocksDB is parked with its per-binding state keys.
@@ -76,11 +78,21 @@ impl Actor {
         publisher: crate::Publisher,
         shapes: Vec<doc::Shape>,
         task: std::sync::Arc<Task>,
+        token_restart_at: Option<std::time::SystemTime>,
     ) -> Self {
+        // Map the wall-clock deadline onto the monotonic clock driving `serve`.
+        let token_restart_at = token_restart_at.map(|at| {
+            let delay = at
+                .duration_since(std::time::SystemTime::now())
+                .unwrap_or_default();
+            tokio::time::Instant::now() + delay
+        });
+
         Self {
             task,
             connector_tx,
             metrics,
+            token_restart_at,
             db: Some((db, binding_state_keys)),
             publisher: Some(publisher),
             shapes: Some(shapes),
@@ -279,6 +291,16 @@ impl Actor {
                 // Process new connector messages last.
                 msg = connector_rx.next(), if matches!(ready_connector_rx, fsm::ConnectorRx::Pending) => {
                     self.on_connector_rx(&mut ready_connector_rx, msg)?;
+                }
+                // Next, a graceful session restart ahead of IAM token expiry
+                _ = maybe_deadline(self.token_restart_at) => {
+                    service_kit::event!(
+                        tracing::Level::INFO,
+                        "shard",
+                        "injected IAM credentials expire soon; stopping session gracefully",
+                    );
+                    stopping = true;
+                    self.token_restart_at = None;
                 }
 
                 // Lowest priority.
@@ -614,6 +636,14 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> Option<T> {
     }
 }
 
+/// Sleep until the deadline, or park forever when there isn't one.
+async fn maybe_deadline(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -719,6 +749,7 @@ mod tests {
             publisher,
             shapes,
             task,
+            None,
         );
 
         let serve = tokio::spawn(async move {
@@ -803,6 +834,7 @@ mod tests {
             publisher,
             shapes,
             task,
+            None,
         );
 
         // Seed a policy under which the observed journal is immediately due.

@@ -112,6 +112,28 @@ pub fn finish_split(
     }
 }
 
+/// Deadline for beginning a graceful session restart ahead of IAM token
+/// expiry, so a transaction started near the deadline still has runway
+pub(crate) fn token_restart_deadline(
+    now: std::time::SystemTime,
+    expires_at: std::time::SystemTime,
+) -> std::time::SystemTime {
+    use std::time::Duration;
+
+    const LONG_LIFETIME: Duration = Duration::from_secs(4 * 3600);
+    const LONG_MARGIN: Duration = Duration::from_secs(30 * 60);
+    const SHORT_MARGIN: Duration = Duration::from_secs(5 * 60);
+
+    let lifetime = expires_at.duration_since(now).unwrap_or_default();
+    let margin = if lifetime >= LONG_LIFETIME {
+        LONG_MARGIN
+    } else {
+        SHORT_MARGIN
+    };
+    // A pathologically short lifetime restarts immediately rather than never.
+    expires_at - margin.min(lifetime)
+}
+
 /// Build gRPC client metadata bearing a self-signed `LEAD` token when `signer`
 /// is `Some`, scoped to `shard_id`'s task prefix so a leader stream opened with
 /// it can only operate on shards of this task. Empty metadata when `None`
@@ -128,10 +150,34 @@ pub(crate) fn leader_bearer(
 
 #[cfg(test)]
 mod tests {
-    use super::{finish_split, observe_throttle_samples, start_due_split};
+    use super::{finish_split, observe_throttle_samples, start_due_split, token_restart_deadline};
     use crate::shard::split_policy::SplitPolicy;
     use publisher::SplitOutcome;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn test_token_restart_deadline_margins() {
+        let now = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+        // One-hour token restarts five minutes early.
+        let expires = now + Duration::from_secs(3600);
+        assert_eq!(
+            token_restart_deadline(now, expires),
+            expires - Duration::from_secs(5 * 60)
+        );
+
+        // Twelve-hour token restarts thirty minutes early.
+        let expires = now + Duration::from_secs(12 * 3600);
+        assert_eq!(
+            token_restart_deadline(now, expires),
+            expires - Duration::from_secs(30 * 60)
+        );
+
+        // A lifetime shorter than its margin restarts immediately, not never.
+        let expires = now + Duration::from_secs(60);
+        assert_eq!(token_restart_deadline(now, expires), now);
+        assert_eq!(token_restart_deadline(now, now), now);
+    }
 
     fn sample(journal_name: &str, throttled: bool) -> publisher::ThrottleSample<'_> {
         publisher::ThrottleSample {

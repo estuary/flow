@@ -108,7 +108,7 @@ async fn serve_unary<L: crate::LogHandler>(
     let is_spec = request.spec.is_some();
     let is_discover = request.discover.is_some();
     let is_validate = request.validate.is_some();
-    let (connector_tx, mut connector_rx, _container) =
+    let (connector_tx, mut connector_rx, _container, _token_restart_at) =
         connector::start(service, log_level, request).await?;
     std::mem::drop(connector_tx);
 
@@ -336,7 +336,7 @@ where
         }),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container) =
+    let (connector_tx, mut connector_rx, container, token_restart_at) =
         connector::start(service, log_level, open.clone()).await?;
     let verify = crate::verify("Capture", "Opened", "connector");
     let opened = match verify.not_eof(connector_rx.next().await)? {
@@ -398,6 +398,7 @@ where
         publisher,
         shapes,
         task.clone(),
+        token_restart_at,
     )
     .serve(connector_rx, controller_rx, head, tail)
     .await?;
@@ -463,7 +464,7 @@ async fn apply_loop<L: crate::LogHandler>(
             state_json: connector_state_json.clone(),
         };
 
-        let (connector_tx, mut connector_rx, _container) = connector::start(
+        let (connector_tx, mut connector_rx, _container, _token_restart_at) = connector::start(
             service,
             log_level,
             capture::Request {
