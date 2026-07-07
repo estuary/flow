@@ -128,6 +128,7 @@ async fn start_runners(
             store.clone(),
             clock.clone(),
             std::sync::Arc::new(::ops::tracing_log_handler),
+            None,
         )
         .await
         .unwrap_or_else(|e| panic!("starting runner for {name}: {e:#}"));

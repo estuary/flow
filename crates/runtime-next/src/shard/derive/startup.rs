@@ -219,8 +219,16 @@ where
         });
     }
 
-    let (connector_tx, mut connector_rx, container, codec) =
-        super::connector::start(service, logger, log_level, initial).await?;
+    let (connector_tx, mut connector_rx, container, codec) = super::connector::start(
+        service.plane,
+        &service.container_network,
+        &service.task_name,
+        service.remote_connectors.as_ref(),
+        logger,
+        log_level,
+        initial,
+    )
+    .await?;
 
     let verify = crate::verify("Derive", "Opened", "connector");
     let opened = match verify.not_eof(connector_rx.next().await)? {

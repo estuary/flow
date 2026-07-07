@@ -62,6 +62,9 @@ impl Test {
             splits: self.splits,
             snapshot_dir: self.snapshot.clone(),
             log_handler: std::sync::Arc::new(log_handler),
+            // `flowctl test` runs every connector locally; only the agent's
+            // publication-test path offloads to remote data planes.
+            remote_connectors: None,
         };
 
         let results = runtime_harness::run_tests(&built.built, options).await?;

@@ -85,8 +85,18 @@ pub async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     let is_validate = request.validate.is_some();
 
     let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _codec) =
-        connector::start(service, &logger, log_level, request).await?;
+    let (connector_tx, mut connector_rx, _container, _codec) = connector::start(
+        service.plane,
+        &service.container_network,
+        &service.task_name,
+        // Unary Spec / Validate always run locally, even when the service is
+        // configured with a remote dialer for sessions.
+        None,
+        &logger,
+        log_level,
+        request,
+    )
+    .await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     let verify = crate::verify("Derive", "unary response", "connector");

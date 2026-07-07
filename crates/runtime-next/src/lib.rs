@@ -29,6 +29,7 @@ pub use ::proto_flow::runtime::Plane; // Re-export.
 /// and the protobuf module.
 pub use proto_flow::runtime as proto;
 
+mod connector_proxy;
 mod container;
 mod image_connector;
 mod local_connector;
@@ -41,6 +42,7 @@ pub mod publish;
 pub mod shard;
 mod task_service;
 
+pub use connector_proxy::ConnectorProxy;
 pub use container::flow_runtime_protocol;
 
 pub use leader::{Service, ShuffleServiceFactory, ShuffleSession, ShuffleSessionFactory};
@@ -52,6 +54,30 @@ pub use publish::{
 };
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
+
+/// Host seam for running a shard's image connector *remotely*, in the task's
+/// assigned data plane, through the data-plane connector proxy — instead of
+/// starting a local container. When a shard [`Service`](shard::Service) is
+/// configured with one, the derive [`Connector`](models::DeriveUsing::Connector)
+/// startup dials it once per session (dynamic dispatch: dialing is rare, so
+/// static dispatch buys nothing).
+///
+/// runtime-next defines this seam but never implements it: the implementation
+/// (control-plane side) owns the `ProxyConnectors` handshake, token signing,
+/// and connector-log return, and this trait deliberately does not depend on
+/// control-plane crates (`tables`, token signing stay caller-side). It yields
+/// only what the connector RPC needs — a connected channel and the per-RPC
+/// metadata (proxy-id + bearer) the proxy expects.
+#[tonic::async_trait]
+pub trait RemoteConnectors: Send + Sync + 'static {
+    /// Dial a `derive.Connector/Derive` RPC for `task_name` in its data plane,
+    /// returning a connected gRPC channel and the metadata to attach to each
+    /// request of the RPC.
+    async fn dial_derive(
+        &self,
+        task_name: &str,
+    ) -> anyhow::Result<(tonic::transport::Channel, proto_grpc::Metadata)>;
+}
 
 /// Maximum accepted protobuf message size on Shard / Leader streams.
 pub const MAX_MESSAGE_SIZE: usize = 1 << 26; // 64MB.

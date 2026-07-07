@@ -110,8 +110,15 @@ async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     let is_discover = request.discover.is_some();
     let is_validate = request.validate.is_some();
     let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _token_restart_at) =
-        connector::start(service, &logger, log_level, request).await?;
+    let (connector_tx, mut connector_rx, _container, _token_restart_at) = connector::start(
+        service.plane,
+        &service.container_network,
+        &service.task_name,
+        &logger,
+        log_level,
+        request,
+    )
+    .await?;
     std::mem::drop(connector_tx);
 
     let verify = crate::verify("Capture", "unary response", "connector");
@@ -341,8 +348,15 @@ where
         }),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container, token_restart_at) =
-        connector::start(service, &logger, log_level, open.clone()).await?;
+    let (connector_tx, mut connector_rx, container, token_restart_at) = connector::start(
+        service.plane,
+        &service.container_network,
+        &service.task_name,
+        &logger,
+        log_level,
+        open.clone(),
+    )
+    .await?;
     let verify = crate::verify("Capture", "Opened", "connector");
     let opened = match verify.not_eof(connector_rx.next().await)? {
         capture::Response {
@@ -473,7 +487,9 @@ async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         };
 
         let (connector_tx, mut connector_rx, _container, _token_restart_at) = connector::start(
-            service,
+            service.plane,
+            &service.container_network,
+            &service.task_name,
             logger,
             log_level,
             capture::Request {

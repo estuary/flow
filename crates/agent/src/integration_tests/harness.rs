@@ -245,7 +245,6 @@ impl HarnessBuilder {
         let builder = control_plane_api::publications::builds::new_builder(mock_connectors);
         let publisher = Publisher::new(
             &url::Url::from_directory_path(builds_root.path()).unwrap(),
-            "some-connector-network",
             &logs_tx,
             pool.clone(),
             models::IdGenerator::new(1),

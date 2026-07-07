@@ -308,7 +308,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let builder = control_plane_api::publications::builds::new_builder(connectors);
     let mut publisher = Publisher::new(
         &args.builds_root,
-        &args.connector_network,
         &logs_tx,
         pg_pool.clone(),
         agent::id_generator::with_random_shard(),

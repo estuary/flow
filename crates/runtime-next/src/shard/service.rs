@@ -27,6 +27,12 @@ pub struct Service<P: crate::PublisherFactory, L: crate::LoggerFactory> {
     pub logger_factory: L,
     pub registry: service_kit::Registry,
     pub data_plane_signer: Option<proto_grpc::Signer>,
+    /// When set, image connectors run remotely in the task's data plane through
+    /// the connector proxy rather than as local containers (see
+    /// [`RemoteConnectors`](crate::RemoteConnectors)). Set only by the catalog-test
+    /// harness's agent path; `None` for production shards, `flowctl preview`, and
+    /// `flowctl test` (all-local).
+    pub remote_connectors: Option<std::sync::Arc<dyn crate::RemoteConnectors>>,
 }
 
 impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
@@ -58,7 +64,20 @@ impl<P: crate::PublisherFactory, L: crate::LoggerFactory> Service<P, L> {
             logger_factory,
             registry,
             data_plane_signer,
+            remote_connectors: None,
         }
+    }
+
+    /// Configure this service to run image connectors remotely through the
+    /// connector proxy (see [`RemoteConnectors`](crate::RemoteConnectors)).
+    /// Consuming builder so it composes with the `new` constructor; the harness
+    /// runner is the only caller.
+    pub fn with_remote_connectors(
+        mut self,
+        remote_connectors: Option<std::sync::Arc<dyn crate::RemoteConnectors>>,
+    ) -> Self {
+        self.remote_connectors = remote_connectors;
+        self
     }
 
     /// Wrap this service in its typed tonic server, for composition

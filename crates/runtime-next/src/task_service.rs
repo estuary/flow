@@ -58,17 +58,22 @@ impl TaskService {
                 data_plane_signing_key.clone(),
             );
 
+        let plane =
+            crate::proto::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?;
+        // Each session's Logger sinks the task's log stream — connector logs and
+        // flattened runtime Events alike — to the task-log file (the same
+        // encoded-JSON handler the runtime's own tracing uses), which the Go
+        // runtime forwards to the task's ops-log journal.
+        let logger_factory =
+            crate::FnLoggerFactory::new(log_handler, tokio_context.log_level_handle());
+
         let shard_svc = shard::Service::new(
-            crate::proto::Plane::try_from(plane).context("invalid TaskServiceConfig.plane")?,
-            container_network,
+            plane,
+            container_network.clone(),
             Some(tokio_context.set_log_level_fn()),
-            task_name,
+            task_name.clone(),
             crate::JournalPublisherFactory::new(publisher_factory),
-            // Each session's Logger sinks the task's log stream — connector
-            // logs and flattened runtime Events alike — to the task-log file
-            // (the same encoded-JSON handler the runtime's own tracing uses),
-            // which the Go runtime forwards to the task's ops-log journal.
-            crate::FnLoggerFactory::new(log_handler, tokio_context.log_level_handle()),
+            logger_factory.clone(),
             // Inert registry: TaskService is the CGO entry point and does not
             // serve an admin surface; event! tracks still capture per-handler.
             service_kit::Registry::default(),
@@ -77,6 +82,15 @@ impl TaskService {
                 data_plane_signing_key,
             )),
         );
+
+        // The connector-proxy backend shares this task service's UDS so the
+        // data-plane Go proxy (`go/runtime/connector_proxy.go`) can forward
+        // control-plane connector RPCs (Validate / Discover / Spec today, plus
+        // raw sessions) into runtime-next. Harmless for V2 task shards whose
+        // instances also expose it: the UDS is local-only and it starts no work
+        // until a connector RPC arrives.
+        let proxy_svc =
+            crate::ConnectorProxy::new(plane, container_network, task_name, logger_factory);
 
         let uds = tokio_context
             .block_on(async move { tokio::net::UnixListener::bind(uds_path) })
@@ -91,6 +105,9 @@ impl TaskService {
 
         let server = tonic::transport::Server::builder()
             .add_service(shard_svc.into_tonic_service())
+            .add_service(proxy_svc.clone().into_capture_service())
+            .add_service(proxy_svc.clone().into_derive_service())
+            .add_service(proxy_svc.into_materialize_service())
             .serve_with_incoming_shutdown(uds_stream, async move {
                 _ = cancel_rx.await;
             });

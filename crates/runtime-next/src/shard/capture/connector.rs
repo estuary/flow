@@ -9,9 +9,17 @@ use tokio_stream::wrappers::ReceiverStream;
 use unseal;
 use zeroize::Zeroize;
 
-pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
-    service: &crate::shard::Service<P, L>,
-    logger: &L::Logger,
+/// Start a capture connector as indicated by the `initial` Request.
+///
+/// The `plane`, `container_network`, and `task_name` arguments are the narrow
+/// slice of a shard [`Service`](crate::shard::Service) this needs, passed
+/// directly so the connector-proxy service — which has no `Service` — shares
+/// this one implementation with shard startup.
+pub async fn start<L: crate::Logger>(
+    plane: crate::Plane,
+    container_network: &str,
+    task_name: &str,
+    logger: &L,
     log_level: ops::LogLevel,
     mut initial: Request,
 ) -> anyhow::Result<(
@@ -49,17 +57,17 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
                 image,
                 logger.clone(),
                 log_level,
-                &service.container_network,
+                container_network,
                 connector_rx,
                 start_rpc,
-                &service.task_name,
+                task_name,
                 ops::TaskType::Capture,
-                service.plane,
+                plane,
             )
             .await?;
             (rx.boxed(), Some(container))
         }
-        models::CaptureEndpoint::Local(_) if !matches!(service.plane, crate::Plane::Local) => {
+        models::CaptureEndpoint::Local(_) if !matches!(plane, crate::Plane::Local) => {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
             )

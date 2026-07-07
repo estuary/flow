@@ -491,3 +491,252 @@ Create the crate with the pure-logic core, no runtime-next dependency yet:
   extend it or write the comparator fresh in the harness crate.
 - Stats: V1 tests ignore ops stats; `publish_stats` should no-op, but
   consider tracing them for debuggability.
+
+## Extension: remote connectors via a V2-hosted connector proxy
+
+Phases 1–6 above are implemented. The phases below extend that completed
+work; they were designed and settled in review with Johnny.
+
+### Objective
+
+Publication tests currently start derivation connector containers on the
+agent host (`test_catalog` threads the agent's `connector_network` into
+the harness). Remove that responsibility: image-connector derivations
+execute in each derivation's **assigned data plane**, reached through the
+existing connector-proxy protocol. As a precondition — and a V2-migration
+step in its own right — the data-plane connector proxy's backend migrates
+from the V1 runtime to runtime-next.
+
+`flowctl test` is unaffected: it continues to run all connectors locally.
+
+### How the connector proxy works today (normative reference)
+
+- `crates/control-plane-api/src/proxy_connectors.rs` — the control-plane
+  client. `dial_proxy` signs a `PROXY_CONNECTOR`-capability JWT with the
+  data plane's HMAC keys (`tables::DataPlane { reactor_address,
+  hmac_keys, data_plane_fqdn }`), opens the
+  `ConnectorProxy/ProxyConnectors` control stream
+  (`go/protocols/runtime/runtime.proto` ~line 337), and receives
+  `(address, proxy_id)`. Connector RPCs are then issued against `address`
+  with `proxy-id` metadata. Connector logs stream back on the control
+  stream; sending EOF on it tears the proxy runtime down (containers are
+  reaped on stream loss — no orphan risk).
+- `go/runtime/connector_proxy.go` — the data-plane server. Each
+  `ProxyConnectors` stream creates one `bindings.NewTaskService` (a V1
+  Rust runtime served over a UDS; `crates/runtime/src/task_service.rs`),
+  bounded by the `--flow.proxy-runtimes` semaphore (default 2,
+  `go/runtime/flow_consumer.go` ~line 43). The `Capture` / `Derive` /
+  `Materialize` handlers forward streams **verbatim** to the task
+  service keyed by proxy-id — messages only; gRPC metadata does NOT
+  cross the forwarder (so per-stream signals must ride in-band).
+- Today's clientele sends only unary-style requests: Validate
+  (`validation::Connectors`), Discover (`[Spec, Discover]` on one
+  stream), Spec. The V1 backend serves these via `serve_unary`
+  (`crates/runtime/src/{capture,derive,materialize}/serve.rs`): each
+  unary request starts a **fresh** connector, yields exactly one
+  verified response (`recv_connector_unary` in each `protocol.rs`),
+  then awaits the next request on the same stream. **Nobody sends
+  `Open` through the proxy today** — the V1 mediated session path
+  (`serve_session`: RocksDB state injection, combining, checkpoint
+  rewriting) has no proxy clients. That unclaimed surface is what this
+  extension defines as raw sessions.
+- V2 hosting precedent: `bindings.NewTaskServiceV2`
+  (`go/bindings/task_service_v2.go` →
+  `crates/bindings/src/task_service_v2.rs` →
+  `crates/runtime-next/src/task_service.rs`) is already created per V2
+  task shard (`go/runtime/task.go`, `newTaskBaseV2`), so its env
+  requirements (`FLOW_DATA_PLANE_FQDN`, `FLOW_CONTROL_API`,
+  `CONSUMER_ZONE`, `CONSUMER_AUTH_KEYS`) hold in production reactors.
+
+### Settled design decisions (extension)
+
+1. **The proxy backend migrates to runtime-next, as a hard cutover.**
+   No fallback flag. Hard requirement: the control plane MUST NOT be
+   able to distinguish V1 from V2 for its existing Validate / Discover /
+   Spec traffic — same gRPC service names, same
+   fresh-connector-per-unary-request semantics (do NOT reuse one
+   connector for sequential unary requests; fleet-wide connector
+   tolerance for that is unproven), same response verification, the
+   connector `Container` ext attached to the first response of each
+   started connector as V1 does, sops config decryption server-side,
+   same log-return wiring. The V1 mediated session path is NOT ported —
+   it has no clients.
+2. **Proxied `Open` = raw connector session, uniformly for all three
+   task types.** A first-request `Open` starts the connector once via
+   runtime-next's own startup machinery (the same code V2 shards use),
+   then pipes both directions verbatim — `Reset` included — until
+   client EOF stops the connector. One connector per stream; a
+   mid-stream `Open` after session start is a protocol error. No new
+   gRPC services and no request flags: the semantics are selected by
+   the request shape, on protocol surface that was previously unused.
+3. **Capability advertisement on the handshake.** `ConnectorProxyResponse`
+   gains a field (sent with the first response, alongside `address` /
+   `proxy_id`) declaring raw-session support. The agent checks it
+   before opening any session and fails loudly ("data plane requires
+   upgrade") against old reactors. Old-agent → new-reactor is
+   compatible by construction (decision 1). This is what makes version
+   skew fail loud instead of silently landing on V1 mediated `Open`
+   semantics.
+4. **Client seam in runtime-next connector startup** (derive wired now).
+   `shard::Service` gains an optional, dynamically-dispatched
+   remote-connectors dialer (dial happens once per session; static
+   dispatch buys nothing). When set, the `DeriveUsing::Connector`
+   branch of `crates/runtime-next/src/shard/derive/connector.rs` dials
+   the proxied `derive.Connector/Derive` RPC instead of
+   `image_connector::serve`: sealed config passes through
+   **undecrypted** (the plane decrypts, as Validate does today); the
+   initial `Open` is sent verbatim; container metadata (and codec —
+   see open items) are read from the first response's ext and
+   stripped. `DeriveUsing::Local` with a remote dialer configured is an
+   error; `DeriveUsing::Sqlite` always runs in-process (no container
+   exists to offload — sqlite-only test runs never touch the network).
+5. **Per-derivation plane routing.** Each derivation's connector runs in
+   its assigned data plane: `built_collections[].data_plane_id` →
+   `live.data_planes` (both present in `build::Output`). This matches
+   how Validate routes today and keeps mixed-plane publications
+   faithful (image cache, docker network policy, KMS access).
+6. **One multiplexed proxy runtime per (data plane, test run).** All of
+   a run's session RPCs share one `ProxyConnectors` handshake /
+   proxy-id. Concurrent streams on one task service are fine and
+   container names are already unique (`unique_container_name()`,
+   `crates/runtime/src/container.rs`; runtime-next mirrors it). The
+   `--flow.proxy-runtimes` default stays 2 — test runs hold a slot for
+   seconds, comparable to a Validate.
+7. **Log attribution.** Raw sessions open a per-stream Logger through
+   the `LoggerFactory` seam, labeled with the task name taken from the
+   `Open`'s embedded spec (`Open.collection` / `Open.capture` /
+   `Open.materialization` all carry names) — no proto addition needed.
+   Unary requests keep the proxy runtime's task name (V1 parity). Logs
+   reach the agent on the existing control-stream path and feed
+   `logs_tx`.
+8. **`flowctl test` passes no remote dialer** (all-local, unchanged).
+   The harness seam is caller-provided, so a future
+   `flowctl test --data-plane` opt-in is possible without server work.
+
+### Phase 7 — V2 connector-proxy backend
+
+1. New runtime-next module (e.g. `crates/runtime-next/src/
+   connector_proxy.rs`; naming open) with a small service struct
+   (plane, container network, `LoggerFactory` — not the full
+   `shard::Service`; no publisher factory) implementing all three
+   `connector_server::Connector` traits. Per stream, loop:
+   - unary-type request (per-protocol sets: derive `Spec`/`Validate`;
+     capture `Spec`/`Discover`/`Validate`/`Apply`; materialize
+     `Spec`/`Validate`/`Apply` — confirm against each V1 `serve.rs` /
+     `protocol.rs`) → start a fresh connector, forward the single
+     request, yield the single verified response with the `Container`
+     ext attached, drain to connector EOF, await the next request;
+   - first-request `Open` → raw session: start the connector once,
+     pipe verbatim until client EOF, then drain.
+   Reuse the connector-start functions in `crates/runtime-next/src/
+   shard/{capture,derive,materialize}/connector.rs` — refactor their
+   `&shard::Service<P, L>` parameter into narrower arguments (plane,
+   network, task name, logger) so shard startup and the proxy service
+   share one implementation. Behavior-preserving refactor.
+2. Register the three services alongside `Shard` in
+   `crates/runtime-next/src/task_service.rs`. (The UDS is local-only;
+   V2 task shards' instances also exposing them is harmless.)
+3. `go/runtime/connector_proxy.go`: swap `bindings.NewTaskService` →
+   `bindings.NewTaskServiceV2`. Config fields map 1:1 except `UdsPath`,
+   which the V2 bindings self-create — drop it. Forwarders, verifier,
+   and semaphore are unchanged.
+4. `go/protocols/runtime/runtime.proto`: add the capability field to
+   `ConnectorProxyResponse` (field 4; bitmask vs bool is implementer's
+   choice — prefer a small bitmask for future surface). Regenerate:
+   `mise run build:go-protobufs` and `mise run build:rust-protobufs`.
+5. Verification: unary-parity unit tests in runtime-next (snapshot
+   walk-throughs per repo convention, including the `[Spec, Discover]`
+   two-connectors-on-one-stream sequence); raw-session tests covering
+   pipe / Reset-forwarding / EOF-stop; end-to-end Validate + Discover
+   against a local stack (`mise run local:stack`). Confirm V1 shards
+   and `flowctl-go temp-data-plane` are untouched.
+
+### Phase 8 — remote-connector seam + harness plumbing
+
+1. runtime-next: add `remote_connectors: Option<std::sync::Arc<dyn ...>>`
+   to `shard::Service` (trait name open; it yields a connected channel
+   plus request metadata — or a ready client — for a derive session).
+   runtime-next defines the trait; it must not depend on control-plane
+   crates (`tables`, token signing stay caller-side).
+2. Implement the remote branch in `shard/derive/connector.rs` per
+   settled decision 4.
+3. Harness: `runtime_harness::Options` gains
+   `remote_connectors: Option<Arc<dyn ...Provider>>` resolving a
+   per-derivation dialer by task name; `runner.rs` threads it into each
+   shard `Service::new`. `flowctl test` and preview pass `None`.
+4. In-crate integration test with no Go involved: self-host the Phase-7
+   proxy service in-process under `Plane::Local` with a local-process
+   connector; run a small catalog through the harness with
+   `remote_connectors` pointing at it; assert connectors start via the
+   proxy path and Reset-between-cases works over the pipe.
+
+### Phase 9 — agent linkage
+
+1. Refactor `dial_proxy` in
+   `crates/control-plane-api/src/proxy_connectors.rs` so Validate and
+   the new session dialer share the handshake machinery. Add the
+   per-(data plane, run) proxy-runtime cache (decision 6), the
+   capability check with a clear publication error, and a token expiry
+   sized to a bounded run duration rather than `2×CONNECTOR_TIMEOUT`
+   (per-RPC auth is verified at stream open, and Reset is in-band, so
+   no re-dial happens mid-run).
+2. `test_catalog` (`crates/control-plane-api/src/publications/
+   builds.rs`): build the provider from `built_collections[].
+   data_plane_id` → `live.data_planes`; a derivation whose plane row is
+   missing is a publication error. Drop the `connector_network`
+   parameter and its threading (verify remaining users in
+   `publications/mod.rs` and `crates/agent/src/main.rs` first). The
+   agent host then needs no docker daemon or image pulls for tests.
+3. Failure modes: dial/handshake timeout → error naming the data plane
+   (as `dial_proxy_timeout_msg` does); mid-run stream failure → test
+   failure with context; keep draining the control stream to EOF after
+   errors so late logs land (as `drive_proxy_rpc` does today).
+4. Verification: agent integration tests
+   (`crates/agent/src/integration_tests/`) using the in-process proxy
+   service; end-to-end local-stack publication of a TypeScript
+   derivation with tests, confirming no connector containers run on the
+   agent host (`docker ps` during the run) and that failures stream
+   readable diffs to publication logs.
+
+### Parity checklist additions
+
+- [ ] Control plane cannot distinguish V1 from V2 proxy backends for
+      Validate / Discover / Spec (fresh connector per unary request;
+      identical response verification; `Container` ext on the first
+      response; server-side sops decryption).
+- [ ] Raw sessions pipe verbatim: `Reset` reaches the connector; client
+      EOF stops it; exactly one connector per stream.
+- [ ] New agent against an old reactor fails loudly (capability check)
+      before any session opens.
+- [ ] Derivation containers for publication tests run in each
+      derivation's assigned data plane; none run on the agent host.
+- [ ] sqlite-only test runs never touch the network.
+- [ ] Publication logs attribute remote connector logs per derivation.
+- [ ] One proxy runtime per (data plane, run);
+      `--flow.proxy-runtimes` default unchanged.
+
+### Open items for the implementer (extension)
+
+- Naming: the runtime-next proxy module / service struct, the
+  `RemoteConnectors` trait and `Options` field, and the capability
+  field shape (bitmask vs bool).
+- **Codec propagation.** `connector_init::Codec` returned by connector
+  start feeds `scanner.step` framing
+  (`crates/runtime-next/src/shard/derive/actor.rs` ~line 164). Decide
+  how the remote client learns the negotiated codec — likely a
+  `DeriveResponseExt` field on the first response, alongside
+  `container` — and audit what actually breaks on a mismatch before
+  choosing.
+- Shape of the connector-start refactor (narrow argument lists vs a
+  small shared context struct).
+- Whether `TaskService::new` grows a leaner proxy-mode constructor
+  (skipping the journal-publisher factory and its env requirements) or
+  the proxy tolerates them; verify local-stack reactors set all four
+  env vars.
+- Token lifetime policy for session RPCs, and whether the agent imposes
+  an overall test-run deadline (recommended) instead of per-message
+  watchdogs on session streams.
+- Client-side capture/materialize session dialing: server support lands
+  in Phase 7; wire the client when remote preview wants it.
+- After cutover, the V1 `serve_unary` paths lose their only clients —
+  leave them in place; they're deleted with the V1 runtime.

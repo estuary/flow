@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"path"
 	"sync"
 	"time"
 
@@ -45,11 +43,12 @@ func (s *connectorProxy) ProxyConnectors(stream pr.ConnectorProxy_ProxyConnector
 	// Unique id for this proxy, that we'll pass back to the client.
 	var id = fmt.Sprintf("connector-proxy-%d", time.Now().UnixNano())
 
-	svc, err := bindings.NewTaskService(
+	// The connector-proxy backend is runtime-next (a hard cutover from the V1
+	// runtime). `UdsPath` is omitted: the V2 bindings self-create their socket.
+	svc, err := bindings.NewTaskServiceV2(
 		pr.TaskServiceConfig{
 			ContainerNetwork: s.host.config.Flow.Network,
 			TaskName:         id,
-			UdsPath:          path.Join(os.TempDir(), id),
 			Plane:            s.host.config.Plane(),
 		},
 		func(log ops.Log) {
@@ -72,10 +71,14 @@ func (s *connectorProxy) ProxyConnectors(stream pr.ConnectorProxy_ProxyConnector
 		svc.Drop()
 	}()
 
-	// Now that we've indexed `id`, tell the client about it.
+	// Now that we've indexed `id`, tell the client about it. The runtime-next
+	// backend serves raw connector sessions, so advertise that capability on the
+	// handshake; a client requiring it fails loudly against an older backend
+	// that does not set the bit.
 	_ = stream.Send(&pr.ConnectorProxyResponse{
-		Address: s.address,
-		ProxyId: id,
+		Address:  s.address,
+		ProxyId:  id,
+		Features: uint32(pr.ProxyFeature_PROXY_FEATURE_RAW_SESSIONS),
 	})
 
 	// Block until we read EOF, signaling a graceful shutdown.

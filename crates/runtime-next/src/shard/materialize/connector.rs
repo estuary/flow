@@ -11,9 +11,16 @@ use zeroize::Zeroize;
 // plus OpenExtras with decrypted trigger configs and connector metadata,
 // plus a deadline for gracefully restarting the session ahead of injected
 // IAM credential expiry (None when the task doesn't use IAM auth).
-pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
-    service: &crate::shard::Service<P, L>,
-    logger: &L::Logger,
+//
+// The `plane`, `container_network`, and `task_name` arguments are the narrow
+// slice of a shard `Service` this needs, passed directly so the connector-proxy
+// service — which has no `Service` — shares this one implementation with shard
+// startup.
+pub async fn start<L: crate::Logger>(
+    plane: crate::Plane,
+    container_network: &str,
+    task_name: &str,
+    logger: &L,
     log_level: ops::LogLevel,
     mut initial: materialize::Request,
 ) -> anyhow::Result<(
@@ -53,20 +60,18 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
                 image.clone(),
                 logger.clone(),
                 log_level,
-                &service.container_network,
+                container_network,
                 connector_rx,
                 start_rpc,
-                &service.task_name,
+                task_name,
                 ops::TaskType::Materialization,
-                service.plane,
+                plane,
             )
             .await?;
 
             (rx.boxed(), Some(container), codec)
         }
-        models::MaterializationEndpoint::Local(_)
-            if !matches!(service.plane, crate::Plane::Local) =>
-        {
+        models::MaterializationEndpoint::Local(_) if !matches!(plane, crate::Plane::Local) => {
             return Err(tonic::Status::failed_precondition(
                 "Local connectors are not permitted in this context",
             )

@@ -106,6 +106,7 @@ impl DerivationRunner {
         store: Arc<Mutex<CollectionStore>>,
         publish_clock: Arc<std::sync::atomic::AtomicU64>,
         log_handler: crate::logger::LogHandler,
+        remote_connectors: Option<Arc<dyn runtime_next::RemoteConnectors>>,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(n_shards >= 1, "a derivation needs at least one shard");
         let task_name = spec.name.clone();
@@ -191,7 +192,8 @@ impl DerivationRunner {
                 logger_factory.clone(),
                 run.registry.clone(),
                 None,
-            );
+            )
+            .with_remote_connectors(remote_connectors.clone());
             let response_rx = shard_svc.spawn_derive(UnboundedReceiverStream::new(request_rx));
 
             let sqlite_vfs_uri = if is_sqlite {

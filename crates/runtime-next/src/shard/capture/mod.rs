@@ -1,5 +1,5 @@
 mod actor;
-mod connector;
+pub(crate) mod connector;
 mod drain;
 mod handler;
 

@@ -81,6 +81,9 @@ zeroize = { workspace = true }
 [dev-dependencies]
 assemble = { path = "../assemble" }
 flow-client-next = { path = "../flow-client-next" }
+# Tests host an in-process ConnectorProxy handshake service, which needs the
+# server side of the runtime protocol (the crate itself only needs the client).
+proto-grpc = { path = "../proto-grpc", features = ["runtime_client", "runtime_server"] }
 
 hex = { workspace = true }
 hmac = { workspace = true }

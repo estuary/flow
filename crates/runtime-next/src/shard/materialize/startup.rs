@@ -249,7 +249,15 @@ where
         ..Default::default()
     };
     let (connector_tx, mut connector_rx, container, codec, token_restart_at) =
-        super::connector::start(service, logger, log_level, initial).await?;
+        super::connector::start(
+            service.plane,
+            &service.container_network,
+            &service.task_name,
+            logger,
+            log_level,
+            initial,
+        )
+        .await?;
 
     // Read C:Opened from the connector.
     let verify = crate::verify("Materialize", "Opened", "connector");

@@ -159,15 +159,16 @@ async fn build_catalog<Conn: Connectors>(
 
 /// Run a built catalog's tests on the local `runtime-harness`, returning a
 /// `tables::Error` per failing test case. Derivations execute as resident
-/// runtime-next sessions (derive-sqlite in-process; image derivations as
-/// containers on `connector_network`, with three splits to exercise multi-shard
-/// key routing) and each test's ingest / verify steps run against an in-memory
-/// collection store. No Gazette broker, etcd, Go consumer, or `flowctl-go`
-/// binary is involved. Connector and runtime logs stream to the job's `logs_tx`.
+/// runtime-next sessions (derive-sqlite in-process; image derivations remotely,
+/// in each derivation's assigned data plane through the connector proxy, so the
+/// agent host runs no connector containers), with three splits to exercise
+/// multi-shard key routing. Each test's ingest / verify steps run against an
+/// in-memory collection store. No Gazette broker, etcd, Go consumer, or
+/// `flowctl-go` binary is involved. Connector and runtime logs stream to the
+/// job's `logs_tx`.
 pub async fn test_catalog(
     logs_token: Uuid,
     logs_tx: &logs::Tx,
-    connector_network: &str,
     catalog: &build::Output,
 ) -> anyhow::Result<tables::Errors> {
     let mut errors = tables::Errors::default();
@@ -179,13 +180,23 @@ pub async fn test_catalog(
     // to the publication's job logs, matching the prior `flowctl-go api test`
     // job's "test" stream.
     let ops_handler = logs::ops_handler(logs_tx.clone(), "test".to_string(), logs_token);
+
+    // Image derivations run their connectors in their assigned data planes
+    // through the connector proxy; a missing plane row is a publication error.
+    let remote_connectors =
+        crate::proxy_connectors::RemoteSessionConnectors::new(catalog, ops_handler.clone())
+            .context("resolving data planes for catalog test")?;
+
     let options = runtime_harness::Options {
-        network: connector_network.to_string(),
+        // Connectors run remotely, so the agent host needs no docker network.
+        network: String::new(),
         splits: 3, // Exercise multi-shard key routing, as the prior path did.
         snapshot_dir: None,
         log_handler: std::sync::Arc::new(move |log: &ops::Log| {
             runtime::LogHandler::log(&ops_handler, log)
         }),
+        remote_connectors: Some(std::sync::Arc::new(remote_connectors)
+            as std::sync::Arc<dyn runtime_harness::RemoteConnectors>),
     };
 
     let results = runtime_harness::run_tests(&catalog.built, options)

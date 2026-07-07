@@ -40,3 +40,8 @@ pub use diff::{Mismatch, compare_documents, mask_uuid, superset_match};
 pub use graph::{Collection, Graph, PendingStat, TaskName, TestTime, Transform};
 pub use run::{Options, TestOutcome, TestResults, run_tests};
 pub use store::{CollectionStore, StoredDoc};
+
+/// Re-export of the runtime-next remote-connector seam, so callers (e.g. the
+/// control-plane agent's publication-test path) can build an [`Options`]
+/// `remote_connectors` provider without depending on `runtime-next` directly.
+pub use runtime_next::RemoteConnectors;

@@ -82,8 +82,15 @@ pub async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     let is_apply = request.apply.is_some();
 
     let logger = service.logger_factory.open(&service.task_name);
-    let (connector_tx, mut connector_rx, _container, _codec, _token_restart_at) =
-        connector::start(service, &logger, log_level, request).await?;
+    let (connector_tx, mut connector_rx, _container, _codec, _token_restart_at) = connector::start(
+        service.plane,
+        &service.container_network,
+        &service.task_name,
+        &logger,
+        log_level,
+        request,
+    )
+    .await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     // Read connector response, and verify it matches the request type.

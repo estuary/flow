@@ -267,6 +267,12 @@ pub struct DeriveResponseExt {
     pub container: ::core::option::Option<Container>,
     #[prost(message, optional, tag = "2")]
     pub opened: ::core::option::Option<derive_response_ext::Opened>,
+    /// Wire codec negotiated with the connector. Set (alongside `container`) only
+    /// on the first response of a connector-proxy raw session, so a remote derive
+    /// client learns the framing; unset in the in-process shard path, which learns
+    /// the codec directly from connector startup.
+    #[prost(enumeration = "Codec", tag = "5")]
+    pub codec: i32,
     #[prost(message, optional, tag = "3")]
     pub published: ::core::option::Option<derive_response_ext::Published>,
     #[prost(message, optional, tag = "4")]
@@ -418,6 +424,14 @@ pub struct ConnectorProxyResponse {
     /// All messages following the first are logs.
     #[prost(message, optional, tag = "3")]
     pub log: ::core::option::Option<super::ops::Log>,
+    /// Bitmask of optional proxy features supported by this backend, sent with
+    /// the first response. Zero (the field's absence) means a legacy V1 backend
+    /// that supports only the unary Validate / Discover / Spec surface. A client
+    /// that requires an optional feature MUST check the corresponding bit before
+    /// relying on it, and fail loudly against a backend that does not advertise
+    /// it (see ProxyFeature).
+    #[prost(uint32, tag = "4")]
+    pub features: u32,
 }
 /// Join is sent by each shard to the leader at session start. The leader
 /// gathers all expected Joins, verifies `shards` are exactly equal,
@@ -1382,6 +1396,73 @@ impl Plane {
             "PUBLIC" => Some(Self::Public),
             "PRIVATE" => Some(Self::Private),
             "LOCAL" => Some(Self::Local),
+            _ => None,
+        }
+    }
+}
+/// Codec is the wire framing that flow-connector-init negotiates with a
+/// connector, per the connector image's FLOW_RUNTIME_CODEC label. The
+/// connector-proxy backend conveys it to a remote connector client (which
+/// otherwise cannot observe the image) so the client frames requests using the
+/// codec the connector expects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum Codec {
+    /// Length-prefixed protobuf. The default for most connectors, and the value
+    /// implied when the field is absent.
+    Proto = 0,
+    /// Newline-delimited JSON.
+    Json = 1,
+}
+impl Codec {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Proto => "CODEC_PROTO",
+            Self::Json => "CODEC_JSON",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CODEC_PROTO" => Some(Self::Proto),
+            "CODEC_JSON" => Some(Self::Json),
+            _ => None,
+        }
+    }
+}
+/// ProxyFeature enumerates single-bit flags of ConnectorProxyResponse.features.
+/// Values are bit positions (powers of two) so the field is a bitmask.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ProxyFeature {
+    /// Unused zero value: no feature.
+    None = 0,
+    /// The backend serves raw connector sessions: a proxied first-request `Open`
+    /// starts the connector once and pipes both directions verbatim (Reset
+    /// included) until client EOF. Advertised only by the runtime-next (V2)
+    /// backend; the V1 backend never sets it.
+    RawSessions = 1,
+}
+impl ProxyFeature {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::None => "PROXY_FEATURE_NONE",
+            Self::RawSessions => "PROXY_FEATURE_RAW_SESSIONS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PROXY_FEATURE_NONE" => Some(Self::None),
+            "PROXY_FEATURE_RAW_SESSIONS" => Some(Self::RawSessions),
             _ => None,
         }
     }

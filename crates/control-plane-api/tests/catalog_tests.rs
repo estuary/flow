@@ -114,7 +114,7 @@ async fn passing_catalog_test_reports_no_errors() {
     let output = build_catalog(PASSING).await;
     let logs_token = uuid::Uuid::nil();
 
-    let errors = builds::test_catalog(logs_token, &logs_sink(), "", &output)
+    let errors = builds::test_catalog(logs_token, &logs_sink(), &output)
         .await
         .expect("test_catalog runs");
 
@@ -133,7 +133,7 @@ async fn failing_catalog_test_surfaces_error() {
     let output = build_catalog(FAILING).await;
     let logs_token = uuid::Uuid::nil();
 
-    let errors = builds::test_catalog(logs_token, &logs_sink(), "", &output)
+    let errors = builds::test_catalog(logs_token, &logs_sink(), &output)
         .await
         .expect("test_catalog runs");
 

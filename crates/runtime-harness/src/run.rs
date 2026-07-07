@@ -36,6 +36,15 @@ pub struct Options {
     pub snapshot_dir: Option<std::path::PathBuf>,
     /// Sink for connector / runtime ops logs (the agent path feeds `logs_tx`).
     pub log_handler: crate::logger::LogHandler,
+    /// When set, image derivations run their connectors remotely in the task's
+    /// assigned data plane through the connector proxy, rather than as local
+    /// containers (the agent's publication-test path sets this; `flowctl test`
+    /// and preview leave it `None`, running everything locally). The dialer
+    /// routes per task via [`RemoteConnectors::dial_derive`]; SQLite derivations
+    /// ignore it and always run in-process.
+    ///
+    /// [`RemoteConnectors::dial_derive`]: runtime_next::RemoteConnectors::dial_derive
+    pub remote_connectors: Option<std::sync::Arc<dyn runtime_next::RemoteConnectors>>,
 }
 
 impl Default for Options {
@@ -45,6 +54,7 @@ impl Default for Options {
             splits: 3,
             snapshot_dir: None,
             log_handler: std::sync::Arc::new(ops::tracing_log_handler),
+            remote_connectors: None,
         }
     }
 }
@@ -213,6 +223,7 @@ async fn start_runners(
             store.clone(),
             clock.clone(),
             options.log_handler.clone(),
+            options.remote_connectors.clone(),
         )
         .await
         .with_context(|| format!("starting derivation session for {name}"))?;

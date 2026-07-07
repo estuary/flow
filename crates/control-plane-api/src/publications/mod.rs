@@ -144,7 +144,6 @@ impl PublicationResult {
 #[derive(Debug, Clone)]
 pub struct Publisher {
     builds_root: url::Url,
-    connector_network: String,
     logs_tx: logs::Tx,
     id_gen: std::sync::Arc<std::sync::Mutex<models::IdGenerator>>,
     db: sqlx::PgPool,
@@ -222,7 +221,6 @@ impl Into<build::Output> for UncommittedBuild {
 impl Publisher {
     pub fn new(
         builds_root: &url::Url,
-        connector_network: &str,
         logs_tx: &logs::Tx,
         pool: sqlx::PgPool,
         build_id_gen: models::IdGenerator,
@@ -230,7 +228,6 @@ impl Publisher {
     ) -> Self {
         Self {
             builds_root: builds_root.clone(),
-            connector_network: connector_network.to_string(),
             logs_tx: logs_tx.clone(),
             id_gen: std::sync::Mutex::new(build_id_gen.into()).into(),
             db: pool,
@@ -454,9 +451,7 @@ impl Publisher {
             && built.errors().next().is_none()
         {
             tracing::info!(%build_id, %publication_id, "running tests");
-            let errors =
-                builds::test_catalog(logs_token, &self.logs_tx, &self.connector_network, &built)
-                    .await?;
+            let errors = builds::test_catalog(logs_token, &self.logs_tx, &built).await?;
 
             tracing::debug!(test_count = %built.live.tests.len(), test_errors = %errors.len(), "finished running tests");
             errors

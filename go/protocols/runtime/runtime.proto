@@ -219,6 +219,19 @@ message DeriveRequestExt {
   Open open = 3;
 }
 
+// Codec is the wire framing that flow-connector-init negotiates with a
+// connector, per the connector image's FLOW_RUNTIME_CODEC label. The
+// connector-proxy backend conveys it to a remote connector client (which
+// otherwise cannot observe the image) so the client frames requests using the
+// codec the connector expects.
+enum Codec {
+  // Length-prefixed protobuf. The default for most connectors, and the value
+  // implied when the field is absent.
+  CODEC_PROTO = 0;
+  // Newline-delimited JSON.
+  CODEC_JSON = 1;
+}
+
 message DeriveResponseExt {
   Container container = 1;
 
@@ -226,6 +239,12 @@ message DeriveResponseExt {
     consumer.Checkpoint runtime_checkpoint = 1;
   }
   Opened opened = 2;
+
+  // Wire codec negotiated with the connector. Set (alongside `container`) only
+  // on the first response of a connector-proxy raw session, so a remote derive
+  // client learns the framing; unset in the in-process shard path, which learns
+  // the codec directly from connector startup.
+  Codec codec = 5;
 
   message Published {
     // Maximum UUID Clock of sourced document clocks which lead to this published document.
@@ -332,6 +351,26 @@ message ConnectorProxyResponse {
   // Log emitted by connectors invoked using `proxy_id`.
   // All messages following the first are logs.
   ops.Log log = 3;
+
+  // Bitmask of optional proxy features supported by this backend, sent with
+  // the first response. Zero (the field's absence) means a legacy V1 backend
+  // that supports only the unary Validate / Discover / Spec surface. A client
+  // that requires an optional feature MUST check the corresponding bit before
+  // relying on it, and fail loudly against a backend that does not advertise
+  // it (see ProxyFeature).
+  uint32 features = 4;
+}
+
+// ProxyFeature enumerates single-bit flags of ConnectorProxyResponse.features.
+// Values are bit positions (powers of two) so the field is a bitmask.
+enum ProxyFeature {
+  // Unused zero value: no feature.
+  PROXY_FEATURE_NONE = 0;
+  // The backend serves raw connector sessions: a proxied first-request `Open`
+  // starts the connector once and pipes both directions verbatim (Reset
+  // included) until client EOF. Advertised only by the runtime-next (V2)
+  // backend; the V1 backend never sets it.
+  PROXY_FEATURE_RAW_SESSIONS = 1;
 }
 
 service ConnectorProxy {

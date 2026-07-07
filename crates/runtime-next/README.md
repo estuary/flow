@@ -70,6 +70,12 @@ src/
 │                       #   via LogEvent::to_log). Production shards install FnLoggerFactory
 │                       #   (→ task-log file); leaders & tests install TracingLogger
 ├── patches.rs         # wire format for connector-state patch streams
+├── connector_proxy.rs # data-plane connector-proxy backend: serves the raw
+│                       #   capture/derive/materialize Connector gRPC services on
+│                       #   the task-service UDS. Unary requests (Validate/Spec/…)
+│                       #   start a fresh connector each (V1 parity); a first
+│                       #   Open runs a raw session, piping verbatim until EOF.
+│                       #   Registered alongside Shard in task_service.rs.
 │
 ├── leader/            # sidecar Leader service
 │   ├── service.rs       # gRPC entry, per-task Join rendezvous
@@ -117,6 +123,21 @@ src/
   `Shard` trait. Each bidi stream terminates *both* the controller-bound
   protocol and the leader-bound protocol, translating between them and the
   connector RPC.
+- **`ConnectorProxy`** (`connector_proxy.rs`) — the data-plane connector-proxy
+  backend, hosted on the same task-service UDS as `Shard`. The Go
+  `connector_proxy.go` forwards control-plane connector RPCs (Validate /
+  Discover / Spec, plus raw sessions) into it. It is a hard cutover from the V1
+  runtime backend; the control plane cannot distinguish the two for its unary
+  traffic. Raw-session support is advertised on the `ConnectorProxyResponse`
+  handshake via `ProxyFeature::RawSessions`.
+- **`RemoteConnectors`** (`lib.rs`) — a host seam letting a shard run its image
+  connector *remotely*, in the task's data plane through the proxy above,
+  instead of as a local container. Set on `shard::Service`
+  (`with_remote_connectors`), it is dialed once per derive session by
+  `shard/derive/connector.rs`; the sealed config passes through undecrypted (the
+  plane decrypts) and container / codec are read from the first response's ext.
+  Only the catalog-test agent path installs one; production shards, `flowctl
+  preview`, and `flowctl test` run all connectors locally.
 
 The only messages that flow controller → runtime-next → leader unmodified are
 `Stop`, `CloseNow`, and (derive only) `Reset`.
