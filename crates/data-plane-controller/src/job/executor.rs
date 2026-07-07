@@ -675,12 +675,12 @@ impl automations::Outcome for Outcome {
                 published_providers AS (
                     SELECT DISTINCT provider FROM endpoints
                 )
-                UPDATE data_plane_private_links l SET
+                UPDATE internal.data_plane_private_links l SET
                     status = CASE WHEN e.identity IS NOT NULL THEN 'provisioned' ELSE 'pending' END,
                     details = e.detail,
                     observed_at = now(),
                     updated_at = now()
-                FROM data_plane_private_links l2
+                FROM internal.data_plane_private_links l2
                 LEFT JOIN endpoints e
                     ON e.provider = l2.provider AND e.identity = l2.service_identity
                 WHERE l.id = l2.id

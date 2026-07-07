@@ -69,7 +69,7 @@ begin
     ]
   );
 
-  insert into public.data_plane_private_links (id, data_plane_id, provider, config, status, details) values
+  insert into internal.data_plane_private_links (id, data_plane_id, provider, config, status, details) values
     (
       '00:00:00:00:00:00:0a:01',
       alice_private_dp_id,

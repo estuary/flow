@@ -10,7 +10,7 @@
 
 begin;
 
-create table public.data_plane_private_links (
+create table internal.data_plane_private_links (
     id public.flowid primary key not null default internal.id_generator(),
     data_plane_id public.flowid not null
         references public.data_planes (id) on delete cascade,
@@ -43,38 +43,18 @@ create table public.data_plane_private_links (
         unique (data_plane_id, provider, service_identity)
 );
 
-comment on table public.data_plane_private_links is
+comment on table internal.data_plane_private_links is
     'Per-link private networking configuration (desired) and controller-observed status for a data plane.';
 
 -- No separate data_plane_id index: the unique constraint's index leads with
 -- data_plane_id and serves those lookups.
 
--- Access mirrors `data_planes`: a user read-authorized to the parent data plane
--- may select (a `read` grant already conveys ViewDataPlanePrivateNetworking).
--- Writes go only through agent-api (service_role); the finer View/Modify
--- capability gating lives in the agent-api resolvers.
-alter table public.data_plane_private_links enable row level security;
-
-create policy "Users must be read-authorized to the parent data plane"
-    on public.data_plane_private_links
-    for select
-    using (exists (
-        select 1
-        from public.data_planes dp
-        where dp.id = data_plane_private_links.data_plane_id
-          and exists (
-              select 1
-              from public.auth_roles('read'::public.grant_capability) r(role_prefix, capability)
-              where (dp.data_plane_name)::text ^@ (r.role_prefix)::text
-          )
-    ));
-
-grant all on table public.data_plane_private_links to service_role;
-grant select on table public.data_plane_private_links to reporting_user;
-grant select (
-    id, data_plane_id, provider, config, service_identity,
-    status, details, error, observed_at, created_at, updated_at
-) on table public.data_plane_private_links to authenticated;
+-- No RLS and no grants. The table lives in `internal`, which PostgREST does not
+-- expose (`config.toml` lists only `public`), so it is never reachable over the
+-- REST API. Every reader connects as `postgres`: the agent-api resolvers, which
+-- gate on the View/Modify private-networking capabilities, and the data-plane
+-- controller. A row-level policy would only bind a PostgREST caller, and none
+-- can reach an `internal` table. This mirrors `internal.invite_links`.
 
 -- Pre-flight: abort the migration on legacy `private_links` data the new
 -- table's invariants cannot represent, rather than silently dropping or
@@ -156,7 +136,7 @@ end $$;
 -- column already holds the source data, so column and table are consistent. No
 -- `on conflict` clause: the pre-flight above has proven there are no collisions,
 -- so any conflict here is an unexpected invariant break that should abort.
-insert into public.data_plane_private_links (data_plane_id, provider, config)
+insert into internal.data_plane_private_links (data_plane_id, provider, config)
 select
     dp.id,
     case
@@ -190,7 +170,7 @@ begin
     update public.data_planes dp set
         private_links = coalesce((
             select array_agg(l.config::json order by l.created_at, l.id)
-            from public.data_plane_private_links l
+            from internal.data_plane_private_links l
             where l.data_plane_id = v_data_plane_id
         ), array[]::json[])
     where dp.id = v_data_plane_id
@@ -214,7 +194,7 @@ $$;
 -- this trigger; were it to, each converge would reproject, wake the controller,
 -- and re-trigger itself in an unbounded reconverge loop.
 create trigger on_data_plane_private_links_change
-    after insert or delete or update of config, provider on public.data_plane_private_links
+    after insert or delete or update of config, provider on internal.data_plane_private_links
     for each row execute function internal.on_data_plane_private_links_change();
 
 commit;

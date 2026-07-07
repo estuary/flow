@@ -136,7 +136,7 @@ impl DataPlane {
                 details as "details: sqlx::types::Json<serde_json::Value>",
                 error,
                 observed_at as "observed_at: chrono::DateTime<chrono::Utc>"
-            FROM data_plane_private_links
+            FROM internal.data_plane_private_links
             WHERE data_plane_id = $1
             ORDER BY created_at, id
             "#,
@@ -555,7 +555,7 @@ async fn resolve_modifiable_link_data_plane(
     let Some(data_plane_name) = sqlx::query_scalar!(
         r#"
         SELECT dp.data_plane_name
-        FROM data_plane_private_links l
+        FROM internal.data_plane_private_links l
         JOIN data_planes dp ON dp.id = l.data_plane_id
         WHERE l.id = $1
         "#,
@@ -601,7 +601,7 @@ impl DataPlanesMutation {
         let provider = config.provider();
         let row = sqlx::query!(
             r#"
-            INSERT INTO data_plane_private_links (data_plane_id, provider, config)
+            INSERT INTO internal.data_plane_private_links (data_plane_id, provider, config)
             SELECT dp.id, $2, $3
             FROM data_planes dp WHERE dp.data_plane_name = $1
             RETURNING
@@ -654,7 +654,7 @@ impl DataPlanesMutation {
         let provider = config.provider();
         let row = sqlx::query!(
             r#"
-            UPDATE data_plane_private_links SET
+            UPDATE internal.data_plane_private_links SET
                 provider = $2,
                 config = $3,
                 status = 'pending',
@@ -705,7 +705,7 @@ impl DataPlanesMutation {
         let data_plane_name = resolve_modifiable_link_data_plane(ctx, id).await?;
 
         _ = sqlx::query!(
-            "DELETE FROM data_plane_private_links WHERE id = $1",
+            "DELETE FROM internal.data_plane_private_links WHERE id = $1",
             id as models::Id,
         )
         .execute(&env.pg_pool)
@@ -1074,7 +1074,7 @@ mod tests {
 
     async fn count_links(pool: &sqlx::PgPool, dp: &str) -> i64 {
         sqlx::query_scalar(
-            r#"SELECT count(*) FROM data_plane_private_links l
+            r#"SELECT count(*) FROM internal.data_plane_private_links l
                JOIN data_planes dp ON dp.id = l.data_plane_id
                WHERE dp.data_plane_name = $1"#,
         )

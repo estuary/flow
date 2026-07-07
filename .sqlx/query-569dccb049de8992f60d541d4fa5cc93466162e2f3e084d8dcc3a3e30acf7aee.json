@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM data_plane_private_links WHERE id = $1",
+  "query": "DELETE FROM internal.data_plane_private_links WHERE id = $1",
   "describe": {
     "columns": [],
     "parameters": {
@@ -10,5 +10,5 @@
     },
     "nullable": []
   },
-  "hash": "dc7c02435c03246d6a9b0efe1acf88b6ee10b05976bcc6f14d36b385562056f9"
+  "hash": "569dccb049de8992f60d541d4fa5cc93466162e2f3e084d8dcc3a3e30acf7aee"
 }

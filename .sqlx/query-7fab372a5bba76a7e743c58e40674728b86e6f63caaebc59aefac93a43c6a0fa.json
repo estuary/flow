@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT dp.data_plane_name\n        FROM data_plane_private_links l\n        JOIN data_planes dp ON dp.id = l.data_plane_id\n        WHERE l.id = $1\n        ",
+  "query": "\n        SELECT dp.data_plane_name\n        FROM internal.data_plane_private_links l\n        JOIN data_planes dp ON dp.id = l.data_plane_id\n        WHERE l.id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "6bbf6e17a0043b9d6c161e25e30317a4decd2c98dca9722338bee8daa249701c"
+  "hash": "7fab372a5bba76a7e743c58e40674728b86e6f63caaebc59aefac93a43c6a0fa"
 }
