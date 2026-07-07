@@ -239,6 +239,72 @@ There is no published collection or SQL table, so violations surface as **struct
 ERROR ops logs** (`source: materialize-soak`). Verify a run by grepping its ops logs for
 `ERROR`.
 
+## Schema inference
+
+The soak is *gated* on schema inference: the `test/soak/events/*` collections take an
+inferred `readSchema`, so `accounts` and everything downstream cannot read a document until
+inference has propagated end to end. **The chain running at all is the proof it works** — if
+inference breaks, `accounts` never comes up.
+
+### Design
+
+Each `events/*` collection keeps `events.schema.json` as its **writeSchema** and adds a
+**readSchema** of `allOf: [{$ref: flow://write-schema}, {$ref: flow://inferred-schema}]`.
+Inference propagates six hops: runtime emits `inferred schema updated` → L1 rollup
+(`ops/rollups/L1/public/local-cluster/inferred-schemas`) → L2 → the `stats-view`
+materialization writes the `inferred_schemas` control-plane table → a DB trigger schedules
+the collection controller → it republishes the collection with the real schema inlined.
+
+`source-soak` marks the stable fields (`id`, `ts`, `set`, `oracle`) as sourced via a partial
+`SourcedSchema` and leaves the growing ones (`seq`, `balanceDelta`, `transfer`) to doc-driven
+inference, so those bounds churn as magnitudes grow while the sourced fields stay put (see
+`source_soak/__main__.py` for how and why). `test/soak/accounts` keeps an explicit schema and
+produces no `inferred_schemas` row — both expected; see `derivation/flow.yaml`.
+
+### Lifecycle — churn is expected
+
+On a fresh publish, `flow://inferred-schema` is a placeholder that fails every read, so
+`accounts` **crash-loops for ~1–3 minutes** until the first inference lands, then recovers.
+After that, widening windows recur: as doc-inferred bounds cross 10× brackets the schema
+widens, `accounts` briefly fails read validation, the controller republishes, and the task
+recovers. Early on `transfer.from`/`transfer.to` (account ids across `[0, idRange)`) churn
+the most. The exactly-once and conservation checks hold across every cycle — a
+spec-update-under-load probe.
+
+The healthy signature during any window is `source document of transform ... is invalid`.
+Any *other* error, or a window that never closes, is a defect.
+
+### Verification
+
+```bash
+PG='psql postgresql://postgres:postgres@localhost:5432/postgres -tAc'
+
+# Inferred-schema rows: expect exactly the three events/* (NOT accounts — see above). None
+# at all ⇒ the runtime→L1→L2→materialize path is broken (the motivating bug class); rows
+# present but accounts never converges ⇒ the controller-republish / downstream-activation hop.
+$PG "SELECT collection_name, md5 FROM inferred_schemas WHERE collection_name LIKE 'test/soak/%';"
+
+# Built read schema of an events collection, once converged:
+$PG "SELECT built_spec->'readSchema' FROM live_specs WHERE catalog_name = 'test/soak/events/alpha';"
+#   - must NOT contain 'inferredSchemaIsNotAvailable' (placeholder gone)
+#   - 'seq' under flow://inferred-schema has a 'maximum' (doc-inferred, widened)
+#   - 'id' and 'oracle/seq' have no bounds (sourced, stable)
+```
+
+(The L1 collection `ops/rollups/L1/public/local-cluster/inferred-schemas` carries the same
+`test/soak/*` documents, but reading it needs `ops/` access — use the `inferred_schemas`
+table above, which `stats-view` materializes it into.)
+
+### Caveats and knobs
+
+- **Preview ordering.** `flowctl --profile local preview` of the derivation or ledger inlines
+  the inferred schema from the control plane, so it only works **after** the published stack
+  has converged; on a fresh stack it inlines the placeholder and every read fails. Capture
+  preview is unaffected (captures don't read). Re-publishing `test/soak/` bumps the collection
+  generation and discards stale inference, so the loop re-runs from the placeholder.
+- **Forcing widening cycles.** With defaults, bracket crossings take hours. Lower `idRange`
+  (e.g. to `50`) to concentrate events on fewer accounts and force crossings within minutes.
+
 ## Setup
 
 Install the Python deps into the in-project venv (`.venv`, gitignored; `poetry.toml` pins
