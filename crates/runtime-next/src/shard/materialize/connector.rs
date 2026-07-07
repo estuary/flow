@@ -8,7 +8,9 @@ use zeroize::Zeroize;
 
 // Start a materialization connector as indicated by the `initial` Request.
 // Returns a pair of Streams for sending Requests and receiving Responses,
-// plus OpenExtras with decrypted trigger configs and connector metadata.
+// plus OpenExtras with decrypted trigger configs and connector metadata,
+// plus a deadline for gracefully restarting the session ahead of injected
+// IAM credential expiry (None when the task doesn't use IAM auth).
 pub async fn start<L: crate::LogHandler>(
     service: &crate::shard::Service<L>,
     log_level: ops::LogLevel,
@@ -18,6 +20,7 @@ pub async fn start<L: crate::LogHandler>(
     BoxStream<'static, tonic::Result<materialize::Response>>,
     Option<crate::proto::Container>,
     connector_init::Codec,
+    Option<std::time::SystemTime>,
 )> {
     let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
     let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
@@ -116,6 +119,7 @@ pub async fn start<L: crate::LogHandler>(
         response => return Err(verify.fail_msg(response)),
     };
 
+    let mut token_restart_at = None;
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
         config_json,
         &spec_response.config_schema_json,
@@ -127,13 +131,48 @@ pub async fn start<L: crate::LogHandler>(
                 .await
                 .map_err(crate::anyhow_to_status)?;
 
+            token_restart_at = Some(token_restart_deadline(
+                std::time::SystemTime::now(),
+                tokens.expires_at(),
+            ));
             *config_json = tokens.inject_into(config_json)?.to_string().into();
             tokens.zeroize();
         }
     }
     _ = connector_tx.try_send(initial);
 
-    Ok((connector_tx, connector_rx, container, codec))
+    Ok((
+        connector_tx,
+        connector_rx,
+        container,
+        codec,
+        token_restart_at,
+    ))
+}
+
+/// Deadline for beginning a graceful session restart ahead of IAM token
+/// expiry, so a transaction started near the deadline still has runway to
+/// commit with valid credentials. Short (1 hour) tokens can't afford a large
+/// margin; extended (12 hour) tokens trade some of their generous lifetime
+/// for more commit runway.
+fn token_restart_deadline(
+    now: std::time::SystemTime,
+    expires_at: std::time::SystemTime,
+) -> std::time::SystemTime {
+    use std::time::Duration;
+
+    const LONG_LIFETIME: Duration = Duration::from_secs(4 * 3600);
+    const LONG_MARGIN: Duration = Duration::from_secs(30 * 60);
+    const SHORT_MARGIN: Duration = Duration::from_secs(5 * 60);
+
+    let lifetime = expires_at.duration_since(now).unwrap_or_default();
+    let margin = if lifetime >= LONG_LIFETIME {
+        LONG_MARGIN
+    } else {
+        SHORT_MARGIN
+    };
+    // A pathologically short lifetime restarts immediately rather than never.
+    expires_at - margin.min(lifetime)
 }
 
 fn extract_endpoint<'r>(
@@ -214,5 +253,35 @@ fn extract_endpoint<'r>(
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::token_restart_deadline;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn test_token_restart_deadline_margins() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+        // One-hour token restarts five minutes early.
+        let expires = now + Duration::from_secs(3600);
+        assert_eq!(
+            token_restart_deadline(now, expires),
+            expires - Duration::from_secs(5 * 60)
+        );
+
+        // Twelve-hour token restarts thirty minutes early.
+        let expires = now + Duration::from_secs(12 * 3600);
+        assert_eq!(
+            token_restart_deadline(now, expires),
+            expires - Duration::from_secs(30 * 60)
+        );
+
+        // A lifetime shorter than its margin restarts immediately, not never.
+        let expires = now + Duration::from_secs(60);
+        assert_eq!(token_restart_deadline(now, expires), now);
+        assert_eq!(token_restart_deadline(now, now), now);
     }
 }

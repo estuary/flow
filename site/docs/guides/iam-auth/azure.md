@@ -37,3 +37,11 @@ For example, these are the issuer values for a few common public data planes:
 ![Add Federated Credential](../guide-images/azure-iam-2.png)
 
 Now take note of the Application ID and Tenant ID of your App Registration and use it when configuring Azure IAM.
+
+## Token Lifetime
+
+Microsoft Entra ID issues access tokens with a lifetime of roughly 1 hour by default.
+
+Estuary gracefully restarts long-running task sessions shortly before their credentials expire, minting fresh tokens on each restart. A 1-hour lifetime is sufficient for most tasks, but if your task runs very large transactions — for example, a materialization whose commits take a substantial fraction of an hour — a longer token lifetime gives each transaction more time to complete.
+
+To extend the lifetime, attach a [token lifetime policy](https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes) to your App Registration's service principal. Estuary honors whatever lifetime your tenant grants automatically — no Estuary-side configuration is needed.

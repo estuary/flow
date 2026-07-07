@@ -73,3 +73,11 @@ principal://iam.googleapis.com/projects/12345/locations/global/workloadIdentityP
 ![Workload Identity User Access Granted to Principal](../guide-images/gcp-iam-4-identity-user-access.png)
 
 Now when configuring the connector which supports GCP, you will need to provide the service account identifier which has access to the resource and the workload identity pool's audience (which you can find in the pool provider details page, also noted in the step when creating the provider).
+
+## Token Lifetime
+
+Google Cloud limits impersonated service account tokens to a maximum lifetime of 1 hour by default. Estuary always requests a 12-hour token first and automatically falls back to 1 hour if your project doesn't allow it, so no Estuary-side configuration is needed either way.
+
+Estuary gracefully restarts long-running task sessions shortly before their credentials expire, minting fresh tokens on each restart. A 1-hour lifetime is sufficient for most tasks, but if your task runs very large transactions — for example, a materialization whose commits take a substantial fraction of an hour — a longer token lifetime gives each transaction more time to complete.
+
+To enable 12-hour tokens, set the [`constraints/iam.allowServiceAccountCredentialLifetimeExtension`](https://cloud.google.com/resource-manager/docs/organization-policy/restricting-service-accounts#extend_oauth_ttl) organization policy to include the service account Estuary impersonates. Estuary detects the extended lifetime automatically on the task's next session.

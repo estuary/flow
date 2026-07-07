@@ -76,6 +76,7 @@ pub(super) struct Startup {
     pub leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     pub max_keys: Vec<(bytes::Bytes, bytes::Bytes)>,
     pub shuffle_reader: shuffle::log::Reader,
+    pub token_restart_at: Option<std::time::SystemTime>,
 }
 
 pub(super) async fn run<R, L: crate::LogHandler>(
@@ -244,7 +245,7 @@ where
         }),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container, codec) =
+    let (connector_tx, mut connector_rx, container, codec, token_restart_at) =
         super::connector::start(service, log_level, initial).await?;
 
     // Read C:Opened from the connector.
@@ -306,5 +307,6 @@ where
         leader_tx,
         max_keys,
         shuffle_reader,
+        token_restart_at,
     })
 }
