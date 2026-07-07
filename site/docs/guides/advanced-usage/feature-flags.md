@@ -129,7 +129,7 @@ Skips truncating destination tables when a backfill is triggered.
 - **Use case:** Preserving historical data in the destination when a schema change triggers an automatic backfill.
 - **Caveats:**
   - May result in duplicate or inconsistent data if the source collection contains updated versions of previously materialized documents.
-  - When this flag is enabled, backfilled rows are matched against existing rows and updated in place, rather than inserted as duplicates.
+  - When this flag is enabled, backfilled rows are matched against existing rows and updated in place, rather than inserted as duplicates (this flag disables the load key optimization).
   - If collection keys or the destination table schema change in incompatible ways, the connector will still drop and recreate the table even with this flag enabled.
 - **Applies to:** Most SQL and warehouse materialization connectors.
 
