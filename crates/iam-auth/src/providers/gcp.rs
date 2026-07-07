@@ -32,7 +32,7 @@ pub async fn generate_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
     signed_jwt.zeroize();
 
     // Step 3: Use the exchanged access token to impersonate the target service account
-    let impersonated_token =
+    let (impersonated_token, expires_at) =
         impersonate_service_account(&exchanged_token, &config.gcp_service_account_to_impersonate)
             .await?;
 
@@ -40,8 +40,16 @@ pub async fn generate_tokens(config: &GCPConfig, task_name: &str) -> anyhow::Res
 
     Ok(GCPTokens {
         access_token: impersonated_token,
+        expires_at,
     })
 }
+
+// GCP caps `generateAccessToken` lifetimes at one hour unless the customer's
+// org policy `constraints/iam.allowServiceAccountCredentialLifetimeExtension`
+// names the impersonated service account, which raises the cap to twelve hours.
+// First we'll try the extended lifetime, and iff that fails we fall back to the hour
+const EXTENDED_LIFETIME: std::time::Duration = std::time::Duration::from_secs(12 * 3600);
+const DEFAULT_LIFETIME: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Get GCP access token from service account credentials JSON
 async fn get_gcp_token_from_credentials(credentials_json: &str) -> anyhow::Result<String> {
@@ -215,11 +223,29 @@ async fn exchange_jwt_for_service_account_token(
         .context("missing access_token in OAuth token exchange response")
 }
 
-/// Impersonate a service account using the generateAccessToken API
+/// Impersonate a service account using the generateAccessToken API.
+/// Returns the access token and when it expires.
 async fn impersonate_service_account(
     access_token: &str,
     target_service_account: &str,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<(String, std::time::SystemTime)> {
+    match impersonate_with_lifetime(access_token, target_service_account, EXTENDED_LIFETIME).await {
+        Ok(ok) => Ok(ok),
+        Err(extended_err) => {
+            tracing::debug!(
+                error = ?extended_err,
+                "extended-lifetime GCP token was refused; falling back to the default lifetime"
+            );
+            impersonate_with_lifetime(access_token, target_service_account, DEFAULT_LIFETIME).await
+        }
+    }
+}
+
+async fn impersonate_with_lifetime(
+    access_token: &str,
+    target_service_account: &str,
+    lifetime: std::time::Duration,
+) -> anyhow::Result<(String, std::time::SystemTime)> {
     use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
     use serde_json::json;
 
@@ -232,8 +258,11 @@ async fn impersonate_service_account(
     let body = json!({
         "scope": ["https://www.googleapis.com/auth/cloud-platform"],
         "delegates": [],
-        "lifetime": "3600s" // 12 hours
+        "lifetime": format!("{}s", lifetime.as_secs()),
     });
+    // Taken prior to the request, so the computed expiry under-estimates the
+    // actual `expireTime` granted by GCP (which is what we want).
+    let now = std::time::SystemTime::now();
 
     let response = client
         .post(&url)
@@ -254,11 +283,13 @@ async fn impersonate_service_account(
         .await
         .context("failed to parse GCP generateAccessToken response")?;
 
-    response_json
+    let token = response_json
         .get("accessToken")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .context("missing accessToken in GCP generateAccessToken response")
+        .context("missing accessToken in GCP generateAccessToken response")?;
+
+    Ok((token, now + lifetime))
 }
 
 /// Create JWT token and exchange it for an access token using OAuth 2.0 service account flow

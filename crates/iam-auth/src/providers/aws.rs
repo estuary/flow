@@ -60,9 +60,13 @@ pub async fn generate_tokens(config: &AWSConfig, task_name: &str) -> anyhow::Res
         .credentials()
         .context("no credentials returned from STS AssumeRoleWithWebIdentity")?;
 
+    let expires_at = std::time::SystemTime::try_from(*credentials.expiration())
+        .context("STS credential expiration is not a valid timestamp")?;
+
     Ok(AWSTokens {
         access_key_id: credentials.access_key_id().to_string(),
         secret_access_key: credentials.secret_access_key().to_string(),
         session_token: credentials.session_token().to_string(),
+        expires_at,
     })
 }
