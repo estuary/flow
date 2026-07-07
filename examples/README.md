@@ -25,13 +25,13 @@ catalog collections. We recommend that _every_ Estuary catalog include tests,
 and these examples are no exception:
 
 ```console
-$ flowctl-go test --source examples/flow.yaml
+$ flowctl test --source examples/flow.yaml
 ```
 
 You can also directly test catalog sources which are hosted remotely:
 
 ```console
-$ flowctl-go test --source https://raw.githubusercontent.com/estuary/flow/master/examples/all.flow.yaml
+$ flowctl test --source https://raw.githubusercontent.com/estuary/flow/master/examples/all.flow.yaml
 ```
 
 ## Examples

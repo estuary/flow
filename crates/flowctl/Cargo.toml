@@ -34,6 +34,7 @@ proto-grpc = { path = "../proto-grpc", features = [
 ] }
 publisher = { path = "../publisher" }
 runtime = { path = "../runtime" }
+runtime-harness = { path = "../runtime-harness" }
 runtime-next = { path = "../runtime-next" }
 service-kit = { path = "../service-kit" }
 shuffle = { path = "../shuffle" }

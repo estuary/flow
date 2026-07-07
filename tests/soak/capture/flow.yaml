@@ -1,10 +1,10 @@
 # The soak capture and the raw event logs it writes (see ../README.md).
 #
 # `test/soak/source` runs as a `local:` process (the source-soak wrapper), so no
-# Docker image build is needed — feeding this file alone to `flowctl raw
-# preview-next` pulls in nothing but these specs. The `enable-runtime-v2` shard
+# Docker image build is needed — feeding this file alone to `flowctl
+# preview` pulls in nothing but these specs. The `enable-runtime-v2` shard
 # flag routes the task through runtime-next when published to a local data plane;
-# `flowctl raw preview-next` is always V2 and ignores the flag.
+# `flowctl preview` is always V2 and ignores the flag.
 #
 # The endpoint `collections` list and the `bindings` below must agree (one binding
 # per name); edit both together to scale the capture across more collections.

@@ -143,7 +143,6 @@ impl PublicationResult {
 /// A PublishHandler is a Handler which publishes catalog specifications.
 #[derive(Debug, Clone)]
 pub struct Publisher {
-    flowctl_go: std::path::PathBuf,
     builds_root: url::Url,
     connector_network: String,
     logs_tx: logs::Tx,
@@ -222,7 +221,6 @@ impl Into<build::Output> for UncommittedBuild {
 
 impl Publisher {
     pub fn new(
-        flowctl_go: std::path::PathBuf,
         builds_root: &url::Url,
         connector_network: &str,
         logs_tx: &logs::Tx,
@@ -231,7 +229,6 @@ impl Publisher {
         builder: Box<dyn builds::Builder>,
     ) -> Self {
         Self {
-            flowctl_go,
             builds_root: builds_root.clone(),
             connector_network: connector_network.to_string(),
             logs_tx: logs_tx.clone(),
@@ -451,37 +448,15 @@ impl Publisher {
             )
             .await?;
 
-        // If there are any tests, run them now as long as there's no build errors
+        // If there are any tests, run them now as long as there's no build errors.
         let test_errors = if built.built.built_tests.len() > 0
             && !self.skip_tests
             && built.errors().next().is_none()
         {
-            tracing::info!(%build_id, %publication_id, tmpdir = %tmpdir.display(), "running tests");
-            let data_plane_job = builds::data_plane(
-                &self.connector_network,
-                &self.flowctl_go,
-                logs_token,
-                &self.logs_tx,
-                tmpdir,
-            );
-            let test_jobs = builds::test_catalog(
-                &self.flowctl_go,
-                logs_token,
-                &self.logs_tx,
-                build_id,
-                tmpdir,
-                &built,
-            );
-
-            // Drive the data-plane and test jobs, until test jobs complete.
-            tokio::pin!(test_jobs);
-            let errors: tables::Errors = tokio::select! {
-                r = data_plane_job => {
-                    tracing::error!(?r, "test data-plane exited unexpectedly");
-                    test_jobs.await // Wait for test jobs to finish.
-                }
-                r = &mut test_jobs => r,
-            }?;
+            tracing::info!(%build_id, %publication_id, "running tests");
+            let errors =
+                builds::test_catalog(logs_token, &self.logs_tx, &self.connector_network, &built)
+                    .await?;
 
             tracing::debug!(test_count = %built.live.tests.len(), test_errors = %errors.len(), "finished running tests");
             errors

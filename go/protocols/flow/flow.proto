@@ -747,47 +747,6 @@ message BuildAPI {
   }
 }
 
-// ResetStateRequest is the request of the Testing.ResetState RPC.
-message ResetStateRequest {}
-
-// ResetStateResponse is the response of the Testing.ResetState RPC.
-message ResetStateResponse {}
-
-// AdvanceTimeRequest is the request of the Testing.AdvanceTime RPC.
-message AdvanceTimeRequest { uint64 advance_seconds = 1; }
-
-// AdvanceTimeResponse is the response of the Testing.AdvanceTime RPC.
-message AdvanceTimeResponse {}
-
-message IngestRequest {
-  // Name of the collection into which to ingest.
-  string collection = 1 [ (gogoproto.casttype) = "Collection" ];
-  // Build ID of the ingested collection.
-  string build_id = 2;
-  // JSON documents to ingest or verify.
-  repeated bytes docs_json_vec = 3 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "docs"
-  ];
-}
-
-// IngestResponse is the response of the Testing.Ingest RPC.
-message IngestResponse {
-  // Journals appended to by this ingestion, and their maximum offset on commit.
-  map<string, int64> journal_write_heads = 1 [
-    (gogoproto.castkey) = "go.gazette.dev/core/broker/protocol.Journal",
-    (gogoproto.castvalue) = "go.gazette.dev/core/broker/protocol.Offset"
-  ];
-  // Etcd header which describes current journal partitions.
-  protocol.Header.Etcd journal_etcd = 2 [ (gogoproto.nullable) = false ];
-}
-
-service Testing {
-  rpc ResetState(ResetStateRequest) returns (ResetStateResponse);
-  rpc AdvanceTime(AdvanceTimeRequest) returns (AdvanceTimeResponse);
-  rpc Ingest(IngestRequest) returns (IngestResponse);
-}
-
 message TaskNetworkProxyRequest {
   message Open {
     // Header contains information about the shard resolution that was done by the client

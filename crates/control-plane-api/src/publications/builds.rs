@@ -4,7 +4,6 @@ use models::Id;
 use rand::RngCore;
 use sqlx::types::Uuid;
 use std::path;
-use tables::BuiltRow;
 use validation::Connectors;
 
 #[async_trait::async_trait]
@@ -82,10 +81,8 @@ async fn build_catalog<Conn: Connectors>(
     connectors: &Conn,
     explicit_plane_name: Option<&str>,
 ) -> anyhow::Result<build::Output> {
-    // We perform the build under a ./builds/ subdirectory, which is a
-    // specific sub-path expected by temp-data-plane underneath its
-    // working temporary directory. This lets temp-data-plane use the
-    // build database in-place.
+    // Stage the build database under a ./builds/ subdirectory of the working
+    // temporary directory; it is uploaded to `builds_root` further below.
     let builds_dir = tmpdir.join("builds");
     std::fs::create_dir(&builds_dir).context("creating builds directory")?;
     tracing::debug!(?builds_dir, "using build directory");
@@ -160,192 +157,56 @@ async fn build_catalog<Conn: Connectors>(
     Ok(output)
 }
 
-pub async fn data_plane(
-    connector_network: &str,
-    flowctl_go: &std::path::Path,
-    logs_token: Uuid,
-    logs_tx: &logs::Tx,
-    tmpdir: &path::Path,
-) -> anyhow::Result<()> {
-    // Start a data-plane. It will use ${tmp_dir}/builds as its builds-root,
-    // which we also used as the build directory, meaning the build database
-    // is already in-place.
-    let data_plane_job = jobs::run(
-        "temp-data-plane",
-        logs_tx,
-        logs_token,
-        async_process::Command::new(flowctl_go)
-            .arg("temp-data-plane")
-            .arg("--network")
-            .arg(connector_network)
-            .arg("--tempdir")
-            .arg(tmpdir)
-            .arg("--unix-sockets")
-            .arg("--log.level=warn")
-            .arg("--log.format=color")
-            .current_dir(tmpdir),
-    )
-    .await
-    .with_context(|| format!("starting data-plane in {tmpdir:?}"))?;
-
-    if !data_plane_job.success() {
-        anyhow::bail!("data-plane in {tmpdir:?} exited with an unexpected error");
-    }
-
-    Ok(())
-}
-
+/// Run a built catalog's tests on the local `runtime-harness`, returning a
+/// `tables::Error` per failing test case. Derivations execute as resident
+/// runtime-next sessions (derive-sqlite in-process; image derivations as
+/// containers on `connector_network`, with three splits to exercise multi-shard
+/// key routing) and each test's ingest / verify steps run against an in-memory
+/// collection store. No Gazette broker, etcd, Go consumer, or `flowctl-go`
+/// binary is involved. Connector and runtime logs stream to the job's `logs_tx`.
 pub async fn test_catalog(
-    flowctl_go: &std::path::Path,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
-    build_id: Id,
-    tmpdir: &path::Path,
+    connector_network: &str,
     catalog: &build::Output,
 ) -> anyhow::Result<tables::Errors> {
     let mut errors = tables::Errors::default();
-
-    // The tmpdir path will always begin with a /, so we don't need to add one
-    let broker_socket_path = tmpdir.join("gazette.sock");
-    let broker_sock = format!("unix://localhost{}", broker_socket_path.display());
-    let consumer_socket_path = tmpdir.join("consumer.sock");
-    let consumer_sock = format!("unix://localhost{}", consumer_socket_path.display());
-
-    // The temp-data-plane is started concurrently and the unix sockets do not
-    // exist until gazette and the consumer have begun listening. Waiting for
-    // the socket files prevents an immediate ENOENT on the first gRPC dial.
-    wait_for_sockets(&[&broker_socket_path, &consumer_socket_path]).await?;
-
-    let build_id = format!("{build_id}");
-
-    // Activate all derivations.
-    let journal_client = gazette::journal::Client::new(
-        broker_sock.clone(),
-        gazette::journal::Client::new_fragment_client(),
-        proto_grpc::Metadata::default(),
-        gazette::Router::new("local"),
-    );
-    let shard_client = gazette::shard::Client::new(
-        consumer_sock.clone(),
-        proto_grpc::Metadata::default(),
-        gazette::Router::new("local"),
-    );
-
-    for built in catalog
-        .built
-        .built_collections
-        .iter()
-        .filter(|c| c.model().is_some_and(|m| m.derive.is_some()))
-    {
-        let mut spec = built.spec().cloned().unwrap();
-        let shards = spec
-            .derivation
-            .as_mut()
-            .unwrap()
-            .shard_template
-            .as_mut()
-            .unwrap();
-        let build_label = shards
-            .labels
-            .as_mut()
-            .unwrap()
-            .labels
-            .iter_mut()
-            .find(|l| l.name == labels::BUILD)
-            .unwrap();
-        build_label.value = build_id.clone();
-
-        if let Err(err) = activate::activate_collection(
-            &journal_client,
-            &shard_client,
-            &built.collection,
-            Some(&spec),
-            None, // Use "local" logging.
-            None,
-            3, // use 3 splits to try to catch shuffle errors
-        )
-        .await
-        .context("activating derivation for test")
-        {
-            tracing::error!(error = ?err, derivation = %built.catalog_name(), "failed to activate derivation in temp-data-plane");
-            errors.insert(tables::Error {
-                error: anyhow::anyhow!(
-                    "Test setup failed. View logs for details and reach out to support@estuary.dev"
-                ),
-                scope: url::Url::parse("flow://publication/test/activate").unwrap(),
-            });
-            // Fail fast on first activation error
-            return Ok(errors);
-        };
+    if catalog.built.built_tests.is_empty() {
+        return Ok(errors);
     }
 
-    // Run test cases.
-    let job = jobs::run(
-        "test",
-        &logs_tx,
-        logs_token,
-        async_process::Command::new(flowctl_go)
-            .arg("api")
-            .arg("test")
-            .arg("--build-id")
-            .arg(&build_id)
-            .arg("--broker.address")
-            .arg(&broker_sock)
-            .arg("--consumer.address")
-            .arg(&consumer_sock)
-            .arg("--log.level=warn")
-            .arg("--log.format=color"),
-    )
-    .await
-    .context("starting test runner")?;
+    // Stream the harness's ops logs (connector output + flattened runtime events)
+    // to the publication's job logs, matching the prior `flowctl-go api test`
+    // job's "test" stream.
+    let ops_handler = logs::ops_handler(logs_tx.clone(), "test".to_string(), logs_token);
+    let options = runtime_harness::Options {
+        network: connector_network.to_string(),
+        splits: 3, // Exercise multi-shard key routing, as the prior path did.
+        snapshot_dir: None,
+        log_handler: std::sync::Arc::new(move |log: &ops::Log| {
+            runtime::LogHandler::log(&ops_handler, log)
+        }),
+    };
 
-    if !job.success() {
+    let results = runtime_harness::run_tests(&catalog.built, options)
+        .await
+        .context("running catalog tests")?;
+
+    for outcome in &results.outcomes {
+        let Some(failure) = &outcome.error else {
+            continue;
+        };
+        // The scope is the failing step's source URL with a JSON-pointer
+        // fragment, so failures anchor to the exact test step.
+        let scope = url::Url::parse(&outcome.scope)
+            .unwrap_or_else(|_| url::Url::parse("flow://publication/test").unwrap());
         errors.insert(tables::Error {
-            error: anyhow::anyhow!("One or more test cases failed. View logs for details."),
-            scope: url::Url::parse("flow://publication/test/api/test").unwrap(),
+            error: anyhow::anyhow!("test {} failed:\n{failure}", outcome.name),
+            scope,
         });
     }
 
-    // Clean up derivations.
-    for built in catalog
-        .built
-        .built_collections
-        .iter()
-        .filter(|c| c.model().is_some_and(|m| m.derive.is_some()))
-    {
-        if let Err(error) = activate::activate_collection(
-            &journal_client,
-            &shard_client,
-            &built.collection,
-            None,
-            None,
-            None,
-            1,
-        )
-        .await
-        .context("cleaning up derivation after test")
-        {
-            tracing::error!(?error, derivation = %built.catalog_name(), "failed to delete derivation from temp-data-plane");
-            errors.insert(tables::Error {
-                error: anyhow::anyhow!(
-                    "Test cleanup failed. View logs for details and reach out to support@estuary.dev"
-                ),
-                scope: url::Url::parse("flow://publication/test/api/delete").unwrap(),
-            });
-        }
-    }
-
     Ok(errors)
-}
-
-async fn wait_for_sockets(paths: &[&path::Path]) -> anyhow::Result<()> {
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
-        while !paths.iter().all(|p| p.exists()) {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .with_context(|| format!("timed out waiting for temp-data-plane sockets {paths:?}"))
 }
 
 /*

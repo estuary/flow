@@ -28,6 +28,7 @@ proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = ["runtime_client"] }
 runtime = { path = "../runtime" }
+runtime-harness = { path = "../runtime-harness" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 tokens = { path = "../tokens" }
@@ -86,6 +87,10 @@ hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }
 sha2 = { workspace = true }
+# The runtime-harness loopback stack (used by `test_catalog`) dials over rustls
+# 0.23; a direct dev-dep lets the test install a process crypto provider.
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
 

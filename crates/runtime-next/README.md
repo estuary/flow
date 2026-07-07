@@ -119,7 +119,19 @@ src/
   connector RPC.
 
 The only messages that flow controller → runtime-next → leader unmodified are
-`Stop` and `CloseNow`.
+`Stop`, `CloseNow`, and (derive only) `Reset`.
+
+`Reset` is a test-only signal used by the catalog-test harness between test
+cases. It flows controller → shard → leader as a request (like `Stop`), where
+the leader quiesces the Head/Tail FSMs at a transaction boundary (a
+`reset_requested` input paired with `close_requested`), then runs a handshake:
+it commands every shard to reset its connector (`derive::Request.Reset`,
+fire-and-forget) and awaits `ResetDone`; durably clears persisted connector
+state on shard zero via an immediate standalone Persist (deliberately stronger
+than V1 — read frontiers and ACK intents are preserved); and confirms overall
+completion back leader → shards → controllers as `ResetDone`. The session then
+resumes. See `leader/derive/actor.rs::perform_reset` and the `Head::Reset`
+arm in `leader/derive/fsm.rs`.
 
 ## Protocol
 

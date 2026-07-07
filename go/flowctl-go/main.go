@@ -12,17 +12,6 @@ const iniFilename = "flow.ini"
 func main() {
 	var parser = flags.NewParser(nil, flags.HelpFlag|flags.PassDoubleDash)
 
-	addCmd(parser, "test", "Locally test a Flow catalog", `
-Locally test a Flow catalog.
-		`, &cmdTest{})
-
-	addCmd(parser, "temp-data-plane", "Run an ephemeral, temporary local data plane", `
-Run a local data plane by shelling out to start Etcd, Gazette, and the Flow consumer.
-A local data plane is intended for local development and testing, and doesn't persist
-fragments to the configured storage mappings of collections and Flow tasks.
-Upon exit, all data is discarded.
-`, &cmdTempDataPlane{})
-
 	serve, err := parser.Command.AddCommand("serve", "Serve a component of Flow", "", &struct{}{})
 	mbp.Must(err, "failed to add command")
 
@@ -58,14 +47,6 @@ Build a Flow catalog.
 	addCmd(apis, "activate", "Activate a built Flow catalog", `
 Activate tasks and collections of a Flow catalog.
 `, &apiActivate{})
-
-	addCmd(apis, "test", "Run tests of an activated catalog", `
-Run tests of an activated catalog
-`, &apiTest{})
-
-	addCmd(apis, "await", "Wait for a catalog's dataflow to complete", `
-Monitor a catalog's dataflow execution in the data-plane, and exit when it finishes.
-`, &apiAwait{})
 
 	addCmd(apis, "delete", "Delete from a built Flow catalog", `
 Delete tasks and collections of a built Flow catalog.

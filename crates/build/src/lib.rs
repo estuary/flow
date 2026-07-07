@@ -172,6 +172,46 @@ pub async fn for_local_test(source: &url::Url, noop_connectors: bool) -> Output 
     .await
 }
 
+/// Build a source catalog for local catalog testing (`flowctl test`): resolve
+/// against a `NoOpCatalogResolver` (no control-plane round-trip, matching the
+/// legacy `flowctl-go test`), validate derivation connectors over `network`
+/// (image derivations validate by running the connector), and skip capture /
+/// materialization connector validation — tests never run those tasks.
+pub async fn for_catalog_test(
+    source: &url::Url,
+    network: &str,
+    log_handler: impl runtime::LogHandler,
+) -> Output {
+    use tables::CatalogResolver;
+
+    let file_root = std::path::Path::new("/");
+    let draft = load(source, file_root).await;
+
+    if !draft.errors.is_empty() {
+        return Output::new(draft, Default::default(), Default::default());
+    }
+    let catalog_names = draft.all_spec_names().collect();
+    let live = NoOpCatalogResolver.resolve(catalog_names).await;
+
+    if !live.errors.is_empty() {
+        return Output::new(draft, live, Default::default());
+    }
+
+    local(
+        models::Id::new([32; 8]),
+        models::Id::new([1; 8]),
+        network,
+        log_handler,
+        true,  // noop_captures
+        false, // validate derivations
+        true,  // noop_materializations
+        &project_root(source),
+        draft,
+        live,
+    )
+    .await
+}
+
 /// The output of a build, which can be either successful, failed, or anything
 /// in between. The "in between" may seem silly, but may be important for
 /// some use cases. For example, you may be executing a build for the purpose

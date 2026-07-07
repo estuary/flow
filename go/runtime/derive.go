@@ -247,11 +247,6 @@ func (d *deriveApp) Destroy() {
 	d.taskBase.opsCancel()
 }
 
-func (d *deriveApp) ClearRegistersForTest() error {
-	_ = d.client.Send(&pd.Request{Reset_: &pd.Request_Reset{}})
-	return nil
-}
-
 func (d *deriveApp) BeginTxn(shard consumer.Shard) error                    { return nil } // No-op.
 func (d *deriveApp) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}             // No-op.
 

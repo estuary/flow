@@ -71,7 +71,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         assert_eq!(self.task.n_shards, self.shard_tx.len());
 
         // Build a stream of receive futures for each shard.
-        let mut shard_rx: FuturesUnordered<_> = shard_rx
+        let mut shard_rx: ShardRx = shard_rx
             .into_iter()
             .enumerate()
             .map(next_shard_rx)
@@ -91,6 +91,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let mut ready_frontier: Option<shuffle::Frontier> = None;
         // When Some, a message from a shard that's ready to consume.
         let mut ready_shard_rx = None;
+        // When true, a test-only Reset has been requested; the Head quiesces at
+        // a transaction boundary so the reset handshake can run, then resumes.
+        let mut reset_requested = false;
         // When true, the topology should gracefully exit.
         let mut stopping = false;
         // Transactions completed in this task session, for preview harness limits.
@@ -145,6 +148,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 &mut close_requested,
                 now,
                 &mut ready_frontier,
+                reset_requested,
                 &mut ready_shard_rx,
                 stopping,
                 &mut tail,
@@ -185,6 +189,17 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 action => self.dispatch(action)?,
             };
             let wake_after = std::cmp::min(head_wake_after, tail_wake_after);
+
+            // A quiesced `Head::Reset` means the topology reached a transaction
+            // boundary with a reset pending. Both FSMs are now idle, so run the
+            // reset handshake inline (it owns the shard streams), then resume
+            // with the fresh Head it returns.
+            if let fsm::Head::Reset { last_close } = head {
+                head = self.perform_reset(&mut shard_rx, last_close, now).await?;
+                reset_requested = false;
+                close_requested = false;
+                continue;
+            }
 
             // If `head` and `tail` are awaiting IO and `ready_shard_rx` was not
             // consumed by either, then it was unexpected and is a protocol error.
@@ -241,6 +256,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 Some((shard_index, msg, rx)) = shard_rx.next() => {
                     if let Some(msg) = self.on_shard_rx(
                         &mut close_requested,
+                        &mut reset_requested,
                         &mut stopping,
                         shard_index,
                         msg,
@@ -455,6 +471,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     fn on_shard_rx(
         &self,
         close_requested: &mut bool,
+        reset_requested: &mut bool,
         stopping: &mut bool,
         shard_index: usize,
         result: Option<tonic::Result<proto::Derive>>,
@@ -467,6 +484,14 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             return Ok(None);
         } else if matches!(msg.close_now, Some(proto::CloseNow {})) {
             *close_requested = true;
+            return Ok(None);
+        } else if matches!(msg.reset, Some(proto::Reset {})) {
+            // A shard forwarded a controller Reset request. Drive any open
+            // transaction closed (`close_requested`) and quiesce the Head
+            // (`reset_requested`) so the reset handshake can run at the next
+            // transaction boundary. Idempotent across shards.
+            *close_requested = true;
+            *reset_requested = true;
             return Ok(None);
         }
 
@@ -500,6 +525,111 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         Ok(Some(msg))
     }
 
+    /// Drive the test-only Reset handshake once the FSMs have quiesced at a
+    /// transaction boundary:
+    ///
+    ///   1. Command every shard to reset its connector; await per-shard
+    ///      ResetDone confirmations.
+    ///   2. Durably clear persisted connector state on shard zero via an
+    ///      immediate, standalone Persist — so RocksDB agrees the state is
+    ///      empty. This is deliberately stronger than V1, which left persisted
+    ///      state stale. Only `connector_patches_json` is set; all other Persist
+    ///      effects are inert, so read frontiers and ACK intents are preserved.
+    ///   3. Confirm overall completion to controllers (via shards).
+    ///
+    /// Returns the fresh `HeadIdle` (seeded with `last_close`) to resume from.
+    async fn perform_reset(
+        &mut self,
+        shard_rx: &mut ShardRx,
+        last_close: uuid::Clock,
+        now: uuid::Clock,
+    ) -> anyhow::Result<fsm::Head> {
+        let n_shards = self.task.n_shards;
+
+        service_kit::event!(
+            tracing::Level::INFO,
+            "shard",
+            n_shards,
+            "reset requested at transaction boundary; commanding connector Reset",
+        );
+
+        // 1) Command every shard to reset its connector.
+        self.broadcast(proto::Derive {
+            reset: Some(proto::Reset {}),
+            ..Default::default()
+        });
+
+        // Await a ResetDone from every shard.
+        let mut confirmed = vec![false; n_shards];
+        let mut remaining = n_shards;
+        while remaining != 0 {
+            let (shard_index, msg, rx) =
+                shard_rx.next().await.expect("shard_rx is never exhausted");
+            let verify = crate::verify("Derive", "ResetDone", &self.task.peers[shard_index]);
+            let msg = verify.not_eof(msg)?;
+            shard_rx.push(next_shard_rx((shard_index, rx)));
+
+            match msg {
+                proto::Derive {
+                    reset_done: Some(proto::ResetDone {}),
+                    ..
+                } if !confirmed[shard_index] => {
+                    confirmed[shard_index] = true;
+                    remaining -= 1;
+                }
+                other => return Err(verify.fail_msg(other)),
+            }
+        }
+
+        // 2) Durably clear persisted connector state on shard zero.
+        let seq_no = now.as_u64();
+        let persist = proto::Persist {
+            seq_no,
+            connector_patches_json: crate::patches::reset_connector_state_patch(),
+            ..Default::default()
+        };
+        self.logger
+            .event(crate::LogEvent::Persist { persist: &persist });
+        let _ = self.shard_tx[0].send(Ok(proto::Derive {
+            persist: Some(persist),
+            ..Default::default()
+        }));
+
+        // Await the matching Persisted echo from shard zero.
+        loop {
+            let (shard_index, msg, rx) =
+                shard_rx.next().await.expect("shard_rx is never exhausted");
+            let verify = crate::verify("Derive", "Persisted", &self.task.peers[shard_index]);
+            let msg = verify.not_eof(msg)?;
+            shard_rx.push(next_shard_rx((shard_index, rx)));
+
+            match msg {
+                proto::Derive {
+                    persisted: Some(proto::Persisted { seq_no: got }),
+                    ..
+                } if shard_index == 0 && got == seq_no => break,
+                other => return Err(verify.fail_msg(other)),
+            }
+        }
+
+        // 3) Confirm overall completion to controllers (via shards).
+        self.broadcast(proto::Derive {
+            reset_done: Some(proto::ResetDone {}),
+            ..Default::default()
+        });
+
+        service_kit::event!(
+            tracing::Level::INFO,
+            "shard",
+            "reset complete; resuming session",
+        );
+
+        Ok(fsm::Head::Idle(fsm::HeadIdle {
+            last_close,
+            ..Default::default()
+        }))
+    }
+
     /// Synchronously fan out a single leader message to every shard.
     fn broadcast(&self, msg: proto::Derive) {
         let (head, tail) = self.shard_tx.split_first().unwrap();
@@ -523,13 +653,23 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> Option<T> {
     }
 }
 
-async fn next_shard_rx(
-    (shard_index, mut rx): (usize, BoxStream<'static, tonic::Result<proto::Derive>>),
-) -> (
+/// One (index, message, stream) triple yielded by a per-shard receive future.
+type ShardRxItem = (
     usize,
     Option<tonic::Result<proto::Derive>>,
     BoxStream<'static, tonic::Result<proto::Derive>>,
-) {
-    let msg = rx.next().await;
-    (shard_index, msg, rx)
+);
+
+/// Receive-future collection over all shard streams. Boxed so the future type
+/// is nameable and can be threaded into [`Actor::perform_reset`].
+type ShardRx = FuturesUnordered<BoxFuture<'static, ShardRxItem>>;
+
+fn next_shard_rx(
+    (shard_index, mut rx): (usize, BoxStream<'static, tonic::Result<proto::Derive>>),
+) -> BoxFuture<'static, ShardRxItem> {
+    async move {
+        let msg = rx.next().await;
+        (shard_index, msg, rx)
+    }
+    .boxed()
 }

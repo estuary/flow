@@ -67,6 +67,12 @@ pub enum Head {
     Extend(HeadExtend),
     Flush(HeadFlush),
     Stop,
+    /// A test-only Reset has quiesced the Head at a transaction boundary. The
+    /// actor drives the reset handshake, then resumes with a fresh `HeadIdle`
+    /// seeded with `last_close`. Never observed at a `step()` boundary.
+    Reset {
+        last_close: uuid::Clock,
+    },
 }
 
 #[derive(Debug)]
@@ -148,16 +154,26 @@ impl Head {
         close_requested: &mut bool,
         now: uuid::Clock,
         ready_frontier: &mut Option<shuffle::Frontier>,
+        reset_requested: bool,
         shard_rx: &mut Option<(usize, proto::Derive)>,
         stopping: bool,
         tail: &mut Tail,
         task: &Task,
     ) -> (Action, Head) {
         match self {
-            Head::Idle(s) => s.step(now, close_requested, ready_frontier, stopping, tail, task),
+            Head::Idle(s) => s.step(
+                now,
+                close_requested,
+                ready_frontier,
+                reset_requested,
+                stopping,
+                tail,
+                task,
+            ),
             Head::Extend(s) => s.step(shard_rx),
             Head::Flush(s) => s.step(shard_rx),
             Head::Stop => panic!("HeadFSM::Stop observed at step boundary"),
+            Head::Reset { .. } => panic!("HeadFSM::Reset observed at step boundary"),
         }
     }
 
@@ -167,6 +183,7 @@ impl Head {
             Self::Extend(_) => "Extend",
             Self::Flush(_) => "Flush",
             Self::Stop => "Stop",
+            Self::Reset { .. } => "Reset",
         }
     }
 }
@@ -227,6 +244,7 @@ impl HeadIdle {
         now: uuid::Clock,
         close_requested: &mut bool,
         ready_frontier: &mut Option<shuffle::Frontier>,
+        reset_requested: bool,
         stopping: bool,
         tail: &mut Tail,
         task: &Task,
@@ -238,6 +256,23 @@ impl HeadIdle {
         if stopping && !is_open {
             if tail_done {
                 return (Action::PollAgain, Head::Stop);
+            } else {
+                return (Action::Idle, Head::Idle(self));
+            }
+        }
+        // Reset condition (test-only): like `stopping`, quiesce the Head at a
+        // transaction boundary — but yield `Head::Reset` so the actor can run
+        // the reset handshake and resume, rather than exiting. `close_requested`
+        // (set alongside `reset_requested`) drives any open transaction closed;
+        // once !is_open and the Tail has drained we're quiesced.
+        if reset_requested && !is_open {
+            if tail_done {
+                return (
+                    Action::PollAgain,
+                    Head::Reset {
+                        last_close: self.last_close,
+                    },
+                );
             } else {
                 return (Action::Idle, Head::Idle(self));
             }
@@ -930,6 +965,7 @@ mod tests {
         now: uuid::Clock,
         pending_ack_intents: BTreeMap<String, Bytes>,
         ready_frontier: Option<shuffle::Frontier>,
+        reset_requested: bool,
         shard_rx: Option<(usize, proto::Derive)>,
         stats_idle: bool,
         stopping: bool,
@@ -943,6 +979,7 @@ mod tests {
                 &mut self.close_requested,
                 self.now,
                 &mut self.ready_frontier,
+                self.reset_requested,
                 &mut self.shard_rx,
                 self.stopping,
                 tail,
@@ -1067,6 +1104,7 @@ mod tests {
             now: uuid::Clock::from_unix(1_700_000_000, 0),
             pending_ack_intents: BTreeMap::new(),
             ready_frontier: None,
+            reset_requested: false,
             shard_rx: None,
             stats_idle: false,
             stopping: false,
@@ -1119,6 +1157,7 @@ mod tests {
             now: uuid::Clock::from_unix(1_700_000_000, 0),
             pending_ack_intents: BTreeMap::new(),
             ready_frontier: None,
+            reset_requested: false,
             shard_rx: None,
             stats_idle: false,
             stopping: false,
@@ -1380,6 +1419,7 @@ mod tests {
             now: uuid::Clock::from_unix(1_700_000_000, 0),
             pending_ack_intents: BTreeMap::new(),
             ready_frontier: None,
+            reset_requested: false,
             shard_rx: None,
             stats_idle: false,
             stopping: false,
@@ -1453,6 +1493,7 @@ mod tests {
             now: uuid::Clock::from_unix(1_700_000_000, 0),
             pending_ack_intents: BTreeMap::new(),
             ready_frontier: None,
+            reset_requested: false,
             shard_rx: None,
             stats_idle: false,
             stopping: false,
@@ -1561,5 +1602,97 @@ mod tests {
           "derive": {}
         }
         "#);
+    }
+
+    fn reset_ctx(task: Task) -> Ctx {
+        Ctx {
+            binding_bytes_behind: vec![0; task.binding_collection_names.len()],
+            close_requested: true, // Set alongside reset_requested by the actor.
+            intents_idle: true,
+            legacy_checkpoint: None,
+            now: uuid::Clock::from_unix(1_700_000_000, 0),
+            pending_ack_intents: BTreeMap::new(),
+            ready_frontier: None,
+            reset_requested: true,
+            shard_rx: None,
+            stats_idle: false,
+            stopping: false,
+            task,
+        }
+    }
+
+    /// A Reset requested while the Head is idle and the Tail is drained quiesces
+    /// immediately to `Head::Reset`, preserving `last_close` for the resume.
+    #[test]
+    fn reset_while_idle_quiesces_immediately() {
+        let mut ctx = reset_ctx(mk_task(1));
+        let last_close = uuid::Clock::from_unix(1_699_999_999, 0);
+        let mut tail = Tail::Done(TailDone::default());
+        let head = Head::Idle(HeadIdle {
+            last_close,
+            ..Default::default()
+        });
+
+        let (action, head) = ctx.step_head(head, &mut tail);
+        assert!(matches!(action, Action::PollAgain));
+        match head {
+            Head::Reset { last_close: got } => assert_eq!(got, last_close),
+            other => panic!("expected Head::Reset, got {other:?}"),
+        }
+    }
+
+    /// A Reset requested mid-transaction is deferred to the transaction
+    /// boundary: the open transaction closes first (driven by the paired
+    /// close_requested), and the Head only reaches `Head::Reset` once it is
+    /// unstarted AND the Tail has drained.
+    #[test]
+    fn reset_deferred_until_transaction_boundary() {
+        let mut ctx = reset_ctx(mk_task(1));
+
+        // An open transaction with a pending reset closes first — it does not
+        // jump straight to Reset.
+        let open = ctx.now;
+        let head = Head::Idle(HeadIdle {
+            extents: Extents {
+                open,
+                ..Default::default()
+            },
+            combiner_usage_bytes: vec![0; 1],
+            last_close: uuid::Clock::zero(),
+        });
+        let mut tail = Tail::Done(TailDone::default());
+        let (action, head) = ctx.step_head(head, &mut tail);
+        assert!(
+            matches!(action, Action::Flush { .. }),
+            "open txn must close before reset"
+        );
+        assert!(matches!(head, Head::Flush(_)));
+
+        // After the transaction closes (Head unstarted) but while the Tail is
+        // still draining its commit, the reset stays deferred.
+        let head = Head::Idle(HeadIdle {
+            last_close: open,
+            ..Default::default()
+        });
+        let mut tail = Tail::Store(TailStore {
+            extents: Extents::default(),
+            shard_stored: vec![false; 1],
+            publisher_commits: Vec::new(),
+        });
+        let (action, head) = ctx.step_head(head, &mut tail);
+        assert!(matches!(action, Action::Idle));
+        assert!(
+            matches!(head, Head::Idle(_)),
+            "reset deferred while Tail is busy"
+        );
+
+        // Once the Tail drains, the boundary is reached and the Head quiesces.
+        let mut tail = Tail::Done(TailDone::default());
+        let (action, head) = ctx.step_head(head, &mut tail);
+        assert!(matches!(action, Action::PollAgain));
+        match head {
+            Head::Reset { last_close } => assert_eq!(last_close, open),
+            other => panic!("expected Head::Reset, got {other:?}"),
+        }
     }
 }

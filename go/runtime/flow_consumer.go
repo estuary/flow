@@ -21,7 +21,6 @@ import (
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
 	"go.gazette.dev/core/auth"
-	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -43,7 +42,6 @@ type FlowConsumerConfig struct {
 		Network       string      `long:"network" env:"NETWORK" description:"The Docker network that connector containers are given access to. Defaults to the bridge network"`
 		ProxyRuntimes int         `long:"proxy-runtimes" default:"2" description:"The number of proxy connector runtimes that may run concurrently"`
 		SidecarPort   uint16      `long:"sidecar-port" env:"SIDECAR_PORT" description:"Port of the runtime-sidecar co-located on every reactor machine (fleet-wide, fixed). Required when any task uses the runtime-v2 feature flag."`
-		TestAPIs      bool        `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
 
@@ -280,7 +278,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	var controlPlane *controlPlane
 	var localAuthorizer = args.Service.Authorizer
 
-	if keyedAuth, ok := localAuthorizer.(*auth.KeyedAuth); ok && !config.Flow.TestAPIs {
+	if keyedAuth, ok := localAuthorizer.(*auth.KeyedAuth); ok {
 		controlPlane = newControlPlane(
 			keyedAuth,
 			config.Flow.DataPlaneFQDN,
@@ -312,15 +310,6 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 			f.tickTimepoint(t)
 		}
 	}()
-
-	if config.Flow.TestAPIs {
-		var ajc = client.NewAppendService(args.Tasks.Context(), args.Service.Journals)
-		if testing, err := NewFlowTesting(args.Tasks.Context(), f, ajc); err != nil {
-			return fmt.Errorf("creating testing service: %w", err)
-		} else {
-			pf.RegisterTestingServer(args.Server.GRPCServer, testing)
-		}
-	}
 
 	pr.RegisterShufflerServer(args.Server.GRPCServer,
 		pr.NewVerifiedShufflerServer(shuffle.NewAPI(args.Service.Resolver), f.service.Verifier))

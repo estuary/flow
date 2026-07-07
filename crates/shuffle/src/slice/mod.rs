@@ -6,6 +6,10 @@ mod heap;
 mod listing;
 mod producer;
 pub mod read;
+// `routing` is the canonical key-hash → shard-range routing used by the slice
+// actor. It is public so the catalog-test harness's segment writer routes
+// fixture documents to shards with the exact same logic (rather than
+// reimplementing it).
 pub mod routing;
 mod state;
 

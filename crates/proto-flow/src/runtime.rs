@@ -735,6 +735,23 @@ pub struct Stop {}
 /// controller and EOFs.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Stopped {}
+/// Reset is a test-only signal which asks running connectors to reset their
+/// internal state to an as-just-initialized condition (mapping to the
+/// connector protocol's `Request.Reset`), without cycling their containers or
+/// clearing read progress. It is used by the catalog-test harness between test
+/// cases. Modeled on Stop, but the session continues afterward.
+///
+/// It travels Controller → Shard → Leader as a request, then Leader → Shards
+/// as a command (each shard resets its connector). Only Derive sessions
+/// implement Reset today.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Reset {}
+/// ResetDone confirms a Reset. Each shard sends ResetDone to the leader once it
+/// has forwarded the connector reset; the leader then durably clears persisted
+/// connector state and broadcasts ResetDone back Leader → Shards → Controllers
+/// to confirm overall completion. The session resumes normally afterward.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ResetDone {}
 /// SessionLoop is sent as the first message of a session-loop stream on
 /// the Shard service. It carries process-level configuration that
 /// outlives the cycle of leader sessions on this stream. The Leader
@@ -1167,6 +1184,14 @@ pub struct Derive {
     /// each leg.
     #[prost(message, optional, tag = "61")]
     pub stopped: ::core::option::Option<Stopped>,
+    /// Controller → Shard → Leader (request), then Leader → Shards (command).
+    /// Asks the topology to reset connector state at a transaction boundary.
+    #[prost(message, optional, tag = "62")]
+    pub reset: ::core::option::Option<Reset>,
+    /// Shard → Leader (per-shard connector reset done), then
+    /// Leader → Shards → Controllers (overall completion confirmed).
+    #[prost(message, optional, tag = "63")]
+    pub reset_done: ::core::option::Option<ResetDone>,
 }
 /// Nested message and enum types in `Derive`.
 pub mod derive {

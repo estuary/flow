@@ -2,7 +2,7 @@
 # logs (see ../README.md "Downstream: the accounts derivation").
 #
 # It imports the capture catalog for its source `events/*` collections, so feeding
-# this file to `flowctl raw preview-next` also builds the (Docker-free) capture,
+# this file to `flowctl preview` also builds the (Docker-free) capture,
 # but not the downstream materializations. The derivation itself IS an image
 # connector (derive-typescript), so previewing it needs the locally-built `:local`
 # image and reads the published `events/*` journals from the local stack (README

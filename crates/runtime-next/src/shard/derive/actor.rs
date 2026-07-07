@@ -28,6 +28,10 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     connector_tx: mpsc::Sender<derive::Request>,
     // Wire codec negotiated with the connector.
     codec: connector_init::Codec,
+    // Channel for sending to the controller. Used only to forward the leader's
+    // ResetDone completion back to the controller during a test-only Reset;
+    // Joined / Stopped are sent by the session handler, not the Actor.
+    controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     // RocksDB, when a Persist is not in flight (shard zero only persists).
     db: Option<crate::shard::RocksDB>,
     // RocksDB future when a Persist is in flight.
@@ -63,6 +67,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         codec: connector_init::Codec,
         connector_tx: mpsc::Sender<derive::Request>,
+        controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
         db: crate::shard::RocksDB,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
         metrics: super::Metrics,
@@ -75,6 +80,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             connector_pending: Vec::new(),
             connector_tx,
             codec,
+            controller_tx,
             db: Some(db),
             db_persist_fut: None,
             drain_fut: None,
@@ -442,6 +448,28 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }
                 .boxed(),
             );
+        } else if let Some(proto::Reset {}) = msg.reset {
+            // The leader commands a connector reset (test-only). Forward
+            // C:Reset fire-and-forget: the connector protocol defines no
+            // response, and per-stream ordering guarantees the connector
+            // processes it before any subsequent transaction's C:Reads (which
+            // can only follow the leader's ResetDone completion). Then confirm
+            // to the leader so it can durably clear persisted state.
+            self.connector_pending.push(derive::Request {
+                reset: Some(derive::request::Reset {}),
+                ..Default::default()
+            });
+            _ = self.leader_tx.send(proto::Derive {
+                reset_done: Some(proto::ResetDone {}),
+                ..Default::default()
+            });
+        } else if let Some(proto::ResetDone {}) = msg.reset_done {
+            // The leader confirms overall reset completion; forward to the
+            // controller. The session continues afterward.
+            _ = self.controller_tx.send(Ok(proto::Derive {
+                reset_done: Some(proto::ResetDone {}),
+                ..Default::default()
+            }));
         } else {
             return Err(verify.fail_msg(msg));
         }
@@ -533,7 +561,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         &mut self,
         msg: Option<tonic::Result<proto::Derive>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify("Derive", "Stop or CloseNow", "controller");
+        let verify = crate::verify("Derive", "Stop, CloseNow, or Reset", "controller");
         let msg = verify.not_eof(msg)?;
 
         if matches!(msg.stop, Some(proto::Stop {})) {
@@ -544,6 +572,13 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         } else if matches!(msg.close_now, Some(proto::CloseNow {})) {
             _ = self.leader_tx.send(proto::Derive {
                 close_now: Some(proto::CloseNow {}),
+                ..Default::default()
+            });
+        } else if matches!(msg.reset, Some(proto::Reset {})) {
+            // Forward a test-only Reset request to the leader, which sequences
+            // it at a transaction boundary (as Stop is forwarded).
+            _ = self.leader_tx.send(proto::Derive {
+                reset: Some(proto::Reset {}),
                 ..Default::default()
             });
         } else {
@@ -596,6 +631,8 @@ mod tests {
     async fn observe_throttle_split_dispatch() {
         let (actor_to_conn_tx, _conn_rx) = mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
         let (actor_to_leader_tx, _leader_rx) = mpsc::unbounded_channel::<proto::Derive>();
+        let (actor_to_controller_tx, _controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
         let task = Arc::new(test_task());
 
         let spec = proto_flow::flow::CollectionSpec {
@@ -612,6 +649,7 @@ mod tests {
         let mut actor = Actor::new(
             connector_init::Codec::Proto,
             actor_to_conn_tx,
+            actor_to_controller_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
@@ -692,6 +730,8 @@ mod tests {
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
         let (controller_to_actor_tx, controller_to_actor_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+        let (actor_to_controller_tx, _actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
 
         let task = Arc::new(test_task());
         let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
@@ -703,6 +743,7 @@ mod tests {
         let actor = Actor::new(
             connector_init::Codec::Proto,
             actor_to_conn_tx,
+            actor_to_controller_tx,
             db,
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
@@ -854,5 +895,119 @@ mod tests {
         // Confirm the Persist round-tripped.
         let (_db, recover) = db.scan(Vec::new()).await.unwrap();
         assert_eq!(recover.last_applied.as_ref(), b"persisted-spec-bytes");
+    }
+
+    /// Reset handshake at the shard: the leader's Reset command forwards a
+    /// connector C:Reset (fire-and-forget) and confirms ResetDone to the leader;
+    /// the leader's ResetDone completion is forwarded to the controller; and a
+    /// controller Reset request is relayed to the leader. The session continues
+    /// afterward (verified by a following Stop).
+    #[tokio::test]
+    async fn reset_round_trip() {
+        let (actor_to_conn_tx, mut actor_to_conn_rx) =
+            mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
+        // Kept alive so the connector stream doesn't EOF mid-session.
+        let (_conn_to_actor_tx, conn_to_actor_rx) =
+            mpsc::channel::<tonic::Result<derive::Response>>(crate::CHANNEL_BUFFER);
+        let (actor_to_leader_tx, mut actor_to_leader_rx) =
+            mpsc::unbounded_channel::<proto::Derive>();
+        let (leader_to_actor_tx, leader_to_actor_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+        let (controller_to_actor_tx, controller_to_actor_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+        let (actor_to_controller_tx, mut actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+
+        let task = Arc::new(test_task());
+        let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
+        let write_shape = task.write_shape.clone();
+        let db = crate::shard::RocksDB::open(None).await.unwrap();
+        let shuffle_dir = tempfile::tempdir().unwrap();
+        let shuffle_reader = shuffle::log::Reader::new(shuffle_dir.path(), 0);
+
+        let actor = Actor::new(
+            connector_init::Codec::Proto,
+            actor_to_conn_tx,
+            actor_to_controller_tx,
+            db,
+            actor_to_leader_tx,
+            super::super::Metrics::new("test/shard"),
+            crate::TracingLogger,
+            crate::publish::NoopPublisher,
+            task,
+            write_shape,
+        );
+
+        let serve_handle = tokio::spawn(async move {
+            let mut conn_stream = ReceiverStream::new(conn_to_actor_rx);
+            let mut leader_stream = UnboundedReceiverStream::new(leader_to_actor_rx);
+            let mut controller_stream = UnboundedReceiverStream::new(controller_to_actor_rx);
+            actor
+                .serve(
+                    accumulator,
+                    &mut conn_stream,
+                    &mut controller_stream,
+                    &mut leader_stream,
+                    shuffle_reader,
+                )
+                .await
+        });
+
+        // 1) Leader commands a connector reset → C:Reset forwarded to the
+        //    connector, and ResetDone confirmed to the leader.
+        leader_to_actor_tx
+            .send(Ok(proto::Derive {
+                reset: Some(proto::Reset {}),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        let req = actor_to_conn_rx.recv().await.unwrap();
+        assert!(req.reset.is_some(), "connector receives C:Reset");
+        assert!(
+            actor_to_leader_rx
+                .recv()
+                .await
+                .unwrap()
+                .reset_done
+                .is_some(),
+            "leader receives ResetDone confirmation",
+        );
+
+        // 2) Leader confirms overall completion → forwarded to the controller.
+        leader_to_actor_tx
+            .send(Ok(proto::Derive {
+                reset_done: Some(proto::ResetDone {}),
+                ..Default::default()
+            }))
+            .unwrap();
+        let to_controller = actor_to_controller_rx.recv().await.unwrap().unwrap();
+        assert!(
+            to_controller.reset_done.is_some(),
+            "controller receives ResetDone completion",
+        );
+
+        // 3) A controller Reset request is relayed to the leader.
+        controller_to_actor_tx
+            .send(Ok(proto::Derive {
+                reset: Some(proto::Reset {}),
+                ..Default::default()
+            }))
+            .unwrap();
+        assert!(
+            actor_to_leader_rx.recv().await.unwrap().reset.is_some(),
+            "leader receives relayed controller Reset",
+        );
+
+        // 4) Stopped + leader EOF → serve completes normally.
+        leader_to_actor_tx
+            .send(Ok(proto::Derive {
+                stopped: Some(proto::Stopped {}),
+                ..Default::default()
+            }))
+            .unwrap();
+        std::mem::drop(leader_to_actor_tx);
+
+        let _db = serve_handle.await.unwrap().unwrap();
     }
 }

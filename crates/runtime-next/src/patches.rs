@@ -92,6 +92,17 @@ pub fn encode_connector_state(state: Option<proto_flow::flow::ConnectorState>) -
     b.into()
 }
 
+/// A State-Update-Wire-Format payload that resets persisted connector state to
+/// an empty object. Used by the derive Reset flow to durably clear connector
+/// state after a `Request.Reset`, so RocksDB agrees the reset connector's state
+/// is empty. Encoded as a full replacement (leading `null`) followed by `{}`.
+pub fn reset_connector_state_patch() -> Bytes {
+    encode_connector_state(Some(proto_flow::flow::ConnectorState {
+        updated_json: Bytes::from_static(b"{}"),
+        merge_patch: false,
+    }))
+}
+
 /// Extend a State-Update-Wire-Format payload with another payload.
 ///
 /// Both `out` and `src` use the framed JSON-array wire form accepted by

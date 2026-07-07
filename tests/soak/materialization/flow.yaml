@@ -1,5 +1,5 @@
 # Both materializations of `test/soak/accounts`, split into one file per task so
-# each can be fed to `flowctl raw preview-next` on its own (see ../README.md
+# each can be fed to `flowctl preview` on its own (see ../README.md
 # "Running"): `views` needs the materialize-postgres image and a reachable
 # PostgreSQL, while `ledger` is a Docker-free `local:` connector. This file groups
 # them for a publish of both at once.

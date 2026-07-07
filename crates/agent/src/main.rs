@@ -212,8 +212,6 @@ fn main() -> Result<(), anyhow::Error> {
 }
 
 async fn async_main(args: Args) -> Result<(), anyhow::Error> {
-    let flowctl_go = locate_bin::locate("flowctl-go")?;
-
     // The HOSTNAME variable will be set to the name of the pod in k8s
     let application_name = std::env::var("HOSTNAME").unwrap_or_else(|_| "agent".to_string());
     let pg_options = args
@@ -309,7 +307,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
 
     let builder = control_plane_api::publications::builds::new_builder(connectors);
     let mut publisher = Publisher::new(
-        flowctl_go,
         &args.builds_root,
         &args.connector_network,
         &logs_tx,

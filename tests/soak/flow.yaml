@@ -3,7 +3,7 @@
 # The full chain is capture -> events/{alpha,beta,gamma} -> accounts derivation ->
 # {views, ledger} materializations, every task carrying `enable-runtime-v2: "true"`
 # so the whole pipeline runs on runtime-next. The pipeline is split across
-# sub-directories so each task can be fed to `flowctl raw preview-next` on its own,
+# sub-directories so each task can be fed to `flowctl preview` on its own,
 # building only what that task needs:
 #
 #   capture/flow.yaml                 test/soak/source    -> events/{alpha,beta,gamma}

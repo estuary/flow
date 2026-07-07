@@ -1,0 +1,51 @@
+[package]
+name = "runtime-harness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+readme = "./README.md"
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+build = { path = "../build" }
+doc = { path = "../doc", features = ["combine"] }
+extractors = { path = "../extractors" }
+json = { path = "../json" }
+labels = { path = "../labels" }
+models = { path = "../models" }
+ops = { path = "../ops" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc" }
+publisher = { path = "../publisher" }
+runtime-next = { path = "../runtime-next" }
+service-kit = { path = "../service-kit" }
+shuffle = { path = "../shuffle" }
+tables = { path = "../tables" }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+pbjson-types = { workspace = true }
+prost = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+derive-sqlite = { path = "../derive-sqlite" }
+insta = { workspace = true }
+# The runtime-next loopback stack dials over rustls 0.23; a direct dev-dep lets
+# the test install its process crypto provider (as `flowctl` main does).
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { workspace = true }

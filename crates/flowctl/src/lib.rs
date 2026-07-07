@@ -18,6 +18,7 @@ mod poll;
 mod preview;
 mod raw;
 mod shuffle_read;
+mod test_cmd;
 mod version;
 
 use models::authorizations::ControlClaims;
@@ -106,6 +107,15 @@ pub enum Command {
     Draft(draft::Draft),
     /// Read operational logs of your tasks (captures, derivations, and materializations).
     Logs(ops::Logs),
+    /// Run your catalog's tests locally.
+    ///
+    /// Builds the specifications in --source, then runs their `tests`
+    /// on a local runtime-next instance: derivations execute as resident
+    /// sessions (derive-sqlite in-process, image derivations as containers)
+    /// and each test's ingest / verify steps run against an in-memory
+    /// collection store. No Gazette broker or control-plane round-trip is
+    /// involved. Exits non-zero if any test fails.
+    Test(test_cmd::Test),
     /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
 }
@@ -288,6 +298,7 @@ impl Cli {
             Command::Preview(preview) => preview.run(&mut context).await,
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
+            Command::Test(test) => test.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
         };
 
