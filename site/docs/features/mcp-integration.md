@@ -11,7 +11,7 @@ Connect to Estuary's documentation directly from your IDE or AI tool using the M
 The Model Context Protocol (MCP) allows AI assistants in your development environment to access Estuary's documentation contextually. This means you can ask questions about Estuary directly in your IDE and get accurate, documentation-backed answers without leaving your workflow.
 
 :::tip
-MCP keeps your assistant's answers accurate. To have it also build and operate pipelines for you, pair it with [agent skills](./agent-skills.md). See [Using coding agents with Estuary](./using-coding-agents.md) for the full setup.
+MCP keeps your assistant's answers accurate. To have it also build and operate pipelines for you, pair it with [agent skills](../guides/agent-skills.md). See [Using coding agents with Estuary](./using-coding-agents.md) for the full setup.
 :::
 
 ## Setup
@@ -159,6 +159,6 @@ The AI assistant will use Estuary's documentation to provide accurate, up-to-dat
 ## Related pages
 
 - [Using coding agents with Estuary](./using-coding-agents.md) — end-to-end setup for flowctl, MCP, and skills
-- [Agent skills](./agent-skills.md) — playbooks that let your assistant build and operate pipelines
+- [Agent skills](../guides/agent-skills.md) — playbooks that let your assistant build and operate pipelines
 - [flowctl setup](../guides/get-started-with-flowctl.md) — install and authenticate the CLI
 
