@@ -28,6 +28,10 @@ pub(super) struct Actor {
     // `task` is shared (Arc) so the drain future can hold its own handle.
     task: std::sync::Arc<Task>,
     connector_tx: mpsc::Sender<Request>,
+    // Channel for sending commit-acknowledgements (Synced) to the controller,
+    // so a "sync now" request can block until commit. Captures are leaderless,
+    // so the shard emits Synced directly rather than forwarding a leader's.
+    controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     // Per-session metrics counters.
     metrics: super::Metrics,
 
@@ -71,6 +75,7 @@ impl Actor {
     pub fn new(
         binding_state_keys: Vec<String>,
         connector_tx: mpsc::Sender<Request>,
+        controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
         db: crate::shard::RocksDB,
         metrics: super::Metrics,
         publisher: crate::Publisher,
@@ -80,6 +85,7 @@ impl Actor {
         Self {
             task,
             connector_tx,
+            controller_tx,
             metrics,
             db: Some((db, binding_state_keys)),
             publisher: Some(publisher),
@@ -252,6 +258,14 @@ impl Actor {
                 Some(result) = maybe_fut(&mut self.persist_fut) => {
                     self.db = Some(result?);
                     self.persist_fut = None;
+
+                    // The Tail's single Persist durably commits the transaction.
+                    // Emit a commit-acknowledgement so a "sync now" request can
+                    // block until commit. Emitted once per committed transaction.
+                    _ = self.controller_tx.send(Ok(proto::Capture {
+                        synced: Some(proto::Synced {}),
+                        ..Default::default()
+                    }));
                 }
                 Some(result) = maybe_fut(&mut self.acknowledge_fut) => {
                     result?;
@@ -697,6 +711,9 @@ mod tests {
         // Controller → actor signals.
         let (controller_tx, controller_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
+        // Actor → controller messages (commit-acknowledgements).
+        let (actor_to_controller_tx, mut actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
 
         let task = std::sync::Arc::new(mk_task(true));
         // Preview only reads each spec's `name`; a minimal spec per binding suffices.
@@ -714,6 +731,7 @@ mod tests {
         let actor = Actor::new(
             vec!["stateA".to_string(), "stateB".to_string()],
             connector_tx,
+            actor_to_controller_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
             super::super::Metrics::new("test/shard"),
             publisher,
@@ -755,6 +773,18 @@ mod tests {
         let ack = actor_to_conn_rx.recv().await.unwrap();
         assert_eq!(ack.acknowledge.unwrap().checkpoints, 1);
 
+        // The committing Persist emitted a Synced commit-acknowledgement to the
+        // controller (leaderless captures emit it directly).
+        assert!(
+            actor_to_controller_rx
+                .recv()
+                .await
+                .unwrap()
+                .unwrap()
+                .synced
+                .is_some()
+        );
+
         // Gracefully stop: the Tail finishes and Head steps to Stop. The connector
         // response channel stays open (`conn_resp_tx` is held) so the connector
         // never EOFs out from under the still-running session.
@@ -795,9 +825,12 @@ mod tests {
         let publisher = crate::Publisher::new_test_real([&spec]);
         let shapes = task.binding_shapes_by_index(Default::default());
 
+        let (actor_to_controller_tx, _actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
         let mut actor = Actor::new(
             vec!["stateA".to_string()],
             connector_tx,
+            actor_to_controller_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
             super::super::Metrics::new("test/shard"),
             publisher,

@@ -237,8 +237,19 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 
 	// Steady-state: drive teardown signals and surface stream errors.
 	// termDone is nil-ed once we've sent Stop, so the case stops firing.
-	// Future CloseNow plumbing slots in as another case alongside termDone.
 	var termDone = m.term.ctx.Done()
+
+	// "Sync now" waiters registered since the last Synced. Each is closed when
+	// the next commit-acknowledgement arrives, unblocking RequestCloseNow.
+	var pending []chan struct{}
+	defer func() {
+		// Unblock any straggling waiters promptly on teardown; their own
+		// RequestCloseNow contexts would otherwise time out.
+		for _, done := range pending {
+			close(done)
+		}
+	}()
+
 	for {
 		select {
 		case <-termDone:
@@ -246,6 +257,13 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 			// Stopped, read from `respCh` below.
 			_ = m.client.Send(&pr.Materialize{Stop: &pr.Stop{}})
 			termDone = nil
+
+		case done := <-m.syncNowReg:
+			// A "sync now" request: force the open transaction to commit. The
+			// CloseNow latch is idempotent, so registering multiple waiters and
+			// re-sending is harmless.
+			pending = append(pending, done)
+			_ = m.client.Send(&pr.Materialize{CloseNow: &pr.CloseNow{}})
 
 		case <-shard.Context().Done():
 			return shard.Context().Err() // Immediate, non-graceful shutdown.
@@ -256,6 +274,14 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 			}
 			if r.err != nil {
 				return pf.UnwrapGRPCError(r.err)
+			}
+			if r.resp.Synced != nil {
+				// A transaction committed: resolve all outstanding waiters.
+				for _, done := range pending {
+					close(done)
+				}
+				pending = nil
+				continue
 			}
 			if r.resp.Stopped != nil {
 				return nil // Graceful drain complete.

@@ -55,7 +55,17 @@ type taskBase[TaskSpec pf.Task] struct {
 	svc          taskService                             // Associated Rust runtime service (legacy or V2).
 	term         taskTerm[TaskSpec]                      // Current task term.
 	termCount    int                                     // Number of initialized task terms.
+
+	// syncNowReg delivers a per-request completion channel into the V2
+	// steady-state loop, which sends CloseNow and closes the channel on the
+	// next Synced (commit-acknowledgement). Non-nil only for V2 shards; a nil
+	// channel signals that this shard has no "sync now" path.
+	syncNowReg chan chan struct{}
 }
+
+// errSyncNowUnsupported is returned by RequestCloseNow for shards which do not
+// run the V2 runtime, and therefore have no CloseNow ("sync now") path.
+var errSyncNowUnsupported = fmt.Errorf("sync now is not supported by this shard's runtime")
 
 type taskTerm[TaskSpec pf.Task] struct {
 	cancel    context.CancelFunc // Cancel the task term.
@@ -163,6 +173,7 @@ func newTaskBaseV2[TaskSpec pf.Task](
 		recorder:     recorder,
 		svc:          svc,
 		term:         *term,
+		syncNowReg:   make(chan chan struct{}),
 	}
 
 	// V2 shards bypass Gazette's consumer transaction loop, which is what
@@ -198,6 +209,35 @@ func (t *taskBase[TaskSpec]) initTerm(shard consumer.Shard) error {
 
 func (t *taskBase[TaskSpec]) ProxyHook() (*pr.Container, ops.Publisher) {
 	return t.container.Load(), t.opsPublisher
+}
+
+// RequestCloseNow signals the V2 steady-state loop to immediately close and
+// commit its open transaction ("sync now"), blocking until that transaction
+// commits (or `ctx` is done). It returns errSyncNowUnsupported for shards
+// without a V2 sync-now path. Safe for concurrent callers: each registers its
+// own completion channel, and all outstanding waiters resolve on the next
+// commit after their CloseNow was sent.
+func (t *taskBase[TaskSpec]) RequestCloseNow(ctx context.Context) error {
+	if t.syncNowReg == nil {
+		return errSyncNowUnsupported
+	}
+	var done = make(chan struct{})
+
+	// Hand our completion channel to the steady-state loop, which sends
+	// CloseNow. If no loop is currently running (between terms), block until
+	// one is, or until the caller gives up.
+	select {
+	case t.syncNowReg <- done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	select {
+	case <-done:
+		return nil // Forced transaction committed.
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (t *taskBase[TaskSpec]) drop() {
@@ -376,7 +416,7 @@ func (t *taskBase[TaskSpec]) heartbeatLoop(shard consumer.Shard) {
 // loop that periodically writes FSM hints between transactions. The consumer
 // transaction loop is bypassed in Runtime V2 shards, so this is currently
 // needed for hints to be written at any time other than graceful restarts.
-// 
+//
 // The loop body transcribes gazette's `<-hintsCh` handler of
 // consumer.runTransactions (consumer/transaction.go) and the unexported
 // consumer.storeRecordedHints it calls (consumer/recovery.go), rebuilt from

@@ -50,6 +50,7 @@ pub async fn user_task_authorization(
     user_tokens: &tokens::PendingWatch<UserToken>,
     router: &gazette::Router,
     task: &str,
+    capability: models::Capability,
 ) -> anyhow::Result<(
     String,
     String,
@@ -61,7 +62,7 @@ pub async fn user_task_authorization(
         client: rest.clone(),
         user_tokens: user_tokens.clone(),
         task: models::Name::new(task),
-        capability: models::Capability::Read,
+        capability,
     });
 
     let (shard_id_prefix, ops_logs_journal, ops_stats_journal) = {

@@ -8,6 +8,7 @@ pub async fn do_list_shards(ctx: &mut CliContext, selector: &TaskSelector) -> an
             &ctx.user_tokens,
             &ctx.router,
             task_name,
+            models::Capability::Read,
         )
         .await?;
 

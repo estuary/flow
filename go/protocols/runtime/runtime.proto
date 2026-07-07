@@ -663,6 +663,15 @@ message Open {
 // immediately close a transaction being held open by policy.
 message CloseNow {}
 
+// Synced is a commit-acknowledgement: it is sent after a transaction has
+// durably committed, so that a controller which requested a `CloseNow`
+// ("sync now") can block until the forced transaction actually commits.
+// For leader-ful tasks it flows Leader → Shards → Controllers (the leader
+// emits it on each transaction commit and shards forward it up); for
+// leaderless captures the shard emits it directly to its controller.
+// It is unconditional: one Synced is emitted per committed transaction.
+message Synced {}
+
 // Stop is sent Controller → Shard → Leader to request graceful shutdown.
 message Stop {}
 
@@ -732,6 +741,10 @@ message Capture {
   // Controller → Shard. Request immediate close of the currently-open
   // transaction.
   CloseNow close_now = 25;
+
+  // Shard → Controller. Commit-acknowledgement; one per committed
+  // transaction. Lets a controller block on a requested CloseNow.
+  Synced synced = 28;
 
   // Controller → Shard. Graceful shutdown request.
   Stop stop = 26;
@@ -957,6 +970,10 @@ message Materialize {
   // currently-open transaction.
   CloseNow close_now = 52;
 
+  // Leader → Shards → Controllers. Commit-acknowledgement; one per
+  // committed transaction. Lets a controller block on a requested CloseNow.
+  Synced synced = 62;
+
   // ----- TEARDOWN -----
 
   // Controller → Shard → Leader. Graceful shutdown request.
@@ -1153,6 +1170,10 @@ message Derive {
   // Controller → Shard → Leader. Request immediate close of the
   // currently-open transaction.
   CloseNow close_now = 52;
+
+  // Leader → Shards → Controllers. Commit-acknowledgement; one per
+  // committed transaction. Lets a controller block on a requested CloseNow.
+  Synced synced = 62;
 
   // ----- TEARDOWN -----
 

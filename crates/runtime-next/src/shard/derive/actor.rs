@@ -35,6 +35,9 @@ pub(super) struct Actor {
         Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Persisted)>>>,
     // Output-combiner drain + publish future, when in flight.
     drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output>>>,
+    // Channel for forwarding leader commit-acknowledgements (L:Synced) up to
+    // the controller, so a "sync now" request can block until commit.
+    controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     // Channel for sending to the leader.
     leader_tx: mpsc::UnboundedSender<proto::Derive>,
     // Per-session metrics counters.
@@ -60,6 +63,7 @@ impl Actor {
     pub fn new(
         codec: connector_init::Codec,
         connector_tx: mpsc::Sender<derive::Request>,
+        controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
         db: crate::shard::RocksDB,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
         metrics: super::Metrics,
@@ -71,6 +75,7 @@ impl Actor {
             connector_pending: Vec::new(),
             connector_tx,
             codec,
+            controller_tx,
             db: Some(db),
             db_persist_fut: None,
             drain_fut: None,
@@ -346,6 +351,15 @@ impl Actor {
 
         if let Some(proto::Stopped {}) = msg.stopped {
             return Ok((phase, true));
+        } else if let Some(proto::Synced {}) = msg.synced {
+            // Forward the leader's commit-acknowledgement to the controller,
+            // unblocking any "sync now" request. Not a connector-driving
+            // command, and never terminates the loop.
+            _ = self.controller_tx.send(Ok(proto::Derive {
+                synced: Some(proto::Synced {}),
+                ..Default::default()
+            }));
+            return Ok((phase, false));
         } else if let Some(proto::derive::Load {
             frontier: Some(frontier),
         }) = msg.load
@@ -596,9 +610,12 @@ mod tests {
         let publisher = crate::Publisher::new_test_real([&spec]);
         let write_shape = task.write_shape.clone();
 
+        let (actor_to_controller_tx, _actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
         let mut actor = Actor::new(
             connector_init::Codec::Proto,
             actor_to_conn_tx,
+            actor_to_controller_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
@@ -678,6 +695,8 @@ mod tests {
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
         let (controller_to_actor_tx, controller_to_actor_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+        let (actor_to_controller_tx, mut actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
 
         let task = Arc::new(test_task());
         let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
@@ -693,6 +712,7 @@ mod tests {
         let actor = Actor::new(
             connector_init::Codec::Proto,
             actor_to_conn_tx,
+            actor_to_controller_tx,
             db,
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
@@ -811,6 +831,24 @@ mod tests {
 
         let resp = actor_to_leader_rx.recv().await.unwrap();
         assert_eq!(resp.persisted.unwrap().seq_no, 42);
+
+        // 5b) L:Synced (commit-ack) → forwarded up to the controller so a
+        // "sync now" request can block until commit.
+        leader_to_actor_tx
+            .send(Ok(proto::Derive {
+                synced: Some(proto::Synced {}),
+                ..Default::default()
+            }))
+            .unwrap();
+        assert!(
+            actor_to_controller_rx
+                .recv()
+                .await
+                .unwrap()
+                .unwrap()
+                .synced
+                .is_some()
+        );
 
         // 6) Controller Stop + CloseNow → forwarded to the leader.
         controller_to_actor_tx

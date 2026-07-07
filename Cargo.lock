@@ -3676,6 +3676,7 @@ dependencies = [
  "metrics",
  "ops",
  "pin-project-lite",
+ "proto-flow",
  "proto-gazette",
  "proto-grpc",
  "rand 0.9.2",

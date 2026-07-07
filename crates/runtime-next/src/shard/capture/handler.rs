@@ -393,6 +393,7 @@ where
     let (db, shapes) = super::actor::Actor::new(
         binding_state_keys,
         connector_tx,
+        controller_tx.clone(),
         db,
         metrics,
         publisher,

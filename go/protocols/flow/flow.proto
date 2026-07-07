@@ -836,3 +836,50 @@ message TaskNetworkProxyResponse {
 service NetworkProxy {
   rpc Proxy(stream TaskNetworkProxyRequest) returns (stream TaskNetworkProxyResponse);
 }
+
+// SyncNowRequest asks the primary of a task shard to immediately close and
+// commit its currently-open transaction ("sync now"), rather than waiting for
+// the shard's configured sync schedule. The RPC blocks until that transaction
+// has durably committed.
+message SyncNowRequest {
+  // Shard to sync. The request is routed to this shard's current primary.
+  string shard_id = 1 [
+    (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID"
+  ];
+  // Header is copied from a prior SyncNowResponse to enable client-side route
+  // discovery (redirect to the primary), mirroring TaskNetworkProxyRequest.Open.header.
+  protocol.Header header = 2;
+}
+
+message SyncNowResponse {
+  // Status mirrors consumer.Status (values 0-4 align) with sync-now-specific
+  // extensions.
+  enum Status {
+    OK = 0;
+    // The named shard does not exist.
+    SHARD_NOT_FOUND = 1;
+    // There is no current primary consumer process for the shard. This is a
+    // temporary condition which the client should retry.
+    NO_SHARD_PRIMARY = 2;
+    // The present consumer process is not the assigned primary for the shard.
+    // Header carries the resolved route so the client can retry the primary.
+    NOT_SHARD_PRIMARY = 3;
+    // An error in the sync-now machinery (e.g. Etcd transaction failure).
+    INTERNAL_ERROR = 4;
+    // The shard is the primary here but has no running V2 session/container.
+    SHARD_STOPPED = 5;
+    // The shard runs the legacy (V1) runtime, which has no sync-now path.
+    NOT_SUPPORTED = 6;
+    // The forced transaction did not commit within the allotted time.
+    TIMEOUT = 7;
+  }
+  Status status = 1;
+  protocol.Header header = 2;
+}
+
+// SyncNow is the "sync now" API exposed by task reactors: it forces a task
+// shard to immediately commit its open transaction. Routing to the correct
+// shard primary mirrors the Gazette shard Stat API.
+service SyncNow {
+  rpc SyncNow(SyncNowRequest) returns (SyncNowResponse);
+}

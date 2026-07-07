@@ -52,6 +52,7 @@ pub async fn read_task_ops(
             &ctx.user_tokens,
             &ctx.router,
             task_name,
+            models::Capability::Read,
         )
         .await?;
 

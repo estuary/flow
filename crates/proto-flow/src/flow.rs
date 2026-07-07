@@ -1198,6 +1198,85 @@ pub mod task_network_proxy_response {
         }
     }
 }
+/// SyncNowRequest asks the primary of a task shard to immediately close and
+/// commit its currently-open transaction ("sync now"), rather than waiting for
+/// the shard's configured sync schedule. The RPC blocks until that transaction
+/// has durably committed.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SyncNowRequest {
+    /// Shard to sync. The request is routed to this shard's current primary.
+    #[prost(string, tag = "1")]
+    pub shard_id: ::prost::alloc::string::String,
+    /// Header is copied from a prior SyncNowResponse to enable client-side route
+    /// discovery (redirect to the primary), mirroring TaskNetworkProxyRequest.Open.header.
+    #[prost(message, optional, tag = "2")]
+    pub header: ::core::option::Option<::proto_gazette::broker::Header>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SyncNowResponse {
+    #[prost(enumeration = "sync_now_response::Status", tag = "1")]
+    pub status: i32,
+    #[prost(message, optional, tag = "2")]
+    pub header: ::core::option::Option<::proto_gazette::broker::Header>,
+}
+/// Nested message and enum types in `SyncNowResponse`.
+pub mod sync_now_response {
+    /// Status mirrors consumer.Status (values 0-4 align) with sync-now-specific
+    /// extensions.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Status {
+        Ok = 0,
+        /// The named shard does not exist.
+        ShardNotFound = 1,
+        /// There is no current primary consumer process for the shard. This is a
+        /// temporary condition which the client should retry.
+        NoShardPrimary = 2,
+        /// The present consumer process is not the assigned primary for the shard.
+        /// Header carries the resolved route so the client can retry the primary.
+        NotShardPrimary = 3,
+        /// An error in the sync-now machinery (e.g. Etcd transaction failure).
+        InternalError = 4,
+        /// The shard is the primary here but has no running V2 session/container.
+        ShardStopped = 5,
+        /// The shard runs the legacy (V1) runtime, which has no sync-now path.
+        NotSupported = 6,
+        /// The forced transaction did not commit within the allotted time.
+        Timeout = 7,
+    }
+    impl Status {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Ok => "OK",
+                Self::ShardNotFound => "SHARD_NOT_FOUND",
+                Self::NoShardPrimary => "NO_SHARD_PRIMARY",
+                Self::NotShardPrimary => "NOT_SHARD_PRIMARY",
+                Self::InternalError => "INTERNAL_ERROR",
+                Self::ShardStopped => "SHARD_STOPPED",
+                Self::NotSupported => "NOT_SUPPORTED",
+                Self::Timeout => "TIMEOUT",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "OK" => Some(Self::Ok),
+                "SHARD_NOT_FOUND" => Some(Self::ShardNotFound),
+                "NO_SHARD_PRIMARY" => Some(Self::NoShardPrimary),
+                "NOT_SHARD_PRIMARY" => Some(Self::NotShardPrimary),
+                "INTERNAL_ERROR" => Some(Self::InternalError),
+                "SHARD_STOPPED" => Some(Self::ShardStopped),
+                "NOT_SUPPORTED" => Some(Self::NotSupported),
+                "TIMEOUT" => Some(Self::Timeout),
+                _ => None,
+            }
+        }
+    }
+}
 /// ContentType enumerates the content types understood by Flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

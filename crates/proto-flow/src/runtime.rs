@@ -729,6 +729,15 @@ pub struct Open {
 /// immediately close a transaction being held open by policy.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CloseNow {}
+/// Synced is a commit-acknowledgement: it is sent after a transaction has
+/// durably committed, so that a controller which requested a `CloseNow`
+/// ("sync now") can block until the forced transaction actually commits.
+/// For leader-ful tasks it flows Leader → Shards → Controllers (the leader
+/// emits it on each transaction commit and shards forward it up); for
+/// leaderless captures the shard emits it directly to its controller.
+/// It is unconditional: one Synced is emitted per committed transaction.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Synced {}
 /// Stop is sent Controller → Shard → Leader to request graceful shutdown.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Stop {}
@@ -800,6 +809,10 @@ pub struct Capture {
     /// transaction.
     #[prost(message, optional, tag = "25")]
     pub close_now: ::core::option::Option<CloseNow>,
+    /// Shard → Controller. Commit-acknowledgement; one per committed
+    /// transaction. Lets a controller block on a requested CloseNow.
+    #[prost(message, optional, tag = "28")]
+    pub synced: ::core::option::Option<Synced>,
     /// Controller → Shard. Graceful shutdown request.
     #[prost(message, optional, tag = "26")]
     pub stop: ::core::option::Option<Stop>,
@@ -901,6 +914,10 @@ pub struct Materialize {
     /// currently-open transaction.
     #[prost(message, optional, tag = "52")]
     pub close_now: ::core::option::Option<CloseNow>,
+    /// Leader → Shards → Controllers. Commit-acknowledgement; one per
+    /// committed transaction. Lets a controller block on a requested CloseNow.
+    #[prost(message, optional, tag = "62")]
+    pub synced: ::core::option::Option<Synced>,
     /// Controller → Shard → Leader. Graceful shutdown request.
     #[prost(message, optional, tag = "60")]
     pub stop: ::core::option::Option<Stop>,
@@ -1162,6 +1179,10 @@ pub struct Derive {
     /// currently-open transaction.
     #[prost(message, optional, tag = "52")]
     pub close_now: ::core::option::Option<CloseNow>,
+    /// Leader → Shards → Controllers. Commit-acknowledgement; one per
+    /// committed transaction. Lets a controller block on a requested CloseNow.
+    #[prost(message, optional, tag = "62")]
+    pub synced: ::core::option::Option<Synced>,
     /// Controller → Shard → Leader. Graceful shutdown request.
     #[prost(message, optional, tag = "60")]
     pub stop: ::core::option::Option<Stop>,

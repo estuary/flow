@@ -160,17 +160,149 @@ impl Client {
         route_header: &mut Option<broker::Header>,
         route_mode: router::Mode,
     ) -> crate::Result<SubClient> {
+        let (channel, metadata) = self.route_channel(route_header, route_mode).await?;
+
+        Ok(proto_grpc::consumer::shard_client::ShardClient::with_interceptor(channel, metadata))
+    }
+
+    /// Route a Channel to a member of a shard's serving topology, honoring the
+    /// given route header and Mode, and return it with the request Metadata to
+    /// attach. This is the primitive behind `subclient`, exposed so callers can
+    /// dial non-consumer services co-hosted on the reactor (e.g. the Flow
+    /// SyncNow API) that require primary routing.
+    pub async fn route_channel(
+        &self,
+        route_header: &mut Option<broker::Header>,
+        route_mode: router::Mode,
+    ) -> crate::Result<(Channel, proto_grpc::Metadata)> {
         let token = self.tokens.ready().await.token();
         let (metadata, default_id) = token.result()?;
         let (channel, _local) = self.router.route(route_header, route_mode, default_id)?;
 
-        Ok(
-            proto_grpc::consumer::shard_client::ShardClient::with_interceptor(
-                channel,
-                metadata.clone(),
-            ),
-        )
+        Ok((channel, metadata.clone()))
     }
+
+    /// Invoke the Flow SyncNow RPC against the primary of `shard_id`, forcing it
+    /// to immediately commit its open transaction and blocking until that commit
+    /// is durable.
+    ///
+    /// Unlike the gazette shard RPCs (which any member may answer), this routes
+    /// to the shard's primary. Seed `route_header` from the shard's Route (as
+    /// returned by a prior `list`); on a `NOT_SHARD_PRIMARY` response, retry with
+    /// the header carried on the response to converge on the current primary.
+    pub async fn sync_now(
+        &self,
+        shard_id: String,
+        route_header: &mut Option<broker::Header>,
+    ) -> Result<proto_flow::flow::SyncNowResponse, crate::Error> {
+        // Preserve the header we route with to send as the request's ProxyHeader
+        // (`route()` clears `route_header` as a side effect of member selection).
+        let request_header = route_header.clone();
+        let (channel, metadata) = self
+            .route_channel(route_header, router::Mode::Primary)
+            .await?;
+
+        let mut client =
+            proto_grpc::flow::sync_now_client::SyncNowClient::with_interceptor(channel, metadata);
+
+        let resp = client
+            .sync_now(proto_flow::flow::SyncNowRequest {
+                shard_id,
+                header: request_header,
+            })
+            .await
+            .map_err(crate::Error::Grpc)?
+            .into_inner();
+
+        Ok(resp)
+    }
+}
+
+/// Per-task outcome of [`sync_task_shards`].
+#[derive(Debug, Default)]
+pub struct SyncSummary {
+    /// IDs of shards which committed their forced transaction.
+    pub synced: Vec<String>,
+    /// Shards which could not be synced, paired with a human-readable reason.
+    pub failed: Vec<(String, String)>,
+}
+
+/// Force every shard of a task to immediately commit its open transaction
+/// ("sync now"), routing to each shard's primary and blocking until commit.
+///
+/// This mirrors the Gazette shard Stat fan-out (list shards by task, then act on
+/// each shard's primary). `list_req` selects the task's shards (e.g. by an
+/// `id:prefix` or task-name label). Shards are synced concurrently; a per-shard
+/// failure is recorded rather than aborting the batch. Errors only if the task
+/// has no shards or the List itself fails.
+pub async fn sync_task_shards(
+    client: &Client,
+    list_req: consumer::ListRequest,
+) -> Result<SyncSummary, crate::Error> {
+    let listing = client.list(list_req).await?;
+
+    if listing.shards.is_empty() {
+        return Err(crate::Error::Protocol("task has no shards"));
+    }
+
+    let outcomes = futures::future::join_all(listing.shards.into_iter().map(|shard| {
+        let client = client.clone();
+        async move {
+            let shard_id = shard.spec.map(|s| s.id).unwrap_or_default();
+            // Seed the route from the listing so the first attempt aims at the
+            // shard's current primary.
+            let header = shard.route.map(|route| broker::Header {
+                route: Some(route),
+                ..Default::default()
+            });
+            let result = sync_one_shard(&client, shard_id.clone(), header).await;
+            (shard_id, result)
+        }
+    }))
+    .await;
+
+    let mut summary = SyncSummary::default();
+    for (shard_id, result) in outcomes {
+        match result {
+            Ok(()) => summary.synced.push(shard_id),
+            Err(reason) => summary.failed.push((shard_id, reason)),
+        }
+    }
+    Ok(summary)
+}
+
+/// Drive SyncNow for a single shard to a terminal outcome, retrying to converge
+/// on the primary (`NOT_SHARD_PRIMARY`) and to wait out a momentarily-absent
+/// primary (`NO_SHARD_PRIMARY`), bounded by `MAX_RETRIES`.
+async fn sync_one_shard(
+    client: &Client,
+    shard_id: String,
+    mut header: Option<broker::Header>,
+) -> Result<(), String> {
+    use proto_flow::flow::sync_now_response::Status;
+
+    const MAX_RETRIES: usize = 5;
+
+    for attempt in 0..=MAX_RETRIES {
+        let resp = client
+            .sync_now(shard_id.clone(), &mut header)
+            .await
+            .map_err(|err| format!("{err}"))?;
+
+        match resp.status() {
+            Status::Ok => return Ok(()),
+            // Route discovery: retry against the primary named by the response.
+            Status::NotShardPrimary => header = resp.header,
+            // Transient: the shard is momentarily without a primary. Back off.
+            Status::NoShardPrimary if attempt != MAX_RETRIES => {
+                header = resp.header;
+                tokio::time::sleep(std::time::Duration::from_millis(200 * (attempt as u64 + 1)))
+                    .await;
+            }
+            status => return Err(format!("{}", status.as_str_name())),
+        }
+    }
+    Err("exhausted retries awaiting shard primary".to_string())
 }
 
 fn check_ok<R>(status: consumer::Status, r: R) -> Result<R, crate::Error> {

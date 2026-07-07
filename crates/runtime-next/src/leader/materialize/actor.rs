@@ -180,6 +180,15 @@ impl Actor {
                     self.metrics.transactions.increment(1);
                     transactions_completed += 1;
 
+                    // Broadcast a commit-acknowledgement so that a controller
+                    // which requested a `CloseNow` ("sync now") can block until
+                    // the forced transaction commits. Each shard forwards it to
+                    // its controller. Emitted unconditionally, once per commit.
+                    self.broadcast(proto::Materialize {
+                        synced: Some(proto::Synced {}),
+                        ..Default::default()
+                    });
+
                     if self.task.max_transactions == 0 || stopping {
                         // Pass
                     } else if transactions_completed >= self.task.max_transactions as usize {

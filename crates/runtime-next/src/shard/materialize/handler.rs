@@ -293,6 +293,7 @@ where
         bindings,
         binding_state_keys,
         connector_tx,
+        controller_tx.clone(),
         db,
         disable_load_optimization,
         codec,

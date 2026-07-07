@@ -88,3 +88,42 @@ type verifiedProxyStream struct {
 }
 
 func (s verifiedProxyStream) Context() context.Context { return s.ctx }
+
+// AuthSyncNowServer is similar to SyncNowServer except:
+//   - Requests have already been verified with accompanying Claims.
+//   - The Context argument may be subject to a deadline bound to the
+//     expiration of the user's Claims.
+type AuthSyncNowServer interface {
+	SyncNow(claims pb.Claims, ctx context.Context, req *SyncNowRequest) (*SyncNowResponse, error)
+}
+
+// NewVerifiedSyncNowServer adapts an AuthSyncNowServer into a SyncNowServer by
+// using the provided Verifier to verify incoming request Authorizations.
+//
+// Sync-now forces a task to commit its pending writes, so it requires the
+// gazette APPEND capability — the capability implied by a control-plane Write
+// grant (see control-plane-api `map_capability_to_gazette`). Per-shard scoping
+// is then enforced by the handler's Resolve, which checks the Claims selector
+// against the resolved shard.
+func NewVerifiedSyncNowServer(inner AuthSyncNowServer, verifier pb.Verifier) SyncNowServer {
+	return &verifiedSyncNowServer{
+		inner:    inner,
+		verifier: verifier,
+	}
+}
+
+type verifiedSyncNowServer struct {
+	inner    AuthSyncNowServer
+	verifier pb.Verifier
+}
+
+func (a *verifiedSyncNowServer) SyncNow(ctx context.Context, req *SyncNowRequest) (*SyncNowResponse, error) {
+	if ctx, cancel, claims, err := a.verifier.Verify(ctx, pb.Capability_APPEND); err != nil {
+		return nil, err
+	} else {
+		defer cancel()
+		return a.inner.SyncNow(claims, ctx, req)
+	}
+}
+
+var _ SyncNowServer = &verifiedSyncNowServer{}

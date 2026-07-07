@@ -341,6 +341,9 @@ impl serde::Serialize for Capture {
         if self.close_now.is_some() {
             len += 1;
         }
+        if self.synced.is_some() {
+            len += 1;
+        }
         if self.stop.is_some() {
             len += 1;
         }
@@ -389,6 +392,9 @@ impl serde::Serialize for Capture {
         if let Some(v) = self.close_now.as_ref() {
             struct_ser.serialize_field("closeNow", v)?;
         }
+        if let Some(v) = self.synced.as_ref() {
+            struct_ser.serialize_field("synced", v)?;
+        }
         if let Some(v) = self.stop.as_ref() {
             struct_ser.serialize_field("stop", v)?;
         }
@@ -422,6 +428,7 @@ impl<'de> serde::Deserialize<'de> for Capture {
             "opened",
             "close_now",
             "closeNow",
+            "synced",
             "stop",
             "stopped",
         ];
@@ -441,6 +448,7 @@ impl<'de> serde::Deserialize<'de> for Capture {
             Task,
             Opened,
             CloseNow,
+            Synced,
             Stop,
             Stopped,
             __SkipField__,
@@ -478,6 +486,7 @@ impl<'de> serde::Deserialize<'de> for Capture {
                             "task" => Ok(GeneratedField::Task),
                             "opened" => Ok(GeneratedField::Opened),
                             "closeNow" | "close_now" => Ok(GeneratedField::CloseNow),
+                            "synced" => Ok(GeneratedField::Synced),
                             "stop" => Ok(GeneratedField::Stop),
                             "stopped" => Ok(GeneratedField::Stopped),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -512,6 +521,7 @@ impl<'de> serde::Deserialize<'de> for Capture {
                 let mut task__ = None;
                 let mut opened__ = None;
                 let mut close_now__ = None;
+                let mut synced__ = None;
                 let mut stop__ = None;
                 let mut stopped__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -594,6 +604,12 @@ impl<'de> serde::Deserialize<'de> for Capture {
                             }
                             close_now__ = map_.next_value()?;
                         }
+                        GeneratedField::Synced => {
+                            if synced__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("synced"));
+                            }
+                            synced__ = map_.next_value()?;
+                        }
                         GeneratedField::Stop => {
                             if stop__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("stop"));
@@ -625,6 +641,7 @@ impl<'de> serde::Deserialize<'de> for Capture {
                     task: task__,
                     opened: opened__,
                     close_now: close_now__,
+                    synced: synced__,
                     stop: stop__,
                     stopped: stopped__,
                 })
@@ -2767,6 +2784,9 @@ impl serde::Serialize for Derive {
         if self.close_now.is_some() {
             len += 1;
         }
+        if self.synced.is_some() {
+            len += 1;
+        }
         if self.stop.is_some() {
             len += 1;
         }
@@ -2845,6 +2865,9 @@ impl serde::Serialize for Derive {
         if let Some(v) = self.close_now.as_ref() {
             struct_ser.serialize_field("closeNow", v)?;
         }
+        if let Some(v) = self.synced.as_ref() {
+            struct_ser.serialize_field("synced", v)?;
+        }
         if let Some(v) = self.stop.as_ref() {
             struct_ser.serialize_field("stop", v)?;
         }
@@ -2890,6 +2913,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
             "persisted",
             "close_now",
             "closeNow",
+            "synced",
             "stop",
             "stopped",
         ];
@@ -2919,6 +2943,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
             Persist,
             Persisted,
             CloseNow,
+            Synced,
             Stop,
             Stopped,
             __SkipField__,
@@ -2966,6 +2991,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
                             "persist" => Ok(GeneratedField::Persist),
                             "persisted" => Ok(GeneratedField::Persisted),
                             "closeNow" | "close_now" => Ok(GeneratedField::CloseNow),
+                            "synced" => Ok(GeneratedField::Synced),
                             "stop" => Ok(GeneratedField::Stop),
                             "stopped" => Ok(GeneratedField::Stopped),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -3010,6 +3036,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
                 let mut persist__ = None;
                 let mut persisted__ = None;
                 let mut close_now__ = None;
+                let mut synced__ = None;
                 let mut stop__ = None;
                 let mut stopped__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -3152,6 +3179,12 @@ impl<'de> serde::Deserialize<'de> for Derive {
                             }
                             close_now__ = map_.next_value()?;
                         }
+                        GeneratedField::Synced => {
+                            if synced__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("synced"));
+                            }
+                            synced__ = map_.next_value()?;
+                        }
                         GeneratedField::Stop => {
                             if stop__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("stop"));
@@ -3193,6 +3226,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
                     persist: persist__,
                     persisted: persisted__,
                     close_now: close_now__,
+                    synced: synced__,
                     stop: stop__,
                     stopped: stopped__,
                 })
@@ -5730,6 +5764,9 @@ impl serde::Serialize for Materialize {
         if self.close_now.is_some() {
             len += 1;
         }
+        if self.synced.is_some() {
+            len += 1;
+        }
         if self.stop.is_some() {
             len += 1;
         }
@@ -5820,6 +5857,9 @@ impl serde::Serialize for Materialize {
         if let Some(v) = self.close_now.as_ref() {
             struct_ser.serialize_field("closeNow", v)?;
         }
+        if let Some(v) = self.synced.as_ref() {
+            struct_ser.serialize_field("synced", v)?;
+        }
         if let Some(v) = self.stop.as_ref() {
             struct_ser.serialize_field("stop", v)?;
         }
@@ -5869,6 +5909,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
             "persisted",
             "close_now",
             "closeNow",
+            "synced",
             "stop",
             "stopped",
         ];
@@ -5902,6 +5943,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
             Persist,
             Persisted,
             CloseNow,
+            Synced,
             Stop,
             Stopped,
             __SkipField__,
@@ -5953,6 +5995,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                             "persist" => Ok(GeneratedField::Persist),
                             "persisted" => Ok(GeneratedField::Persisted),
                             "closeNow" | "close_now" => Ok(GeneratedField::CloseNow),
+                            "synced" => Ok(GeneratedField::Synced),
                             "stop" => Ok(GeneratedField::Stop),
                             "stopped" => Ok(GeneratedField::Stopped),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -6001,6 +6044,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                 let mut persist__ = None;
                 let mut persisted__ = None;
                 let mut close_now__ = None;
+                let mut synced__ = None;
                 let mut stop__ = None;
                 let mut stopped__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -6167,6 +6211,12 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                             }
                             close_now__ = map_.next_value()?;
                         }
+                        GeneratedField::Synced => {
+                            if synced__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("synced"));
+                            }
+                            synced__ = map_.next_value()?;
+                        }
                         GeneratedField::Stop => {
                             if stop__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("stop"));
@@ -6212,6 +6262,7 @@ impl<'de> serde::Deserialize<'de> for Materialize {
                     persist: persist__,
                     persisted: persisted__,
                     close_now: close_now__,
+                    synced: synced__,
                     stop: stop__,
                     stopped: stopped__,
                 })
@@ -10103,6 +10154,78 @@ impl<'de> serde::Deserialize<'de> for Stopped {
             }
         }
         deserializer.deserialize_struct("runtime.Stopped", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for Synced {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("runtime.Synced", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Synced {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                            Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Synced;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.Synced")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Synced, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(Synced {
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.Synced", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for Task {

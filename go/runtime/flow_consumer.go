@@ -328,6 +328,9 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer,
 		pf.NewVerifiedNetworkProxyServer(&network.ProxyServer{Resolver: args.Service.Resolver}, f.service.Verifier))
 
+	pf.RegisterSyncNowServer(args.Server.GRPCServer,
+		pf.NewVerifiedSyncNowServer(&syncNowServer{resolver: args.Service.Resolver}, f.service.Verifier))
+
 	var connectorProxy = &connectorProxy{
 		address:   args.Server.Endpoint(),
 		host:      f,

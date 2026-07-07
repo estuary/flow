@@ -44,6 +44,9 @@ pub(super) struct Actor {
     codec: connector_init::Codec,
     // Aggregate active bindings of a pending Flushed response.
     flushed: HashMap<u32, FlushedBinding>,
+    // Channel for forwarding leader commit-acknowledgements (L:Synced) up to
+    // the controller, so a "sync now" request can block until commit.
+    controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     // Channel for sending to the leader.
     leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     // Keys for which we've sent C:Load in the current transaction.
@@ -62,6 +65,7 @@ impl Actor {
         bindings: Vec<Binding>,
         binding_state_keys: Vec<String>,
         connector_tx: mpsc::Sender<materialize::Request>,
+        controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
         db: crate::shard::RocksDB,
         disable_load_optimization: bool,
         codec: connector_init::Codec,
@@ -73,6 +77,7 @@ impl Actor {
             bindings,
             connector_pending: Vec::new(),
             connector_tx,
+            controller_tx,
             db: Some((db, binding_state_keys)),
             db_persist_fut: None,
             disable_load_optimization,
@@ -325,6 +330,15 @@ impl Actor {
 
         if let Some(proto::Stopped {}) = msg.stopped {
             return Ok((phase, true));
+        } else if let Some(proto::Synced {}) = msg.synced {
+            // Forward the leader's commit-acknowledgement to the controller,
+            // unblocking any "sync now" request. Not a connector-driving
+            // command, and never terminates the loop.
+            _ = self.controller_tx.send(Ok(proto::Materialize {
+                synced: Some(proto::Synced {}),
+                ..Default::default()
+            }));
+            return Ok((phase, false));
         } else if let Some(proto::materialize::Load {
             frontier: Some(proto),
         }) = msg.load
@@ -560,15 +574,18 @@ mod tests {
         Actor,
         mpsc::UnboundedReceiver<proto::Materialize>,
         mpsc::Receiver<materialize::Request>,
+        mpsc::UnboundedReceiver<tonic::Result<proto::Materialize>>,
     ) {
         let (leader_tx, leader_rx) = mpsc::unbounded_channel();
         let (connector_tx, connector_rx) = mpsc::channel(8);
+        let (controller_tx, controller_rx) = mpsc::unbounded_channel();
 
         (
             Actor {
                 bindings: Vec::new(),
                 connector_pending: Vec::new(),
                 connector_tx,
+                controller_tx,
                 db: None,
                 db_persist_fut: None,
                 disable_load_optimization: false,
@@ -581,12 +598,33 @@ mod tests {
             },
             leader_rx,
             connector_rx,
+            controller_rx,
         )
     }
 
     #[tokio::test]
+    async fn synced_forwards_to_controller() {
+        let (mut actor, _leader_rx, _connector_rx, mut controller_rx) = make_actor();
+
+        // A leader L:Synced is forwarded up to the controller and does not
+        // terminate the actor loop.
+        let (phase, stop) = actor
+            .on_leader_message(
+                make_idle_phase(),
+                Some(Ok(proto::Materialize {
+                    synced: Some(proto::Synced {}),
+                    ..Default::default()
+                })),
+            )
+            .unwrap();
+        assert!(!stop);
+        assert!(matches!(phase, Phase::Idle { .. }));
+        assert!(controller_rx.try_recv().unwrap().unwrap().synced.is_some());
+    }
+
+    #[tokio::test]
     async fn acknowledge_round_trip_forwards_patches() {
-        let (mut actor, mut leader_rx, mut connector_rx) = make_actor();
+        let (mut actor, mut leader_rx, mut connector_rx, _controller_rx) = make_actor();
         let patches = Bytes::from_static(br#"[{"ok":true}]"#);
 
         let (_phase, _stop) = actor
@@ -654,6 +692,9 @@ mod tests {
         // Controller → actor; used to drive Stop + CloseNow forwarding below.
         let (controller_to_actor_tx, controller_to_actor_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
+        // Actor → controller; commit-acknowledgements (Synced).
+        let (actor_to_controller_tx, _actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
 
         let conn_stream = ReceiverStream::new(conn_to_actor_rx);
         let leader_stream = UnboundedReceiverStream::new(leader_to_actor_rx);
@@ -666,6 +707,7 @@ mod tests {
             bindings: Vec::new(),
             connector_pending: Vec::new(),
             connector_tx: actor_to_conn_tx,
+            controller_tx: actor_to_controller_tx,
             db: Some((db, Vec::new())),
             db_persist_fut: None,
             disable_load_optimization: false,
