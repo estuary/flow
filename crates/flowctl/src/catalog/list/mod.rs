@@ -270,10 +270,19 @@ fn to_vars(list: &List) -> Vec<list_live_specs_query::LiveSpecsBy> {
     let catalog_type = list.type_selector.get_single_type_selection();
 
     let mut vars = Vec::new();
+    let mut seen_prefixes = std::collections::HashSet::new();
     for prefix in list.name_selector.prefix.iter() {
+        let prefix = normalize_prefix(prefix);
+        // Skip prefixes that normalize to an already-queued value. Because we
+        // append a trailing '/', a bare `acmeCo` and an explicit `acmeCo/`
+        // collapse to the same prefix; issuing both queries would list every
+        // matching spec twice.
+        if !seen_prefixes.insert(prefix.as_str().to_string()) {
+            continue;
+        }
         vars.push(list_live_specs_query::LiveSpecsBy {
             names: None,
-            prefix: Some(normalize_prefix(prefix)),
+            prefix: Some(prefix),
             catalog_type,
             data_plane_name: data_plane_name.clone(),
         });
@@ -312,7 +321,27 @@ fn normalize_prefix(prefix: &str) -> models::Prefix {
 
 #[cfg(test)]
 mod test {
-    use super::normalize_prefix;
+    use super::{List, normalize_prefix, to_vars};
+
+    #[test]
+    fn test_to_vars_dedups_prefixes() {
+        // A bare prefix and its trailing-slash form normalize to the same value;
+        // querying both would double-list every matching spec, so `to_vars`
+        // should emit a single query. The same-value-twice case dedups too.
+        let mut list = List::default();
+        list.name_selector.prefix = vec![
+            "acmeCo".to_string(),
+            "acmeCo/".to_string(),
+            "acmeCo".to_string(),
+            "acmeCo/widgets".to_string(),
+        ];
+
+        let prefixes = to_vars(&list)
+            .into_iter()
+            .map(|by| by.prefix.expect("prefix selector").as_str().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(prefixes, vec!["acmeCo/", "acmeCo/widgets/"]);
+    }
 
     #[test]
     fn test_normalize_prefix() {
