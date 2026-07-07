@@ -1265,8 +1265,10 @@ type MutationRoot {
 	"""
 	Replaces the configuration of an existing private link by id. Changing
 	the configuration resets its observed status to `pending` until the
-	controller reconverges. Requires `ModifyDataPlanePrivateNetworking` on
-	the owning data plane.
+	controller reconverges. A link that is already `pending` cannot be
+	updated (its previous desired config has not converged yet); remove it
+	and add a new one to correct it. Requires `ModifyDataPlanePrivateNetworking`
+	on the owning data plane.
 	"""
 	updateDataPlanePrivateLink(id: Id!, config: PrivateLinkConfigInput!): PrivateLink!
 	"""
