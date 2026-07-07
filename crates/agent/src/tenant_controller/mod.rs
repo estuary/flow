@@ -1,10 +1,13 @@
 mod billing_contact;
-
-use std::sync::Arc;
+mod outcome;
+mod quotas;
 
 use anyhow::Context;
 use automations::{Action, Executor, task_types};
 use control_plane_api::billing::BillingProvider;
+use std::sync::Arc;
+
+use crate::tenant_controller::outcome::Outcome;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -16,6 +19,8 @@ pub enum Message {
 pub struct TenantControllerState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub billing_contact: Option<billing_contact::BillingContactStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_status: Option<quotas::QuotaUpdateStatus>,
 }
 
 pub struct TenantController {
@@ -28,21 +33,46 @@ impl TenantController {
     }
 }
 
-pub(crate) struct TenantRow {
+/// NOTE(BB): This was copied from the crates/billing-integrations/src/publish.rs
+/// I wasn't sure if we wanted to add the dependency between the two crates, because
+/// Nothing in there is public.
+///
+/// SHould we promote this to another crate and share it between the two crates
+/// that are using it?
+#[derive(
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Eq,
+    Ord,
+    Hash,
+    Copy,
+    sqlx::Type,
+)]
+#[sqlx(type_name = "payment_provider_type", rename_all = "lowercase")]
+pub enum PaymentProvider {
+    Stripe,
+    External,
+}
+pub(crate) struct Tenant {
     pub tenant: String,
     pub billing_email: Option<String>,
     pub billing_name: Option<String>,
     pub billing_address: Option<serde_json::Value>,
+    pub payment_provider: Option<PaymentProvider>,
 }
 
 async fn fetch_tenant_by_controller_task(
     pool: &sqlx::PgPool,
     task_id: models::Id,
-) -> anyhow::Result<Option<TenantRow>> {
+) -> anyhow::Result<Option<Tenant>> {
     let row = sqlx::query_as!(
-        TenantRow,
+        Tenant,
         r#"
-        SELECT tenant as "tenant!", billing_email, billing_name, billing_address
+        SELECT tenant as "tenant!", billing_email, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider"
         FROM tenants
         WHERE controller_task_id = $1
         "#,
@@ -69,7 +99,7 @@ impl Executor for TenantController {
         state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
-        let Some(tenant_row) = fetch_tenant_by_controller_task(pool, task_id)
+        let Some(tenant) = fetch_tenant_by_controller_task(pool, task_id)
             .await
             .context("fetching tenant for controller task")?
         else {
@@ -85,16 +115,48 @@ impl Executor for TenantController {
         inbox.drain(..);
 
         let billing_status = state.billing_contact.get_or_insert_with(Default::default);
+        let quota_status = state.quota_status.get_or_insert_with(Default::default);
         if woken_by_message {
             billing_status.failures = 0;
             billing_status.next_retry = None;
+            quota_status.failures = 0;
+            quota_status.next_retry = None;
         }
-        let billing_outcome =
-            billing_contact::reconcile(billing_status, &tenant_row, &self.billing_provider).await?;
+        // NOTE(BB): Logically because of the structure of the functions
+        // the only error that's allowed to reach this point is a date time
+        // overflow error
 
-        match billing_outcome {
-            billing_contact::Outcome::Idle => Ok(Action::Suspend),
-            billing_contact::Outcome::WaitForRetry(duration) => Ok(Action::Sleep(duration)),
+        // Processing all of the different operations, and recording their name
+        // so we can emit better error messages.
+        let mut results = vec![];
+        results.push((
+            "billing contact",
+            billing_contact::reconcile(billing_status, &tenant, &self.billing_provider).await,
+        ));
+        results.push((
+            "quota updates",
+            quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await,
+        ));
+
+        // Processing all error after all operations are completed, building an error message
+        // and returning that instead.
+        let mut error_messages = vec![];
+        let mut total_outcome = Outcome::Idle;
+        for (operation, response) in results {
+            match response {
+                Ok(outcome) => total_outcome = total_outcome.next_action(outcome),
+                Err(err) => error_messages
+                    .push(format!("{operation} produced the following error: {err:#}")),
+            }
+        }
+        // Check for error sand return
+        if !error_messages.is_empty() {
+            return Err(anyhow::anyhow!(error_messages.join("\n")));
+        }
+
+        match total_outcome {
+            Outcome::Idle => Ok(Action::Suspend),
+            Outcome::WaitForRetry(duration) => Ok(Action::Sleep(duration)),
         }
     }
 }

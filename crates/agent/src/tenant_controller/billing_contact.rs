@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use super::Tenant;
+use crate::tenant_controller::outcome::Outcome;
 use anyhow::Context;
 use control_plane_api::billing::{BillingProvider, CUSTOMER_NAME_METADATA_KEY};
-
-use super::TenantRow;
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BillingContactStatus {
@@ -28,14 +28,9 @@ fn retry_backoff(failures: u32) -> std::time::Duration {
     }
 }
 
-pub enum Outcome {
-    Idle,
-    WaitForRetry(std::time::Duration),
-}
-
 pub async fn reconcile(
     status: &mut BillingContactStatus,
-    tenant_row: &TenantRow,
+    tenant_row: &Tenant,
     billing_provider: &Option<Arc<dyn BillingProvider>>,
 ) -> anyhow::Result<Outcome> {
     if let Some(next_retry) = status.next_retry {
@@ -72,7 +67,7 @@ pub async fn reconcile(
 }
 
 async fn do_reconcile(
-    tenant_row: &TenantRow,
+    tenant_row: &Tenant,
     billing_provider: &Option<Arc<dyn BillingProvider>>,
 ) -> anyhow::Result<()> {
     let Some(provider) = billing_provider else {
@@ -152,7 +147,7 @@ mod tests {
         BillingProvider, CUSTOMER_NAME_METADATA_KEY, InMemoryBillingProvider,
     };
 
-    use super::super::TenantRow;
+    use super::super::Tenant;
     use super::{BillingContactStatus, Outcome, reconcile};
 
     const TENANT: &str = "acmeCo/";
@@ -162,12 +157,13 @@ mod tests {
         email: Option<&str>,
         name: Option<&str>,
         address: Option<serde_json::Value>,
-    ) -> TenantRow {
-        TenantRow {
+    ) -> Tenant {
+        Tenant {
             tenant: TENANT.to_string(),
             billing_email: email.map(str::to_string),
             billing_name: name.map(str::to_string),
             billing_address: address,
+            payment_provider: None,
         }
     }
 
@@ -214,7 +210,7 @@ mod tests {
     async fn run(
         provider: &Arc<InMemoryBillingProvider>,
         status: &mut BillingContactStatus,
-        row: &TenantRow,
+        row: &Tenant,
     ) -> Outcome {
         let provider: Option<Arc<dyn BillingProvider>> = Some(provider.clone());
         reconcile(status, row, &provider).await.unwrap()
