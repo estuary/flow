@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select catalog_name\n               from live_specs\n               where catalog_name = any($1::text[]) and spec is not null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9a35831f768dc6a9315d2bfe0b462969292e8065ca2889430e482768a0e36e72"
+}

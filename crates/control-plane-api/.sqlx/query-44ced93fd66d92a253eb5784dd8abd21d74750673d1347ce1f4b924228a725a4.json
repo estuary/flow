@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT flow_document AS \"stats: sqlx::types::Json<CatalogStats>\"\n        FROM   catalog_stats\n        WHERE  starts_with(catalog_name, $1) AND right(catalog_name, 1) != '/'\n        AND    grain = 'monthly'\n        AND    ts = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stats: sqlx::types::Json<CatalogStats>",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "44ced93fd66d92a253eb5784dd8abd21d74750673d1347ce1f4b924228a725a4"
+}

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update connectors set\n            oauth2_spec = $2,\n            updated_at = clock_timestamp()\n        where id = $1\n        returning 1 as \"must_exist\";\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "must_exist",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        {
+          "Custom": {
+            "name": "jsonb_obj",
+            "kind": {
+              "Domain": "Jsonb"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9f48e4470abcc77dc3a4e8943ede3a4161d9f5aaccaf4d4fb11671e9c6c6df2d"
+}

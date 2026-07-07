@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into role_grants (subject_role, object_role, capability, detail) values\n                ($1, 'demo/', 'read', $2)   -- Tenant may read `demo/` collections.\n            on conflict do nothing\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_prefix",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9efb86f7125023ce1cb952cbf3fd7bbd1a53160e48155e3f34473ca39cf9f617"
+}

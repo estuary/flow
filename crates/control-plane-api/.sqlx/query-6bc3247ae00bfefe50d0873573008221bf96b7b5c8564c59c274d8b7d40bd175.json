@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update connector_tags set\n            documentation_url = $2,\n            endpoint_spec_schema = $3,\n            protocol = $4,\n            resource_spec_schema = $5,\n            resource_path_pointers = case when array_length($6::text[], 1) = 0 then resource_path_pointers else $6 end,\n            job_status = '{\"type\": \"updating\"}'\n        where id = $1\n          and (\n            resource_path_pointers is null\n            or ( array_length($6::text[], 1) = 0 or resource_path_pointers::text[] = $6 )\n          )\n        returning true as \"updated\";\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Text",
+        {
+          "Custom": {
+            "name": "json_obj",
+            "kind": {
+              "Domain": "Json"
+            }
+          }
+        },
+        "Text",
+        {
+          "Custom": {
+            "name": "json_obj",
+            "kind": {
+              "Domain": "Json"
+            }
+          }
+        },
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6bc3247ae00bfefe50d0873573008221bf96b7b5c8564c59c274d8b7d40bd175"
+}

@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            l.shard_template_id AS \"shard_template_id!\",\n            l.catalog_name AS \"task_name: models::Name\",\n            l.spec_type AS \"spec_type!: models::CatalogType\",\n            l.data_plane_id AS \"data_plane_id: models::Id\"\n        FROM live_specs l\n        WHERE shard_template_id IS NOT NULL\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "shard_template_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_name: models::Name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "spec_type!: models::CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "data_plane_id: models::Id",
+        "type_info": "Macaddr8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "cd109b814e4eaad9c0e617ea15f4cfa8a5a73a9c9d247a0c5cef69f4a7b09667"
+}

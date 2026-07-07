@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        update alert_history\n        set resolved_at = now()\n        where catalog_name = $1\n          and resolved_at is null\n        returning id as \"id: models::Id\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: models::Id",
+        "type_info": "Macaddr8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f09dd417c5a1dd6c8ab000d433a1002698c3615bcb0301917dca116f8cda0617"
+}

@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        insert into controller_jobs(live_spec_id, controller_version, status, failures, error)\n        values ($1, $2, $3, $4, $5)\n        on conflict (live_spec_id) do update set\n            controller_version = $2,\n            status = $3,\n            failures = $4,\n            error = $5,\n            updated_at = now()\n        where controller_jobs.live_spec_id = $1;\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid",
+            "kind": {
+              "Domain": "Macaddr8"
+            }
+          }
+        },
+        "Int4",
+        "Json",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "564d38c9d35ffc383d31d3baa087723f0e26ff3cb6e59cf3b2b559902d51e6c8"
+}

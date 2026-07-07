@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE storage_mappings\n        SET spec = (\n            jsonb_set(\n                spec::jsonb,               -- work in jsonb\n                '{data_planes}',           -- path to overwrite\n                (\n                    SELECT jsonb_agg(      -- rebuild the array\n                        CASE v.value\n                            WHEN 'ops/dp/public/gcp-us-central1-c1'::text\n                            THEN to_jsonb('ops/dp/public/gcp-us-central1-c2'::text)\n                            ELSE to_jsonb(v.value)\n                        END\n                        ORDER BY v.ordinality   -- preserve order\n                    )\n                    FROM jsonb_array_elements_text(spec::jsonb->'data_planes')\n                    WITH ORDINALITY AS v(value, ordinality)\n                )\n            )\n        )::json                           -- cast back to the column type\n        WHERE  catalog_prefix = $1        -- only on exact match\n        AND  spec::jsonb->'data_planes'\n            ? 'ops/dp/public/gcp-us-central1-c1'::text;  -- update only if present\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba0f4d356dc2a7b2ec7173b235dcb4d62ef8fcf192237341aa95b8a6d344b18c"
+}

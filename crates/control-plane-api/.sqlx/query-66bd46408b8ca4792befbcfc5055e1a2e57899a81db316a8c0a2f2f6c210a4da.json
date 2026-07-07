@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n            catalog_prefix,\n            spec as \"spec: TextJson<Box<RawValue>>\"\n         from storage_mappings\n         where catalog_prefix = $1 or catalog_prefix = $2\n         for update of storage_mappings",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "spec: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "66bd46408b8ca4792befbcfc5055e1a2e57899a81db316a8c0a2f2f6c210a4da"
+}

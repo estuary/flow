@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            l.built_spec->'partitionTemplate' AS \"logs!:  sqlx::types::Json<broker::JournalSpec>\",\n            s.built_spec->'partitionTemplate' AS \"stats!: sqlx::types::Json<broker::JournalSpec>\"\n        FROM live_specs l, live_specs s\n        WHERE l.catalog_name = $1 AND l.spec_type = 'collection'\n        AND   s.catalog_name = $2 AND s.spec_type = 'collection'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "logs!:  sqlx::types::Json<broker::JournalSpec>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 1,
+        "name": "stats!: sqlx::types::Json<broker::JournalSpec>",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "a772792b480c5bbb21d4a704f2aad81c2dcb1a7b0488b7294f3e81cc66e67a46"
+}

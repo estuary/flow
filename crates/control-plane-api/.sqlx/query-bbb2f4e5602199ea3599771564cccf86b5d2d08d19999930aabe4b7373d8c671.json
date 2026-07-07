@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with drafted as (\n            select\n                ds.catalog_name,\n                ds.id as draft_spec_id,\n                ls.id as live_spec_id,\n                ds.expect_pub_id,\n                ls.last_pub_id as last_pub_id,\n                ds.spec as spec,\n                ds.spec_type as spec_type\n            from draft_specs ds\n            left join live_specs ls\n                on ds.catalog_name = ls.catalog_name\n                -- filter out live_specs rows that the user does not have admin access to\n                and exists (select 1 from internal.user_roles($2, 'admin') r where ls.catalog_name ^@ r.role_prefix)\n            where ds.draft_id = $1\n        ),\n        not_drafted as (\n            select catalog_name from unnest($3::text[]) as names(catalog_name)\n            except\n            select catalog_name from drafted\n        ),\n        live as (\n            select\n                ls.catalog_name,\n                ls.spec,\n                ls.spec_type,\n                ls.last_pub_id,\n                ls.id\n            from not_drafted\n            join live_specs ls on not_drafted.catalog_name = ls.catalog_name\n            where\n                -- filter out live_specs rows that the user does not have admin access to\n                exists (select 1 from internal.user_roles($2, 'admin') r where ls.catalog_name ^@ r.role_prefix)\n        )\n        select\n            catalog_name as \"catalog_name!: String\",\n            draft_spec_id as \"draft_spec_id: Id\",\n            live_spec_id as \"live_spec_id: Id\",\n            expect_pub_id as \"expect_pub_id: Id\",\n            last_pub_id as \"last_pub_id: Id\",\n            spec as \"spec: Json<Box<RawValue>>\",\n            spec_type as \"spec_type: CatalogType\"\n        from drafted\n        union all\n        select\n            catalog_name as \"catalog_name!: String\",\n            null as \"draft_spec_id: Id\",\n            id as \"live_spec_id: Id\",\n            null as \"expect_pub_id: Id\",\n            last_pub_id as \"last_pub_id: Id\",\n            spec as \"spec: Json<Box<RawValue>>\",\n            spec_type as \"spec_type: CatalogType\"\n        from live\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "draft_spec_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "live_spec_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 3,
+        "name": "expect_pub_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_pub_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 5,
+        "name": "spec: Json<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 6,
+        "name": "spec_type: CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "bbb2f4e5602199ea3599771564cccf86b5d2d08d19999930aabe4b7373d8c671"
+}

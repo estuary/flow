@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE internal.tasks SET\n            heartbeat = '0001-01-01T00:00:00Z',\n            inbox = $3::JSON[] || inbox_next,\n            inbox_next = NULL,\n            inner_state = $2::JSON,\n            wake_at =\n                CASE WHEN inbox_next IS NOT NULL\n                THEN NOW()\n                ELSE NOW() + $4::INTERVAL\n                END\n        WHERE task_id = $1\n        RETURNING wake_at IS NULL AS \"suspended!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "suspended!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Json",
+        "JsonArray",
+        "Interval"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a17134cb9bbb8e7158e5c6e14958b10eec2edc246be89e9ec0462fcc2dd7eaf7"
+}

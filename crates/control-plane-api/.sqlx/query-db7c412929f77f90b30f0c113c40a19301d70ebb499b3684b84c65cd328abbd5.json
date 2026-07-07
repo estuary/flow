@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update evolutions set\n            job_status = $2,\n            updated_at = clock_timestamp()\n        where id = $1\n        returning 1 as \"must_exist\";\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "must_exist",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        {
+          "Custom": {
+            "name": "jsonb_obj",
+            "kind": {
+              "Domain": "Jsonb"
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "db7c412929f77f90b30f0c113c40a19301d70ebb499b3684b84c65cd328abbd5"
+}

@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            g.subject_role AS \"subject_role: models::Prefix\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\",\n            g.bundles AS \"bundles: Vec<models::authz::CapabilityBundle>\"\n        FROM role_grants g\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "subject_role: models::Prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "object_role: models::Prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "capability: models::Capability",
+        "type_info": {
+          "Custom": {
+            "name": "grant_capability",
+            "kind": {
+              "Enum": [
+                "none",
+                "x_01",
+                "x_02",
+                "x_03",
+                "x_04",
+                "x_05",
+                "x_06",
+                "x_07",
+                "x_08",
+                "x_09",
+                "read",
+                "x_11",
+                "x_12",
+                "x_13",
+                "x_14",
+                "x_15",
+                "x_16",
+                "x_17",
+                "x_18",
+                "x_19",
+                "write",
+                "x_21",
+                "x_22",
+                "x_23",
+                "x_24",
+                "x_25",
+                "x_26",
+                "x_27",
+                "x_28",
+                "x_29",
+                "admin"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "bundles: Vec<models::authz::CapabilityBundle>",
+        "type_info": {
+          "Custom": {
+            "name": "capability_bundle[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "capability_bundle",
+                  "kind": {
+                    "Enum": [
+                      "viewer",
+                      "writer",
+                      "editor",
+                      "admin",
+                      "billing",
+                      "team_admin",
+                      "delegate",
+                      "assume",
+                      "manage_data_plane"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0f9fb0ecbe92202a867ca41fda8d01c4ec77781224e99a1e9e83ada82989cb80"
+}

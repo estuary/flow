@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                dpm.catalog_name_or_prefix,\n                dpm.cordon_at,\n                dpm.active,\n                src_dp.data_plane_name AS src_plane_name,\n                tgt_dp.data_plane_name AS tgt_plane_name\n            FROM public.data_plane_migrations dpm\n            JOIN public.data_planes src_dp ON dpm.src_plane_id = src_dp.id\n            JOIN public.data_planes tgt_dp ON dpm.tgt_plane_id = tgt_dp.id\n            WHERE dpm.id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name_or_prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "cordon_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "src_plane_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "tgt_plane_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ae588b2d093c2ee4d31876fe5e9a17cfccb559d9c93112bd9791d05f765d1415"
+}

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        insert into live_spec_flows (source_id, target_id, flow_type)\n        select live_specs.id, $1, $2::flow_type\n            from unnest($3::text[]) as n inner join live_specs on catalog_name = n\n        union\n            select $1, live_specs.id, $2\n            from unnest($4::text[]) as n inner join live_specs on catalog_name = n\n        union\n            select live_specs.id, $1, 'source_capture'\n            from live_specs\n            where catalog_name = $5\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        {
+          "Custom": {
+            "name": "flow_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test",
+                "source_capture"
+              ]
+            }
+          }
+        },
+        "TextArray",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "911b8f18ae8f9b6311b3af09ec89e05d3e3d294d64bc0d2eb7b268a3fd369a50"
+}

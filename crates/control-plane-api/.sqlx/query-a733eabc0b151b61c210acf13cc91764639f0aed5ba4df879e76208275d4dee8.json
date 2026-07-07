@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            l.journal_template_name AS \"journal_template_name!\",\n            l.catalog_name AS \"collection_name: models::Collection\",\n            l.data_plane_id AS \"data_plane_id: models::Id\"\n        FROM live_specs l\n        WHERE journal_template_name IS NOT NULL\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "journal_template_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "collection_name: models::Collection",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "data_plane_id: models::Id",
+        "type_info": "Macaddr8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a733eabc0b151b61c210acf13cc91764639f0aed5ba4df879e76208275d4dee8"
+}

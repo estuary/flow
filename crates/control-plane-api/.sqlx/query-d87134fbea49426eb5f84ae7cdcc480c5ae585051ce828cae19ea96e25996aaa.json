@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select true as whatever_column from internal.user_roles($1, 'admin') where starts_with(role_prefix, $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "whatever_column",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d87134fbea49426eb5f84ae7cdcc480c5ae585051ce828cae19ea96e25996aaa"
+}

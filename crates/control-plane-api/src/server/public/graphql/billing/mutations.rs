@@ -104,6 +104,7 @@ impl BillingMutation {
         let methods =
             require_customer_payment_methods(provider.as_ref(), &customer.id, &payment_method_id)
                 .await?;
+        wake_tenant_controller(&env.pg_pool, tenant.as_str()).await?;
         let updated_customer = provider
             .update_customer_default_payment_method(&customer.id, Some(payment_method_id.as_str()))
             .await
@@ -212,6 +213,16 @@ impl BillingMutation {
             primary_payment_method,
         })
     }
+}
+
+async fn wake_tenant_controller(pool: &sqlx::PgPool, tenant_name: &str) -> anyhow::Result<()> {
+    sqlx::query!(
+        "SELECT internal.wake_tenant_controller($1::TEXT)",
+        tenant_name
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, SimpleObject)]

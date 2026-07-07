@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            id AS \"id: models::Id\",\n            catalog_name,\n            spec_type AS \"spec_type!: models::CatalogType\",\n            built_spec AS \"built_spec!: sqlx::types::Json<models::RawValue>\"\n        FROM live_specs\n        WHERE starts_with(catalog_name, $1)\n        AND   built_spec IS NOT NULL\n        AND   data_plane_id = $2\n        -- Migrate tasks first, then collections.\n        -- This minimizes shard failures due to cordoned journals.\n        ORDER BY spec_type = 'collection', catalog_name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "spec_type!: models::CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "built_spec!: sqlx::types::Json<models::RawValue>",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "7d176837805b241e098fdf5acdea342e61231701b0931280b2f5a5610a61fe04"
+}

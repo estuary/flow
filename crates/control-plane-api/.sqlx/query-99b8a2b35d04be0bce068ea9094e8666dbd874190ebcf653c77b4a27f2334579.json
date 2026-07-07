@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with dependents as (\n            select lsf.target_id as id\n            from live_spec_flows lsf\n            where lsf.source_id = $1 and lsf.flow_type != 'capture'\n            union\n            select lsf.source_id as id\n            from live_spec_flows lsf\n            where lsf.target_id = $1 and lsf.flow_type = 'capture'\n        ),\n        dependent_tasks as (\n            select ls.controller_task_id\n            from dependents\n            join live_specs ls on dependents.id = ls.id\n        )\n        select internal.send_to_task(\n            dependent_tasks.controller_task_id,\n            '0000000000000000'::flowid,\n            '{\"type\":\"dependency_updated\"}'\n        )\n        from dependent_tasks\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "send_to_task",
+        "type_info": "Void"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "99b8a2b35d04be0bce068ea9094e8666dbd874190ebcf653c77b4a27f2334579"
+}

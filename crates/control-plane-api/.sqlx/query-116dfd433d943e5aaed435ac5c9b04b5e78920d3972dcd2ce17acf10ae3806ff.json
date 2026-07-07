@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with tenant_names(tenant_name) as (\n            select unnest($1::text[]) as tenant_name\n        ),\n        tenant_usages as (\n            select\n                tenant_names.tenant_name,\n                (count(live_specs.catalog_name) filter (\n                    where\n                        live_specs.spec_type = 'capture' or\n                        live_specs.spec_type = 'materialization' or\n                        live_specs.spec_type = 'collection' and live_specs.spec->'derive' is not null\n                ))::integer as tasks_used,\n                (count(live_specs.catalog_name) filter (\n                    where live_specs.spec_type = 'collection'\n                ))::integer as collections_used\n            from tenant_names\n            left outer join live_specs on\n                live_specs.catalog_name ^@ tenant_names.tenant_name and\n                (live_specs.spec->'shards'->>'disable')::boolean is not true\n            group by tenant_names.tenant_name\n        )\n        select\n            tenants.tenant as name,\n            tenants.tasks_quota::integer as \"tasks_quota!: i32\",\n            tenants.collections_quota::integer as \"collections_quota!: i32\",\n            tenant_usages.tasks_used as \"tasks_used!: i32\",\n            tenant_usages.collections_used as \"collections_used!: i32\"\n        from tenant_usages\n        join tenants on tenants.tenant = tenant_usages.tenant_name\n        order by tenants.tenant;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "tasks_quota!: i32",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "collections_quota!: i32",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "tasks_used!: i32",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "collections_used!: i32",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "116dfd433d943e5aaed435ac5c9b04b5e78920d3972dcd2ce17acf10ae3806ff"
+}

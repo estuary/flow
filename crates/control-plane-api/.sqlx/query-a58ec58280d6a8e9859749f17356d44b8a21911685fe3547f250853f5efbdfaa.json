@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        insert into storage_mappings (detail, catalog_prefix, spec)\n        values ($1, $2, $3)\n        on conflict (catalog_prefix) do update set\n            detail = $1,\n            spec = $3,\n            updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "catalog_prefix",
+            "kind": {
+              "Domain": "Text"
+            }
+          }
+        },
+        "Json"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a58ec58280d6a8e9859749f17356d44b8a21911685fe3547f250853f5efbdfaa"
+}

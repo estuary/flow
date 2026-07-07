@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with delete_inferred_schema as (\n            delete from inferred_schemas\n            where collection_name = (select catalog_name from live_specs where id = $1)\n        )\n        delete from live_specs where id = $1\n        returning 1 as \"must_exist!: i32\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "must_exist!: i32",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c52a5d3f4ad4f364fd0543cd470e0cf525b803636496c93a980ee27d204e1a02"
+}

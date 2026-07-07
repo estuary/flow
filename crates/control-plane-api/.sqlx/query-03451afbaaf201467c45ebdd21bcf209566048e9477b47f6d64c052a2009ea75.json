@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from live_spec_flows where target_id = $1 and (flow_type = 'materialization' or flow_type = 'source_capture')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "03451afbaaf201467c45ebdd21bcf209566048e9477b47f6d64c052a2009ea75"
+}

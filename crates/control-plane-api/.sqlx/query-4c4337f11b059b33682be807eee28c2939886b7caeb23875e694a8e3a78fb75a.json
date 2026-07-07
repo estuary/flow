@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE internal.tasks\n        SET heartbeat = NOW()\n        WHERE task_id = $1 AND heartbeat::TEXT = $2\n        RETURNING heartbeat::TEXT AS \"heartbeat!\";\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "heartbeat!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4c4337f11b059b33682be807eee28c2939886b7caeb23875e694a8e3a78fb75a"
+}

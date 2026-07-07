@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with orig as (\n          select id, catalog_name from live_specs where catalog_name = any($1::catalog_name[])\n        )\n        select lst.catalog_name::text as \"name!: String\"\n        from orig\n        join live_spec_flows lsf on orig.id = lsf.source_id\n        join live_specs lst on lsf.target_id = lst.id\n        union\n        select lss.catalog_name::text as \"name!: String\"\n        from orig\n        join live_spec_flows lsf on orig.id = lsf.target_id\n        join live_specs lss on lsf.source_id = lss.id\n        union\n        select catalog_name::text as \"name!: String\"\n        from orig\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_name[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "catalog_name",
+                  "kind": {
+                    "Domain": "Text"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0fa8b6cd6ad5c60432f1b17be9378d2b3beae839e11666cfb5f4391c391433e8"
+}
