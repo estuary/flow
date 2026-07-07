@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            id as \"data_plane_id: models::Id\",\n            config AS \"config: sqlx::types::Json<stack::DataPlane>\",\n            deploy_branch AS \"deploy_branch!\",\n            logs_token,\n            data_plane_name,\n            data_plane_fqdn,\n            private_links AS \"private_links: Vec<sqlx::types::Json<stack::PrivateLink>>\",\n            pulumi_key AS \"pulumi_key\",\n            pulumi_stack AS \"pulumi_stack!\"\n        FROM data_planes\n        WHERE controller_task_id = $1\n        ",
+  "query": "\n        SELECT\n            id as \"data_plane_id: models::Id\",\n            config AS \"config: sqlx::types::Json<stack::DataPlane>\",\n            deploy_branch AS \"deploy_branch!\",\n            logs_token,\n            data_plane_name,\n            data_plane_fqdn,\n            private_links AS \"private_links: Vec<sqlx::types::Json<stack::PrivateLink>>\",\n            pulumi_key AS \"pulumi_key\",\n            pulumi_stack AS \"pulumi_stack!\",\n            now() AS \"links_read_at!: chrono::DateTime<chrono::Utc>\"\n        FROM data_planes\n        WHERE controller_task_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "pulumi_stack!",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "links_read_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -63,8 +68,9 @@
       false,
       false,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "c53448e2f383127421fd3f060629fb2dd02304ce4b51045d729b390497137d75"
+  "hash": "ceb7ccc1d292df96423619f8f6c77c60719243f82fe5f8c1c2d05466da95f422"
 }

@@ -23,8 +23,11 @@ create table public.data_plane_private_links (
     -- `data_planes.private_links` array; round-trips `models::PrivateLink`.
     config jsonb not null,
     -- The provider's service identifier, used as the join key against the
-    -- controller's provisioned endpoint outputs and to enforce uniqueness. A
-    -- data plane is single-cloud, so this is unambiguous within a data plane.
+    -- controller's provisioned endpoint outputs and to enforce uniqueness.
+    -- Identities are only meaningful per provider (AWS and Azure both key on
+    -- `service_name`), and a same-provider duplicate produces colliding Pulumi
+    -- resource names in est-dry-dock, wedging the converge; uniqueness is
+    -- therefore scoped to (data_plane_id, provider, service_identity).
     service_identity text generated always as
         (coalesce(config ->> 'service_name', config ->> 'service_attachment')) stored,
     -- Observed state, written by the data-plane controller. `status` is
@@ -36,15 +39,15 @@ create table public.data_plane_private_links (
     observed_at timestamptz,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
-    constraint data_plane_private_links_unique_identity
-        unique (data_plane_id, service_identity)
+    constraint data_plane_private_links_unique_provider_identity
+        unique (data_plane_id, provider, service_identity)
 );
 
 comment on table public.data_plane_private_links is
     'Per-link private networking configuration (desired) and controller-observed status for a data plane.';
 
-create index data_plane_private_links_data_plane_id_idx
-    on public.data_plane_private_links (data_plane_id);
+-- No separate data_plane_id index: the unique constraint's index leads with
+-- data_plane_id and serves those lookups.
 
 -- Access mirrors `data_planes`: a user read-authorized to the parent data plane
 -- may select (a `read` grant already conveys ViewDataPlanePrivateNetworking).
@@ -75,14 +78,18 @@ grant select (
 
 -- Pre-flight: abort the migration on legacy `private_links` data the new
 -- table's invariants cannot represent, rather than silently dropping or
--- corrupting it. A duplicate (data_plane_id, service_identity) would collide on
--- the unique constraint, and an element missing both `service_name` and
+-- corrupting it. An element missing both `service_name` and
 -- `service_attachment` would produce a NULL generated `service_identity` that
--- bypasses uniqueness and later fails the resolver's non-null `PrivateLink`
--- decode. Both indicate data that needs hand-correction before this migration.
+-- bypasses uniqueness; an element missing another required field of its
+-- `models::PrivateLink` variant (possible via hand-edits to the column, which
+-- were never validated) would backfill fine but fail the resolver's non-null
+-- decode at read time, nulling the whole `dataPlanes` query; a duplicate
+-- (data_plane_id, provider, service_identity) would collide on the unique
+-- constraint. All indicate data needing hand-correction before this migration.
 do $$
 declare
     v_missing bigint;
+    v_undecodable bigint;
     v_dupes bigint;
 begin
     select count(*) into v_missing
@@ -96,11 +103,44 @@ begin
             v_missing;
     end if;
 
+    -- Mirrors the required fields of each `models::PrivateLink` untagged
+    -- variant (AWS: region + az_ids + service_name; Azure: service_name +
+    -- location; GCP: service_attachment + region + dns_zone_name +
+    -- dns_record_names) so an element that would fail decode aborts here
+    -- instead of at read time.
+    select count(*) into v_undecodable
+    from public.data_planes dp,
+         lateral unnest(dp.private_links) as elem
+    where not (
+        ((elem ->> 'service_name') is not null
+            and (elem ->> 'region') is not null
+            and (elem ->> 'az_ids') is not null)
+        or ((elem ->> 'service_name') is not null
+            and (elem ->> 'location') is not null)
+        or ((elem ->> 'service_attachment') is not null
+            and (elem ->> 'region') is not null
+            and (elem ->> 'dns_zone_name') is not null
+            and (elem ->> 'dns_record_names') is not null)
+    );
+
+    if v_undecodable > 0 then
+        raise exception
+            'cannot backfill data_plane_private_links: % private_links element(s) do not match any models::PrivateLink variant shape',
+            v_undecodable;
+    end if;
+
     select count(*) into v_dupes from (
         select 1
         from public.data_planes dp,
              lateral unnest(dp.private_links) as elem
-        group by dp.id, coalesce(elem ->> 'service_name', elem ->> 'service_attachment')
+        group by
+            dp.id,
+            case
+                when (elem ->> 'service_attachment') is not null then 'gcp'
+                when (elem ->> 'az_ids') is not null then 'aws'
+                else 'azure'
+            end,
+            coalesce(elem ->> 'service_name', elem ->> 'service_attachment')
         having count(*) > 1
     ) d;
 

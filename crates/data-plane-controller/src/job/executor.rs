@@ -35,6 +35,9 @@ pub struct Outcome {
     pub publish_stack: Option<stack::PulumiStack>,
     // KMS key used to encrypt HMAC keys
     pub kms_key: String,
+    // Read instant of the desired links applied by this converge; the
+    // per-link status write skips rows changed after it.
+    pub links_read_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Type-erased function for dispatching work execution.
@@ -191,6 +194,15 @@ impl Executor {
                 state_ref.stack.config.model.private_links =
                     row_state.stack.config.model.private_links;
 
+                // Pin the read instant of the links this converge applies at
+                // the poll that dispatches `pulumi up`. It is deliberately not
+                // refreshed on later polls of the same converge: the endpoint
+                // outputs reflect what `PulumiUp1` provisioned, so the status
+                // write must not consider rows edited after this read.
+                if matches!(status, Status::PulumiUp1) {
+                    state_ref.links_read_at = row_state.links_read_at;
+                }
+
                 // For all non-Idle statuses, dispatch to service worker.
                 let action =
                     Action::from_status(status).context("cannot convert status to action")?;
@@ -214,6 +226,7 @@ impl Executor {
             publish_exports: state_ref.publish_exports.take(),
             publish_stack,
             kms_key: self.controller_config.secrets_provider.clone(),
+            links_read_at: state_ref.links_read_at,
         })
     }
 
@@ -395,7 +408,8 @@ async fn fetch_row_state(
             data_plane_fqdn,
             private_links AS "private_links: Vec<sqlx::types::Json<stack::PrivateLink>>",
             pulumi_key AS "pulumi_key",
-            pulumi_stack AS "pulumi_stack!"
+            pulumi_stack AS "pulumi_stack!",
+            now() AS "links_read_at!: chrono::DateTime<chrono::Utc>"
         FROM data_planes
         WHERE controller_task_id = $1
         "#,
@@ -447,6 +461,7 @@ async fn fetch_row_state(
         preview_branch: String::new(),
         pending_refresh: false,
         pending_converge: false,
+        links_read_at: Some(row.links_read_at),
         publish_exports: None,
         publish_stack: None,
     })
@@ -629,6 +644,15 @@ impl automations::Outcome for Outcome {
             // `provisioned` with the endpoint as `details`, absent -> `pending`.
             // This is the temporary bridge until est-dry-dock emits a per-link
             // result keyed by the link id (which will also enable `failed`).
+            //
+            // Rows changed after `links_read_at` are skipped: this converge did
+            // not apply their config, so matching them against its endpoint
+            // outputs would record a stale status (an identity-preserving edit
+            // landing mid-converge would read as `provisioned` with pre-edit
+            // details). The wake trigger has already queued the converge that
+            // settles them. A NULL `links_read_at` (task state written by a
+            // prior binary version) disables the guard rather than skipping
+            // the write.
             _ = sqlx::query!(
                 r#"
                 WITH endpoints AS (
@@ -662,11 +686,13 @@ impl automations::Outcome for Outcome {
                 WHERE l.id = l2.id
                   AND l2.data_plane_id = $1
                   AND l2.provider IN (SELECT provider FROM published_providers)
+                  AND ($5::timestamptz IS NULL OR l2.updated_at <= $5)
                 "#,
                 self.data_plane_id as models::Id,
                 &aws_link_endpoints as &[serde_json::Value],
                 &azure_link_endpoints as &[serde_json::Value],
                 &gcp_psc_endpoints as &[serde_json::Value],
+                self.links_read_at,
             )
             .execute(&mut *txn)
             .await

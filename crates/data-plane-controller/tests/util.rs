@@ -175,6 +175,7 @@ pub fn initial_state() -> stack::State {
         preview_branch: String::new(),
         pending_refresh: false,
         pending_converge: false, // Start false, should be set by diffing
+        links_read_at: None,
         publish_exports: None,
         publish_stack: None,
     }

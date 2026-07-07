@@ -65,6 +65,14 @@ pub struct State {
     #[serde(default, skip_serializing_if = "is_false")]
     pub pending_converge: bool,
 
+    // DB-side instant at which the desired private links applied by the
+    // current converge were read, pinned at the `PulumiUp1` poll. The
+    // post-converge status write skips link rows changed after this instant:
+    // their new config was not applied by this converge, so matching them
+    // against its endpoint outputs would record a stale status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links_read_at: Option<chrono::DateTime<chrono::Utc>>,
+
     // When Some, updated Pulumi stack exports to be written back into the `data_planes` row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publish_exports: Option<ControlExports>,
