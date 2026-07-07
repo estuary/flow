@@ -131,7 +131,7 @@ pub async fn start<L: crate::LogHandler>(
                 .await
                 .map_err(crate::anyhow_to_status)?;
 
-            token_restart_at = Some(token_restart_deadline(
+            token_restart_at = Some(crate::shard::token_restart_deadline(
                 std::time::SystemTime::now(),
                 tokens.expires_at(),
             ));
@@ -148,31 +148,6 @@ pub async fn start<L: crate::LogHandler>(
         codec,
         token_restart_at,
     ))
-}
-
-/// Deadline for beginning a graceful session restart ahead of IAM token
-/// expiry, so a transaction started near the deadline still has runway to
-/// commit with valid credentials. Short (1 hour) tokens can't afford a large
-/// margin; extended (12 hour) tokens trade some of their generous lifetime
-/// for more commit runway.
-fn token_restart_deadline(
-    now: std::time::SystemTime,
-    expires_at: std::time::SystemTime,
-) -> std::time::SystemTime {
-    use std::time::Duration;
-
-    const LONG_LIFETIME: Duration = Duration::from_secs(4 * 3600);
-    const LONG_MARGIN: Duration = Duration::from_secs(30 * 60);
-    const SHORT_MARGIN: Duration = Duration::from_secs(5 * 60);
-
-    let lifetime = expires_at.duration_since(now).unwrap_or_default();
-    let margin = if lifetime >= LONG_LIFETIME {
-        LONG_MARGIN
-    } else {
-        SHORT_MARGIN
-    };
-    // A pathologically short lifetime restarts immediately rather than never.
-    expires_at - margin.min(lifetime)
 }
 
 fn extract_endpoint<'r>(
@@ -253,35 +228,5 @@ fn extract_endpoint<'r>(
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::token_restart_deadline;
-    use std::time::{Duration, SystemTime};
-
-    #[test]
-    fn test_token_restart_deadline_margins() {
-        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
-
-        // One-hour token restarts five minutes early.
-        let expires = now + Duration::from_secs(3600);
-        assert_eq!(
-            token_restart_deadline(now, expires),
-            expires - Duration::from_secs(5 * 60)
-        );
-
-        // Twelve-hour token restarts thirty minutes early.
-        let expires = now + Duration::from_secs(12 * 3600);
-        assert_eq!(
-            token_restart_deadline(now, expires),
-            expires - Duration::from_secs(30 * 60)
-        );
-
-        // A lifetime shorter than its margin restarts immediately, not never.
-        let expires = now + Duration::from_secs(60);
-        assert_eq!(token_restart_deadline(now, expires), now);
-        assert_eq!(token_restart_deadline(now, now), now);
     }
 }

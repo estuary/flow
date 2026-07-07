@@ -17,6 +17,7 @@ pub async fn start<L: crate::LogHandler>(
     mpsc::Sender<Request>,
     BoxStream<'static, tonic::Result<Response>>,
     Option<crate::proto::Container>,
+    Option<std::time::SystemTime>,
 )> {
     let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
     let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
@@ -102,6 +103,7 @@ pub async fn start<L: crate::LogHandler>(
         response => return Err(verify.fail_msg(response)),
     };
 
+    let mut token_restart_at = None;
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
         config_json,
         &spec_response.config_schema_json,
@@ -111,13 +113,18 @@ pub async fn start<L: crate::LogHandler>(
                 .generate_tokens(task_name)
                 .await
                 .map_err(crate::anyhow_to_status)?;
+
+            token_restart_at = Some(crate::shard::token_restart_deadline(
+                std::time::SystemTime::now(),
+                tokens.expires_at(),
+            ));
             *config_json = tokens.inject_into(config_json)?.to_string().into();
             tokens.zeroize();
         }
     }
     _ = connector_tx.try_send(initial);
 
-    Ok((connector_tx, connector_rx, container))
+    Ok((connector_tx, connector_rx, container, token_restart_at))
 }
 
 fn extract_endpoint<'r>(
