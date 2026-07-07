@@ -20,6 +20,12 @@ collections:
   # id a single, stable owning shard so the per-account accumulator is coherent.
   # `shuffle: any` would scatter an id across shards; `shuffle: lambda` is rejected
   # by derive-typescript.
+  #
+  # Unlike the events/* it reads, `accounts` keeps an EXPLICIT schema (no inferred
+  # readSchema): a derivation has no SourcedSchema, so an inferred readSchema would put
+  # unbounded-field churn in front of both materializations. A derivation seeded from a
+  # complete schema never widens its inferred shape, so `accounts` emits no inference
+  # and — expected, not a broken hop — never gets an `inferred_schemas` row.
   test/soak/accounts:
     schema: ../accounts.schema.json
     key: [/id]
