@@ -129,7 +129,7 @@ Skips truncating destination tables when a backfill is triggered.
 - **Use case:** Preserving historical data in the destination when a schema change triggers an automatic backfill.
 - **Caveats:**
   - May result in duplicate or inconsistent data if the source collection contains updated versions of previously materialized documents.
-  - Enabling this flag also disables the connector's load optimization for keys reset by the backfill, so retained rows are matched and updated in place instead of duplicated. Pairing with [`allow_existing_tables_for_new_bindings`](#allow_existing_tables_for_new_bindings) is only needed separately when the binding itself is new and the destination table existed before Estuary started writing to it.
+  - When this flag is enabled, backfilled rows are matched against existing rows and updated in place, rather than inserted as duplicates. Pairing with [`allow_existing_tables_for_new_bindings`](#allow_existing_tables_for_new_bindings) is only needed separately when the binding itself is new and the destination table existed before Estuary started writing to it.
   - If collection keys or the destination table schema change in incompatible ways, the connector will still drop and recreate the table even with this flag enabled.
 - **Applies to:** Most SQL and warehouse materialization connectors.
 
