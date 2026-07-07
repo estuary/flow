@@ -458,7 +458,7 @@ impl GazctlEnv {
         let (data_plane_name, prefix) = match (&self.data_plane, &self.prefix, &self.name) {
             (Some(dp), Some(pf), None) => {
                 // Traditional mode: --data-plane and --prefix
-                (dp.clone(), pf.clone())
+                (dp.clone(), crate::normalize_prefix(pf))
             }
             (None, None, Some(name)) => {
                 // New mode: --name (resolve data plane from catalog name)

@@ -273,7 +273,7 @@ fn to_vars(list: &List) -> Vec<list_live_specs_query::LiveSpecsBy> {
     for prefix in list.name_selector.prefix.iter() {
         vars.push(list_live_specs_query::LiveSpecsBy {
             names: None,
-            prefix: Some(models::Prefix::new(prefix)),
+            prefix: Some(models::Prefix::new(crate::normalize_prefix(prefix))),
             catalog_type,
             data_plane_name: data_plane_name.clone(),
         });
