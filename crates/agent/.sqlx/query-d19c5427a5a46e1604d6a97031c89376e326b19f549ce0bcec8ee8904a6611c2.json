@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into shard_failures (catalog_name, build, ts, flow_document)\n            select * from unnest($1::catalog_name[], $2::flowid[], $3::timestamptz[], $4::json[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "catalog_name[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "catalog_name",
+                  "kind": {
+                    "Domain": "Text"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "TimestamptzArray",
+        "JsonArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d19c5427a5a46e1604d6a97031c89376e326b19f549ce0bcec8ee8904a6611c2"
+}
