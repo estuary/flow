@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            id as \"data_plane_id: models::Id\",\n            config AS \"config: sqlx::types::Json<stack::DataPlane>\",\n            deploy_branch AS \"deploy_branch!\",\n            logs_token,\n            data_plane_name,\n            data_plane_fqdn,\n            private_links AS \"private_links: Vec<sqlx::types::Json<stack::PrivateLink>>\",\n            pulumi_key AS \"pulumi_key\",\n            pulumi_stack AS \"pulumi_stack!\"\n        FROM data_planes\n        WHERE controller_task_id = $1\n        ",
+  "query": "\n        SELECT\n            id as \"data_plane_id: models::Id\",\n            config AS \"config: sqlx::types::Json<stack::DataPlane>\",\n            deploy_branch AS \"deploy_branch!\",\n            logs_token,\n            data_plane_name,\n            data_plane_fqdn,\n            pulumi_key AS \"pulumi_key\",\n            pulumi_stack AS \"pulumi_stack!\"\n        FROM data_planes\n        WHERE controller_task_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -35,16 +35,11 @@
       },
       {
         "ordinal": 6,
-        "name": "private_links: Vec<sqlx::types::Json<stack::PrivateLink>>",
-        "type_info": "JsonArray"
-      },
-      {
-        "ordinal": 7,
         "name": "pulumi_key",
         "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "pulumi_stack!",
         "type_info": "Text"
       }
@@ -61,10 +56,9 @@
       false,
       false,
       false,
-      false,
       true,
       true
     ]
   },
-  "hash": "c53448e2f383127421fd3f060629fb2dd02304ce4b51045d729b390497137d75"
+  "hash": "a52cf45e935f28427ba48d2f181134a3bb943053fa46f58c0f1bba820a11fc5a"
 }

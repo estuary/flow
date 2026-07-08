@@ -65,6 +65,7 @@ expression: trace.lock().unwrap().as_slice()
           ],
           "private_links": [
             {
+              "id": "0000000000000b01",
               "region": "us-west-2",
               "az_ids": [
                 "a",
@@ -336,6 +337,32 @@ expression: trace.lock().unwrap().as_slice()
         "a2V5Mw=="
       ],
       "ssh_key": "",
+      "link_results": [
+        {
+          "id": "0000000000000b01",
+          "status": "provisioned",
+          "error": null,
+          "details": {
+            "dns_entries": [
+              {
+                "dns_name": "vpce-123-abc.vpce-svc-foo.us-east-1.vpce.amazonaws.com",
+                "hosted_zone_id": "ZZ1"
+              },
+              {
+                "dns_name": "vpce-123-abc-us-east-1a.vpce-svc-foo.us-east-1.vpce.amazonaws.com",
+                "hosted_zone_id": "ZZ1"
+              }
+            ],
+            "service_name": "com.amazonaws.vpce.us-east-1.vpce-svc-foo"
+          }
+        },
+        {
+          "id": "0000000000000b02",
+          "status": "failed",
+          "error": "Invalid PrivateLink Availability Zone ID 'use1-az9' (valid values are ['use1-az1', 'use1-az2'])",
+          "details": null
+        }
+      ],
       "dekaf_address": "tls://dekaf.test-plane.estuary.dev:9092",
       "dekaf_registry_address": "https://dekaf.test-plane.estuary.dev:443"
     }
@@ -417,6 +444,7 @@ expression: trace.lock().unwrap().as_slice()
           ],
           "private_links": [
             {
+              "id": "0000000000000b01",
               "region": "us-west-2",
               "az_ids": [
                 "a",
@@ -649,6 +677,32 @@ expression: trace.lock().unwrap().as_slice()
         "a2V5Mw=="
       ],
       "ssh_key": "",
+      "link_results": [
+        {
+          "id": "0000000000000b01",
+          "status": "provisioned",
+          "error": null,
+          "details": {
+            "dns_entries": [
+              {
+                "dns_name": "vpce-123-abc.vpce-svc-foo.us-east-1.vpce.amazonaws.com",
+                "hosted_zone_id": "ZZ1"
+              },
+              {
+                "dns_name": "vpce-123-abc-us-east-1a.vpce-svc-foo.us-east-1.vpce.amazonaws.com",
+                "hosted_zone_id": "ZZ1"
+              }
+            ],
+            "service_name": "com.amazonaws.vpce.us-east-1.vpce-svc-foo"
+          }
+        },
+        {
+          "id": "0000000000000b02",
+          "status": "failed",
+          "error": "Invalid PrivateLink Availability Zone ID 'use1-az9' (valid values are ['use1-az1', 'use1-az2'])",
+          "details": null
+        }
+      ],
       "dekaf_address": "tls://dekaf.test-plane.estuary.dev:9092",
       "dekaf_registry_address": "https://dekaf.test-plane.estuary.dev:443"
     }
@@ -730,6 +784,7 @@ expression: trace.lock().unwrap().as_slice()
           ],
           "private_links": [
             {
+              "id": "0000000000000b01",
               "region": "us-west-2",
               "az_ids": [
                 "a",
@@ -738,6 +793,7 @@ expression: trace.lock().unwrap().as_slice()
               "service_name": "service"
             },
             {
+              "id": "0000000000000b02",
               "region": "us-west-2",
               "az_ids": [
                 "b",

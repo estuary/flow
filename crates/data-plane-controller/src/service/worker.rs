@@ -285,7 +285,7 @@ impl Worker {
         &self,
         state: &mut stack::State,
         checkouts: &mut HashMap<String, tempfile::TempDir>,
-        private_links: Vec<stack::PrivateLink>,
+        private_links: Vec<stack::PrivateLinkEntry>,
     ) -> anyhow::Result<std::time::Duration> {
         state.stack.config.model.private_links = private_links;
 
