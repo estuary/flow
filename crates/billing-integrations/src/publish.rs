@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::Postgres;
 use sqlx::{Pool, postgres::PgPoolOptions, types::chrono::NaiveDate};
 use std::collections::HashMap;
-use stripe::InvoiceStatus;
 
 const CREATED_BY_BILLING_AUTOMATION: &str = "estuary.dev/created_by_automation";
 
@@ -155,11 +154,18 @@ enum InvoiceAction {
         customer: Option<stripe::Customer>,
     },
     /// Create a new invoice. `replace` is set when --recreate-finalized
-    /// requires deleting an existing invoice first.
-    Create { replace: Option<stripe::InvoiceId> },
-    /// Update an existing draft invoice's line items.
+    /// requires deleting an existing invoice first. `customer` is the customer
+    /// found during classification, or None when none exists yet (execute then
+    /// creates one).
+    Create {
+        replace: Option<stripe::InvoiceId>,
+        customer: Option<stripe::Customer>,
+    },
+    /// Update an existing draft invoice's line items. `customer` is the invoice's
+    /// owner, already found during classification.
     Update {
         existing_invoice_id: stripe::InvoiceId,
+        customer: stripe::Customer,
     },
 }
 
@@ -264,16 +270,18 @@ impl Invoice {
 
         // --- Phase 2: Stripe calls (only for invoices that survived Phase 1) ---
 
+        // Fetch the customer once, up front: it is reused for the payment-method
+        // validation below, the existing-invoice search, and threaded into the
+        // returned action so execute() need not search for it again.
+        let customer = find_customer(client, &self.billed_prefix).await?;
+
         // For Final invoices, verify the payment method state with Stripe.
         // The DB capture has been known to be unreliable, so Stripe is the
         // source of truth. If the tenant has no payment method, skip on
         // NoDataMoved / NoFullPipeline.
-        let mut found_customer: Option<Option<stripe::Customer>> = None;
-
         if let (InvoiceType::Final, Some(extra)) = (&self.invoice_type, &self.extra) {
             let validated_has_payment_method =
                 if let Some(has_payment_method) = self.has_payment_method {
-                    let customer = find_customer(client, &self.billed_prefix).await?;
                     let real_has_pm = customer
                         .as_ref()
                         .and_then(|c| c.invoice_settings.as_ref())
@@ -288,48 +296,51 @@ impl Invoice {
                         );
                     }
 
-                    found_customer = Some(customer);
                     real_has_pm
                 } else {
                     false
                 };
 
             if !validated_has_payment_method {
-                let unwrapped_extra = extra.clone().0.expect(
-                    "This is just a sqlx quirk, if the outer Option is Some then this will be Some",
-                );
+                // If the outer Option is Some the inner should be too; treat a
+                // null inner as a data error rather than panicking and aborting
+                // the whole run.
+                let Some(unwrapped_extra) = extra.0.as_ref() else {
+                    bail!(
+                        "Final invoice for {tenant} has a null `extra` payload",
+                        tenant = self.billed_prefix
+                    );
+                };
 
                 if unwrapped_extra.processed_data_gb.unwrap_or_default() == 0.0 {
                     return Ok(InvoiceAction::Skip {
                         result: InvoiceResult::NoDataMoved,
-                        customer: found_customer.flatten(),
+                        customer,
                     });
                 }
 
                 if !self.has_full_pipeline {
                     return Ok(InvoiceAction::Skip {
                         result: InvoiceResult::NoFullPipeline,
-                        customer: found_customer.flatten(),
+                        customer,
                     });
                 }
             }
         }
 
-        // Look up customer (reuse if already fetched during payment method validation)
-        let customer = match found_customer {
-            Some(c) => c,
-            None => find_customer(client, &self.billed_prefix).await?,
-        };
-
         let customer = match customer {
             Some(c) => c,
             // No customer in Stripe means no existing invoice is possible
-            None => return Ok(InvoiceAction::Create { replace: None }),
+            None => {
+                return Ok(InvoiceAction::Create {
+                    replace: None,
+                    customer: None,
+                });
+            }
         };
 
         let customer_id = customer.id.to_string();
 
-        // Search for an existing invoice in Stripe
         if let Some(invoice) = self
             .get_stripe_invoice(client, customer_id.as_str())
             .await?
@@ -343,6 +354,7 @@ impl Invoice {
                 {
                     Ok(InvoiceAction::Create {
                         replace: Some(invoice.id),
+                        customer: Some(customer),
                     })
                 }
                 Some(stripe::InvoiceStatus::Draft) => {
@@ -352,6 +364,7 @@ impl Invoice {
                     );
                     Ok(InvoiceAction::Update {
                         existing_invoice_id: invoice.id,
+                        customer,
                     })
                 }
                 Some(stripe::InvoiceStatus::Open)
@@ -402,7 +415,10 @@ impl Invoice {
                 }
             }
         } else {
-            Ok(InvoiceAction::Create { replace: None })
+            Ok(InvoiceAction::Create {
+                replace: None,
+                customer: Some(customer),
+            })
         }
     }
 
@@ -416,18 +432,19 @@ impl Invoice {
         action: InvoiceAction,
         mode: ChargeType,
     ) -> anyhow::Result<InvoiceResult> {
-        let (is_update, replace, existing_invoice_id) = match action {
+        let (replace, existing_invoice_id, found_customer) = match action {
             InvoiceAction::Skip { result, .. } => return Ok(result),
-            InvoiceAction::Create { replace, .. } => (false, replace, None),
+            InvoiceAction::Create { replace, customer } => (replace, None, customer),
             InvoiceAction::Update {
                 existing_invoice_id,
-                ..
-            } => (true, None, Some(existing_invoice_id)),
+                customer,
+            } => (None, Some(existing_invoice_id), Some(customer)),
         };
+        let is_update = existing_invoice_id.is_some();
 
-        // Ensure customer exists and has an email (required for invoicing)
         let customer =
-            ensure_customer_for_invoicing(client, db_client, &self.billed_prefix).await?;
+            ensure_customer_for_invoicing(client, db_client, &self.billed_prefix, found_customer)
+                .await?;
 
         // Anything before 12:00:00 renders as the previous day in Stripe
         let date_start_secs = self
@@ -800,25 +817,19 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             .or_default() += 1;
     });
 
+    let usage = invoice_type_counter
+        .remove(&InvoiceType::Final)
+        .unwrap_or_default();
+    let manual = invoice_type_counter
+        .remove(&InvoiceType::Manual)
+        .unwrap_or_default();
     if cmd.dry_run {
         tracing::info!(
-            "[DRY RUN] Classifying {usage} usage-based invoices and {manual} manually-entered invoices without making any changes to Stripe.",
-            usage = invoice_type_counter
-                .remove(&InvoiceType::Final)
-                .unwrap_or_default(),
-            manual = invoice_type_counter
-                .remove(&InvoiceType::Manual)
-                .unwrap_or_default(),
+            "[DRY RUN] Classifying {usage} usage-based invoices and {manual} manually-entered invoices without making any changes to Stripe."
         );
     } else {
         tracing::info!(
-            "Processing {usage} usage-based invoices, and {manual} manually-entered invoices.",
-            usage = invoice_type_counter
-                .remove(&InvoiceType::Final)
-                .unwrap_or_default(),
-            manual = invoice_type_counter
-                .remove(&InvoiceType::Manual)
-                .unwrap_or_default(),
+            "Processing {usage} usage-based invoices, and {manual} manually-entered invoices."
         );
     }
 
@@ -828,19 +839,23 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             let client = stripe_client.clone();
             let db_pool = db_pool.clone();
 
-            let annotation = match response.invoice_type {
-                InvoiceType::Manual => Some(format!(
-                    "[manual: {} - {}]",
-                    response.date_start.format("%Y-%m-%d"),
-                    response.date_end.format("%Y-%m-%d")
-                )),
-                _ => None,
-            };
+            let annotation = manual_annotation(response);
 
             async move {
                 let action = response
                     .classify(&client, cmd.recreate_finalized)
                     .await;
+
+                // Shared per-tenant debug line for a classified/executed result.
+                let log_result = |result: &InvoiceResult| {
+                    tracing::debug!(
+                        tenant = response.billed_prefix,
+                        invoice_type = format!("{:?}", response.invoice_type),
+                        subtotal = format!("${:.2}", response.subtotal as f64 / 100.0),
+                        "{}",
+                        result.message(cmd.dry_run)
+                    );
+                };
 
                 match action {
                     Err(err) => {
@@ -852,13 +867,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                         Err(anyhow::anyhow!("{formatted}: {err:#}"))
                     }
                     Ok(InvoiceAction::Skip { result, customer }) => {
-                        tracing::debug!(
-                            tenant = response.billed_prefix,
-                            invoice_type = format!("{:?}", response.invoice_type),
-                            subtotal = format!("${:.2}", response.subtotal as f64 / 100.0),
-                            "{}",
-                            result.message(cmd.dry_run)
-                        );
+                        log_result(&result);
 
                         if cmd.clean_up {
                             let task_res: Result<(), anyhow::Error> = async {
@@ -882,7 +891,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                                 if let Some(invoice) =
                                     response.get_stripe_invoice(&client, &customer_id).await?
                                 {
-                                    if let Some(InvoiceStatus::Draft) = invoice.status {
+                                    if let Some(stripe::InvoiceStatus::Draft) = invoice.status {
                                         if cmd.dry_run {
                                             tracing::warn!(
                                                 tenant = response.billed_prefix.to_string(),
@@ -946,13 +955,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                             InvoiceAction::Update { .. } => InvoiceResult::Updated,
                             InvoiceAction::Skip { .. } => unreachable!(),
                         };
-                        tracing::debug!(
-                            tenant = response.billed_prefix,
-                            invoice_type = format!("{:?}", response.invoice_type),
-                            subtotal = format!("${:.2}", response.subtotal as f64 / 100.0),
-                            "[dry-run] {}",
-                            result.message(cmd.dry_run)
-                        );
+                        log_result(&result);
                         Ok((result, response.subtotal, response.billed_prefix.to_owned(), annotation))
                     }
                     Ok(action) => {
@@ -969,13 +972,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                                 Err(anyhow::anyhow!("{formatted}: {err:#}"))
                             }
                             Ok(res) => {
-                                tracing::debug!(
-                                    tenant = response.billed_prefix,
-                                    invoice_type = format!("{:?}", response.invoice_type),
-                                    subtotal = format!("${:.2}", response.subtotal as f64 / 100.0),
-                                    "{}",
-                                    res.message(cmd.dry_run)
-                                );
+                                log_result(&res);
                                 Ok((res, response.subtotal, response.billed_prefix.to_owned(), annotation))
                             }
                         }
@@ -995,7 +992,8 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             .or_else(|(err, invoice)| async move {
                 if !cmd.fail_fast {
                     tracing::error!("[{}]: {err:#}", invoice.billed_prefix);
-                    Ok((InvoiceResult::Error, 0, invoice.billed_prefix, None))
+                    let annotation = manual_annotation(&invoice);
+                    Ok((InvoiceResult::Error, 0, invoice.billed_prefix, annotation))
                 } else {
                     Err(err)
                 }
@@ -1057,6 +1055,19 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Display tag distinguishing a manually-entered invoice (and its period) in the
+/// run summary; usage invoices get no tag.
+fn manual_annotation(invoice: &Invoice) -> Option<String> {
+    match invoice.invoice_type {
+        InvoiceType::Manual => Some(format!(
+            "[manual: {} - {}]",
+            invoice.date_start.format("%Y-%m-%d"),
+            invoice.date_end.format("%Y-%m-%d")
+        )),
+        _ => None,
+    }
+}
+
 /// Read-only: search Stripe for an existing customer by tenant metadata.
 #[tracing::instrument(skip(client))]
 async fn find_customer(
@@ -1083,14 +1094,17 @@ async fn find_customer(
 }
 
 /// Ensures a Stripe customer exists for this tenant and is ready for invoicing.
-/// Finds an existing customer or creates a new one (carrying the tenant's billing
-/// email and address from the control-plane DB), then ensures the customer has an
-/// email set (falling back to the earliest admin on the tenant if needed).
-#[tracing::instrument(skip(client, db_client))]
+/// Uses `found` (the customer located during classification) when present,
+/// otherwise finds an existing customer or creates a new one (carrying the
+/// tenant's billing email and address from the control-plane DB), then ensures
+/// the customer has an email set (falling back to the earliest admin on the
+/// tenant if needed).
+#[tracing::instrument(skip(client, db_client, found))]
 async fn ensure_customer_for_invoicing(
     client: &stripe::Client,
     db_client: &Pool<Postgres>,
     tenant: &str,
+    found: Option<stripe::Customer>,
 ) -> anyhow::Result<stripe::Customer> {
     let billing_row = sqlx::query!(
         r#"SELECT billing_email, billing_address FROM tenants WHERE tenant = $1"#,
@@ -1099,7 +1113,12 @@ async fn ensure_customer_for_invoicing(
     .fetch_optional(db_client)
     .await?;
 
-    let customer = if let Some(customer) = find_customer(client, tenant).await? {
+    let existing = match found {
+        Some(customer) => Some(customer),
+        None => find_customer(client, tenant).await?,
+    };
+
+    let customer = if let Some(customer) = existing {
         customer
     } else {
         tracing::debug!("Creating new customer");
@@ -1219,10 +1238,11 @@ async fn billing_email_available(
     db_client: &Pool<Postgres>,
     tenant: &str,
 ) -> anyhow::Result<bool> {
-    if let Some(customer) = find_customer(client, tenant).await? {
-        if customer.email.is_some() {
-            return Ok(true);
-        }
+    if find_customer(client, tenant)
+        .await?
+        .is_some_and(|c| c.email.is_some())
+    {
+        return Ok(true);
     }
 
     // Fetches billing_address too (unused here) to reuse the cached query that
