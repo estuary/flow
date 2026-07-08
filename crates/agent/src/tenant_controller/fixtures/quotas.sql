@@ -3,7 +3,7 @@ declare
 
 begin
 
-  -- Tenants: acmeCo/ with SSO enforced, openCo/ without SSO.
+  -- Tenants: acmeCo/ and one with preconfigured quotas
   insert into public.tenants (id, tenant, sso_provider_id, enforce_sso) values
     (internal.id_generator(), 'acmeCo/', NULL, false),
     (internal.id_generator(), 'acmeCo2GtQuotas/', NULL, false)
