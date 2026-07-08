@@ -21,8 +21,7 @@ pub fn build_bindings(
     } = spec;
 
     // Opt-in, per-task relaxation of read-side date-time `format` enforcement
-    // inherited from the collection's inferred schema. See build_binding and
-    // estuary/flow#3133.
+    // inherited from the collection's inferred schema. See build_binding.
     let relax_inferred_datetime = labels::shard_flag_enabled(
         shard_template.as_ref(),
         labels::RELAX_INFERRED_DATETIME_FLAG,

@@ -125,7 +125,7 @@ impl Task {
 
         // Opt-in, per-task relaxation of read-side date-time `format`
         // enforcement inherited from each source collection's inferred schema.
-        // See build_transform and estuary/flow#3133.
+        // See build_transform.
         let relax_inferred_datetime = labels::shard_flag_enabled(
             shard_template.as_ref(),
             labels::RELAX_INFERRED_DATETIME_FLAG,

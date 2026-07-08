@@ -16,7 +16,7 @@ pub const RUNTIME_V2_FLAG: &str = "estuary.dev/flag/enable-runtime-v2";
 // Flag which relaxes read-side enforcement of `date`, `date-time`, and `time`
 // `format` keywords originating from a collection's inferred schema. It lets a
 // task tolerate historical documents whose date-time values predate a
-// tightening of the RFC3339 `format` validator. Opt-in, per-task. See #3133.
+// tightening of the RFC3339 `format` validator. Opt-in, per-task.
 pub const RELAX_INFERRED_DATETIME_FLAG: &str = "estuary.dev/flag/relax-inferred-datetime-formats";
 pub const KEY_BEGIN: &str = "estuary.dev/key-begin";
 pub const KEY_BEGIN_MIN: &str = "00000000";

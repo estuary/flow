@@ -1,6 +1,6 @@
 // Read-side schema handling shared by the V2 materialize and derive task
 // builders. Per-task flag reading lives in `labels::shard_flag_enabled`; the
-// relaxation itself is single-sourced in `models`. See estuary/flow#3133.
+// relaxation itself is single-sourced in `models`.
 
 /// Return `read_schema_json` with `date`/`date-time`/`time` `format` keywords
 /// stripped from its inlined inferred schema, leaving the rest of the bundle

@@ -49,7 +49,7 @@ impl Task {
 
         // Opt-in, per-task relaxation of read-side date-time `format`
         // enforcement inherited from each source collection's inferred schema.
-        // See Transform::new and estuary/flow#3133.
+        // See Transform::new.
         let relax_inferred_datetime = labels::shard_flag_enabled(
             shard_template.as_ref(),
             labels::RELAX_INFERRED_DATETIME_FLAG,
@@ -231,8 +231,8 @@ mod test {
 
     #[test]
     fn test_transform_relaxes_inferred_datetime_when_flagged() {
-        // A space-separated (non-RFC3339) timestamp — the historical shape from
-        // #3133 — read from a source collection into a derivation.
+        // A space-separated (non-RFC3339) timestamp, as historical documents of
+        // a source collection may hold, read into a derivation.
         let legacy = r#"{"ts": "2026-06-17 12:46:17.375663+00:00"}"#;
         let conforming = r#"{"ts": "2026-06-17T12:46:17.375663+00:00"}"#;
 

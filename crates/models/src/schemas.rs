@@ -118,7 +118,7 @@ impl Schema {
     /// (materialize / derive) document validation does not retroactively reject
     /// historical documents whose date-time values predate a tightening of the
     /// `format` validator, while leaving capture-time write-schema enforcement
-    /// and schema inference strict. See estuary/flow#3133.
+    /// and schema inference strict.
     pub fn relax_inferred_datetime_formats(&self) -> serde_json::Result<Self> {
         let mut bundle = serde_json::from_str::<serde_json::Value>(self.get())?;
 
@@ -191,7 +191,7 @@ pub struct AddDef<'a> {
 /// `format` values whose read-side enforcement is relaxed by
 /// [`Schema::relax_inferred_datetime_formats`]. These are exactly the formats
 /// whose validator delegates to the `time` crate, whose interpretation of
-/// RFC3339 has drifted over time (see estuary/flow#3133, #3108, #3116).
+/// RFC3339 has drifted over time.
 const RELAXED_DATETIME_FORMATS: [&str; 3] = ["date", "date-time", "time"];
 
 /// Recursively remove `date`/`date-time`/`time` `format` keywords from `node`

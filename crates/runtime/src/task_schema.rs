@@ -1,6 +1,5 @@
 // Helper shared by the materialize and derive task builders for read-side
-// schema handling. See estuary/flow#3133. Per-task flag reading lives in
-// `labels::shard_flag_enabled`.
+// schema handling. Per-task flag reading lives in `labels::shard_flag_enabled`.
 
 /// Return `read_schema_json` with `date`/`date-time`/`time` `format` keywords
 /// stripped from its inlined inferred schema, leaving the rest of the bundle
@@ -48,14 +47,13 @@ mod test {
         let strict = bytes::Bytes::from(READ_SCHEMA);
         let relaxed = relax_inferred_datetime_formats(&strict).unwrap();
 
-        // A space-separated (non-RFC3339) timestamp — the historical, already
-        // stored shape from #3133.
+        // A space-separated (non-RFC3339) timestamp, as historical documents
+        // admitted under a more lenient format validator may hold.
         let legacy = r#"{"ts": "2026-06-17 12:46:17.375663+00:00"}"#;
         // An RFC3339-conformant timestamp.
         let conforming = r#"{"ts": "2026-06-17T12:46:17.375663+00:00"}"#;
 
-        // Flag OFF (strict): legacy value is rejected on read; this is the
-        // regression from #3116 that the flag exists to relieve.
+        // Flag OFF (strict): the legacy value is rejected on read.
         assert!(!is_valid(&strict, legacy));
         assert!(is_valid(&strict, conforming));
 
