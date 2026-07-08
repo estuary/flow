@@ -60,17 +60,20 @@ Use the below properties to configure a Databricks materialization, which will d
 | **`/http_path`**                         | HTTP Path    | HTTP path of your SQL warehouse                                                                                                   | string                                                                                                             | Required                 |
 | **`/catalog_name`**                      | Catalog Name | Name of your Unity Catalog                                                                                                        | string                                                                                                             | Required                 |
 | **`/schema_name`**                       | Schema Name  | Default schema to materialize to                                                                                                  | string                                                                                                             | `default` schema is used |
+| `/hardDelete` | Hard Delete | If enabled, items deleted in the source will also be deleted from the destination. By default, deletions are tracked via `_meta/op` (soft delete). | boolean | `false` |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 | **`/credentials`**                       | Credentials  | Authentication credentials                                                                                                        | object                                                                                                             |                          |
 | **`/credentials/auth_type`**             | Role         | Authentication type, set to `PAT` for personal access token                                                                       | string                                                                                                             | Required                 |
 | **`/credentials/personal_access_token`** | Role         | Access Token                                                                                                                      | string                                                                                                             | Required                 |
 
 #### Bindings
 
-| Property         | Title              | Description                                                | Type    | Required/Default |
-|------------------|--------------------|------------------------------------------------------------|---------|------------------|
-| **`/table`**     | Table              | Table name                                                 | string  | Required         |
-| `/schema`        | Alternative Schema | Alternative schema for this table                          | string  | Required         |
-| `/delta_updates` | Delta updates      | Whether to use standard or [delta updates](#delta-updates) | boolean | `false`          |
+| Property                       | Title                       | Description                                                  | Type    | Required/Default |
+|--------------------------------|-----------------------------|--------------------------------------------------------------|---------|------------------|
+| **`/table`**                   | Table                       | Table name                                                   | string  | Required         |
+| `/schema`                      | Alternative Schema          | Alternative schema for this table                            | string  | Required         |
+| `/delta_updates`               | Delta updates               | Whether to use standard or [delta updates](#delta-updates)   | boolean | `false`          |
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run after table is created. See [Additional Table Create SQL](./PostgreSQL/PostgreSQL.md#additional-table-create-sql) for usage examples. | string |                  |
 
 ### Sample
 

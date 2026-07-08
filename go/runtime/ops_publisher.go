@@ -30,6 +30,12 @@ type OpsPublisher struct {
 
 var _ ops.Publisher = &OpsPublisher{}
 
+// observableField is the connector log field which, when set to JSON `true`,
+// opts the log line into forwarding from the per-task ops journal into this
+// process's own log stream, and onward to data-plane observability
+// (Promtail -> Loki -> Grafana).
+const observableField = "observable"
+
 func NewOpsPublisher(logsPublisher *message.Publisher) *OpsPublisher {
 	return &OpsPublisher{logsPublisher: logsPublisher, mu: sync.Mutex{}}
 }
@@ -94,6 +100,11 @@ func (p *OpsPublisher) PublishLog(out ops.Log) {
 	out.Meta = &ops.Meta{Uuid: string(pf.DocumentUUIDPlaceholder)}
 	out.Shard = p.shard
 
+	// Connectors opt specific high-signal lines into our log stream (and onward
+	// to operator observability) by marking them `observable: true`. The full
+	// connector log volume only ever flows to the per-task ops journal below.
+	p.maybeForwardObservable(out)
+
 	var buf bytes.Buffer
 	if err := (&jsonpb.Marshaler{}).Marshal(&buf, &out); err != nil {
 		panic(fmt.Errorf("marshal of *ops.Log should always succeed but: %w", err))
@@ -117,6 +128,28 @@ func (p *OpsPublisher) PublishLog(out ops.Log) {
 			Doc:  json.RawMessage(buf.Bytes()),
 		},
 	)
+}
+
+// maybeForwardObservable forwards an `observable`-marked log into this
+// process's logrus stream, tagged with the task name so it's attributable in
+// downstream observability. Emission is gated by the process's configured
+// logrus level (via LogToLogrus).
+//
+// SECURITY: This feature is currently UNRESTRICTED -- any connector that sets
+// `observable: true` has its line forwarded into our operator log stream (and
+// onward to Loki/Grafana), with no rate limiting or other guardrails. It is
+// therefore only safe so long as it is scoped to TRUSTED, first-party
+// connectors (today, public data-planes already restrict connector images to
+// `ghcr.io/estuary/` -- see validate_connector_image in runtime/container.rs).
+// Allowing untrusted connectors to use it would be unwise: a misbehaving or
+// malicious connector could flood operator observability. This feature should
+// always remain scoped to trusted connectors unless and until proper guardrails
+// (e.g. rate limiting and/or an explicit per-task opt-in) are added.
+func (p *OpsPublisher) maybeForwardObservable(out ops.Log) {
+	if string(out.FieldsJsonMap[observableField]) != "true" {
+		return
+	}
+	ops.LogToLogrus(out, p.labels.TaskName)
 }
 
 func shardKeyAndPartitions(shard *ops.ShardRef, ts *types.Timestamp) (tuple.Tuple, tuple.Tuple) {

@@ -94,6 +94,34 @@ func (m *Response_Validated_Binding) Validate() error {
 				"Constraints[%s]", field)
 		}
 	}
+	// Validate each ProjectionConstraint entry and collect the first folded_field
+	// seen for each field so we can enforce consistency across multiple entries.
+	firstFoldedField := make(map[string]string)
+	for i, pc := range m.ProjectionConstraints {
+		if pc.Field == "" {
+			return pb.ExtendContext(
+				pb.NewValidationError("Field is empty"), "ProjectionConstraints[%d]", i)
+		} else if pc.Constraint == nil {
+			return pb.ExtendContext(
+				pb.NewValidationError("Constraint is missing"), "ProjectionConstraints[%d]", i)
+		} else if _, ok := Response_Validated_Constraint_Type_name[int32(pc.Constraint.Type)]; !ok {
+			return pb.ExtendContext(
+				pb.NewValidationError("unknown Constraint Type %v", pc.Constraint),
+				"ProjectionConstraints[%d]", i)
+		}
+		// folded_field is a field-level property: all entries for the same field
+		// must agree on it so the control plane can pick one without ambiguity.
+		if first, seen := firstFoldedField[pc.Field]; !seen {
+			firstFoldedField[pc.Field] = pc.Constraint.FoldedField
+		} else if first != pc.Constraint.FoldedField {
+			return pb.ExtendContext(
+				pb.NewValidationError(
+					"folded_field mismatch: first entry has %q, this entry has %q",
+					first, pc.Constraint.FoldedField,
+				),
+				"ProjectionConstraints[%d]", i)
+		}
+	}
 	if len(m.ResourcePath) == 0 {
 		return pb.NewValidationError("missing ResourcePath")
 	}

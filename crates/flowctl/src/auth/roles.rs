@@ -1,5 +1,5 @@
-use crate::api_exec_paginated;
 use crate::output::CliOutput;
+use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -137,8 +137,8 @@ pub async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             ]
         }
     }
-    let rows: Vec<Row> = api_exec_paginated(
-        ctx.client
+    let rows: Vec<Row> = flow_client_next::postgrest::exec_paginated(
+        ctx.pg
             .from("combined_grants_ext")
             .select(
                 vec![
@@ -155,7 +155,10 @@ pub async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
                 .join(","),
             )
             .order("user_email,subject_role,object_role"),
+        ctx.access_token().as_deref(),
     )
+    .await
+    .try_collect::<Vec<_>>()
     .await?;
 
     ctx.write_all(rows, ())
@@ -175,8 +178,8 @@ pub async fn do_grant(
 
     // Upsert user grants to `user_grants` and role grants to `role_grants`.
     let rows: Vec<GrantRevokeRow> = if let Some(subject_user_id) = subject_user_id {
-        api_exec_paginated(
-            ctx.client
+        flow_client_next::postgrest::exec_paginated(
+            ctx.pg
                 .from("user_grants")
                 .select(grant_revoke_columns())
                 .upsert(
@@ -189,11 +192,14 @@ pub async fn do_grant(
                     .to_string(),
                 )
                 .on_conflict("user_id,object_role"),
+            ctx.access_token().as_deref(),
         )
+        .await
+        .try_collect::<Vec<_>>()
         .await?
     } else if let Some(subject_role) = subject_role {
-        api_exec_paginated(
-            ctx.client
+        flow_client_next::postgrest::exec_paginated(
+            ctx.pg
                 .from("role_grants")
                 .select(grant_revoke_columns())
                 .upsert(
@@ -206,7 +212,10 @@ pub async fn do_grant(
                     .to_string(),
                 )
                 .on_conflict("subject_role,object_role"),
+            ctx.access_token().as_deref(),
         )
+        .await
+        .try_collect::<Vec<_>>()
         .await?
     } else {
         panic!("expected subject role or user ID");
@@ -227,24 +236,30 @@ pub async fn do_revoke(
 
     // Revoke user grants from `user_grants` and role grants from `role_grants`.
     let rows: Vec<GrantRevokeRow> = if let Some(subject_user_id) = subject_user_id {
-        api_exec_paginated(
-            ctx.client
+        flow_client_next::postgrest::exec_paginated(
+            ctx.pg
                 .from("user_grants")
                 .select(grant_revoke_columns())
                 .eq("user_id", subject_user_id.to_string())
                 .eq("object_role", object_role)
                 .delete(),
+            ctx.access_token().as_deref(),
         )
+        .await
+        .try_collect::<Vec<_>>()
         .await?
     } else if let Some(subject_role) = subject_role {
-        api_exec_paginated(
-            ctx.client
+        flow_client_next::postgrest::exec_paginated(
+            ctx.pg
                 .from("role_grants")
                 .select(grant_revoke_columns())
                 .eq("subject_role", subject_role)
                 .eq("object_role", object_role)
                 .delete(),
+            ctx.access_token().as_deref(),
         )
+        .await
+        .try_collect::<Vec<_>>()
         .await?
     } else {
         panic!("expected subject role or user ID");

@@ -171,6 +171,15 @@ impl LiveSpec {
         .await?;
         Ok(Some(conn))
     }
+
+    /// The fully-resolved effective alert config for this task, merging all
+    /// ancestor prefix layers and controller defaults.
+    async fn effective_alert_config(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<super::alert_configs::EffectiveAlertConfig> {
+        super::alert_configs::resolve_effective_alert_config(ctx, &self.catalog_name).await
+    }
 }
 
 /// Typed key for loading live specs by catalog_name

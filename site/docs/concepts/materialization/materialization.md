@@ -329,17 +329,31 @@ This functionality is only supported for Materialization connectors that have th
 field implemented. Consult the individual connector documentation for details.
 :::
 
-## Using `sourceCapture` to synchronize capture and materialization bindings
+## Using `source` to synchronize capture and materialization bindings
 
-In some cases, you just want a destination system to always reflects the source
+In some cases, you just want a destination system to always reflect the source
 system as closely as possible, even as the source system changes over time. The
-`sourceCapture` property of a materialization allows you to do exactly that.
-If you set a `sourceCapture` on your materialization, then the bindings of the
+`source` property of a materialization allows you to do exactly that.
+If you set a `source/capture` on your materialization, then the bindings of the
 materialization will be automatically kept in sync with the bindings of the
 capture. As bindings are added to the capture, they will be automatically added
 to the materialization. This works regardless of whether the bindings were added
 to the capture manually or automatically. Bindings that are removed from the
 capture are _not_ removed from the materialization.
+
+The `source` property is located on the same level as a materialization's endpoint and bindings properties.
+For example:
+
+```yaml
+materializations:
+  your/materialization/name:
+    source:
+      capture: your/capture/name
+      deltaUpdates: false
+      fieldsRecommended: 1
+    endpoint: {...}
+    bindings: {...}
+```
 
 ## Schema and Table Names in Destinations
 
@@ -362,98 +376,91 @@ these are:
 
 2. **Naming Convention**
 
-   The [target resource naming convention](#target-resource-naming-convention-options) can be set in a materialization's Source Collections section.
+   The [target resource naming convention](#target-resource-naming-conventions) can be set in a materialization's Source Collections section.
    This option provides general rules for schema and table names for all newly-added bindings.
-   If the **Mirror Schemas** option is chosen, it will override the materialization's default schema.
 
 3. **Manual Overrides**
 
    You can manually configure schema names for each binding, overriding the default schema if needed.
    To do so, set the **Alternative Schema** field in the binding's Resource Configuration.
 
-### Target Resource Naming Convention Options
+### Target Resource Naming Conventions
 
-Materializations with a concept of schema additionally include a choice between several schema naming conventions.
-These options, under **Collection Settings**, provide different default naming behaviors for tables and schemas.
+Materializations with a concept of schema include a choice between several schema naming conventions.
+These options provide different default naming behaviors for tables and schemas.
 Selecting or changing the naming convention will only apply to new (not existing) bindings on the materialization.
+You can also override the defaults on the binding level.
 
-You can also specify this option in a YAML or JSON configuration as the `source/targetNaming` field. For example:
+When you first add bindings to a materialization in the dashboard, you will be prompted to choose your default naming convention.
 
-```json
-"source": {
-  "capture": null,
-  "targetNaming": "withSchema"
-}
+You can also edit your selection later from the materialization's **Source Collections** section.
+Expand **Advanced Options** and modify your default naming convention.
+
+To set your default naming strategy directly in a specification, provide a top-level `targetNaming` property for your materialization.
+For example:
+
+```yaml
+materializations:
+  your/materialization/name:
+    targetNaming:
+      strategy: matchSourceStructure
+    endpoint: {...}
+    bindings: {...}
 ```
+
+:::warning
+Older specifications may include a `targetNaming` property under the [`source`](#using-source-to-synchronize-capture-and-materialization-bindings) stanza.
+This `source/targetNaming` property is deprecated and will be ignored in favor of the materialization's top-level `targetNaming` property.
+:::
 
 Target resource naming conventions include:
 
-* **Prefix Schema**
+* **Match source structure**
 
-   Always prefixes the table name with the second-to-last part of the collection name, regardless of what the schema is. If the schema field remains empty, the default is used.
+   Preserves the original table and schema names from the source.
+   Optionally specify prefixes/suffixes for schemas and tables.
 
-   `prefixSchema` for the `targetNaming` field.
+   Collection `acmeCo/anvils/orders` becomes table `orders` in schema `anvils`.<br/>
+   Collection `acmeCo/public/orders` becomes table `orders` in schema `public`.
 
-* **Prefix Non-Default Schema**
+   ```yaml
+   targetNaming:
+     strategy: matchSourceStructure
+     schemaTemplate: "schema_pre_{{schema}}_schema_suff"
+     tableTemplate: "table_pre_{{table}}_table_suff"
+   ```
 
-   Prefixes the table name with the second-to-last part of the collection name **only if it's not the default schema** (such as `public` or `dbo`). The schema itself is left unspecified.
+* **Set a default schema**
 
-   `prefixNonDefaultSchema` for the `targetNaming` field.
+   Materialize all tables to a single, given schema.
+   Optionally specify a prefix/suffix for tables.
 
-* **Mirror Schemas**
+   Collection `acmeCo/anvils/orders` becomes table `orders` in the provided schema.<br/>
+   Collection `acmeCo/public/orders` becomes table `orders` in the provided schema.
 
-   Sets the schema name to the second-to-last part of the collection name, and uses the last part as the table name.
+   ```yaml
+   targetNaming:
+     strategy: singleSchema
+     schema: prod
+     tableTemplate: "table_pre_{{table}}_table_suff"
+   ```
 
-   `withSchema` for the `targetNaming` field.
+* **Prefix table names**
 
-* **Use Table Name Only**
+   Materialize all tables to a single, given schema. In addition, prefix the source schema name to the table name to avoid naming conflicts when materializing from multiple source schemas.
+   Common source schema defaults (like `public` and `dbo`) can be skipped.
+   Optionally specify a prefix/suffix for tables.
 
-   Only uses the last part of the collection name as the table name. If the schema is left empty, the default schema is used.
+   Collection `acmeCo/anvils/orders` becomes table `anvils_orders` in the provided schema.<br/>
+   Collection `acmeCo/public/orders` becomes table `public_orders` in the provided schema if common schema defaults are included.<br/>
+   Collection `acmeCo/public/orders` becomes table `orders` in the provided schema if common schema defaults are excluded.<br/>
 
-   `noSchema` for the `targetNaming` field.
+   ```yaml
+   targetNaming:
+     strategy: prefixTableNames
+     schema: prod
+     skipCommonDefaults: true
+     tableTemplate: "table_pre_{{table}}_table_suff"
+   ```
 
-For example, consider how the different naming conventions affect the final table and schema names for these collections:
-
-<table>
-  <tr>
-    <th></th>
-    <th>Collection: <code>acmeCo/anvils/orders</code></th>
-    <th>Collection: <code>acmeCo/public/orders</code></th>
-  </tr>
-  <tr>
-    <td rowspan="2"><b>Prefix schema</b></td>
-    <td>Table: <code>anvils_orders</code></td>
-    <td>Table: <code>public_orders</code></td>
-  </tr>
-  <tr>
-    <td>Schema: default</td>
-    <td>Schema: default</td>
-  </tr>
-  <tr>
-    <td rowspan ="2"><b>Prefix non-default schema</b></td>
-    <td>Table: <code>anvils_orders</code></td>
-    <td>Table: <code>orders</code></td>
-  </tr>
-  <tr>
-    <td>Schema: default</td>
-    <td>Schema: default</td>
-  </tr>
-  <tr>
-    <td rowspan="2"><b>Mirror schemas</b></td>
-    <td>Table: <code>orders</code></td>
-    <td>Table: <code>orders</code></td>
-  </tr>
-  <tr>
-    <td>Schema: <code>anvils</code></td>
-    <td>Schema: <code>public</code></td>
-  </tr>
-  <tr>
-    <td rowspan="2"><b>Use table name only</b></td>
-    <td>Table: <code>orders</code></td>
-    <td>Table: <code>orders</code></td>
-  </tr>
-  <tr>
-    <td>Schema: default</td>
-    <td>Schema: default</td>
-  </tr>
-</table>
+These defaults can then be overridden on a per-binding basis by modifying the binding's **Table** name and setting the **Alternative Schema** field in the binding's Resource Configuration.

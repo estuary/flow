@@ -149,14 +149,21 @@ pub async fn create_data_plane(
     // These grants are always safe to create for every tenant, but we only
     // bother to do it for tenants which are actively creating private data-planes.
     if let Some(prefix) = &private {
+        // The `ops/dp/private/<tenant>/` grant delegates the
+        // `ManageDataPlane` bundle. Legacy `read` stays in `capability`
+        // for RLS / `user_roles()` access. The `ops/tasks/private/` grant
+        // is strictly for log/stats visibility and stays plain `read`.
         sqlx::query!(
             r#"
-            insert into role_grants (subject_role, object_role, capability, detail) values
-                ($1::text, 'ops/dp/private/' || $1, 'read', 'private data-plane'),
-                ($1::text, 'ops/tasks/private/' || $1, 'read', 'private data-plane')
+            insert into role_grants (subject_role, object_role, capability, bundles, detail) values
+                ($1::text, 'ops/dp/private/' || $1, 'read', $2::capability_bundle[], 'private data-plane'),
+                ($1::text, 'ops/tasks/private/' || $1, 'read', $3::capability_bundle[], 'private data-plane')
             on conflict do nothing
             "#,
             &prefix as &str,
+            &[models::authz::CapabilityBundle::ManageDataPlane]
+                as &[models::authz::CapabilityBundle],
+            &[] as &[models::authz::CapabilityBundle],
         )
         .execute(&env.pg_pool)
         .await?;

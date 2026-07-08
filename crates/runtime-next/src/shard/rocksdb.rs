@@ -1,0 +1,1041 @@
+use super::recovery;
+use crate::proto;
+use anyhow::Context;
+use proto_flow::runtime::RocksDbDescriptor;
+use tokio::runtime;
+
+/// RocksDB database used for task state.
+pub struct RocksDB {
+    db: rocksdb::DB,
+    _tmp: Option<tempfile::TempDir>,
+}
+
+impl RocksDB {
+    /// Open a RocksDB from an optional descriptor.
+    pub async fn open(desc: Option<RocksDbDescriptor>) -> anyhow::Result<Self> {
+        let (opts, path, _tmp) = unpack_descriptor(desc)?;
+
+        let db = runtime::Handle::current()
+            .spawn_blocking(move || Self::open_blocking(opts, path))
+            .await
+            .unwrap()?;
+
+        Ok(Self { db, _tmp })
+    }
+
+    fn open_blocking(
+        mut opts: rocksdb::Options,
+        path: std::path::PathBuf,
+    ) -> anyhow::Result<rocksdb::DB> {
+        // RocksDB requires that all column families be explicitly passed in on open
+        // or it will fail. We don't currently use column families, but have in the
+        // past and may in the future. Flexibly open the DB by explicitly listing,
+        // opening, and then ignoring column families we don't care about.
+        let column_families = match rocksdb::DB::list_cf(&opts, &path) {
+            Ok(cf) => cf,
+            // Listing column families will fail if the DB doesn't exist.
+            // Assume as such, as we'll otherwise fail when we attempt to open.
+            Err(_) => vec![rocksdb::DEFAULT_COLUMN_FAMILY_NAME.to_string()],
+        };
+        tracing::debug!(column_families=?ops::DebugJson(&column_families), "listed existing rocksdb column families");
+
+        let mut cf_descriptors = Vec::with_capacity(column_families.len());
+        for name in column_families {
+            let mut cf_opts = rocksdb::Options::default();
+
+            if name == rocksdb::DEFAULT_COLUMN_FAMILY_NAME {
+                let state_schema = doc::reduce::merge_patch_schema();
+
+                set_json_schema_merge_operator(
+                    &mut cf_opts,
+                    &task_state_default_json_schema(&state_schema).to_string(),
+                )?;
+            }
+            cf_descriptors.push(rocksdb::ColumnFamilyDescriptor::new(name, cf_opts));
+        }
+
+        opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
+
+        // The MANIFEST file is a WAL of database file state, including current live
+        // SST files and their begin & ending key ranges. A new MANIFEST-00XYZ is
+        // created at database start, where XYZ is the next available sequence number,
+        // and CURRENT is updated to point at the live MANIFEST. By default MANIFEST
+        // files may grow to 4GB, but they are typically written very slowly and thus
+        // artificially inflate the recovery log horizon. We use a much smaller limit
+        // to encourage more frequent compactions into new files.
+        opts.set_max_manifest_file_size(1 << 17); // 131072 bytes
+
+        let db = rocksdb::DB::open_cf_descriptors(&opts, &path, cf_descriptors)
+            .context("failed to open RocksDB")?;
+
+        Ok(db)
+    }
+
+    /// Perform an async write_opt using a blocking background thread.
+    async fn write_opt(
+        self,
+        wb: rocksdb::WriteBatch,
+        wo: rocksdb::WriteOptions,
+    ) -> Result<Self, rocksdb::Error> {
+        runtime::Handle::current()
+            .spawn_blocking(move || {
+                self.db.write_opt(wb, &wo)?;
+                Ok(self)
+            })
+            .await
+            .unwrap()
+    }
+
+    /// Encode a [`proto::Persist`] into a WriteBatch and synchronously write it.
+    /// `binding_state_keys[i]` is the stable `state_key` for binding index `i`.
+    pub async fn persist<S: AsRef<str>>(
+        self,
+        persist: &proto::Persist,
+        binding_state_keys: &[S],
+    ) -> anyhow::Result<Self> {
+        let mut wb = rocksdb::WriteBatch::default();
+        recovery::encode_persist(persist, binding_state_keys, |op| match op {
+            recovery::KeyOp::Put { key, value } => wb.put(&key, &value),
+            recovery::KeyOp::Merge { key, value } => wb.merge(&key, &value),
+            recovery::KeyOp::Delete { key } => wb.delete(&key),
+            recovery::KeyOp::DeleteRange { from, to } => wb.delete_range(&from, &to),
+        })
+        .context("encoding Persist into WriteBatch")?;
+
+        let mut wo = rocksdb::WriteOptions::new();
+        wo.set_sync(true);
+
+        self.write_opt(wb, wo)
+            .await
+            .context("RocksDB Persist write")
+    }
+
+    /// Scan the entire DB into a [`proto::Recover`] using a blocking
+    /// background thread. Returns `(self, Recover)`.
+    ///
+    /// `binding_state_keys` is a sorted slice of `(state_key, binding_index)`
+    /// tuples used to map from stable `state_key` to current binding index.
+    ///
+    /// As a side effect, stale committed-frontier (`FC:`) entries identified by
+    /// [`recovery::prune_committed_frontier`] are deleted from the DB before
+    /// `Recover` is returned, so the leader never observes them.
+    pub async fn scan(
+        self,
+        binding_state_keys: Vec<(String, u32)>,
+    ) -> Result<(Self, proto::Recover), recovery::DecodeError> {
+        debug_assert!(
+            binding_state_keys.windows(2).all(|w| w[0].0 < w[1].0),
+            "binding_state_keys must be sorted by state_key for binary_search"
+        );
+        runtime::Handle::current()
+            .spawn_blocking(move || {
+                let mut recover = proto::Recover::default();
+                let mut committed_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
+                let mut hinted_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
+
+                let mut it = self.db.raw_iterator();
+                it.seek_to_first();
+
+                while let Some((key, value)) = it.item() {
+                    recovery::decode_recover_key_value(
+                        &mut recover,
+                        &mut committed_frontier,
+                        &mut hinted_frontier,
+                        key,
+                        value,
+                        &binding_state_keys,
+                    )?;
+                    it.next();
+                }
+                // Check final status for iteration errors.
+                () = it.status()?;
+                std::mem::drop(it);
+
+                // Drop stale committed-frontier (`FC:`) entries: remove them
+                // from the recovered frontier and delete them from RocksDB so
+                // the leader never sees them and they stop costing scan time.
+                let pruned =
+                    recovery::prune_committed_frontier(&mut committed_frontier, &hinted_frontier);
+                if !pruned.is_empty() {
+                    // Invert `(state_key, binding)` → `binding → state_key`.
+                    let state_key_of: std::collections::HashMap<u32, &str> = binding_state_keys
+                        .iter()
+                        .map(|(sk, idx)| (*idx, sk.as_str()))
+                        .collect();
+
+                    let mut wb = rocksdb::WriteBatch::default();
+                    for (journal, binding, producer) in &pruned {
+                        let state_key = state_key_of
+                            .get(&(*binding as u32))
+                            .expect("pruned binding is present in the binding mapping");
+                        wb.delete(recovery::committed_frontier_key(
+                            journal, state_key, producer,
+                        ));
+                    }
+                    // `wo` is not sync because this is GC, not a commit.
+                    let wo = rocksdb::WriteOptions::new();
+                    self.db.write_opt(wb, &wo)?;
+
+                    tracing::info!(
+                        producers = pruned.len(),
+                        "pruned stale committed-frontier entries during recovery scan"
+                    );
+                }
+
+                for (frontier, slot) in [
+                    (&mut committed_frontier, &mut recover.committed_frontier),
+                    (&mut hinted_frontier, &mut recover.hinted_frontier),
+                ] {
+                    // Mapping from state-key to binding index means journal frontiers are unordered.
+                    frontier
+                        .sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
+
+                    *slot =
+                        (!frontier.is_empty()).then(|| shuffle::JournalFrontier::encode(&frontier));
+                }
+
+                Ok((self, recover))
+            })
+            .await
+            .unwrap()
+    }
+
+    /// Durably seed `{}` as the connector-state base when none was recovered,
+    /// reflecting it in `recover`. A no-op if state is already present.
+    ///
+    /// Connector state is only ever updated via Merge, and the merge operator
+    /// treats the first operand on an absent key as the base document — where a
+    /// JSON `null` is a literal value, not a deletion. Without a base, a
+    /// connector's first checkpoint of e.g. `{"k": null}` is retained verbatim
+    /// instead of reducing to `{}`; a `{}` base makes it a genuine merge patch.
+    ///
+    /// Call only on the connector-state-bearing shard: the capture shard, or
+    /// shard zero of a derivation/materialization, whose recovered state the
+    /// leader broadcasts to its peers. Other shards must recover empty so their
+    /// `Recover` stays `default()`.
+    pub async fn seed_connector_state(self, recover: &mut proto::Recover) -> anyhow::Result<Self> {
+        if !recover.connector_state_json.is_empty() {
+            return Ok(self);
+        }
+
+        let mut wb = rocksdb::WriteBatch::default();
+        wb.put(recovery::KEY_CONNECTOR_STATE, b"{}");
+        let mut wo = rocksdb::WriteOptions::new();
+        wo.set_sync(true);
+
+        let db = self
+            .write_opt(wb, wo)
+            .await
+            .context("seeding initial connector state")?;
+
+        recover.connector_state_json = bytes::Bytes::from_static(b"{}");
+        Ok(db)
+    }
+}
+
+// Unpack a RocksDbDescriptor into its rocksdb::Options and path.
+// If the descriptor does not include an explicit path, a TempDir to use is
+// created and returned for the caller to keep alive alongside the DB.
+fn unpack_descriptor(
+    desc: Option<RocksDbDescriptor>,
+) -> anyhow::Result<(
+    rocksdb::Options,
+    std::path::PathBuf,
+    Option<tempfile::TempDir>,
+)> {
+    Ok(match desc {
+        Some(RocksDbDescriptor {
+            rocksdb_path,
+            rocksdb_env_memptr,
+        }) => {
+            tracing::debug!(
+                ?rocksdb_path,
+                ?rocksdb_env_memptr,
+                "opening hooked RocksDB database"
+            );
+            let mut opts = rocksdb::Options::default();
+
+            if rocksdb_env_memptr != 0 {
+                // Re-hydrate the provided memory address into rocksdb::Env wrapping
+                // an owned *mut librocksdb_sys::rocksdb_env_t.
+                let env = unsafe {
+                    rocksdb::Env::from_raw(rocksdb_env_memptr as *mut librocksdb_sys::rocksdb_env_t)
+                };
+                opts.set_env(&env);
+            }
+            (opts, std::path::PathBuf::from(rocksdb_path), None)
+        }
+        None => {
+            let dir = tempfile::TempDir::new().context("failed to create RocksDB tempdir")?;
+            let opts = rocksdb::Options::default();
+
+            tracing::debug!(
+                rocksdb_path = ?dir.path(),
+                "opening temporary RocksDB database"
+            );
+
+            (opts, dir.path().to_owned(), Some(dir))
+        }
+    })
+}
+
+// RocksDB merge operator schema which uses `state_schema` for keys matching "connector-state".
+fn task_state_default_json_schema(state_schema: &serde_json::Value) -> serde_json::Value {
+    // KEY_CONNECTOR_STATE is `&[u8]`; render it as a string so the JSON-schema
+    // `const` matches the string literal at index 0 of the [key, doc] array.
+    let key_str = std::str::from_utf8(recovery::KEY_CONNECTOR_STATE)
+        .expect("KEY_CONNECTOR_STATE is valid UTF-8");
+
+    serde_json::json!({
+        "oneOf": [
+            {
+                "items": [
+                    {"const": key_str},
+                    state_schema,
+                ]
+            }
+        ],
+        "reduce": {"strategy": "merge"}
+    })
+}
+
+// Set a reduction merge operator using the given `schema`.
+fn set_json_schema_merge_operator(opts: &mut rocksdb::Options, schema: &str) -> anyhow::Result<()> {
+    // Check that we can build a validator for `schema`.
+    let bundle = doc::validation::build_bundle(schema.as_bytes())?;
+    let _validator = doc::Validator::new(bundle)?;
+
+    let schema_1 = schema.to_owned();
+    let schema_2 = schema.to_owned();
+
+    let full_merge_fn = move |key: &[u8],
+                              initial: Option<&[u8]>,
+                              operands: &rocksdb::merge_operator::MergeOperands|
+          -> Option<Vec<u8>> {
+        match do_merge_rocks(true, initial, key, operands, &schema_1) {
+            Ok(ok) => Some(ok),
+            Err(err) => {
+                tracing::error!(%err, "error within RocksDB full-merge operator");
+                if cfg!(debug_assertions) {
+                    eprintln!("(debug) full-merge error: {err:?}");
+                }
+                None
+            }
+        }
+    };
+    let partial_merge_fn = move |key: &[u8],
+                                 initial: Option<&[u8]>,
+                                 operands: &rocksdb::merge_operator::MergeOperands|
+          -> Option<Vec<u8>> {
+        match do_merge_rocks(false, initial, key, operands, &schema_2) {
+            Ok(ok) => Some(ok),
+            Err(err) => {
+                tracing::error!(%err, "error within RocksDB partial-merge operator");
+                if cfg!(debug_assertions) {
+                    eprintln!("(debug) partial-merge error: {err:?}");
+                }
+                None
+            }
+        }
+    };
+    opts.set_merge_operator("json-schema", full_merge_fn, partial_merge_fn);
+
+    Ok(())
+}
+
+fn do_merge_rocks(
+    full: bool,
+    initial: Option<&[u8]>,
+    key: &[u8],
+    operands: &rocksdb::merge_operator::MergeOperands,
+    schema: &str,
+) -> anyhow::Result<Vec<u8>> {
+    // Collect all input documents (initial + operands, each newline-delimited).
+    let mut inputs: Vec<&[u8]> = Vec::new();
+    if let Some(initial) = initial {
+        for doc_bytes in initial.split(|c| *c == b'\n') {
+            inputs.push(doc_bytes);
+        }
+    }
+    for op in operands {
+        for doc_bytes in op.split(|c| *c == b'\n') {
+            inputs.push(doc_bytes);
+        }
+    }
+
+    do_merge(full, key, inputs, schema, 32 * 1024 * 1024, usize::MAX)
+}
+
+/// Iteratively reduce `inputs` in batches, re-merging batch outputs until a
+/// single result remains. `batch_byte_target` is the initial allocator memory per batch,
+/// and `batch_op_target` is the initial documents per batch (useful for testing).
+fn do_merge(
+    full: bool,
+    key: &[u8],
+    inputs: Vec<&[u8]>,
+    schema: &str,
+    mut batch_byte_target: usize,
+    mut batch_op_target: usize,
+) -> anyhow::Result<Vec<u8>> {
+    const MAX_BYTE_THRESHOLD: usize = 1 << 30; // 1 GiB
+
+    // Shadow `inputs` to decouple the reference lifetime from the caller,
+    // allowing reassignment to borrow from local `input_storage` in the loop.
+    let mut inputs: Vec<&[u8]> = inputs;
+    let mut input_storage: Vec<Vec<u8>>;
+
+    let mut iteration = 0usize;
+    let mut prev_batches = usize::MAX;
+
+    loop {
+        let mut offset = 0;
+        let mut outputs: Vec<Vec<u8>> = Vec::new();
+
+        // Only the first batch of each iteration uses `full` reduction.
+        // The initial/base value is always in the first batch. Subsequent batches
+        // contain only operands and must use associative (non-full) reduction to
+        // preserve null deletion markers in merge-patch schemas.
+        let mut is_first_batch = true;
+
+        // Process all inputs in batches constrained to `byte_threshold` and `max_count`.
+        while offset != inputs.len() {
+            let batch_full = full && is_first_batch;
+            is_first_batch = false;
+
+            let (output, consumed) = do_merge_bounded(
+                batch_full,
+                key,
+                &inputs[offset..],
+                schema,
+                batch_byte_target,
+                batch_op_target,
+            )?;
+
+            outputs.push(output);
+            offset += consumed;
+        }
+
+        tracing::debug!(
+            iteration,
+            inputs = inputs.len(),
+            batches = outputs.len(),
+            prev_batches,
+            batch_byte_target,
+            "do_merge iteration complete"
+        );
+
+        // Stop when we have a single batch output.
+        if outputs.len() <= 1 {
+            return Ok(outputs.into_iter().next().unwrap_or_default());
+        }
+
+        // Batch count didn't decrease: double thresholds to make progress.
+        // Bail if both thresholds are already at their caps — we've exhausted
+        // our escalation budget and still can't converge.
+        if outputs.len() >= prev_batches {
+            if batch_byte_target >= MAX_BYTE_THRESHOLD && batch_op_target >= 1_024 * 1_024 {
+                anyhow::bail!(
+                    "merge operation failed to converge \
+                     (batch_byte_target {batch_byte_target}, batch_op_target {batch_op_target}, \
+                     iteration {iteration}, batches {}, input_docs {})",
+                    outputs.len(),
+                    inputs.len()
+                );
+            }
+            batch_byte_target = batch_byte_target.saturating_mul(2).min(MAX_BYTE_THRESHOLD);
+            batch_op_target = batch_op_target.saturating_mul(2);
+        }
+
+        // Iterate again with batch outputs (which are a newline-separated
+        // remainder of non-associative merge operands) as new inputs.
+        // The first output descends from the original base value, so
+        // `is_first_batch` will correctly be `true` for it on the next iteration.
+        prev_batches = outputs.len();
+        input_storage = outputs;
+        inputs = input_storage
+            .iter()
+            .flat_map(|batch| batch.split(|c| *c == b'\n'))
+            .collect();
+
+        iteration += 1;
+    }
+}
+
+/// Process documents from a slice into a MemTable until `byte_threshold` is
+/// reached, `max_count` documents are consumed, or all `inputs` are consumed.
+/// Returns newline-separated reduced documents and the count consumed.
+fn do_merge_bounded(
+    full: bool,
+    key: &[u8],
+    inputs: &[&[u8]],
+    schema: &str,
+    byte_threshold: usize,
+    max_count: usize,
+) -> anyhow::Result<(Vec<u8>, usize)> {
+    let bundle = doc::validation::build_bundle(schema.as_bytes())?;
+    let validator = doc::Validator::new(bundle)?;
+    let spec =
+        doc::combine::Spec::with_one_binding(full, [], "connector state", Vec::new(), validator);
+    let memtable = doc::combine::MemTable::new(spec);
+
+    let key = String::from_utf8_lossy(key);
+    let key = doc::BumpStr::from_str(&key, memtable.alloc());
+    let mut consumed = 0usize;
+
+    for op_bytes in inputs {
+        let mut de = serde_json::Deserializer::from_slice(op_bytes);
+        let op = doc::HeapNode::from_serde(&mut de, memtable.alloc()).with_context(|| {
+            format!(
+                "couldn't parse document as JSON: {}",
+                String::from_utf8_lossy(op_bytes)
+            )
+        })?;
+
+        let doc = doc::HeapNode::new_array(
+            memtable.alloc(),
+            [doc::HeapNode::String(key), op].into_iter(),
+        );
+        memtable.add(0, doc, false)?;
+        consumed += 1;
+
+        let bytes_used = memtable
+            .alloc()
+            .allocated_bytes()
+            .saturating_sub(memtable.alloc().chunk_capacity());
+
+        if bytes_used > byte_threshold || consumed >= max_count {
+            break;
+        }
+    }
+
+    let mut out = Vec::new();
+    for (index, drained) in memtable.try_into_drainer()?.enumerate() {
+        let doc::combine::DrainedDoc { meta: _, root } = drained?;
+        let doc::OwnedNode::Heap(root) = root else {
+            unreachable!()
+        };
+
+        if index != 0 {
+            out.push(b'\n');
+        }
+
+        // Extract the document (index 1) from [key, doc] arrays.
+        // When a full reduction with a null merge-patch operand fires
+        // the LWW delete flag, the value position is removed from the
+        // array. In that case the semantic result is JSON null.
+        let Ok(doc::HeapNode::Array(_, array)) = root.access() else {
+            unreachable!()
+        };
+        match array.get(1) {
+            Some(node) => {
+                serde_json::to_writer(&mut out, &doc::SerPolicy::noop().on(node))
+                    .expect("serialization cannot fail");
+            }
+            None => out.extend_from_slice(b"null"),
+        }
+    }
+
+    Ok((out, consumed))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn test_schema() -> String {
+        let state_schema = doc::reduce::merge_patch_schema();
+        task_state_default_json_schema(&state_schema).to_string()
+    }
+
+    /// Compute expected result via `json_patch::merge`, then verify `do_merge`
+    /// matches for both full and partial-then-full merges at each batch size.
+    fn check_merge(base: &str, ops: &[&str], max_counts: &[usize]) {
+        let schema = test_schema();
+        let key = recovery::KEY_CONNECTOR_STATE;
+
+        let mut expected: serde_json::Value = serde_json::from_str(base).unwrap();
+        for op in ops {
+            json_patch::merge(&mut expected, &serde_json::from_str(op).unwrap());
+        }
+
+        let op_bytes: Vec<&[u8]> = ops.iter().map(|o| o.as_bytes()).collect();
+        let mut all_inputs: Vec<&[u8]> = vec![base.as_bytes()];
+        all_inputs.extend_from_slice(&op_bytes);
+
+        for &mc in max_counts {
+            // Full merge.
+            let result = do_merge(true, key, all_inputs.clone(), &schema, usize::MAX, mc).unwrap();
+            let actual: serde_json::Value = serde_json::from_slice(&result).unwrap();
+            assert_eq!(actual, expected, "full merge at max_count={mc}");
+
+            // Partial merge of just operands, then full merge with base.
+            let partial = do_merge(false, key, op_bytes.clone(), &schema, usize::MAX, mc).unwrap();
+            let mut final_inputs: Vec<&[u8]> = vec![base.as_bytes()];
+            for doc in partial.split(|c| *c == b'\n') {
+                final_inputs.push(doc);
+            }
+            let result =
+                do_merge(true, key, final_inputs, &schema, usize::MAX, usize::MAX).unwrap();
+            let actual: serde_json::Value = serde_json::from_slice(&result).unwrap();
+            assert_eq!(actual, expected, "partial+full merge at max_count={mc}");
+        }
+    }
+
+    #[tokio::test]
+    async fn connector_state_merge() {
+        let mut wb = rocksdb::WriteBatch::default();
+        let db = RocksDB::open(None).await.unwrap();
+
+        for doc in [
+            r#"{"a":"b","n":null}"#,
+            r#"{"a":"c","nn":null}"#,
+            r#"{"d":"e","ans":42}"#,
+        ] {
+            wb.merge(recovery::KEY_CONNECTOR_STATE, doc);
+        }
+        let db = db.write_opt(wb, Default::default()).await.unwrap();
+
+        let (_db, state) = db.scan(Vec::new()).await.unwrap();
+        assert_eq!(
+            state.connector_state_json,
+            bytes::Bytes::from_static(br#"{"a":"c","ans":42,"d":"e","n":null}"#)
+        );
+    }
+
+    #[tokio::test]
+    async fn fresh_task_seeds_connector_state_base() {
+        let db = RocksDB::open(None).await.unwrap();
+
+        let (db, mut recover) = db.scan(Vec::new()).await.unwrap();
+        let db = db.seed_connector_state(&mut recover).await.unwrap();
+        assert_eq!(
+            recover.connector_state_json,
+            bytes::Bytes::from_static(b"{}")
+        );
+
+        let db = db
+            .persist::<&str>(
+                &proto::Persist {
+                    connector_patches_json: bytes::Bytes::from_static(b"[{\"stateKey\":null}\t]"),
+                    ..Default::default()
+                },
+                &[],
+            )
+            .await
+            .unwrap();
+
+        let (_db, recover) = db.scan(Vec::new()).await.unwrap();
+        assert_eq!(
+            recover.connector_state_json,
+            bytes::Bytes::from_static(b"{}")
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_returns_recover_with_sorted_frontier_chunks() {
+        let db = RocksDB::open(None).await.unwrap();
+        let producer = proto_gazette::uuid::Producer::from_bytes([0x01, 0xaa, 0, 0, 0, 0]);
+
+        let frontier = shuffle::JournalFrontier::encode(&[
+            shuffle::JournalFrontier {
+                journal: "journal/shared".into(),
+                binding: 1,
+                producers: vec![shuffle::ProducerFrontier {
+                    producer,
+                    last_commit: proto_gazette::uuid::Clock::from_u64(11),
+                    hinted_commit: proto_gazette::uuid::Clock::default(),
+                    offset: 101,
+                }],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            },
+            shuffle::JournalFrontier {
+                journal: "journal/shared".into(),
+                binding: 0,
+                producers: vec![shuffle::ProducerFrontier {
+                    producer,
+                    last_commit: proto_gazette::uuid::Clock::from_u64(22),
+                    hinted_commit: proto_gazette::uuid::Clock::default(),
+                    offset: 202,
+                }],
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            },
+        ]);
+
+        let db = db
+            .persist(
+                &proto::Persist {
+                    committed_frontier: Some(frontier.clone()),
+                    hinted_frontier: Some(frontier),
+                    ..Default::default()
+                },
+                &["z-binding", "a-binding"],
+            )
+            .await
+            .unwrap();
+        let mapping = vec![("a-binding".to_string(), 1), ("z-binding".to_string(), 0)];
+        let (_db, recover) = db.scan(mapping).await.unwrap();
+
+        let committed: Vec<_> = recover
+            .committed_frontier
+            .clone()
+            .into_iter()
+            .flat_map(shuffle::JournalFrontier::decode)
+            .collect();
+        let hinted: Vec<_> = recover
+            .hinted_frontier
+            .clone()
+            .into_iter()
+            .flat_map(shuffle::JournalFrontier::decode)
+            .collect();
+
+        assert_eq!(committed.len(), 2);
+        assert_eq!(hinted.len(), 2);
+        assert_eq!(committed[0].binding, 0);
+        assert_eq!(committed[1].binding, 1);
+        assert_eq!(hinted[0].binding, 0);
+        assert_eq!(hinted[1].binding, 1);
+    }
+
+    /// `scan` drops stale `FC:` producers (old clock AND far behind in bytes)
+    /// from both the recovered frontier and the DB, but never an `FH:`-protected
+    /// producer's committed baseline.
+    #[tokio::test]
+    async fn scan_prunes_stale_committed_frontier() {
+        let db = RocksDB::open(None).await.unwrap();
+        let producer = |tag: u8| proto_gazette::uuid::Producer::from_bytes([0x01, tag, 0, 0, 0, 0]);
+        let clock_secs = |s: u64| proto_gazette::uuid::Clock::from_unix(s, 0);
+        const GIB: i64 = 1024 * 1024 * 1024;
+
+        let pf = |tag: u8, last_commit_secs: u64, offset: i64| shuffle::ProducerFrontier {
+            producer: producer(tag),
+            last_commit: clock_secs(last_commit_secs),
+            hinted_commit: proto_gazette::uuid::Clock::zero(),
+            offset,
+        };
+        let committed = shuffle::JournalFrontier::encode(&[shuffle::JournalFrontier {
+            journal: "j/s".into(),
+            binding: 0,
+            producers: vec![
+                pf(0x11, 1_000_000, -20 * GIB), // fresh leader: pins group clock + 20 GiB read offset
+                pf(0x22, 0, 0),                 // old clock + 20 GiB behind -> pruned
+                pf(0x33, 0, 0),                 // same, but FH-protected below -> retained
+            ],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        }]);
+        let hinted = shuffle::JournalFrontier::encode(&[shuffle::JournalFrontier {
+            journal: "j/s".into(),
+            binding: 0,
+            producers: vec![pf(0x33, 42, 7)],
+            bytes_read_delta: 0,
+            bytes_behind_delta: 0,
+        }]);
+
+        let db = db
+            .persist(
+                &proto::Persist {
+                    committed_frontier: Some(committed),
+                    hinted_frontier: Some(hinted),
+                    ..Default::default()
+                },
+                &["sk0"],
+            )
+            .await
+            .unwrap();
+
+        let mapping = vec![("sk0".to_string(), 0)];
+        let (db, recover) = db.scan(mapping.clone()).await.unwrap();
+
+        let tags = |f: Option<shuffle::proto::Frontier>| -> Vec<Vec<u8>> {
+            f.into_iter()
+                .flat_map(shuffle::JournalFrontier::decode)
+                .map(|jf| {
+                    jf.producers
+                        .iter()
+                        .map(|p| p.producer.as_bytes()[1])
+                        .collect()
+                })
+                .collect()
+        };
+        assert_eq!(
+            tags(recover.committed_frontier),
+            vec![vec![0x11_u8, 0x33]],
+            "0x22 pruned from recovered committed frontier"
+        );
+        assert_eq!(
+            tags(recover.hinted_frontier),
+            vec![vec![0x33_u8]],
+            "hinted frontier untouched"
+        );
+
+        // A second scan confirms 0x22's FC: key was actually deleted.
+        let (_db, recover2) = db.scan(mapping).await.unwrap();
+        assert_eq!(tags(recover2.committed_frontier), vec![vec![0x11_u8, 0x33]]);
+    }
+
+    /// Verify merge batching handles many operands that would exceed memory
+    /// threshold. Connectors may emit many small merge-patch updates, and this
+    /// can turn into many merge operands (hundreds of thousands). We handle this
+    /// through iterative merges of batches of inputs, iteratively reducing until
+    /// convergence.
+    #[tokio::test]
+    async fn test_merge_many_operands_batched() {
+        // Uncomment to initialize tracing and see merge operator logs.
+        /*
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("runtime=debug")
+            .with_writer(std::io::stderr)
+            .try_init();
+        */
+
+        let db = RocksDB::open(None).await.unwrap();
+
+        // Generate many merge operations that will exceed the batch memory threshold.
+        // Each document is a merge-patch updating a unique key in a "cursors" object,
+        // similar to how some connectors track per-partition state.
+        let num_operands = 50_000;
+        let mut wb = rocksdb::WriteBatch::default();
+
+        for i in 0..num_operands {
+            // Each merge-patch sets a unique cursor key with some payload.
+            // The payload size ensures we'll exceed the 32MB initial threshold and trigger batching.
+            let doc = format!(
+                r#"{{"cursors":{{"partition_{:05}":{{"offset":{},"timestamp":"2024-01-01T00:00:00Z","metadata":"padding_to_increase_document_size_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}}}}}}"#,
+                i,
+                i * 1000
+            );
+            wb.merge(recovery::KEY_CONNECTOR_STATE, &doc);
+        }
+        let db = db.write_opt(wb, Default::default()).await.unwrap();
+
+        // Force a compaction to trigger the merge operator with all operands at once.
+        // This is what happens during recovery or when RocksDB decides to compact.
+        db.db.compact_range::<&[u8], &[u8]>(None, None);
+
+        // Load the state - this will also trigger a full merge if not already compacted.
+        let (_db, state) = db.scan(Vec::new()).await.unwrap();
+
+        // Verify the merged state contains all cursor entries.
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&state.connector_state_json).unwrap();
+        let cursors = parsed["cursors"]
+            .as_object()
+            .expect("cursors should be an object");
+        assert_eq!(cursors.len(), num_operands);
+
+        // Spot-check a few entries.
+        assert_eq!(cursors["partition_00000"]["offset"], 0);
+        assert_eq!(cursors["partition_00100"]["offset"], 100_000);
+        assert_eq!(cursors["partition_49999"]["offset"], 49_999_000);
+    }
+
+    /// Null deletion markers must survive batching. Historical bug: when a non-first
+    /// batch used `full=true`, LWW delete stripped null markers within the batch
+    /// instead of preserving them for re-merge with the base value.
+    /// Also verifies the partial merge path preserves null markers.
+    #[test]
+    fn test_null_deletion_survives_batching() {
+        // batch1=[base,op1], batch2=[op2,op3_null] at max_count=2.
+        check_merge(
+            r#"{"a":1,"x":10}"#,
+            &[r#"{"b":2}"#, r#"{"a":5}"#, r#"{"a":null}"#],
+            &[2, 3, usize::MAX],
+        );
+        // Multiple interleaved deletions across batch boundaries.
+        check_merge(
+            r#"{"a":1,"b":2,"c":3}"#,
+            &[
+                r#"{"e":5}"#,
+                r#"{"a":5}"#,
+                r#"{"a":null}"#,
+                r#"{"b":5}"#,
+                r#"{"b":null}"#,
+            ],
+            &[2, 3, usize::MAX],
+        );
+    }
+
+    /// Quickcheck for merge-patch-relevant JSON: small key alphabet to force collisions,
+    /// high null frequency to exercise deletion markers, and controlled nesting depth.
+    #[derive(Clone, Debug)]
+    struct MergePatchValue(serde_json::Value);
+
+    impl quickcheck::Arbitrary for MergePatchValue {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            Self(gen_merge_patch_value(g, 3))
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            match &self.0 {
+                serde_json::Value::Object(map) => {
+                    let entries: Vec<(String, MergePatchValue)> = map
+                        .iter()
+                        .map(|(k, v)| (k.clone(), MergePatchValue(v.clone())))
+                        .collect();
+                    Box::new(entries.shrink().map(|es| {
+                        let map: serde_json::Map<String, serde_json::Value> =
+                            es.into_iter().map(|(k, v)| (k, v.0)).collect();
+                        MergePatchValue(serde_json::Value::Object(map))
+                    }))
+                }
+                serde_json::Value::Null => quickcheck::empty_shrinker(),
+                _ => Box::new(std::iter::once(MergePatchValue(serde_json::Value::Null))),
+            }
+        }
+    }
+
+    fn gen_range(g: &mut quickcheck::Gen, range: std::ops::Range<u64>) -> u64 {
+        <u64 as quickcheck::Arbitrary>::arbitrary(g) % (range.end - range.start) + range.start
+    }
+
+    fn gen_merge_patch_value(g: &mut quickcheck::Gen, depth: usize) -> serde_json::Value {
+        let choices = if depth > 0 { 10 } else { 7 };
+        match gen_range(g, 0..choices) {
+            0 | 1 | 2 => serde_json::Value::Null, // ~30% null
+            3 => serde_json::Value::Bool(<bool as quickcheck::Arbitrary>::arbitrary(g)),
+            4 => serde_json::json!(<u8 as quickcheck::Arbitrary>::arbitrary(g)),
+            5 => serde_json::json!(<String as quickcheck::Arbitrary>::arbitrary(g)),
+            6 => serde_json::json!([<u8 as quickcheck::Arbitrary>::arbitrary(g)]),
+            _ => {
+                let keys = ["a", "b", "c", "d", "e"];
+                let num_keys = gen_range(g, 1..6) as usize;
+                let mut map = serde_json::Map::new();
+                for _ in 0..num_keys {
+                    let ki = gen_range(g, 0..keys.len() as u64) as usize;
+                    map.insert(keys[ki].to_string(), gen_merge_patch_value(g, depth - 1));
+                }
+                serde_json::Value::Object(map)
+            }
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct MergePatchSequence {
+        base: MergePatchValue,
+        operands: Vec<MergePatchValue>,
+    }
+
+    impl quickcheck::Arbitrary for MergePatchSequence {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            let n = gen_range(g, 1..21) as usize;
+            // Connector state base is always a JSON object.
+            let gen_obj = |g: &mut quickcheck::Gen| loop {
+                let v = gen_merge_patch_value(g, 3);
+                if v.is_object() {
+                    return MergePatchValue(v);
+                }
+            };
+            // Operands can be any merge-patch value, including scalars and
+            // nulls that trigger NotAssociative reductions during batching.
+            Self {
+                base: gen_obj(g),
+                operands: (0..n).map(|_| MergePatchValue::arbitrary(g)).collect(),
+            }
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            let base = self.base.clone();
+            let operands = self.operands.clone();
+            Box::new(operands.shrink().map(move |ops| MergePatchSequence {
+                base: base.clone(),
+                operands: ops,
+            }))
+        }
+    }
+
+    /// Fuzz: `do_merge` at various batch sizes must match `json_patch::merge`,
+    /// for both full merges and partial-then-full merges.
+    #[test]
+    fn fuzz_batched_merge_matches_reference() {
+        fn prop(seq: MergePatchSequence) -> bool {
+            let schema = test_schema();
+            let key = recovery::KEY_CONNECTOR_STATE;
+
+            let mut expected = seq.base.0.clone();
+            for op in &seq.operands {
+                json_patch::merge(&mut expected, &op.0);
+            }
+
+            let base_bytes = serde_json::to_vec(&seq.base.0).unwrap();
+            let op_bytes: Vec<Vec<u8>> = seq
+                .operands
+                .iter()
+                .map(|op| serde_json::to_vec(&op.0).unwrap())
+                .collect();
+
+            let mut all_inputs: Vec<&[u8]> = vec![&base_bytes];
+            all_inputs.extend(op_bytes.iter().map(|v| v.as_slice()));
+            let ops_only: Vec<&[u8]> = op_bytes.iter().map(|v| v.as_slice()).collect();
+
+            for mc in [2, 3, 5, usize::MAX] {
+                // Full merge.
+                let result =
+                    do_merge(true, key, all_inputs.clone(), &schema, usize::MAX, mc).unwrap();
+                if serde_json::from_slice::<serde_json::Value>(&result).unwrap() != expected {
+                    return false;
+                }
+
+                if ops_only.is_empty() {
+                    continue;
+                }
+
+                // Partial merge of operands, then full merge with base.
+                let partial =
+                    do_merge(false, key, ops_only.clone(), &schema, usize::MAX, mc).unwrap();
+                let mut final_inputs: Vec<&[u8]> = vec![&base_bytes];
+                for doc in partial.split(|c| *c == b'\n') {
+                    final_inputs.push(doc);
+                }
+                let result =
+                    do_merge(true, key, final_inputs, &schema, usize::MAX, usize::MAX).unwrap();
+                if serde_json::from_slice::<serde_json::Value>(&result).unwrap() != expected {
+                    return false;
+                }
+            }
+            true
+        }
+
+        quickcheck::QuickCheck::new()
+            .tests(1000)
+            .max_tests(2000)
+            .quickcheck(prop as fn(MergePatchSequence) -> bool);
+    }
+
+    #[tokio::test]
+    async fn round_trip_persist_stack_to_scan() {
+        let mut db = RocksDB::open(None).await.unwrap();
+
+        for persist in [
+            crate::proto::Persist {
+                seq_no: 1,
+                ack_intents: [("j/A".to_string(), bytes::Bytes::from_static(b"INTENT-A"))]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+            crate::proto::Persist {
+                seq_no: 2,
+                ack_intents: [("j/B".to_string(), bytes::Bytes::from_static(b"INTENT-B"))]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+            crate::proto::Persist {
+                seq_no: 99,
+                last_applied: bytes::Bytes::from_static(b"v9"),
+                ..Default::default()
+            },
+        ] {
+            db = db.persist::<&str>(&persist, &[]).await.unwrap();
+        }
+
+        let (_db, state) = db.scan(Vec::new()).await.unwrap();
+        assert_eq!(state.ack_intents.len(), 2);
+        assert_eq!(state.ack_intents.get("j/A").unwrap().as_ref(), b"INTENT-A");
+        assert_eq!(state.ack_intents.get("j/B").unwrap().as_ref(), b"INTENT-B");
+        assert_eq!(state.last_applied.as_ref(), b"v9");
+    }
+}

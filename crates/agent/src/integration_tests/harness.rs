@@ -177,6 +177,7 @@ pub struct TestHarness {
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
     pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
+    pub runtime_v2_new_captures: bool,
     // Control plane API app instance for GraphQL queries
     control_plane_app: Option<Arc<control_plane_api::App>>,
 }
@@ -278,6 +279,7 @@ impl HarnessBuilder {
             directive_exec,
             control_plane_app: None,
             alert_sender: alerts::TestSender::new(),
+            runtime_v2_new_captures: false,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -497,6 +499,9 @@ impl TestHarness {
             del_processing_alerts as (
                 delete from alert_data_processing
             ),
+            del_alert_configs as (
+                delete from alert_configs
+            ),
             del_alert_history as (
                 delete from alert_history
             ),
@@ -538,45 +543,16 @@ impl TestHarness {
     /// storage_mappings, and tenants tables should all look just like they
     /// would in production.
     pub async fn setup_tenant(&self, tenant: &str) -> sqlx::types::Uuid {
-        let user_id = sqlx::types::Uuid::new_v4();
         let email = format!("{tenant}@{}.test", self.test_name.replace(' ', "-"));
-
         let meta = serde_json::json!({
             "picture": format!("http://{tenant}.test/avatar"),
             "full_name": format!("Full ({tenant}) Name"),
         });
 
-        let mut txn = self.pool.begin().await.unwrap();
-        sqlx::query!(
-            r#"insert into auth.users(id, email, raw_user_meta_data) values ($1, $2, $3)"#,
-            user_id,
-            email.as_str(),
-            meta
-        )
-        .execute(&mut *txn)
-        .await
-        .expect("failed to create user");
-
-        control_plane_api::directives::beta_onboard::provision_tenant(
-            "support@estuary.dev",
-            Some(format!("for test: {}", self.test_name)),
-            tenant,
-            user_id,
-            &mut txn,
+        control_plane_api::directives::beta_onboard::provision_test_tenant(
+            &self.pool, tenant, &email, meta,
         )
         .await
-        .expect("failed to provision tenant");
-
-        // Remove the estuary_support/ role grant, which gets automatically
-        // added by a trigger whenever we create a new tenant. Removing it here
-        // ensures that things still work correctly without it.
-        sqlx::query!(r#"delete from role_grants where subject_role = 'estuary_support/';"#)
-            .execute(&mut *txn)
-            .await
-            .expect("failed to remove estuary_support/ role");
-
-        txn.commit().await.expect("failed to commit transaction");
-        user_id
     }
 
     pub async fn add_role_grant(&mut self, subject: &str, object: &str, capability: Capability) {
@@ -596,7 +572,7 @@ impl TestHarness {
 
     pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
         let mut txn = self.pool.begin().await.unwrap();
-        control_plane_api::directives::grant::upsert_user_grant(
+        control_plane_api::grants::upsert_user_grant(
             user_id,
             role,
             capability,
@@ -1144,14 +1120,12 @@ impl TestHarness {
             task_types::PUBLICATIONS => Server::new().register(PublicationsExecutor {
                 publisher: self.publisher.clone(),
                 pg_pool: self.pool.clone(),
+                runtime_v2_new_captures: self.runtime_v2_new_captures,
             }),
             task_types::DISCOVERS => Server::new().register(DiscoverExecutor {
                 handler: self.discover_handler.clone(),
             }),
             task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
-            task_types::DATA_MOVEMENT_ALERT_EVALS => Server::new().register(
-                crate::alerts::new_data_movement_alerts_executor(std::time::Duration::from_mins(5)),
-            ),
             task_types::TENANT_ALERT_EVALS => Server::new().register(
                 crate::alerts::new_tenant_alerts_executor(std::time::Duration::from_mins(5)),
             ),
@@ -1606,10 +1580,13 @@ impl TestHarness {
             refresh: app.snapshot.token(),
             retry_after: tokens::DateTime::UNIX_EPOCH,
             started: tokens::now(),
+            locale: control_plane_api::Locale::EnUS,
         };
 
         // Create GraphQL schema
-        let schema = control_plane_api::server::public::graphql::create_schema();
+        let schema = control_plane_api::server::public::graphql::create_schema(
+            models::AlertConfig::default(),
+        );
 
         // Create GraphQL request
         let request = async_graphql::Request::new(query)
@@ -1679,6 +1656,7 @@ impl TestHarness {
 
         let app = Arc::new(control_plane_api::App::new(
             id_gen,
+            None,
             &jwt_secret,
             self.pool.clone(),
             self.publisher.clone(),
@@ -1686,6 +1664,30 @@ impl TestHarness {
         ));
 
         self.control_plane_app = Some(app);
+    }
+
+    /// Inserts or updates an `alert_configs` row with the given
+    /// `catalog_prefix_or_name` and JSON config. Used by tests exercising
+    /// per-task / per-prefix alert threshold overrides.
+    pub async fn upsert_alert_config(
+        &self,
+        catalog_prefix_or_name: &str,
+        config: serde_json::Value,
+    ) {
+        sqlx::query!(
+            r#"
+            insert into alert_configs (catalog_prefix_or_name, config)
+            values ($1, $2)
+            on conflict (catalog_prefix_or_name) do update set
+                config = excluded.config,
+                updated_at = now()
+            "#,
+            catalog_prefix_or_name,
+            sqlx::types::Json(&config) as sqlx::types::Json<&serde_json::Value>,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to upsert alert_configs row");
     }
 }
 
@@ -2004,6 +2006,32 @@ impl ControlPlane for TestControlPlane {
         catalog_name: String,
     ) -> anyhow::Result<Option<DateTime<Utc>>> {
         self.inner.fetch_last_data_movement_ts(catalog_name).await
+    }
+
+    async fn resolved_alert_config(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<crate::controllers::ResolvedAlertConfig> {
+        self.inner.resolved_alert_config(catalog_name).await
+    }
+
+    async fn fetch_legacy_data_movement_stalled_threshold(
+        &self,
+        catalog_name: String,
+    ) -> anyhow::Result<Option<chrono::Duration>> {
+        self.inner
+            .fetch_legacy_data_movement_stalled_threshold(catalog_name)
+            .await
+    }
+
+    async fn fetch_bytes_processed_since(
+        &self,
+        catalog_name: String,
+        since: DateTime<Utc>,
+    ) -> anyhow::Result<i64> {
+        self.inner
+            .fetch_bytes_processed_since(catalog_name, since)
+            .await
     }
 
     async fn delete_shard_failures(

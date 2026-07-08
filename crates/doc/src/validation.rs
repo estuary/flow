@@ -97,6 +97,14 @@ impl Validator {
         &self.schema
     }
 
+    /// Efficient bool-only validation: returns true if the document is valid.
+    /// Uses a no-op filter to avoid collecting outcomes or allocating.
+    #[inline]
+    pub fn is_valid<N: json::AsNode>(&mut self, doc: &N) -> bool {
+        let (valid, _) = self.inner.validate(self.schema_static, doc, |_| None);
+        valid
+    }
+
     /// Validate the given document, collecting annotations as indicated by the filter.
     /// If the document is invalid, a FailedValidation is returned with details
     /// and a redacted version of the document.

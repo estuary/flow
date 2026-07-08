@@ -45,3 +45,24 @@ Flow does not have any log levels more sever than `error` for several reasons:
   doesn't help to make it sound more scary.
 - If it's really more severe than `error`, then it's probably something that the
   infrastructure operator should look into, not the user.
+
+### Operator-observable connector logs:
+
+Connector logs only ever flow to the user's `ops/<tenant>/logs` collection; their
+volume is far too high to ship into the data-plane's own observability pipeline
+(the reactor's `logrus` stream, which Promtail forwards to Loki/Grafana). A
+connector may opt a _specific_ log line into that pipeline by setting the field
+`observable` to `true` in the line's structured fields, e.g.:
+
+```json
+{"level":"warn","message":"upstream API rate limited us","fields":{"observable":true,"endpoint":"/v2/sync"}}
+```
+
+The runtime forwards such lines into its `logrus` stream, tagged with the `task`
+name so they're attributable in Grafana (Promtail only adds Kubernetes pod labels).
+Forwarding respects the reactor's configured `logrus` level, so a marked line below
+that level is still dropped.
+
+`observable` is intended for rare, high-signal lines that an _operator_ would want
+to alert or dashboard on — not for bulk connector output. The line is still
+published to the user's `ops/<tenant>/logs` collection as usual.

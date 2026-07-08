@@ -1,18 +1,73 @@
 use tokio::sync::mpsc;
 
-mod binding;
+/// A `BuildHasher` for `Producer`-keyed maps that passes through the
+/// raw bytes as the hash value. Producer IDs are already uniformly
+/// distributed random values, so rehashing them with SipHash is wasted work.
+#[derive(Clone, Default)]
+pub struct ProducerHasher;
+
+impl std::hash::BuildHasher for ProducerHasher {
+    type Hasher = ProducerHasherState;
+
+    #[inline]
+    fn build_hasher(&self) -> Self::Hasher {
+        ProducerHasherState(0)
+    }
+}
+
+/// Hasher state for [`ProducerHasher`]. Packs written bytes into a `u64`.
+pub struct ProducerHasherState(u64);
+
+impl std::hash::Hasher for ProducerHasherState {
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.0 = i;
+    }
+
+    #[inline]
+    fn write(&mut self, _bytes: &[u8]) {
+        unreachable!("ProducerHasherState may only be used with Producer");
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+/// Map keyed by `Producer` using a passthrough hasher. Producer IDs are
+/// already uniformly distributed random values, so we skip rehashing.
+pub type ProducerMap<V> =
+    std::collections::HashMap<proto_gazette::uuid::Producer, V, ProducerHasher>;
+
+/// Re-export of `proto_flow::shuffle` so that dependents can refer to
+/// protocol message types as `shuffle::proto::*`, avoiding the naming
+/// conflict between this crate and the protobuf module.
+pub use proto_flow::shuffle as proto;
+
+pub mod binding;
+mod client;
 pub mod frontier;
-mod queue;
+pub mod log;
 mod service;
 mod session;
-mod slice;
+pub mod slice;
 
 #[cfg(test)]
 pub(crate) mod testing;
 
+/// Document passed JSON Schema validation.
+/// Bit 15 of the flags u16, above the 10-bit UUID wire space (bits 0-9).
+/// Shared by `slice::read::Meta::flags` and `log::block::BlockMeta::flags`.
+///
+/// Note that `uuid::build()` asserts flags fit in 10 bits, so accidental
+/// round-trip (for example, in an actual document) is impossible.
+pub const FLAGS_SCHEMA_VALID: u16 = 0x8000;
+
 pub use binding::Binding;
+pub use client::SessionClient;
 pub use frontier::{Frontier, JournalFrontier, ProducerFrontier};
-pub use service::Service;
+pub use service::{DEFAULT_SHUFFLE_DISK_LIMIT_BYTES, Service};
 
 /// Return the current wall-clock time as a `uuid::Clock`.
 ///
@@ -38,25 +93,6 @@ fn now_clock() -> proto_gazette::uuid::Clock {
     } else {
         proto_gazette::uuid::Clock::from_time(std::time::SystemTime::now())
     }
-}
-
-// Fixed 32-byte key for HighwayHash, matching the Go implementation
-// in go/flow/mapping.go. The key is interpreted as 4 little-endian u64s.
-const HIGHWAY_KEY: highway::Key = highway::Key([
-    u64::from_le_bytes([0xba, 0x73, 0x7e, 0x89, 0x15, 0x52, 0x38, 0xd4]),
-    u64::from_le_bytes([0x7d, 0x80, 0x67, 0xc3, 0x5a, 0xad, 0x4d, 0x25]),
-    u64::from_le_bytes([0xec, 0xdd, 0x1c, 0x34, 0x88, 0x22, 0x7e, 0x01]),
-    u64::from_le_bytes([0x1f, 0xfa, 0x48, 0x0c, 0x02, 0x2b, 0xd3, 0xba]),
-]);
-
-/// Hash a packed shuffle key using HighwayHash, returning the top 32 bits.
-/// Must produce identical results to Go's flow.PackedKeyHash_HH64.
-fn packed_key_hash(packed_key: &[u8]) -> u32 {
-    use highway::HighwayHash;
-
-    let mut hasher = highway::HighwayHasher::new(HIGHWAY_KEY);
-    hasher.append(packed_key);
-    (hasher.finalize64() >> 32) as u32
 }
 
 fn new_channel<T>() -> (mpsc::Sender<T>, mpsc::Receiver<T>) {
@@ -125,7 +161,6 @@ struct Verify<'p> {
 }
 
 impl<'p> Verify<'p> {
-    #[must_use]
     #[inline]
     fn ok<T>(&self, t: tonic::Result<T>) -> anyhow::Result<T> {
         match t {
@@ -134,7 +169,6 @@ impl<'p> Verify<'p> {
         }
     }
 
-    #[must_use]
     #[inline]
     fn not_eof<T>(&self, t: Option<tonic::Result<T>>) -> anyhow::Result<T> {
         if let Some(t) = t {
@@ -157,7 +191,7 @@ impl<'p> Verify<'p> {
         let mut t = serde_json::to_string(&t).unwrap();
         t.truncate(4096);
 
-        if t == "None" {
+        if t == "null" {
             anyhow::format_err!("unexpected {source} EOF (expected {expect})")
         } else {
             anyhow::format_err!(
@@ -181,3 +215,9 @@ impl<'p> Verify<'p> {
         ))
     }
 }
+
+/// Interval at which all actor event loops tick, ensuring per-loop tracing
+/// instrumentation fires periodically even when no other events arrive.
+/// The Session actor additionally uses ticks for mark-and-sweep detection
+/// of stalled causal hint resolution.
+const ACTOR_TICKER_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);

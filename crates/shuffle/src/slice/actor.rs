@@ -1,71 +1,82 @@
 use super::{
     heap::{ReadyReadEntry, ReadyReadHeap},
-    read::{Meta, ReadState, ReadyRead, map_read_error, probe_write_head},
+    read::{Meta, ReadState, ReadyRead, map_read_error, probe_read_start},
     routing,
     state::{self, FlushState, ProgressState, Topology},
 };
+use crate::log;
 use anyhow::Context;
 use futures::{FutureExt, StreamExt, future, stream};
 use proto_flow::shuffle;
 use proto_gazette::{broker, uuid};
-use std::collections::HashMap;
 use tokio::sync::mpsc;
 
+/// SliceActor implements the main event loop of a shuffle Slice RPC.
 #[allow(dead_code)]
 pub struct SliceActor {
     /// Immutable slice configuration: topology, bindings, journal clients.
     pub topology: Topology,
+    /// Per-binding schema validators, indexed by binding index.
+    pub validators: Vec<doc::Validator>,
     /// Per-read producer tracking
     pub reads: Vec<ReadState>,
     /// Causal hints accumulated from consumed ACK documents. Drained during flush.
-    pub causal_hints: HashMap<(Box<str>, u32), Vec<(uuid::Producer, uuid::Clock)>>,
-    /// State machine for tracking flush cycles with Queue members.
+    pub causal_hints: super::CausalHints,
+    /// State machine for tracking flush cycles with Log shards.
     pub flush: FlushState,
     /// State machine for tracking progress reporting with the Session.
     pub progress: ProgressState,
     /// Channel for sends to parent Session.
     pub slice_response_tx: mpsc::Sender<tonic::Result<shuffle::SliceResponse>>,
-    /// Channels for sends to member Queue RPCs, indexed by member index.
-    pub queue_request_tx: Vec<mpsc::Sender<shuffle::QueueRequest>>,
-    /// Previous journal name sent to each Queue member, for delta encoding.
-    pub queue_prev_journal: Vec<String>,
-    /// Pending Journal write-head probes for newly started reads.
-    pub pending_probes:
-        stream::FuturesUnordered<future::BoxFuture<'static, anyhow::Result<super::ReadLines>>>,
+    /// Channels for sends to shard Log RPCs, indexed by shard index.
+    pub log_request_tx: Vec<mpsc::Sender<shuffle::LogRequest>>,
+    /// Previous journal name sent to each Log shard, for delta encoding.
+    pub log_prev_journal: Vec<String>,
+    /// Pending Journal read-start probes for newly started reads.
+    /// Each resolves to `(start_offset, read)`, where `start_offset` is the
+    /// read's fast-forwarded starting offset used to seed its `ReadState`.
+    pub pending_probes: stream::FuturesUnordered<
+        future::BoxFuture<'static, anyhow::Result<(i64, super::ReadLines)>>,
+    >,
     /// Reads that are awaiting more data from Gazette brokers.
     pub pending_reads: stream::FuturesUnordered<stream::StreamFuture<super::ReadLines>>,
     /// Number of pending reads that are caught up to their journal write head.
-    /// We defer sending Enqueue requests until all pending reads are tailing,
+    /// We defer sending Append requests until all pending reads are tailing,
     /// ensuring no pending read has content that could preempt the current heap top.
     pub tailing_reads: usize,
+    /// Read IDs currently pending AND non-tailing: parked awaiting broker I/O
+    /// while still behind their journal write head. This is exactly the set that
+    /// head-of-line-blocks heap draining (see the gate in `try_log_request_tx`).
+    pub stalled_reads: std::collections::HashSet<u32>,
     /// Shard parser for transcoding documents from LinesBatch.
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
     pub ready_read_heap: ReadyReadHeap,
-    /// Drain of the Progressed frontier being transmitted as chunked responses.
-    pub progressed_drain: crate::frontier::Drain,
+    /// Per-task metrics counters and gauges.
+    pub metrics: super::Metrics,
 }
 
 struct Buffers {
     packed_key: bytes::BytesMut,
     targets: Vec<usize>,
-    permits: Vec<mpsc::Permit<'static, shuffle::QueueRequest>>,
+    permits: Vec<mpsc::Permit<'static, shuffle::LogRequest>>,
 }
 
 impl SliceActor {
     #[tracing::instrument(
         level = "debug",
+        ret,
         err(Debug, level = "warn"),
         skip_all,
         fields(
             session = self.topology.session_id,
-            member = self.topology.slice_member_index,
+            shard_id = %self.topology.shards[self.topology.slice_shard_index as usize].id,
         )
     )]
     pub async fn serve<R>(
         mut self,
         mut slice_request_rx: R,
-        queue_response_rx: Vec<stream::BoxStream<'static, tonic::Result<shuffle::QueueResponse>>>,
+        log_response_rx: Vec<stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>>,
     ) -> anyhow::Result<()>
     where
         R: futures::Stream<Item = tonic::Result<shuffle::SliceRequest>> + Send + Unpin + 'static,
@@ -73,18 +84,18 @@ impl SliceActor {
         let cancel = tokens::CancellationToken::new();
         let _drop_guard = cancel.clone().drop_guard();
 
-        // Build a Stream over receive Futures for every Queue RPC.
-        let mut queue_response_rx: stream::FuturesUnordered<_> = queue_response_rx
+        // Build a Stream over receive Futures for every Log RPC.
+        let mut log_response_rx: stream::FuturesUnordered<_> = log_response_rx
             .into_iter()
             .enumerate()
-            .map(next_queue_rx)
+            .map(next_log_rx)
             .collect();
 
         // Await Start from the Session RPC.
         let verify = crate::verify(
             "SliceRequest",
             "Start",
-            &self.topology.members[0].endpoint,
+            &self.topology.shards[0].endpoint,
             0,
         );
         match verify.not_eof(slice_request_rx.next().await)? {
@@ -110,9 +121,26 @@ impl SliceActor {
         // Measure of wall-clock time, used to gate delayed reads.
         let mut now = uuid::Clock::zero();
 
+        let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        let mut loop_count: u64 = 0;
         loop {
+            loop_count += 1;
+            tracing::trace!(
+                loop_count,
+                total_reads = self.reads.len(),
+                tailing_reads = self.tailing_reads,
+                stalled_reads = self.stalled_reads.len(),
+                pending_probes = self.pending_probes.len(),
+                pending_reads = self.pending_reads.len(),
+                ready_heap = self.ready_read_heap.len(),
+                flush = ?self.flush,
+                progress = ?self.progress,
+                "SliceActor::serve iteration"
+            );
             // First, attempt non-blocking sends.
-            let wake_queue_request_tx = self.try_queue_request_tx(&mut buffers, &mut now)?;
+            let wake_log_request_tx = self.try_log_request_tx(&mut buffers, &mut now)?;
             let wake_slice_response_tx = self.try_slice_response_tx()?;
 
             // Then, wait for a blocking future to resolve.
@@ -123,30 +151,65 @@ impl SliceActor {
                 slice_request = slice_request_rx.next() => {
                     match slice_request {
                         Some(result) => self.on_slice_request(result)?,
-                        None => break Ok(()), // Clean EOF: shutdown.
+                        None => break,
                     }
                 }
-                Some((member_index, queue_response, rx)) = queue_response_rx.next() => {
-                    self.on_queue_response(member_index, queue_response)?;
-                    queue_response_rx.push(next_queue_rx((member_index, rx)));
+                Some((shard_index, log_response, rx)) = log_response_rx.next() => {
+                    self.on_log_response(shard_index, log_response)?;
+                    log_response_rx.push(next_log_rx((shard_index, rx)));
                 }
 
                 // Next priority is draining ready-to-send messages.
-                true = wake_queue_request_tx => {}
+                true = wake_log_request_tx => {}
                 true = wake_slice_response_tx => {}
 
                 // Lowest priority is processing journal listings and reads.
                 Some(probe_result) = self.pending_probes.next() => {
-                    self.on_probe_result(probe_result)?;
+                    let (start_offset, read) = probe_result?;
+                    // Seed the ReadState's offsets at the probe's resolved start
+                    // before parking, so byte deltas exclude the filtered range
+                    // the read skipped.
+                    self.reads[read.id() as usize].start_at(start_offset);
+                    self.park_or_process(read)?;
                 }
                 Some(listing_result) = listing_tasks.next() => {
                     self.on_listing_task_done(listing_result)?;
                 }
                 Some((result, read)) = self.pending_reads.next() => {
-                    self.on_read_result(result, read)?;
+                    self.on_pending_read_resolved(result, read)?;
                 }
+
+                // Periodic tick ensures tracing fires even when idle.
+                _ = ticker.tick() => {}
             }
         }
+
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "session",
+            loop_count,
+            total_reads = self.reads.len(),
+            flush_cycle = self.flush.cycle,
+            "SliceActor::serve exiting on Session EOF"
+        );
+        self.log_request_tx.clear(); // Drop all tx handles to close.
+
+        // Read clean EOF from all Log RPCs.
+        while let Some((shard_index, slice_response, rx)) = log_response_rx.next().await {
+            let verify = crate::verify(
+                "LogResponse",
+                "EOF",
+                &self.topology.shards[shard_index].endpoint,
+                shard_index,
+            );
+            match slice_response {
+                None => (), // Clean EOF.
+                Some(Ok(_ignored)) => log_response_rx.push(next_log_rx((shard_index, rx))),
+                Some(Err(status)) => return Err(verify.fail_status(status)),
+            }
+        }
+
+        Ok(())
     }
 
     // Start tasks that watch journal listings of assigned bindings.
@@ -157,9 +220,9 @@ impl SliceActor {
         let out = stream::FuturesUnordered::new();
 
         for binding in &self.topology.bindings {
-            // Use modulo round-robin to assign bindings to slice members.
-            if binding.index % self.topology.members.len() as u32
-                != self.topology.slice_member_index
+            // Use modulo round-robin to assign bindings to slice shards.
+            if binding.index % self.topology.shards.len() as u16
+                != self.topology.slice_shard_index as u16
             {
                 continue;
             }
@@ -192,7 +255,7 @@ impl SliceActor {
         let verify = crate::verify(
             "SliceRequest",
             "Progress or StartRead",
-            &self.topology.members[0].endpoint,
+            &self.topology.shards[0].endpoint,
             0,
         );
 
@@ -200,7 +263,14 @@ impl SliceActor {
             shuffle::SliceRequest {
                 progress: Some(shuffle::slice_request::Progress {}),
                 ..
-            } => self.progress.request(),
+            } => {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "session",
+                    "received Progress request"
+                );
+                self.progress.request()
+            }
 
             shuffle::SliceRequest {
                 start_read: Some(start_read),
@@ -218,7 +288,7 @@ impl SliceActor {
         let shuffle::slice_request::StartRead {
             binding: binding_index,
             spec,
-            create_revision: _,
+            create_revision,
             mod_revision: _,
             route,
             checkpoint,
@@ -230,9 +300,11 @@ impl SliceActor {
             .get(binding_index as usize)
             .context("StartRead invalid binding")?;
 
+        let binding_state_key = binding.state_key().to_string();
+        let client = (*self.topology.journal_clients[binding.index as usize]).clone();
         let spec = spec.context("StartRead missing spec")?;
         let journal = spec.name.into_boxed_str();
-        let client = (*self.topology.journal_clients[binding.index as usize]).clone();
+        let read_id = self.reads.len() as u32;
 
         // Resolve the checkpoint into producer state and start offset.
         let (offset, producers) = state::resolve_checkpoint(checkpoint);
@@ -248,6 +320,7 @@ impl SliceActor {
             end_offset: 0, // No end offset.
             metadata_only: false,
             offset,
+            min_etcd_revision: create_revision,
 
             // `route` is a hint which directs us to the right broker.
             // This is an optimization and isn't required for correctness.
@@ -257,77 +330,169 @@ impl SliceActor {
             }),
         };
 
-        let binding_state_key = binding.state_key().to_string();
-        let read_id = self.reads.len() as u32;
-        self.reads.push(ReadState {
-            binding_index,
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "read",
+            read_id,
+            binding = binding.index,
+            journal = journal.to_string(),
+            begin_mod_time = request.begin_mod_time,
+            n_producers = producers.len(),
+            offset,
+            "starting journal read",
+        );
+        self.metrics.reads_started.increment(1);
+
+        self.reads.push(ReadState::recovered(
+            binding_index as u16,
             journal,
-            settled: producers,
-            pending: Default::default(),
-        });
+            producers,
+        ));
 
         self.pending_probes.push(Box::pin(async move {
-            // Probe the journal for its write head.
-            let (write_head, probe_header) = probe_write_head(
+            // Probe where this read effectively begins (after `begin_mod_time`
+            // fast-forwarding) and the journal's current write head.
+            let (start_offset, write_head, probe_header) = probe_read_start(
                 client.clone(),
                 &request.journal,
                 &binding_state_key,
                 request.header.take(),
+                create_revision,
+                offset,
+                request.begin_mod_time,
             )
             .await?;
 
-            let tailing = offset >= write_head;
+            // Begin the read at the fast-forwarded offset rather than the stale
+            // checkpoint `offset`: the skipped range precedes `begin_mod_time` and
+            // would be filtered regardless, and starting here lets a read that's
+            // caught up past all filtered content be classified as tailing.
+            request.offset = start_offset;
             request.header = probe_header;
+            let tailing = start_offset >= write_head;
 
-            tracing::debug!(
-                journal = %request.journal,
-                offset,
-                write_head,
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "read",
+                read_id,
+                binding = binding_index,
+                journal = request.journal.clone(),
+                offset = start_offset,
                 tailing,
-                "probed journal write head for started read"
+                write_head,
+                "probed journal read start",
             );
 
-            Ok(Box::pin(gazette::journal::read::ReadLines::new(
-                client.read(request).boxed(),
-                read_id,
-                tailing,
-            )))
+            Ok((
+                start_offset,
+                Box::pin(gazette::journal::read::ReadLines::new(
+                    client.read(request).boxed(),
+                    read_id,
+                    tailing,
+                )) as super::ReadLines,
+            ))
         }));
 
         Ok(())
     }
 
-    pub fn on_probe_result(
-        &mut self,
-        probe_result: anyhow::Result<super::ReadLines>,
-    ) -> anyhow::Result<()> {
-        let read = probe_result?;
+    /// (Re)-introduce `read` into the actor. If its next batch (or terminal status)
+    /// is already available, process it immediately. Otherwise the read must await
+    /// broker I/O: park it in `pending_reads`, classifying its membership
+    /// (a tailing read bumps the `tailing_reads` count, while a non-tailing read
+    /// joins `stalled_reads` and emits a `stall` event). Note that
+    /// `on_pending_read_resolved` performs an exactly-inverted de-classification
+    /// on read resolution.
+    ///
+    /// Pre-condition: `read` is *not* in `pending_reads`, and carries no
+    /// classification membership to undo (that happens in `on_pending_read_resolved`).
+    fn park_or_process(&mut self, mut read: super::ReadLines) -> anyhow::Result<()> {
+        if let Some(result) = read.next().now_or_never() {
+            return self.process_read_result(result, read);
+        }
+
         if read.tailing() {
             self.tailing_reads += 1;
+            self.metrics.tailing_reads.set(self.tailing_reads as f64);
+        } else {
+            // `read` isn't in `pending_reads`, and `stalled_reads` is a strict
+            // subset of `pending_reads`.
+            let is_new = self.stalled_reads.insert(read.id());
+            debug_assert!(
+                is_new,
+                "read {} was parked while already stalled",
+                read.id()
+            );
+
+            self.metrics
+                .stalled_reads
+                .set(self.stalled_reads.len() as f64);
+            self.emit_stall_event(
+                read.id(),
+                "read has stalled heap drain (pending and !tailing)",
+            );
         }
         self.pending_reads.push(read.into_future());
         Ok(())
     }
 
-    /// Parse a LinesBatch into documents and push a ReadyRead onto the heap,
-    /// or handle errors from the underlying ReadLines stream.
-    pub fn on_read_result(
+    /// Handle a resolution yielded by `pending_reads`: the read has *left*
+    /// `pending_reads`, so de-classify its membership (the inverse of the
+    /// classification in `park_or_process`) before processing.
+    fn on_pending_read_resolved(
+        &mut self,
+        result: Option<gazette::RetryResult<gazette::journal::read::LinesBatch>>,
+        read: super::ReadLines,
+    ) -> anyhow::Result<()> {
+        if self.stalled_reads.remove(&read.id()) {
+            self.metrics
+                .stalled_reads
+                .set(self.stalled_reads.len() as f64);
+            self.emit_stall_event(read.id(), "read is no longer stalled");
+        } else {
+            // `read` wasn't stalled, so must have been tailing.
+            self.tailing_reads = self.tailing_reads.strict_sub(1);
+            self.metrics.tailing_reads.set(self.tailing_reads as f64);
+        }
+        self.process_read_result(result, read)
+    }
+
+    fn emit_stall_event(&self, read_id: u32, message: &'static str) {
+        let read_state = &self.reads[read_id as usize];
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "stall",
+            read_id,
+            binding = read_state.binding_index,
+            journal = read_state.journal.to_string(),
+            read_offset = read_state.read_offset,
+            write_head = read_state.write_head,
+            "{}",
+            message,
+        );
+    }
+
+    /// Parse a LinesBatch into documents and push a ReadyRead onto the heap, or
+    /// handle a terminal/transient status from the underlying ReadLines stream.
+    fn process_read_result(
         &mut self,
         result: Option<gazette::RetryResult<gazette::journal::read::LinesBatch>>,
         mut read: super::ReadLines,
     ) -> anyhow::Result<()> {
-        let read_state = &self.reads[read.id() as usize];
+        let read_state = &mut self.reads[read.id() as usize];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
+        let journal = read.fragment().journal.clone();
 
         let Some(result) = result else {
-            tracing::info!(
-                binding = binding.state_key(),
-                journal = %read.fragment().journal,
-                "stopping journal read due to EOF"
+            service_kit::event!(
+                tracing::Level::INFO,
+                "read",
+                read_id = read.id(),
+                binding = binding.index,
+                journal,
+                "stopped journal read (EOF)",
             );
-            if read.tailing() {
-                self.tailing_reads = self.tailing_reads.strict_sub(1);
-            }
+            self.metrics.reads_stopped.increment(1);
             return Ok(());
         };
 
@@ -337,41 +502,68 @@ impl SliceActor {
                 inner: err,
             }) => match err {
                 gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
-                    tracing::info!(
-                        binding = binding.state_key(),
-                        journal = %read.fragment().journal,
-                        "stopping journal read due to its deletion"
+                    service_kit::event!(
+                        tracing::Level::INFO,
+                        "read",
+                        read_id = read.id(),
+                        binding = binding.index,
+                        journal,
+                        "stopped journal read (JOURNAL_NOT_FOUND)",
                     );
-                    if read.tailing() {
-                        self.tailing_reads = self.tailing_reads.strict_sub(1);
-                    }
+                    self.metrics.reads_stopped.increment(1);
+                    return Ok(());
+                }
+                gazette::Error::BrokerStatus(broker::Status::Suspended) => {
+                    service_kit::event!(
+                        tracing::Level::INFO,
+                        "read",
+                        read_id = read.id(),
+                        binding = binding.index,
+                        journal,
+                        "stopped journal read (SUSPENDED)",
+                    );
+                    self.metrics.reads_stopped.increment(1);
                     return Ok(());
                 }
                 err if err.is_transient() => {
-                    tracing::warn!(
-                        binding = %binding.state_key(),
-                        journal = %read_state.journal,
-                        attempt = attempt,
-                        "transient error reading from journal (will retry)"
+                    service_kit::event!(
+                        tracing::Level::WARN,
+                        "read",
+                        read_id = read.id(),
+                        binding = binding.index,
+                        journal,
+                        attempt,
+                        err = service_kit::event::debug(err),
+                        "transient error reading from journal (will retry)",
                     );
-                    self.pending_reads.push(read.into_future());
-                    return Ok(());
+                    return self.park_or_process(read);
                 }
                 err => {
                     return Err(map_read_error(
                         err,
                         &read_state.journal,
                         binding.state_key(),
+                        "reading next lines",
                     ));
                 }
             },
             Ok(lines_batch) => lines_batch,
         };
 
-        // Pending read has now resolved. Update tailing aggregate.
-        if lines_batch.tailing {
-            self.tailing_reads = self.tailing_reads.strict_sub(1);
-        }
+        read_state.write_head = read.write_head();
+
+        service_kit::event!(
+            tracing::Level::TRACE,
+            "read",
+            read_id = read.id(),
+            binding = binding.index,
+            journal,
+            offset = lines_batch.offset,
+            length = lines_batch.content.len(),
+            tailing = lines_batch.tailing,
+            n_tailing = self.tailing_reads,
+            "received LinesBatch",
+        );
 
         let transcoded = match simd_doc::transcode_many(
             &mut self.parser,
@@ -384,6 +576,7 @@ impl SliceActor {
                     gazette::Error::Parsing { err, location },
                     &read_state.journal,
                     binding.state_key(),
+                    "transcoding documents",
                 ));
             }
             Ok(transcoded) => transcoded,
@@ -395,11 +588,27 @@ impl SliceActor {
             read.as_mut().put_back(lines_batch.content.into());
         }
 
-        // Extract the first document, build a new ReadyRead, and heap it.
-        let begin_offset = transcoded.offset;
-        let mut tail = transcoded.into_iter();
-        let (doc, end_offset) = tail.next().expect("non-empty transcoded");
-        let ready_read = ReadyRead::new(binding, doc, begin_offset, end_offset, tail, read)?;
+        let metas = super::read::extract_metas(
+            &transcoded,
+            &binding.source_uuid_ptr,
+            &mut self.validators[read_state.binding_index as usize],
+            &read_state.journal,
+        )?;
+
+        // Consume into owned documents and pair with pre-extracted metadata.
+        let mut doc_tail = transcoded.into_iter();
+        let mut meta_tail = metas.into_iter();
+
+        let (doc, _) = doc_tail.next().expect("non-empty transcoded");
+        let meta = meta_tail.next().expect("non-empty metas");
+
+        let ready_read = ReadyRead {
+            doc,
+            meta,
+            doc_tail,
+            meta_tail,
+            inner: read,
+        };
 
         self.ready_read_heap.push(ReadyReadEntry {
             priority: binding.priority,
@@ -410,25 +619,27 @@ impl SliceActor {
         Ok(())
     }
 
-    fn on_queue_response(
+    fn on_log_response(
         &mut self,
-        member_index: usize,
-        queue_response: Option<tonic::Result<shuffle::QueueResponse>>,
+        shard_index: usize,
+        log_response: Option<tonic::Result<shuffle::LogResponse>>,
     ) -> anyhow::Result<()> {
         let verify = crate::verify(
-            "QueueResponse",
+            "LogResponse",
             "Flushed",
-            &self.topology.members[member_index].endpoint,
-            member_index,
+            &self.topology.shards[shard_index].endpoint,
+            shard_index,
         );
-        let queue_response = verify.not_eof(queue_response)?;
+        let log_response = verify.not_eof(log_response)?;
 
-        match queue_response {
-            shuffle::QueueResponse {
-                flushed: Some(shuffle::queue_response::Flushed { seq }),
+        match log_response {
+            shuffle::LogResponse {
+                flushed: Some(shuffle::log_response::Flushed { cycle, flushed_lsn }),
                 ..
-            } if seq == self.flush.seq => {
-                if let Some(completed) = self.flush.on_flushed(member_index) {
+            } if cycle == self.flush.cycle => {
+                let flushed_lsn = log::Lsn::from_u64(flushed_lsn);
+
+                if let Some(completed) = self.flush.on_flushed(shard_index, flushed_lsn)? {
                     self.progress.on_flush_completed(completed);
                 }
                 Ok(())
@@ -438,7 +649,7 @@ impl SliceActor {
         }
     }
 
-    fn try_queue_request_tx(
+    fn try_log_request_tx(
         &mut self,
         buffers: &mut Buffers,
         now: &mut uuid::Clock,
@@ -450,21 +661,23 @@ impl SliceActor {
         let idle = future::Either::Right(future::Either::Right(std::future::ready(false)));
 
         loop {
-            // A flush cycle takes priority over sending Enqueue requests.
-            // We'll await capacity for Flushes even if the next Enqueue member has capacity.
+            // A flush cycle takes priority over sending Append requests.
+            // We'll await capacity for Flushes even if the next Append shard has capacity.
             if self.flush.should_flush() {
-                if let Err(tx) = self.try_queue_request_flush_tx(buffers) {
+                if let Err(tx) = self.try_log_request_flush_tx(buffers) {
                     return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
                 }
             }
 
-            // Defer draining if any pending reads aren't tailing, because a
-            // non-tailing read (once resolved) could order first in the heap.
-            if self.tailing_reads != self.pending_reads.len() {
+            // Defer draining if any read could still resolve to content that
+            // preempts the current heap top: a parked non-tailing (stalled) read,
+            // or a newly-started read still probing its write head (parked in
+            // `pending_probes`, not yet classified as tailing/stalled).
+            if self.tailing_reads != self.pending_reads.len() || !self.pending_probes.is_empty() {
                 return Ok(idle);
             }
 
-            // Do we have a document ready for enqueue?
+            // Do we have a document ready for append?
             let Some(ReadyReadEntry {
                 adjusted_clock,
                 inner: ready_read,
@@ -492,22 +705,22 @@ impl SliceActor {
 
             let sequenced = state::sequence_document(read_state, binding, meta)?;
 
-            // If this is an Enqueue, attempt to send it to the appropriate member(s).
-            if sequenced.is_enqueue {
-                if let Err(tx) = Self::try_queue_request_enqueue_tx(
+            // If this is an Append, attempt to send it to the appropriate shard(s).
+            if sequenced.is_append {
+                if let Err(tx) = Self::try_log_request_append_tx(
                     binding,
                     buffers,
                     &read_state.journal,
-                    &self.topology.members,
-                    &mut self.queue_prev_journal,
-                    &self.queue_request_tx,
+                    &self.topology.shards,
+                    &mut self.log_prev_journal,
+                    &self.log_request_tx,
                     ready_read,
                 ) {
                     return Ok(future::Either::Left(tx.reserve_owned().map(ok)));
                 }
             }
 
-            // Pop the heap entry now that any Enqueue requests have been sent.
+            // Pop the heap entry now that any Append requests have been sent.
             // Crucially: we now cannot fail to consume this document.
             let ReadyReadEntry {
                 priority,
@@ -520,65 +733,88 @@ impl SliceActor {
                 inner: read,
                 meta:
                     Meta {
-                        end_offset: next_begin_offset,
+                        end_offset,
                         producer,
+                        clock,
+                        flags,
                         ..
                     },
-                doc: _,
-                mut tail,
+                doc,
+                mut doc_tail,
+                mut meta_tail,
             } = *ready_read;
 
-            if sequenced.is_commit {
-                // TODO(johnny): Extract causal hints from `doc`. Add to self.causal_hints.
+            // Track maximum forward progress of the read.
+            read_state.read_offset = end_offset;
 
-                // Commits begin a new flush cycle.
+            if sequenced.is_commit {
+                if flags == uuid::Flags::ACK_TXN {
+                    // This ACK is (binding, journal)-scoped: it commits only
+                    // this producer's documents in this binding's read of this journal.
+                    // But, it may contain causal hints of *other* journals which
+                    // committed with this one. Extract and project so we can propagate
+                    // to the Session, which is tasked with gating checkpoints for
+                    // atomic cross-journal visibility.
+                    state::extract_causal_hints(
+                        &self.topology.hint_index,
+                        &read_state.journal,
+                        binding.cohort,
+                        read_state.binding_index,
+                        producer,
+                        clock,
+                        doc.get(),
+                        &mut self.causal_hints,
+                    )?;
+                }
                 self.flush.set_ready();
             }
 
-            // Step producer state forward to reflect the enqueue.
+            // Step producer state forward to reflect the append.
             _ = read_state
                 .pending
                 .insert(producer, sequenced.producer_state);
 
-            // Advance to the next document in `tail`, or return the `read`
-            // stream to `pending_reads` if its current batch is exhausted.
-            match tail.next() {
-                Some((doc, end_offset)) => {
-                    // Re-structure into the existing Box to re-use it.
-                    *ready_read =
-                        ReadyRead::new(binding, doc, next_begin_offset, end_offset, tail, read)
-                            .expect("ReadyRead::new should not fail for a valid tail entry");
+            // Copy so the `binding` borrow ends here, freeing &mut self for re-borrow.
+            let read_delay = binding.read_delay;
 
+            // Advance doc_tail and meta_tail in lock-step (guaranteed equal length).
+            match (doc_tail.next(), meta_tail.next()) {
+                (Some((doc, _)), Some(meta)) => {
+                    // Re-structure into the existing Box to re-use it.
+                    *ready_read = ReadyRead {
+                        doc,
+                        meta,
+                        doc_tail,
+                        meta_tail,
+                        inner: read,
+                    };
                     self.ready_read_heap.push(ReadyReadEntry {
                         priority,
-                        adjusted_clock: ready_read.meta.clock + binding.read_delay,
+                        adjusted_clock: ready_read.meta.clock + read_delay,
                         inner: Some(ready_read),
                     })
                 }
-                None => {
-                    if read.tailing() {
-                        self.tailing_reads += 1;
-                    }
-                    self.pending_reads.push(read.into_future());
-                }
+                // This read's batch is fully drained, and we must await I/O.
+                (None, None) => self.park_or_process(read)?,
+                _ => unreachable!("doc_tail and meta_tail have equal length"),
             }
         }
     }
 
-    /// Try to send Flush requests to all queue channels (all-or-nothing).
+    /// Try to send Flush requests to all log channels (all-or-nothing).
     /// Returns `Err(tx)` with the sender that lacked capacity.
-    fn try_queue_request_flush_tx(
+    fn try_log_request_flush_tx(
         &mut self,
         buffers: &mut Buffers,
-    ) -> Result<(), mpsc::Sender<shuffle::QueueRequest>> {
+    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
         let Buffers { permits, .. } = buffers;
 
         // Safety: `permits` is always empty on return (retaining only capacity).
         let permits: &mut Vec<_> =
             unsafe { std::mem::transmute::<&mut Vec<_>, &mut Vec<_>>(permits) };
 
-        // Collect permits to send to all queue channels (all-or-nothing).
-        for tx in &self.queue_request_tx {
+        // Collect permits to send to all log channels (all-or-nothing).
+        for tx in &self.log_request_tx {
             let Ok(permit) = tx.try_reserve() else {
                 permits.clear();
                 return Err(tx.clone());
@@ -587,41 +823,43 @@ impl SliceActor {
         }
 
         // Build the frontier from pending producers and causal hints,
-        // and drain pending→settled.
-        let frontier =
-            super::producer::build_flush_frontier(&self.reads, self.causal_hints.drain());
-        for read in self.reads.iter_mut() {
-            read.settled.extend(read.pending.drain());
-        }
-        let flush_seq = self.flush.start(self.queue_request_tx.len(), frontier);
+        // draining pending→settled and resetting byte accumulators.
+        let frontier = super::producer::build_flush_frontier(
+            &mut self.reads,
+            self.causal_hints.drain(),
+            self.topology.shards.len(),
+        );
+        let flush_cycle = self.flush.start(self.log_request_tx.len(), frontier);
 
         for permit in permits.drain(..) {
-            permit.send(shuffle::QueueRequest {
-                flush: Some(shuffle::queue_request::Flush { seq: flush_seq }),
+            permit.send(shuffle::LogRequest {
+                flush: Some(shuffle::log_request::Flush { cycle: flush_cycle }),
                 ..Default::default()
             });
         }
 
-        tracing::debug!(
-            members = self.queue_request_tx.len(),
-            seq = flush_seq,
-            "sent Flush to all queues"
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "log",
+            cycle = flush_cycle,
+            "broadcast Flush request",
         );
+        self.metrics.flushes.increment(1);
 
         Ok(())
     }
 
-    /// Try to send Enqueue requests to target queue channels (all-or-nothing).
+    /// Try to send Append requests to target log channels (all-or-nothing).
     /// Returns `Err(tx)` with the sender that lacked capacity.
-    fn try_queue_request_enqueue_tx(
+    fn try_log_request_append_tx(
         binding: &crate::Binding,
         buffers: &mut Buffers,
         journal: &str,
-        members: &[shuffle::Member],
-        queue_prev_journal: &mut [String],
-        queue_request_tx: &[mpsc::Sender<shuffle::QueueRequest>],
+        shards: &[shuffle::Shard],
+        log_prev_journal: &mut [String],
+        log_request_tx: &[mpsc::Sender<shuffle::LogRequest>],
         ready_read: &ReadyRead,
-    ) -> Result<(), mpsc::Sender<shuffle::QueueRequest>> {
+    ) -> Result<(), mpsc::Sender<shuffle::LogRequest>> {
         let Buffers {
             packed_key,
             permits,
@@ -633,6 +871,7 @@ impl SliceActor {
             meta:
                 Meta {
                     begin_offset,
+                    end_offset,
                     clock,
                     producer,
                     ..
@@ -641,20 +880,39 @@ impl SliceActor {
         } = ready_read;
 
         // Extract into `packed_key` and hash to route the document.
-        // Compute member index `targets` to receive an Enqueue of this document.
+        // Compute shard index `targets` to receive an Append of this document.
         packed_key.clear();
-        doc::Extractor::extract_all(doc.get(), &binding.key_extractors, packed_key);
+        doc::Extractor::extract_all(
+            doc.get(),
+            &binding.key_extractors,
+            doc::Encoding::Packed,
+            packed_key,
+            None,
+        );
 
-        let key_hash = crate::packed_key_hash(packed_key);
+        let key_hash = doc::Extractor::packed_hash(packed_key);
         let r_clock = routing::rotate_clock(*clock);
 
         targets.clear();
-        targets.extend(routing::route_to_members(
+        targets.extend(routing::route_to_shards(
             key_hash,
             r_clock,
             binding.filter_r_clocks,
-            members,
+            shards,
         ));
+
+        tracing::trace!(
+            %journal,
+            binding = binding.state_key(),
+            ?producer,
+            ?clock,
+            begin_offset,
+            key_hash,
+            flags = ready_read.meta.flags.0,
+            r_clock,
+            ?targets,
+            "routed document Append to Log RPC shards"
+        );
 
         // Safety: `permits` is always cleared prior to return (retaining only capacity).
         let permits: &mut Vec<_> =
@@ -662,9 +920,9 @@ impl SliceActor {
 
         // All-or-nothing: reserve permits for every target channel.
         for &target in targets.iter() {
-            let Ok(permit) = queue_request_tx[target].try_reserve() else {
+            let Ok(permit) = log_request_tx[target].try_reserve() else {
                 permits.clear();
-                return Err(queue_request_tx[target].clone());
+                return Err(log_request_tx[target].clone());
             };
             permits.push(permit);
         }
@@ -673,7 +931,7 @@ impl SliceActor {
         let packed_key = packed_key.split().freeze();
 
         for (&target, permit) in targets.iter().zip(permits.drain(..)) {
-            let prev_journal = &mut queue_prev_journal[target];
+            let prev_journal = &mut log_prev_journal[target];
 
             let (journal_name_truncate_delta, journal_name_suffix) =
                 gazette::delta::encode(prev_journal, journal);
@@ -681,22 +939,24 @@ impl SliceActor {
 
             // Update `prev_journal` for next iteration.
             gazette::delta::decode(
-                &mut queue_prev_journal[target],
+                &mut log_prev_journal[target],
                 journal_name_truncate_delta,
                 &journal_name_suffix,
             );
 
-            permit.send(shuffle::QueueRequest {
-                enqueue: Some(shuffle::queue_request::Enqueue {
+            permit.send(shuffle::LogRequest {
+                append: Some(shuffle::log_request::Append {
                     journal_name_truncate_delta,
                     journal_name_suffix,
-                    begin_offset: *begin_offset,
-                    binding: binding.index,
+                    binding: binding.index as u32,
                     priority: binding.priority,
+                    read_delay: binding.read_delay.as_u64(),
                     producer: producer.as_i64(),
-                    adjusted_clock: (*clock + binding.read_delay).as_u64(),
+                    clock: clock.as_u64(),
+                    flags: ready_read.meta.flags.0 as u32,
                     packed_key: packed_key.clone(),
                     doc_archived: doc.bytes().clone(),
+                    source_byte_length: (end_offset - begin_offset).try_into().unwrap(),
                 }),
                 ..Default::default()
             });
@@ -709,44 +969,53 @@ impl SliceActor {
         // Future which represent an absence of an awake signal.
         let idle = future::Either::Right(std::future::ready(false));
 
-        // If no drain is in progress, check whether we should start one.
-        if self.progressed_drain.is_empty() {
-            let Some(frontier) = self.progress.take_progressed() else {
-                return Ok(idle);
-            };
-            self.progressed_drain.start(frontier);
+        if !self.progress.has_progressed() {
+            return Ok(idle);
         }
+        // Reserve capacity *before* taking the Frontier — otherwise an absent
+        // permit would discard progress that hasn't been emitted yet.
+        let Ok(permit) = self.slice_response_tx.try_reserve() else {
+            return Ok(future::Either::Left(
+                self.slice_response_tx.clone().reserve_owned().map(|_| true),
+            ));
+        };
 
-        // Drain chunked Progressed responses.
-        // Ensure channel capacity *before* next_chunk() to not lose it.
-        while !self.progressed_drain.is_empty() {
-            let Ok(permit) = self.slice_response_tx.try_reserve() else {
-                return Ok(future::Either::Left(
-                    self.slice_response_tx.clone().reserve_owned().map(|_| true),
-                ));
-            };
-            let chunk = self.progressed_drain.next_chunk().unwrap();
+        let frontier = self.progress.take_progressed();
+        let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
+            frontier.measures();
 
-            permit.send(Ok(shuffle::SliceResponse {
-                progressed: Some(chunk),
-                ..Default::default()
-            }));
-        }
+        permit.send(Ok(shuffle::SliceResponse {
+            progressed: Some(frontier.encode()),
+            ..Default::default()
+        }));
+
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "session",
+            bytes_behind_delta,
+            bytes_read_delta,
+            journal_producers,
+            journals,
+            "sent Progressed",
+        );
+        self.metrics
+            .bytes_read
+            .increment(bytes_read_delta.max(0) as u64);
 
         Ok(idle)
     }
 }
 
-// Helper which builds a future that yields the next response from a member's Slice RPC.
-async fn next_queue_rx(
-    (member_index, mut rx): (
+// Helper which builds a future that yields the next response from a shard's Log RPC.
+async fn next_log_rx(
+    (shard_index, mut rx): (
         usize,
-        stream::BoxStream<'static, tonic::Result<shuffle::QueueResponse>>,
+        stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>,
     ),
 ) -> (
-    usize,                                                             // Member index.
-    Option<tonic::Result<shuffle::QueueResponse>>,                     // Response.
-    stream::BoxStream<'static, tonic::Result<shuffle::QueueResponse>>, // Stream.
+    usize,                                                           // Shard index.
+    Option<tonic::Result<shuffle::LogResponse>>,                     // Response.
+    stream::BoxStream<'static, tonic::Result<shuffle::LogResponse>>, // Stream.
 ) {
-    (member_index, rx.next().await, rx)
+    (shard_index, rx.next().await, rx)
 }

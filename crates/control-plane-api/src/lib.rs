@@ -4,6 +4,7 @@ use sqlx::types::Uuid;
 
 pub mod alert_subscriptions;
 pub mod alerts;
+pub mod billing;
 pub mod connector_tags;
 pub mod controllers;
 pub mod data_plane;
@@ -12,6 +13,7 @@ pub mod discovers;
 pub mod draft;
 mod envelope;
 pub mod evolutions;
+pub mod grants;
 mod interval;
 pub mod jobs;
 pub mod live_specs;
@@ -45,7 +47,7 @@ pub type DataClaims = proto_gazette::Claims;
 pub type AuthZResult<Ok> = tonic::Result<(Option<tokens::DateTime>, Ok)>;
 
 /// Envelope is common fields and parameters of every API request.
-pub use envelope::{Envelope, MaybeControlClaims};
+pub use envelope::{Envelope, Locale, MaybeControlClaims};
 
 // TODO(johnny): These types are all fundamental to this crate, and should be
 // hoisted from the `server` module. For now, just re-export to minimize churn.

@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n              ct.id as \"id: Id\",\n              ct.image_tag,\n              ct.protocol as \"protocol: ConnectorProto\",\n              ct.documentation_url,\n              ct.endpoint_spec_schema as \"endpoint_spec_schema: JsonRawValue\",\n              ct.resource_spec_schema as \"resource_spec_schema: JsonRawValue\",\n              ct.disable_backfill,\n              ct.default_capture_interval::text as \"default_capture_interval\"\n            from unnest($1::flowid[]) as input(id)\n            join connector_tags ct on input.id = ct.id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "image_tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "protocol: ConnectorProto",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "documentation_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "endpoint_spec_schema: JsonRawValue",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 5,
+        "name": "resource_spec_schema: JsonRawValue",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 6,
+        "name": "disable_backfill",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "default_capture_interval",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "f95a992a07839c41ef177ccfb9b34b8cae2b1675050bab48171ef7be89f9f01b"
+}

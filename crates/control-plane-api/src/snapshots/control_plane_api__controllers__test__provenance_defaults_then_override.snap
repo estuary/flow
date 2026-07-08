@@ -1,0 +1,15 @@
+---
+source: crates/control-plane-api/src/controllers.rs
+assertion_line: 524
+expression: "json!({ \"merged\": merged, \"provenance\": provenance, })"
+---
+{
+  "merged": {
+    "a": {
+      "x": 99
+    }
+  },
+  "provenance": {
+    "a.x": "override"
+  }
+}

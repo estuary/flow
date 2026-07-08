@@ -9,6 +9,12 @@ This example shows how to:
 In addition to catalog tests, be sure to test your stateful derivation using
 `flowctl preview` with multiple `--sessions` to exercise end-to-end restarts
 of your derivation.
+
+NOTE: This example still uses the V1 `start_commit()` lifecycle method, because
+ci:catalog-test currently runs derivations on the V1 runtime. When that suite
+moves to the V2 runtime, this will be ported to contribute state via `flushed.state`
+inside `flush()` (see site/docs/concepts/derivations.md); `start_commit` and
+`Response.StartedCommit` do not exist in V2-generated code.
 """
 
 from collections.abc import AsyncIterator

@@ -129,9 +129,9 @@ pub fn send_client_response(
     let binding_index = meta.binding();
     let binding = &bindings[binding_index];
 
-    doc::Extractor::extract_all_owned(&root, &binding.key, buf);
+    doc::Extractor::extract_all_owned(&root, &binding.key, doc::Encoding::Packed, buf, None);
     let key_packed = buf.split().freeze();
-    doc::Extractor::extract_all_owned(&root, &binding.values, buf);
+    doc::Extractor::extract_all_owned(&root, &binding.values, doc::Encoding::Packed, buf, None);
     let values_packed = buf.split().freeze();
 
     serde_json::to_writer(buf.writer(), &binding.ser_policy.on_owned(&root))

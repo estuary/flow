@@ -1,0 +1,47 @@
+# The soak materialization of `test/soak/accounts` (see ../README.md "Downstream:
+# the soak materialization").
+#
+# A second materialization of `accounts`, as a Python `local:` connector (the
+# materialize-soak wrapper, sibling of source-soak). It is an active in-flight
+# verifier rather than a SQL sink: a recovery-log-authoritative store whose
+# materialized table IS its connector state (no external database), which exercises
+# the materialize-specific V2 joints the derivation never touches — the Load path
+# and max-keys tracking, the three-phase connector-state scatter/gather, and
+# shard-zero state consolidation. Two bindings of one runtime-next task:
+#
+#   - soak_accounts        standard (load+reduce): per-id store served on Load;
+#                          drives the StartedCommit->Acknowledge conservation
+#                          scatter/gather (Σ of loaded-vs-stored balance deltas
+#                          across shards is exactly 0 every transaction).
+#   - soak_accounts_delta  delta-updates (combine-only, no loads): a zero-retention
+#                          verifier of the no-load path that re-checks the oracle
+#                          and cross-checks the standard binding doc-for-doc each
+#                          transaction.
+#
+# It imports the derivation for its source `accounts` collection but not `views`,
+# so previewing the ledger needs no PostgreSQL — only the derive-typescript image
+# the derivation pulls in, and a published `accounts` to read (README "Running").
+import:
+  - ../derivation/flow.yaml
+
+materializations:
+  test/soak/ledger:
+    endpoint:
+      local:
+        command:
+          - ./materialize-soak
+        config:
+          forceLoads: false
+    shards:
+      logLevel: info
+      flags:
+        enable-runtime-v2: "true"
+    bindings:
+      - source: test/soak/accounts
+        resource:
+          table: soak_accounts
+          delta: false
+      - source: test/soak/accounts
+        resource:
+          table: soak_accounts_delta
+          delta: true

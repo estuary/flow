@@ -282,7 +282,7 @@ async fn update_live_specs(
     Ok(lock_failures)
 }
 
-pub async fn check_source_capture_annotations(
+pub async fn check_connector_annotations(
     draft: &tables::DraftCatalog,
     pool: &sqlx::PgPool,
 ) -> anyhow::Result<tables::Errors> {
@@ -297,26 +297,35 @@ pub async fn check_source_capture_annotations(
         };
         let (image_name, image_tag) = split_image_tag(&image);
 
-        let Some(source_capture) = &model.source else {
+        // Skip materializations that have neither sourceCapture nor targetNaming.
+        if model.source.is_none() && model.target_naming.is_none() {
             continue;
-        };
+        }
 
-        // SourceCaptures require a connector_tags row in any case. To avoid an error down the line
-        // in the controller we validate that here. This should only happen for test connector
-        // tags, hence the technical error message
+        // We need the connector's resource config schema to validate x-schema-name support.
+        // This requires a connector_tags row. Missing rows should only occur for test
+        // connector tags, hence the technical error message.
         let Some(connector_spec) =
             crate::connector_tags::fetch_connector_spec(&image_name, &image_tag, pool).await?
         else {
             errors.insert(tables::Error {
                 scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
-                error: anyhow::anyhow!("materializations with a sourceCapture only work for known connector tags. {image} is not known to the control plane"),
+                error: anyhow::anyhow!("materializations with a sourceCapture or targetNaming only work for known connector tags. {image} is not known to the control plane"),
             });
             continue;
         };
-        if let SourceType::Configured(source_capture_def) = source_capture {
-            let resource_config_schema = connector_spec.resource_config_schema;
-            let resource_spec_pointers = utils::pointer_for_schema(resource_config_schema.0.get())?;
+        let resource_config_schema = connector_spec.resource_config_schema;
+        let resource_spec_pointers = utils::pointer_for_schema(resource_config_schema.0.get())?;
 
+        // Blanket check: TargetNamingStrategy requires x-schema-name support.
+        if model.target_naming.is_some() && resource_spec_pointers.x_schema_name.is_none() {
+            errors.insert(tables::Error {
+                scope: tables::synthetic_scope(model.catalog_type(), materialization.catalog_name()),
+                error: anyhow::anyhow!("targetNaming requires the connector '{image_name}' to support x-schema-name in its resource config"),
+            });
+        }
+
+        if let Some(SourceType::Configured(source_capture_def)) = &model.source {
             if source_capture_def.delta_updates && resource_spec_pointers.x_delta_updates.is_none()
             {
                 errors.insert(tables::Error {
@@ -325,6 +334,7 @@ pub async fn check_source_capture_annotations(
                 });
             }
 
+            // TODO(js): Remove this check once we finish the target naming migration
             if source_capture_def.target_naming == TargetNaming::WithSchema
                 && resource_spec_pointers.x_schema_name.is_none()
             {

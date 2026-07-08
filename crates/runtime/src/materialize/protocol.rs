@@ -241,7 +241,13 @@ pub fn recv_client_load_or_flush(
 
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
-            doc::Extractor::extract_all(&doc, &binding.key_extractors, buf);
+            doc::Extractor::extract_all(
+                &doc,
+                &binding.key_extractors,
+                doc::Encoding::Packed,
+                buf,
+                None,
+            );
             let mut key_packed = buf.split().freeze();
             let key_hash: u128 = xxh3_128(&key_packed);
             key_packed.advance(4); // Advance past 4-byte binding index.
@@ -299,7 +305,7 @@ pub fn recv_client_load_or_flush(
             }
         }
         Some(Request {
-            flush: Some(request::Flush {}),
+            flush: Some(request::Flush { .. }),
             ..
         }) => {
             if !*saw_acknowledged {
@@ -311,7 +317,7 @@ pub fn recv_client_load_or_flush(
             _ = std::mem::take(load_keys);
 
             Ok(Some(Request {
-                flush: Some(request::Flush {}),
+                flush: Some(request::Flush::default()),
                 ..Default::default()
             }))
         }
@@ -432,11 +438,12 @@ pub fn send_connector_store(
     // extract the values last, so that the indicator can account for truncations
     // in both the keys and the flow document.
     let truncation_indicator = AtomicBool::new(false);
-    doc::Extractor::extract_all_owned_indicate_truncation(
+    doc::Extractor::extract_all_owned(
         &root,
         &binding.key_extractors,
+        doc::Encoding::Packed,
         buf,
-        &truncation_indicator,
+        Some(&truncation_indicator),
     );
     let key_packed = buf.split().freeze();
 
@@ -453,11 +460,11 @@ pub fn send_connector_store(
     .expect("document serialization cannot fail");
     let mut doc_json = buf.split().freeze();
 
-    doc::Extractor::extract_all_owned_indicate_truncation(
+    binding.value_plan.extract_all_owned(
         &root,
-        &binding.value_extractors,
+        doc::Encoding::Packed,
         buf,
-        &truncation_indicator,
+        Some(&truncation_indicator),
     );
     let values_packed = buf.split().freeze();
 
@@ -575,15 +582,16 @@ pub fn recv_client_start_commit(
     txn: &mut Transaction,
 ) -> anyhow::Result<(Request, rocksdb::WriteBatch)> {
     let verify = verify("client", "StartCommit with runtime_checkpoint");
-    let request = verify.not_eof(request)?;
+    let mut request = verify.not_eof(request)?;
 
     let Request {
         start_commit:
             Some(request::StartCommit {
                 runtime_checkpoint: Some(runtime_checkpoint),
+                ..
             }),
         ..
-    } = &request
+    } = &mut request
     else {
         return verify.fail(request);
     };
@@ -591,6 +599,17 @@ pub fn recv_client_start_commit(
     // TODO(johnny): Diff the previous and current checkpoint to build a
     // merge-able, incremental update that's written to the WriteBatch.
     let _last_checkpoint = last_checkpoint;
+
+    // The V2 leader stamps a synthetic "committed-close" source into the
+    // consumer.Checkpoint on each commit, recording the V2 RocksDB epoch.
+    // If V1 inherits a checkpoint from a prior V2 run, the marker is
+    // preserved verbatim across V1 commits. A subsequent V2 rollforward
+    // would then mistake the stale marker for an in-sync RocksDB state
+    // and ignore the legacy_checkpoint, resuming from V2's stale frontier
+    // and re-processing whatever V1 had advanced past. Strip the marker
+    // so V2 startup treats V1's advanced sources as authoritative.
+    runtime_checkpoint.sources.remove("committed-close");
+    let runtime_checkpoint = runtime_checkpoint.clone();
 
     let mut wb = rocksdb::WriteBatch::default();
 
@@ -600,7 +619,7 @@ pub fn recv_client_start_commit(
     );
     wb.put(RocksDB::CHECKPOINT_KEY, runtime_checkpoint.encode_to_vec());
 
-    txn.checkpoint = runtime_checkpoint.clone();
+    txn.checkpoint = runtime_checkpoint;
 
     Ok((request, wb))
 }

@@ -58,6 +58,11 @@ pub async fn provision_tenant(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
     let prefix = format!("{tenant}/");
+    let default_alert_types: Vec<models::status::AlertType> = models::status::AlertType::all()
+        .iter()
+        .copied()
+        .filter(models::status::AlertType::is_default)
+        .collect();
 
     // Note that the gcp-us-central1-c1 (combustible-cronut) dataplane is excluded here
     // because it's being deprecated and replaced.
@@ -101,7 +106,8 @@ pub async fn provision_tenant(
             on conflict do nothing
         ),
         create_alert_subscription as (
-            insert into alert_subscriptions (catalog_prefix, email) values ($2, (select email from auth.users where id = $1 limit 1))
+            insert into alert_subscriptions (catalog_prefix, email, include_alert_types)
+            values ($2, (select email from auth.users where id = $1 limit 1), $5)
         )
         insert into tenants (tenant, detail) values ($2, $3);
         "#,
@@ -109,9 +115,51 @@ pub async fn provision_tenant(
         &prefix as &str,
         detail.clone() as Option<String>,
         accounts_user_email as &str,
+        &default_alert_types as &[models::status::AlertType],
     )
     .execute(&mut **txn)
     .await?;
 
     Ok(())
+}
+
+/// Sets up a tenant in a freshly-migrated test database: inserts an auth user,
+/// runs `provision_tenant`, and drops the `estuary_support` grant so tests run
+/// as the tenant's own admin. Reachable from another crate's tests via the
+/// `test-support` feature; not compiled into production builds.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn provision_test_tenant(
+    pool: &sqlx::PgPool,
+    tenant: &str,
+    email: &str,
+    user_meta: serde_json::Value,
+) -> uuid::Uuid {
+    let user_id = uuid::Uuid::new_v4();
+    let mut txn = pool.begin().await.expect("begin txn");
+
+    sqlx::query(r#"insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3)"#)
+        .bind(user_id)
+        .bind(email)
+        .bind(&user_meta)
+        .execute(&mut *txn)
+        .await
+        .expect("insert auth user");
+
+    provision_tenant(
+        "support@estuary.dev",
+        Some("test tenant".to_string()),
+        tenant,
+        user_id,
+        &mut txn,
+    )
+    .await
+    .expect("provision tenant");
+
+    sqlx::query(r#"delete from role_grants where subject_role = 'estuary_support/';"#)
+        .execute(&mut *txn)
+        .await
+        .expect("delete support grant");
+
+    txn.commit().await.expect("commit tenant");
+    user_id
 }

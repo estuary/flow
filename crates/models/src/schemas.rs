@@ -215,6 +215,12 @@ struct RelaxedSchemaObj {
     _min_length: Option<serde_json::Value>,
     #[serde(rename = "maxLength", default, skip_serializing)]
     _max_length: Option<serde_json::Value>,
+    #[serde(rename = "redact", default, skip_serializing)]
+    _redact: Option<serde_json::Value>,
+    #[serde(rename = "x-str-minimum", default, skip_serializing)]
+    _x_str_minimum: Option<serde_json::Value>,
+    #[serde(rename = "x-str-maximum", default, skip_serializing)]
+    _x_str_maximum: Option<serde_json::Value>,
 
     // Other keywords are passed-through.
     #[serde(flatten)]
@@ -410,6 +416,70 @@ mod test {
                 "properties": {
                     "name": {
                         "description": "A name field"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_relaxation_drops_x_str_bounds() {
+        // x-str-minimum/maximum are enforced validations reflecting the source's
+        // *current* column type, and earlier collection data may predate them.
+        // For example: a once-text column captured values like "n/a" alongside
+        // "10.5", and was later altered to NUMERIC(4,2) — at which point the
+        // capture's write schema could reasonably declare bounds of ±99.99.
+        // Those bounds are a lie about the older data (an x-str bound alone
+        // rejects any non-numeric string), so the relaxed write schema must not
+        // carry them into its intersection with the inferred schema.
+        let schema = schema!({
+            "type": "object",
+            "properties": {
+                "price": {
+                    "type": "string",
+                    "format": "number",
+                    "x-str-minimum": "-99.99",
+                    "x-str-maximum": "99.99",
+                    "description": "A numeric-string field"
+                }
+            }
+        });
+
+        let relaxed = schema.to_relaxed_schema().unwrap().to_value();
+
+        assert_eq!(
+            relaxed,
+            json!({
+                "properties": {
+                    "price": {
+                        "description": "A numeric-string field"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_relaxation_drops_redact() {
+        let schema = schema!({
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "redact": { "strategy": "sha256" },
+                    "description": "Sensitive key component"
+                }
+            }
+        });
+
+        let relaxed = schema.to_relaxed_schema().unwrap().to_value();
+
+        assert_eq!(
+            relaxed,
+            json!({
+                "properties": {
+                    "email": {
+                        "description": "Sensitive key component"
                     }
                 }
             })

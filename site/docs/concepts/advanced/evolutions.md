@@ -67,7 +67,7 @@ Alternatively, you could manually update all the specs to agree to your edit, bu
 
 Evolutions can prevent errors resulting from mismatched specs in two ways:
 
-* **Materialize data to a new resource in the endpoint system**: The evolution updates the affected materialization bindings to increment their `backfill` counter, which causes the materialization to re-create the resource (database table, for example) and backfill it from the beginning.
+* **Materialize data to a new resource in the endpoint system**: The evolution updates the affected materialization bindings to increment their `backfill` counter, which causes the materialization to refresh the resource (database table, for example) and backfill it from the beginning. If the schema change requires a different table structure (such as an incompatible column type change or a primary key change), the resource is dropped and recreated; otherwise it is truncated, preserving table-level metadata such as partitioning and clustering.
 
    This is a simpler change, and how evolutions work in most cases.
 
@@ -75,7 +75,7 @@ Evolutions can prevent errors resulting from mismatched specs in two ways:
 
    This is a more complicated change, and evolutions only work this way when necessary: when the collection key or logical partitioning changes.
 
-In either case, the names of the destination resources will remain the same. For example, a materialization to Postgres would drop and re-create the affected tables with the same names they had previously.
+In either case, the names of the destination resources will remain the same. For example, a materialization to Postgres refreshes the affected tables with the same names they had previously — typically by truncating, or by dropping and recreating when the schema change requires a different table structure.
 
 Also in either case, only the specific bindings that had incompatible changes will be affected. Other bindings will remain untouched, and will not re-backfill.
 
@@ -84,7 +84,7 @@ This field can be set at the top level of a materialization spec or within each 
 If not specified at the binding level, the top-level setting applies by default.
 The `onIncompatibleSchemaChange` field offers four options:
 
-- backfill (default if unspecified): Increments the backfill counter for affected bindings, recreating the destination resources to fit the new schema and backfilling them.
+- backfill (default if unspecified): Increments the backfill counter for affected bindings, refreshing the destination resources (truncating, or dropping and recreating when the schema change requires it) and backfilling them.
 - disableBinding: Disables the affected bindings, requiring manual intervention to re-enable and resolve the incompatible fields.
 - disableTask: Disables the entire materialization, necessitating human action to re-enable and address the incompatible fields.
 - abort: Halts any automated action, leaving the resolution decision to a human.

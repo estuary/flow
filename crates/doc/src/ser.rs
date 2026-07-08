@@ -281,22 +281,23 @@ impl serde::Serialize for SerOwned<'_, '_> {
     where
         S: serde::Serializer,
     {
+        macro_rules! ser {
+            ($node:expr) => {
+                SerNode {
+                    node: $node,
+                    depth: 0,
+                    policy: self.policy,
+                    truncation_indicator: self.truncation_indicator,
+                }
+                .serialize(serializer)
+            };
+        }
         match &self.node {
-            OwnedNode::Heap(n) => SerNode {
-                node: n.get(),
-                depth: 0,
-                policy: self.policy,
-                truncation_indicator: self.truncation_indicator,
-            }
-            .serialize(serializer),
-
-            OwnedNode::Archived(n) => SerNode {
-                node: n.get(),
-                depth: 0,
-                policy: self.policy,
-                truncation_indicator: self.truncation_indicator,
-            }
-            .serialize(serializer),
+            OwnedNode::Heap(n) => match n.access() {
+                Ok(heap_node) => ser!(&heap_node),
+                Err(embedded) => ser!(embedded.get()),
+            },
+            OwnedNode::Archived(n) => ser!(n.get()),
         }
     }
 }

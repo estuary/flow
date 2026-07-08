@@ -3,6 +3,9 @@ sidebar_position: 3
 slug: /reference/backfilling-data/
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Backfilling Data
 
 When new captures are created, you often have the option of backfilling data. This captures data in its current state and then switches to capturing change events on an ongoing basis.
@@ -31,11 +34,39 @@ When you perform an incremental backfill:
 
 To perform an incremental backfill:
 
+<Tabs>
+<TabItem value="In the dashboard" default>
+
 1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
 3. In the **Backfill mode** dropdown, select the **Incremental backfill (advanced)** option
 4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes-for-sql-cdc-captures) for the collection for advanced use cases
 5. Save and publish your changes
+
+</TabItem>
+<TabItem value="Using flowctl">
+
+1. Edit your capture's `flow.yaml` specification file
+2. Increment the `backfill` property on all bindings you wish to backfill
+3. You may also optionally specify a [backfill mode](#resource-configuration-backfill-modes) for SQL CDC bindings
+
+   For example:
+
+   ```yaml
+   bindings:
+     - resource:
+         namespace: public
+         stream: tableName
+         mode: "Only Changes"
+       target: your/collection/name
+       backfill: 2
+   ```
+
+4. Modify the capture's configuration if applicable; for example, some captures allow you to specify a start date
+5. Publish your changes with `flowctl catalog publish`
+
+</TabItem>
+</Tabs>
 
 This option is ideal when you want to ensure your collections have the most up-to-date data without
 disrupting your destination systems.
@@ -52,18 +83,25 @@ result in duplicate records in your destination.
 
 ### Materialization backfill
 
-A materialization backfill drops and recreates your destination tables using the data currently stored
-in your Estuary collections. This is useful when you need to refresh destination tables without
-rereading from the source.
+A materialization backfill empties your destination tables and repopulates them using the data
+currently stored in your Estuary collections. This is useful when you need to refresh destination
+tables without rereading from the source.
 
 When you perform a materialization backfill:
 
-* Destination tables are dropped and recreated
+* Destination tables are truncated, preserving table-level metadata such as partitioning, clustering, and other DDL applied outside of Estuary
 * Data is read from existing Estuary collections
 * No new data is pulled from the source
 * Tables are repopulated with data from collections
 
+If the backfill is published alongside an incompatible schema change — such as a column type
+change or a change to the collection's primary key — the destination tables are dropped and
+recreated instead, losing any custom DDL.
+
 To perform a materialization backfill:
+
+<Tabs>
+<TabItem value="In the dashboard" default>
 
 1. Navigate to the Destinations tab in Estuary's web UI
 2. Find your materialization and start editing it
@@ -81,8 +119,29 @@ Or you can select individual collections to backfill:
 6. Repeat steps 3-5 for all collections you'd like to backfill
 7. Save and publish your changes
 
+</TabItem>
+<TabItem value="Using flowctl">
+
+1. Edit your materialization's `flow.yaml` specification file
+2. Increment the `backfill` property on all bindings you wish to backfill
+
+   For example:
+
+   ```yaml
+   bindings:
+     - resource:
+         table: tableName
+       source: your/collection/name
+       backfill: 2
+   ```
+
+3. Publish your changes with `flowctl catalog publish`
+
+</TabItem>
+</Tabs>
+
 :::tip
-Dropping destination tables may create downtime for your destination table consumers while data is backfilled.
+Refreshing destination tables may create downtime for your destination table consumers while data is backfilled.
 :::
 
 This option is best when you need to refresh destination tables but are confident your collections
@@ -91,19 +150,26 @@ contain all the necessary historical data.
 ### Dataflow reset
 
 A dataflow reset is the most comprehensive option, refreshing the entire pipeline from source to
-destination. This option drops destination tables, rereads data from the source into collections, and
+destination. This option empties destination tables, rereads data from the source into collections, and
 then materializes that data to the destination.
 
 When you perform a dataflow reset:
 
 * Data is reread from the source system
 * Inferred schemas are reset
-* Destination tables are dropped and recreated
+* Destination tables are truncated, preserving table-level metadata such as partitioning and clustering
 * Collections are replaced with fresh source data
 * Derivations are dropped and recreated
 * Destination tables are repopulated with the refreshed data
 
+As with a materialization backfill, if the reset is published alongside an incompatible schema
+change, destination tables are dropped and recreated rather than truncated, losing any custom DDL
+applied outside of Estuary.
+
 To perform a dataflow reset:
+
+<Tabs>
+<TabItem value="In the dashboard" default>
 
 1. Navigate to the Sources tab in Estuary's web UI
 2. Start editing your capture and click the **Backfill** button
@@ -111,8 +177,70 @@ To perform a dataflow reset:
 4. (Optional) Choose a specific [**Resource configuration backfill mode**](#resource-configuration-backfill-modes-for-sql-cdc-captures) for the collection for advanced use cases
 5. Save and publish your changes
 
+</TabItem>
+<TabItem value="Using flowctl">
+
+1. Edit the `flow.yaml` specification file(s) for all collections you want to reset
+2. Add the property `reset: true` under each collection to reset
+
+   For example, note the location of `reset` in this simple collection specification:
+
+   ```yaml
+   collections:
+    your/collection/name:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+        required: [id]
+      key: [/id]
+      reset: true
+   ```
+
+   This `reset: true` collection property acts as a flag and will not be stored in the collection model.
+
+3. Publish your changes with `flowctl catalog publish` to kick off the dataflow reset
+
+You do not need to modify other specifications: resetting from the collection updates associated bindings automatically, such as incrementing the capture and materialization backfill counters.
+
+</TabItem>
+</Tabs>
+
 This option is ideal when you need a complete refresh of your entire data pipeline, especially when
 you suspect data inconsistencies between source, collections, and destinations.
+
+### Schema changes during backfill
+
+Materialization backfills and dataflow resets refresh destination tables in one of two ways, depending on whether the publication also contains incompatible schema changes:
+
+- **Truncate and repopulate** (default for routine backfills) — the connector runs `TRUNCATE TABLE`, preserving partitioning, clustering, and any other table-level DDL applied outside of Estuary.
+- **Drop and recreate** — the connector drops the existing table and recreates it from the current selected fields, losing any custom DDL.
+
+A backfill drops and recreates the table when any of the following is true:
+
+- A selected field's type changes incompatibly (for example, string → integer).
+- The source collection's primary key changes.
+- The materialization has the [`always_drop_tables_on_backfill`](/guides/advanced-usage/feature-flags) feature flag set.
+
+Truncate-and-repopulate is the default for relational SQL and warehouse destinations (for example, PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, and Databricks). Some materialization connectors — including those targeting MongoDB, DynamoDB, Elasticsearch, and Iceberg — always drop and recreate on backfill, because the underlying system doesn't support an in-place truncate.
+
+#### Controlling behavior with onIncompatibleSchemaChange
+
+When an incompatible schema change is detected, you can override the default drop-and-recreate behavior by configuring [`onIncompatibleSchemaChange`](/concepts/advanced/evolutions/) on the materialization or per binding:
+
+- `backfill` (default) — drop and recreate the table, then backfill.
+- `abort` — fail the publication so the change is never applied.
+- `disableBinding` — disable the affected binding instead of backfilling it.
+- `disableTask` — disable the entire materialization.
+
+#### Preserving existing data during a backfill
+
+To keep existing rows when a backfill is triggered, either:
+
+- Use an [incremental backfill](#incremental-backfill), or
+- Set the [`retain_existing_data_on_backfill`](/guides/advanced-usage/feature-flags) feature flag on the materialization.
+
+Both options skip the truncate step, but neither prevents the drop-and-recreate path: if the schema change requires a different table structure, the table is still dropped.
 
 ### Backfill Selection
 
@@ -123,9 +251,9 @@ When deciding which backfill type to use, consider:
 * **Data retention:** If using Estuary's trial buckets, data expires after approximately 20
 days. For full historical data, [configure your own storage bucket](/getting-started/installation).
 * **Table size:** For very large tables (TBs of data), consider the impact (time, data, cost) of
-dropping and recreating tables.
-* **Downtime tolerance:** Materialization and dataflow resets involve dropping destination
-tables, which creates downtime.
+emptying and repopulating tables.
+* **Downtime tolerance:** Materialization and dataflow resets refresh destination tables, which
+creates a window of incomplete data for downstream consumers.
 * **Update strategy:** Consider whether your materializations use standard (merge) or delta
 updates, as this affects how backfilled data is handled at the destination. Using incremental
 backfills (not dropping the destination tables) when you have materializations that use
@@ -137,8 +265,8 @@ consistency across your Estuary pipelines while minimizing disruption to your da
 | **If I want to...** | **Then I should...** |
 | --- | --- |
 | Refresh my collections with source data, without dropping destination tables | Use an **Incremental Backfill** to pull all source data into Estuary collections |
-| Rebuild destination tables using existing collection data | Use a **Materialization Backfill** to drop and recreate destination tables from collections |
-| Completely refresh my entire data pipeline from source to destination | Use a **Dataflow Reset** to drop destination tables and backfill from source |
+| Rebuild destination tables using existing collection data | Use a **Materialization Backfill** to empty and repopulate destination tables from collections |
+| Completely refresh my entire data pipeline from source to destination | Use a **Dataflow Reset** to empty destination tables and backfill from source |
 | Recover from a replication slot failure in PostgreSQL | Use an **Incremental Backfill** to re-establish consistency |
 | Add a new table to my existing data flow | Use an **Incremental Backfill** for just the new binding |
 | Ensure my own storage bucket contains complete historical data | Use an **Incremental Backfill** after setting up the new storage mapping |
@@ -153,30 +281,36 @@ Preventing backfills when possible can help save costs and computational resourc
 
 In this case, many connectors allow you to turn off backfilling on a per-stream or per-table basis. See each individual connector's properties for details.
 
-### Preventing backfills during database upgrades
+### Preventing backfills during database upgrades and failovers
 
-During an upgrade, some databases invalidate a replication slot, binlog position, CDC tables, or similar. As Estuary relies on these methods to keep its place, upgrades will disrupt the Estuary pipeline in these cases.
+During an upgrade, some databases invalidate a replication slot, binlog position, CDC tables, or similar. As Estuary relies on these methods to keep its place, upgrades will disrupt the Estuary pipeline in these cases. The same is true of a failover or promotion that moves the capture onto a new writer - for example a standby promotion or a migration to a new instance - because the new writer does not carry the old writer's CDC position.
 
-- If a database upgrade **will not** affect these resources, the Estuary connector should simply resume when the upgrade completes and no action is required.
-- If a database upgrade **will** affect these or similar resources, you may need to trigger a backfill after the upgrade completes.
+- If the operation **will not** affect these resources, the Estuary connector should simply resume when it completes and no action is required.
+- If the operation **will** affect these or similar resources, you may need to trigger a backfill afterward.
 
-The easiest and most bulletproof solution when this happens is to backfill all bindings of the impacted capture(s) after performing the upgrade. This will permit the captures to recreate entities as necessary, establish a new CDC position, and then backfill all table contents to ensure that any changes which might have occurred in the meantime are correctly captured.
+The easiest and most bulletproof solution when this happens is to backfill all bindings of the impacted capture(s) afterward. This will permit the captures to recreate entities as necessary, establish a new CDC position, and then backfill all table contents to ensure that any changes which might have occurred in the meantime are correctly captured.
 
 However, it is common to want to avoid a full backfill when performing this sort of database maintenance, as these backfills may take some time and require a significant amount of extra data movement even if nothing has actually changed. Some connectors provide features which may be used to accomplish this, however they typically require some amount of extra setup or user knowledge to guarantee certain invariants (put simply: if there were a more efficient way to re-establish consistency in the general case, that's what we would already be doing when asked to backfill the data again).
 
-For example, Postgres currently deletes or requires users to drop logical replication slots during a major version upgrade. To prevent a full backfill during the upgrade, follow these steps:
+For example, Postgres deletes or requires users to drop logical replication slots during a major version upgrade. To prevent a full backfill, follow these steps:
 
 1. Pause database writes so no further changes can occur.
 
 2. Monitor the current capture to ensure captures are fully up-to-date.
    - These two steps ensure the connector won't miss any changes.
 
-3. Perform the database upgrade.
+3. Perform the database upgrade or failover.
 
-4. Backfill all bindings of the capture using the ["Only Changes" backfill mode](#resource-configuration-backfill-modes-for-sql-cdc-captures) and make sure to select "Incremental Backfill (Advanced)" from the drop down.
-   - This will not cause a full backfill. "Backfilling" all bindings at once resets the WAL (Write-Ahead Log) position for the capture, essentially allowing it to "jump ahead" to the current end of the WAL. The "Only Changes" mode will skip re-reading existing table content.  Incremental backfill will append new data to your current collection.
+4. Backfill all bindings of the capture using the ["Only Changes" backfill mode](#resource-configuration-backfill--modes-for-sql-cdc-captures) and make sure to select "Incremental Backfill (Advanced)" from the drop down.
+   - This will not cause a full backfill. "Backfilling" all bindings at once resets the WAL (Write-Ahead Log) or binlog position for the capture, essentially allowing it to "jump ahead" to the current end. The "Only Changes" mode will skip re-reading existing table content. Incremental backfill will append new data to your current collection.
+   - **4a. Same host** (in-place upgrade): no other change is needed.
+   - **4b. New host** (failover, promotion, or migration to a new instance): in the same edit, also update the capture's `address` to the new writer's endpoint. Changing `address` on its own is not enough - the connector would try to resume from a stored CDC position that does not exist on the new server.
 
-5. Resume database writes.
+5. Resume database writes (on the new writer, if the host changed).
+
+:::note
+If the new writer is reachable over [AWS PrivateLink](/private-byoc/privatelink), you can register its endpoint with Estuary ahead of time so the DNS name is ready before you need it. See [Pre-registering an endpoint ahead of time](/private-byoc/privatelink#pre-registering-an-endpoint-ahead-of-time).
+:::
 
 ## Resource configuration backfill modes for SQL CDC captures
 
@@ -187,20 +321,16 @@ Backfill modes apply only to **SQL CDC connectors** (PostgreSQL, MySQL, SQL Serv
 SQL CDC connectors allow fine-grained control of backfills for individual tables. These bindings include a "Backfill Mode" dropdown in their resource configuration. This setting then translates to a `mode` field for that resource in the specification. For example:
 
 ```yaml
-"bindings": [
-    {
-      "resource": {
-        "namespace": "public",
-        "stream": "tableName",
-        "mode": "Only Changes"
-      },
-      "target": "Artificial-Industries/postgres/public/tableName"
-    }
-  ]
+bindings:
+  - resource:
+      namespace: public
+      stream: tableName
+      mode: "Only Changes"
+    target: your/collection/name
 ```
 
 :::warning
-In general, you should not change this setting. Make sure you understand your use case, such as [preventing backfills](#preventing-backfills-during-database-upgrades).
+In general, you should not change this setting. Make sure you understand your use case, such as [preventing backfills](#preventing-backfills-during-database-upgrades-and-failovers).
 :::
 
 ### Available modes
@@ -270,6 +400,9 @@ For MySQL and MariaDB captures, setting `binlog_row_metadata=FULL` can prevent m
 
 ## Advanced backfill configuration in specific systems
 
+Some connectors provide additional advanced settings to configure backfills.
+See the [reference docs](/reference/Connectors) for a connector's available properties.
+
 ### PostgreSQL Capture
 
 If a PostgreSQL table's primary key is uncorrelated with physical insert order (such as a UUIDv4 or other random token), a key-ordered backfill requires frequent random page fetches and may run significantly slower than expected. In these cases, using **Without Primary Key** mode (which uses the physical `ctid` row identifier instead of the primary key) can speed up the backfill considerably, at the cost of the ordering guarantees described above.
@@ -294,5 +427,7 @@ To configure this option:
 5. Click "Backfill" and make sure that "incremental" is selected in the drop down.
 
 6. Save and publish your changes.
+
+7. After the backfill completes, edit the capture again and clear the "Minimum Backfill XID" / "Maximum Backfill XID" field, then save and publish. The XID is only applied when a backfill is triggered, so it has no effect during normal CDC operation — but leaving it in place means that any future backfill (intentional or otherwise) will be silently limited to rows above/below the old transaction ID, potentially missing data. Clearing it ensures future backfills start from a clean state.
 
 In rare cases, this method may not work as expected, as in situations where a database has already filled up its entire `xmin` space. In such cases of `xmin` wrapping, using both Minimum and Maximum Backfill XID fields can help narrow down a specific range to backfill.

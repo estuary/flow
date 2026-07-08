@@ -281,6 +281,11 @@ impl Executor {
         if state.last_refresh + REFRESH_INTERVAL < chrono::Utc::now() {
             state.pending_refresh = true;
         }
+        // Periodically force a convergence pass even when nothing has changed,
+        // to catch silent infrastructure drift or missed triggers.
+        if state.last_pulumi_up + CONVERGE_INTERVAL < chrono::Utc::now() {
+            state.pending_converge = true;
+        }
         // Changes to branch or stack configuration require a convergence pass.
         if state.deploy_branch != next.deploy_branch {
             state.deploy_branch = next.deploy_branch;
@@ -622,3 +627,4 @@ impl automations::Outcome for Outcome {
 const IDLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 const POLL_AGAIN: std::time::Duration = std::time::Duration::ZERO;
 const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
+const CONVERGE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(4 * 60 * 60);

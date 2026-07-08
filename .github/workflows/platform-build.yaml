@@ -13,6 +13,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  SCCACHE_VERSION: v0.12.0
+
 jobs:
   platform-build:
     strategy:
@@ -52,13 +55,17 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: ${{ env.SCCACHE_VERSION }}
       - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
+      - run: echo "RUSTC_WRAPPER=$SCCACHE_PATH" >> $GITHUB_ENV
 
       # These steps are kept in lockstep with task `ci:platform-build`
       - run: mise run build:rocksdb
       - run: mise run ci:musl-opt
       - run: mise run ci:gnu-opt
       - run: mise run build:flowctl-go --release
+      - run: mise run build:gazette
       - run: mise run ci:wasm-opt
       - run: mise run ci:package
 
@@ -99,12 +106,10 @@ jobs:
       - run: |
           ln ~/flow-package/estuary-flow-web.tgz        estuary-flow-web.tgz
           ln ~/flow-package/amd64/flow-connector-init   flow-connector-init-linux-x86_64
-          ln ~/flow-package/amd64/flow-schemalate       flow-schemalate-linux-x86_64
           ln ~/flow-package/amd64/flow-parser           flow-parser-linux-x86_64
           ln ~/flow-package/amd64/flowctl               flowctl-linux-x86_64
           ln ~/flow-package/amd64/flowctl-go            flowctl-go-linux-x86_64
           ln ~/flow-package/arm64/flow-connector-init   flow-connector-init-linux-aarch64
-          ln ~/flow-package/arm64/flow-schemalate       flow-schemalate-linux-aarch64
           ln ~/flow-package/arm64/flow-parser           flow-parser-linux-aarch64
           ln ~/flow-package/arm64/flowctl               flowctl-linux-aarch64
           ln ~/flow-package/arm64/flowctl-go            flowctl-go-linux-aarch64
@@ -124,8 +129,6 @@ jobs:
             estuary-flow-web.tgz
             flow-connector-init-linux-aarch64
             flow-connector-init-linux-x86_64
-            flow-schemalate-linux-aarch64
-            flow-schemalate-linux-x86_64
             flow-parser-linux-aarch64
             flow-parser-linux-x86_64
             flowctl-go-linux-aarch64

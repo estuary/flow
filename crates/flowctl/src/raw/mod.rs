@@ -15,9 +15,10 @@ mod alerts;
 mod discover;
 mod materialize_fixture;
 mod oauth;
+mod preview_next;
 mod shards;
-mod shuffle;
 mod spec;
+mod split_shards;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -72,12 +73,14 @@ pub enum Command {
     BearerLogs(BearerLogs),
     /// Print information about the shards for a given task
     ListShards(TaskSelector),
+    /// Split each shard of a task on either shuffled key or rotated clock.
+    SplitShards(split_shards::Split),
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
-
-    #[clap(hide = true)]
-    Shuffle(shuffle::Shuffle),
+    /// Locally run and preview a capture, derivation, or materialization using
+    /// the V2 runtime.
+    PreviewNext(preview_next::Preview),
 }
 
 #[derive(Debug, clap::Args)]
@@ -168,23 +171,11 @@ pub struct Stats {
 
     #[clap(flatten)]
     pub bounds: ReadBounds,
-
-    /// Read raw data from stats journals, including possibly uncommitted or rolled back transactions.
-    /// This flag is currently required, but will be made optional in the future as we add support for
-    /// committed reads, which will become the default.
-    #[clap(long)]
-    pub uncommitted: bool,
 }
 
 impl Stats {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        crate::ops::read_task_ops_journal(
-            &ctx.client,
-            &self.task.task,
-            OpsCollection::Stats,
-            &self.bounds,
-        )
-        .await
+        crate::ops::read_task_ops(ctx, &self.task.task, OpsCollection::Stats, &self.bounds).await
     }
 }
 
@@ -193,27 +184,27 @@ pub struct BearerLogs {
     /// Bearer logs token.
     #[clap(long)]
     pub token: uuid::Uuid,
-    /// Start reading from this far in the past.
-    #[clap(long, default_value = "1h")]
+    /// Start reading from this far in the past, defaulting to the last hour.
+    /// Mutually exclusive with --not-before.
+    #[clap(long)]
     pub since: Option<humantime::Duration>,
+    /// Start reading from this absolute point in time, as an RFC-3339 timestamp
+    /// (e.g. "2024-01-02T15:04:05Z"). Mutually exclusive with --since.
+    #[clap(long, conflicts_with = "since", value_parser = crate::parse_rfc3339)]
+    pub not_before: Option<time::OffsetDateTime>,
 }
 
 impl BearerLogs {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        let bound = match self.since {
-            None => None,
-            Some(since) => {
-                let since: std::time::Duration = since.into();
-                Some(crate::Timestamp::from_unix_timestamp(
-                    (std::time::SystemTime::now() - since)
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64,
-                )?)
-            }
-        };
+        // Bearer logs are always read from a lower bound; when neither --since
+        // nor --not-before is given, default to the last hour.
+        let start_time = crate::resolve_not_before(self.since, self.not_before)
+            .unwrap_or_else(|| time::OffsetDateTime::now_utc() - time::Duration::hours(1));
+        let bound = Some(crate::Timestamp::from_unix_timestamp(
+            start_time.unix_timestamp(),
+        )?);
 
-        crate::poll::stream_logs(&ctx.client, &self.token.to_string(), bound).await
+        crate::poll::stream_logs(ctx, &self.token.to_string(), bound).await
     }
 }
 
@@ -240,14 +231,19 @@ impl Advanced {
             Command::Stats(stats) => stats.run(ctx).await,
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
+            Command::SplitShards(split) => split_shards::do_split(ctx, split).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
-            Command::Shuffle(shuffle) => shuffle.run(ctx).await,
+            Command::PreviewNext(preview) => preview.run(ctx).await,
         }
     }
 }
 
 async fn do_get(ctx: &mut crate::CliContext, Get { table, query }: &Get) -> anyhow::Result<()> {
-    let req = ctx.client.from(table).build().query(query);
+    let mut req = ctx.pg.from(table).build();
+    if let Some(token) = ctx.access_token() {
+        req = req.bearer_auth(token);
+    }
+    let req = req.query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -258,7 +254,11 @@ async fn do_update(
     ctx: &mut crate::CliContext,
     Update { table, query, body }: &Update,
 ) -> anyhow::Result<()> {
-    let req = ctx.client.from(table).update(body).build().query(query);
+    let mut req = ctx.pg.from(table).update(body).build();
+    if let Some(token) = ctx.access_token() {
+        req = req.bearer_auth(token);
+    }
+    let req = req.query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -273,7 +273,11 @@ async fn do_rpc(
         body,
     }: &Rpc,
 ) -> anyhow::Result<()> {
-    let req = ctx.client.rpc(function, body.clone()).build().query(query);
+    let mut req = ctx.pg.rpc(function, body.clone()).build();
+    if let Some(token) = ctx.access_token() {
+        req = req.bearer_auth(token);
+    }
+    let req = req.query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -282,7 +286,8 @@ async fn do_rpc(
 
 async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<()> {
     let resolver = local_specs::Resolver {
-        client: ctx.client.clone(),
+        pg: ctx.pg.clone(),
+        access_token: ctx.access_token(),
     };
 
     let Build {
@@ -344,8 +349,7 @@ async fn do_combine(
     ctx: &mut crate::CliContext,
     Combine { source, collection }: &Combine,
 ) -> anyhow::Result<()> {
-    let (_sources, _live, validations) =
-        local_specs::load_and_validate(&ctx.client, source).await?;
+    let (_sources, _live, validations) = local_specs::load_and_validate(ctx, source).await?;
 
     let collection = match validations
         .built_collections
@@ -474,17 +478,15 @@ impl GazctlEnv {
             reactor_address,
             reactor_token,
             retry_millis: _,
-        } = flow_client::fetch_user_prefix_authorization(
-            &ctx.client,
-            models::authorizations::UserPrefixAuthorizationRequest {
-                capability: if self.admin {
-                    models::Capability::Admin
-                } else {
-                    models::Capability::Read
-                },
-                data_plane: models::Name::new(&data_plane_name),
-                prefix: models::Prefix::new(&prefix),
-                started_unix: 0,
+        } = crate::dataplane::user_prefix_authorization(
+            &ctx.rest,
+            &ctx.user_tokens,
+            models::Prefix::new(&prefix),
+            models::Name::new(&data_plane_name),
+            if self.admin {
+                models::Capability::Admin
+            } else {
+                models::Capability::Read
             },
         )
         .await?;
@@ -507,12 +509,13 @@ impl GazctlEnv {
             data_plane_name: Option<String>,
         }
 
-        let results: Vec<LiveSpecResult> = crate::api_exec(
-            ctx.client
+        let results: Vec<LiveSpecResult> = flow_client_next::postgrest::exec(
+            ctx.pg
                 .from("live_specs_ext")
                 .select("data_plane_name")
                 .eq("catalog_name", catalog_name)
                 .limit(1),
+            ctx.access_token().as_deref(),
         )
         .await?;
 

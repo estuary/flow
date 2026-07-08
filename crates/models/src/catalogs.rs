@@ -79,6 +79,7 @@ pub enum CatalogType {
 )]
 pub enum Capability {
     /// Note that the discriminants here align with those in the database type.
+    None = 0,
     Read = 10,
     Write = 20,
     Admin = 30,
@@ -87,6 +88,7 @@ pub enum Capability {
 impl AsRef<str> for Capability {
     fn as_ref(&self) -> &str {
         match self {
+            Capability::None => "none",
             Capability::Read => "read",
             Capability::Write => "write",
             Capability::Admin => "admin",

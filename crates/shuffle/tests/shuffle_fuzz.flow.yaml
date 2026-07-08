@@ -1,0 +1,34 @@
+collections:
+  testing/fuzz:
+    schema:
+      type: object
+      required: [id, category, counter]
+      properties:
+        id: { type: string }
+        category: { type: string }
+        counter: { type: integer }
+    key: [/id]
+    projections:
+      category:
+        location: /category
+        partition: true
+
+captures:
+  testing/fuzz-capture:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-test:dev
+        config: {}
+    bindings:
+      - resource: { stream: fuzz }
+        target: testing/fuzz
+
+materializations:
+  testing/fuzz-materialization:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-sqlite:dev
+        config: {}
+    bindings:
+      - source: testing/fuzz
+        resource: { table: fuzz }

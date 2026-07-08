@@ -4,6 +4,7 @@ use std::sync::Arc;
 pub mod graphql;
 mod open_metrics;
 pub mod status;
+pub mod token_exchange;
 
 /// Creates a router for the public API that can be merged into an existing router.
 /// All endpoints registered here are documented in an OpenAPI spec. For adding new
@@ -34,7 +35,10 @@ pub mod status;
 /// returns JSON, which is all of them. Just ensure that `T` implements
 /// `serde::Serialize` and `schemars::JsonSchema`. See the `crate::server::error` module
 /// docs for more information on error handling.
-pub(crate) fn api_v1_router(app: Arc<crate::App>) -> axum::Router<Arc<crate::App>> {
+pub(crate) fn api_v1_router(
+    app: Arc<crate::App>,
+    alert_config_defaults: models::AlertConfig,
+) -> axum::Router<Arc<crate::App>> {
     // When errors occur during the process of generating an openapi spec, aide
     // will call this function with the error so we can log it. They have a note
     // in their docs warning about false positives where it logs errors even
@@ -47,7 +51,7 @@ pub(crate) fn api_v1_router(app: Arc<crate::App>) -> axum::Router<Arc<crate::App
         }
     });
 
-    let graphql_schema = graphql::create_schema();
+    let graphql_schema = graphql::create_schema(alert_config_defaults);
     let router = aide::axum::ApiRouter::new()
         .api_route(
             "/api/v1/catalog/status",
@@ -66,6 +70,10 @@ pub(crate) fn api_v1_router(app: Arc<crate::App>) -> axum::Router<Arc<crate::App
         // The openapi json is itself documented as an API route
         .api_route("/api/v1/openapi.json", aide::axum::routing::get(serve_docs))
         // The docs UI is not documented as an API route
+        .api_route(
+            "/api/v1/auth/token",
+            aide::axum::routing::post(token_exchange::handle_post_token),
+        )
         .route(
             "/api/v1/docs",
             axum::routing::get(

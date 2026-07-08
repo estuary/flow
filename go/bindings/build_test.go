@@ -75,7 +75,6 @@ func TestBuildCatalog(t *testing.T) {
 			require.NoError(t, err)
 			cupaloy.SnapshotT(t, out)
 		})
-
 		return nil
 	}))
 }

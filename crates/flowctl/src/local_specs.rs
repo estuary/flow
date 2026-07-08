@@ -1,13 +1,12 @@
 use anyhow::Context;
 use futures::{FutureExt, TryStreamExt};
-use itertools::Itertools;
 use proto_flow::flow;
 use tables::CatalogResolver;
 
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
 pub(crate) async fn load_and_validate(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     source: &str,
 ) -> anyhow::Result<(
     tables::DraftCatalog,
@@ -16,22 +15,14 @@ pub(crate) async fn load_and_validate(
 )> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let (draft, live, built) = validate(
-        client,
-        true,
-        false,
-        true,
-        draft,
-        "",
-        ops::tracing_log_handler,
-    )
-    .await;
+    let (draft, live, built) =
+        validate(ctx, true, false, true, draft, "", ops::tracing_log_handler).await;
     Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Load and validate sources and all connectors.
 pub(crate) async fn load_and_validate_full(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     source: &str,
     network: &str,
     log_handler: impl runtime::LogHandler,
@@ -43,17 +34,17 @@ pub(crate) async fn load_and_validate_full(
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
     let (draft, live, built) =
-        validate(client, false, false, false, sources, network, log_handler).await;
+        validate(ctx, false, false, false, sources, network, log_handler).await;
     Ok((draft, live, surface_errors(built.into_result())?))
 }
 
 /// Generate connector files by validating sources with derivation connectors.
 pub(crate) async fn generate_files(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
     let (mut draft, _live, built) = validate(
-        client,
+        ctx,
         true,
         false,
         true,
@@ -96,7 +87,7 @@ pub(crate) async fn load(source: &url::Url) -> tables::DraftCatalog {
 }
 
 async fn validate(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
@@ -112,7 +103,8 @@ async fn validate(
     let project_root = build::project_root(source);
 
     let mut live = Resolver {
-        client: client.clone(),
+        pg: ctx.pg.clone(),
+        access_token: ctx.access_token(),
     }
     .resolve(draft.all_catalog_names())
     .await;
@@ -228,7 +220,8 @@ pub(crate) fn pick_policy(
 }
 
 pub(crate) struct Resolver {
-    pub client: crate::Client,
+    pub pg: postgrest::Postgrest,
+    pub access_token: Option<String>,
 }
 
 impl tables::CatalogResolver for Resolver {
@@ -269,7 +262,7 @@ impl Resolver {
         let mut live = build::NoOpCatalogResolver.resolve(Vec::new()).await;
 
         // If we're unauthenticated then return the placeholder LiveCatalog.
-        if !self.client.is_authenticated() {
+        if self.access_token.is_none() {
             return Ok(live);
         }
 
@@ -295,16 +288,30 @@ impl Resolver {
         prefixes.sort();
         prefixes.dedup();
 
-        let storage_mappings = crate::api_exec::<Vec<StorageMappingRow>>(
-            self.client
-                .from("storage_mappings")
-                .select("catalog_prefix,id,spec")
-                .in_("catalog_prefix", prefixes),
-        )
-        .await
-        .context("failed to fetch storage mappings")?;
+        let storage_mappings = chunk_names(&prefixes)
+            .into_iter()
+            .map(|prefixes| {
+                let builder = self
+                    .pg
+                    .from("storage_mappings")
+                    .select("catalog_prefix,id,spec")
+                    .in_("catalog_prefix", prefixes);
+                let access_token = self.access_token.clone();
 
-        for row in storage_mappings {
+                async move {
+                    flow_client_next::postgrest::exec::<Vec<StorageMappingRow>>(
+                        builder,
+                        access_token.as_deref(),
+                    )
+                    .await
+                }
+            })
+            .collect::<futures::stream::FuturesUnordered<_>>()
+            .try_collect::<Vec<Vec<StorageMappingRow>>>()
+            .await
+            .context("failed to fetch storage mappings")?;
+
+        for row in storage_mappings.into_iter().flatten() {
             // TODO(johnny): The PostgREST API does not surface recovery/ mappings.
             // Work around for now, by synthesizing them. This should switch to GraphQL.
             if row.catalog_prefix.starts_with("recovery/") {
@@ -332,8 +339,9 @@ impl Resolver {
             data_plane_name: String,
         }
 
-        let data_planes = crate::api_exec::<Vec<DataPlaneRow>>(
-            self.client.from("data_planes").select("id,data_plane_name"),
+        let data_planes = flow_client_next::postgrest::exec::<Vec<DataPlaneRow>>(
+            self.pg.from("data_planes").select("id,data_plane_name"),
+            self.access_token.as_deref(),
         )
         .await
         .context("failed to fetch data planes")?;
@@ -368,19 +376,24 @@ impl Resolver {
             dependency_hash: Option<String>,
         }
 
-        let rows = catalog_names
-            .into_iter()
-            .chunks(API_FETCH_CHUNK_SIZE)
+        let rows = chunk_names(catalog_names)
             .into_iter()
             .map(|names| {
                 let builder = self
-                    .client
+                    .pg
                     .from("live_specs_ext")
                     .select("id,catalog_name,data_plane_id,spec_type,spec,built_spec,last_pub_id,last_build_id")
                     .not("is", "spec_type", "null")
                     .in_("catalog_name", names);
+                let access_token = self.access_token.clone();
 
-                async move { crate::api_exec::<Vec<LiveSpec>>(builder).await }
+                async move {
+                    flow_client_next::postgrest::exec::<Vec<LiveSpec>>(
+                        builder,
+                        access_token.as_deref(),
+                    )
+                    .await
+                }
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect::<Vec<Vec<LiveSpec>>>()
@@ -450,7 +463,7 @@ impl Resolver {
         catalog_names: &[&str],
     ) -> anyhow::Result<tables::InferredSchemas> {
         // If we're unauthenticated then return empty InferredSchemas rather than an error.
-        if !self.client.is_authenticated() {
+        if self.access_token.is_none() {
             return Ok(Default::default());
         }
 
@@ -461,18 +474,20 @@ impl Resolver {
             pub md5: String,
         }
 
-        let rows = catalog_names
-            .into_iter()
-            .chunks(API_FETCH_CHUNK_SIZE)
+        let rows = chunk_names(catalog_names)
             .into_iter()
             .map(|names| {
                 let builder = self
-                    .client
+                    .pg
                     .from("inferred_schemas")
                     .select("collection_name,schema,md5")
                     .in_("collection_name", names);
+                let access_token = self.access_token.clone();
 
-                async move { crate::api_exec::<Vec<Row>>(builder).await }
+                async move {
+                    flow_client_next::postgrest::exec::<Vec<Row>>(builder, access_token.as_deref())
+                        .await
+                }
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect::<Vec<Vec<Row>>>()
@@ -494,7 +509,119 @@ impl Resolver {
     }
 }
 
-// API_BATCH_SIZE is used to chunk a set of API entities fetched in a single request.
-// PostgREST passes query predicates as URL parameters, so if we don't chunk requests
-// then we run into URL length limits.
-const API_FETCH_CHUNK_SIZE: usize = 25;
+// PostgREST passes query predicates (like `column=in.(a,b,c)`) as URL query
+// parameters, so fetching a large set of catalog names in a single request can
+// produce a URL that exceeds a server or proxy length limit. We therefore split
+// fetches into chunks bounded by the encoded length of the names they contain,
+// which adapts to how long the names are: deeply-nested names (which
+// percent-encode each `/` to `%2F`) can be well over 100 characters each.
+//
+// Encoded-length budget, in characters, for the names within a single chunk.
+// Chosen so the overall URL stays comfortably below the ~2048 byte limit that
+// stricter proxies impose, after accounting for the scheme, host, and path.
+const API_FETCH_URL_BUDGET: usize = 1800;
+
+/// Estimate the percent-encoded length that `name` contributes to a URL query.
+/// Unreserved characters map to a single byte, and everything else (notably the
+/// `/` path separators within catalog names) expands to a three-byte `%XX`
+/// escape. This intentionally over-estimates rather than under-estimates.
+fn encoded_len(name: &str) -> usize {
+    name.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+                1
+            } else {
+                3
+            }
+        })
+        .sum()
+}
+
+/// Split `names` into chunks whose combined encoded length stays within
+/// [`API_FETCH_URL_BUDGET`]. A name longer than the budget on its own still
+/// occupies a chunk by itself, as that's the best we can do without a different
+/// query mechanism.
+fn chunk_names<'a>(names: &[&'a str]) -> Vec<Vec<&'a str>> {
+    let mut chunks = Vec::new();
+    let mut chunk: Vec<&'a str> = Vec::new();
+    let mut chunk_len = 0;
+
+    for &name in names {
+        let cost = encoded_len(name) + 3; // +3 for the `%2C` value separator.
+
+        if !chunk.is_empty() && chunk_len + cost > API_FETCH_URL_BUDGET {
+            chunks.push(std::mem::take(&mut chunk));
+            chunk_len = 0;
+        }
+        chunk.push(name);
+        chunk_len += cost;
+    }
+    if !chunk.is_empty() {
+        chunks.push(chunk);
+    }
+    chunks
+}
+
+#[cfg(test)]
+mod test {
+    use super::{API_FETCH_URL_BUDGET, chunk_names, encoded_len};
+
+    fn chunk_encoded_len(chunk: &[&str]) -> usize {
+        chunk.iter().map(|n| encoded_len(n) + 3).sum()
+    }
+
+    // Every chunk must fit within the budget, unless it holds a single name that
+    // is itself larger than the budget (which we can't split further).
+    fn assert_chunks_within_budget(chunks: &[Vec<&str>], expected_total: usize) {
+        for chunk in chunks {
+            assert!(
+                chunk_encoded_len(chunk) <= API_FETCH_URL_BUDGET || chunk.len() == 1,
+                "chunk of {} names exceeded budget at {} chars",
+                chunk.len(),
+                chunk_encoded_len(chunk),
+            );
+        }
+        assert_eq!(chunks.iter().map(Vec::len).sum::<usize>(), expected_total);
+    }
+
+    #[test]
+    fn short_names_pack_into_a_single_chunk() {
+        let names: Vec<String> = (0..60).map(|i| format!("acmeCo/c{i}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+
+        let chunks = chunk_names(&refs);
+        // 60 short names encode to well under the budget, so they all fit in one
+        // request.
+        assert_eq!(chunks.len(), 1);
+        assert_chunks_within_budget(&chunks, refs.len());
+    }
+
+    #[test]
+    fn long_names_split_below_the_url_budget() {
+        // Deeply-nested names, each of which percent-encodes to over 100 chars.
+        let names: Vec<String> = (0..40)
+            .map(|i| {
+                format!("acmeCo/prod/source/aurora_postgres/data/main_db/documents/table_{i:03}")
+            })
+            .collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+
+        let chunks = chunk_names(&refs);
+        assert!(chunks.len() > 1, "long names should split into many chunks");
+        assert_chunks_within_budget(&chunks, refs.len());
+    }
+
+    #[test]
+    fn a_single_oversized_name_gets_its_own_chunk() {
+        let huge = "x/".repeat(API_FETCH_URL_BUDGET); // Far larger than the budget.
+        let refs = vec!["a", huge.as_str(), "b"];
+
+        let chunks = chunk_names(&refs);
+        assert_eq!(chunks, vec![vec!["a"], vec![huge.as_str()], vec!["b"]]);
+    }
+
+    #[test]
+    fn empty_input_yields_no_chunks() {
+        assert!(chunk_names(&[]).is_empty());
+    }
+}

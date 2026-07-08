@@ -1,0 +1,7 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: snap.conflicts
+---
+[
+    "conflict for field \"flow_document\": field's location is required by the connector (root document projection required for standard updates) but connector cannot support this field without a backfill (existing column has wrong type)",
+]

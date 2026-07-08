@@ -52,10 +52,11 @@ impl StringShape {
 
         StringShape {
             content_encoding: union_option(lhs.content_encoding, rhs.content_encoding),
-            content_type: union_option(lhs.content_type, rhs.content_type),
             format: Self::union_format(lhs.format, rhs.format),
             max_length,
             min_length: lhs.min_length.min(rhs.min_length),
+            str_minimum: union_bound(lhs.str_minimum, rhs.str_minimum, false),
+            str_maximum: union_bound(lhs.str_maximum, rhs.str_maximum, true),
         }
     }
 
@@ -68,6 +69,18 @@ impl StringShape {
             | (Some(Format::Number), Some(Format::Integer)) => Some(Format::Number),
             _ => None,
         }
+    }
+}
+
+// Combine two optional numeric-string bounds for a union, taking the looser one
+fn union_bound(
+    lhs: Option<Box<bigdecimal::BigDecimal>>,
+    rhs: Option<Box<bigdecimal::BigDecimal>>,
+    take_greater: bool,
+) -> Option<Box<bigdecimal::BigDecimal>> {
+    match (lhs, rhs) {
+        (Some(l), Some(r)) => Some(if take_greater { l.max(r) } else { l.min(r) }),
+        _ => None,
     }
 }
 
@@ -270,6 +283,7 @@ impl Shape {
         let provenance = lhs.provenance.union(rhs.provenance);
         let default = union_option(lhs.default, rhs.default);
         let secret = union_option(lhs.secret, rhs.secret);
+        let content_media_type = union_option(lhs.content_media_type, rhs.content_media_type);
 
         // Union of annotations is actually an _intersection_, which yields only
         // the annotations that are guaranteed to apply at a given location.
@@ -319,6 +333,7 @@ impl Shape {
             provenance,
             default,
             secret,
+            content_media_type,
             annotations,
             string,
             array,

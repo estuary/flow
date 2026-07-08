@@ -1,0 +1,18 @@
+---
+source: crates/publisher/src/intents.rs
+expression: build_transaction_intents(&txn)
+---
+[
+  [
+    "acmeCo/anvils/part=a/pivot=00",
+    [
+      {
+        "_meta": {
+          "uuid": "00000006-0000-1000-9002-010000000001"
+        },
+        "hints": [],
+        "is_ack": true
+      }
+    ]
+  ]
+]

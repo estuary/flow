@@ -1,10 +1,8 @@
 use std::collections::BTreeSet;
 
-use crate::{
-    api_exec, api_exec_paginated,
-    output::{CliOutput, JsonCell, to_table_row},
-};
+use crate::output::{CliOutput, JsonCell, to_table_row};
 use anyhow::Context;
+use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 
 mod author;
@@ -134,13 +132,14 @@ impl CliOutput for DraftRow {
     }
 }
 
-pub async fn create_draft(client: &crate::Client) -> Result<DraftRow, anyhow::Error> {
-    let row: DraftRow = api_exec(
-        client
+pub async fn create_draft(ctx: &crate::CliContext) -> Result<DraftRow, anyhow::Error> {
+    let row: DraftRow = flow_client_next::postgrest::exec(
+        ctx.pg
             .from("drafts")
             .select("id, created_at")
             .insert(serde_json::json!({"detail": "Created by flowctl"}).to_string())
             .single(),
+        ctx.access_token().as_deref(),
     )
     .await?;
     tracing::info!(draft_id = %row.id, "created draft");
@@ -148,16 +147,17 @@ pub async fn create_draft(client: &crate::Client) -> Result<DraftRow, anyhow::Er
 }
 
 pub async fn delete_draft(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     draft_id: models::Id,
 ) -> Result<DraftRow, anyhow::Error> {
-    let row: DraftRow = api_exec(
-        client
+    let row: DraftRow = flow_client_next::postgrest::exec(
+        ctx.pg
             .from("drafts")
             .select("id,created_at")
             .delete()
             .eq("id", draft_id.to_string())
             .single(),
+        ctx.access_token().as_deref(),
     )
     .await?;
     tracing::info!(draft_id = %row.id, "deleted draft");
@@ -169,12 +169,15 @@ pub async fn print_draft_errors(
     ctx: &mut crate::CliContext,
     draft_id: models::Id,
 ) -> anyhow::Result<()> {
-    let errors: Vec<DraftError> = api_exec_paginated(
-        ctx.client
+    let errors: Vec<DraftError> = flow_client_next::postgrest::exec_paginated(
+        ctx.pg
             .from("draft_errors")
             .select("scope,detail")
             .eq("draft_id", draft_id.to_string()),
+        ctx.access_token().as_deref(),
     )
+    .await
+    .try_collect::<Vec<_>>()
     .await?;
 
     // TODO(phil): respect the output format when printing errors
@@ -185,7 +188,7 @@ pub async fn print_draft_errors(
 }
 
 async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-    let row = create_draft(&ctx.client).await?;
+    let row = create_draft(ctx).await?;
 
     ctx.config.draft = Some(row.id.clone());
     ctx.write_all(Some(row), ())
@@ -193,7 +196,7 @@ async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
 
 async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     let draft_id = ctx.config.selected_draft()?;
-    let row = delete_draft(&ctx.client, draft_id).await?;
+    let row = delete_draft(ctx, draft_id).await?;
 
     ctx.config.draft.take();
     ctx.write_all(Some(row), ())
@@ -232,8 +235,8 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             ]
         }
     }
-    let rows: Vec<Row> = api_exec_paginated(
-        ctx.client
+    let rows: Vec<Row> = flow_client_next::postgrest::exec_paginated(
+        ctx.pg
             .from("draft_specs_ext")
             .select(
                 vec![
@@ -247,7 +250,10 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
                 .join(","),
             )
             .eq("draft_id", ctx.config.selected_draft()?.to_string()),
+        ctx.access_token().as_deref(),
     )
+    .await
+    .try_collect::<Vec<_>>()
     .await?;
 
     ctx.write_all(rows, ())
@@ -277,11 +283,14 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             )
         }
     }
-    let rows: Vec<Row> = api_exec_paginated(
-        ctx.client
+    let rows: Vec<Row> = flow_client_next::postgrest::exec_paginated(
+        ctx.pg
             .from("drafts_ext")
             .select("created_at,detail,id,num_specs,updated_at"),
+        ctx.access_token().as_deref(),
     )
+    .await
+    .try_collect::<Vec<_>>()
     .await?;
 
     // Decorate the id to mark the selected draft, but only if we're outputting a table
@@ -306,7 +315,7 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
 /// that are identical to their live specs, accounting for changes to inferred schemas.
 /// Returns the set of specs that were removed from the draft (as a `BTreeSet` so they're ordered).
 pub async fn remove_unchanged(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     draft_id: models::Id,
 ) -> anyhow::Result<BTreeSet<String>> {
     #[derive(Deserialize)]
@@ -318,9 +327,12 @@ pub async fn remove_unchanged(
     // We don't use an explicit select of `catalog_name` because we want the other fields to appear
     // in the response when trace logging is enabled. This may be something we wish to change once
     // we gain more confidence in the spec pruning feature.
-    let pruned: Vec<PrunedDraftSpec> = api_exec(client.rpc("prune_unchanged_draft_specs", params))
-        .await
-        .context("pruning unchanged specs")?;
+    let pruned: Vec<PrunedDraftSpec> = flow_client_next::postgrest::exec(
+        ctx.pg.rpc("prune_unchanged_draft_specs", params),
+        ctx.access_token().as_deref(),
+    )
+    .await
+    .context("pruning unchanged specs")?;
     Ok(pruned.into_iter().map(|r| r.catalog_name).collect())
 }
 
@@ -328,12 +340,15 @@ async fn do_select(
     ctx: &mut crate::CliContext,
     Select { id: select_id }: &Select,
 ) -> anyhow::Result<()> {
-    let matched: Vec<serde_json::Value> = api_exec_paginated(
-        ctx.client
+    let matched: Vec<serde_json::Value> = flow_client_next::postgrest::exec_paginated(
+        ctx.pg
             .from("drafts")
             .eq("id", select_id.to_string())
             .select("id"),
+        ctx.access_token().as_deref(),
     )
+    .await
+    .try_collect::<Vec<_>>()
     .await?;
 
     if matched.is_empty() {
@@ -379,8 +394,8 @@ pub async fn publish(
     // Add the flowctl version to the detail, so we can tell when a publication
     // was created by an old version.
     let detail = format!("Published via flowctl ({})", env!("CARGO_PKG_VERSION"));
-    let Row { id, logs_token } = api_exec(
-        ctx.client
+    let Row { id, logs_token } = flow_client_next::postgrest::exec(
+        ctx.pg
             .from("publications")
             .select("id,logs_token")
             .insert(
@@ -393,10 +408,11 @@ pub async fn publish(
                 .to_string(),
             )
             .single(),
+        ctx.access_token().as_deref(),
     )
     .await?;
     tracing::info!(%id, %logs_token, %dry_run, "created publication");
-    let outcome = crate::poll_while_queued(&ctx.client, "publications", id, &logs_token).await?;
+    let outcome = crate::poll_while_queued(ctx, "publications", id, &logs_token).await?;
 
     print_draft_errors(ctx, draft_id).await?;
     if outcome != "success" {

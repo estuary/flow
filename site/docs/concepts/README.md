@@ -24,7 +24,7 @@ Estuary's web application is where you'll most likely create, monitor, and updat
 You can find it at [dashboard.estuary.dev](https://dashboard.estuary.dev).
 The app is backed by secure, cloud-hosted infrastructure that Estuary manages.
 
-[Take a tour of the web app](web-app.md).
+[Learn more about the dashboard](web-app.md).
 
 [Create your first Data Flow with the web app](../guides/create-dataflow.md).
 

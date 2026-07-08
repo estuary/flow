@@ -12,6 +12,9 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
 
+env:
+    SCCACHE_VERSION: v0.12.0
+
 jobs:
     dekaf-test:
         name: Dekaf Test
@@ -46,7 +49,10 @@ jobs:
                   key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
             - uses: mozilla-actions/sccache-action@v0.0.9
+              with:
+                  version: ${{ env.SCCACHE_VERSION }}
             - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
+            - run: echo "RUSTC_WRAPPER=$SCCACHE_PATH" >> $GITHUB_ENV
             - run: mise run build:rocksdb
             - run: mise run ci:musl-dev
             - run: mise run ci:gnu-dev

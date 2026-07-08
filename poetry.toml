@@ -1,0 +1,5 @@
+# Keep the virtualenv inside the repo (.venv, which is gitignored) so the soak
+# connector wrapper (tests/soak/capture/source-soak) can find the interpreter by a
+# stable, repo-relative path.
+[virtualenvs]
+in-project = true

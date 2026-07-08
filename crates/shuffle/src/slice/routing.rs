@@ -13,15 +13,15 @@ pub fn rotate_clock(clock: proto_gazette::uuid::Clock) -> u32 {
     (((raw >> 4) ^ (raw & 0xf)) as u32).reverse_bits()
 }
 
-/// Find which member(s) should receive a document based on its key hash and r-clock.
-pub fn route_to_members(
+/// Find which shard(s) should receive a document based on its key hash and r-clock.
+pub fn route_to_shards(
     key_hash: u32,
     r_clock: u32,
     filter_r_clocks: bool,
-    members: &[shuffle::Member],
+    shards: &[shuffle::Shard],
 ) -> impl Iterator<Item = usize> + '_ {
-    members.iter().enumerate().filter_map(move |(i, member)| {
-        let range = member.range.as_ref()?;
+    shards.iter().enumerate().filter_map(move |(i, shard)| {
+        let range = shard.range.as_ref()?;
 
         if key_hash < range.key_begin || key_hash > range.key_end {
             return None;
@@ -55,9 +55,9 @@ mod test {
     }
 
     #[test]
-    fn test_route_to_members() {
-        let members = vec![
-            shuffle::Member {
+    fn test_route_to_shards() {
+        let shards = vec![
+            shuffle::Shard {
                 range: Some(flow::RangeSpec {
                     key_begin: 0,
                     key_end: 0x7FFFFFFF,
@@ -66,7 +66,7 @@ mod test {
                 }),
                 ..Default::default()
             },
-            shuffle::Member {
+            shuffle::Shard {
                 range: Some(flow::RangeSpec {
                     key_begin: 0x80000000,
                     key_end: 0xFFFFFFFF,
@@ -77,17 +77,17 @@ mod test {
             },
         ];
 
-        // Low key hash routes to member 0.
-        let out: Vec<_> = route_to_members(0x10000000, 0, false, &members).collect();
+        // Low key hash routes to shard 0.
+        let out: Vec<_> = route_to_shards(0x10000000, 0, false, &shards).collect();
         assert_eq!(out.as_slice(), &[0]);
 
-        // High key hash routes to member 1.
-        let out: Vec<_> = route_to_members(0x90000000, 0, false, &members).collect();
+        // High key hash routes to shard 1.
+        let out: Vec<_> = route_to_shards(0x90000000, 0, false, &shards).collect();
         assert_eq!(out.as_slice(), &[1]);
 
-        // r-clock filtering: only member 0 has matching r-clock range.
-        let members_rclock = vec![
-            shuffle::Member {
+        // r-clock filtering: only shard 0 has matching r-clock range.
+        let shards_rclock = vec![
+            shuffle::Shard {
                 range: Some(flow::RangeSpec {
                     key_begin: 0,
                     key_end: 0xFFFFFFFF,
@@ -96,7 +96,7 @@ mod test {
                 }),
                 ..Default::default()
             },
-            shuffle::Member {
+            shuffle::Shard {
                 range: Some(flow::RangeSpec {
                     key_begin: 0,
                     key_end: 0xFFFFFFFF,
@@ -107,15 +107,14 @@ mod test {
             },
         ];
 
-        let out: Vec<_> = route_to_members(0x50000000, 0x10000000, true, &members_rclock).collect();
+        let out: Vec<_> = route_to_shards(0x50000000, 0x10000000, true, &shards_rclock).collect();
         assert_eq!(out.as_slice(), &[0]);
 
-        let out: Vec<_> = route_to_members(0x50000000, 0x90000000, true, &members_rclock).collect();
+        let out: Vec<_> = route_to_shards(0x50000000, 0x90000000, true, &shards_rclock).collect();
         assert_eq!(out.as_slice(), &[1]);
 
         // Without r-clock filtering, both match.
-        let out: Vec<_> =
-            route_to_members(0x50000000, 0x90000000, false, &members_rclock).collect();
+        let out: Vec<_> = route_to_shards(0x50000000, 0x90000000, false, &shards_rclock).collect();
         assert_eq!(out.as_slice(), &[0, 1]);
     }
 }

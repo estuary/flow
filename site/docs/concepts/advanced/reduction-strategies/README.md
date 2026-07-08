@@ -45,3 +45,5 @@ Estuary does _not_ guarantee that documents are reduced in sequential order, dir
 Taken together, these total-order and exactly-once guarantees mean that reduction strategies must be _associative_ \[as in (2 + 3) + 4 = 2 + (3 + 4) ], but need not be commutative \[ 2 + 3 = 3 + 2 ] or idempotent \[ S u S = S ]. They expand the palette of strategies that can be implemented, and allow for more efficient implementations as compared to, for example [CRDTs](https://en.wikipedia.org/wiki/Conflict-free\_replicated\_data\_type).
 
 In this documentation, we’ll refer to the “left-hand side” (LHS) as the preceding document and the “right-hand side” (RHS) as the following one. Keep in mind that both the LHS and RHS may themselves represent a combination of still more ordered documents because, for example, reductions are applied _associatively_.
+
+If your use case requires retaining every document for a key rather than reducing them, you can mark `lastWriteWins` reductions as non-associative with `associative: false`. See [Disabling associative reduction](firstwritewins-and-lastwritewins.md#disabling-associative-reduction).

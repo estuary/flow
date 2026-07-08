@@ -39,10 +39,10 @@ begin
 
   -- Carol has no SSO identity (social login only).
 
-  -- Tenants: acmeCo/ with SSO, openCo/ without SSO.
-  insert into public.tenants (id, tenant, sso_provider_id) values
-    (internal.id_generator(), 'acmeCo/', acme_provider_id),
-    (internal.id_generator(), 'openCo/', null)
+  -- Tenants: acmeCo/ with SSO enforced, openCo/ without SSO.
+  insert into public.tenants (id, tenant, sso_provider_id, enforce_sso) values
+    (internal.id_generator(), 'acmeCo/', acme_provider_id, true),
+    (internal.id_generator(), 'openCo/', null, false)
   ;
 
   -- Alice is admin on acmeCo/ and openCo/.

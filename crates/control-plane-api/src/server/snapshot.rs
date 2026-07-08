@@ -480,7 +480,8 @@ pub async fn try_fetch(
         SELECT
             g.subject_role AS "subject_role: models::Prefix",
             g.object_role AS "object_role: models::Prefix",
-            g.capability AS "capability: models::Capability"
+            g.capability AS "capability: models::Capability",
+            g.bundles AS "bundles: Vec<models::authz::CapabilityBundle>"
         FROM role_grants g
         "#,
     )
@@ -494,13 +495,14 @@ pub async fn try_fetch(
         SELECT
             g.user_id AS "user_id: uuid::Uuid",
             g.object_role AS "object_role: models::Prefix",
-            g.capability AS "capability: models::Capability"
+            g.capability AS "capability: models::Capability",
+            g.bundles AS "bundles: Vec<models::authz::CapabilityBundle>"
         FROM user_grants g
         "#,
     )
     .fetch_all(pg_pool)
     .await
-    .context("failed to fetch role_grants")?;
+    .context("failed to fetch user_grants")?;
 
     let tasks = sqlx::query_as!(
         SnapshotTask,

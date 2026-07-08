@@ -85,11 +85,11 @@ func (cmd apiTest) execute(ctx context.Context) error {
 	var ready bool
 	for attempt := 0; !ready; attempt++ {
 		// Poll task shards with a back-off.
-		switch attempt {
-		case 0: // No-op.
-		case 1, 2:
+		switch {
+		case attempt == 0: // No-op.
+		case attempt <= 2:
 			time.Sleep(time.Millisecond * 50)
-		case 3, 4, 5:
+		case attempt <= 32:
 			time.Sleep(time.Second)
 		default:
 			return fmt.Errorf("timed out waiting for test shards to become ready")

@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 43
 expression: outcome
 ---
 Outcome {
@@ -216,6 +215,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -241,6 +241,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -261,6 +262,8 @@ Outcome {
                                         format: "date-time",
                                         content_encoding: "uuid",
                                         max_length: 0,
+                                        str_minimum: "",
+                                        str_maximum: "",
                                     },
                                 ),
                                 title: "Flow Publication Time",
@@ -273,6 +276,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -305,6 +309,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -325,6 +330,8 @@ Outcome {
                                         format: "",
                                         content_encoding: "",
                                         max_length: 0,
+                                        str_minimum: "",
+                                        str_maximum: "",
                                     },
                                 ),
                                 title: "",
@@ -337,6 +344,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },

@@ -63,27 +63,27 @@ pub async fn recv_connector_opened(
         .await
         .context("failed to load runtime checkpoint from RocksDB")?;
 
-    // TODO(johnny): Expose Opened.runtime_checkpoint in the public protocol.
-    opened.set_internal(|internal| {
-        if let Some(derive_response_ext::Opened {
-            runtime_checkpoint: Some(connector_checkpoint),
-        }) = &internal.opened
-        {
-            checkpoint = connector_checkpoint.clone();
-            tracing::debug!(
-                checkpoint=?ops::DebugJson(&checkpoint),
-                "using connector-provided OpenedExt.runtime_checkpoint",
-            );
-        } else {
-            internal.opened = Some(derive_response_ext::Opened {
-                runtime_checkpoint: Some(checkpoint.clone()),
-            });
-            tracing::debug!(
-                checkpoint=?ops::DebugJson(&checkpoint),
-                "loaded and attached a persisted OpenedExt.runtime_checkpoint",
-            );
-        }
-    });
+    let opened_checkpoint = opened
+        .opened
+        .as_ref()
+        .and_then(|opened| opened.runtime_checkpoint.clone());
+
+    if let Some(connector_checkpoint) = opened_checkpoint {
+        checkpoint = connector_checkpoint;
+        tracing::debug!(
+            checkpoint=?ops::DebugJson(&checkpoint),
+            "using connector-provided Opened.runtime_checkpoint",
+        );
+    } else {
+        tracing::debug!(
+            checkpoint=?ops::DebugJson(&checkpoint),
+            "loaded persisted Opened.runtime_checkpoint",
+        );
+    }
+
+    if let Some(opened) = opened.opened.as_mut() {
+        opened.runtime_checkpoint = Some(checkpoint.clone());
+    }
 
     Ok((task, validators, accumulator, checkpoint, opened))
 }
@@ -105,13 +105,12 @@ pub fn recv_client_read_or_flush(
             read: Some(read), ..
         }) => read,
         Some(Request {
-            flush: Some(request::Flush {}),
-            ..
+            flush: Some(flush), ..
         }) => {
             *saw_flush = true;
 
             return Ok(Some(Request {
-                flush: Some(request::Flush {}),
+                flush: Some(flush),
                 ..Default::default()
             }));
         }
@@ -172,7 +171,9 @@ pub fn recv_connector_published_or_flushed(
 ) -> anyhow::Result<()> {
     let response::Published { doc_json } = match response {
         Some(Response {
-            flushed: Some(response::Flushed {}),
+            // The V1 runtime ignores Flushed.state (it persists connector state
+            // from StartedCommit.state); V2 connectors report state via Flushed.
+            flushed: Some(response::Flushed { .. }),
             ..
         }) if saw_flush => {
             *saw_flushed = true;
@@ -222,9 +223,21 @@ pub fn send_client_published(
 ) -> Response {
     let doc::combine::DrainedDoc { meta: _, root } = drained;
 
-    doc::Extractor::extract_all_owned(&root, &task.key_extractors, buf);
+    doc::Extractor::extract_all_owned(
+        &root,
+        &task.key_extractors,
+        doc::Encoding::Packed,
+        buf,
+        None,
+    );
     let key_packed = buf.split().freeze();
-    doc::Extractor::extract_all_owned(&root, &task.partition_extractors, buf);
+    doc::Extractor::extract_all_owned(
+        &root,
+        &task.partition_extractors,
+        doc::Encoding::Packed,
+        buf,
+        None,
+    );
     let partitions_packed = buf.split().freeze();
 
     serde_json::to_writer(buf.writer(), &task.ser_policy.on_owned(&root))
@@ -297,7 +310,10 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
     };
 
     Response {
-        flushed: Some(response::Flushed {}),
+        flushed: Some(response::Flushed {
+            state: None,
+            more: false,
+        }),
         ..Default::default()
     }
     .with_internal_buf(buf, |internal| {
@@ -311,7 +327,7 @@ pub fn recv_client_start_commit(
     txn: &mut Transaction,
 ) -> anyhow::Result<(Request, rocksdb::WriteBatch)> {
     let verify = verify("client", "StartCommit with runtime_checkpoint");
-    let request = verify.not_eof(request)?;
+    let mut request = verify.not_eof(request)?;
 
     let Request {
         start_commit:
@@ -319,7 +335,7 @@ pub fn recv_client_start_commit(
                 runtime_checkpoint: Some(runtime_checkpoint),
             }),
         ..
-    } = &request
+    } = &mut request
     else {
         return verify.fail(request);
     };
@@ -327,6 +343,17 @@ pub fn recv_client_start_commit(
     // TODO(johnny): Diff the previous and current checkpoint to build a
     // merge-able, incremental update that's written to the WriteBatch.
     let _last_checkpoint = last_checkpoint;
+
+    // The V2 leader stamps a synthetic "committed-close" source into the
+    // consumer.Checkpoint on each commit, recording the V2 RocksDB epoch.
+    // If V1 inherits a checkpoint from a prior V2 run, the marker is
+    // preserved verbatim across V1 commits. A subsequent V2 rollforward
+    // would then mistake the stale marker for an in-sync RocksDB state
+    // and ignore the legacy_checkpoint, resuming from V2's stale frontier
+    // and re-processing whatever V1 had advanced past. Strip the marker
+    // so V2 startup treats V1's advanced sources as authoritative.
+    runtime_checkpoint.sources.remove("committed-close");
+    let runtime_checkpoint = runtime_checkpoint.clone();
 
     let mut wb = rocksdb::WriteBatch::default();
 
@@ -336,7 +363,7 @@ pub fn recv_client_start_commit(
     );
     wb.put(RocksDB::CHECKPOINT_KEY, runtime_checkpoint.encode_to_vec());
 
-    txn.checkpoint = runtime_checkpoint.clone();
+    txn.checkpoint = runtime_checkpoint;
 
     Ok((request, wb))
 }

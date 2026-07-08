@@ -2,6 +2,8 @@ package labels
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
@@ -63,6 +65,21 @@ func ParseShardLabels(set pf.LabelSet) (ops.ShardLabeling, error) {
 		out.StatsJournal = legacyStatsJournal(out.TaskType, out.TaskName)
 	} else if out.StatsJournal = pb.Journal(j); out.StatsJournal.Validate() != nil {
 		return out, fmt.Errorf("invalid stats journal: %w", out.StatsJournal.Validate())
+	}
+
+	if v, err := maybeOne(set, ShuffleDiskLimit); err != nil {
+		return out, err
+	} else if v != "" {
+		if out.ShuffleDiskLimitBytes, err = strconv.ParseUint(v, 10, 64); err != nil {
+			return out, fmt.Errorf("invalid shuffle disk limit %q: %w", v, err)
+		}
+	}
+
+	out.Flags = make(map[string]string)
+	for _, l := range set.Labels {
+		if name, ok := strings.CutPrefix(l.Name, FlagPrefix); ok {
+			out.Flags[name] = l.Value
+		}
 	}
 
 	if out.SplitSource != "" && out.SplitTarget != "" {

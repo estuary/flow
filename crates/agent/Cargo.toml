@@ -37,6 +37,7 @@ tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }
 
 aide = { workspace = true }
+async-stripe = { workspace = true }
 anyhow = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-axum = { workspace = true }
@@ -80,6 +81,7 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 assemble = { path = "../assemble" }
+control-plane-api = { path = "../control-plane-api", features = ["test-support"] }
 insta = { workspace = true }
 md5 = { workspace = true }
 tokio = { workspace = true }

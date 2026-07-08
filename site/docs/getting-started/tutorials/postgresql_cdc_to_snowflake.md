@@ -326,18 +326,17 @@ Similarly to the source side, we’ll need to set up some initial configuration 
 
 Preparing Snowflake for use with Estuary involves the following steps:
 
-1\. Keep Estuary's web app open and open a new tab or window to access your Snowflake console.
+1\. Keep Estuary's dashboard open and open a new tab or window to access your Snowflake console.
 
 2\. Create a new SQL worksheet. This provides a platform to execute queries.
 
-3\. Paste the provided script into the SQL console, adjusting the value for `estuary_password` to a strong password.
+3\. Paste the provided script into the SQL console.
 
 ```sql
 set database_name = 'ESTUARY_DB';
 set warehouse_name = 'ESTUARY_WH';
 set estuary_role = 'ESTUARY_ROLE';
 set estuary_user = 'ESTUARY_USER';
-set estuary_password = 'secret';
 set estuary_schema = 'ESTUARY_SCHEMA';
 -- create role and schema for Estuary
 create role if not exists identifier($estuary_role);
@@ -348,10 +347,11 @@ use database identifier($database_name);
 create schema if not exists identifier($estuary_schema);
 -- create a user for Estuary
 create user if not exists identifier($estuary_user)
-password = $estuary_password
 default_role = $estuary_role
 default_warehouse = $warehouse_name;
 grant role identifier($estuary_role) to user identifier($estuary_user);
+-- Estuary requires case-sensitive quoted identifiers (e.g. "_meta/op").
+alter user identifier($estuary_user) set QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE;
 grant all on schema identifier($estuary_schema) to identifier($estuary_role);
 -- create a warehouse for estuary
 create warehouse if not exists identifier($warehouse_name)
@@ -377,7 +377,22 @@ COMMIT;
 
 5\. Snowflake will process the queries, setting up the necessary roles, databases, schemas, users, and warehouses for Estuary.
 
-6\. Once the setup is complete, return to Estuary's web application to continue with the integration process.
+6\. Associate a _public key_ from a JWT key-pair to the new Snowflake user.
+
+   You can generate a public/private key-pair in your terminal using:
+
+   ```shell
+   openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out rsa_key.p8 -nocrypt
+   openssl rsa -in rsa_key.p8 -pubout -out rsa_key.pub
+   ```
+
+   Assign the public key to `estuary_user` in Snowflake:
+
+   ```sql
+   ALTER USER identifier($estuary_user) SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...'
+   ```
+
+7\. Once the setup is complete, return to Estuary's dashboard to continue with the integration process.
 
 Back in Estuary, head over to the **Destinations** page, where you can [create a new Materialization](https://dashboard.estuary.dev/materializations/create).
 
@@ -391,13 +406,11 @@ You can grab your Snowflake host URL and account identifier by navigating to the
 
 ![Grab your Snowflake account id](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//snowflake_account_id_af1cc78df8/snowflake_account_id_af1cc78df8.png)
 
-If you scroll down to the Advanced Options section, you will be able to configure the "Update Delay" parameter. If you leave this parameter unset, the default value of 30 minutes will be used.
+If you scroll down to the **Sync Schedule** section, you will be able to configure the update cadence for the connector. If you leave these parameters unset, the default value of 30 minutes will be used.
 
-![Update Delay](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//snowflake_update_delay_dark_f26179d3fc/snowflake_update_delay_dark_f26179d3fc.png)
+The Sync Frequency parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. It represents the amount of time the system will wait before it begins materializing the latest data.
 
-The Update Delay parameter in Estuary materializations offers a flexible approach to data ingestion scheduling. It represents the amount of time the system will wait before it begins materializing the latest data.
-
-For example, if an update delay is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing your Snowflake warehouse to go idle and be suspended in between updates, which can significantly reduce the number of credits consumed.
+For example, if the sync frequency is set to 2 hours, the materialization task will pause for 2 hours before processing the latest available data. This delay ensures that data is not pulled in immediately after it becomes available, allowing your Snowflake warehouse to go idle and be suspended in between updates, which can significantly reduce the number of credits consumed.
 
 After the connection details are in place, the next step is to link the capture we just created to Snowflake.
 
@@ -405,7 +418,13 @@ You can achieve this by clicking on the “Source from Capture” button, and se
 
 ![Link Capture](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//link_source_to_capture_b0d37a738f/link_source_to_capture_b0d37a738f.png)
 
-After pressing continue, you are met with a few configuration options, but for now, feel free to press **Next,** then **Save and Publish** in the top right corner, the defaults will work perfectly fine for this tutorial.
+After pressing continue, you are prompted to select a default naming strategy.
+This controls what your table and schema names look like in your destination.
+
+For this tutorial, select **Set a default schema** and enter the Snowflake schema you created (`ESTUARY_SCHEMA` by default).
+Click **Set Source Capture** to finish.
+
+You can further configure each collection and the fields you want to materialize, but for now, feel free to press **Next,** then **Save and Publish** in the top right corner. The defaults will work perfectly fine for this tutorial.
 
 A successful deployment will look something like this:
 
@@ -417,10 +436,10 @@ And that’s pretty much it, you’ve successfully published a real-time CDC pip
 
 Looks like the data is arriving as expected, and the schema of the table is properly configured by the connector based on the types of the original table in Postgres.
 
-To get a feel for how the data flow works, head over to the collection details page on Estuary's web UI to see your changes immediately. On the Snowflake end, they will be materialized after the next update.
+To get a feel for how the data flow works, head over to the collection details page on Estuary's dashboard to see your changes immediately. On the Snowflake end, they will be materialized after the next update.
 
 :::note
-Based on your configuration of the "Update Delay" parameter when setting up the Snowflake Materialization, you might have to wait until the configured amount of time passes for your changes to make it to the destination.
+Based on your configuration of the "Sync Schedule" parameters when setting up the Snowflake materialization, you might have to wait until the configured amount of time passes for new changes to make it to the destination.
 :::
 
 
@@ -475,6 +494,6 @@ Now try it out on your own PostgreSQL database or other sources.
 
 If you want to learn more, make sure you read through the [Estuary documentation](https://docs.estuary.dev/).
 
-You’ll find instructions on how to use other connectors [here](https://docs.estuary.dev/). There are more tutorials [here](https://docs.estuary.dev/guides/). 
+You’ll find instructions on how to use other connectors [here](/reference/Connectors). There are more tutorials [here](https://docs.estuary.dev/guides/). 
 
 Also, don’t forget to join the [Estuary Slack Community](https://estuary-dev.slack.com/ssb/redirect#/shared-invite/email)!

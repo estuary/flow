@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Writes settings.json for use with VSCode Remote SSH"
+#MISE description="Writes IDE settings for VSCode Remote SSH and Zed"
 
-SETTINGS="${HOME}/.vscode-server/data/Machine/settings.json"
+# VSCode Remote SSH settings.
+VSCODE_SETTINGS="${HOME}/.vscode-server/data/Machine/settings.json"
 
-mkdir -p $(dirname ${SETTINGS})
-cat > ${SETTINGS} << EOF
+mkdir -p $(dirname ${VSCODE_SETTINGS})
+cat > ${VSCODE_SETTINGS} << EOF
 {
     "go.goroot": "${GOROOT}",
     "go.toolsEnvVars": {
@@ -50,4 +51,64 @@ cat > ${SETTINGS} << EOF
 }
 EOF
 
-echo "Wrote VSCode settings: ${SETTINGS}"
+echo "Wrote VSCode settings: ${VSCODE_SETTINGS}"
+
+# Zed editor settings.
+ZED_SETTINGS="${HOME}/.config/zed/settings.json"
+
+mkdir -p $(dirname ${ZED_SETTINGS})
+cat > ${ZED_SETTINGS} << EOF
+{
+    "lsp": {
+        "gopls": {
+            "initialization_options": {
+                "buildFlags": ["-tags=libsqlite3"]
+            },
+            "binary": {
+                "env": {
+                    "GOROOT": "${GOROOT}",
+                    "CGO_LDFLAGS": "${CGO_LDFLAGS}",
+                    "CGO_CFLAGS": "${CGO_CFLAGS}",
+                    "CGO_CPPFLAGS": "${CGO_CPPFLAGS}",
+                    "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/"
+                }
+            }
+        },
+        "rust-analyzer": {
+            "initialization_options": {
+                "cargo": {
+                    "extraEnv": {
+                        "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
+                        "JEMALLOC_OVERRIDE": "${JEMALLOC_OVERRIDE}",
+                        "PATH": "${PATH}",
+                        "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
+                        "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
+                        "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
+                        "RUSTFLAGS": "${RUSTFLAGS}",
+                        "SNAPPY_LIB_DIR": "${SNAPPY_LIB_DIR}",
+                        "SNAPPY_STATIC": "${SNAPPY_STATIC}"
+                    }
+                },
+                "runnables": {
+                    "extraEnv": {
+                        "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
+                        "JEMALLOC_OVERRIDE": "${JEMALLOC_OVERRIDE}",
+                        "PATH": "${PATH}",
+                        "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
+                        "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
+                        "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
+                        "RUSTFLAGS": "${RUSTFLAGS}",
+                        "SNAPPY_LIB_DIR": "${SNAPPY_LIB_DIR}",
+                        "SNAPPY_STATIC": "${SNAPPY_STATIC}"
+                    }
+                },
+                "cachePriming": {
+                    "enable": false
+                }
+            }
+        }
+    }
+}
+EOF
+
+echo "Wrote Zed settings: ${ZED_SETTINGS}"

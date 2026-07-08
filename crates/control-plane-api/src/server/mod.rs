@@ -34,6 +34,7 @@ pub enum Rejection {
 /// App is the wired application state of the control-plane API.
 pub struct App {
     pub _id_generator: std::sync::Mutex<models::IdGenerator>,
+    pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
@@ -44,6 +45,7 @@ pub struct App {
 impl App {
     pub fn new(
         id_generator: models::IdGenerator,
+        billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
         jwt_secret: &[u8],
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
@@ -51,6 +53,7 @@ impl App {
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
+            billing_provider,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,
@@ -63,15 +66,20 @@ impl App {
 /// Evaluate whether the user identified by `claims` is authorized to access all
 /// of the enumerated `prefixes_or_names` with at least `min_capability`.
 /// Return a policy_result shape which fits Envelope::authorization_outcome.
-pub fn evaluate_names_authorization<'r, Iter, S>(
+///
+/// `min_capability` accepts any value that converts into a `CapabilitySet`:
+/// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
+/// `models::authz::Capability` bit, or an explicit `CapabilitySet`.
+pub fn evaluate_names_authorization<'r, Iter, S, C>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
-    min_capability: models::Capability,
+    min_capability: C,
     prefixes_or_names: Iter,
 ) -> AuthZResult<()>
 where
     Iter: IntoIterator<Item = S>,
     S: AsRef<str> + std::fmt::Display,
+    C: Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
 {
     let models::authorizations::ControlClaims {
         sub: user_id,
@@ -124,7 +132,11 @@ where
 }
 
 /// Build the agent's API router.
-pub fn build_router(app: Arc<App>, allow_origin: &[String]) -> anyhow::Result<axum::Router<()>> {
+pub fn build_router(
+    app: Arc<App>,
+    allow_origin: &[String],
+    alert_config_defaults: models::AlertConfig,
+) -> anyhow::Result<axum::Router<()>> {
     use axum::routing::post;
 
     let allow_origin = allow_origin
@@ -158,7 +170,7 @@ pub fn build_router(app: Arc<App>, allow_origin: &[String]) -> anyhow::Result<ax
         .allow_origin(tower_http::cors::AllowOrigin::list(allow_origin))
         .allow_headers(allow_headers);
 
-    let public_api_router = public::api_v1_router(app.clone());
+    let public_api_router = public::api_v1_router(app.clone(), alert_config_defaults);
 
     let main_router = axum::Router::new()
         .route("/authorize/task", post(authorize_task::authorize_task))
@@ -313,6 +325,9 @@ fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
 
 const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
     match capability {
+        models::Capability::None => {
+            panic!("gazette capability mapping requires Read, Write, or Admin")
+        }
         models::Capability::Read => {
             proto_gazette::capability::LIST | proto_gazette::capability::READ
         }

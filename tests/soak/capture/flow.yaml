@@ -1,0 +1,53 @@
+# The soak capture and the raw event logs it writes (see ../README.md).
+#
+# `test/soak/source` runs as a `local:` process (the source-soak wrapper), so no
+# Docker image build is needed — feeding this file alone to `flowctl raw
+# preview-next` pulls in nothing but these specs. The `enable-runtime-v2` shard
+# flag routes the task through runtime-next when published to a local data plane;
+# `flowctl raw preview-next` is always V2 and ignores the flag.
+#
+# The endpoint `collections` list and the `bindings` below must agree (one binding
+# per name); edit both together to scale the capture across more collections.
+captures:
+  test/soak/source:
+    endpoint:
+      local:
+        command:
+          - ./source-soak
+        config:
+          rate: 20
+          docsPerCheckpoint: 10
+          idRange: 10000
+          collections: [alpha, beta, gamma]
+    interval: 1s
+    shards:
+      logLevel: info
+      flags:
+        enable-runtime-v2: "true"
+    bindings:
+      - resource:
+          name: alpha
+        target: test/soak/events/alpha
+      - resource:
+          name: beta
+        target: test/soak/events/beta
+      - resource:
+          name: gamma
+        target: test/soak/events/gamma
+
+collections:
+  # Raw append-only event logs, the capture's output contract. Defined here, with
+  # their producer, and imported by the downstream `accounts` derivation that reads
+  # them. Keyed [/id, /seq] so every (account, sequence) is unique: no reduction
+  # happens here — these are a direct exactly-once probe, and the reduce annotations
+  # live on the derivation (README). The schema is shared with the connector, which
+  # loads it as its discovered document schema.
+  test/soak/events/alpha:
+    schema: events.schema.json
+    key: [/id, /seq]
+  test/soak/events/beta:
+    schema: events.schema.json
+    key: [/id, /seq]
+  test/soak/events/gamma:
+    schema: events.schema.json
+    key: [/id, /seq]

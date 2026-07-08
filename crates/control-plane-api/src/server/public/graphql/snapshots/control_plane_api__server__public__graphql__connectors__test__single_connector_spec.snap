@@ -1,0 +1,57 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/connectors.rs
+expression: response
+---
+{
+  "data": {
+    "byFullName": {
+      "endpointSpecSchema": {
+        "type": "object"
+      },
+      "imageTag": ":dev",
+      "protocol": "materialization",
+      "resourceSpecSchema": {
+        "properties": {
+          "delta": {
+            "type": "boolean",
+            "x-delta-updates": true
+          },
+          "id": {
+            "type": "string",
+            "x-collection-name": true
+          },
+          "schema": {
+            "type": "string",
+            "x-schema-name": true
+          }
+        },
+        "type": "object"
+      }
+    },
+    "fallbackToDefault": {
+      "endpointSpecSchema": {
+        "type": "object"
+      },
+      "imageTag": ":v3",
+      "protocol": "materialization",
+      "resourceSpecSchema": {
+        "properties": {
+          "delta": {
+            "type": "boolean",
+            "x-delta-updates": true
+          },
+          "id": {
+            "type": "string",
+            "x-collection-name": true
+          },
+          "schema": {
+            "type": "string",
+            "x-schema-name": true
+          }
+        },
+        "type": "object"
+      }
+    },
+    "unknownImage": null
+  }
+}

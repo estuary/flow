@@ -116,7 +116,7 @@ Allows materializations to write to tables that already exist in the destination
 - **Default:** Disabled. New bindings fail if the target table already exists.
 - **Use case:** Migrating data from another system into Estuary-managed tables, or re-creating a materialization that was previously deleted.
 - **Caveats:**
-  - Enabling this flag disables load-key optimizations for affected bindings, which may impact performance. This is necessary to ensure merge operations work correctly with pre-existing data.
+  - Enabling this flag makes the connector load existing keys from the destination before merging, instead of skipping that lookup for keys it expects to be new. It is slightly slower but ensures merges and updates work correctly against rows that already exist in the table.
   - The connector cannot verify that existing table schemas are compatible.
   - This flag alone does **not** prevent backfill of the source collection. To avoid backfilling data into the existing table, also configure [`notBefore`](/reference/time-travel) or use "Only Changes" mode on the binding.
 - **Applies to:** All SQL and warehouse materialization connectors (PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, etc.)
@@ -129,8 +129,20 @@ Skips truncating destination tables when a backfill is triggered.
 - **Use case:** Preserving historical data in the destination when a schema change triggers an automatic backfill.
 - **Caveats:**
   - May result in duplicate or inconsistent data if the source collection contains updated versions of previously materialized documents.
+  - On a table that already contains data, pair this with [`allow_existing_tables_for_new_bindings`](#allow_existing_tables_for_new_bindings). Without it, a backfill can insert duplicate copies of rows whose keys already exist instead of updating them. `allow_existing_tables_for_new_bindings` makes the backfill match and update those rows in place, so they merge instead of duplicating.
   - If collection keys or the destination table schema change in incompatible ways, the connector will still drop and recreate the table even with this flag enabled.
 - **Applies to:** Most SQL and warehouse materialization connectors.
+
+### always_drop_tables_on_backfill
+
+Forces destination tables to be dropped and recreated on every backfill instead of truncated.
+
+- **Default:** Disabled. Routine backfills run `TRUNCATE TABLE`, preserving partitioning, clustering, and other table-level DDL applied outside of Estuary.
+- **Use case:** Forcing a clean rebuild of the destination table — for example, to drop columns no longer in the selected fields or to reset table-level configuration.
+- **Caveats:**
+  - Removes any custom partitioning, clustering, indexes, or other DDL applied to the destination table outside of Estuary. You will need to re-apply that DDL after the backfill.
+  - See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill) for the full picture of when tables are dropped versus truncated.
+- **Applies to:** Relational SQL and warehouse materialization connectors (for example, PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, Databricks). Connectors whose destinations don't support an in-place truncate — such as MongoDB, DynamoDB, Elasticsearch, and Iceberg — always drop and recreate on backfill regardless of this flag.
 
 ### datetime_keys_as_string
 

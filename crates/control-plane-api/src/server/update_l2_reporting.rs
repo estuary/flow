@@ -56,9 +56,11 @@ pub async fn update_l2_reporting(
     // Extract draft collection templates from the bundle.
     const L2_INFERRED_NAME: &str = "ops.us-central1.v1/inferred-schemas/L2";
     const L2_STATS_NAME: &str = "ops.us-central1.v1/catalog-stats-L2";
+    const L2_STATS_NEW_NAME: &str = "ops/rollups/L2/catalog-stats";
     const L2_EVENTS_NAME: &str = "ops.us-central1.v1/events/L2";
     let mut l2_inferred: Option<tables::DraftCollection> = None;
     let mut l2_stats: Option<tables::DraftCollection> = None;
+    let mut l2_stats_new: Option<tables::DraftCollection> = None;
     let mut l2_events: Option<tables::DraftCollection> = None;
 
     for row in collections {
@@ -68,6 +70,9 @@ pub async fn update_l2_reporting(
             }
             L2_STATS_NAME => {
                 l2_stats = Some(row);
+            }
+            L2_STATS_NEW_NAME => {
+                l2_stats_new = Some(row);
             }
             L2_EVENTS_NAME => {
                 l2_events = Some(row);
@@ -81,8 +86,8 @@ pub async fn update_l2_reporting(
             }
         }
     }
-    let (Some(mut l2_stats), Some(mut l2_inferred), Some(mut l2_events)) =
-        (l2_stats, l2_inferred, l2_events)
+    let (Some(mut l2_stats), Some(mut l2_stats_new), Some(mut l2_inferred), Some(mut l2_events)) =
+        (l2_stats, l2_stats_new, l2_inferred, l2_events)
     else {
         return Err(tonic::Status::internal(
             "expected template to include L2 status, inferred schemas, and catalog stats",
@@ -102,6 +107,19 @@ pub async fn update_l2_reporting(
     } = &mut l2_stats.model.as_mut().unwrap().derive.as_mut().unwrap();
 
     let models::Derivation {
+        transforms: l2_stats_new_transforms,
+        using: l2_stats_new_using,
+        shards: l2_stats_new_shards,
+        ..
+    } = &mut l2_stats_new
+        .model
+        .as_mut()
+        .unwrap()
+        .derive
+        .as_mut()
+        .unwrap();
+
+    let models::Derivation {
         transforms: l2_events_transforms,
         ..
     } = &mut l2_events.model.as_mut().unwrap().derive.as_mut().unwrap();
@@ -115,15 +133,31 @@ pub async fn update_l2_reporting(
         );
     };
 
+    let models::DeriveUsing::Typescript(models::DeriveUsingTypescript {
+        module: l2_stats_new_module_raw,
+    }) = l2_stats_new_using
+    else {
+        return Err(tonic::Status::internal(
+            "ops/rollups/L2/catalog-stats derivation must be a TypeScript module",
+        )
+        .into());
+    };
+
     let mut l2_stats_module =
         r#"import * as Types from 'flow/ops.us-central1.v1/catalog-stats-L2.ts';
 
 export class Derivation extends Types.IDerivation {"#
             .to_string();
 
+    let mut l2_stats_new_module = r#"import * as Types from 'flow/ops/rollups/L2/catalog-stats.ts';
+
+export class Derivation extends Types.IDerivation {"#
+        .to_string();
+
     // Remove template placeholders (they're used only for tests of reporting tasks).
     l2_inferred_transforms.clear();
     l2_stats_transforms.clear();
+    l2_stats_new_transforms.clear();
     l2_events_transforms.clear();
 
     // Add transforms for L1 derivations across all active data-planes.
@@ -174,6 +208,20 @@ export class Derivation extends Types.IDerivation {"#
             shuffle: models::Shuffle::Any,
         });
 
+        l2_stats_new_transforms.push(models::TransformDef {
+            name: models::Transform::new(&data_plane.ops_l2_stats_transform),
+            source: models::Source::Collection(data_plane.ops_l1_stats_name.clone()),
+            disable: !data_plane.enable_l2,
+
+            backfill: 0,
+            lambda: models::RawValue::default(),
+            priority: 0,
+            read_delay: None,
+            shuffle: models::Shuffle::Key(models::CompositeKey::new([models::JsonPointer::new(
+                "/catalogName",
+            )])),
+        });
+
         l2_events_transforms.push(models::TransformDef {
             name: models::Transform::new(&data_plane.ops_l2_events_transform),
             source: models::Source::Collection(data_plane.ops_l1_events_name.clone()),
@@ -204,13 +252,45 @@ export class Derivation extends Types.IDerivation {"#
         if !data_plane.enable_l2 {
             l2_stats_module.push_str("\n*/");
         }
+
+        if !data_plane.enable_l2 {
+            l2_stats_new_module.push_str("\n/*");
+        }
+        l2_stats_new_module.push_str(&format!(
+            r#"
+    {method_name}(read: {{ doc: Types.{type_name}}}): Types.Document[] {{
+        return [read.doc]
+    }}"#,
+            method_name = camel_case(&data_plane.ops_l2_stats_transform, false),
+            type_name = format!(
+                "Source{}",
+                camel_case(&data_plane.ops_l2_stats_transform, true)
+            )
+        ));
+        if !data_plane.enable_l2 {
+            l2_stats_new_module.push_str("\n*/");
+        }
     }
 
     l2_stats_module.push_str("\n}\n");
     *l2_stats_module_raw = models::RawValue::from_value(&serde_json::json!(l2_stats_module));
 
+    l2_stats_new_module.push_str("\n}\n");
+    *l2_stats_new_module_raw =
+        models::RawValue::from_value(&serde_json::json!(l2_stats_new_module));
+
+    l2_stats_new_shards.flags.insert(
+        models::Token::new(models::ENABLE_RUNTIME_V2),
+        models::Token::new("true"),
+    );
+
     let draft = tables::DraftCatalog {
-        collections: tables::DraftCollections::from_iter([l2_inferred, l2_stats, l2_events]),
+        collections: tables::DraftCollections::from_iter([
+            l2_inferred,
+            l2_stats,
+            l2_stats_new,
+            l2_events,
+        ]),
         ..Default::default()
     };
 
@@ -251,11 +331,13 @@ export class Derivation extends Types.IDerivation {"#
     let previous = serde_json::json!({
         "l2_inferred": live.get_by_key(&models::Collection::new(L2_INFERRED_NAME)).map(|r| &r.model),
         "l2_stats": live.get_by_key(&models::Collection::new(L2_STATS_NAME)).map(|r| &r.model),
+        "l2_stats_new": live.get_by_key(&models::Collection::new(L2_STATS_NEW_NAME)).map(|r| &r.model),
         "l2_events": live.get_by_key(&models::Collection::new(L2_EVENTS_NAME)).map(|r| &r.model),
     });
     let next = serde_json::json!({
         "l2_inferred": draft.get_by_key(&models::Collection::new(L2_INFERRED_NAME)).map(|r| &r.model),
         "l2_stats": draft.get_by_key(&models::Collection::new(L2_STATS_NAME)).map(|r| &r.model),
+        "l2_stats_new": draft.get_by_key(&models::Collection::new(L2_STATS_NEW_NAME)).map(|r| &r.model),
         "l2_events": draft.get_by_key(&models::Collection::new(L2_EVENTS_NAME)).map(|r| &r.model),
     });
 

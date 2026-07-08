@@ -68,7 +68,7 @@ func LoadAllErrors(db *sql.DB) ([]Error, error) {
 func LoadAllCollections(db *sql.DB) ([]*pf.CollectionSpec, error) {
 	var out []*pf.CollectionSpec
 	var err = loadSpecs(db,
-		`SELECT spec FROM built_collections ORDER BY collection ASC;`,
+		`SELECT spec FROM built_collections WHERE spec IS NOT NULL ORDER BY collection ASC;`,
 		func() loadableSpec { return new(pf.CollectionSpec) },
 		func(l loadableSpec) { out = append(out, l.(*pf.CollectionSpec)) },
 	)
@@ -85,7 +85,7 @@ func LoadCollection(db *sql.DB, name string) (*pf.CollectionSpec, error) {
 func LoadAllCaptures(db *sql.DB) ([]*pf.CaptureSpec, error) {
 	var out []*pf.CaptureSpec
 	var err = loadSpecs(db,
-		`SELECT spec FROM built_captures ORDER BY capture ASC;`,
+		`SELECT spec FROM built_captures WHERE spec IS NOT NULL ORDER BY capture ASC;`,
 		func() loadableSpec { return new(pf.CaptureSpec) },
 		func(l loadableSpec) { out = append(out, l.(*pf.CaptureSpec)) },
 	)
@@ -102,7 +102,7 @@ func LoadCapture(db *sql.DB, name string) (*pf.CaptureSpec, error) {
 func LoadAllMaterializations(db *sql.DB) ([]*pf.MaterializationSpec, error) {
 	var out []*pf.MaterializationSpec
 	var err = loadSpecs(db,
-		`SELECT spec FROM built_materializations ORDER BY materialization ASC;`,
+		`SELECT spec FROM built_materializations WHERE spec IS NOT NULL ORDER BY materialization ASC;`,
 		func() loadableSpec { return new(pf.MaterializationSpec) },
 		func(l loadableSpec) { out = append(out, l.(*pf.MaterializationSpec)) },
 	)
@@ -119,7 +119,7 @@ func LoadMaterialization(db *sql.DB, name string) (*pf.MaterializationSpec, erro
 func LoadAllTests(db *sql.DB) ([]*pf.TestSpec, error) {
 	var out []*pf.TestSpec
 	var err = loadSpecs(db,
-		`SELECT spec FROM built_tests ORDER BY test ASC;`,
+		`SELECT spec FROM built_tests WHERE spec IS NOT NULL ORDER BY test ASC;`,
 		func() loadableSpec { return new(pf.TestSpec) },
 		func(l loadableSpec) {
 			out = append(out, l.(*pf.TestSpec))

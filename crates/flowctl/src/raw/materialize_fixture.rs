@@ -76,7 +76,7 @@ pub async fn do_materialize_fixture(
         ..Default::default()
     });
     emit(Request {
-        acknowledge: Some(request::Acknowledge {}),
+        acknowledge: Some(request::Acknowledge::default()),
         ..Default::default()
     });
 
@@ -113,9 +113,9 @@ pub async fn do_materialize_fixture(
                     extractors::for_fields(values, projections, &doc::SerPolicy::noop())?;
 
                 for (exists, doc) in &docs {
-                    doc::Extractor::extract_all(doc, &key_ex, buf);
+                    doc::Extractor::extract_all(doc, &key_ex, doc::Encoding::Packed, buf, None);
                     let key_packed = buf.split().freeze();
-                    doc::Extractor::extract_all(doc, &values_ex, buf);
+                    doc::Extractor::extract_all(doc, &values_ex, doc::Encoding::Packed, buf, None);
                     let values_packed = buf.split().freeze();
 
                     if !delta_updates {
@@ -147,7 +147,7 @@ pub async fn do_materialize_fixture(
             emit(load)
         }
         emit(Request {
-            flush: Some(request::Flush {}),
+            flush: Some(request::Flush::default()),
             ..Default::default()
         });
         for store in stores {
@@ -171,7 +171,7 @@ pub async fn do_materialize_fixture(
             ..Default::default()
         });
         emit(Request {
-            acknowledge: Some(request::Acknowledge {}),
+            acknowledge: Some(request::Acknowledge::default()),
             ..Default::default()
         });
     }

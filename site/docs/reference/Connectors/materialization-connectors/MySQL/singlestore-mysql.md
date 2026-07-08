@@ -56,6 +56,7 @@ Use the below properties to configure a SingleStore materialization, which will 
 | `/advanced/ssl_server_ca` | SSL Server CA | Optional server certificate authority to use when connecting with custom SSL mode | string |  |
 | `/advanced/ssl_client_cert` | SSL Client Certificate | Optional client certificate to use when connecting with custom SSL mode. | string |  |
 | `/advanced/ssl_client_key` | SSL Client Key | Optional client key to use when connecting with custom SSL mode. | string |  |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 
 #### SSL Mode
 
@@ -81,8 +82,9 @@ authorize the client.
 
 | Property | Title | Description | Type | Required/Default |
 | --- | --- | --- | --- | --- |
-| **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run after the table is created. | string | |
 | `/delta_updates` | Delta Update | Should updates to this table be done via delta updates. | boolean | `false` |
+| **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
 
 ### Sample
 

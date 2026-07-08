@@ -12,23 +12,20 @@ pub(super) fn authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
     user_id: uuid::Uuid,
-    min_capability: models::Capability,
+    min_capability: impl Into<models::authz::CapabilitySet>,
     prefix_filter: Option<&str>,
 ) -> Vec<String> {
-    let mut prefixes: Vec<String> =
-        tables::UserGrant::transitive_roles(role_grants, user_grants, user_id)
-            .filter(|grant| grant.capability >= min_capability)
-            .filter(|grant| {
-                prefix_filter.is_none_or(|pf| {
-                    grant.object_role.starts_with(pf) || pf.starts_with(&*grant.object_role)
-                })
-            })
-            .map(|grant| grant.object_role.to_string())
-            .collect();
+    let min_bits: models::authz::CapabilitySet = min_capability.into();
 
-    // Sort and remove child prefixes that are already covered by a parent prefix.
-    prefixes.sort();
-    prefixes.dedup();
+    // BTreeMap iteration from reachable_prefixes is already prefix-sorted,
+    // so the parent-prune step below can run directly on it.
+    let prefixes = tables::UserGrant::reachable_prefixes(role_grants, user_grants, user_id)
+        .into_iter()
+        .filter(|(prefix, _)| {
+            prefix_filter.is_none_or(|pf| prefix.starts_with(pf) || pf.starts_with(*prefix))
+        })
+        .filter(|(_, (bits, _))| bits.is_superset(min_bits))
+        .map(|(prefix, _)| prefix.to_string());
 
     let mut pruned: Vec<String> = Vec::new();
     for p in prefixes {
@@ -57,6 +54,7 @@ mod tests {
                 user_id: *id,
                 object_role: models::Prefix::new(*obj),
                 capability: *cap,
+                bundles: vec![],
             }
         }));
         let rg = tables::RoleGrants::from_iter(role_grants.iter().map(|(sub, obj, cap)| {
@@ -64,6 +62,7 @@ mod tests {
                 subject_role: models::Prefix::new(*sub),
                 object_role: models::Prefix::new(*obj),
                 capability: *cap,
+                bundles: vec![],
             }
         }));
         (ug, rg)
@@ -177,5 +176,108 @@ mod tests {
 
         let result = authorized_prefixes(&rg, &ug, bob, Read, None);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn same_prefix_grants_union_capabilities() {
+        use models::authz::CapabilityBundle;
+
+        // Two user grants at the same prefix carrying disjoint
+        // bundles (Editor and TeamAdmin share no bits). The
+        // per-prefix CapabilitySet observed via reachable_prefixes
+        // is the union of the two bundles' bits.
+        let ug = tables::UserGrants::from_iter(vec![
+            tables::UserGrant {
+                user_id: ALICE,
+                object_role: models::Prefix::new("acmeCo/"),
+                capability: models::Capability::None,
+                bundles: vec![CapabilityBundle::Editor],
+            },
+            tables::UserGrant {
+                user_id: ALICE,
+                object_role: models::Prefix::new("acmeCo/"),
+                capability: models::Capability::None,
+                bundles: vec![CapabilityBundle::TeamAdmin],
+            },
+        ]);
+        let rg = tables::RoleGrants::new();
+
+        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
+        assert_eq!(
+            reachable["acmeCo/"].0,
+            CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
+        );
+    }
+
+    #[test]
+    fn multi_path_role_grants_union_at_destination() {
+        use models::authz::CapabilityBundle;
+
+        // Alice is admin on acmeCo/. Two role grants reach
+        // sharedCo/ from acmeCo/ carrying disjoint bundles (Editor
+        // and TeamAdmin share no bits). At sharedCo/, the BFS
+        // emits a NodeRef per role grant, and reachable_prefixes
+        // unions their bits into a single per-prefix CapabilitySet.
+        let ug = tables::UserGrants::from_iter(vec![tables::UserGrant {
+            user_id: ALICE,
+            object_role: models::Prefix::new("acmeCo/"),
+            capability: models::Capability::Admin,
+            bundles: vec![],
+        }]);
+        let rg = tables::RoleGrants::from_iter(vec![
+            tables::RoleGrant {
+                subject_role: models::Prefix::new("acmeCo/"),
+                object_role: models::Prefix::new("sharedCo/"),
+                capability: models::Capability::None,
+                bundles: vec![CapabilityBundle::Editor],
+            },
+            tables::RoleGrant {
+                subject_role: models::Prefix::new("acmeCo/"),
+                object_role: models::Prefix::new("sharedCo/"),
+                capability: models::Capability::None,
+                bundles: vec![CapabilityBundle::TeamAdmin],
+            },
+        ]);
+
+        let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
+        assert_eq!(
+            reachable["sharedCo/"].0,
+            CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
+        );
+    }
+
+    #[test]
+    fn same_prefix_union_does_not_synthesize_ancestor_bits() {
+        use models::authz::CapabilityBundle;
+
+        // Regression guard: the union is per-exact-prefix, not across
+        // ancestors. Admin on acmeCo/ does NOT make acmeCo/data/ appear in
+        // a min=Admin query; acmeCo/data/'s own grant is only Writer.
+        let ug = tables::UserGrants::from_iter(vec![
+            tables::UserGrant {
+                user_id: ALICE,
+                object_role: models::Prefix::new("acmeCo/"),
+                capability: models::Capability::None,
+                bundles: vec![CapabilityBundle::Admin],
+            },
+            tables::UserGrant {
+                user_id: ALICE,
+                object_role: models::Prefix::new("acmeCo/data/"),
+                capability: models::Capability::None,
+                bundles: vec![CapabilityBundle::Writer],
+            },
+        ]);
+        let rg = tables::RoleGrants::new();
+
+        // min=Admin: parent acmeCo/ qualifies; acmeCo/data/ is pruned as a
+        // child of the qualifying parent. If the union were across
+        // ancestors, acmeCo/data/ would qualify on its own (Writer +
+        // inherited Admin bits) — it does not.
+        let result = authorized_prefixes(&rg, &ug, ALICE, Admin, None);
+        assert_eq!(result, vec!["acmeCo/"]);
+
+        // min=Write: both qualify on their own bits; parent prunes child.
+        let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
+        assert_eq!(result, vec!["acmeCo/"]);
     }
 }

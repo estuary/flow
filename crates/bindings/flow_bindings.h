@@ -112,6 +112,17 @@ typedef struct TaskService {
   uintptr_t err_cap;
 } TaskService;
 
+typedef struct TaskServiceV2ImplPtr {
+  uint8_t _private[0];
+} TaskServiceV2ImplPtr;
+
+typedef struct TaskServiceV2 {
+  struct TaskServiceV2ImplPtr *svc_ptr;
+  uint8_t *err_ptr;
+  uintptr_t err_len;
+  uintptr_t err_cap;
+} TaskServiceV2;
+
 struct Channel *extract_create(int32_t log_level, int32_t log_dest_fd);
 
 void extract_invoke1(struct Channel *ch, struct In1 i);
@@ -130,6 +141,10 @@ struct GlobalMemoryStats get_memory_stats(void);
 struct TaskService *new_task_service(const uint8_t *config_ptr, uint32_t config_len);
 
 void task_service_drop(struct TaskService *svc);
+
+struct TaskServiceV2 *new_task_service_v2(const uint8_t *config_ptr, uint32_t config_len);
+
+void task_service_v2_drop(struct TaskServiceV2 *svc);
 
 struct Channel *upper_case_create(int32_t log_level, int32_t log_dest_fd);
 

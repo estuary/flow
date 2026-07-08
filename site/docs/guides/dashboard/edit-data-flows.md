@@ -1,12 +1,12 @@
 ---
-sidebar_position: 1
+sidebar_position: 6
 slug: /guides/edit-data-flows/
 ---
 
-# Edit Data Flows in the Web App
+# Edit Data Flows in the Dashboard
 
-You can edit existing captures, collection schemas, and materializations in Estuary's web app.
-For a tour of the web app, [start here](/concepts/web-app).
+You can edit existing captures, collection schemas, and materializations in Estuary's dashboard.
+For a tour of the dashboard, [start here](/guides/dashboard).
 
 There are separate workflows for editing [captures](#edit-a-capture) and [materializations](#edit-a-materialization).
 You can edit a collection schema using Estuary's **Schema Inference** tool by editing either a capture or materialization associated
@@ -36,23 +36,9 @@ You may have to re-authenticate with the source system. Be sure to have current 
    To refresh your connection with the source and see an updated list of possible collections, click the **Refresh** button,
    but be aware that it will overwrite all existing collection selections.
 
-5. Use the **Schema Inference** tool, if desired.
+5. When you're done making changes, click **Next.**
 
-   This option is available for source systems with permissive schemas, such as NoSQL databases and cloud storage.
-   Estuary can help you tighten up the schema to be used for downstream tasks in your Data Flow.
-
-   1. In the Output Collections browser, choose a collection and click its **Collection** tab.
-
-   2. Click **Schema Inference**
-
-      The Schema Inference window appears. Estuary scans the data in your collection and infers a new schema, called the [`readSchema`](/concepts/schemas/#write-and-read-schemas), to use for
-      downstream tasks like materializations and derivations.
-
-   3. Review the new schema and click **Apply Inferred Schema**.
-
-6. When you're done making changes, click **Next.**
-
-8. Click **Save and Publish**.
+6. Click **Save and Publish**.
 
 Editing a capture only affects how it will work going forward.
 Data that was captured before editing will reflect the original configuration.
@@ -74,19 +60,6 @@ You may have to re-authenticate with the destination system. Be sure to have cur
 :::
 
 4. Use the **Source Collections** browser to add or remove collections from the materialization, if desired.
-
-6. Optionally apply a stricter schema to each collection to use for the materialization.
-
-   This option is available for collections captured from source systems with permissive schemas, such as NoSQL databases and cloud storage.
-   Estuary can help you tighten up the schema to be used for downstream tasks in your Data Flow.
-
-   1. In the Source Collections browser, choose a collection and click its **Collection** tab.
-
-   2. Click **Schema Inference**
-
-      The Schema Inference window appears. Estuary scans the data in your collection and infers a new schema, called the [`readSchema`](/concepts/schemas/#write-and-read-schemas), to use for the materialization.
-
-   3. Review the new schema and click **Apply Inferred Schema**.
 
 5. When you're done making changes, click **Next.**
 

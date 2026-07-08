@@ -10,6 +10,7 @@ PROTO_FILES=(
   "./go/protocols/materialize/materialize.proto"
   "./go/protocols/ops/ops.proto"
   "./go/protocols/runtime/runtime.proto"
+  "./go/protocols/shuffle/shuffle.proto"
 )
 
 # Modules needed for protoc include paths

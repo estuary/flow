@@ -980,6 +980,18 @@ expression: "&schema"
           "title": "Automatically materialize new bindings from a named capture",
           "$ref": "#/$defs/SourceType"
         },
+        "targetNaming": {
+          "title": "Naming strategy for destination resources.",
+          "description": "Controls how collection names are mapped to destination table and schema\nnames when bindings are added. Only applies to connectors whose\ndestination system supports schemas.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TargetNamingStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "triggers": {
           "title": "Triggers to fire upon transaction completion.",
           "anyOf": [
@@ -1237,6 +1249,17 @@ expression: "&schema"
           "title": "Disable processing of the task's shards.",
           "type": "boolean"
         },
+        "flags": {
+          "title": "Flags are string-valued feature flags.",
+          "description": "Flag names must be valid tokens (Unicode letters, numbers, '-', '_', '.').\nEach flag produces a shard label `estuary.dev/flag/<name>`.",
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[\\p{Letter}\\p{Number}\\-_\\.]+$": {
+              "$ref": "#/$defs/Token"
+            }
+          }
+        },
         "hotStandbys": {
           "title": "Number of hot standbys to keep for each task shard.",
           "description": "Hot standbys of a shard actively replicate the shard's state to another\nmachine, and are able to be quickly promoted to take over processing for\nthe shard should its current primary fail.\nIf not set, then no hot standbys are maintained.\nEXPERIMENTAL: this field MAY be removed.",
@@ -1280,6 +1303,13 @@ expression: "&schema"
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "shuffleDiskLimit": {
+          "title": "Maximum shuffle disk usage before back-pressure, in bytes.",
+          "description": "Bounds the aggregate size of buffered, sealed shuffle segment files on a\nshard's disk. When exceeded, the shuffle reader back-pressures upstream\njournal reads (released once the backlog falls below half).\nIf not set, the data-plane default (currently 2 GiB) is used.\nEXPERIMENTAL: this field MAY be removed.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 67108864
         }
       },
       "additionalProperties": false,
@@ -1421,6 +1451,81 @@ expression: "&schema"
           "description": "Like `prefixSchema`, except that it will omit the prefix for the\nfollowing common default schema names:\n- public\n- dbo",
           "type": "string",
           "const": "prefixNonDefaultSchema"
+        }
+      ]
+    },
+    "TargetNamingStrategy": {
+      "description": "Naming strategy for materialization binding resource names.\n\nControls how collection names are mapped to destination table and schema\nnames when bindings are added. Only applies to connectors whose\ndestination system supports schemas.\n\nGiven a collection like `acmeCo/marketing/mySchema/myTable`, all\nstrategies use the last two path segments: `mySchema` and `myTable`.\n\nTemplate fields use mustache-style substitution to wrap computed names\n(e.g. `\"staging_{{table}}\"` produces `\"staging_myTable\"`).",
+      "oneOf": [
+        {
+          "description": "Use the collection's path segments directly as the destination\nschema and table names.\n\n`acmeCo/mySchema/myTable` -> schema `mySchema`, table `myTable`.",
+          "type": "object",
+          "properties": {
+            "schemaTemplate": {
+              "description": "Template for the schema name. `{{schema}}` is replaced with\nthe second-to-last path segment (e.g. `mySchema`).",
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string",
+              "const": "matchSourceStructure"
+            },
+            "tableTemplate": {
+              "description": "Template for the table name. `{{table}}` is replaced with\nthe last path segment (e.g. `myTable`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "strategy"
+          ]
+        },
+        {
+          "description": "Place all tables in a single, explicitly named schema, using only\nthe last path segment as the table name.\n\nWith `schema: \"prod\"`: `acmeCo/mySchema/myTable` -> schema `prod`,\ntable `myTable`.",
+          "type": "object",
+          "properties": {
+            "schema": {
+              "description": "The destination schema name.",
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string",
+              "const": "singleSchema"
+            },
+            "tableTemplate": {
+              "description": "Template for the table name. `{{table}}` is replaced with\nthe last path segment (e.g. `myTable`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "strategy",
+            "schema"
+          ]
+        },
+        {
+          "description": "Like `singleSchema`, but prefixes each table name with the\nsecond-to-last path segment and `_` to avoid collisions when\nmultiple source schemas contain identically named tables.\n\nWith `schema: \"prod\"`: `acmeCo/mySchema/myTable` -> schema `prod`,\ntable `mySchema_myTable`.\n\nWith `skipCommonDefaults: true`, the prefix is omitted for common\ndefaults (`public`, `dbo`): `acmeCo/public/myTable` -> table\n`myTable` instead of `public_myTable`.",
+          "type": "object",
+          "properties": {
+            "schema": {
+              "description": "The destination schema name.",
+              "type": "string"
+            },
+            "skipCommonDefaults": {
+              "description": "When true, omit the prefix for common default schema names\nlike \"public\" or \"dbo\".",
+              "type": "boolean",
+              "default": false
+            },
+            "strategy": {
+              "type": "string",
+              "const": "prefixTableNames"
+            },
+            "tableTemplate": {
+              "description": "Template for the table name. `{{table}}` is replaced with\nthe already-prefixed name (e.g. `mySchema_myTable`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "strategy",
+            "schema"
+          ]
         }
       ]
     },
@@ -1642,6 +1747,14 @@ expression: "&schema"
         "documents"
       ]
     },
+    "Token": {
+      "description": "Token is Unicode letters, numbers, '-', '_', or '.'.",
+      "type": "string",
+      "examples": [
+        "token"
+      ],
+      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+$"
+    },
     "Transform": {
       "description": "Transform names are Unicode letters, numbers, '-', '_', or '.'.",
       "type": "string",
@@ -1777,6 +1890,15 @@ expression: "&schema"
           "items": {
             "$ref": "#/$defs/TriggerConfig"
           }
+        },
+        "interval": {
+          "title": "Minimum interval between trigger deliveries.",
+          "description": "A burst of transactions within the interval collapses into a single\ndelivery covering the full span.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h|d)$"
         }
       },
       "additionalProperties": false,

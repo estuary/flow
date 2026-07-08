@@ -1,0 +1,36 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/invoices.rs
+assertion_line: 454
+expression: response
+---
+{
+  "data": {
+    "tenant": {
+      "billing": {
+        "invoices": {
+          "edges": [
+            {
+              "node": {
+                "amountDue": 2600,
+                "hostedInvoiceUrl": "https://example.test/hosted",
+                "invoicePdf": "https://example.test/invoice.pdf",
+                "paymentDetails": {
+                  "card": {
+                    "brand": "visa",
+                    "expMonth": 12,
+                    "expYear": 2025,
+                    "last4": "4242"
+                  },
+                  "receiptUrl": "https://example.test/receipt",
+                  "status": "SUCCEEDED",
+                  "usBankAccount": null
+                },
+                "status": "paid"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

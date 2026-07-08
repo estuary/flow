@@ -88,6 +88,16 @@ func (d *deriveApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _e
 		return pf.Checkpoint{}, err
 	}
 
+	// Fail the shard if its runtime-v2 flag has been turned on. NewStore is
+	// invoked only on the initial PRIMARY transition, so a publish that
+	// flips the flag on a running shard cannot otherwise reroute it. We
+	// surface a functional error so the controller restarts the shard,
+	// at which point NewStore re-evaluates the flag and selects V2.
+	if useRuntimeV2(shard.Spec().LabelSet) {
+		return pf.Checkpoint{}, fmt.Errorf(
+			"runtime-v2 feature flag is set but this shard is running the V1 derivation runtime; failing to force a restart")
+	}
+
 	var watchCtx context.Context
 	if d.watchCancel != nil {
 		d.watchCancel() // Cancel watch of previous term.
@@ -136,7 +146,7 @@ func (d *deriveApp) RestoreCheckpoint(shard consumer.Shard) (_ pf.Checkpoint, _e
 	var openedExt = pr.FromInternal[pr.DeriveResponseExt](opened.Internal)
 	d.container.Store(openedExt.Container)
 
-	return *openedExt.Opened.RuntimeCheckpoint, nil
+	return *opened.Opened.RuntimeCheckpoint, nil
 }
 
 // ConsumeMessage forwards a Read to the derive runtime.

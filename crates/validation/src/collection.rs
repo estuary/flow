@@ -191,6 +191,48 @@ fn walk_collection(
         check_uuid_ptr_not_redacted(scope.push_prop("schema"), &write_spec.spec, errors);
     }
 
+    // Redaction runs at capture time using the write schema. Annotations
+    // placed only in the read schema do not protect stored documents.
+    if let Some(read) = &read_spec {
+        check_read_schema_redact_in_write_schema(
+            scope.push_prop("readSchema"),
+            &read.spec,
+            &write_spec.spec,
+            errors,
+        );
+    }
+
+    // Annotations placed inside `$defs` entries whose `$id` is a system-managed
+    // schema URI are silently overwritten by discover or validation-time
+    // inlining. Scan the user-authored models (not the post-inlining
+    // `read_spec.model`, which carries a verbatim copy of the write schema).
+    if let Some(read) = read_model.as_ref() {
+        let write = write_model
+            .as_ref()
+            .expect("split schemas have write_model");
+        check_redact_in_managed_defs(
+            scope.push_prop("writeSchema"),
+            write,
+            &write_spec.spec.curi,
+            errors,
+        );
+        if let Some(read_spec) = &read_spec {
+            check_redact_in_managed_defs(
+                scope.push_prop("readSchema"),
+                read,
+                &read_spec.spec.curi,
+                errors,
+            );
+        }
+    } else if let Some(schema) = schema_model.as_ref() {
+        check_redact_in_managed_defs(
+            scope.push_prop("schema"),
+            schema,
+            &write_spec.spec.curi,
+            errors,
+        );
+    }
+
     let effective_read_spec = read_spec
         .as_ref()
         .map(|Schema { spec, .. }| spec)
@@ -800,6 +842,107 @@ fn check_uuid_ptr_not_redacted(scope: Scope, spec: &schema::Schema, errors: &mut
             Error::UuidPtrHasRedact {
                 ptr: ptr_str.to_string(),
                 schema: spec.curi.clone(),
+                strategy: shape.redact.clone(),
+            }
+            .push(scope, errors);
+        }
+    }
+}
+
+// For each location in `read_spec` that has a `redact` strategy, emit an
+// error if the same location in `write_spec` does not also have a `redact`
+// strategy. Locations introduced through patternProperties are skipped,
+// because they cannot be matched precisely against the write shape.
+fn check_read_schema_redact_in_write_schema(
+    scope: Scope,
+    read_schema: &schema::Schema,
+    write_schema: &schema::Schema,
+    errors: &mut tables::Errors,
+) {
+    for (ptr, is_pattern, shape, _exists) in read_schema.shape.locations() {
+        if is_pattern {
+            continue;
+        }
+        if matches!(shape.redact, doc::shape::Redact::Unset) {
+            continue;
+        }
+        let (write_shape, write_exists) = write_schema.shape.locate(&ptr);
+        if matches!(write_exists, doc::shape::location::Exists::Cannot) {
+            continue;
+        }
+        if matches!(write_shape.redact, doc::shape::Redact::Unset) {
+            let ptr_str = ptr.to_string();
+            let location = if ptr_str.is_empty() {
+                "the document root".to_string()
+            } else {
+                format!("location {ptr_str}")
+            };
+            Error::ReadSchemaRedactNotInWriteSchema {
+                location,
+                ptr: ptr_str,
+                schema: read_schema.curi.clone(),
+                strategy: shape.redact.clone(),
+            }
+            .push(scope, errors);
+        }
+    }
+}
+
+// Scan `$defs` entries whose `$id` is one of the system-managed schema URIs
+// for any nested `redact` annotation. These subtrees are owned by the system:
+// discover overwrites `flow://connector-schema`, and validation-time inlining
+// replaces `flow://write-schema` and `flow://relaxed-write-schema`. Annotations
+// placed inside them are silently lost on the next publication. We discriminate
+// by `$id` (the canonical URI that drives `$ref` resolution), not by the `$defs`
+// key (which is convention only and can be renamed).
+fn check_redact_in_managed_defs(
+    scope: Scope,
+    model: &models::Schema,
+    curi: &url::Url,
+    errors: &mut tables::Errors,
+) {
+    const MANAGED_IDS: &[&str] = &[
+        models::Schema::REF_WRITE_SCHEMA_URL,
+        models::Schema::REF_RELAXED_WRITE_SCHEMA_URL,
+        models::Schema::REF_CONNECTOR_SCHEMA_URL,
+    ];
+
+    let raw: serde_json::Value = match serde_json::from_str(model.get()) {
+        Ok(v) => v,
+        Err(_) => return, // Parse errors are reported elsewhere.
+    };
+    let Some(defs) = raw.get("$defs").and_then(|v| v.as_object()) else {
+        return;
+    };
+    for (_def_key, def_value) in defs {
+        let Some(def_id) = def_value.get("$id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if !MANAGED_IDS.contains(&def_id) {
+            continue;
+        }
+        let bundle = serde_json::to_vec(def_value).expect("def_value re-serializes");
+        let Ok(def_schema) = schema::Schema::new(&bundle) else {
+            continue; // Schema build errors are reported elsewhere.
+        };
+        for (ptr, is_pattern, shape, _exists) in def_schema.shape.locations() {
+            if is_pattern {
+                continue;
+            }
+            if matches!(shape.redact, doc::shape::Redact::Unset) {
+                continue;
+            }
+            let ptr_str = ptr.to_string();
+            let location = if ptr_str.is_empty() {
+                "the document root".to_string()
+            } else {
+                format!("location {ptr_str}")
+            };
+            Error::RedactInsideManagedDefs {
+                location,
+                ptr: ptr_str,
+                def_id: def_id.to_string(),
+                schema: curi.clone(),
                 strategy: shape.redact.clone(),
             }
             .push(scope, errors);

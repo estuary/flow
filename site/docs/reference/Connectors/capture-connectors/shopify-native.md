@@ -12,6 +12,7 @@ The following data resources are supported through the Shopify API:
    * Custom Collection Metafields
 * [Customers](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/customers)
    * Customer Metafields
+* [Disputes](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/disputes)
 * [Fulfillment Orders](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/fulfillmentorders)
 * [Fulfillments](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/fulfillment)
 * [Inventory Items](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/inventoryItems?example=Retrieves+a+detailed+list+for+inventory+items+by+IDs)
@@ -22,6 +23,7 @@ The following data resources are supported through the Shopify API:
    * Order Agreements
    * Order Metafields
    * Order Refunds
+   * Order Returns
    * Order Risks
    * Order Transactions
 * [Product Variants](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/productvariants)
@@ -30,6 +32,7 @@ The following data resources are supported through the Shopify API:
    * Product Metafields
 * [Smart Collections](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/collections)
    * Smart Collection Metafields
+* [Staff Members](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/staffMembers)
 * [Subscription Contracts](https://shopify.dev/docs/api/admin-graphql/2026-01/queries/subscriptioncontracts)
 
 
@@ -69,9 +72,13 @@ When authenticating with an access token or client credentials, ensure the follo
 * `read_marketplace_fulfillment_orders`
 * `read_merchant_managed_fulfillment_orders`
 * `read_orders`
+  * If you want to read orders older than 60 days, extend the `read_orders` scope with `read_all_orders`
 * `read_payment_terms`
 * `read_products`
 * `read_publications`
+* `read_returns`
+* `read_shopify_payments_disputes`
+* `read_users`
 * `read_own_subscription_contracts`
 
 ### Bulk Query Operation Limitations
@@ -95,7 +102,7 @@ you'll sign in directly and won't need the access token.
 | **`/stores`** | Shopify Stores | One or more Shopify stores to capture. Each store requires its own credentials. | array | Required |
 | **`/stores/[]/store`** | Store Name | Store name (the prefix of your admin URL, e.g., `mystore` for `mystore.myshopify.com`) | string | Required |
 | **`/stores/[]/credentials`** | Authentication | Store credentials. See [Authentication Methods](#authentication-methods). | object | Required |
-| `/start_date` | Start Date | UTC date and time in the format YYYY-MM-DDTHH:MM:SSZ. Any data before this date will not be replicated. | string | 30 days before the present date |
+| `/start_date` | Start Date | UTC date and time in the format YYYY-MM-DDTHH:MM:SSZ. Any data before this date will not be replicated. Note that the `read_all_orders` scope is required when reading orders older than 60 days. | string | 30 days before the present date |
 | `/advanced/window_size` | Window Size | Window size for incremental streams in ISO 8601 format (e.g., P30D means 30 days, PT6H means 6 hours). | string | P30D |
 | `/advanced/should_use_composite_key` | Use Composite Key | Include store identifier (`/_meta/store`) in collection keys. Enabled by default for new captures. Set to `true` and backfill all bindings before adding stores to a legacy capture. | boolean | `true` (new) / `false` (legacy) |
 
@@ -120,6 +127,7 @@ you'll sign in directly and won't need the access token.
 |---|---|---|---|---|
 | **`/name`** | Data resource | Name of the data resource. | string | Required |
 | `/interval` | Interval | Interval between data syncs | string |          |
+| `/schedule` | Schedule | Schedule to automatically rebackfill this binding. Accepts a cron expression. | string | "" |
 
 
 ### Sample

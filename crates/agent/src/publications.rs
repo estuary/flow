@@ -7,14 +7,16 @@ use control_plane_api::{
     draft,
     publications::{
         ClearDraftErrors, DefaultRetryPolicy, DraftPublication, ExpandDraft, JobStatus,
-        PruneUnboundCollections, PublicationResult, Publisher, StatusType, UpdatePublicationsRow,
-        delete_draft, resolve, specs,
+        PruneUnboundCollections, PublicationResult, Publisher, RuntimeV2Rollout, StatusType,
+        UpdatePublicationsRow, delete_draft, resolve, specs,
     },
 };
 
 pub struct PublicationsExecutor {
     pub publisher: Publisher,
     pub pg_pool: sqlx::PgPool,
+    /// When true, newly-created captures are published onto runtime v2; see [`RuntimeV2Rollout`].
+    pub runtime_v2_new_captures: bool,
 }
 
 impl automations::Executor for PublicationsExecutor {
@@ -169,9 +171,14 @@ impl PublicationsExecutor {
             draft,
             verify_user_authz: true,
             default_data_plane_name: row.data_plane_name.clone().filter(|s| !s.is_empty()),
-            initialize: ExpandDraft {
-                filter_user_has_admin: true,
-            },
+            initialize: (
+                RuntimeV2Rollout {
+                    new_captures: self.runtime_v2_new_captures,
+                },
+                ExpandDraft {
+                    filter_user_has_admin: true,
+                },
+            ),
             finalize: PruneUnboundCollections,
             retry: DefaultRetryPolicy,
             with_commit: (

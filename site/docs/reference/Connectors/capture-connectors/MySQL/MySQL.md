@@ -54,8 +54,10 @@ To meet these requirements, follow the steps for your hosting type.
 
 1. Create the `flow_capture` user with replication permission, and the ability to read all tables.
 
-The `SELECT` permission can be restricted to just the tables that need to be
-captured, but automatic discovery requires `information_schema` access as well.
+Grant `SELECT` on all tables or restrict it to the tables to be captured. `SELECT`
+permissions must be at the table level, not the column level. Automatic discovery also
+requires `information_schema` access. To keep specific columns, such as sensitive fields,
+out of the capture, use [redaction](/features/redaction.md) rather than column-level grants.
 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
@@ -149,8 +151,10 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 3. Using [MySQL workbench](https://docs.microsoft.com/en-us/azure/mysql/single-server/connect-workbench) or your preferred client,
    create the `flow_capture` user with replication permission, and the ability to read all tables.
 
-The `SELECT` permission can be restricted to just the tables that need to be
-captured, but automatic discovery requires `information_schema` access as well.
+Grant `SELECT` on all tables or restrict it to the tables to be captured. `SELECT`
+permissions must be at the table level, not the column level. Automatic discovery also
+requires `information_schema` access. To keep specific columns, such as sensitive fields,
+out of the capture, use [redaction](/features/redaction.md) rather than column-level grants.
 
 :::tip
 Your username must be specified in the format `username@servername`.
@@ -233,9 +237,11 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/dbname`                      | Database Name                      | The name of the database to connect to. In general this shouldn't matter. The connector can discover and capture from all databases it's authorized to access.                                                                                                                                                                                                                    | string  | `"mysql"`                  |
 | `/advanced/node_id`                     | Node ID                            | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn't matter so long as it is unique. If unset or zero the connector will pick a value.                                                                                                                                                                             | integer |                            |
 | `/advanced/skip_backfills`              | Skip Backfills                     | A comma-separated list of fully-qualified table names which should not be backfilled.                                                                                                                                                                                                                                                                                                   | string  |                            |
-| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `131072`                   |
+| `/advanced/backfill_chunk_size`         | Backfill Chunk Size                | The number of rows which should be fetched from the database in a single backfill query.                                                                                                                                                                                                                                                                                                | integer | `50000`                    |
+| `/advanced/discover_schemas`            | Discovery Schema Selection         | If specified, only tables in the selected schema(s) will be automatically discovered. Omit all entries to discover tables from all schemas.                                                                                                                                                                                                                                             | array of strings | |
 | `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the 'dangerously short binlog retention' sanity check at startup. Only do this if you understand the danger and have a specific need.                                                                                                                                                                                                                                | boolean |                            |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
+| `/advanced/statement_timeout` | Statement Timeout | Overrides the default statement timeout used by the connector. Allowed values: `30s`, `1m`, `5m`, `30m`, or empty to disable. | string |  |
 
 #### Bindings
 
@@ -280,13 +286,15 @@ Your capture definition will likely be more complex, with additional bindings fo
 
 The `source-mysql` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
 
-### Unsupported Operations
+### Handling Source Schema Changes
 
-If your capture is failing with an `"unsupported operation {ALTER,DROP,TRUNCATE,etc} TABLE"` error, this indicates that such an operation has taken place impacting a table which is currently being captured.
+The connector handles most DDL on actively-captured tables automatically:
 
-In the case of `DROP TABLE` and other destructive operations this is not supported, and can only be resolved by removing the offending table(s) from the capture bindings list, after which you may recreate the capture if desired (causing the latest state of the table to be recaptured in its entirety).
+- `ALTER TABLE` to add, drop, rename, or change the type of a column is handled automatically as the change appears in the binlog. No action is required.
+- `DROP TABLE`, `RENAME TABLE`, and `DROP DATABASE` deactivate the affected binding. If the table is later recreated, the connector automatically re-backfills it and resumes capturing.
+- `TRUNCATE TABLE` on an active table is ignored — truncated rows are not propagated to the destination as deletes. If you need the destination to reflect the truncate, trigger a backfill of the binding.
 
-In the case of `ALTER TABLE` we currently support table alterations to add or drop columns from a table. This error indicates that whatever alteration took place is not currently supported. Practically speaking the immediate resolution is the same as for a `DROP` or `TRUNCATE TABLE`, but if you frequently perform schema migrations it may be worth reaching out to see if we can add support for whatever table alteration you just did.
+If a column type change results in captured documents that don't match the existing collection schema, autodiscovery will update the schema on its next run. To apply the new schema immediately, edit the capture, click **Refresh**, and republish.
 
 ### Data Manipulation Queries
 
@@ -298,7 +306,7 @@ Resolving this error requires fixing the `binlog_format` system variable, and th
 
 If your capture is failing with an `"unhandled query"` error, some SQL query is present in the binlog which the connector does not (currently) understand.
 
-In general, this error suggests that the connector should be modified to at least recognize this type of query, and most likely categorize it as either an unsupported [DML Query](#data-manipulation-queries), an unsupported [Table Operation](#unsupported-operations), or something that can safely be ignored. Until such a fix is made the capture cannot proceed, and you will need to backfill all collections to allow the capture to jump ahead to a later point in the binlog.
+If you encounter this error, [contact Estuary support](mailto:support@estuary.dev) so we can help get your capture unstuck.
 
 ### Inconsistent Metadata
 
@@ -315,6 +323,12 @@ If your capture fails with a `"binlog retention period is too short"` error, it 
 The concern is that if a capture is disabled or the server becomes unreachable for longer than the binlog retention period, the database might delete a binlog segment which the capture isn't yet done with. If this happens then change events have been permanently lost, and the only way to get the capture running again is to skip ahead to a portion of the binlog which still exists. For correctness this requires backfilling the current contents of all tables from the source, and so we prefer to avoid it as much as possible. It's much easier to just set up your binlog retention with enough wiggle room to recover from temporary failures.
 
 The `"binlog retention period is too short"` error should normally be fixed by setting a longer retention period as described in these setup instructions. However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
+
+### Failover and Host Changes
+
+MySQL binlog coordinates are specific to each server, so they do not carry over when you fail over to a new writer, for example by promoting a standby. After a failover, the capture's stored position is invalid on the new writer and replication fails with `ERROR 1236`. Always capture from the **writer** endpoint; reader endpoints report `log_bin = OFF` and fail the prerequisite check.
+
+If the failover is planned and you can pause writes, you can re-establish the capture on the new writer without a full backfill. See [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers).
 
 ### Empty Collection Key
 

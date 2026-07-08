@@ -57,13 +57,10 @@ You can retrieve logs and stats for any published task in Estuary. For example:
 ```console
 flowctl logs --task acmeCo/anvils/capture-one
 
-flowctl stats --task acmeCo/anvils/capture-one --uncommitted
+flowctl stats --task acmeCo/anvils/capture-one
 ```
 
-:::info Beta
-The `--uncommitted` flag is currently required for `flowctl stats`. This means that all statistics are read, regardless of whether they are about a successfully committed [transaction](/concepts/advanced/shards/#transactions), or a transaction that was rolled back or uncommitted.
-In the future, committed reads will be the default.
-:::
+Both commands read all currently-available logs or stats and then exit; pass `--follow` to keep reading new entries as they're written.
 
 #### Printing logs or stats since a specific time
 

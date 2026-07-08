@@ -13,3 +13,4 @@ cargo build \
     -p dekaf \
     -p flowctl \
     -p oidc-discovery-server \
+    -p runtime-sidecar \

@@ -2,6 +2,8 @@
 sidebar_position: 6
 ---
 
+import ReactPlayer from "react-player";
+
 # PostgreSQL
 
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Estuary collections.
@@ -19,6 +21,8 @@ Setup instructions are provided for the following platforms:
 - [Amazon Aurora](#amazon-aurora)
 - [Google Cloud SQL](./google-cloud-sql-postgres/)
 - [Azure Database for PostgreSQL](#azure-database-for-postgresql)
+
+<ReactPlayer controls url="https://www.youtube.com/watch?v=10BLaiRc9uU?t=355" />
 
 ## Prerequisites
 
@@ -236,6 +240,8 @@ In this case, you may turn off backfilling on a per-table basis. See [properties
 
 If the replication slot is dropped or invalidated — for example after a major version upgrade, a failover, or a WAL size limit being exceeded — the capture will fail and require manual recovery. See [PostgreSQL replication slot recovery](/guides/troubleshooting/postgres-replication-slot-recovery) for step-by-step instructions.
 
+If the failover is planned and you can pause writes, you can re-establish the capture without a full backfill. See [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers).
+
 ## WAL Retention and Tuning Parameters
 
 Postgres logical replication works by reading change events from the writeahead log,
@@ -414,8 +420,8 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/watermarksTable`     | Watermarks Table    | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string  | `"public.flow_watermarks"` |
 | `/advanced/sslmode`             | SSL Mode            | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                       | string  |                            |
 | `/advanced/discover_schemas` | Discovery Schema Selection | If this is specified, only tables in the selected schema(s) will be automatically discovered. | string array |  |
-| `advanced/min_backfill_xid` | Minimum Backfill XID | Only backfill rows with XMIN values greater (in a 32-bit modular comparison) than the specified XID. Helpful for reducing re-backfill data volume in certain edge cases. | string |  |
-| `/advanced_read_only_capture` | Read-Only Capture | When set, the capture will operate in [read-only mode](#read-only-captures) and avoid operations such as watermark writes. | boolean | `false` |
+| `/advanced/min_backfill_xid` | Minimum Backfill XID | Only backfill rows with XMIN values greater (in a 32-bit modular comparison) than the specified XID. Helpful for reducing re-backfill data volume in certain edge cases. | string |  |
+| `/advanced/read_only_capture` | Read-Only Capture | When set, the capture will operate in [read-only mode](#read-only-captures) and avoid operations such as watermark writes. | boolean | `false` |
 | `/advanced/capture_as_partitions` | Capture Partitioned Tables As Partitions | When set, the capture will discover and capture partitioned tables as individual partitions rather than as a single root table. This requires the publication to be created without `publish_via_partition_root`. | boolean | `false` |
 | `/advanced/discover_unpublished_tables` | Discover Unpublished Tables | If `true`, the capture discovers all tables, even ones not currently in the publication. | boolean |  |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |

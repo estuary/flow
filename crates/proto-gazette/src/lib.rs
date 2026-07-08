@@ -71,7 +71,7 @@ impl broker::LabelSelector {
         }
     }
     pub fn exclude(&self) -> &broker::LabelSet {
-        if let Some(set) = &self.include {
+        if let Some(set) = &self.exclude {
             set
         } else {
             &EMPTY_LABEL_SET

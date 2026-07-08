@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
+mod alert_config;
 pub mod authorizations;
+pub mod authz;
 mod captures;
 mod catalogs;
 pub mod collate;
@@ -17,6 +19,7 @@ mod id;
 mod journals;
 mod labels;
 mod materializations;
+mod private_links;
 pub mod publications;
 mod raw_value;
 mod references;
@@ -29,6 +32,11 @@ pub mod status;
 mod tests;
 pub mod triggers;
 
+pub use crate::alert_config::{
+    AlertConfig, DataMovementStalledCondition, DataMovementStalledConfig, ShardFailedCondition,
+    ShardFailedConfig, TaskChronicallyFailingCondition, TaskChronicallyFailingConfig,
+    TaskIdleCondition, TaskIdleConfig,
+};
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::{Capability, Catalog, CatalogType};
@@ -49,8 +57,9 @@ pub use journals::{
 };
 pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
-    RecommendedDepth,
+    RecommendedDepth, TargetNamingStrategy,
 };
+pub use private_links::{AWSPrivateLink, AzurePrivateLink, GCPPrivateServiceConnect, PrivateLink};
 pub use raw_value::RawValue;
 pub use references::{
     CATALOG_PREFIX_RE, Capture, Collection, CompositeKey, Field, JsonPointer, Materialization,
@@ -58,7 +67,7 @@ pub use references::{
     tenant_from,
 };
 pub use schemas::Schema;
-pub use shards::ShardTemplate;
+pub use shards::{ENABLE_RUNTIME_V2, ShardTemplate};
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
 pub use source_capture::{SourceDef, SourceType, TargetNaming};
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};

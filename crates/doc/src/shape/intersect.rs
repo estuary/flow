@@ -39,11 +39,24 @@ impl StringShape {
         };
         StringShape {
             content_encoding: lhs.content_encoding.or(rhs.content_encoding),
-            content_type: lhs.content_type.or(rhs.content_type),
             format: lhs.format.or(rhs.format),
             min_length: lhs.min_length.max(rhs.min_length),
             max_length,
+            str_minimum: intersect_bound(lhs.str_minimum, rhs.str_minimum, true),
+            str_maximum: intersect_bound(lhs.str_maximum, rhs.str_maximum, false),
         }
+    }
+}
+
+// Combine two optional numeric-string bounds for an intersection
+fn intersect_bound(
+    lhs: Option<Box<bigdecimal::BigDecimal>>,
+    rhs: Option<Box<bigdecimal::BigDecimal>>,
+    take_greater: bool,
+) -> Option<Box<bigdecimal::BigDecimal>> {
+    match (lhs, rhs) {
+        (Some(l), Some(r)) => Some(if take_greater { l.max(r) } else { l.min(r) }),
+        (l, r) => l.or(r),
     }
 }
 
@@ -256,6 +269,8 @@ impl Shape {
         let default = lhs.default.or(rhs.default);
         let secret = lhs.secret.or(rhs.secret);
 
+        let content_media_type = lhs.content_media_type.or(rhs.content_media_type);
+
         let mut annotations = rhs.annotations;
         annotations.extend(lhs.annotations.into_iter());
 
@@ -298,6 +313,7 @@ impl Shape {
             provenance,
             default,
             secret,
+            content_media_type,
             annotations,
             string,
             array,

@@ -1,0 +1,114 @@
+---
+source: crates/shuffle/src/log/block/mod.rs
+expression: archived
+---
+ArchivedBlock {
+    journals: [
+        ArchivedBlockJournal {
+            journal_bid: 1,
+            name: "acme/gadgets",
+        },
+        ArchivedBlockJournal {
+            journal_bid: 0,
+            name: "acme/widgets",
+        },
+    ],
+    producers: [
+        ArchivedBlockProducer {
+            producer_bid: 0,
+            producer: [
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+            ],
+        },
+        ArchivedBlockProducer {
+            producer_bid: 1,
+            producer: [
+                0,
+                0,
+                0,
+                0,
+                0,
+                2,
+            ],
+        },
+    ],
+    journals_reverse: [
+        1,
+        0,
+    ],
+    producers_reverse: [
+        0,
+        1,
+    ],
+    meta: [
+        ArchivedBlockMeta {
+            binding: 0,
+            journal_bid: 0,
+            producer_bid: 0,
+            flags: 0,
+            clock: 10,
+        },
+        ArchivedBlockMeta {
+            binding: 1,
+            journal_bid: 1,
+            producer_bid: 1,
+            flags: 0,
+            clock: 20,
+        },
+    ],
+    docs: [
+        ArchivedBlockDoc {
+            packed_key_prefix: [
+                112,
+                97,
+                99,
+                107,
+                101,
+                100,
+                95,
+                107,
+                101,
+                121,
+                95,
+                111,
+                110,
+                101,
+                95,
+                95,
+            ],
+            source_byte_length: 1234000001,
+            doc: ArchivedEmbedded(
+                40,
+            ),
+        },
+        ArchivedBlockDoc {
+            packed_key_prefix: [
+                112,
+                97,
+                99,
+                107,
+                101,
+                100,
+                95,
+                107,
+                101,
+                121,
+                95,
+                116,
+                119,
+                111,
+                95,
+                95,
+            ],
+            source_byte_length: 56780000,
+            doc: ArchivedEmbedded(
+                40,
+            ),
+        },
+    ],
+}

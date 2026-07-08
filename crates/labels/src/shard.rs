@@ -25,8 +25,20 @@ pub fn encode_labeling(mut set: LabelSet, labeling: &ops::ShardLabeling) -> Labe
     set = set_value(set, crate::TASK_NAME, &labeling.task_name);
     set = set_value(set, crate::TASK_TYPE, labeling.task_type().as_str_name());
 
+    for (name, value) in &labeling.flags {
+        set = set_value(set, &format!("{}{name}", crate::FLAG_PREFIX), value);
+    }
+
     set = set_value(set, crate::LOGS_JOURNAL, &labeling.logs_journal);
     set = set_value(set, crate::STATS_JOURNAL, &labeling.stats_journal);
+
+    if labeling.shuffle_disk_limit_bytes != 0 {
+        set = set_value(
+            set,
+            crate::SHUFFLE_DISK_LIMIT,
+            &labeling.shuffle_disk_limit_bytes.to_string(),
+        );
+    }
 
     set
 }
@@ -70,6 +82,18 @@ pub fn decode_labeling(set: &LabelSet) -> Result<ops::ShardLabeling, Error> {
     let logs_journal = maybe_one(set, crate::LOGS_JOURNAL)?.to_string();
     let stats_journal = maybe_one(set, crate::STATS_JOURNAL)?.to_string();
 
+    let shuffle_disk_limit_bytes = match maybe_one(set, crate::SHUFFLE_DISK_LIMIT)? {
+        "" => 0,
+        value => value.parse()?,
+    };
+
+    let mut flags = std::collections::BTreeMap::new();
+    for label in &set.labels {
+        if let Some(name) = label.name.strip_prefix(crate::FLAG_PREFIX) {
+            flags.insert(name.to_string(), label.value.clone());
+        }
+    }
+
     if !split_source.is_empty() && !split_target.is_empty() {
         return Err(Error::SplitSourceAndTarget(
             split_source.to_string(),
@@ -88,6 +112,8 @@ pub fn decode_labeling(set: &LabelSet) -> Result<ops::ShardLabeling, Error> {
         task_type,
         logs_journal,
         stats_journal,
+        flags,
+        shuffle_disk_limit_bytes,
     })
 }
 
@@ -136,9 +162,14 @@ pub fn id_suffix(set: &LabelSet) -> Result<String, Error> {
     Ok(format!("{key_begin}-{rclock_begin}"))
 }
 
-/// Extract a shard's templated ID prefix.
+/// Extract a shard's templated ID prefix, *including* the trailing '/' which
+/// separates it from the key/r-clock suffix. Returns None if `name` has no '/'.
+///
+/// The trailing '/' is significant when the prefix is used as an `id:prefix`
+/// label-selector scope: retaining it ensures `acmeCo/foo/` cannot bleed into a
+/// sibling task such as `acmeCo/foobar/...`.
 pub fn id_prefix<'n>(name: &'n str) -> Option<&'n str> {
-    name.rsplitn(2, "/").skip(1).next()
+    name.rfind('/').map(|i| &name[..i + 1])
 }
 
 #[cfg(test)]
@@ -162,18 +193,32 @@ mod test {
             split_target: "split/target".to_string(),
             task_name: "task/name".to_string(),
             task_type: ops::TaskType::Derivation as i32,
+            flags: [
+                ("buffer-size".to_string(), "1024".to_string()),
+                ("enable-new-thing".to_string(), "true".to_string()),
+            ]
+            .into(),
             logs_journal: "logs/journal".to_string(),
             stats_journal: "stats/journal".to_string(),
+            shuffle_disk_limit_bytes: 134217728,
         };
 
         let set = encode_labeling(LabelSet::default(), &labeling);
 
-        insta::assert_json_snapshot!(set, @r###"
+        insta::assert_json_snapshot!(set, @r#"
         {
           "labels": [
             {
               "name": "estuary.dev/build",
               "value": "a-build"
+            },
+            {
+              "name": "estuary.dev/flag/buffer-size",
+              "value": "1024"
+            },
+            {
+              "name": "estuary.dev/flag/enable-new-thing",
+              "value": "true"
             },
             {
               "name": "estuary.dev/hostname",
@@ -204,6 +249,10 @@ mod test {
               "value": "ffffffff"
             },
             {
+              "name": "estuary.dev/shuffle-disk-limit",
+              "value": "134217728"
+            },
+            {
               "name": "estuary.dev/split-source",
               "value": "split/source"
             },
@@ -225,11 +274,11 @@ mod test {
             }
           ]
         }
-        "###);
+        "#);
 
         let id = format!("base/shard/id/{}", id_suffix(&set).unwrap());
         assert_eq!(id, "base/shard/id/00000100-00000000");
-        assert_eq!(id_prefix(&id), Some("base/shard/id"));
+        assert_eq!(id_prefix(&id), Some("base/shard/id/"));
     }
 
     #[test]
@@ -242,6 +291,8 @@ mod test {
         // All labels except SPLIT_TARGET set.
         let model = build_set([
             (crate::BUILD, "a-build"),
+            ("estuary.dev/flag/buffer-size", "1024"),
+            ("estuary.dev/flag/enable-new-thing", "true"),
             (crate::HOSTNAME, "a.hostname"),
             (crate::KEY_BEGIN, "00000001"),
             (crate::KEY_END, "00000002"),
@@ -257,9 +308,13 @@ mod test {
 
         insta::assert_json_snapshot!(
             case(model.clone()),
-            @r###"
+            @r#"
         {
           "build": "a-build",
+          "flags": {
+            "buffer-size": "1024",
+            "enable-new-thing": "true"
+          },
           "hostname": "a.hostname",
           "logLevel": "info",
           "logsJournal": "logs/journal",
@@ -274,7 +329,7 @@ mod test {
           "taskName": "the/task",
           "taskType": "capture"
         }
-        "###
+        "#
         );
 
         // Optional labels removed & split target instead of source.
@@ -294,15 +349,19 @@ mod test {
         set = crate::add_value(set, crate::SPLIT_TARGET, "split/target");
 
         insta::assert_json_snapshot!(case(set),
-            @r###"
+            @r#"
         {
           "build": "a-build",
+          "flags": {
+            "buffer-size": "1024",
+            "enable-new-thing": "true"
+          },
           "logLevel": "info",
           "splitTarget": "split/target",
           "taskName": "the/task",
           "taskType": "capture"
         }
-        "###
+        "#
         );
 
         // Expected label is missing.

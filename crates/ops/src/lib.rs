@@ -2,14 +2,19 @@ use serde::{Deserialize, Serialize, de::Error};
 use std::collections::BTreeMap;
 use std::io::Write;
 
+pub mod catalog_stats;
 pub mod decode;
 pub mod tracing;
 
 // Re-export many types from proto_flow::ops, so that users of this crate
 // don't also have to use that module.
+// DEPRECATED. Prefer `proto` instead.
 pub use proto_flow::ops::{
     Log, Meta, ShardLabeling, ShardRef, Stats, TaskType, log::Level as LogLevel, stats,
 };
+
+// Re-export proto_flow::ops as proto (use as ops::proto::Foo).
+pub use proto_flow::ops as proto;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]

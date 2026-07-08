@@ -1,0 +1,27 @@
+---
+source: crates/shuffle/src/log/state.rs
+expression: "&block.entries.iter().map(|(m, _, _, _)| m).collect::<Vec<_>>()"
+---
+[
+    BlockMeta {
+        binding: 0,
+        journal_bid: 0,
+        producer_bid: 0,
+        flags: 32768,
+        clock: 100,
+    },
+    BlockMeta {
+        binding: 1,
+        journal_bid: 0,
+        producer_bid: 0,
+        flags: 0,
+        clock: 200,
+    },
+    BlockMeta {
+        binding: 0,
+        journal_bid: 1,
+        producer_bid: 1,
+        flags: 32768,
+        clock: 100,
+    },
+]

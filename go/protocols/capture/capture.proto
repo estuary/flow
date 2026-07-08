@@ -153,6 +153,14 @@ message Request {
     flow.CaptureSpec last_capture = 4;
     // Version of the last applied CaptureSpec.
     string last_version = 5;
+    // Last-persisted connector state, reduced over all prior Apply patches.
+    // The runtime re-invokes Apply (see the idempotency note above) carrying
+    // the state reduced from each prior Applied response, so a connector that
+    // returns state patches observes its own patches on re-apply and converges.
+    bytes state_json = 6 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "state"
+    ];
   }
   Apply apply = 4;
 
@@ -301,6 +309,10 @@ message Response {
     // Human-readable description of the action that the connector took.
     // If empty, this Apply is to be considered a "no-op".
     string action_description = 1;
+    // Optional *transactional* update to ConnectorState.
+    // This update commits atomically with the Flow recovery log checkpoint
+    // which marks the current specification as having been applied.
+    flow.ConnectorState state = 2;
   }
   Applied applied = 4;
 

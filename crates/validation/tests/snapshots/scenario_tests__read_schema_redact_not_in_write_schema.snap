@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/testing~1redact-read-only/readSchema,
+        error: location /email has a `redact` strategy in the read schema but the write schema has no `redact` at this location; redaction is applied at capture time using the write schema, so this annotation does not protect stored data. Move the annotation to the write schema.,
+    },
+]

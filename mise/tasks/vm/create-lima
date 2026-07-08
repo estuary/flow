@@ -52,18 +52,28 @@ else
     echo "Unsupported OS: $(uname)"; exit 1
 fi
 
-# Add additional ssh configuration if not already present.
-if ! grep -q lima ~/.ssh/config; then
-    # Prepend to ssh config file, as it's sensitive to Host or Match directives.
-    # We use a temp file for portability across macOS and Linux.
-    TMP_SSH_CONFIG=$(mktemp)
-    cat > "${TMP_SSH_CONFIG}" <<EOF
+# make sure .ssh/config exists before we check to see if it needs modification
+if [[ -f ~/.ssh/config ]]; then
+  # Add additional ssh configuration if not already present.
+  if ! grep -q lima ~/.ssh/config; then
+      # Prepend to ssh config file, as it's sensitive to Host or Match directives.
+      # We use a temp file for portability across macOS and Linux.
+      TMP_SSH_CONFIG=$(mktemp)
+      cat > "${TMP_SSH_CONFIG}" <<EOF
 # Include Lima VM SSH configurations.
 Include ~/.lima/*/ssh.config
 
 EOF
-    cat ~/.ssh/config >> "${TMP_SSH_CONFIG}"
-    mv "${TMP_SSH_CONFIG}" ~/.ssh/config
+      cat ~/.ssh/config >> "${TMP_SSH_CONFIG}"
+      mv "${TMP_SSH_CONFIG}" ~/.ssh/config
+  fi
+else
+  # if config doesn't exist yet, create it with our default content
+  cat > ~/.ssh/config <<EOF
+# Include Lima VM SSH configurations.
+Include ~/.lima/*/ssh.config
+
+EOF
 fi
 
 # Create VM share directory
@@ -166,4 +176,3 @@ echo "To get a shell:     limactl shell ${VM_NAME}"
 echo "To stop the VM:     limactl stop ${VM_NAME}"
 echo "To delete the VM:   limactl delete ${VM_NAME}"
 echo ""
-

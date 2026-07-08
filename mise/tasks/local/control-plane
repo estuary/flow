@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Start control plane agent via systemd"
-#MISE depends=["local:common", "local:tls-cert", "local:supabase"]
+#MISE depends=["local:common", "local:tls-cert", "local:supabase", "local:bigtable"]
 
 FLOW_LOCAL="${HOME}/flow-local"
 mkdir -p "${FLOW_LOCAL}/env"
@@ -26,7 +26,18 @@ SERVE_HANDLERS=true
 SKIP_CONNECTOR_TABLE_CHECK=true
 SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
 
+BIGTABLE_PROJECT=estuary-local
+BIGTABLE_INSTANCE=estuary-local
+BIGTABLE_EMULATOR_HOST=localhost:8086
+
 EOF
+
+# Forward STRIPE_API_KEY from the invoking shell when set
+# (e.g. a testmode key pasted before `mise run`). Without it, billing
+# GraphQL operations return an error indicating billing is not configured.
+if [ -n "${STRIPE_API_KEY:-}" ]; then
+    echo "STRIPE_API_KEY=${STRIPE_API_KEY}" >> "${FLOW_LOCAL}/env/agent.env"
+fi
 
 cat > "${FLOW_LOCAL}/env/config-encryption.env" <<EOF
 # Config-encryption service environment

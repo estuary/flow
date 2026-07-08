@@ -163,42 +163,64 @@ pub mod request {
     }
     /// Load a document identified by its key. The given key may have never before been stored,
     /// but a given key will be sent in a transaction Load just one time.
+    ///
+    /// The runtime populates exactly one of `key_json` or `key_packed` per the
+    /// negotiated codec.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Load {
         /// Index of the Open binding for which this document is to be loaded.
         #[prost(uint32, tag = "1")]
         pub binding: u32,
-        /// key tuple, as an array of key components.
+        /// Key tuple, as a JSON array of key components.
         /// Ordering matches `keys` of the materialization's field selection.
+        /// Set only for JSON connectors; empty otherwise.
         #[prost(bytes = "bytes", tag = "2")]
         pub key_json: ::prost::bytes::Bytes,
-        /// Packed tuple of the document key to load.
+        /// Packed FoundationDB tuple of the document key to load.
+        /// Set only for protobuf connectors; empty otherwise.
         #[prost(bytes = "bytes", tag = "3")]
         pub key_packed: ::prost::bytes::Bytes,
     }
     /// Flush loads. No further Loads will be sent in this transaction,
     /// and the runtime will await the connectors's remaining Loaded
     /// responses followed by one Flushed response.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Flush {}
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Flush {
+        /// Aggregated state patches from all shards' prior-transaction Acknowledged
+        /// responses, as a tab-delimited JSON array. Includes this shard's own
+        /// patches (the runtime feeds the shard's contribution back to it for
+        /// symmetry with the scaled-out case). Connectors participating in
+        /// cooperative multi-shard strategies use this to observe peers' state.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub state_patches_json: ::prost::bytes::Bytes,
+    }
     /// Store documents updated by the current transaction.
+    ///
+    /// The runtime populates exactly one of the JSON encodings (`key_json`,
+    /// `values_json`) or the packed encodings (`key_packed`, `values_packed`),
+    /// per the negotiated codec. `doc_json` is independent of the
+    /// codec and is set whenever the document is stored.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct Store {
         /// Index of the Open binding for which this document is to be stored.
         #[prost(uint32, tag = "1")]
         pub binding: u32,
-        /// Key tuple, as an array of key components.
+        /// Key tuple, as a JSON array of key components.
         /// Ordering matches `keys` of the materialization's field selection.
+        /// Set only for JSON connectors; empty otherwise.
         #[prost(bytes = "bytes", tag = "2")]
         pub key_json: ::prost::bytes::Bytes,
         /// Packed FoundationDB tuple of the document key to store.
+        /// Set only for protobuf connectors; empty otherwise.
         #[prost(bytes = "bytes", tag = "3")]
         pub key_packed: ::prost::bytes::Bytes,
-        /// Values tuple, as an array of value components.
+        /// Values tuple, as a JSON array of value components.
         /// Ordering matches `values` of the materialization's field selection.
+        /// Set only for JSON connectors; empty otherwise.
         #[prost(bytes = "bytes", tag = "4")]
         pub values_json: ::prost::bytes::Bytes,
         /// Packed FoundationDB tuple of the document values to store.
+        /// Set only for protobuf connectors; empty otherwise.
         #[prost(bytes = "bytes", tag = "5")]
         pub values_packed: ::prost::bytes::Bytes,
         /// JSON document to store.
@@ -218,11 +240,20 @@ pub mod request {
         /// Flow runtime checkpoint to commit with this transaction.
         #[prost(message, optional, tag = "1")]
         pub runtime_checkpoint: ::core::option::Option<::proto_gazette::consumer::Checkpoint>,
+        /// Aggregated state patches from all shards' current-transaction Flushed
+        /// responses, as a tab-delimited JSON array.
+        #[prost(bytes = "bytes", tag = "2")]
+        pub state_patches_json: ::prost::bytes::Bytes,
     }
     /// Acknowledge to the connector that the previous transaction
     /// has committed to the Flow runtime's recovery log.
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct Acknowledge {}
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Acknowledge {
+        /// Aggregated connector state patches from all shards' just-committed
+        /// StartedCommit responses, as a tab-delimited JSON array.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub state_patches_json: ::prost::bytes::Bytes,
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Response {
@@ -281,6 +312,19 @@ pub mod response {
     }
     /// Nested message and enum types in `Validated`.
     pub mod validated {
+        /// ProjectionConstraint pairs a projection field name with a single Constraint.
+        /// Unlike the legacy `constraints` map, a repeated list of ProjectionConstraint
+        /// allows multiple constraints to be expressed for the same field simultaneously.
+        /// For example, INCOMPATIBLE and LOCATION_REQUIRED on the same field signals that
+        /// the field is required but the existing destination column has an incompatible
+        /// type, and a backfill is needed.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct ProjectionConstraint {
+            #[prost(string, tag = "1")]
+            pub field: ::prost::alloc::string::String,
+            #[prost(message, optional, tag = "2")]
+            pub constraint: ::core::option::Option<Constraint>,
+        }
         /// Constraint constrains the use of a flow.Projection within a materialization.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct Constraint {
@@ -412,6 +456,11 @@ pub mod response {
             /// Constraints imposed by the connector, keyed by field name.
             /// Projections of the CollectionSpec which are missing from
             /// constraints are implicitly forbidden.
+            ///
+            /// Deprecated: use projection_constraints instead. When projection_constraints
+            /// is non-empty it is authoritative and this map is ignored by the control
+            /// plane. This field is retained for backward compatibility with connectors
+            /// that have not yet migrated to the list form.
             #[prost(btree_map = "string, message", tag = "1")]
             pub constraints:
                 ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, Constraint>,
@@ -443,6 +492,17 @@ pub mod response {
             /// Serialization policy to use for this binding.
             #[prost(message, optional, tag = "4")]
             pub ser_policy: ::core::option::Option<super::super::super::flow::SerPolicy>,
+            /// Constraints on each projection, as a list that allows multiple constraints
+            /// per projection field. When non-empty, this field is authoritative and the
+            /// legacy `constraints` map is ignored.
+            ///
+            /// Connectors should populate this field instead of `constraints`. The list
+            /// form allows expressing compound requirements that a single constraint type
+            /// cannot capture. For example, emitting both INCOMPATIBLE and
+            /// LOCATION_REQUIRED for the same field signals that the field is required
+            /// but the existing destination column is incompatible; a backfill is required.
+            #[prost(message, repeated, tag = "6")]
+            pub projection_constraints: ::prost::alloc::vec::Vec<ProjectionConstraint>,
         }
     }
     /// Applied responds to Request.Apply.

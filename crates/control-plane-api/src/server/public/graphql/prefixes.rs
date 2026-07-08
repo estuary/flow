@@ -5,8 +5,18 @@ use async_graphql::{Context, types::connection};
 pub struct PrefixRef {
     /// The prefix to which the user is authorized.
     pub prefix: models::Prefix,
-    /// The capability granted to the user for this prefix.
+    /// The literal legacy `capability` column value of the grant(s) that
+    /// emitted this prefix (max'd if multiple grants land at the same
+    /// prefix). Reports `none` for prefixes whose authorization comes
+    /// entirely from the `bundles` column rather than the legacy column.
+    ///
+    /// Exists solely so the dashboard's read/write/admin prefix-bucket
+    /// store keeps working until it migrates to consuming `capabilities`
+    /// directly. Once that migration lands, this field and its derivation
+    /// can be deleted.
     pub user_capability: models::Capability,
+    /// Fine-grained capabilities the user has at this prefix.
+    pub capabilities: Vec<models::authz::Capability>,
 }
 
 #[derive(Debug, Clone, async_graphql::InputObject)]
@@ -40,25 +50,32 @@ impl PrefixesQuery {
         let env = ctx.data::<crate::Envelope>()?;
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
-            let mut all_roles: Vec<PrefixRef> = tables::UserGrant::transitive_roles(
-                &env.snapshot().role_grants,
-                &env.snapshot().user_grants,
-                env.claims()?.sub,
-            )
-            .filter(|grant| grant.capability >= by.min_capability)
-            .filter(|grant| after.as_deref().is_none_or(|min| grant.object_role > min))
-            .map(|grant| PrefixRef {
-                prefix: models::Prefix::new(grant.object_role),
-                user_capability: grant.capability,
-            })
-            .collect();
+            let snapshot = env.snapshot();
+            let user_id = env.claims()?.sub;
 
-            all_roles.sort_by(|l, r| {
-                l.prefix
-                    .cmp(&r.prefix)
-                    .then(l.user_capability.cmp(&r.user_capability).reverse())
-            });
-            all_roles.dedup_by(|l, r| l.prefix == r.prefix);
+            let min_bits: models::authz::CapabilitySet = by.min_capability.into();
+
+            let reachable = tables::UserGrant::reachable_prefixes(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
+            );
+            // Cursor pagination: BTreeMap::range jumps directly to the
+            // first key strictly greater than the previous page's last
+            // prefix, rather than iterating from the start and filtering
+            // past it.
+            let start = after
+                .as_deref()
+                .map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
+            let all_roles: Vec<PrefixRef> = reachable
+                .range::<str, _>((start, std::ops::Bound::Unbounded))
+                .filter(|(_, (bits, _))| bits.is_superset(min_bits))
+                .map(|(prefix, (bits, legacy))| PrefixRef {
+                    prefix: models::Prefix::new(*prefix),
+                    user_capability: *legacy,
+                    capabilities: bits.iter().collect(),
+                })
+                .collect();
 
             let take = first.unwrap_or(all_roles.len());
             let has_next = first.is_some_and(|limit| all_roles.len() > limit);

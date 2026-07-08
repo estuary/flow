@@ -1,0 +1,12 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: "snap.field_outcomes.get(\"flow_document\").unwrap()"
+---
+Both(
+    ConnectorRequiresLocation {
+        reason: "root document projection required for standard updates",
+    },
+    ConnectorIncompatible {
+        reason: "existing column has wrong type",
+    },
+)

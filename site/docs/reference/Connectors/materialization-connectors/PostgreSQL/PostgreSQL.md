@@ -69,6 +69,7 @@ Use the below properties to configure a Postgres materialization, which will dir
 | `/hardDelete` | Hard Delete | If this option is enabled, items deleted in the source will also be deleted from the destination. Otherwise, `_meta/op` in the destination will signify whether rows have been deleted (soft-delete). | boolean | `false` |
 | `/advanced`         | Advanced Options | Options for advanced users. You should not typically need to modify these.                                                                                                                                                     | object |                  |
 | `/advanced/sslmode` | SSL Mode         | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                                                                                                          | string |                  |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 
 ##### Authentication
 
@@ -96,6 +97,18 @@ Use the below properties to configure a Postgres materialization, which will dir
 #### SSL Mode
 
 Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Estuary. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
+
+#### Additional Table Create SQL
+
+You can use the `additional_table_create_sql` binding property to run custom SQL statements in the same transaction that creates the destination table. This is useful for creating indexes or other table modifications that you want applied automatically — including when a table is re-created due to schema changes.
+
+For example, to create an index on a `dateCreated` column:
+
+```sql
+CREATE INDEX idx_orders_date_created ON orders("dateCreated");
+```
+
+This SQL runs only during table creation. If the table already exists, you'll need to re-backfill the binding for the SQL to execute. Do not include statements that re-create the table itself — the connector handles table creation automatically.
 
 ### Sample
 

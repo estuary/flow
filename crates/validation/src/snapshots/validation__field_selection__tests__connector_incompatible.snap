@@ -335,6 +335,6 @@ Snap {
         },
     },
     conflicts: [
-        "conflict for field \"an_array\": field is part of the current materialization but connector cannot support this field without a back-fill (Wrong type in the DB and can't migrate)",
+        "conflict for field \"an_array\": field is part of the current materialization but connector cannot support this field without a backfill (Wrong type in the DB and can't migrate)",
     ],
 }

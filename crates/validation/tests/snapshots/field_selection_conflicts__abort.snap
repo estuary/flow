@@ -22,6 +22,7 @@ expression: "(selections, errors)"
             Some(
                 MaterializationDef {
                     source: None,
+                    target_naming: None,
                     on_incompatible_schema_change: Abort,
                     endpoint: Connector(
                         ConnectorConfig {
@@ -62,7 +63,9 @@ expression: "(selections, errors)"
                         hot_standbys: None,
                         ring_buffer_size: None,
                         read_channel_size: None,
+                        shuffle_disk_limit: None,
                         log_level: None,
+                        flags: {},
                     },
                     expect_pub_id: None,
                     triggers: None,
@@ -76,7 +79,7 @@ expression: "(selections, errors)"
     [
         Error {
             scope: test://example/catalog.yaml#/materializations/the~1materialization/bindings/0,
-            error: raising an error because the/materialization specifies `onIncompatibleSchemaChange: abort`: conflict for field "f_incompatible": field is within the desired depth but connector cannot support this field without a back-fill (I'm an incompatible field),
+            error: raising an error because the/materialization specifies `onIncompatibleSchemaChange: abort`: conflict for field "f_incompatible": field is within the desired depth but connector cannot support this field without a backfill (I'm an incompatible field),
         },
     ],
 )

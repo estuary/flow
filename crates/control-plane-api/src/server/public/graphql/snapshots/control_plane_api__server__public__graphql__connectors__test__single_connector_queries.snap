@@ -1,0 +1,86 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/connectors.rs
+expression: response
+---
+{
+  "data": {
+    "dest": {
+      "defaultImageTag": ":v3",
+      "defaultSpec": {
+        "disableBackfill": false,
+        "endpointSpecSchema": {
+          "type": "object"
+        },
+        "imageTag": ":v3",
+        "protocol": "materialization",
+        "resourceSpecSchema": {
+          "properties": {
+            "delta": {
+              "type": "boolean",
+              "x-delta-updates": true
+            },
+            "id": {
+              "type": "string",
+              "x-collection-name": true
+            },
+            "schema": {
+              "type": "string",
+              "x-schema-name": true
+            }
+          },
+          "type": "object"
+        }
+      },
+      "id": "5555555500000005",
+      "imageName": "materialize/multi-tag-test",
+      "protocol": "materialization",
+      "recommended": false,
+      "title": "test"
+    },
+    "mismatchedPair": null,
+    "missing": null,
+    "noTagsDest": {
+      "defaultImageTag": null,
+      "defaultSpec": null,
+      "id": "5555555500000003",
+      "imageName": "materialize/no-tags-test",
+      "protocol": null,
+      "recommended": false,
+      "title": "test"
+    },
+    "noTagsSource": {
+      "defaultImageTag": null,
+      "defaultSpec": null,
+      "id": "5555555500000002",
+      "imageName": "source/no-tags-test",
+      "protocol": null,
+      "recommended": false,
+      "title": "test"
+    },
+    "source": {
+      "defaultImageTag": ":v1",
+      "defaultSpec": {
+        "disableBackfill": false,
+        "endpointSpecSchema": {
+          "type": "object"
+        },
+        "imageTag": ":v1",
+        "protocol": "capture",
+        "resourceSpecSchema": {
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-collection-name": true
+            }
+          },
+          "type": "object"
+        }
+      },
+      "id": "5555555500000004",
+      "imageName": "source/multi-tag-test",
+      "protocol": "capture",
+      "recommended": true,
+      "title": "test"
+    }
+  }
+}

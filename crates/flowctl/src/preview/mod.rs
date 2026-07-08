@@ -95,13 +95,9 @@ impl Preview {
         };
 
         // TODO(johnny): validate only `name`, if presented.
-        let (_sources, _live, validations) = local_specs::load_and_validate_full(
-            &ctx.client,
-            source.as_str(),
-            &network,
-            log_handler,
-        )
-        .await?;
+        let (_sources, _live, validations) =
+            local_specs::load_and_validate_full(ctx, source.as_str(), &network, log_handler)
+                .await?;
 
         let runtime = runtime::Runtime::new(
             runtime::Plane::Local,
@@ -138,7 +134,7 @@ impl Preview {
                     path: std::path::PathBuf::from(fixture),
                 },
             );
-        let journal_reader = journal_reader::Reader::new(&ctx.client, delay);
+        let journal_reader = journal_reader::Reader::new(ctx, delay);
 
         let initial_state =
             models::RawValue::from_str(initial_state).context("initial state is not valid JSON")?;
@@ -364,7 +360,7 @@ async fn preview_derivation<L: runtime::LogHandler>(
             tracing::trace!(?max_clock, ?key_packed, ?partitions_packed, "published");
 
             print!("{}\n", str::from_utf8(&doc_json).unwrap());
-        } else if let Some(derive::response::Flushed {}) = response.flushed {
+        } else if let Some(derive::response::Flushed { .. }) = response.flushed {
             let proto_flow::runtime::derive_response_ext::Flushed { stats } =
                 internal.flushed.unwrap_or_default();
             tracing::debug!(stats=?ops::DebugJson(stats), "flushed");

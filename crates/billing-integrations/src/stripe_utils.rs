@@ -1,43 +1,6 @@
-use crate::publish::{BILLING_PERIOD_END_KEY, BILLING_PERIOD_START_KEY, TENANT_METADATA_KEY};
+use billing_types::{InvoiceMetadata, SearchParams, stripe_search};
 use num_format::{Locale, ToFormattedString};
-use serde::{Serialize, de::DeserializeOwned};
 use std::ops::{Deref, DerefMut};
-use stripe::SearchList;
-
-#[derive(Serialize, Default, Debug)]
-pub struct SearchParams {
-    pub query: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expand: Option<Vec<String>>,
-}
-
-pub async fn stripe_search<R: DeserializeOwned + 'static + Send>(
-    client: &stripe::Client,
-    resource: &str,
-    mut params: SearchParams,
-) -> Result<Vec<R>, stripe::StripeError> {
-    let mut all_data = Vec::new();
-    let mut page = None;
-    loop {
-        if let Some(p) = page {
-            params.page = Some(p);
-        }
-        let resp: SearchList<R> = client
-            .get_query(&format!("/{}/search", resource), &params)
-            .await?;
-        let count = resp.data.len();
-        all_data.extend(resp.data);
-        if count == 0 || !resp.has_more {
-            break;
-        }
-        page = resp.next_page;
-    }
-    Ok(all_data)
-}
 
 pub async fn fetch_invoices(
     stripe_client: &stripe::Client,
@@ -59,7 +22,6 @@ pub async fn fetch_invoices(
             .map(|inv: stripe::Invoice| Invoice::from(inv))
             .collect()
     })
-    .map_err(|e| e.into())
 }
 
 #[derive(Clone, Debug)]
@@ -90,8 +52,8 @@ impl Invoice {
         self.0
             .metadata
             .as_ref()
-            .and_then(|m| m.get(TENANT_METADATA_KEY))
-            .cloned()
+            .and_then(InvoiceMetadata::from_metadata_map)
+            .map(|m| m.tenant)
             .unwrap_or_default()
     }
     pub fn amount(&self) -> f64 {
@@ -126,16 +88,16 @@ impl Invoice {
         self.0
             .metadata
             .as_ref()
-            .and_then(|m| m.get(BILLING_PERIOD_START_KEY))
-            .cloned()
+            .and_then(InvoiceMetadata::from_metadata_map)
+            .map(|m| m.period_start)
     }
 
     pub fn period_end(&self) -> Option<String> {
         self.0
             .metadata
             .as_ref()
-            .and_then(|m| m.get(BILLING_PERIOD_END_KEY))
-            .cloned()
+            .and_then(InvoiceMetadata::from_metadata_map)
+            .map(|m| m.period_end)
     }
 
     pub fn to_table_row(&self) -> Vec<comfy_table::Cell> {

@@ -119,9 +119,13 @@ impl json::Fields<ArchivedNode> for [ArchivedField] {
     type Iter<'a> = std::slice::Iter<'a, ArchivedField>;
 
     fn get<'a>(&'a self, property: &str) -> Option<Self::Field<'a>> {
-        match self.binary_search_by(|l| l.property.as_ref().cmp(property)) {
-            Ok(ind) => Some(&self[ind]),
-            Err(_) => None,
+        if self.len() < 16 {
+            self.iter().find(|l| l.property.as_ref() == property)
+        } else {
+            match self.binary_search_by(|l| l.property.as_ref().cmp(property)) {
+                Ok(ind) => Some(&self[ind]),
+                Err(_) => None,
+            }
         }
     }
 

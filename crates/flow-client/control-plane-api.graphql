@@ -1,3 +1,27 @@
+type AWSPrivateLink {
+	region: String!
+	azIds: [String!]!
+	serviceName: String!
+	serviceRegion: String
+}
+
+input AWSPrivateLinkInput {
+	region: String!
+	azIds: [String!]!
+	serviceName: String!
+	serviceRegion: String
+}
+
+"""
+Status of the abandonment evaluation for a task.
+"""
+type AbandonStatus {
+	"""
+	When this spec was last checked for abandonment
+	"""
+	lastEvaluated: DateTime
+}
+
 """
 Status of the task shards running in the data-plane. This records information about
 the activations of builds in the data-plane, including any subsequent re-activations
@@ -70,6 +94,60 @@ type Alert {
 	resolvedArguments: JSON
 }
 
+"""
+A single row from `public.alert_configs`.
+"""
+type AlertConfigEntry {
+	id: Id!
+	catalogPrefixOrName: String!
+	config: JSON!
+	detail: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	lastModifiedBy: UUID
+	"""
+	The fully-resolved effective config at this scope, merging all
+	ancestor prefix layers and controller defaults.
+	"""
+	effective: EffectiveAlertConfig!
+}
+
+type AlertConfigEntryConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [AlertConfigEntryEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type AlertConfigEntryEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: AlertConfigEntry!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+Optional filter for the `alertConfigs` query. When omitted, all accessible
+rows are returned.
+"""
+input AlertConfigsFilter {
+	"""
+	Filter on the `catalog_prefix_or_name` column.
+	"""
+	catalogPrefixOrName: PrefixFilter
+}
+
 type AlertConnection {
 	"""
 	Information to aid in pagination.
@@ -126,51 +204,44 @@ input AlertSubscriptionsBy {
 }
 
 enum AlertType {
-	"""
-	Triggers when the automated background discovery process fails. If this
-	alert is firing, it means that the Capture may be unable to respond to
-	schema changes in the source system.
-	"""
 	auto_discover_failed
-	"""
-	Triggers when there has been no data successfully processed by the task during
-	the configured alert interval.
-	"""
 	data_movement_stalled
-	"""
-	Triggers automatically for every tenant that begins a free
-	trial, and resolves when the trial period ends.
-	"""
 	free_trial
-	"""
-	Triggers when the free trial is getting close to expiring.
-	"""
 	free_trial_ending
-	"""
-	Triggers after the free trial period has expired, and still no payment info
-	has been added.
-	"""
 	free_trial_stalled
-	"""
-	Triggers for any tenants that do not have a payment method, and resolves when
-	a payment method is added.
-	"""
 	missing_payment_method
-	"""
-	Triggers after repeated task failures have been observed. The task may or may not
-	continue to make progress in between failures, but at a minimum, performance will
-	be degraded. And in many scenarios, the task will be unable to process data at all.
-	"""
 	shard_failed
-	"""
-	Triggers when an automated background process needs to publish a spec,
-	but is unable to because of publication errors. Background publications
-	are peformed on all specs for a variety of reasons. For example,
-	updating inferred schemas, or updating materialization bindings to match
-	the source capture. When these publications fail, tasks are likely to
-	stop functioning correctly until the issue can be addressed.
-	"""
+	task_chronically_failing
+	task_auto_disabled_failing
+	task_idle
+	task_auto_disabled_idle
 	background_publication_failed
+}
+
+"""
+Describes an alert type with user-facing metadata.
+"""
+type AlertTypeInfo {
+	"""
+	The alert type identifier.
+	"""
+	alertType: AlertType!
+	"""
+	A user-facing description of what this alert type means.
+	"""
+	description: String!
+	"""
+	A short, user-facing alert type name.
+	"""
+	displayName: String!
+	"""
+	An indication of whether the alert type is subscribed to by default.
+	"""
+	isDefault: Boolean!
+	"""
+	An indication of whether the alert type is considered to be a system alert.
+	"""
+	isSystem: Boolean!
 }
 
 input AlertsBy {
@@ -255,6 +326,49 @@ type AutoDiscoverStatus {
 	failure: AutoDiscoverFailure
 }
 
+type AzurePrivateLink {
+	serviceName: String!
+	location: String!
+	dnsName: String
+	resourceType: String
+}
+
+input AzurePrivateLinkInput {
+	serviceName: String!
+	location: String!
+	dnsName: String
+	resourceType: String
+}
+
+type BillingAddress {
+	line1: String
+	line2: String
+	city: String
+	state: String
+	postalCode: String
+	country: String
+}
+
+input BillingAddressInput {
+	line1: String
+	line2: String
+	city: String
+	state: String
+	postalCode: String
+	country: String
+}
+
+type BillingContact {
+	email: String
+	name: String
+	address: BillingAddress
+}
+
+type BillingPaymentMethodPayload {
+	paymentMethods: [PaymentMethod!]!
+	primaryPaymentMethod: PaymentMethod
+}
+
 input BoolFilter {
 	eq: Boolean
 }
@@ -266,9 +380,33 @@ enum Capability {
 	"""
 	Note that the discriminants here align with those in the database type.
 	"""
+	none
 	read
 	write
 	admin
+}
+
+enum CapabilityBit {
+	CatalogRead
+	JournalRead
+	JournalAppend
+	SpecEdit
+	CreateGrant
+	DeleteGrant
+	CreateInviteLink
+	ViewDataPlanePrivateNetworking
+	ModifyDataPlanePrivateNetworking
+	ViewBilling
+	EditBilling
+	Delegate
+	Assume
+}
+
+type CardPaymentMethodDetails {
+	brand: String
+	last4: String
+	expMonth: Int!
+	expYear: Int!
 }
 
 enum CatalogType {
@@ -276,6 +414,12 @@ enum CatalogType {
 	collection
 	materialization
 	test
+}
+
+enum ChargeStatus {
+	FAILED
+	PENDING
+	SUCCEEDED
 }
 
 scalar Collection
@@ -299,6 +443,146 @@ type ConnectionHealthTestResult {
 }
 
 """
+A connector from the Estuary connector catalog, identified by its OCI image
+name (e.g. "ghcr.io/estuary/source-postgres"). Use `defaultSpec` to get the
+configuration schemas for the blessed image tag, or `spec(imageTag)` for a
+specific version.
+"""
+type Connector {
+	"""
+	Unique id of the connector
+	"""
+	id: Id!
+	"""
+	Timestamp of when the connector was first created
+	"""
+	createdAt: DateTime!
+	"""
+	Link to an external site with more information about the endpoint
+	"""
+	externalUrl: String!
+	"""
+	Name of the connector's OCI (Docker) container image, for example "ghcr.io/estuary/source-postgres"
+	"""
+	imageName: String!
+	"""
+	Whether this connector should appear in a promoted position in connector listings
+	"""
+	recommended: Boolean!
+	"""
+	The title, a few words at most
+	"""
+	title: String
+	"""
+	The connector's logo image, represented as a URL per locale
+	"""
+	logoUrl: String
+	"""
+	A string that contains a list of connector details (latency, batch, etc.)
+	"""
+	detail: String
+	"""
+	The protocol of this connector (capture or materialization).
+	"""
+	protocol: ConnectorProto
+	"""
+	Look up the spec for a specific image tag of this connector.
+	"""
+	spec(
+		"""
+		the OCI Image tag, including the leading ':', e.g. ':v1'
+		"""
+		imageTag: String!
+	): ConnectorSpec
+	"""
+	The spec for this connector's default (blessed) image tag. This is the
+	spec that should be used when configuring newly created tasks.
+	"""
+	defaultSpec: ConnectorSpec
+	"""
+	The blessed image tag for newly created tasks using this connector.
+	Resolved as the lexicographically highest image tag among tags with
+	a complete spec, e.g. `:v2` wins over `:v1`, `:v1` wins over `:dev`.
+	"""
+	defaultImageTag: String
+}
+
+type ConnectorConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [ConnectorEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type ConnectorEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Connector!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
+The type of task that the connector is used for. Derivation connectors
+exist but are not yet represented in this API.
+"""
+enum ConnectorProto {
+	capture
+	materialization
+}
+
+"""
+The resolved specification for a connector at a particular image tag.
+Includes the JSON schemas needed to configure the connector's endpoint
+and resources.
+"""
+type ConnectorSpec {
+	"""
+	The database ID of the connector_tags row backing this spec.
+	"""
+	id: Id! @deprecated(reason: "Not intended to be part of the public API. To be removed once downstream components no longer depend on this field.")
+	"""
+	The OCI Image tag this spec was resolved from, including the leading `:`. For example `:v1`.
+	This may differ from the requested tag if the request fell back to the default.
+	"""
+	imageTag: String!
+	"""
+	The protocol of the connector (capture or materialization)
+	"""
+	protocol: ConnectorProto
+	"""
+	URL pointing to the documentation page for this connector
+	"""
+	documentationUrl: String
+	"""
+	Endpoint configuration JSON Schema. Returned as raw JSON because JSON Schema is a recursive format that cannot be meaningfully decomposed into GraphQL fields.
+	"""
+	endpointSpecSchema: JSON
+	"""
+	Resource configuration JSON Schema. Returned as raw JSON because JSON Schema is a recursive format that cannot be meaningfully decomposed into GraphQL fields.
+	"""
+	resourceSpecSchema: JSON
+	"""
+	Whether backfill should be disabled for this connector
+	"""
+	disableBackfill: Boolean!
+	"""
+	The default interval between invocations of a capture using this connector. Formatted as HH:MM:SS. Only applicable to non-streaming (polling) capture connectors.
+	"""
+	defaultCaptureInterval: String
+}
+
+"""
 The shape of a connector status, which matches that of an ops::Log.
 """
 type ConnectorStatus {
@@ -319,6 +603,20 @@ type ConnectorStatus {
 	specific fields and their meanings are entirely up to the connector.
 	"""
 	fields: JSONObject!
+}
+
+"""
+Filters for the paginated `connectors` query.
+"""
+input ConnectorsFilter {
+	"""
+	Filter by connector protocol. Only connectors with at least one version matching this protocol will be returned.
+	"""
+	protocol: ProtocolFilter
+	"""
+	Filter by whether the connector is recommended.
+	"""
+	recommended: Boolean
 }
 
 """
@@ -354,7 +652,15 @@ type Controller {
 	"""
 	configUpdate: PendingConfigUpdateStatus
 	alerts: JSONObject
+	"""
+	Present for captures, collections, and materializations.
+	"""
+	abandon: AbandonStatus
 	updatedAt: DateTime!
+}
+
+type CreateBillingSetupIntentPayload {
+	clientSecret: String!
 }
 
 """
@@ -424,6 +730,30 @@ type DataPlane {
 	Azure application client ID for this data-plane.
 	"""
 	azureApplicationClientId: String
+	"""
+	Configured private link endpoints for this data-plane. Replacing this
+	list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
+	data-plane controller on its next poll. Returns an empty list to
+	callers that lack the `ViewDataPlanePrivateNetworking` capability on
+	this data plane.
+	"""
+	privateLinks: [PrivateLink!]!
+	"""
+	AWS PrivateLink endpoint provisioning results, opaque JSON exported by
+	the data-plane controller. Empty when no AWS endpoints are provisioned,
+	or when the caller lacks `ViewDataPlanePrivateNetworking`.
+	"""
+	awsLinkEndpoints: [JSON!]!
+	"""
+	Azure Private Link endpoint provisioning results, opaque JSON. Empty when
+	the caller lacks `ViewDataPlanePrivateNetworking`.
+	"""
+	azureLinkEndpoints: [JSON!]!
+	"""
+	GCP Private Service Connect endpoint provisioning results, opaque JSON.
+	Empty when the caller lacks `ViewDataPlanePrivateNetworking`.
+	"""
+	gcpPscEndpoints: [JSON!]!
 }
 
 """
@@ -461,6 +791,11 @@ type DataPlaneEdge {
 	cursor: String!
 }
 
+input DateFilter {
+	gt: NaiveDate
+	lt: NaiveDate
+}
+
 """
 Implement the DateTime<Utc> scalar
 
@@ -486,6 +821,11 @@ type DiscoverChange {
 	disable: Boolean!
 }
 
+type EffectiveAlertConfig {
+	config: JSON!
+	provenance: [FieldProvenance!]!
+}
+
 """
 A generic error that can be associated with a particular draft spec for a given operation.
 """
@@ -493,6 +833,27 @@ type Error {
 	catalogName: String!
 	scope: String
 	detail: String!
+}
+
+type FieldProvenance {
+	path: String!
+	source: String
+}
+
+type GCPPrivateServiceConnect {
+	serviceAttachment: String!
+	region: String!
+	dnsZoneName: String!
+	dnsRecordNames: [String!]!
+	allPorts: Boolean!
+}
+
+input GCPPrivateServiceConnectInput {
+	serviceAttachment: String!
+	region: String!
+	dnsZoneName: String!
+	dnsRecordNames: [String!]!
+	allPorts: Boolean! = false
 }
 
 scalar Id
@@ -595,6 +956,72 @@ input InviteLinksFilter {
 	catalogPrefix: PrefixFilter
 }
 
+type Invoice {
+	dateStart: String!
+	dateEnd: String!
+	invoiceType: InvoiceType!
+	subtotal: Int!
+	lineItems: JSON!
+	extra: JSON!
+	amountDue: Int
+	status: String
+	invoicePdf: String
+	hostedInvoiceUrl: String
+	paymentDetails: InvoicePaymentDetails
+}
+
+type InvoiceConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [InvoiceEdge!]!
+	"""
+	A list of nodes.
+	"""
+	nodes: [Invoice!]!
+}
+
+"""
+An edge in a connection.
+"""
+type InvoiceEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: Invoice!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+input InvoiceFilter {
+	dateStart: DateFilter
+	dateEnd: DateFilter
+	invoiceType: InvoiceTypeFilter
+}
+
+type InvoicePaymentDetails {
+	status: ChargeStatus!
+	receiptUrl: String
+	card: CardPaymentMethodDetails
+	usBankAccount: UsBankAccountPaymentMethodDetails
+}
+
+enum InvoiceType {
+	FINAL
+	PREVIEW
+	MANUAL
+}
+
+input InvoiceTypeFilter {
+	eq: InvoiceType
+}
+
 """
 A scalar that can represent any JSON value.
 """
@@ -638,6 +1065,11 @@ type LiveSpec {
 	be empty if this spec is a not a collection.
 	"""
 	readBy(after: String, before: String, first: Int, last: Int): LiveSpecRefConnection
+	"""
+	The fully-resolved effective alert config for this task, merging all
+	ancestor prefix layers and controller defaults.
+	"""
+	effectiveAlertConfig: EffectiveAlertConfig!
 }
 
 """
@@ -767,6 +1199,10 @@ type LockFailure {
 }
 
 type MutationRoot {
+	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
+	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
+	setBillingContact(tenant: String!, email: String!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
+	deleteBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	"""
 	Create a storage mapping for the given catalog prefix.
 	
@@ -800,6 +1236,22 @@ type MutationRoot {
 	"""
 	testConnectionHealth(catalogPrefix: Prefix!, spec: JSON!): ConnectionHealthTestResult!
 	"""
+	Creates or replaces the alert config at `catalogPrefixOrName`.
+	
+	`catalogPrefixOrName` is either a catalog prefix ending in `/`
+	(applies to all tasks under that prefix) or an exact catalog name
+	with no trailing slash (applies to that single task). Exact catalog
+	names must refer to a task that currently exists in `live_specs`;
+	prefixes have no such constraint.
+	
+	To clear all configured overrides while keeping the row, pass an empty
+	`{}` config.
+	
+	If `detail` is omitted or `null` on update, the existing `detail`
+	value is preserved.
+	"""
+	updateAlertConfig(catalogPrefixOrName: String!, config: JSON!, detail: String): UpdateAlertConfigResult!
+	"""
 	Creates a new alert subscription. Returns an error if there is already
 	an existing subscription for the same prefix and email address.
 	"""
@@ -831,7 +1283,48 @@ type MutationRoot {
 	The caller must have admin capability on the invite link's catalog prefix.
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
+	"""
+	Replaces the configured private link endpoints on a private data plane.
+	
+	The provided list overwrites the entire `private_links` column; partial
+	updates are intentionally not supported. The data-plane controller
+	converges to the new configuration on its next poll. Returns the desired
+	private links state. The `*LinkEndpoints` provisioning results are not echoed here:
+	they lag this write until the controller converges, so callers needing them re-query `dataPlanes`.
+	
+	Requires the `ModifyDataPlanePrivateNetworking` capability on the
+	private data-plane name.
+	"""
+	updateDataPlanePrivateLinks(dataPlaneName: String!, privateLinks: [PrivateLinkInput!]!): [PrivateLink!]!
+	"""
+	Create a refresh token for the authenticated user.
+	"""
+	createRefreshToken(
+		"""
+		ISO 8601 duration for token validity (e.g. P90D); must be greater than zero and at most one year
+		"""
+		validFor: String! = "P90D",		multiUse: Boolean! = true,		detail: String = null
+	): RefreshTokenResult!
+	"""
+	Revoke a refresh token owned by the authenticated user.
+	
+	Rather than deleting the row, we zero its `valid_for` interval, which
+	marks the token as expired/invalid while preserving the audit trail.
+	Already-zeroed (revoked) tokens are treated as not found.
+	"""
+	revokeRefreshToken(id: Id!): Boolean!
 }
+
+"""
+ISO 8601 calendar date without timezone.
+Format: %Y-%m-%d
+
+# Examples
+
+* `1994-11-13`
+* `2000-02-24`
+"""
+scalar NaiveDate
 
 scalar Name
 
@@ -855,6 +1348,18 @@ type PageInfo {
 	When paginating forwards, the cursor to continue.
 	"""
 	endCursor: String
+}
+
+type PaymentMethod {
+	id: String!
+	type: String!
+	billingDetails: PaymentMethodBillingDetails!
+	card: CardPaymentMethodDetails
+	usBankAccount: UsBankAccountPaymentMethodDetails
+}
+
+type PaymentMethodBillingDetails {
+	name: String
 }
 
 """
@@ -884,9 +1389,21 @@ type PrefixRef {
 	"""
 	prefix: Prefix!
 	"""
-	The capability granted to the user for this prefix.
+	The literal legacy `capability` column value of the grant(s) that
+	emitted this prefix (max'd if multiple grants land at the same
+	prefix). Reports `none` for prefixes whose authorization comes
+	entirely from the `bundles` column rather than the legacy column.
+	
+	Exists solely so the dashboard's read/write/admin prefix-bucket
+	store keeps working until it migrates to consuming `capabilities`
+	directly. Once that migration lands, this field and its derivation
+	can be deleted.
 	"""
 	userCapability: Capability!
+	"""
+	Fine-grained capabilities the user has at this prefix.
+	"""
+	capabilities: [CapabilityBit!]!
 }
 
 type PrefixRefConnection {
@@ -919,6 +1436,32 @@ input PrefixesBy {
 	Filter returned prefixes by user capability.
 	"""
 	minCapability: Capability!
+}
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+union PrivateLink = AWSPrivateLink | AzurePrivateLink | GCPPrivateServiceConnect
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+input PrivateLinkInput @oneOf {
+	aws: AWSPrivateLinkInput
+	azure: AzurePrivateLinkInput
+	gcp: GCPPrivateServiceConnectInput
+}
+
+"""
+Filter connectors by their protocol (capture or materialization).
+"""
+input ProtocolFilter {
+	"""
+	Match connectors that have at least one version with this protocol.
+	"""
+	eq: ConnectorProto!
 }
 
 """
@@ -1010,6 +1553,19 @@ type QueryRoot {
 	prefixes.
 	"""
 	alerts(by: AlertsBy!, before: String, last: Int, after: String, first: Int): AlertConnection!
+	"""
+	Lists alert-config rows visible to the caller.
+	
+	Results are limited to readable prefixes and sorted by
+	`catalog_prefix_or_name`. `filter.catalogPrefixOrName.startsWith` can
+	narrow the results further. Passing a full catalog name returns at
+	most one exact-name row.
+	"""
+	alertConfigs(filter: AlertConfigsFilter, after: String, first: Int): AlertConfigEntryConnection!
+	"""
+	Returns all possible alert types with their user-facing metadata.
+	"""
+	alertTypes: [AlertTypeInfo!]!
 	prefixes(by: PrefixesBy!, after: String, first: Int): PrefixRefConnection!
 	"""
 	Returns a complete list of alert subscriptions.
@@ -1036,6 +1592,42 @@ type QueryRoot {
 	capability, optionally narrowed by a prefix filter.
 	"""
 	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
+	"""
+	Resolve the spec for a full OCI image name (e.g.
+	"ghcr.io/estuary/source-postgres:v1"). If the requested tag is not
+	available, falls back to the default tag. Check the returned `imageTag`
+	field to see which tag was actually resolved.
+	"""
+	connectorSpec(
+		"""
+		the full OCI image name, including the version tag, e.g. 'ghcr.io/estuary/source-foo:v1'
+		"""
+		fullImageName: String!
+	): ConnectorSpec
+	"""
+	Returns information about a single connector. At least one parameter
+	must be provided. If both are provided, the connector must match both
+	the image name and id in order to be returned.
+	"""
+	connector(
+		"""
+		the OCI image name, without a version tag, e.g. 'ghcr.io/estuary/source-foo'
+		"""
+		imageName: String,
+		"""
+		the id of the connector, with or without ':' separators, e.g. '1122334455aabbcc'
+		"""
+		id: Id
+	): Connector
+	"""
+	Returns a paginated list of connectors, optionally filtered by protocol.
+	"""
+	connectors(filter: ConnectorsFilter, after: String, before: String, first: Int, last: Int): ConnectorConnection!
+	tenant(name: String!): Tenant
+	"""
+	List refresh tokens owned by the authenticated user.
+	"""
+	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
 }
 
 """
@@ -1050,6 +1642,50 @@ type RedeemInviteLinkResult {
 	The capability level that was granted.
 	"""
 	capability: Capability!
+}
+
+type RefreshTokenInfo {
+	id: Id!
+	detail: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	multiUse: Boolean!
+	uses: Int!
+	"""
+	True once the token's validity window has elapsed
+	(now is past `updated_at + valid_for`).
+	"""
+	expired: Boolean!
+}
+
+type RefreshTokenInfoConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [RefreshTokenInfoEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type RefreshTokenInfoEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: RefreshTokenInfo!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+type RefreshTokenResult {
+	id: Id!
+	secret: String!
 }
 
 type RepublishRequested {
@@ -1068,6 +1704,10 @@ type RepublishRequested {
 	and complete.
 	"""
 	lastBuildId: Id!
+}
+
+type SetBillingContactPayload {
+	contact: BillingContact!
 }
 
 """
@@ -1412,6 +2052,18 @@ input StorageMappingsBy {
 	underPrefix: Prefix
 }
 
+type Tenant {
+	name: String!
+	billing: TenantBilling!
+}
+
+type TenantBilling {
+	contact: BillingContact!
+	paymentMethods: [PaymentMethod!]!
+	primaryPaymentMethod: PaymentMethod
+	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
+}
+
 """
 A UUID is a unique 128-bit number, stored as 16 octets. UUIDs are parsed as
 Strings within GraphQL. UUIDs are used to assign unique identifiers to
@@ -1423,6 +2075,15 @@ entities without requiring a central allocating authority.
 * [RFC4122: A Universally Unique Identifier (UUID) URN Namespace](http://tools.ietf.org/html/rfc4122)
 """
 scalar UUID
+
+"""
+Result of the `updateAlertConfig` mutation.
+"""
+type UpdateAlertConfigResult {
+	id: Id!
+	catalogPrefixOrName: String!
+	created: Boolean!
+}
 
 """
 Result of updating a storage mapping.
@@ -1443,10 +2104,24 @@ URL is a String implementing the [URL Standard](http://url.spec.whatwg.org/)
 """
 scalar Url
 
+type UsBankAccountPaymentMethodDetails {
+	bankName: String
+	last4: String
+	accountHolderType: String
+}
+
+"""
+Marks an element of a GraphQL schema as no longer supported.
+"""
+directive @deprecated(reason: String = "No longer supported") on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | ENUM_VALUE
 """
 Directs the executor to include this field or fragment only when the `if` argument is true.
 """
 directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one of its field be provided)
+"""
+directive @oneOf on INPUT_OBJECT
 """
 Directs the executor to skip this field or fragment when the `if` argument is true.
 """

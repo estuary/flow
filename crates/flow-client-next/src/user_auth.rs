@@ -20,11 +20,20 @@ impl UserToken {
     }
 }
 
-/// UserTokenSource is a crate::token::Source which emits UserTokens.
-/// It continues from existing `tokens`, creating or exchanging tokens as needed.
+/// UserTokenSource is a tokens::Source which emits UserTokens.
+/// It continues from existing `tokens`, exchanging a refresh token for fresh
+/// access tokens as needed.
+///
+/// `may_create` permits minting a brand-new refresh token from a bare access
+/// token. This is reserved for explicit credential establishment
+/// (`flowctl auth login` / `auth token`): in every other context a bare access
+/// token (for example a `FLOW_AUTH_TOKEN` access token used in automation) is
+/// surfaced as-is and allowed to expire, so we never strand abandoned refresh
+/// tokens on the control-plane.
 pub struct UserTokenSource {
     pub pg_client: postgrest::Postgrest,
     pub tokens: UserToken,
+    pub may_create: bool,
 }
 
 impl tokens::Source for UserTokenSource {
@@ -52,8 +61,9 @@ impl tokens::Source for UserTokenSource {
             // Common case when resuming from a recent, saved configuration.
             (Some((_, valid_for)), Some(_)) if valid_for > TimeDelta::minutes(1) => valid_for,
 
-            // We have an access token but no refresh token. Create one.
-            (Some((access_token, _valid_for)), None) => {
+            // We have an access token but no refresh token, and we're permitted
+            // to create one.
+            (Some((access_token, _valid_for)), None) if self.may_create => {
                 let (refresh_token, access_token, valid_for) =
                     create_refresh_token(&self.pg_client, access_token).await?;
 
@@ -61,6 +71,20 @@ impl tokens::Source for UserTokenSource {
                     access_token: Some(access_token),
                     refresh_token: Some(refresh_token),
                 };
+                valid_for
+            }
+
+            // We have an access token but no refresh token, and may NOT create
+            // one. Surface the access token as-is and let it run to expiry,
+            // never minting or rotating a refresh token (e.g. a FLOW_AUTH_TOKEN
+            // access token used in automation). Once it has expired, fail rather
+            // than attempt a rotation we cannot perform.
+            (Some((_access_token, valid_for)), None) => {
+                if valid_for <= TimeDelta::zero() {
+                    return Err(tonic::Status::unauthenticated(
+                        "access token has expired and there is no refresh token with which to obtain a new one",
+                    ));
+                }
                 valid_for
             }
 
@@ -141,4 +165,99 @@ pub async fn exchange_refresh_token(
         access_token,
         valid_for,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokens::Source;
+
+    // A client pointed nowhere: create/exchange paths would error if reached,
+    // so these tests double as assertions that those network paths are NOT hit.
+    fn dummy_pg() -> postgrest::Postgrest {
+        crate::postgrest::new_client(&url::Url::parse("http://localhost/").unwrap(), "anon")
+    }
+
+    // Build a parseable access-token JWT expiring `valid_for` from now. Only the
+    // `exp` claim (read by parse_unverified) matters; the signature is ignored.
+    fn access_token(valid_for: TimeDelta) -> String {
+        let exp = (tokens::now() + valid_for).timestamp();
+        tokens::jwt::sign(
+            serde_json::json!({ "exp": exp }),
+            &tokens::jwt::EncodingKey::from_secret(b"test"),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn anonymous_source_surfaces_no_tokens() {
+        let mut source = UserTokenSource {
+            pg_client: dummy_pg(),
+            tokens: UserToken::default(),
+            may_create: false,
+        };
+        let (token, valid_for, _) = source.refresh(tokens::now()).await.unwrap().unwrap();
+        assert!(token.access_token.is_none());
+        assert!(token.refresh_token.is_none());
+        assert_eq!(valid_for, TimeDelta::MAX);
+    }
+
+    #[tokio::test]
+    async fn bare_access_token_without_create_is_surfaced_as_is() {
+        // A FLOW_AUTH_TOKEN-style access token, with no refresh token and no
+        // permission to create one, is surfaced unchanged and NOT exchanged for
+        // a refresh token.
+        let jwt = access_token(TimeDelta::hours(1));
+        let mut source = UserTokenSource {
+            pg_client: dummy_pg(),
+            tokens: UserToken {
+                access_token: Some(jwt.clone()),
+                refresh_token: None,
+            },
+            may_create: false,
+        };
+        let (token, valid_for, _) = source.refresh(tokens::now()).await.unwrap().unwrap();
+        assert_eq!(token.access_token.as_deref(), Some(jwt.as_str()));
+        assert!(token.refresh_token.is_none());
+        assert!(valid_for > TimeDelta::minutes(30));
+    }
+
+    #[tokio::test]
+    async fn expired_access_token_without_create_fails() {
+        let jwt = access_token(TimeDelta::minutes(-5));
+        let mut source = UserTokenSource {
+            pg_client: dummy_pg(),
+            tokens: UserToken {
+                access_token: Some(jwt),
+                refresh_token: None,
+            },
+            may_create: false,
+        };
+        let Err(status) = source.refresh(tokens::now()).await else {
+            panic!("expected an unauthenticated error");
+        };
+        assert_eq!(status.code(), tonic::Code::Unauthenticated);
+    }
+
+    #[tokio::test]
+    async fn valid_access_and_refresh_resumes_without_exchange() {
+        // A still-valid access token plus a refresh token resumes from saved
+        // configuration without exchanging (which would hit the network).
+        let jwt = access_token(TimeDelta::hours(1));
+        let mut source = UserTokenSource {
+            pg_client: dummy_pg(),
+            tokens: UserToken {
+                access_token: Some(jwt.clone()),
+                refresh_token: Some(RefreshToken {
+                    id: models::Id::zero(),
+                    secret: "secret".to_string(),
+                }),
+            },
+            may_create: false,
+        };
+        let (token, valid_for, _) = source.refresh(tokens::now()).await.unwrap().unwrap();
+        assert_eq!(token.access_token.as_deref(), Some(jwt.as_str()));
+        assert!(token.refresh_token.is_some());
+        assert!(valid_for > TimeDelta::minutes(30));
+    }
 }

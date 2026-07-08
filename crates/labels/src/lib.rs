@@ -2,13 +2,17 @@
 // go/labels/labels.go
 // See that file for descriptions of each label.
 
-use proto_gazette::broker::{Label, LabelSet};
+use proto_gazette::broker::{Label, LabelSelector, LabelSet};
 
 // JournalSpec & ShardSpec labels.
 pub const BUILD: &str = "estuary.dev/build";
 pub const COLLECTION: &str = "estuary.dev/collection";
 pub const CORDON: &str = "estuary.dev/cordon";
 pub const FIELD_PREFIX: &str = "estuary.dev/field/";
+pub const FLAG_PREFIX: &str = "estuary.dev/flag/";
+// Flag which enables the V2 task runtime.
+// TODO(whb): remove once the runtime-v2 migration is complete.
+pub const RUNTIME_V2_FLAG: &str = "estuary.dev/flag/enable-runtime-v2";
 pub const KEY_BEGIN: &str = "estuary.dev/key-begin";
 pub const KEY_BEGIN_MIN: &str = "00000000";
 pub const KEY_END: &str = "estuary.dev/key-end";
@@ -22,7 +26,7 @@ pub const TASK_TYPE_CAPTURE: &str = "capture";
 pub const TASK_TYPE_DERIVATION: &str = "derivation";
 pub const TASK_TYPE_MATERIALIZATION: &str = "materialization";
 pub const RCLOCK_BEGIN: &str = "estuary.dev/rclock-begin";
-pub const RCLOCK_BEGIN_MIN: &str = KEY_BEGIN;
+pub const RCLOCK_BEGIN_MIN: &str = KEY_BEGIN_MIN;
 pub const RCLOCK_END: &str = "estuary.dev/rclock-end";
 pub const RCLOCK_END_MAX: &str = KEY_END_MAX;
 pub const SPLIT_TARGET: &str = "estuary.dev/split-target";
@@ -30,6 +34,7 @@ pub const SPLIT_SOURCE: &str = "estuary.dev/split-source";
 pub const LOG_LEVEL: &str = "estuary.dev/log-level";
 pub const LOGS_JOURNAL: &str = "estuary.dev/logs-journal";
 pub const STATS_JOURNAL: &str = "estuary.dev/stats-journal";
+pub const SHUFFLE_DISK_LIMIT: &str = "estuary.dev/shuffle-disk-limit";
 // Shard labels related to network connectivity to shards.
 pub const HOSTNAME: &str = "estuary.dev/hostname";
 pub const EXPOSE_PORT: &str = "estuary.dev/expose-port";
@@ -61,6 +66,8 @@ pub enum Error {
     PercentDecode(#[from] std::str::Utf8Error),
     #[error("invalid value type for partition field value encoding")]
     InvalidValueType,
+    #[error("labels are not sorted by (name, value): {0:?} precedes {1:?}")]
+    NotSorted(Label, Label),
 }
 
 /// Retrieve the sub-slice of Label having the given label `name`.
@@ -237,6 +244,140 @@ pub fn maybe_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
     }
 }
 
+/// Returns whether `set` is matched by `selector`, faithfully porting gazette's
+/// `LabelSelector.Matches` (`go.gazette.dev/core/broker/protocol`):
+/// an excluded label matching any of `set` is a non-match; otherwise every
+/// included label must match. A name present in `set` but not the selector is
+/// ignored, and a selector value matches when it is empty (wildcard), exactly
+/// equal, or (for a `prefix` label) a prefix of the set value.
+///
+/// The merge-join algorithm requires both selector and set labels sorted by
+/// (name, value); this is validated and an unsorted input is rejected with
+/// `Error::NotSorted` rather than silently re-sorted, because externally-issued
+/// tokens are untrusted and a mis-sorted selector must not be reinterpreted.
+pub fn matches(selector: &LabelSelector, set: &LabelSet) -> Result<bool, Error> {
+    let include = selector.include.as_ref().map_or(&[][..], |s| &s.labels);
+    let exclude = selector.exclude.as_ref().map_or(&[][..], |s| &s.labels);
+
+    validate_sorted(include)?;
+    validate_sorted(exclude)?;
+    validate_sorted(&set.labels)?;
+
+    if match_selector(exclude, &set.labels, false) {
+        return Ok(false); // At least one excluded label is matched.
+    } else if !match_selector(include, &set.labels, true) {
+        return Ok(false); // Not every included label is matched.
+    }
+    Ok(true)
+}
+
+/// Validate that `labels` are sorted ascending by (name, value).
+fn validate_sorted(labels: &[Label]) -> Result<(), Error> {
+    for w in labels.windows(2) {
+        let (a, b) = (&w[0], &w[1]);
+        if (a.name.as_str(), a.value.as_str()) > (b.name.as_str(), b.value.as_str()) {
+            return Err(Error::NotSorted(a.clone(), b.clone()));
+        }
+    }
+    Ok(())
+}
+
+/// Port of gazette's `matchSelector`: for each label name, determine whether at
+/// least one selector value matches a set value. With `req_all`, every selector
+/// name must match (used for includes); otherwise a single match suffices (used
+/// for excludes). Both inputs must be sorted by (name, value).
+fn match_selector(sel: &[Label], set: &[Label], req_all: bool) -> bool {
+    let mut it = LabelJoin {
+        set_l: sel,
+        set_r: set,
+        l_beg: 0,
+        l_end: 0,
+        r_beg: 0,
+        r_end: 0,
+    };
+    while let Some((l_beg, l_end, r_beg, r_end)) = it.next() {
+        if l_beg == l_end {
+            continue; // A `set` label name which is not in `sel`.
+        }
+        // Determine if at least one label value of `sel` is present in `set`.
+        let mut matched = false;
+        let (mut a, mut b) = (&sel[l_beg..l_end], &set[r_beg..r_end]);
+
+        while !matched && !a.is_empty() && !b.is_empty() {
+            if a[0].value.is_empty()
+                || (!a[0].prefix && a[0].value == b[0].value)
+                || (a[0].prefix && b[0].value.starts_with(&a[0].value))
+            {
+                matched = true; // Empty selector value implicitly matches any value.
+            } else if a[0].value < b[0].value {
+                a = &a[1..];
+            } else {
+                b = &b[1..];
+            }
+        }
+
+        if !req_all && matched {
+            return true;
+        } else if req_all && !matched {
+            return false;
+        }
+    }
+    req_all
+}
+
+/// Full outer join of two (name, value)-sorted `[Label]` slices, yielding for
+/// each distinct name the half-open index ranges of its labels on each side.
+/// Mirrors gazette's `labelJoin`.
+struct LabelJoin<'a> {
+    set_l: &'a [Label],
+    set_r: &'a [Label],
+    l_beg: usize,
+    l_end: usize,
+    r_beg: usize,
+    r_end: usize,
+}
+
+impl<'a> LabelJoin<'a> {
+    fn next(&mut self) -> Option<(usize, usize, usize, usize)> {
+        let (len_l, len_r) = (self.set_l.len(), self.set_r.len());
+
+        if self.l_beg == len_l && self.r_beg == len_r {
+            return None; // Both sequences complete.
+        }
+        let c: i32 = if self.l_beg == len_l {
+            1 // LHS sequence complete. Step RHS.
+        } else if self.r_beg == len_r {
+            -1 // RHS sequence complete. Step LHS.
+        } else {
+            match self.set_l[self.l_beg]
+                .name
+                .cmp(&self.set_r[self.r_beg].name)
+            {
+                std::cmp::Ordering::Equal => 0,   // Step both.
+                std::cmp::Ordering::Less => -1,   // Step LHS.
+                std::cmp::Ordering::Greater => 1, // Step RHS.
+            }
+        };
+
+        while self.l_end != len_l
+            && c <= 0
+            && self.set_l[self.l_end].name == self.set_l[self.l_beg].name
+        {
+            self.l_end += 1;
+        }
+        while self.r_end != len_r
+            && c >= 0
+            && self.set_r[self.r_end].name == self.set_r[self.r_beg].name
+        {
+            self.r_end += 1;
+        }
+
+        let cur = (self.l_beg, self.l_end, self.r_beg, self.r_end);
+        (self.l_beg, self.r_beg) = (self.l_end, self.r_end);
+        Some(cur)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::*;
@@ -365,5 +506,132 @@ mod test {
         for (fixture, expect) in cases {
             assert_eq!(percent_encoding(fixture).to_string(), expect);
         }
+    }
+
+    fn selector(include: LabelSet, exclude: LabelSet) -> LabelSelector {
+        LabelSelector {
+            include: Some(include),
+            exclude: Some(exclude),
+        }
+    }
+
+    #[test]
+    fn matcher_parity_cases() {
+        let empty = || crate::build_set(std::iter::empty::<(&str, &str)>());
+
+        // Exact match.
+        assert!(
+            matches(
+                &selector(crate::build_set([("env", "prod")]), empty()),
+                &crate::build_set([("env", "prod"), ("zone", "a")]),
+            )
+            .unwrap()
+        );
+        // Exact mismatch.
+        assert!(
+            !matches(
+                &selector(crate::build_set([("env", "prod")]), empty()),
+                &crate::build_set([("env", "qa")]),
+            )
+            .unwrap()
+        );
+        // Missing included name => no match.
+        assert!(
+            !matches(
+                &selector(crate::build_set([("env", "prod")]), empty()),
+                &crate::build_set([("zone", "a")]),
+            )
+            .unwrap()
+        );
+
+        // Prefix match (selector value is a prefix of the set value).
+        assert!(
+            matches(
+                &selector(
+                    crate::set_value(empty(), "id:prefix", "task/00ab/"),
+                    empty()
+                ),
+                &crate::build_set([("id", "task/00ab/0000-0000")]),
+            )
+            .unwrap()
+        );
+        assert!(
+            !matches(
+                &selector(
+                    crate::set_value(empty(), "id:prefix", "task/00ab/"),
+                    empty()
+                ),
+                &crate::build_set([("id", "task/00cd/0000-0000")]),
+            )
+            .unwrap()
+        );
+
+        // Empty selector value is a wildcard: name must merely be present.
+        assert!(
+            matches(
+                &selector(crate::build_set([("env", "")]), empty()),
+                &crate::build_set([("env", "anything")]),
+            )
+            .unwrap()
+        );
+
+        // Multi-value include matches if any value is present.
+        assert!(
+            matches(
+                &selector(crate::build_set([("env", "prod"), ("env", "qa")]), empty()),
+                &crate::build_set([("env", "qa")]),
+            )
+            .unwrap()
+        );
+
+        // Exclude: a matched excluded label vetoes the match.
+        assert!(
+            !matches(
+                &selector(empty(), crate::build_set([("zone", "a")])),
+                &crate::build_set([("env", "prod"), ("zone", "a")]),
+            )
+            .unwrap()
+        );
+        // Exclude with no overlap still matches.
+        assert!(
+            matches(
+                &selector(
+                    crate::build_set([("env", "prod")]),
+                    crate::build_set([("zone", "b")])
+                ),
+                &crate::build_set([("env", "prod"), ("zone", "a")]),
+            )
+            .unwrap()
+        );
+
+        // Empty selector matches everything.
+        assert!(matches(&selector(empty(), empty()), &crate::build_set([("x", "y")])).unwrap());
+    }
+
+    #[test]
+    fn matcher_rejects_unsorted() {
+        let unsorted = LabelSet {
+            labels: vec![
+                Label {
+                    name: "z".to_string(),
+                    value: "1".to_string(),
+                    prefix: false,
+                },
+                Label {
+                    name: "a".to_string(),
+                    value: "1".to_string(),
+                    prefix: false,
+                },
+            ],
+        };
+        let err = matches(
+            &selector(
+                unsorted,
+                crate::build_set(std::iter::empty::<(&str, &str)>()),
+            ),
+            &crate::build_set([("a", "1")]),
+        )
+        .unwrap_err();
+        assert!(matches!(err, Error::NotSorted(..)));
     }
 }

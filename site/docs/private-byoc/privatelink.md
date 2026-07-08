@@ -16,7 +16,7 @@ You can create or manage your endpoint services on the [AWS VPC dashboard](https
 
 * Specify the NLB you created.
 * Safelist your AWS VPC Account ID (such as `arn:aws:iam::12345:root`) to allow access to your VPC endpoint service.
-* Make sure the endpoint service is in the same region as your private deployment.
+* By default, the endpoint service should be in the same region as your private deployment. To connect across regions, see [Cross-region setup](#cross-region) below.
 
 :::tip
 See the [AWS documentation](https://docs.aws.amazon.com/vpc/latest/privatelink/privatelink-share-your-services.html) for the most up-to-date, detailed instructions on working with PrivateLink or contact your AWS representative for assistance.
@@ -56,6 +56,49 @@ To set up your Virtual Private Cloud endpoint service in AWS, you will first nee
         ```
 
         Set up your NLB target group with this initial IP address. Your lambda function can then periodically pull the current IP, compare, and update the target group as needed.
+
+### Cross-region
+
+By default, AWS requires a VPC endpoint service to be in the same region as the consumer. Estuary supports the **cross-region** topology, where your endpoint service (and the database behind it) is in a different AWS region from your Estuary data plane - for example, an Estuary data plane in `us-east-1` connecting to an Aurora cluster in `eu-west-1`. This is useful when a single data plane needs to capture from sources across multiple regions, or when regulatory constraints fix the data plane's region independent of where individual sources live.
+
+Cross-region PrivateLink requires additional configuration on your side beyond the standard setup. The steps below assume you have already followed the steps in the [AWS PrivateLink](#aws-privatelink) section above and have an NLB-backed VPC endpoint service in the source region.
+
+#### Requirements on your side
+
+1. **IAM**: the identity used to configure your endpoint service must have the `vpce:AllowMultiRegion` permission-only action allowed in its identity-based policy, and the action must not be denied by any Service Control Policy. By default, no IAM entity has this permission. See [Cross-Region access — Permissions](https://docs.aws.amazon.com/vpc/latest/privatelink/privatelink-share-your-services.html#endpoint-service-cross-region) in the AWS documentation.
+2. **Supported regions**: explicitly add the *data plane's* region as a supported region on your endpoint service. In the AWS VPC console, open the endpoint service → **Actions** → **Modify supported Regions** → select the data plane's region → **Save changes**. See [Modify the supported Regions](https://docs.aws.amazon.com/vpc/latest/privatelink/configure-endpoint-service.html#manage-supported-regions).
+3. **NLB constraints** (per [AWS cross-region considerations](https://docs.aws.amazon.com/vpc/latest/privatelink/privatelink-share-your-services.html#endpoint-service-cross-region)):
+   * The NLB must use the IPv4 or dualstack IP address type. Pure-IPv6 NLBs are not supported for cross-region access.
+   * The NLB must use the default TCP idle timeout (`tcp.idle_timeout.seconds = 350`). Custom idle timeouts are not supported for cross-region.
+4. **AllowedPrincipals**: add `arn:aws:iam::770785070253:user/data-plane-ops` to the endpoint service's **Allow principals** tab. This is the specific IAM user Estuary uses to create cross-region VPC endpoints on your service.
+5. **Region availability**: confirm that both regions are in the same AWS partition (e.g., both `aws`, not one `aws-cn` or `aws-us-gov`). AWS does not support cross-region PrivateLink in a small set of Availability Zones — see the [AWS list of unsupported AZs](https://docs.aws.amazon.com/vpc/latest/privatelink/privatelink-share-your-services.html#endpoint-service-cross-region).
+
+#### What to send Estuary
+
+Once the above is configured, share the same details as in the standard setup, **and explicitly mention that this is a cross-region setup** so we configure the link correctly on our side:
+
+* The endpoint service name, such as `com.amazonaws.vpce.eu-west-1.vpce-svc-0123456789abcdef`
+* The Availability Zone IDs offered by your service, such as `[euw1-az1, euw1-az2, euw1-az3]`
+* A note that the setup is cross-region, along with the region of your endpoint service (e.g. "the endpoint service is in `eu-west-1`; our data plane is in `us-east-2`")
+
+The AZ IDs refer to the *service's* region. Estuary provisions the consumer-side VPC endpoint in the *data plane's* region - AWS handles the AZ mapping internally - so you do not need to share AZ IDs from the data plane's region.
+
+#### After Estuary creates the endpoint
+
+Estuary will initiate the connection from the data plane's region. You will see a pending connection request appear under your endpoint service's **Endpoint connections** tab - accept it from there. Estuary will then provide a DNS name pointing at the cross-region endpoint, which you can use as the hostname when configuring connectors.
+
+:::tip
+When accessing services cross-region, you must use the **regional** DNS name (e.g. `vpce-0123-xyz.vpce-svc-abc.us-east-2.vpce.amazonaws.com`), not a zonal name (`...-us-east-2a.vpce-svc-...`). [AWS does not support zonal DNS for cross-region endpoints](https://docs.aws.amazon.com/vpc/latest/privatelink/aws-services-cross-region-privatelink-support.html).
+:::
+
+#### Common pitfalls
+
+* **Connection request never appears in your console**: check that Estuary's principal is on **Allow principals** *and* that the data plane region is in your endpoint service's Supported Regions list.
+* **Connection accepted but the connector still fails to resolve the host**: verify the connector is using the *regional* DNS name returned by Estuary, not a zonal variant.
+
+#### Pre-registering an endpoint ahead of time
+
+You can register an additional endpoint service with Estuary before you need it, such as a standby or backup database kept ready for upgrades, failover, or disaster recovery. It sits idle without affecting your live connection, and the DNS name Estuary returns is stable, so cutting over is just a matter of repointing the capture's `address`. See [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers).
 
 ### Variations
 

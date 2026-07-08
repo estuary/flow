@@ -14,6 +14,8 @@ expression: "&[out1, out2, out3, out4]"
                 format: "date-time",
                 content_encoding: "BaSE64",
                 max_length: 123,
+                str_minimum: "",
+                str_maximum: "",
             },
         ),
         title: "the title",
@@ -30,6 +32,7 @@ expression: "&[out1, out2, out3, out4]"
         ],
         reduce: Sum,
         redact: Sha256,
+        content_media_type: "a/type",
     },
     Inference {
         types: [
@@ -50,6 +53,7 @@ expression: "&[out1, out2, out3, out4]"
         ],
         reduce: Sum,
         redact: Sha256,
+        content_media_type: "a/type",
     },
     Inference {
         types: [
@@ -62,6 +66,8 @@ expression: "&[out1, out2, out3, out4]"
                 format: "date-time",
                 content_encoding: "BaSE64",
                 max_length: 123,
+                str_minimum: "",
+                str_maximum: "",
             },
         ),
         title: "the title",
@@ -85,6 +91,7 @@ expression: "&[out1, out2, out3, out4]"
         ],
         reduce: Sum,
         redact: Sha256,
+        content_media_type: "a/type",
     },
     Inference {
         types: [
@@ -116,5 +123,6 @@ expression: "&[out1, out2, out3, out4]"
         ],
         reduce: Sum,
         redact: Sha256,
+        content_media_type: "a/type",
     },
 ]

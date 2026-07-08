@@ -1,4 +1,4 @@
-use crate::{CliContext, api_exec, catalog, draft};
+use crate::{CliContext, catalog, draft};
 use anyhow::Context;
 use serde::Serialize;
 
@@ -90,7 +90,7 @@ pub async fn do_delete(
         anyhow::bail!("delete operation cancelled");
     }
 
-    let draft = draft::create_draft(&ctx.client)
+    let draft = draft::create_draft(ctx)
         .await
         .context("failed to create draft")?;
     println!(
@@ -116,12 +116,13 @@ pub async fn do_delete(
         })
         .collect::<Vec<DraftSpec>>();
 
-    api_exec::<Vec<serde_json::Value>>(
-        ctx.client
+    flow_client_next::postgrest::exec::<Vec<serde_json::Value>>(
+        ctx.pg
             .from("draft_specs")
             //.select("catalog_name,spec_type")
             .upsert(serde_json::to_string(&draft_specs).unwrap())
             .on_conflict("draft_id,catalog_name"),
+        ctx.access_token().as_deref(),
     )
     .await?;
     tracing::debug!("added deletions to draft");

@@ -1,0 +1,39 @@
+[package]
+name = "catalog-stats"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# Exposes `catalog_stats::test_util`, the emulator-seeding helpers used by
+# integration tests.
+test_util = []
+
+[dependencies]
+coroutines = { path = "../coroutines" }
+ops = { path = "../ops" }
+tuple = { path = "../tuple" }
+
+anyhow = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+futures-core = { workspace = true }
+gcp_auth = { workspace = true }
+googleapis-tonic-google-bigtable-v2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+
+[dev-dependencies]
+catalog-stats = { path = ".", features = ["test_util"] }
+ops = { path = "../ops" }
+futures = { workspace = true }

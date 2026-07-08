@@ -16,6 +16,9 @@ rm -r "${HOME}/flow-local/env" || true
 rm -r "${HOME}/flow-local/etcd/" || true
 # Clean up gazette journal fragments.
 rm -r "${HOME}/flow-local/fragments/" || true
+# Clean up test tenant credentials. The glob is left unquoted so the shell
+# expands it; quoting it would pass a literal `*` that matches nothing.
+rm -rf "${HOME}"/flow-local/test-tenant-* || true
 
 # Reload to drop unit files.
 systemctl --user daemon-reload

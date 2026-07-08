@@ -1,0 +1,9 @@
+---
+source: crates/publisher/src/mapping.rs
+expression: "json!([prefix_1, prefix_2, prefix_3])"
+---
+[
+  "example/collection/2020202020202020/a_bool=%_true/a_str=hello/",
+  "example/collection/2020202020202020/a_bool=%_false/a_str=world/",
+  "example/collection/2020202020202020/a_bool=%_true/a_str=reused/"
+]

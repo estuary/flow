@@ -21,20 +21,80 @@ impl connection::CursorType for TimestampCursor {
     }
 }
 
+mod alert_configs;
 mod alert_subscriptions;
+mod alert_types;
 mod alerts;
 mod authorized_prefixes;
+mod billing;
 mod data_planes;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;
+mod connectors;
 pub mod id;
 mod invite_links;
 mod live_spec_refs;
 mod live_specs;
 mod prefixes;
 mod publication_history;
+mod refresh_tokens;
 pub mod status;
 mod storage_mappings;
+mod tenant;
+
+/// Whether the current user holds `capability` on `name`, as a pure check
+/// against the request's authorization Snapshot.
+///
+/// This is the visibility gate: use it to hide a field or filter a list,
+/// failing closed to an empty or default value when it returns `false`. Unlike
+/// [`verify_authorization`] it neither errors nor refreshes the Snapshot on a
+/// negative result, because momentarily hiding a field against a slightly-stale
+/// Snapshot is the correct, low-cost behavior.
+///
+/// `capability` accepts a legacy `models::Capability`, an orthogonal
+/// `models::authz::Capability` bit, or a `models::authz::CapabilitySet`.
+fn may_access(
+    ctx: &async_graphql::Context<'_>,
+    name: &str,
+    capability: impl Into<models::authz::CapabilitySet>,
+) -> async_graphql::Result<bool> {
+    let env = ctx.data::<crate::Envelope>()?;
+    let snapshot = env.snapshot();
+    Ok(tables::UserGrant::is_authorized(
+        &snapshot.role_grants,
+        &snapshot.user_grants,
+        env.claims()?.sub,
+        name,
+        capability,
+    ))
+}
+
+/// Errors unless the current user holds `capability` on `prefix`.
+///
+/// This is the hard gate for mutations and access-controlled queries: a denial
+/// becomes `permission_denied`, and a provisional denial against a stale
+/// Snapshot follows the standard refresh-and-retry path. See [`may_access`] for
+/// the visibility-gate counterpart that fails closed instead of erroring.
+///
+/// `capability` accepts a legacy `models::Capability`, an orthogonal
+/// `models::authz::Capability` bit, or a `models::authz::CapabilitySet`.
+async fn verify_authorization(
+    env: &crate::Envelope,
+    prefix: &str,
+    capability: impl Into<models::authz::CapabilitySet> + std::fmt::Display + Copy,
+) -> async_graphql::Result<()> {
+    let policy_result = crate::server::evaluate_names_authorization(
+        env.snapshot(),
+        env.claims()?,
+        capability,
+        [prefix],
+    );
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
+    Ok(())
+}
+
+/// A JSON object, the shape of which is opaque to the graphql schema
+pub type JsonObject = async_graphql::Json<Box<serde_json::value::RawValue>>;
 
 // This type represents the complete graphql schema.
 pub type GraphQLSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
@@ -50,51 +110,79 @@ pub struct PgDataLoader(pub sqlx::PgPool);
 pub struct QueryRoot(
     live_spec_refs::LiveSpecsQuery,
     alerts::AlertsQuery,
+    alert_configs::AlertConfigsQuery,
+    alert_types::AlertTypesQuery,
     prefixes::PrefixesQuery,
     alert_subscriptions::AlertSubscriptionsQuery,
     storage_mappings::StorageMappingsQuery,
     data_planes::DataPlanesQuery,
     invite_links::InviteLinksQuery,
+    connectors::ConnectorsQuery,
+    tenant::TenantQuery,
+    refresh_tokens::RefreshTokensQuery,
 );
 
 // Represents the portion of the GraphQL schema that deals with mutations.
 #[derive(Debug, Default, async_graphql::MergedObject)]
 pub struct MutationRoot(
+    billing::BillingMutation,
     storage_mappings::StorageMappingsMutation,
+    alert_configs::AlertConfigsMutation,
     alert_subscriptions::AlertSubscriptionsMutation,
     invite_links::InviteLinksMutation,
+    data_planes::DataPlanesMutation,
+    refresh_tokens::RefreshTokensMutation,
 );
 
-pub fn create_schema() -> GraphQLSchema {
+pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchema {
     Schema::build(
         QueryRoot::default(),
         MutationRoot::default(),
         EmptySubscription,
     )
+    .data(alert_config_defaults)
     .finish()
 }
 
 /// Returns the GraphQL SDL (Schema Definition Language) as a string.
 /// This is used by the flow-client build script to generate types.
 pub fn schema_sdl() -> String {
-    let schema = create_schema();
+    let schema = create_schema(models::AlertConfig::default());
     schema.sdl()
 }
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
 pub(crate) async fn graphql_handler(
+    axum::extract::State(app): axum::extract::State<std::sync::Arc<crate::App>>,
     axum::Extension(schema): axum::Extension<GraphQLSchema>,
     env: crate::Envelope,
     axum::extract::Json(req): axum::extract::Json<async_graphql::Request>,
 ) -> axum::response::Response {
     let pg_pool = env.pg_pool.clone();
 
-    let request = req
+    let mut request = req
         .data(env)
         .data(async_graphql::dataloader::DataLoader::new(
             PgDataLoader(pg_pool),
             tokio::spawn,
         ));
+
+    if let Some(ref billing_provider) = app.billing_provider {
+        request = request
+            .data(billing_provider.clone())
+            .data(async_graphql::dataloader::DataLoader::new(
+                billing::StripeInvoiceLoader(billing_provider.clone()),
+                tokio::spawn,
+            ))
+            .data(async_graphql::dataloader::DataLoader::new(
+                billing::ChargeDataLoader(billing_provider.clone()),
+                tokio::spawn,
+            ))
+            .data(async_graphql::dataloader::DataLoader::new(
+                billing::CustomerDataLoader(billing_provider.clone()),
+                tokio::spawn,
+            ));
+    }
 
     let response = schema.execute(request).await;
 

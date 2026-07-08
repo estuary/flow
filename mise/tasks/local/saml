@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Enable SAML/SSO on a running local stack"
+#USAGE flag "--provider <provider>" help="Identity provider: mocksaml or okta" {
+#USAGE   choices "mocksaml" "okta"
+#USAGE }
+#USAGE flag "--metadata-url <url>" help="IdP metadata URL (required for okta)"
+#USAGE flag "--domain <domain>" help="Email domain for SSO provider" required
+#USAGE flag "--tenant <tenant>" help="Tenant to link to SSO provider" required
+
+PROVIDER="${usage_provider:-}"
+METADATA_URL_ARG="${usage_metadata_url:-}"
+SAML_DOMAIN="${usage_domain:-}"
+SAML_TENANT="${usage_tenant:-}"
+
+if [[ -z "$PROVIDER" ]]; then
+  echo "Error: --provider is required (mocksaml or okta)." >&2
+  exit 1
+fi
+
+if [[ -z "$SAML_DOMAIN" ]]; then
+  echo "Error: --domain is required." >&2
+  exit 1
+fi
+
+if [[ -z "$SAML_TENANT" ]]; then
+  echo "Error: --tenant is required." >&2
+  exit 1
+fi
+
+if [[ "$PROVIDER" == "okta" && -z "$METADATA_URL_ARG" ]]; then
+  echo "Error: --metadata-url is required for okta." >&2
+  exit 1
+fi
+
+echo "--- Enabling SAML/SSO ---"
+
+PSQL="psql postgresql://postgres:postgres@localhost:5432/postgres"
+
+# Generate a SAML signing key (PKCS#1).
+# GoTrue needs this to sign outgoing SAMLRequests.
+SAML_KEY=$(openssl genrsa -traditional 2048 2>/dev/null \
+  | grep -v "^-----" \
+  | tr -d '\n')
+
+# Detect docker prefix (direct or via Lima VM)
+if docker ps &>/dev/null; then
+  DOCKER="docker"
+elif limactl shell tiger docker ps &>/dev/null 2>&1; then
+  DOCKER="limactl shell tiger docker"
+else
+  echo "Error: cannot reach Docker daemon. Start Docker or your Lima VM first." >&2
+  exit 1
+fi
+
+# Inject SAML env vars into auth container (skipped if already present)
+if $DOCKER exec supabase_auth_flow env 2>/dev/null | grep -q "GOTRUE_SAML_ENABLED=true"; then
+  echo "SAML env vars already present — skipping container recreation."
+else
+  echo "--- Injecting SAML env vars into auth container ---"
+
+  IMAGE=$($DOCKER inspect supabase_auth_flow --format '{{.Config.Image}}')
+  NETWORK=$($DOCKER inspect supabase_auth_flow --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')
+
+  $DOCKER inspect supabase_auth_flow --format '{{range .Config.Env}}{{println .}}{{end}}' \
+    | grep -v -E '^(PATH=|API_EXTERNAL_URL=)' \
+    > /tmp/auth_env.txt
+  echo "GOTRUE_SAML_ENABLED=true" >> /tmp/auth_env.txt
+  echo "GOTRUE_SAML_PRIVATE_KEY=$SAML_KEY" >> /tmp/auth_env.txt
+  echo "API_EXTERNAL_URL=http://127.0.0.1:5431/auth/v1" >> /tmp/auth_env.txt
+  echo "GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_ENABLED=true" >> /tmp/auth_env.txt
+  echo "GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_URI=pg-functions://postgres/public/check_sso_requirement" >> /tmp/auth_env.txt
+
+  if [[ "$DOCKER" == limactl* ]]; then
+    limactl copy /tmp/auth_env.txt tiger:/tmp/auth_env.txt
+  fi
+
+  $DOCKER stop supabase_auth_flow && $DOCKER rm supabase_auth_flow
+  $DOCKER run -d \
+    --name supabase_auth_flow \
+    --network "$NETWORK" \
+    --restart always \
+    --env-file /tmp/auth_env.txt \
+    "$IMAGE" auth
+
+  sleep 3
+  if $DOCKER logs supabase_auth_flow --tail 5 2>&1 | grep -q "GoTrue API started"; then
+    echo "GoTrue is running with SAML enabled."
+  else
+    echo "Warning: GoTrue may not have started cleanly. Check logs:"
+    $DOCKER logs supabase_auth_flow --tail 20
+    exit 1
+  fi
+fi
+
+if [[ "$PROVIDER" == "mocksaml" ]]; then
+  PROVIDER_LABEL="MockSAML"
+  METADATA_URL="https://mocksaml.com/api/saml/metadata"
+else
+  PROVIDER_LABEL="Okta"
+  METADATA_URL="$METADATA_URL_ARG"
+fi
+
+SERVICE_ROLE_KEY=$($DOCKER exec supabase_kong_flow cat /home/kong/kong.yml \
+  | grep -o "sb_secret_[A-Za-z0-9_-]*" | head -1 || true)
+
+if [[ -z "$SERVICE_ROLE_KEY" ]]; then
+  echo "Error: could not determine service role key from Kong config." >&2
+  exit 1
+fi
+
+AUTH_HEADERS=(-H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY")
+
+# Normalise tenant: ensure trailing slash.
+TENANT="${SAML_TENANT%/}/"
+
+# Check if this domain is already claimed by an existing provider.
+EXISTING=$(curl -s 'http://127.0.0.1:5431/auth/v1/admin/sso/providers' "${AUTH_HEADERS[@]}")
+EXISTING_ID=$(echo "$EXISTING" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for item in (data.get('items') or []):
+    domains = [d.get('domain','') for d in (item.get('domains') or [])]
+    if '$SAML_DOMAIN' in domains:
+        print(item['id'])
+        sys.exit()
+" 2>/dev/null || true)
+
+if [[ -n "$EXISTING_ID" ]]; then
+  echo "Error: domain $SAML_DOMAIN is already claimed by provider $EXISTING_ID." >&2
+  exit 1
+fi
+
+# Check if the tenant already has an SSO provider.
+$PSQL -c "INSERT INTO public.tenants (tenant) VALUES ('$TENANT') ON CONFLICT (tenant) DO NOTHING;"
+EXISTING_PROVIDER=$($PSQL -t -c "SELECT sso_provider_id FROM public.tenants WHERE tenant = '$TENANT' AND sso_provider_id IS NOT NULL LIMIT 1;" 2>/dev/null | tr -d ' \n')
+
+if [[ -n "$EXISTING_PROVIDER" ]]; then
+  echo "Error: tenant $TENANT already has SSO provider $EXISTING_PROVIDER." >&2
+  exit 1
+fi
+
+# Register the provider.
+echo "--- Registering $PROVIDER_LABEL provider (domain: $SAML_DOMAIN) ---"
+
+RESPONSE=$(curl -s -X POST 'http://127.0.0.1:5431/auth/v1/admin/sso/providers' \
+  "${AUTH_HEADERS[@]}" \
+  -H 'Content-Type: application/json' \
+  -d "{\"type\":\"saml\",\"metadata_url\":\"$METADATA_URL\",\"domains\":[\"$SAML_DOMAIN\"]}")
+
+PROVIDER_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])" 2>/dev/null || true)
+
+if [[ -z "$PROVIDER_ID" ]]; then
+  echo "Error: failed to register provider. Response: $RESPONSE" >&2
+  exit 1
+fi
+
+echo "$PROVIDER_LABEL provider registered (id: $PROVIDER_ID, domain: $SAML_DOMAIN)."
+
+# Link provider to the tenant.
+$PSQL -c "UPDATE public.tenants SET sso_provider_id = '$PROVIDER_ID' WHERE tenant = '$TENANT';"
+echo "Linked provider to tenant: $TENANT"
+
+echo ""
+echo "--- SAML setup complete ---"
+echo "  Provider     : $PROVIDER_LABEL"
+echo "  Provider ID  : $PROVIDER_ID"
+echo "  SSO login    : curl -s -X POST 'http://127.0.0.1:5431/auth/v1/sso' -H 'Content-Type: application/json' -d '{\"provider_id\":\"$PROVIDER_ID\"}'"

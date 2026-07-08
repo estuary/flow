@@ -10,6 +10,10 @@ pub mod ops;
 pub mod runtime;
 pub mod shuffle;
 
+// Re-export so pbjson-generated `super::consumer::...` paths in
+// `runtime.serde.rs` resolve.
+pub use proto_gazette::consumer;
+
 /// An enum representing any one of the types of built specs.
 #[derive(Clone, Debug, serde::Serialize)]
 pub enum AnyBuiltSpec {
@@ -126,14 +130,26 @@ mod serde_shuffle {
     use crate::shuffle::*;
     include!("shuffle.serde.rs");
 }
-// We don't generate serde support for the `runtime` protobuf package,
-// as it's not intended for JSON serialization.
+mod serde_runtime {
+    use crate::runtime::*;
+    include!("runtime.serde.rs");
+}
 
 /// Capability bit-mask values which scope Estuary platform operations.
 /// These values share the Gazette capability namespace.
 pub mod capability {
+    /// AUTHORIZE gives the bearer a capability to request tokens from
+    /// the control plane's Authorization APIs.
     pub const AUTHORIZE: u32 = 1 << 16;
+    /// SHUFFLE gives the bearer a capability to use the runtime's Shuffle APIs,
+    /// for scale-out shuffled journal reads.
     pub const SHUFFLE: u32 = 1 << 17;
+    /// NETWORK_PROXY gives the bearer a capability to proxy network traffic to a connector.
     pub const NETWORK_PROXY: u32 = 1 << 18;
+    /// PROXY_CONNECTOR gives the bearer a capability to invoke a connector with proxied IO,
+    /// used by the control plane to drive on-demand connector RPCs.
     pub const PROXY_CONNECTOR: u32 = 1 << 19;
+    /// LEAD gives the bearer a capability to use the runtime's Leader API,
+    /// driving a derivation or materialization task's transactions.
+    pub const LEAD: u32 = 1 << 20;
 }

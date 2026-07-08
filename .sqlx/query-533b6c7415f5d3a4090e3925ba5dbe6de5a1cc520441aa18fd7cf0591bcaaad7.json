@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT true AS \"exists!\"\n            FROM tenants t\n            WHERE t.tenant = $1\n              AND t.enforce_sso IS TRUE\n              AND NOT EXISTS (\n                SELECT 1 FROM auth.identities ai\n                WHERE ai.user_id = $2\n                  AND ai.provider = 'sso:' || t.sso_provider_id::text\n              )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "533b6c7415f5d3a4090e3925ba5dbe6de5a1cc520441aa18fd7cf0591bcaaad7"
+}

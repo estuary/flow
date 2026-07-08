@@ -1,4 +1,7 @@
-use super::{ControllerConfig, ControllerState, NextRun, alerts, backoff_data_plane_activate};
+use super::{
+    ControllerConfig, ControllerState, NextRun, ResolvedAlertConfig, ResolvedShardFailedAlert,
+    alerts, backoff_data_plane_activate,
+};
 use crate::{
     controllers::{ControllerErrorExt, Inbox},
     controlplane::ControlPlane,
@@ -24,10 +27,19 @@ pub async fn update_activation<C: ControlPlane>(
     state: &ControllerState,
     events: &Inbox,
     control_plane: &C,
+    alert_cfg: &ResolvedAlertConfig,
 ) -> anyhow::Result<Option<NextRun>> {
     let now = control_plane.current_time();
     let config = control_plane.controller_config();
-    let failure_retention_threshold = now - config.shard_failure_retention;
+    let failure_retention = alert_cfg.shard_failed.retention;
+    let (shard_failed_enabled, alert_after_shard_failures) = match &alert_cfg.shard_failed.alert {
+        ResolvedShardFailedAlert::Enabled { failures } => (true, *failures),
+        ResolvedShardFailedAlert::Disabled => (false, 0),
+    };
+    if !shard_failed_enabled {
+        alerts::resolve_alert(alerts_status, AlertType::ShardFailed);
+    }
+    let failure_retention_threshold = now - failure_retention;
     // Did we receive at least one shard failure message?
     let observed_shard_failures = events
         .iter()
@@ -67,7 +79,8 @@ pub async fn update_activation<C: ControlPlane>(
             failure_retention_threshold,
             observed_shard_failures,
             next_pending_pub,
-            config.alert_after_shard_failures,
+            alert_after_shard_failures,
+            shard_failed_enabled,
         )
         .await?;
     }
@@ -133,6 +146,7 @@ async fn handle_shard_failures<C: ControlPlane>(
     observed_shard_failures: usize,
     next_pending_pub: Option<chrono::DateTime<chrono::Utc>>,
     alert_after_shard_failures: u32,
+    shard_failed_enabled: bool,
 ) -> Result<(), anyhow::Error> {
     control_plane
         .delete_shard_failures(
@@ -211,12 +225,15 @@ async fn handle_shard_failures<C: ControlPlane>(
             }
         }
 
-        // And possibly trigger an alert
+        // Failure counting and shard retry scheduling happen regardless,
+        // but the alert is suppressed when `shardFailed.enabled: false`.
         if let Some(spec_type) = state
             .live_spec
             .as_ref()
             .map(|s| s.catalog_type())
-            .filter(|_| status.recent_failure_count >= alert_after_shard_failures)
+            .filter(|_| {
+                shard_failed_enabled && status.recent_failure_count >= alert_after_shard_failures
+            })
         {
             // last_failure should always be present, but this just prevents
             // things from blowing up if someone were to manually edit the

@@ -5,6 +5,7 @@
 /// would be the case if it uses nanosecond precision, for example. Thus if we
 /// ever need to support inserting an `Interval`, we should add explicit
 /// conversion functions from `chrono::TimeDelta`.
+#[derive(Debug)]
 pub struct Interval(chrono::TimeDelta);
 
 impl sqlx::Type<sqlx::postgres::Postgres> for Interval {

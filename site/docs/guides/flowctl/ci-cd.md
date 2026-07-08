@@ -10,7 +10,7 @@ You can then set your infra-as-code repositories up with a CI/CD pipeline to aut
 
 This guide will show you how to configure Estuary resources programmatically for use in CI/CD workflows or other automation.
 
-For instructions on using the UI instead, see information on Estuary's [web application](../../concepts/web-app.md).
+For instructions on using the UI instead, see information on Estuary's [dashboard](/guides/dashboard).
 
 ## Creating Estuary Resources Locally
 
@@ -19,11 +19,11 @@ During development, you can locally create, manage, and test your resources befo
 Before creating these resources, you will need:
 * An [Estuary account](https://dashboard.estuary.dev/register)
 * `flowctl` [installed](../get-started-with-flowctl.md) on your machine
-* An Estuary [access token](../how_to_generate_refresh_token.md)
+* An Estuary [refresh token](../how_to_generate_refresh_token.md)
 
 You can authenticate your `flowctl` session in one of two ways:
 
-* Set the `FLOW_AUTH_TOKEN` environment variable to your Estuary access token. This is the recommended way to handle a CI or automation setup.
+* Set the `FLOW_AUTH_TOKEN` environment variable to your Estuary refresh token. This is the recommended way to handle a CI or automation setup.
 
 * Or run the `flowctl auth login` command and paste in your token. This is handy for local development.
 
@@ -57,7 +57,7 @@ captures:
   Artificial-Industries/ci-cd/source-stripe-native:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-stripe-native:dev
+        image: ghcr.io/estuary/source-stripe-native:v1
         config:
           credentials:
             credentials_title: Private App Credentials
@@ -82,7 +82,7 @@ captures:
   Artificial-Industries/ci-cd/source-postgres:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-postgres:dev
+        image: ghcr.io/estuary/source-postgres:v3
         config:
           address: <host>:<port>
           database: postgres
@@ -314,9 +314,9 @@ Consider this example specification:
 materializations:
   Artificial-Industries/ci-cd/materialize-snowflake:
     endpoint:
-  	  connector:
-        image: ghcr.io/estuary/materialize-snowflake:dev
-    	config:
+      connector:
+        image: ghcr.io/estuary/materialize-snowflake:v4
+        config:
           host: orgname-accountname.snowflakecomputing.com
           database: estuary_db
           schema: estuary_schema

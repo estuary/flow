@@ -2,6 +2,7 @@ use futures::StreamExt;
 use proto_flow::shuffle;
 use proto_gazette::broker;
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 /// Gazette list::Subscriber that sends listing events to an mpsc channel.
 pub struct Subscriber {
@@ -17,6 +18,7 @@ impl gazette::journal::list::Subscriber for Subscriber {
         mod_revision: i64,
         route: broker::Route,
     ) -> gazette::Result<()> {
+        let journal = journal_spec.name.clone();
         let added = shuffle::slice_response::ListingAdded {
             binding: self.binding,
             create_revision,
@@ -24,10 +26,17 @@ impl gazette::journal::list::Subscriber for Subscriber {
             spec: Some(journal_spec),
             route: Some(route),
         };
-        tracing::debug!(added=?ops::DebugJson(&added), "journal added");
+
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "watch",
+            binding = self.binding,
+            journal,
+            "journal added to listing",
+        );
 
         // Blocking safety: we may stuff this channel, but we're doing so from a
-        // dedicated task. We may compete with SliceActor::serve(), which obtains
+        // dedicated task. We compete with SliceActor::serve(), which obtains
         // permits to send on this channel.
         let _ignored = self
             .tx
@@ -43,7 +52,13 @@ impl gazette::journal::list::Subscriber for Subscriber {
     async fn remove_journal(&mut self, journal: String) -> gazette::Result<()> {
         // We don't forward removed journals, because readers dynamically detect
         // them via the JOURNAL_NOT_FOUND broker status.
-        tracing::debug!(binding = self.binding, journal, "journal removed");
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "watch",
+            binding = self.binding,
+            journal,
+            "journal removed from listing",
+        );
         Ok(())
     }
 }
@@ -65,7 +80,7 @@ pub fn spawn_listing(
     };
     let list_watch = client.list_watch_with(
         request,
-        gazette::journal::list::SubscriberFold::new(subscriber),
+        gazette::journal::list::SubscriberFold::new_filtering_suspended(subscriber),
     );
 
     let collection = binding.collection.clone();
@@ -77,9 +92,11 @@ pub fn spawn_listing(
         loop {
             match list_watch.next().await {
                 Some(Ok((added, removed))) => {
-                    tracing::info!(
+                    service_kit::event!(
+                        tracing::Level::DEBUG,
+                        "watch",
                         binding,
-                        %collection,
+                        collection = collection.to_string(),
                         added,
                         removed,
                         "collection listing updated",
@@ -90,11 +107,13 @@ pub fn spawn_listing(
                     inner: err,
                 })) => {
                     if err.is_transient() {
-                        tracing::warn!(
+                        service_kit::event!(
+                            tracing::Level::WARN,
+                            "watch",
                             binding,
-                            %collection,
+                            collection = collection.to_string(),
                             attempt,
-                            %err,
+                            err = service_kit::event::debug(err),
                             "collection journal listing watch failed (will retry)",
                         );
                     } else {
@@ -116,5 +135,13 @@ pub fn spawn_listing(
         }
     };
 
-    tokio::spawn(cancel.run_until_cancelled_owned(list_watch))
+    // Carry the caller's span (the Slice handler's `service_kit::HandlerGuard`
+    // span) into the spawned task: tokio::spawn does not inherit the current
+    // span, so without this the task's tracing events would not be associated
+    // with the handler's event tracks.
+    tokio::spawn(
+        cancel
+            .run_until_cancelled_owned(list_watch)
+            .instrument(tracing::Span::current()),
+    )
 }

@@ -296,6 +296,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             expect_pub_id: None,
             shards: models::ShardTemplate::default(),
             source: None,
+            target_naming: None,
             triggers: None,
             delete: false,
             reset: false,
@@ -960,6 +961,7 @@ impl validation::Connectors for MockDriverCalls {
                         let mut out = materialize::response::validated::Binding {
                             case_insensitive_fields: b.case_insensitive_fields,
                             constraints: b.constraints.clone(),
+                            projection_constraints: Vec::new(),
                             delta_updates: call.delta_updates,
                             resource_path: b.resource_path.clone(),
                             ser_policy: None,

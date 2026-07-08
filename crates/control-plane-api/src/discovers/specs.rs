@@ -184,6 +184,7 @@ pub fn update_capture_bindings(
                 Changed {
                     target: target.clone(),
                     disable,
+                    reason: None,
                 },
             );
             let resource = serde_json::from_slice::<models::RawValue>(&resource_config_json)?;
@@ -218,6 +219,7 @@ pub fn update_capture_bindings(
                 Changed {
                     target: binding.target.clone(),
                     disable: binding.disable,
+                    reason: None,
                 },
             )
         })
@@ -307,11 +309,37 @@ pub fn merge_collections(
         };
 
         let mut modified = false;
+        let mut reason: Option<String> = None;
 
-        if !is_fallback_key && !discovered_key.is_empty() && discovered_key != draft_model.key {
+        // Determine whether the collection key should be updated.
+        // Non-fallback keys always replace the draft key. Fallback keys
+        // only replace it when the existing key is provably invalid in
+        // the discovered schema and the fallback key itself resolves,
+        // to avoid replacing one broken key with another.
+        let update_key = if !discovered_key.is_empty() && discovered_key != draft_model.key {
+            if !is_fallback_key {
+                true
+            } else if !key_resolves_in_schema(&draft_model.key, &connector_schema)
+                && key_resolves_in_schema(&discovered_key, &connector_schema)
+            {
+                let old_ptrs: Vec<&str> = draft_model.key.iter().map(|p| p.as_str()).collect();
+                let new_ptrs: Vec<&str> = discovered_key.iter().map(|p| p.as_str()).collect();
+                reason = Some(format!(
+                    "replaced collection key {old_ptrs:?} with fallback {new_ptrs:?} because the existing key no longer exists in the discovered schema",
+                ));
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if update_key {
             tracing::debug!(
                 %collection,
                 ?discovered_key,
+                %is_fallback_key,
                 model_key = ?draft_model.key,
                 "discovered key change"
             );
@@ -378,11 +406,32 @@ pub fn merge_collections(
                 Changed {
                     target: collection.clone(),
                     disable,
+                    reason,
                 },
             );
         }
     }
     Ok(modified_collections)
+}
+
+/// Returns whether every pointer in `key` resolves (Must or May) in `schema`.
+/// Returns false on schema parse errors (conservative: don't change the key).
+fn key_resolves_in_schema(key: &models::CompositeKey, schema: &models::Schema) -> bool {
+    let Ok(built) = doc::validation::build_bundle(schema.get().as_bytes()) else {
+        return false;
+    };
+    let Ok(validator) = doc::Validator::new(built) else {
+        return false;
+    };
+    let shape = doc::Shape::infer(validator.schema(), validator.schema_index());
+
+    key.iter().all(|ptr| {
+        let (_, exists) = shape.locate(&json::Pointer::from_str(ptr.as_str()));
+        matches!(
+            exists,
+            doc::shape::location::Exists::Must | doc::shape::location::Exists::May
+        )
+    })
 }
 
 fn initializes_read_schema(schema: &models::Schema) -> Option<serde_json::Value> {
@@ -621,6 +670,38 @@ mod tests {
                 resource_path: string_vec(&["8"]),
                 disable: false,
             },
+            // case/9: Fallback key replaces existing key when old key is no
+            // longer present in the discovered schema, as when a user removes
+            // the primary key column from a postgres table.
+            Binding {
+                target: models::Collection::new("case/9"),
+                document_schema: models::Schema::new(
+                    models::RawValue::from_str(
+                        r#"{"type": "object", "properties": {"foo_id": {"type": "integer"}, "bar_id": {"type": "integer"}}, "required": ["foo_id", "bar_id"]}"#,
+                    )
+                    .unwrap(),
+                ),
+                collection_key: string_vec(&["/foo_id", "/bar_id"]),
+                is_fallback_key: true,
+                resource_path: string_vec(&["9"]),
+                disable: false,
+            },
+            // case/10: Fallback key does NOT replace existing key when old key
+            // fields still exist in the discovered schema (column exists but
+            // is no longer the primary key).
+            Binding {
+                target: models::Collection::new("case/10"),
+                document_schema: models::Schema::new(
+                    models::RawValue::from_str(
+                        r#"{"type": "object", "properties": {"id": {"type": "integer"}, "foo_id": {"type": "integer"}, "bar_id": {"type": "integer"}}, "required": ["id", "foo_id", "bar_id"]}"#,
+                    )
+                    .unwrap(),
+                ),
+                collection_key: string_vec(&["/foo_id", "/bar_id"]),
+                is_fallback_key: true,
+                resource_path: string_vec(&["10"]),
+                disable: false,
+            },
         ];
 
         let old_schema = json!({
@@ -653,6 +734,14 @@ mod tests {
                 "case/7": {
                     "schema": old_schema,
                     "key": ["/chosen", "/key"],
+                },
+                "case/9": {
+                    "schema": old_schema,
+                    "key": ["/id"],
+                },
+                "case/10": {
+                    "schema": old_schema,
+                    "key": ["/id"],
                 },
             }
         }))
@@ -688,6 +777,34 @@ mod tests {
             spec: Default::default(),
             dependency_hash: None,
         });
+        live.collections.insert(tables::LiveCollection {
+            collection: models::Collection::new("case/9"),
+            control_id: models::Id::zero(),
+            data_plane_id: models::Id::zero(),
+            last_pub_id: models::Id::zero(),
+            last_build_id: models::Id::zero(),
+            model: serde_json::from_value(json!({
+                "schema": old_schema,
+                "key": ["/id"],
+            }))
+            .unwrap(),
+            spec: Default::default(),
+            dependency_hash: None,
+        });
+        live.collections.insert(tables::LiveCollection {
+            collection: models::Collection::new("case/10"),
+            control_id: models::Id::zero(),
+            data_plane_id: models::Id::zero(),
+            last_pub_id: models::Id::zero(),
+            last_build_id: models::Id::zero(),
+            model: serde_json::from_value(json!({
+                "schema": old_schema,
+                "key": ["/id"],
+            }))
+            .unwrap(),
+            spec: Default::default(),
+            dependency_hash: None,
+        });
 
         let modified = super::merge_collections(
             discovered_bindings,
@@ -707,6 +824,18 @@ mod tests {
                   "key": [
                     "/foo",
                     "/bar"
+                  ]
+                },
+                is_touch: 0,
+            },
+            DraftCollection {
+                collection: case/10,
+                scope: flow://collection/case/10,
+                expect_pub_id: NULL,
+                model: {
+                  "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"id": {"type": "integer"}, "foo_id": {"type": "integer"}, "bar_id": {"type": "integer"}},"required":["id", "foo_id", "bar_id"],"type":"object"}},"$ref":"flow://connector-schema"},
+                  "key": [
+                    "/id"
                   ]
                 },
                 is_touch: 0,
@@ -818,6 +947,20 @@ mod tests {
                 },
                 is_touch: 0,
             },
+            DraftCollection {
+                collection: case/9,
+                scope: flow://collection/case/9,
+                expect_pub_id: NULL,
+                model: {
+                  "schema": {"$defs":{"flow://connector-schema":{"$id":"flow://connector-schema","properties":{"foo_id": {"type": "integer"}, "bar_id": {"type": "integer"}},"required":["foo_id", "bar_id"],"type":"object"}},"$ref":"flow://connector-schema"},
+                  "key": [
+                    "/foo_id",
+                    "/bar_id"
+                  ],
+                  "reset": true
+                },
+                is_touch: 0,
+            },
         ]
         "###);
 
@@ -825,12 +968,22 @@ mod tests {
         Ok(
             {
                 [
+                    "10",
+                ]: Changed {
+                    target: Collection(
+                        "case/10",
+                    ),
+                    disable: false,
+                    reason: None,
+                },
+                [
                     "3",
                 ]: Changed {
                     target: Collection(
                         "case/3",
                     ),
                     disable: false,
+                    reason: None,
                 },
                 [
                     "6",
@@ -839,6 +992,18 @@ mod tests {
                         "case/6",
                     ),
                     disable: true,
+                    reason: None,
+                },
+                [
+                    "9",
+                ]: Changed {
+                    target: Collection(
+                        "case/9",
+                    ),
+                    disable: false,
+                    reason: Some(
+                        "replaced collection key [\"/id\"] with fallback [\"/foo_id\", \"/bar_id\"] because the existing key no longer exists in the discovered schema",
+                    ),
                 },
             },
         )

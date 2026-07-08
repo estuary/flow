@@ -53,8 +53,8 @@ pub async fn do_oauth(
         injected_values,
     }: &Oauth,
 ) -> anyhow::Result<()> {
-    let Some(user_access_token) = &ctx.config.user_access_token else {
-        anyhow::bail!("This comment can only be run when authenticated");
+    let Some(user_access_token) = ctx.access_token() else {
+        anyhow::bail!("This command can only be run when authenticated");
     };
     let source = build::arg_source_to_url(source, false)?;
     let draft = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
@@ -186,7 +186,7 @@ pub async fn do_oauth(
 
     let authorize_response_bytes = reqwest::Client::new()
         .post(oauth_endpoint.clone())
-        .bearer_auth(user_access_token)
+        .bearer_auth(&user_access_token)
         .header("apikey", ctx.config.get_pg_public_token())
         .json(&serde_json::json!({
             "operation": "auth-url",
@@ -247,7 +247,7 @@ pub async fn do_oauth(
 
     let code_response = reqwest::Client::new()
         .post(oauth_endpoint)
-        .bearer_auth(user_access_token)
+        .bearer_auth(&user_access_token)
         .header("apikey", ctx.config.get_pg_public_token())
         .json(&code_request_body)
         .send()

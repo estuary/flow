@@ -115,17 +115,23 @@ message Request {
     // Deconstructed document UUID.
     flow.UUIDParts uuid = 2;
     // Shuffle under which this document was mapped.
+    //
+    // The runtime populates exactly one of `key_json` or `packed` per the
+    // negotiated codec (see each field); `hash` is always set. A shuffle key
+    // computed by a lambda cannot be extracted as JSON, so a JSON connector
+    // then receives neither and relies on `hash` alone.
     message Shuffle {
-      // Shuffle key, as an array of key components.
-      // Ordering matches `keys` of the materialization's field selection.
+      // Shuffle key, as a JSON array of key components in shuffle-key order.
+      // Set only for JSON connectors; empty otherwise.
       bytes key_json = 1 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "key"
       ];
-      // Packed tuple of the document's shuffled key.
+      // Packed FoundationDB tuple of the document's shuffled key.
+      // Set only for protobuf connectors; empty otherwise.
       bytes packed = 2;
       // Stable hash of this document's shuffle key, which falls within
-      // `key_begin` and `key_end` of the Request.Open.
+      // `key_begin` and `key_end` of the Request.Open. Always set.
       uint32 hash = 3;
     }
     Shuffle shuffle = 3;
@@ -137,15 +143,40 @@ message Request {
   }
   Read read = 4;
 
-  // Flush tells the connector it should immediately complete any deferred
-  // work and respond with Published documents for all previously Read
-  // documents, and then respond with Flushed.
-  message Flush {}
+  // Flush is an iterative protocol loop whereby the runtime asks connector(s)
+  // to complete any deferred work and respond with Published documents that
+  // reflect all previously Read documents, followed by Flushed.
+  //
+  // Flush is iterative: the runtime may send multiple Flush requests within a
+  // single transaction, forming a scatter/gather consensus round between the
+  // connectors of all participating shards. A connector drives further
+  // iterations by setting Response.Flushed.more (and may exchange state across
+  // shards via Response.Flushed.state and Request.Flush.state_patches_json).
+  //
+  // Connectors are required to have emitted all Published documents before
+  // emitting a terminal Flushed response (Response.Flushed.more = false).
+  message Flush {
+    // Aggregated connector state patches contributed by all participating
+    // shards in the PREVIOUS Flush iteration of the CURRENT transaction, as a
+    // tab-delimited JSON array. Includes this shard's own patch (the
+    // runtime feeds the shard's contribution back to it for symmetry with the
+    // scaled-out case). Empty on the first Flush iteration. Connectors
+    // participating in cooperative multi-shard strategies use this to observe
+    // peers' state and drive multi-stage computation.
+    bytes state_patches_json = 1 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "statePatches"
+    ];
+  }
   Flush flush = 5;
 
   // StartCommit indicates that the Flow runtime is beginning to commit.
   // The checkpoint is purely advisory and the connector is not required to touch it.
   // The connector responds with StartedCommit.
+  //
+  // The V2 runtime sends StartCommit only to remote-authoritative connectors
+  // (those that returned a runtime_checkpoint at Opened); runtime-authoritative
+  // connectors are not sent StartCommit and report state via Flushed.state.
   message StartCommit {
     // Flow runtime checkpoint associated with this transaction.
     consumer.Checkpoint runtime_checkpoint = 1;
@@ -217,7 +248,23 @@ message Response {
   Validated validated = 2;
 
   // Opened responds to Request.Open.
-  message Opened {}
+  message Opened {
+    // Flow runtime checkpoint to begin processing from.
+    // If empty, the most recent checkpoint of the Flow recovery log is used.
+    //
+    // Or, a driver may send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
+    // to explicitly begin processing from a zero-valued checkpoint, effectively
+    // rebuilding the derivation from scratch. This sentinel is a trivial
+    // encoding of the max-value 2^29-1 protobuf tag with boolean true.
+    //
+    // DEPRECATED for new connectors. Returning a checkpoint marks the connector
+    // as remote-authoritative: the V2 runtime treats it as the sole authority
+    // (expecting an empty recovery-log state), sends StartCommit every
+    // transaction, and serializes pipelining on the connector commit.
+    // derive-sqlite continues to use this; new connectors should report state
+    // via Flushed.state and let the runtime own the checkpoint.
+    consumer.Checkpoint runtime_checkpoint = 1;
+  }
   Opened opened = 3;
 
   message Published {
@@ -229,13 +276,36 @@ message Response {
   }
   Published published = 4;
 
-  // Flushed responds to Request.Flush, and indicates that all documents
-  // have been published.
-  message Flushed {}
+  // Flushed responds to a Request.Flush.
+  //
+  // `state` is an optional connector state update for this transaction. It is
+  // aggregated across all participating shards and fed back to every shard's
+  // next Flush as `state_patches_json`, enabling cooperative scatter/gather
+  // strategies.
+  //
+  // `more` drives the runtime's iterative Flush loop, independent of `state`:
+  // when set, this connector requires at least one further Flush iteration this
+  // transaction (for example, to observe peers' aggregated `state` and continue
+  // a multi-stage computation). The transaction's Flush phase ends once every
+  // participating shard returns a Flushed with `more = false`. A connector may
+  // emit a final `state` while setting `more = false` (no extra empty round),
+  // or request another round with `more = true` while contributing no `state`.
+  //
+  // Before responding with `more = false`, the connector MUST have published
+  // (Response.Published) all documents derived from prior Reads.
+  message Flushed {
+    flow.ConnectorState state = 1;
+    // Does the connector require a further Flush iteration this transaction?
+    // See the message comment.
+    bool more = 2;
+  }
   Flushed flushed = 5;
 
-  // StartedCommit responds to a Request.StartCommit, and includes an optional
-  // connector state update.
+  // StartedCommit responds to a Request.StartCommit.
+  //
+  // DEPRECATED: `state` is retained for the V1 runtime, which persists connector
+  // state from it. The V2 runtime ignores `state` and requires it to be empty;
+  // V2 connectors report state via Flushed.state instead.
   message StartedCommit {
     flow.ConnectorState state = 1;
   }

@@ -28,7 +28,7 @@ This collection is a 3% sample of the enormous `demo/wikipedia/recentchange` col
 :::
 
 ```shell
-flowctl collections read --collection demo/wikipedia/recentchange-sampled --uncommitted
+flowctl collections read --collection demo/wikipedia/recentchange-sampled --follow
 ```
 
 If you see a stream of JSON documents on your terminal, you're all good - feel free to cancel the process by pressing `Ctrl+C`.

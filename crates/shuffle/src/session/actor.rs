@@ -2,32 +2,36 @@ use futures::{FutureExt, StreamExt, future, stream::BoxStream};
 use proto_flow::shuffle;
 use tokio::sync::mpsc;
 
+/// SessionActor implements the main event loop of a shuffle Session RPC.
 pub struct SessionActor {
     /// Immutable session configuration: topology, bindings, resume checkpoint.
     pub topology: super::state::Topology,
     /// Four-stage checkpoint pipeline state machine.
     pub checkpoint: super::state::CheckpointPipeline,
-    /// Bits by-member indicating whether to send a ProgressRequest.
+    /// Bits by-shard indicating whether to send a ProgressRequest.
     pub progress_ready: Vec<bool>,
     /// Channel for sending SessionResponse messages back to the coordinator.
-    pub session_response_tx: mpsc::Sender<tonic::Result<shuffle::SessionResponse>>,
-    /// Per-member channels for sending SliceRequest messages.
+    /// Unbounded because the coordinator drives req/resp pairs (≤1 in flight),
+    /// so the queue depth is bounded by protocol — no back-pressure needed.
+    pub session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
+    /// Per-shard channels for sending SliceRequest messages.
     pub slice_request_tx: Vec<mpsc::Sender<shuffle::SliceRequest>>,
     /// Buffered StartReads to be transmitted to their target Slice channel.
-    /// Each entry is (member_index, StartRead). Drained in FIFO order.
+    /// Each entry is (shard_index, StartRead). Drained in FIFO order.
     pub start_reads: std::collections::VecDeque<(usize, shuffle::slice_request::StartRead)>,
-    /// Drain of the checkpoint frontier being transmitted as chunked responses.
-    pub checkpoint_drain: crate::frontier::Drain,
+    /// Per-task metrics counters.
+    pub metrics: super::Metrics,
 }
 
 impl SessionActor {
     #[tracing::instrument(
         level = "debug",
+        ret,
         err(Debug, level = "warn"),
         skip_all,
         fields(
             session = self.topology.session_id,
-            task = %self.topology.task_name,
+            shard_id = %self.topology.shards[0].id,
         )
     )]
     pub async fn serve<R>(
@@ -45,10 +49,23 @@ impl SessionActor {
             .map(next_slice_rx)
             .collect();
 
+        let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        let mut loop_count: u64 = 0;
         loop {
+            loop_count += 1;
+            tracing::debug!(
+                loop_count,
+                checkpoint = ?self.checkpoint,
+                progress_ready = ?self.progress_ready,
+                start_reads = self.start_reads.len(),
+                "SessionActor::serve iteration"
+            ); // debug, not trace, because we don't loop on documents.
+
             // First, attempt non-blocking sends.
             let wake_slice_request_tx = self.try_slice_request_tx()?;
-            let wake_session_response_tx = self.try_session_response_tx()?;
+            self.try_session_response_tx();
 
             // Then, wait for a blocking future to resolve.
             tokio::select! {
@@ -58,19 +75,44 @@ impl SessionActor {
                 session_request = session_request_rx.next() => {
                     match session_request {
                         Some(result) => self.on_session_request(result)?,
-                        None => break Ok(()), // Clean EOF: shutdown.
+                        None => break,
                     }
                 }
-                Some((member_index, slice_response, rx)) = slice_response_rx.next() => {
-                    self.on_slice_response(member_index, slice_response)?;
-                    slice_response_rx.push(next_slice_rx((member_index, rx)));
+                Some((shard_index, slice_response, rx)) = slice_response_rx.next() => {
+                    self.on_slice_response(shard_index, slice_response)?;
+                    slice_response_rx.push(next_slice_rx((shard_index, rx)));
                 }
 
                 // Next priority is draining ready-to-send messages.
                 true = wake_slice_request_tx => {}
-                true = wake_session_response_tx => {}
+
+                // Periodic tick ensures tracing fires even when idle,
+                // and detects stalled causal hint resolution.
+                _ = ticker.tick() => {
+                    self.checkpoint.on_tick()?;
+                }
             }
         }
+
+        tracing::debug!(loop_count, "SessionActor::serve exiting on coordinator EOF");
+        self.slice_request_tx.clear(); // Drop all tx handles to close.
+
+        // Read clean EOF from all Slice RPCs.
+        while let Some((shard_index, slice_response, rx)) = slice_response_rx.next().await {
+            let verify = crate::verify(
+                "SliceResponse",
+                "EOF",
+                &self.topology.shards[shard_index].endpoint,
+                shard_index,
+            );
+            match slice_response {
+                None => (), // Clean EOF.
+                Some(Ok(_ignored)) => slice_response_rx.push(next_slice_rx((shard_index, rx))),
+                Some(Err(status)) => return Err(verify.fail_status(status)),
+            }
+        }
+
+        Ok(())
     }
 
     fn try_slice_request_tx(&mut self) -> anyhow::Result<impl Future<Output = bool> + 'static> {
@@ -81,13 +123,13 @@ impl SessionActor {
         let idle = future::Either::Right(std::future::ready(false));
 
         // Try to drain Progress requests. This loop may head-of-line block if
-        // we're unable to send to a FIFO member. We accept this property for
+        // we're unable to send to a FIFO shard. We accept this property for
         // implementation simplicity.
-        for (member_index, pending) in self.progress_ready.iter_mut().enumerate() {
+        for (shard_index, pending) in self.progress_ready.iter_mut().enumerate() {
             if !*pending {
                 continue;
             }
-            let tx = &self.slice_request_tx[member_index];
+            let tx = &self.slice_request_tx[shard_index];
 
             let Ok(permit) = tx.try_reserve() else {
                 return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
@@ -98,56 +140,63 @@ impl SessionActor {
                 progress: Some(shuffle::slice_request::Progress {}),
                 ..Default::default()
             });
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "slice",
+                shard_index,
+                "sent Progress request",
+            );
         }
 
         // Try to drain StartRead requests in FIFO order.
-        while let Some((member_index, _start_read)) = self.start_reads.front() {
-            let tx = &self.slice_request_tx[*member_index];
+        while let Some((shard_index, _start_read)) = self.start_reads.front() {
+            let tx = &self.slice_request_tx[*shard_index];
 
             let Ok(permit) = tx.try_reserve() else {
                 return Ok(future::Either::Left(tx.clone().reserve_owned().map(ok)));
             };
-            let (_member_index, start_read) = self.start_reads.pop_front().unwrap();
+            let (shard_index, start_read) = self.start_reads.pop_front().unwrap();
 
             permit.send(shuffle::SliceRequest {
                 start_read: Some(start_read),
                 ..Default::default()
             });
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "slice",
+                shard_index,
+                "sent StartRead request",
+            );
         }
 
         Ok(idle)
     }
 
-    fn try_session_response_tx(&mut self) -> anyhow::Result<impl Future<Output = bool> + 'static> {
-        // Closure for mapping an OwnedPermit Result to Ok (our "poll again" signal).
-        // On Err (channel closed), we don't wake and rely on rx of a causal error / fail-fast teardown.
-        let ok = |result: Result<_, _>| result.is_ok();
-        // Future which represent an absence of an awake signal.
-        let idle = future::Either::Right(std::future::ready(false));
+    /// Drain a ready checkpoint Frontier (if any) to the coordinator.
+    fn try_session_response_tx(&mut self) {
+        let Some(frontier) = self.checkpoint.take_ready() else {
+            return;
+        };
+        let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
+            frontier.measures();
 
-        if self.checkpoint_drain.is_empty() {
-            if let Some(frontier) = self.checkpoint.take_ready() {
-                self.checkpoint_drain.start(frontier);
-            }
-        }
+        let _ = self.session_response_tx.send(Ok(shuffle::SessionResponse {
+            next_checkpoint: Some(frontier.encode()),
+            ..Default::default()
+        }));
 
-        // Try to drain NextCheckpoint response chunks.
-        // Ensure channel capacity *before* next_chunk() to not lose it.
-        while !self.checkpoint_drain.is_empty() {
-            let Ok(permit) = self.session_response_tx.try_reserve() else {
-                return Ok(future::Either::Left(
-                    self.session_response_tx.clone().reserve_owned().map(ok),
-                ));
-            };
-            let chunk = self.checkpoint_drain.next_chunk().unwrap();
-
-            permit.send(Ok(shuffle::SessionResponse {
-                next_checkpoint_chunk: Some(chunk),
-                ..Default::default()
-            }));
-        }
-
-        Ok(idle)
+        service_kit::event!(
+            tracing::Level::DEBUG,
+            "coordinator",
+            bytes_behind_delta,
+            bytes_read_delta,
+            journal_producers,
+            journals,
+            "sent NextCheckpoint response",
+        );
+        self.metrics.checkpoints.increment(1);
     }
 
     fn on_session_request(
@@ -160,21 +209,28 @@ impl SessionActor {
             shuffle::SessionRequest {
                 next_checkpoint: Some(shuffle::session_request::NextCheckpoint {}),
                 ..
-            } => self.checkpoint.request(),
+            } => {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "coordinator",
+                    "received NextCheckpoint request"
+                );
+                self.checkpoint.request()
+            }
             request => Err(verify.fail(request)),
         }
     }
 
     fn on_slice_response(
         &mut self,
-        member_index: usize,
+        shard_index: usize,
         slice_response: Option<tonic::Result<shuffle::SliceResponse>>,
     ) -> anyhow::Result<()> {
         let verify = crate::verify(
             "SliceResponse",
             "ListingAdded or ProgressDelta",
-            &self.topology.members[member_index].endpoint,
-            member_index,
+            &self.topology.shards[shard_index].endpoint,
+            shard_index,
         );
         let slice_response = verify.not_eof(slice_response)?;
 
@@ -183,19 +239,26 @@ impl SessionActor {
                 listing_added: Some(added),
                 ..
             } => {
+                service_kit::event!(
+                    tracing::Level::DEBUG,
+                    "slice",
+                    shard_index,
+                    "received ListingAdded",
+                );
+
                 let routed = self.topology.route_read(&added)?;
-                let (member_index, start_read) = self.topology.build_start_read(&routed, added);
-                self.start_reads.push_back((member_index, start_read));
+                let (routed_shard, start_read) = self.topology.build_start_read(&routed, added);
+                self.start_reads.push_back((routed_shard, start_read));
+
                 Ok(())
             }
 
             shuffle::SliceResponse {
-                progressed: Some(chunk),
+                progressed: Some(proto),
                 ..
             } => {
-                if self.checkpoint.on_progressed_chunk(member_index, chunk)? {
-                    self.progress_ready[member_index] = true;
-                }
+                self.checkpoint.on_progressed(shard_index, proto)?; // Handles event! diagnostic.
+                self.progress_ready[shard_index] = true;
                 Ok(())
             }
 
@@ -204,16 +267,16 @@ impl SessionActor {
     }
 }
 
-// Helper which builds a future that yields the next response from a member's Slice RPC.
+// Helper which builds a future that yields the next response from a shard's Slice RPC.
 async fn next_slice_rx(
-    (member_index, mut rx): (
+    (shard_index, mut rx): (
         usize,
         BoxStream<'static, tonic::Result<shuffle::SliceResponse>>,
     ),
 ) -> (
-    usize,                                                     // Member index.
+    usize,                                                     // Shard index.
     Option<tonic::Result<shuffle::SliceResponse>>,             // Response.
     BoxStream<'static, tonic::Result<shuffle::SliceResponse>>, // Stream.
 ) {
-    (member_index, rx.next().await, rx)
+    (shard_index, rx.next().await, rx)
 }

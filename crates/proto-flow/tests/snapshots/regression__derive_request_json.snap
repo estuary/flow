@@ -37,7 +37,9 @@ expression: json_test(msg)
               "contentType": "typ",
               "format": "date",
               "contentEncoding": "enc",
-              "maxLength": 12345
+              "maxLength": 12345,
+              "strMinimum": "100",
+              "strMaximum": "18446744073709551615"
             },
             "title": "title",
             "description": "desc",
@@ -61,7 +63,8 @@ expression: json_test(msg)
               "const-two"
             ],
             "reduce": "REDUCE_MERGE",
-            "redact": "REDACT_SHA256"
+            "redact": "REDACT_SHA256",
+            "contentMediaType": "typ"
           }
         }
       ],
@@ -125,7 +128,9 @@ expression: json_test(msg)
                   "contentType": "typ",
                   "format": "date",
                   "contentEncoding": "enc",
-                  "maxLength": 12345
+                  "maxLength": 12345,
+                  "strMinimum": "100",
+                  "strMaximum": "18446744073709551615"
                 },
                 "title": "title",
                 "description": "desc",
@@ -149,7 +154,8 @@ expression: json_test(msg)
                   "const-two"
                 ],
                 "reduce": "REDUCE_MERGE",
-                "redact": "REDACT_SHA256"
+                "redact": "REDACT_SHA256",
+                "contentMediaType": "typ"
               }
             }
           ],
@@ -226,7 +232,9 @@ expression: json_test(msg)
               "contentType": "typ",
               "format": "date",
               "contentEncoding": "enc",
-              "maxLength": 12345
+              "maxLength": 12345,
+              "strMinimum": "100",
+              "strMaximum": "18446744073709551615"
             },
             "title": "title",
             "description": "desc",
@@ -250,7 +258,8 @@ expression: json_test(msg)
               "const-two"
             ],
             "reduce": "REDUCE_MERGE",
-            "redact": "REDACT_SHA256"
+            "redact": "REDACT_SHA256",
+            "contentMediaType": "typ"
           }
         }
       ],
@@ -306,7 +315,9 @@ expression: json_test(msg)
     },
     "doc": {"read":"doc"}
   },
-  "flush": {},
+  "flush": {
+    "statePatches": [{"flush":true}]
+  },
   "startCommit": {
     "runtimeCheckpoint": {
       "sources": {

@@ -1,3 +1,5 @@
+pub use ::uuid::Uuid;
+
 /// Producer is the unique node identifier portion of a v1 UUID.
 /// Gazette uses Producer to identify distinct writers of collection data,
 /// as the key of a vector clock.
@@ -24,7 +26,7 @@ impl std::hash::Hash for Producer {
 /// counter. Both the timestamp and counter are monotonic (will never decrease),
 /// and each Tick increments the Clock. For UUID generation, Clock provides a
 /// total ordering over UUIDs of a given Producer.
-#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Clock(u64);
 
 // Flags are the 10 least-significant bits of the v1 UUID clock sequence,
@@ -102,16 +104,25 @@ impl Clock {
     }
 
     #[inline]
-    pub fn tick(&mut self) {
-        self.0 += 1;
+    pub fn tick(&mut self) -> Self {
+        // Increment by one microsecond: 1000ns = 10 units of 100ns, shifted
+        // left by 4 to clear the counter bits (10 << 4 = 160). This matches
+        // Gazette's `message.Clock.Tick()` and keeps stamped UUID timestamps
+        // microsecond-aligned, which is the precision most destination systems
+        // support for the materialized `flow_published_at` column.
+        self.0 += 160;
+        *self
     }
 
     #[inline]
     pub fn to_unix(&self) -> (u64, u32) {
-        // Each tick is 100ns relative to unix epoch.
+        // The high 60 bits are a count of 100ns intervals since the unix epoch.
         let ticks = (self.0 >> 4).saturating_sub(G1582NS100);
         let seconds = ticks / 10_000_000;
-        // We also include the four counter bits as increments of 4 nanoseconds each.
+        // The low 4 bits are a sub-100ns ordering counter, rendered here as
+        // increments of 4ns. `tick()` advances in whole microseconds and leaves
+        // these bits zero, so this term only contributes for UUIDs that carry a
+        // non-zero counter (e.g. legacy data); it's retained as a safety net.
         let nanos = (ticks % 10_000_000) * 100 + ((self.0 & 0xf) << 2);
         (seconds, nanos as u32)
     }
@@ -139,13 +150,16 @@ impl Clock {
         Some(pbjson_types::Timestamp { seconds, nanos })
     }
 
-    pub const UNIX_EPOCH: Self = Clock::from_unix(0, 0);
-}
-
-impl Default for Clock {
-    fn default() -> Self {
-        Self::UNIX_EPOCH
+    /// Saturating difference of `a - b` expressed as `Duration`.
+    pub fn delta(a: Self, b: Self) -> std::time::Duration {
+        let (a_s, a_n) = a.to_unix();
+        let (b_s, b_n) = b.to_unix();
+        let a = std::time::Duration::new(a_s, a_n);
+        let b = std::time::Duration::new(b_s, b_n);
+        a.saturating_sub(b)
     }
+
+    pub const UNIX_EPOCH: Self = Clock::from_unix(0, 0);
 }
 
 impl std::ops::Add<Clock> for Clock {
@@ -175,6 +189,10 @@ impl std::fmt::Debug for Clock {
 }
 
 impl Flags {
+    pub const ACK_TXN: Self = Self(crate::message_flags::ACK_TXN as u16);
+    pub const CONTINUE_TXN: Self = Self(crate::message_flags::CONTINUE_TXN as u16);
+    pub const OUTSIDE_TXN: Self = Self(crate::message_flags::OUTSIDE_TXN as u16);
+
     #[inline]
     pub fn is_ack(&self) -> bool {
         self.0 & (crate::message_flags::ACK_TXN as u16) != 0
@@ -345,9 +363,19 @@ pub fn sequence(
                 Ok(SequenceOutcome::AckCleanRollback)
             }
         } else if clock < *last_commit {
-            *last_commit = clock;
-            *max_continue = Clock::zero();
-            Ok(SequenceOutcome::AckDeepRollback)
+            if *max_continue == Clock::zero() {
+                // If there are no pending CONTINUEs, then likely a duplicate
+                // observed under a conservative re-read of journal content
+                // (from a lower-bound starting offset).
+                Ok(SequenceOutcome::AckDuplicate)
+            } else {
+                // Given pending CONTINUEs (which are not possible under a
+                // conservative re-read of journal content), this is a deep
+                // rollback.
+                *last_commit = clock;
+                *max_continue = Clock::zero();
+                Ok(SequenceOutcome::AckDeepRollback)
+            }
         } else if *max_continue == Clock::zero() {
             *last_commit = clock;
             Ok(SequenceOutcome::AckEmpty)
@@ -382,13 +410,17 @@ mod test {
         assert_eq!(c.0, 0x1b21dd2138140000);
         assert_eq!(c.to_unix(), (0, 0));
 
-        // UNIX_EPOCH is Clock's default.
+        // Clock's default is zero (the additive identity / sentinel), which
+        // still maps to the unix epoch through saturating `to_unix()`.
+        assert_eq!(Clock::default(), Clock::zero());
         assert_eq!(Clock::default().to_unix(), (0, 0));
 
-        // Each tick increments the clock.
+        // Each tick advances the clock by one microsecond (160 == 10 << 4),
+        // leaving the 4-bit counter zero.
         c.tick();
         c.tick();
-        assert_eq!(c.0, 0x1b21dd2138140002);
+        assert_eq!(c.0, 0x1b21dd2138140140);
+        assert_eq!(c.to_unix(), (0, 2_000));
 
         // Updates take the maximum value of the observed Clocks (Clock is monotonic).
         c.update(Clock::from_unix(10, 0));
@@ -399,14 +431,14 @@ mod test {
         assert_eq!(c.to_unix(), (10, 0));
 
         c.tick();
-        assert_eq!(c.to_unix(), (10, 4));
+        assert_eq!(c.to_unix(), (10, 1_000));
         c.tick();
-        assert_eq!(c.to_unix(), (10, 8));
+        assert_eq!(c.to_unix(), (10, 2_000));
 
         for _ in 0..16 {
             c.tick();
         }
-        assert_eq!(c.to_unix(), (10, 108));
+        assert_eq!(c.to_unix(), (10, 18_000));
     }
 
     #[test]
@@ -417,12 +449,13 @@ mod test {
 
         let p_in = Producer::from_bytes([8 | 1, 6, 7, 5, 3, 9]);
 
-        // Craft an interesting Clock fixture which uses the full bit-range
-        // and includes clock sequence increments.
+        // Craft an interesting Clock fixture which uses the full bit-range.
         let mut c_in = Clock::UNIX_EPOCH;
         c_in.update(Clock::from_unix(SECONDS, NANOS));
         assert_eq!(c_in.to_unix(), (SECONDS, 981273700)); // Rounded to 100's of nanos.
 
+        // Two microsecond ticks advance the 100ns timestamp field by 2000ns,
+        // leaving the 4-bit clock-sequence counter zero.
         c_in.tick();
         c_in.tick();
 
@@ -435,10 +468,11 @@ mod test {
             id.get_timestamp().map(|ts| ts.to_unix()),
             Some((
                 SECONDS,
-                (NANOS / 100) * 100, // Rounded down to nearest 100ns.
+                (NANOS / 100) * 100 + 2_000, // Rounded to 100ns, plus two µs ticks.
             ))
         );
-        assert_eq!(id.get_timestamp().map(|ts| ts.to_gregorian().1), Some(2730));
+        // The 14-bit clock-sequence is just the flags now that the counter is zero.
+        assert_eq!(id.get_timestamp().map(|ts| ts.to_gregorian().1), Some(682));
 
         let (p_out, c_out, f_out) = parse(id).unwrap();
 
@@ -478,8 +512,8 @@ mod test {
             (A, 20, 10, 0, AckEmpty, (20, 0)),
             (A, 10, 10, 0, AckDuplicate, (10, 0)),
             (A, 10, 10, 20, AckCleanRollback, (10, 0)),
-            (A, 3, 10, 0, AckDeepRollback, (3, 0)),
-            (A, 3, 10, 20, AckDeepRollback, (3, 0)),
+            (A, 3, 10, 0, AckDuplicate, (10, 0)), // No pending CONTINUEs: stale ACK, not rollback.
+            (A, 3, 10, 20, AckDeepRollback, (3, 0)), // Pending CONTINUEs: genuine deep rollback.
         ];
         for (flags, clock, lc_in, mc_in, expected, (lc_out, mc_out)) in ok_cases {
             let (mut lc, mut mc) = (clk(*lc_in), clk(*mc_in));
@@ -539,7 +573,7 @@ mod test {
                 (A, 20, AckCommit),
                 (O, 30, OutsideCommit),
                 (O, 30, OutsideDuplicate),
-                (A, 20, AckDeepRollback),
+                (A, 20, AckDuplicate), // No pending CONTINUEs, so stale ACK is a duplicate.
             ],
         );
 

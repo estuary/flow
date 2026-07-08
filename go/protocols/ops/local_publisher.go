@@ -24,6 +24,15 @@ func NewLocalPublisher(labels ShardLabeling) *LocalPublisher {
 func (p *LocalPublisher) Labels() ShardLabeling { return p.labels }
 
 func (p *LocalPublisher) PublishLog(log Log) {
+	LogToLogrus(log, p.labels.TaskName)
+}
+
+// LogToLogrus emits an ops Log to the process's standard logrus logger,
+// attaching `taskName` (when non-empty) as the `task` field. The log's level
+// is mapped onto the logrus level, so emission is gated by the logger's
+// configured level. It's used both by LocalPublisher and to forward
+// operator-observable connector logs into the data-plane's own log stream.
+func LogToLogrus(log Log, taskName string) {
 	var level logrus.Level
 	switch log.Level {
 	case Log_trace:
@@ -55,8 +64,8 @@ func (p *LocalPublisher) PublishLog(log Log) {
 		}
 	}
 
-	if p.labels.TaskName != "" && fields["task"] == nil {
-		fields["task"] = p.labels.TaskName
+	if taskName != "" && fields["task"] == nil {
+		fields["task"] = taskName
 	}
 	logger.WithFields(fields).Log(level, log.Message)
 }

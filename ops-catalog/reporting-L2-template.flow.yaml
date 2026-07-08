@@ -1,5 +1,5 @@
-# When editing this catalog, regenerate its bundle via:
-#  flowctl raw bundle --source ops-catalog/reporting-L2-template.flow.yaml  > ops-catalog/reporting-L2-template.bundle.json
+# When editing this catalog, regenerate the checked-in bundles:
+#  mise run build:ops-bundles
 
 collections:
   ops.us-central1.v1/events/L2:
@@ -71,3 +71,24 @@ collections:
           # TODO(johnny): Ideally, this would be shuffle: { key: [/catalogName] }
           # However, while rolling out federated data-planes I'm minimizing churn.
           shuffle: any
+
+  ops/rollups/L2/catalog-stats:
+    schema: catalog-stats.schema.yaml
+    key: [/catalogName, /grain, /ts]
+    projections:
+      catalog_name: /catalogName
+      grain:
+        location: /grain
+        partition: true
+
+    derive:
+      using:
+        typescript:
+          module: catalog-stats-L2-rollup.ts
+      transforms:
+        # Bindings of this derivation are dynamically generated over all current data-planes.
+        # This binding is ignored in production, and is used only for tests.
+        - name: from-base-name
+          source: ops/rollups/L1/BASE_NAME/catalog-stats
+          shuffle:
+            key: [/catalogName]

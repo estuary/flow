@@ -19,7 +19,6 @@ connector-init = { path = "../connector-init" }
 coroutines = { path = "../coroutines" }
 doc = { path = "../doc", features = ["combine"] }
 extractors = { path = "../extractors" }
-flow-client = { path = "../flow-client" }
 flow-client-next = { path = "../flow-client-next" }
 gazette = { path = "../gazette" }
 json = { path = "../json" }
@@ -33,7 +32,10 @@ proto-grpc = { path = "../proto-grpc", features = [
     "capture_client",
     "shuffle_client",
 ] }
+publisher = { path = "../publisher" }
 runtime = { path = "../runtime" }
+runtime-next = { path = "../runtime-next" }
+service-kit = { path = "../service-kit" }
 shuffle = { path = "../shuffle" }
 simd-doc = { path = "../simd-doc" }
 sources = { path = "../sources" }
@@ -43,7 +45,6 @@ validation = { path = "../validation" }
 
 anyhow = { workspace = true }
 axum = { workspace = true }
-base64 = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -56,7 +57,6 @@ humantime = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 open = { workspace = true }               # used for opening URLs in the user's browser
-page-turner = { workspace = true }
 pbjson-types = { workspace = true }
 postgrest = { workspace = true }
 prost = { workspace = true }

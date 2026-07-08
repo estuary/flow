@@ -129,9 +129,14 @@ pub struct ListFragmentsArgs {
 
     /// Only include fragments which were written within the provided duration from the present.
     /// For example, `--since 10m` will only output fragments that have been written within
-    /// the last 10 minutes.
+    /// the last 10 minutes. Mutually exclusive with --not-before.
     #[clap(long)]
     pub since: Option<humantime::Duration>,
+
+    /// Only include fragments written at or after this absolute point in time, as an
+    /// RFC-3339 timestamp (e.g. "2024-01-02T15:04:05Z"). Mutually exclusive with --since.
+    #[clap(long, conflicts_with = "since", value_parser = crate::parse_rfc3339)]
+    pub not_before: Option<OffsetDateTime>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -203,11 +208,17 @@ async fn do_list_fragments(
         selector,
         signature_ttl,
         since,
+        not_before,
     }: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
-    let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, false)
-            .await?;
+    let (journal_name_prefix, client) = crate::dataplane::user_collection_journal(
+        &ctx.rest,
+        &ctx.user_tokens,
+        &ctx.router,
+        &selector.collection,
+        models::Capability::Read,
+    )
+    .await?;
 
     let list_resp = client
         .list(broker::ListRequest {
@@ -216,12 +227,12 @@ async fn do_list_fragments(
         })
         .await?;
 
-    let start_time = if let Some(since) = *since {
-        let timepoint = OffsetDateTime::now_utc() - *since;
-        tracing::debug!(%since, begin_mod_time = %timepoint, "resolved --since to begin_mod_time");
-        timepoint.unix_timestamp()
-    } else {
-        0
+    let begin_mod_time = match crate::resolve_not_before(*since, *not_before) {
+        Some(timepoint) => {
+            tracing::debug!(begin_mod_time = %timepoint, "resolved lower bound to begin_mod_time");
+            timepoint.unix_timestamp()
+        }
+        None => 0,
     };
 
     let signature_ttl = signature_ttl.map(|ttl| std::time::Duration::from(*ttl).into());
@@ -229,7 +240,7 @@ async fn do_list_fragments(
     for journal in list_resp.journals {
         let req = broker::FragmentsRequest {
             journal: journal.spec.context("missing spec")?.name.clone(),
-            begin_mod_time: start_time,
+            begin_mod_time,
             page_limit: 500,
             signature_ttl: signature_ttl.clone(),
             ..Default::default()
@@ -246,9 +257,14 @@ async fn do_list_journals(
     ctx: &mut crate::CliContext,
     selector: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
-    let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, false)
-            .await?;
+    let (journal_name_prefix, client) = crate::dataplane::user_collection_journal(
+        &ctx.rest,
+        &ctx.user_tokens,
+        &ctx.router,
+        &selector.collection,
+        models::Capability::Read,
+    )
+    .await?;
 
     let list_resp = client
         .list(broker::ListRequest {
@@ -278,13 +294,14 @@ async fn do_split_journals(
         built_spec: Option<models::RawValue>,
     }
 
-    let results: Vec<LiveSpecResult> = crate::api_exec(
-        ctx.client
+    let results: Vec<LiveSpecResult> = flow_client_next::postgrest::exec(
+        ctx.pg
             .from("live_specs_ext")
             .select("built_spec")
             .eq("catalog_name", &selector.collection)
             .eq("spec_type", "collection")
             .limit(1),
+        ctx.access_token().as_deref(),
     )
     .await?;
 
@@ -311,9 +328,14 @@ async fn do_split_journals(
         .context("Collection has no partition template")?;
 
     // Now get collection authorization and journal client (admin required for splitting)
-    let (journal_name_prefix, client) =
-        flow_client::fetch_user_collection_authorization(&ctx.client, &selector.collection, true)
-            .await?;
+    let (journal_name_prefix, client) = crate::dataplane::user_collection_journal(
+        &ctx.rest,
+        &ctx.user_tokens,
+        &ctx.router,
+        &selector.collection,
+        models::Capability::Admin,
+    )
+    .await?;
 
     // List current journals
     let list_resp = client

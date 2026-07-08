@@ -110,6 +110,7 @@ tables!(
         key object_role: models::Prefix,
         // Capability of the subject with respect to the object.
         val capability: models::Capability,
+        val bundles: Vec<models::authz::CapabilityBundle>,
     }
 
     table UserGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] UserGrant, sql "user_grants") {
@@ -119,6 +120,7 @@ tables!(
         key object_role: models::Prefix,
         // Capability of the subject with respect to the object.
         val capability: models::Capability,
+        val bundles: Vec<models::authz::CapabilityBundle>,
     }
 
     table DraftCaptures (row #[derive(Clone)] DraftCapture, sql "draft_captures") {
@@ -405,11 +407,13 @@ impl Error {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, serde::Serialize)]
-pub struct GrantRef<'a> {
-    pub subject_role: &'a str,
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct NodeRef<'a> {
     pub object_role: &'a str,
-    pub capability: models::Capability,
+    pub capabilities: models::authz::CapabilitySet,
+    /// The legacy `capability` column of the grant that emitted this node.
+    /// Pass-through (no attenuation); reflects storage, not effective bits.
+    pub legacy: models::Capability,
 }
 
 /// Attempts to parse a catalog type and name from a URL in the form of:
@@ -479,6 +483,7 @@ string_wrapper_types!(
 json_sql_types!(
     Vec<String>,
     Vec<models::Store>,
+    Vec<models::authz::CapabilityBundle>,
     models::Capability,
     models::CaptureDef,
     models::CatalogType,

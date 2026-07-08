@@ -58,7 +58,7 @@ pub async fn fetch_live_specs(
         list.name_selector.prefix = prefixes;
     }
 
-    fetch_paginated_live_specs(ctx.client.clone(), list)
+    fetch_paginated_live_specs(ctx.rest.clone(), ctx.access_token(), list)
         .try_collect()
         .await
 }
@@ -213,7 +213,8 @@ fn format_flows(conn: Option<&list_live_specs_query::SelectConnection>) -> Strin
 /// Executes the graphql query for the given `list` arguments, making additional
 /// requests as necessary to read all of the results.
 fn fetch_paginated_live_specs(
-    client: flow_client::Client,
+    rest: flow_client_next::rest::Client,
+    access_token: Option<String>,
     list: List,
 ) -> impl futures::Stream<Item = anyhow::Result<list_live_specs_query::SelectRef>> + 'static {
     if list.name_selector.name.is_empty() && list.name_selector.prefix.is_empty() {
@@ -235,7 +236,7 @@ fn fetch_paginated_live_specs(
                     include_flows: list.include_flows,
                     include_last_publication: list.include_last_publication,
                 };
-                let resp = post_graphql::<ListLiveSpecsQuery>(&client, vars)
+                let resp = post_graphql::<ListLiveSpecsQuery>(&rest, access_token.as_deref(), vars)
                     .await
                     .context("failed to fetch live specs")?;
 
@@ -269,10 +270,19 @@ fn to_vars(list: &List) -> Vec<list_live_specs_query::LiveSpecsBy> {
     let catalog_type = list.type_selector.get_single_type_selection();
 
     let mut vars = Vec::new();
+    let mut seen_prefixes = std::collections::HashSet::new();
     for prefix in list.name_selector.prefix.iter() {
+        let prefix = normalize_prefix(prefix);
+        // Skip prefixes that normalize to an already-queued value. Because we
+        // append a trailing '/', a bare `acmeCo` and an explicit `acmeCo/`
+        // collapse to the same prefix; issuing both queries would list every
+        // matching spec twice.
+        if !seen_prefixes.insert(prefix.as_str().to_string()) {
+            continue;
+        }
         vars.push(list_live_specs_query::LiveSpecsBy {
             names: None,
-            prefix: Some(models::Prefix::new(prefix)),
+            prefix: Some(prefix),
             catalog_type,
             data_plane_name: data_plane_name.clone(),
         });
@@ -292,4 +302,63 @@ fn to_vars(list: &List) -> Vec<list_live_specs_query::LiveSpecsBy> {
         });
     }
     vars
+}
+
+/// Normalizes a user-supplied `--prefix` value by appending a trailing '/' when
+/// it's missing. Estuary prefixes must end in a '/' (for example, `acmeCo/`).
+/// When the slash is omitted, the control plane treats the value as an
+/// unrecognized catalog name and returns a misleading `PermissionDenied` error
+/// even for fully-authorized users, so we fix it up here at the CLI boundary.
+/// An empty prefix is left as-is: it's a valid selector meaning "everything the
+/// user can access", and a bare "/" would be rejected.
+fn normalize_prefix(prefix: &str) -> models::Prefix {
+    if prefix.is_empty() || prefix.ends_with('/') {
+        models::Prefix::new(prefix)
+    } else {
+        models::Prefix::new(format!("{prefix}/"))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{List, normalize_prefix, to_vars};
+
+    #[test]
+    fn test_to_vars_dedups_prefixes() {
+        // A bare prefix and its trailing-slash form normalize to the same value;
+        // querying both would double-list every matching spec, so `to_vars`
+        // should emit a single query. The same-value-twice case dedups too.
+        let mut list = List::default();
+        list.name_selector.prefix = vec![
+            "acmeCo".to_string(),
+            "acmeCo/".to_string(),
+            "acmeCo".to_string(),
+            "acmeCo/widgets".to_string(),
+        ];
+
+        let prefixes = to_vars(&list)
+            .into_iter()
+            .map(|by| by.prefix.expect("prefix selector").as_str().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(prefixes, vec!["acmeCo/", "acmeCo/widgets/"]);
+    }
+
+    #[test]
+    fn test_normalize_prefix() {
+        // A missing trailing slash is the reported foot-gun, and is filled in.
+        assert_eq!(normalize_prefix("acmeCo").as_str(), "acmeCo/");
+        assert_eq!(
+            normalize_prefix("acmeCo/widgets").as_str(),
+            "acmeCo/widgets/"
+        );
+        // Already-normalized prefixes pass through unchanged.
+        assert_eq!(normalize_prefix("acmeCo/").as_str(), "acmeCo/");
+        assert_eq!(
+            normalize_prefix("acmeCo/widgets/").as_str(),
+            "acmeCo/widgets/"
+        );
+        // An empty prefix stays empty (a valid "everything" selector); we must
+        // not turn it into the invalid "/".
+        assert_eq!(normalize_prefix("").as_str(), "");
+    }
 }

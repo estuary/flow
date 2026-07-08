@@ -27,7 +27,7 @@ pub struct Alerts {
 
 /// Fetch firing alerts for the given catalog prefixes using the GraphQL API
 pub async fn fetch_firing_alerts(
-    client: &crate::Client,
+    ctx: &crate::CliContext,
     prefix: String,
 ) -> anyhow::Result<Vec<FiringAlert>> {
     let mut before: Option<String> = None;
@@ -40,8 +40,13 @@ pub async fn fetch_firing_alerts(
             last: 500,
         });
 
-        let response: graphql_client::Response<firing_alerts_query::ResponseData> = client
-            .agent_unary("/api/graphql", &request_body)
+        let response: graphql_client::Response<firing_alerts_query::ResponseData> =
+            crate::graphql::agent_unary(
+                &ctx.rest,
+                ctx.access_token().as_deref(),
+                crate::graphql::GRAPHQL_PATH,
+                &request_body,
+            )
             .await
             .context("executing graphql request")?;
 
@@ -79,6 +84,6 @@ impl output::CliOutput for FiringAlert {
 }
 
 pub async fn do_alerts(ctx: &mut crate::CliContext, alerts: &Alerts) -> anyhow::Result<()> {
-    let resp = fetch_firing_alerts(&ctx.client, alerts.prefix.clone()).await?;
+    let resp = fetch_firing_alerts(ctx, alerts.prefix.clone()).await?;
     ctx.write_all(resp, ())
 }

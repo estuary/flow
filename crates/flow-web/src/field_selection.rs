@@ -168,9 +168,10 @@ pub fn evaluate_field_selection(input: JsValue) -> Result<JsValue, JsValue> {
         ..
     } = binding_model;
 
+    let validated_constraints = field_selection::normalize_constraints(&binding_validated);
+
     let materialize::response::validated::Binding {
         case_insensitive_fields,
-        constraints: validated_constraints,
         resource_path: validated_resource_path,
         ..
     } = binding_validated;

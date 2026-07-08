@@ -20,6 +20,9 @@ const (
 	Capability_NETWORK_PROXY pb.Capability = 1 << 18
 	// CONNECTOR gives the bearer a capability to use the runtime's connector APIs.
 	Capability_PROXY_CONNECTOR pb.Capability = 1 << 19
+	// LEAD gives the bearer a capability to use the runtime's Leader API,
+	// driving a derivation or materialization task's transactions.
+	Capability_LEAD pb.Capability = 1 << 20
 )
 
 // NewAuthNetworkProxyClient returns a NetworkProxyClient which uses the Authorizer

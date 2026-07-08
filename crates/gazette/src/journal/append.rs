@@ -19,9 +19,10 @@ impl Client {
     {
         coroutines::coroutine(move |mut co| async move {
             let mut attempt = 0;
+            let metrics = Metrics::new(&req.journal);
 
             loop {
-                let err = match self.try_append(&mut req, source()).await {
+                let err = match self.try_append(metrics.clone(), &mut req, source()).await {
                     Ok(resp) => {
                         () = co.yield_(Ok(resp)).await;
                         return;
@@ -49,6 +50,7 @@ impl Client {
 
     async fn try_append<S>(
         &self,
+        metrics: Metrics,
         req: &mut broker::AppendRequest,
         source: S,
     ) -> crate::Result<AppendResponse>
@@ -67,16 +69,19 @@ impl Client {
         // the initial metadata request containing the journal name and any other request metadata, then
         // "data" requests that contain chunks of data to write, then the final EOF indicating completion.
         let source = futures::stream::once(async move { Ok(req_clone) })
-            .chain(source.filter_map(|input| {
+            .chain(source.filter_map(move |input| {
                 futures::future::ready(match input {
                     // It's technically possible to get an empty set of bytes when reading
                     // from the input stream. Filter these out as otherwise they would look
                     // like EOFs to the append RPC and cause confusion.
                     Ok(content) if content.len() == 0 => None,
-                    Ok(content) => Some(Ok(broker::AppendRequest {
-                        content,
-                        ..Default::default()
-                    })),
+                    Ok(content) => {
+                        metrics.append.increment(content.len() as u64);
+                        Some(Ok(broker::AppendRequest {
+                            content,
+                            ..Default::default()
+                        }))
+                    }
                     Err(err) => Some(Err(err)),
                 })
             }))
@@ -118,5 +123,26 @@ impl Client {
             req.header = resp.header.take();
             Err(Error::BrokerStatus(resp.status()))
         }
+    }
+}
+
+#[derive(Clone)]
+struct Metrics {
+    append: metrics::Counter,
+}
+
+impl Metrics {
+    fn new(journal: &str) -> Self {
+        static DESCRIBE: std::sync::Once = std::sync::Once::new();
+        DESCRIBE.call_once(|| {
+            metrics::describe_counter!(
+                "gazette_append",
+                metrics::Unit::Bytes,
+                "number of bytes appended to a journal",
+            );
+        });
+        let append = metrics::counter!("gazette_append", "journal" => journal.to_string());
+
+        Self { append }
     }
 }

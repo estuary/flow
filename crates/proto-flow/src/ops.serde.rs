@@ -82,6 +82,7 @@ impl<'de> serde::Deserialize<'de> for Log {
             Message,
             FieldsJsonMap,
             Spans,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -110,7 +111,7 @@ impl<'de> serde::Deserialize<'de> for Log {
                             "message" => Ok(GeneratedField::Message),
                             "fields" | "fields_json_map" => Ok(GeneratedField::FieldsJsonMap),
                             "spans" => Ok(GeneratedField::Spans),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -182,6 +183,9 @@ impl<'de> serde::Deserialize<'de> for Log {
                                 return Err(serde::de::Error::duplicate_field("spans"));
                             }
                             spans__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -313,6 +317,7 @@ impl<'de> serde::Deserialize<'de> for Meta {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Uuid,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -335,7 +340,7 @@ impl<'de> serde::Deserialize<'de> for Meta {
                     {
                         match value {
                             "uuid" => Ok(GeneratedField::Uuid),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -362,6 +367,9 @@ impl<'de> serde::Deserialize<'de> for Meta {
                                 return Err(serde::de::Error::duplicate_field("uuid"));
                             }
                             uuid__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -411,6 +419,12 @@ impl serde::Serialize for ShardLabeling {
         if !self.stats_journal.is_empty() {
             len += 1;
         }
+        if !self.flags.is_empty() {
+            len += 1;
+        }
+        if self.shuffle_disk_limit_bytes != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("ops.ShardLabeling", len)?;
         if !self.build.is_empty() {
             struct_ser.serialize_field("build", &self.build)?;
@@ -446,6 +460,14 @@ impl serde::Serialize for ShardLabeling {
         if !self.stats_journal.is_empty() {
             struct_ser.serialize_field("statsJournal", &self.stats_journal)?;
         }
+        if !self.flags.is_empty() {
+            struct_ser.serialize_field("flags", &self.flags)?;
+        }
+        if self.shuffle_disk_limit_bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("shuffleDiskLimitBytes", ToString::to_string(&self.shuffle_disk_limit_bytes).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -473,6 +495,9 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
             "logsJournal",
             "stats_journal",
             "statsJournal",
+            "flags",
+            "shuffle_disk_limit_bytes",
+            "shuffleDiskLimitBytes",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -487,6 +512,9 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
             TaskType,
             LogsJournal,
             StatsJournal,
+            Flags,
+            ShuffleDiskLimitBytes,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -518,7 +546,9 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                             "taskType" | "task_type" => Ok(GeneratedField::TaskType),
                             "logsJournal" | "logs_journal" => Ok(GeneratedField::LogsJournal),
                             "statsJournal" | "stats_journal" => Ok(GeneratedField::StatsJournal),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            "flags" => Ok(GeneratedField::Flags),
+                            "shuffleDiskLimitBytes" | "shuffle_disk_limit_bytes" => Ok(GeneratedField::ShuffleDiskLimitBytes),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -547,6 +577,8 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                 let mut task_type__ = None;
                 let mut logs_journal__ = None;
                 let mut stats_journal__ = None;
+                let mut flags__ = None;
+                let mut shuffle_disk_limit_bytes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Build => {
@@ -609,6 +641,25 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                             }
                             stats_journal__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Flags => {
+                            if flags__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flags"));
+                            }
+                            flags__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
+                            );
+                        }
+                        GeneratedField::ShuffleDiskLimitBytes => {
+                            if shuffle_disk_limit_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("shuffleDiskLimitBytes"));
+                            }
+                            shuffle_disk_limit_bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(ShardLabeling {
@@ -622,6 +673,8 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                     task_type: task_type__.unwrap_or_default(),
                     logs_journal: logs_journal__.unwrap_or_default(),
                     stats_journal: stats_journal__.unwrap_or_default(),
+                    flags: flags__.unwrap_or_default(),
+                    shuffle_disk_limit_bytes: shuffle_disk_limit_bytes__.unwrap_or_default(),
                 })
             }
         }
@@ -695,6 +748,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
             KeyBegin,
             RClockBegin,
             Build,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -721,7 +775,7 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                             "keyBegin" | "key_begin" => Ok(GeneratedField::KeyBegin),
                             "rClockBegin" | "r_clock_begin" => Ok(GeneratedField::RClockBegin),
                             "build" => Ok(GeneratedField::Build),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -776,6 +830,9 @@ impl<'de> serde::Deserialize<'de> for ShardRef {
                                 return Err(serde::de::Error::duplicate_field("build"));
                             }
                             build__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -890,6 +947,7 @@ impl<'de> serde::Deserialize<'de> for Stats {
             Derive,
             Materialize,
             Interval,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -920,7 +978,7 @@ impl<'de> serde::Deserialize<'de> for Stats {
                             "derive" => Ok(GeneratedField::Derive),
                             "materialize" => Ok(GeneratedField::Materialize),
                             "interval" => Ok(GeneratedField::Interval),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1012,6 +1070,9 @@ impl<'de> serde::Deserialize<'de> for Stats {
                             }
                             interval__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(Stats {
@@ -1078,6 +1139,7 @@ impl<'de> serde::Deserialize<'de> for stats::CaptureBinding {
             Right,
             Out,
             LastPublishedAt,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1102,7 +1164,7 @@ impl<'de> serde::Deserialize<'de> for stats::CaptureBinding {
                             "right" => Ok(GeneratedField::Right),
                             "out" => Ok(GeneratedField::Out),
                             "lastPublishedAt" | "last_published_at" => Ok(GeneratedField::LastPublishedAt),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1143,6 +1205,9 @@ impl<'de> serde::Deserialize<'de> for stats::CaptureBinding {
                                 return Err(serde::de::Error::duplicate_field("lastPublishedAt"));
                             }
                             last_published_at__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1212,6 +1277,7 @@ impl<'de> serde::Deserialize<'de> for stats::Derive {
             Published,
             Out,
             LastPublishedAt,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1237,7 +1303,7 @@ impl<'de> serde::Deserialize<'de> for stats::Derive {
                             "published" => Ok(GeneratedField::Published),
                             "out" => Ok(GeneratedField::Out),
                             "lastPublishedAt" | "last_published_at" => Ok(GeneratedField::LastPublishedAt),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1288,6 +1354,9 @@ impl<'de> serde::Deserialize<'de> for stats::Derive {
                             }
                             last_published_at__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(stats::Derive {
@@ -1334,7 +1403,7 @@ impl serde::Serialize for stats::derive::Transform {
         if self.bytes_behind != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("bytesBehind", ToString::to_string(&self.bytes_behind).as_str())?;
+            struct_ser.serialize_field("bytesBehind", &self.bytes_behind)?;
         }
         struct_ser.end()
     }
@@ -1360,6 +1429,7 @@ impl<'de> serde::Deserialize<'de> for stats::derive::Transform {
             Input,
             LastSourcePublishedAt,
             BytesBehind,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1385,7 +1455,7 @@ impl<'de> serde::Deserialize<'de> for stats::derive::Transform {
                             "input" => Ok(GeneratedField::Input),
                             "lastSourcePublishedAt" | "last_source_published_at" => Ok(GeneratedField::LastSourcePublishedAt),
                             "bytesBehind" | "bytes_behind" => Ok(GeneratedField::BytesBehind),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1435,6 +1505,9 @@ impl<'de> serde::Deserialize<'de> for stats::derive::Transform {
                             bytes_behind__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1494,6 +1567,7 @@ impl<'de> serde::Deserialize<'de> for stats::DocsAndBytes {
         enum GeneratedField {
             DocsTotal,
             BytesTotal,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1517,7 +1591,7 @@ impl<'de> serde::Deserialize<'de> for stats::DocsAndBytes {
                         match value {
                             "docsTotal" | "docs_total" => Ok(GeneratedField::DocsTotal),
                             "bytesTotal" | "bytes_total" => Ok(GeneratedField::BytesTotal),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1555,6 +1629,9 @@ impl<'de> serde::Deserialize<'de> for stats::DocsAndBytes {
                             bytes_total__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1608,6 +1685,7 @@ impl<'de> serde::Deserialize<'de> for stats::Interval {
         enum GeneratedField {
             UptimeSeconds,
             UsageRate,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1631,7 +1709,7 @@ impl<'de> serde::Deserialize<'de> for stats::Interval {
                         match value {
                             "uptimeSeconds" | "uptime_seconds" => Ok(GeneratedField::UptimeSeconds),
                             "usageRate" | "usage_rate" => Ok(GeneratedField::UsageRate),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1669,6 +1747,9 @@ impl<'de> serde::Deserialize<'de> for stats::Interval {
                             usage_rate__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1720,7 +1801,7 @@ impl serde::Serialize for stats::MaterializeBinding {
         if self.bytes_behind != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("bytesBehind", ToString::to_string(&self.bytes_behind).as_str())?;
+            struct_ser.serialize_field("bytesBehind", &self.bytes_behind)?;
         }
         struct_ser.end()
     }
@@ -1748,6 +1829,7 @@ impl<'de> serde::Deserialize<'de> for stats::MaterializeBinding {
             Out,
             LastSourcePublishedAt,
             BytesBehind,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1774,7 +1856,7 @@ impl<'de> serde::Deserialize<'de> for stats::MaterializeBinding {
                             "out" => Ok(GeneratedField::Out),
                             "lastSourcePublishedAt" | "last_source_published_at" => Ok(GeneratedField::LastSourcePublishedAt),
                             "bytesBehind" | "bytes_behind" => Ok(GeneratedField::BytesBehind),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1831,6 +1913,9 @@ impl<'de> serde::Deserialize<'de> for stats::MaterializeBinding {
                             bytes_behind__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

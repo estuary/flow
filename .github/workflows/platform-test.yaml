@@ -12,6 +12,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  SCCACHE_VERSION: v0.12.0
+
 jobs:
   format-check:
     name: Format Check
@@ -25,8 +28,8 @@ jobs:
 
       - run: mise run ci:format-check
 
-  sqlx-check:
-    name: SQLx Check
+  generated-artifacts-check:
+    name: Generated Artifacts Check
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -51,7 +54,10 @@ jobs:
             ~/rocksdb-${{ env.ROCKSDB_VERSION }}/lib/
 
       - uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: ${{ env.SCCACHE_VERSION }}
       - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
+      - run: echo "RUSTC_WRAPPER=$SCCACHE_PATH" >> $GITHUB_ENV
 
       - name: Cache sqlx-cli
         id: cache-sqlx
@@ -67,6 +73,10 @@ jobs:
       - run: mise run build:rocksdb
       - run: mise run local:supabase
       - run: mise run ci:sqlx-check
+
+      # Reuses this job's compiled workspace (flow-client --all-features pulls in
+      # control-plane-api) to verify the committed GraphQL SDL hasn't drifted.
+      - run: mise run ci:graphql-schema-check
 
   platform-test:
     name: Platform Test
@@ -101,7 +111,10 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: ${{ env.SCCACHE_VERSION }}
       - run: echo 'SCCACHE_GHA_ENABLED=true' >> $GITHUB_ENV
+      - run: echo "RUSTC_WRAPPER=$SCCACHE_PATH" >> $GITHUB_ENV
 
       # These steps are kept in lockstep with task `ci:platform-test`
       # (formating and SQLx checks are run in separate jobs above to provide faster feedback).
@@ -115,7 +128,15 @@ jobs:
       - run: mise run build:gazette
       - run: mise run build:flowctl-go
       - run: mise run ci:nextest-build
+      - run: mise run local:bigtable
       - run: mise run ci:nextest-run
+
+      - name: Stripe integration test
+        env:
+          STRIPE_API_KEY: ${{ secrets.STRIPE_TESTMODE_API_KEY }}
+        if: env.STRIPE_API_KEY != ''
+        run: cargo nextest run --frozen --run-ignored ignored-only -E 'test(graphql_billing_live_stripe)'
+
       - run: mise run ci:doctest
       - run: mise run ci:gotest
       - run: mise run ci:catalog-test

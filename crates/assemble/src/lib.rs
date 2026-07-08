@@ -55,6 +55,12 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         shape::Redact::Unset => flow::inference::Redact::Unset,
     };
 
+    let content_media_type = shape
+        .content_media_type
+        .as_deref()
+        .unwrap_or_default()
+        .to_string();
+
     flow::Inference {
         types: shape.type_.to_vec(),
         exists: exists as i32,
@@ -66,14 +72,12 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
             .unwrap_or_default(),
         default_json,
         secret: shape.secret.unwrap_or_default(),
+        // `content_media_type` lives at the top level. For back-compat,
+        // `Inference.String.content_type` (below) carries the same value
+        // whenever the projection's type includes "string".
         string: if shape.type_.overlaps(types::STRING) {
             Some(flow::inference::String {
-                content_type: shape
-                    .string
-                    .content_type
-                    .clone()
-                    .map(Into::into)
-                    .unwrap_or_default(),
+                content_type: content_media_type.clone(),
                 format: shape
                     .string
                     .format
@@ -86,6 +90,10 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
                     .map(Into::into)
                     .unwrap_or_default(),
                 max_length: shape.string.max_length.unwrap_or_default() as u32,
+                // Holders only: populated in a follow-up, once the regenerated
+                // protobuf structs have rolled out to all readers.
+                str_minimum: String::new(),
+                str_maximum: String::new(),
             })
         } else {
             None
@@ -135,6 +143,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         enum_json_vec,
         reduce: reduce as i32,
         redact: redact as i32,
+        content_media_type,
     }
 }
 
@@ -378,7 +387,9 @@ pub fn shard_template(
         min_txn_duration,
         read_channel_size,
         ring_buffer_size,
+        shuffle_disk_limit,
         log_level,
+        flags,
     } = shard;
 
     // We hard-code that recovery logs always have prefix "recovery".
@@ -453,6 +464,20 @@ pub fn shard_template(
         }
     }
 
+    for (name, value) in flags {
+        labels = labels::set_value(
+            labels,
+            &format!("{}{}", labels::FLAG_PREFIX, name.as_str()),
+            value,
+        );
+    }
+
+    // When set, carry the per-task shuffle disk limit as a label. When absent,
+    // the shuffle Service falls back to its data-plane-wide default.
+    if let Some(limit) = shuffle_disk_limit {
+        labels = labels::add_value(labels, labels::SHUFFLE_DISK_LIMIT, &limit.to_string());
+    }
+
     consumer::ShardSpec {
         id: shard_id_prefix.to_string(),
         disable: *disable,
@@ -497,14 +522,14 @@ pub fn journal_selector(
     if let Some(selector) = selector {
         for (field, values) in &selector.include {
             for value in values {
-                include =
-                    labels::partition::add_value(include, field, value).expect("value is valid");
+                include = labels::partition::encode_field_label(include, field, value)
+                    .expect("value is valid");
             }
         }
         for (field, values) in &selector.exclude {
             for value in values {
-                exclude =
-                    labels::partition::add_value(exclude, field, value).expect("value is valid");
+                exclude = labels::partition::encode_field_label(exclude, field, value)
+                    .expect("value is valid");
             }
         }
     }
@@ -592,12 +617,13 @@ mod test {
             description: Some("the description".into()),
             title: Some("the title".into()),
             secret: Some(true),
+            content_media_type: Some("a/type".into()),
             string: StringShape {
                 content_encoding: Some("BaSE64".into()),
                 format: Some(json::schema::formats::Format::DateTime),
-                content_type: Some("a/type".into()),
                 min_length: 10,
                 max_length: Some(123),
+                ..StringShape::new()
             },
             numeric: NumericShape {
                 minimum: None,

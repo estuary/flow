@@ -82,6 +82,7 @@ Use the below properties to configure a Postgres materialization, which will dir
 | `/hardDelete` | Hard Delete | If this option is enabled, items deleted in the source will also be deleted from the destination. Otherwise, `_meta/op` in the destination will signify whether rows have been deleted (soft-delete). | boolean | `false` |
 | `/advanced`         | Advanced Options | Options for advanced users. You should not typically need to modify these.                                                                                                                                                     | object |                  |
 | `/advanced/sslmode` | SSL Mode         | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                                                                                                          | string |                  |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 
 ##### Authentication
 
@@ -97,7 +98,7 @@ Use the below properties to configure a Postgres materialization, which will dir
 
 | Property                       | Title                       | Description                                                                                                        | Type    | Required/Default |
 | ------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------- | ---------------- |
-| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run in the same transaction that creates the table.                              | string  |                  |
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run in the same transaction that creates the table. See [Additional Table Create SQL](./PostgreSQL.md#additional-table-create-sql) for usage examples. | string  |                  |
 | `/delta_updates`               | Delta Update                | Should updates to this table be done via delta updates.                                                            | boolean | `false`          |
 | `/schema`                      | Alternative Schema          | Alternative schema for this table (optional). Overrides schema set in endpoint configuration.                      | string  |                  |
 | **`/table`**                   | Table                       | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string  | Required         |

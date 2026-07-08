@@ -1,6 +1,5 @@
 ---
 source: crates/proto-flow/tests/regression.rs
-assertion_line: 1052
 expression: json_test(msg)
 ---
 {
@@ -42,7 +41,9 @@ expression: json_test(msg)
                   "contentType": "typ",
                   "format": "date",
                   "contentEncoding": "enc",
-                  "maxLength": 12345
+                  "maxLength": 12345,
+                  "strMinimum": "100",
+                  "strMaximum": "18446744073709551615"
                 },
                 "title": "title",
                 "description": "desc",
@@ -66,7 +67,8 @@ expression: json_test(msg)
                   "const-two"
                 ],
                 "reduce": "REDUCE_MERGE",
-                "redact": "REDACT_SHA256"
+                "redact": "REDACT_SHA256",
+                "contentMediaType": "typ"
               }
             }
           ],
@@ -151,7 +153,9 @@ expression: json_test(msg)
                     "contentType": "typ",
                     "format": "date",
                     "contentEncoding": "enc",
-                    "maxLength": 12345
+                    "maxLength": 12345,
+                    "strMinimum": "100",
+                    "strMaximum": "18446744073709551615"
                   },
                   "title": "title",
                   "description": "desc",
@@ -175,7 +179,8 @@ expression: json_test(msg)
                     "const-two"
                   ],
                   "reduce": "REDUCE_MERGE",
-                  "redact": "REDACT_SHA256"
+                  "redact": "REDACT_SHA256",
+                  "contentMediaType": "typ"
                 }
               }
             ],
@@ -347,7 +352,9 @@ expression: json_test(msg)
                     "contentType": "typ",
                     "format": "date",
                     "contentEncoding": "enc",
-                    "maxLength": 12345
+                    "maxLength": 12345,
+                    "strMinimum": "100",
+                    "strMaximum": "18446744073709551615"
                   },
                   "title": "title",
                   "description": "desc",
@@ -371,7 +378,8 @@ expression: json_test(msg)
                     "const-two"
                   ],
                   "reduce": "REDUCE_MERGE",
-                  "redact": "REDACT_SHA256"
+                  "redact": "REDACT_SHA256",
+                  "contentMediaType": "typ"
                 }
               }
             ],
@@ -514,7 +522,9 @@ expression: json_test(msg)
     "key": [42,"hi"],
     "keyPacked": "VkseCQ=="
   },
-  "flush": {},
+  "flush": {
+    "statePatches": [{"flushed":1}]
+  },
   "store": {
     "binding": 3,
     "key": [true,null],
@@ -551,8 +561,11 @@ expression: json_test(msg)
       "ackIntents": {
         "an/ack/journal": "AwQCBQ=="
       }
-    }
+    },
+    "statePatches": [{"started":"commit"}]
   },
-  "acknowledge": {},
+  "acknowledge": {
+    "statePatches": [{"acked":true}]
+  },
   "$internal": "EgJIaRgB"
 }

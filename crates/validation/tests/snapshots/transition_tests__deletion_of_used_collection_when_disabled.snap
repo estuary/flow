@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/transition_tests.rs
-assertion_line: 446
 expression: outcome
 ---
 Outcome {
@@ -390,6 +389,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -422,6 +422,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -442,6 +443,8 @@ Outcome {
                                         format: "",
                                         content_encoding: "",
                                         max_length: 0,
+                                        str_minimum: "",
+                                        str_maximum: "",
                                     },
                                 ),
                                 title: "",
@@ -454,6 +457,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -479,6 +483,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -499,6 +504,8 @@ Outcome {
                                         format: "date-time",
                                         content_encoding: "uuid",
                                         max_length: 0,
+                                        str_minimum: "",
+                                        str_maximum: "",
                                     },
                                 ),
                                 title: "Flow Publication Time",
@@ -511,6 +518,7 @@ Outcome {
                                 enum_json_vec: [],
                                 reduce: Unset,
                                 redact: Unset,
+                                content_media_type: "",
                             },
                         ),
                     },
@@ -739,6 +747,7 @@ Outcome {
                                 not_before: None,
                                 not_after: None,
                                 backfill: 0,
+                                state_key: "",
                             },
                         ],
                         redact_salt: b"pass-through-derivation-salt",
@@ -809,6 +818,7 @@ Outcome {
                                 not_before: None,
                                 not_after: None,
                                 backfill: 0,
+                                state_key: "",
                             },
                         ],
                         shuffle_key_types: [],

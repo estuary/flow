@@ -93,6 +93,13 @@ pub struct Inference {
     /// Applied `redact` strategy.
     #[prost(enumeration = "inference::Redact", tag = "13")]
     pub redact: i32,
+    /// Annotated `contentMediaType` of the schema. The JSON-Schema spec
+    /// defines this annotation only for strings; Flow extends it to apply
+    /// to any type, so it surfaces at the top level. For backward
+    /// compatibility, `Inference.String.content_type` continues to be populated
+    /// whenever this projection includes the "string" type.
+    #[prost(string, tag = "14")]
+    pub content_media_type: ::prost::alloc::string::String,
 }
 /// Nested message and enum types in `Inference`.
 pub mod inference {
@@ -100,6 +107,7 @@ pub mod inference {
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct String {
         /// Annotated Content-Type when the projection is of "string" type.
+        /// Deprecated for non-string projections; prefer `Inference.content_media_type`.
         #[prost(string, tag = "3")]
         pub content_type: ::prost::alloc::string::String,
         /// Annotated format when the projection is of "string" type.
@@ -112,6 +120,16 @@ pub mod inference {
         /// limit.
         #[prost(uint32, tag = "6")]
         pub max_length: u32,
+        /// Minimum value for a numeric-formatted string (format: integer/number).
+        /// Corresponds to the x-str-minimum schema keyword. Empty string means no
+        /// bound.
+        #[prost(string, tag = "8")]
+        pub str_minimum: ::prost::alloc::string::String,
+        /// Maximum value for a numeric-formatted string (format: integer/number).
+        /// Corresponds to the x-str-maximum schema keyword. Empty string means no
+        /// bound.
+        #[prost(string, tag = "9")]
+        pub str_maximum: ::prost::alloc::string::String,
     }
     /// Numeric type-specific inferences. Will be nil if types doesn't include
     /// "integer" or "number", or if the specification was built prior to numeric
@@ -324,8 +342,7 @@ pub struct CollectionSpec {
     #[prost(string, tag = "4")]
     pub uuid_ptr: ::prost::alloc::string::String,
     /// Logical partition fields of this collection, and their applied order.
-    /// At present partitions are always in ascending lexicographic order on
-    /// their field name, but this could change at some point.
+    /// Partitions are always in ascending lexicographic order on their field name.
     #[prost(string, repeated, tag = "5")]
     pub partition_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Logical projections of this collection, ordered on ascending field.
@@ -381,7 +398,7 @@ pub mod collection_spec {
     pub mod derivation {
         /// Transforms of the derivation.
         ///
-        /// Next tag: 14.
+        /// Next tag: 15.
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Transform {
             /// Stable and unique name of this transform.
@@ -428,6 +445,12 @@ pub mod collection_spec {
             /// Every increment of this counter results in a new backfill.
             #[prost(uint32, tag = "13")]
             pub backfill: u32,
+            /// Stable key under which this transform's runtime state is indexed.
+            /// Computed from the transform name and backfill counter, and forms the
+            /// final segment of `journal_read_suffix`. Parallels the `state_key` of
+            /// CaptureSpec and MaterializationSpec bindings.
+            #[prost(string, tag = "14")]
+            pub state_key: ::prost::alloc::string::String,
         }
         #[derive(
             Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,

@@ -1,0 +1,8 @@
+project_id: estuary-local
+instance_id: estuary-local
+credentials:
+    auth_type: CredentialsJSON
+    credentials_json: "{}"
+advanced:
+    endpoint: 172.17.0.1:8086
+    feature_flags: allow_existing_tables_for_new_bindings

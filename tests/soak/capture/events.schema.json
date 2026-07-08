@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft/2020-12/schema",
+  "description": "A soak-test event. Loaded by both the source-soak connector (as its discovered document schema) and capture/flow.yaml (as every events collection's schema), so the wire contract has a single source of truth.",
+  "type": "object",
+  "required": ["id", "seq", "ts", "oracle"],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Account identity; an integer drawn from [key_begin, key_begin + idRange) of the producing capture shard's owned key range."
+    },
+    "seq": {
+      "type": "integer",
+      "description": "Per-id, gap-less, monotonic sequence number. With key [/id, /seq] every (id, seq) is unique, so the collection is an append-only log and a direct exactly-once probe."
+    },
+    "ts": { "type": "string", "format": "date-time" },
+    "set": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A set operation over members a..h. Exactly one of add/remove/intersect is present; each is a sorted, de-duplicated array. Reduced downstream with the `set` strategy.",
+      "properties": {
+        "add": { "type": "array", "items": { "enum": ["a", "b", "c", "d", "e", "f", "g", "h"] }, "uniqueItems": true },
+        "remove": { "type": "array", "items": { "enum": ["a", "b", "c", "d", "e", "f", "g", "h"] }, "uniqueItems": true },
+        "intersect": { "type": "array", "items": { "enum": ["a", "b", "c", "d", "e", "f", "g", "h"] }, "uniqueItems": true }
+      }
+    },
+    "balanceDelta": {
+      "type": "integer",
+      "description": "Signed amount: one leg of a matched transfer pair (negative on the sender, positive on the receiver). Reduced downstream with `sum`."
+    },
+    "transfer": {
+      "type": "object",
+      "description": "The transfer this document is a leg of. Identical on both legs; present for correlation and debugging.",
+      "properties": {
+        "from": { "type": "integer" },
+        "to": { "type": "integer" },
+        "amount": { "type": "integer", "description": "Gross transferred amount, always positive." }
+      }
+    },
+    "oracle": {
+      "type": "object",
+      "required": ["seq", "set", "balance"],
+      "description": "The connector's authoritative post-event truth for THIS id, derived from state persisted across sessions. Downstream reductions of an id's events must converge to these values.",
+      "properties": {
+        "seq": { "type": "integer" },
+        "set": {
+          "type": "array",
+          "items": { "enum": ["a", "b", "c", "d", "e", "f", "g", "h"] },
+          "description": "Expected sorted membership of /id after this event."
+        },
+        "balance": { "type": "integer", "description": "Expected balance of /id after this event." }
+      }
+    }
+  }
+}

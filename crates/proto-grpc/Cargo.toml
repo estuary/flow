@@ -9,11 +9,18 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-proto-gazette = { path = "../proto-gazette" }
+labels = { path = "../labels" }
 proto-flow = { path = "../proto-flow", optional = true }
+proto-gazette = { path = "../proto-gazette" }
+tokens = { path = "../tokens" }
 
+tokio = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
+
+[dev-dependencies]
+# `test-util` enables paused-time control for the `expiry_guard` test.
+tokio = { workspace = true, features = ["test-util"] }
 
 [build-dependencies]
 proto-build = { path = "../proto-build", optional = true }

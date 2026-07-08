@@ -59,6 +59,8 @@ Estuary collections to your tables.
 | **`/storageAccountKey`**  | Storage Account Key            | Storage account key for the storage account that temporary files will be written to.                                                                    | string | Required         |
 | **`/containerName`**      | Storage Account Container Name | Name of the container in the storage account where temporary files will be written.                                                                     | string | Required         |
 | `/directory`              | Directory                      | Optional prefix that will be used for temporary files.                                                                                                  | string |                  |
+| `/hardDelete` | Hard Delete | If enabled, items deleted in the source will also be deleted from the destination. By default, deletions are tracked via `_meta/op` (soft delete). | boolean | `false` |
+| `/advanced/no_flow_document` | Exclude Flow Document | When enabled, the root document will not be required for standard updates. See [excluding flow_document with standard updates](/guides/customize-materialization-fields/#excluding-flow_document-with-standard-updates) for details. | boolean | `false` |
 
 #### Bindings
 

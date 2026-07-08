@@ -17,6 +17,9 @@ In the future, other open-source materialization connectors from third parties c
 * Amazon DynamoDB
   * [Configuration](./amazon-dynamodb.md)
   * Package - ghcr.io/estuary/materialize-dynamodb:v1
+* Amazon EventBridge
+  * [Configuration](./amazon-eventbridge.md)
+  * Package - ghcr.io/estuary/materialize-eventbridge:v1
 * Amazon MySQL
   * [Configuration](./MySQL/amazon-rds-mysql.md)
   * Package - ghcr.io/estuary/materialize-amazon-rds-mysql:v2
@@ -26,6 +29,9 @@ In the future, other open-source materialization connectors from third parties c
 * Amazon Redshift
   * [Configuration](./amazon-redshift.md)
   * Package - ghcr.io/estuary/materialize-redshift:v2
+* Amazon SNS
+  * [Configuration](./amazon-sns.md)
+  * Package - ghcr.io/estuary/materialize-sns:v1
 * Amazon SQL Server
   * [Configuration](./SQLServer/amazon-rds-sqlserver.md)
   * Package - ghcr.io/estuary/materialize-amazon-rds-sqlserver:v2
@@ -59,6 +65,9 @@ In the future, other open-source materialization connectors from third parties c
 * Bytewax
   * [Configuration](./Dekaf/bytewax.md)
 * ClickHouse
+  * [Configuration](./ClickHouse.md)
+  * Package - ghcr.io/estuary/materialize-clickhouse:v1
+* ClickHouse (Dekaf)
   * [Configuration](./Dekaf/clickhouse.md)
 * CSV Files in GCS
   * [Configuration](./google-gcs-csv.md)
@@ -74,12 +83,12 @@ In the future, other open-source materialization connectors from third parties c
 * Elasticsearch
   * [Configuration](./Elasticsearch.md)
   * Package — ghcr.io/estuary/materialize-elasticsearch:v3
-* Firebolt
-  * [Configuration](./Firebolt.md)
-  * Package - ghcr.io/estuary/materialize-firebolt:v1
 * Google BigQuery
   * [Configuration](./BigQuery.md)
   * Package — ghcr.io/estuary/materialize-bigquery:v3
+* Google Cloud Bigtable
+  * [Configuration](./google-bigtable.md)
+  * Package — ghcr.io/estuary/materialize-bigtable:v1
 * Google Cloud MySQL
   * [Configuration](./MySQL/google-cloud-sql-mysql.md)
   * Package - ghcr.io/estuary/materialize-google-cloud-sql-mysql:v2
@@ -95,6 +104,9 @@ In the future, other open-source materialization connectors from third parties c
 * Google Sheets
   * [Configuration](./Google-sheets.md)
   * Package - ghcr.io/estuary/materialize-google-sheets:v2
+* Google Spanner
+  * [Configuration](./google-spanner.md)
+  * Package - ghcr.io/estuary/materialize-spanner:v1
 * HTTP Webhook
   * [Configuration](./http-webhook.md)
   * Package - ghcr.io/estuary/materialize-webhook:v1
@@ -140,9 +152,6 @@ In the future, other open-source materialization connectors from third parties c
 * SQL Server
   * [Configuration](./SQLServer/)
   * Package - ghcr.io/estuary/materialize-sqlserver:v2
-* Starburst
-  * [Configuration](./starburst.md)
-  * Package - ghcr.io/estuary/materialize-starburst:v1
 * Startree
   * [Configuration](./Dekaf/startree.md)
 * Supabase

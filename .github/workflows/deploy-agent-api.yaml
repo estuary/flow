@@ -39,6 +39,8 @@ jobs:
           region: us-central1
           image: ${{ steps.image-tag.outputs.image }}
           timeout: 10m
+          # Egress via a dedicated subnet on the data-plane-controller VPC (its own NAT IP) for a stable outbound IP.
+          flags: '--network=data-plane-controller --subnet=control-plane-api-sn1 --vpc-egress=all-traffic'
 
           env_vars: |-
             BUILDS_ROOT=gs://estuary-control/builds/
@@ -50,6 +52,7 @@ jobs:
             PGPASSWORD=POSTGRES_PASSWORD:latest
             CONTROL_PLANE_DB_CA_CERT=CONTROL_PLANE_DB_CA_CERT:latest
             CONTROL_PLANE_JWT_SECRET=CONTROL_PLANE_JWT_SECRET:latest
+            STRIPE_API_KEY=STRIPE_API_KEY:latest
 
           env_vars_update_strategy: overwrite
           secrets_update_strategy: overwrite

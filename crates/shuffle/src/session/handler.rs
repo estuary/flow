@@ -2,11 +2,33 @@ use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::shuffle;
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 pub(crate) async fn serve_session<R>(
     service: crate::Service,
+    authz: proto_grpc::Authorizer,
+    request_rx: R,
+    session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
+) -> anyhow::Result<()>
+where
+    R: futures::Stream<Item = tonic::Result<shuffle::SessionRequest>> + Send + Unpin + 'static,
+{
+    // Run the whole handler inside its span so operator trace overrides (see
+    // `service_kit::trace`) reach every log line — the actor loop's periodic
+    // instrumentation included.
+    let handler = service.registry.register("shuffle.session");
+    let span = handler.span();
+    serve_session_inner(service, authz, request_rx, session_response_tx, handler)
+        .instrument(span)
+        .await
+}
+
+async fn serve_session_inner<R>(
+    service: crate::Service,
+    authz: proto_grpc::Authorizer,
     mut request_rx: R,
-    session_response_tx: mpsc::Sender<tonic::Result<shuffle::SessionResponse>>,
+    session_response_tx: mpsc::UnboundedSender<tonic::Result<shuffle::SessionResponse>>,
+    mut handler: service_kit::HandlerGuard,
 ) -> anyhow::Result<()>
 where
     R: futures::Stream<Item = tonic::Result<shuffle::SessionRequest>> + Send + Unpin + 'static,
@@ -18,39 +40,52 @@ where
         .context("expected Open request")?
         .map_err(crate::status_to_anyhow)?;
 
-    let shuffle::session_request::Open {
-        session_id,
-        task,
-        members,
-    } = open.open.context("first message must be Open")?;
+    let shuffle::session_request::Open { task, shards } =
+        open.open.context("first message must be Open")?;
 
-    if members.first().map(|m| &m.endpoint) != Some(&service.peer_endpoint) {
+    let session_id: u32 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u32;
+
+    if shards.first().map(|m| &m.endpoint) != Some(&service.peer_endpoint) {
         anyhow::bail!(
-            "this endpoint ({}) is not the first member of the session: {members:?}",
+            "this endpoint ({}) is not the first shard of the session: {shards:?}",
             service.peer_endpoint,
         );
     }
-    super::state::validate_member_ranges(&members)?;
+    super::state::validate_shard_ranges(&shards)?;
+    let shard_zero = shards[0].id.as_str();
+    let authz = authz.authorize_id(shard_zero)?;
 
+    handler.set_label(shard_zero);
+    handler.set_field("session_id", session_id);
+    handler.set_field("shards", shards.len());
+    handler.set_field("token", serde_json::to_string(&authz.claims()).unwrap());
+    handler.set_phase("opening");
+
+    let metrics = super::Metrics::new(shard_zero);
     let task = task.context("Open must include task")?;
-    let (task_name, bindings) = crate::Binding::from_task(&task)?;
+    let (bindings, _validators) = crate::Binding::from_task(&task)?;
 
-    tracing::info!(
+    service_kit::event!(
+        tracing::Level::INFO,
+        "coordinator",
         session_id,
-        member_count = members.len(),
-        "Session received Open"
+        shards = shards.len(),
+        "received Open from Coordinator"
     );
 
-    // Concurrently Open a Slice RPC with every member.
+    // Concurrently Open a Slice RPC with every shard.
     let open_results =
-        futures::future::join_all((0..members.len()).into_iter().map(|member_index| {
-            open_slice_rpc(&service, session_id, &task, &members, member_index as u32)
+        futures::future::join_all((0..shards.len()).into_iter().map(|shard_index| {
+            open_slice_rpc(&service, session_id, &task, &shards, shard_index as u32)
         }))
         .await;
 
     // Walk results and partition into Senders and receiver Streams.
-    let mut slice_request_tx = Vec::with_capacity(members.len());
-    let mut response_rx = Vec::with_capacity(members.len());
+    let mut slice_request_tx = Vec::with_capacity(shards.len());
+    let mut response_rx = Vec::with_capacity(shards.len());
 
     for result in open_results {
         let (tx, rx) = result?;
@@ -65,39 +100,24 @@ where
     );
 
     // Send Opened response to Session client.
-    // Non-blocking capacity: first message of `session_response_tx`.
-    crate::verify_send(
-        &session_response_tx,
-        Ok(shuffle::SessionResponse {
-            opened: Some(shuffle::session_response::Opened {}),
-            ..Default::default()
-        }),
-    )?;
+    let _ = session_response_tx.send(Ok(shuffle::SessionResponse {
+        opened: Some(shuffle::session_response::Opened {}),
+        ..Default::default()
+    }));
 
-    // Read resume-checkpoint frontier chunks.
-    let mut resume_checkpoint: Vec<crate::JournalFrontier> = Vec::new();
-    let verify = crate::verify(
-        "SessionRequest",
-        "resume-checkpoint chunk",
-        "coordinator",
-        0,
-    );
-    loop {
-        match verify.not_eof(request_rx.next().await)? {
-            shuffle::SessionRequest {
-                resume_checkpoint_chunk: Some(chunk),
-                ..
-            } => {
-                if chunk.journals.is_empty() {
-                    break;
-                }
-                resume_checkpoint.extend(crate::JournalFrontier::decode(chunk));
-            }
-            request => return Err(verify.fail(request)),
-        };
-    }
+    // Read the resume-checkpoint frontier.
+    let verify = crate::verify("SessionRequest", "resume_checkpoint", "coordinator", 0);
+    let proto = match verify.not_eof(request_rx.next().await)? {
+        shuffle::SessionRequest {
+            resume_checkpoint: Some(proto),
+            ..
+        } => proto,
+        request => return Err(verify.fail(request)),
+    };
     let resume_checkpoint =
-        crate::Frontier::new(resume_checkpoint).context("validating resume_checkpoint frontier")?;
+        crate::Frontier::decode(proto).context("validating resume_checkpoint frontier")?;
+
+    tracing::debug!(session_id, ?resume_checkpoint, "Session resume checkpoint");
 
     // Send Start to all Slices.
     // Non-blocking capacity: first message of `slice_request_tx`.
@@ -111,42 +131,50 @@ where
         )?;
     }
 
-    let member_count = members.len();
+    let shard_count = shards.len();
 
     let topology = super::state::Topology {
         session_id,
-        members,
-        task_name,
+        shards,
         bindings,
         resume_checkpoint,
     };
+    let binding_cohorts: Vec<u32> = topology.bindings.iter().map(|b| b.cohort).collect();
     let checkpoint =
-        super::state::CheckpointPipeline::new(&topology.resume_checkpoint, member_count);
+        super::state::CheckpointPipeline::new(&topology.resume_checkpoint, binding_cohorts);
 
-    super::actor::SessionActor {
+    handler.set_phase("running");
+
+    let result = super::actor::SessionActor {
         topology,
         checkpoint,
-        progress_ready: vec![true; member_count],
+        progress_ready: vec![true; shard_count],
         session_response_tx: session_response_tx.clone(),
         slice_request_tx,
         start_reads: std::collections::VecDeque::new(),
-        checkpoint_drain: crate::frontier::Drain::new(),
+        metrics,
     }
     .serve(request_rx, response_rx)
-    .await
+    .await;
+
+    match &result {
+        Ok(()) => handler.finish_ok(),
+        Err(err) => handler.finish_err(&format!("{err:#}")),
+    }
+    result
 }
 
 #[tracing::instrument(
     level = "debug",
-    skip(service, task, members),
+    skip(service, task, shards),
     err(Debug, level = "warn")
 )]
 pub async fn open_slice_rpc(
     service: &crate::Service,
-    session_id: u64,
+    session_id: u32,
     task: &shuffle::Task,
-    members: &[shuffle::Member],
-    slice_member_index: u32,
+    shards: &[shuffle::Shard],
+    slice_shard_index: u32,
 ) -> anyhow::Result<(
     mpsc::Sender<shuffle::SliceRequest>,
     futures::stream::BoxStream<'static, tonic::Result<shuffle::SliceResponse>>,
@@ -154,22 +182,27 @@ pub async fn open_slice_rpc(
     let verify = crate::verify(
         "SliceResponse",
         "Opened",
-        &members[slice_member_index as usize].endpoint,
-        slice_member_index as usize,
+        &shards[slice_shard_index as usize].endpoint,
+        slice_shard_index as usize,
     );
     let (request_tx, request_rx) = crate::new_channel::<shuffle::SliceRequest>();
 
     // Spawn or dial RPC, yielding a boxed response stream.
     let request_rx = tokio_stream::wrappers::ReceiverStream::new(request_rx);
 
-    let mut response_rx = if slice_member_index == 0 {
+    let mut response_rx = if slice_shard_index == 0 {
         tracing::debug!("spawning in-process Slice RPC");
-        tokio_stream::wrappers::ReceiverStream::new(service.spawn_slice(request_rx.map(Ok))).boxed()
+        tokio_stream::wrappers::ReceiverStream::new(
+            service.spawn_slice(proto_grpc::Authorizer::trusted_local(), request_rx.map(Ok)),
+        )
+        .boxed()
     } else {
-        let endpoint = &members[slice_member_index as usize].endpoint;
-        tracing::debug!(slice_member_index, endpoint=%endpoint, "dialing remote Slice RPC");
-        let channel = verify.ok(service.dial_channel(&endpoint))?;
-        let mut client = proto_grpc::shuffle::shuffle_client::ShuffleClient::new(channel);
+        let endpoint = &shards[slice_shard_index as usize].endpoint;
+        tracing::debug!(slice_shard_index, endpoint=%endpoint, "dialing remote Slice RPC");
+        let channel = verify.ok(service.dial_channel(endpoint))?;
+        let metadata = verify.ok(service.shuffle_bearer(&shards[0].id))?;
+        let mut client =
+            proto_grpc::shuffle::shuffle_client::ShuffleClient::with_interceptor(channel, metadata);
 
         verify
             .ok(client.slice(request_rx).await)?
@@ -185,8 +218,8 @@ pub async fn open_slice_rpc(
             open: Some(shuffle::slice_request::Open {
                 session_id,
                 task: Some(task.clone()),
-                members: members.to_vec(),
-                member_index: slice_member_index,
+                shards: shards.to_vec(),
+                shard_index: slice_shard_index,
             }),
             ..Default::default()
         },

@@ -108,8 +108,11 @@ pub async fn run_job(args: JobArgs) -> anyhow::Result<()> {
         pg_options = pg_options.ssl_mode(sqlx::postgres::PgSslMode::Prefer);
     }
 
+    // On Cloud Run with direct VPC egress, a fresh instance's network interface
+    // can take ~40s to begin passing traffic, during which all outbound
+    // connections fail
     let pg_pool = sqlx::postgres::PgPoolOptions::new()
-        .acquire_timeout(std::time::Duration::from_secs(30))
+        .acquire_timeout(std::time::Duration::from_secs(120))
         .connect_with(pg_options)
         .await
         .context("connecting to database")?;

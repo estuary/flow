@@ -19,11 +19,14 @@ fn ex_projections() -> Vec<flow::Projection> {
             title: "title".to_string(),
             exists: inference::Exists::Must as i32,
             secret: false,
+            content_media_type: "typ".to_string(),
             string: Some(inference::String {
                 content_encoding: "enc".to_string(),
                 content_type: "typ".to_string(),
                 format: "date".to_string(),
                 max_length: 12345,
+                str_minimum: "100".to_string(),
+                str_maximum: "18446744073709551615".to_string(),
             }),
             types: vec!["integer".to_string(), "string".to_string()],
             numeric: Some(inference::Numeric {
@@ -246,6 +249,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
                 nanos: 0,
             }),
             backfill: 2,
+            state_key: "transform_name.v2".to_string(),
         }],
         shuffle_key_types: vec![
             flow::collection_spec::derivation::ShuffleType::String as i32,
@@ -429,6 +433,7 @@ fn ex_capture_request() -> capture::Request {
             version: "11:22:33:44".to_string(),
             last_capture: None,
             last_version: "00:11:22:33".to_string(),
+            state_json: json!({"connector": {"state": 42}}).to_string().into(),
         }),
         open: Some(capture::request::Open {
             capture: Some(ex_capture_spec()),
@@ -469,6 +474,7 @@ fn ex_capture_response() -> capture::Response {
         }),
         applied: Some(capture::response::Applied {
             action_description: "I did some stuff".to_string(),
+            state: Some(ex_connector_state()),
         }),
         opened: Some(capture::response::Opened {
             explicit_acknowledgements: true,
@@ -539,7 +545,9 @@ fn ex_derive_request() -> derive::Request {
             }),
             doc_json: json!({"read": "doc"}).to_string().into(),
         }),
-        flush: Some(derive::request::Flush {}),
+        flush: Some(derive::request::Flush {
+            state_patches_json: json!([{"flush": true}]).to_string().into(),
+        }),
         start_commit: Some(derive::request::StartCommit {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),
         }),
@@ -568,11 +576,16 @@ fn ex_derive_response() -> derive::Response {
             )]
             .into(),
         }),
-        opened: Some(derive::response::Opened {}),
+        opened: Some(derive::response::Opened {
+            runtime_checkpoint: Some(ex_consumer_checkpoint()),
+        }),
         published: Some(derive::response::Published {
             doc_json: json!({"published": "doc"}).to_string().into(),
         }),
-        flushed: Some(derive::response::Flushed {}),
+        flushed: Some(derive::response::Flushed {
+            state: None,
+            more: true,
+        }),
         started_commit: Some(derive::response::StartedCommit {
             state: Some(ex_connector_state()),
         }),
@@ -613,13 +626,17 @@ fn ex_materialize_request() -> materialize::Request {
             range: Some(ex_range()),
             state_json: json!({"connector": {"state": 42}}).to_string().into(),
         }),
-        acknowledge: Some(materialize::request::Acknowledge {}),
+        acknowledge: Some(materialize::request::Acknowledge {
+            state_patches_json: json!([{"acked": true}]).to_string().into(),
+        }),
         load: Some(materialize::request::Load {
             binding: 12,
             key_packed: vec![86, 75, 30, 9].into(),
             key_json: json!([42, "hi"]).to_string().into(),
         }),
-        flush: Some(materialize::request::Flush {}),
+        flush: Some(materialize::request::Flush {
+            state_patches_json: json!([{"flushed": 1}]).to_string().into(),
+        }),
         store: Some(materialize::request::Store {
             binding: 3,
             key_packed: vec![90, 21, 0].into(),
@@ -632,6 +649,7 @@ fn ex_materialize_request() -> materialize::Request {
         }),
         start_commit: Some(materialize::request::StartCommit {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),
+            state_patches_json: json!([{"started": "commit"}]).to_string().into(),
         }),
         internal: ex_internal(),
     }
@@ -673,6 +691,27 @@ fn ex_materialize_response() -> materialize::Response {
                     ),
                 ]
                 .into(),
+                projection_constraints: vec![
+                    materialize::response::validated::ProjectionConstraint {
+                        field: "flow_document".to_string(),
+                        constraint: Some(materialize::response::validated::Constraint {
+                            r#type:
+                                materialize::response::validated::constraint::Type::LocationRequired
+                                    as i32,
+                            reason: "the root document must be materialized".to_string(),
+                            folded_field: String::new(),
+                        }),
+                    },
+                    materialize::response::validated::ProjectionConstraint {
+                        field: "flow_document".to_string(),
+                        constraint: Some(materialize::response::validated::Constraint {
+                            r#type: materialize::response::validated::constraint::Type::Incompatible
+                                as i32,
+                            reason: "existing column has an incompatible type".to_string(),
+                            folded_field: String::new(),
+                        }),
+                    },
+                ],
                 delta_updates: true,
                 ser_policy: Some(SerPolicy {
                     str_truncate_after: 1 << 16,
@@ -716,8 +755,14 @@ fn ex_shard_labeling() -> ops::ShardLabeling {
         split_target: String::new(),
         task_name: "the/task/name".to_string(),
         task_type: ops::TaskType::Derivation as i32,
+        flags: [
+            ("buffer-size".to_string(), "1024".to_string()),
+            ("enable-new-thing".to_string(), "true".to_string()),
+        ]
+        .into(),
         logs_journal: "ops/logs/one=capture/two=the%2Ftask%2Fname".to_string(),
         stats_journal: "ops/stats/one=capture/two=the%2Ftask%2Fname".to_string(),
+        shuffle_disk_limit_bytes: 134_217_728,
     }
 }
 

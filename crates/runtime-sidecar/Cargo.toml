@@ -1,0 +1,35 @@
+[package]
+name = "runtime-sidecar"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "runtime-sidecar"
+path = "src/main.rs"
+
+[dependencies]
+flow-client-next = { path = "../flow-client-next" }
+gazette = { path = "../gazette" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc" }
+runtime-next = { path = "../runtime-next" }
+service-kit = { path = "../service-kit" }
+shuffle = { path = "../shuffle" }
+tokens = { path = "../tokens" }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+rustls = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true, features = ["tls-aws-lc"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }

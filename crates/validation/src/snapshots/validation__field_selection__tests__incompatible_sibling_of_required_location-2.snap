@@ -1,0 +1,9 @@
+---
+source: crates/validation/src/field_selection.rs
+expression: "snap.field_outcomes.get(\"Zeta\").unwrap()"
+---
+Left(
+    ConnectorRequiresLocation {
+        reason: "value location required",
+    },
+)

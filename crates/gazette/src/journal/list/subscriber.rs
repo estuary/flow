@@ -32,6 +32,7 @@ pub trait Subscriber: Send {
 pub struct SubscriberFold<S: Subscriber> {
     subscriber: S,
     state: State,
+    filter_suspended: bool,
 }
 
 enum State {
@@ -81,6 +82,22 @@ impl<S: Subscriber> SubscriberFold<S> {
             state: State::Ready {
                 previous: PackedStrings::default(),
             },
+            filter_suspended: false,
+        }
+    }
+
+    /// Create a SubscriberFold that filters out FULL-suspended journals.
+    ///
+    /// FULL-suspended journals (zero replicas) are treated as non-existent:
+    /// they are never added, and if previously visible they are removed.
+    /// PARTIAL suspension is NOT filtered (the journal still has a replica).
+    pub fn new_filtering_suspended(subscriber: S) -> Self {
+        Self {
+            subscriber,
+            state: State::Ready {
+                previous: PackedStrings::default(),
+            },
+            filter_suspended: true,
         }
     }
 }
@@ -185,7 +202,15 @@ impl<S: Subscriber> Fold for SubscriberFold<S> {
                 ));
             }
 
+            // Check if this journal is FULL-suspended and should be filtered.
+            let is_filtered = self.filter_suspended
+                && spec
+                    .suspend
+                    .as_ref()
+                    .is_some_and(|s| s.level == broker::journal_spec::suspend::Level::Full as i32);
+
             // Merge: emit removals for previous entries < name, find if name exists in previous.
+            // This must run regardless of filtering, to advance `previous_index`.
             while *previous_index < previous.len() {
                 previous.decode(*previous_index, previous_last);
 
@@ -209,6 +234,17 @@ impl<S: Subscriber> Fold for SubscriberFold<S> {
                         break;
                     }
                 }
+            }
+
+            if is_filtered {
+                // FULL-suspended journal: treat as non-existent.
+                if found_in_previous {
+                    // Was previously visible, now effectively gone.
+                    self.subscriber.remove_journal(name).await?;
+                    *removed += 1;
+                }
+                // Do NOT add to `current` PackedStrings or call `add_journal`.
+                continue;
             }
 
             if !found_in_previous {
@@ -848,5 +884,97 @@ mod tests {
                 "a/very/long/shared/prefix/dave"
             ]
         );
+    }
+
+    // ==================== Suspension Filtering ====================
+
+    fn make_journal_suspended(
+        name: &str,
+        level: broker::journal_spec::suspend::Level,
+    ) -> broker::list_response::Journal {
+        broker::list_response::Journal {
+            spec: Some(broker::JournalSpec {
+                name: name.to_string(),
+                suspend: Some(broker::journal_spec::Suspend {
+                    level: level as i32,
+                    offset: 0,
+                }),
+                ..Default::default()
+            }),
+            route: Some(broker::Route::default()),
+            create_revision: 1,
+            mod_revision: 1,
+        }
+    }
+
+    /// Drive two folds through the same response.
+    /// Returns (filtering_result, passthrough_result).
+    async fn run_both(
+        filtering: &mut SubscriberFold<MockSubscriber>,
+        passthrough: &mut SubscriberFold<MockSubscriber>,
+        resp: broker::ListResponse,
+    ) -> ((usize, usize), (usize, usize)) {
+        filtering.begin().await;
+        filtering.chunk(resp.clone()).await.unwrap();
+        let f = filtering.finish().await.unwrap();
+
+        passthrough.begin().await;
+        passthrough.chunk(resp).await.unwrap();
+        let p = passthrough.finish().await.unwrap();
+
+        (f, p)
+    }
+
+    #[tokio::test]
+    async fn test_suspension_filtering() {
+        use broker::journal_spec::suspend::Level;
+
+        let mut filtering = SubscriberFold::new_filtering_suspended(MockSubscriber::new());
+        let mut passthrough = SubscriberFold::new(MockSubscriber::new());
+
+        // Snapshot 1: a active, b FULL-suspended, c PARTIAL-suspended.
+        // Covers: FULL never seen (skipped), PARTIAL stays visible, default doesn't filter.
+        let resp = broker::ListResponse {
+            journals: vec![
+                make_journal("a"),
+                make_journal_suspended("b", Level::Full),
+                make_journal_suspended("c", Level::Partial),
+            ],
+            ..Default::default()
+        };
+        let (f, p) = run_both(&mut filtering, &mut passthrough, resp).await;
+        assert_eq!(f, (2, 0));
+        assert_eq!(filtering.subscriber.adds, vec!["a", "c"]);
+        assert_eq!(p, (3, 0));
+        assert_eq!(passthrough.subscriber.adds, vec!["a", "b", "c"]);
+
+        filtering.subscriber.reset();
+        passthrough.subscriber.reset();
+
+        // Snapshot 2: b un-suspended, c now FULL-suspended.
+        // Covers: FULL→active (add), active→FULL (remove).
+        let resp = broker::ListResponse {
+            journals: vec![
+                make_journal("a"),
+                make_journal("b"),
+                make_journal_suspended("c", Level::Full),
+            ],
+            ..Default::default()
+        };
+        let (f, p) = run_both(&mut filtering, &mut passthrough, resp).await;
+        assert_eq!(f, (1, 1));
+        assert_eq!(filtering.subscriber.adds, vec!["b"]);
+        assert_eq!(filtering.subscriber.removes, vec!["c"]);
+        assert_eq!(p, (0, 0)); // passthrough sees no change
+
+        filtering.subscriber.reset();
+        passthrough.subscriber.reset();
+
+        // Snapshot 3: all active again. c re-appears for filtering fold.
+        let resp = make_response(&["a", "b", "c"]);
+        let (f, p) = run_both(&mut filtering, &mut passthrough, resp).await;
+        assert_eq!(f, (1, 0));
+        assert_eq!(filtering.subscriber.adds, vec!["c"]);
+        assert_eq!(p, (0, 0));
     }
 }

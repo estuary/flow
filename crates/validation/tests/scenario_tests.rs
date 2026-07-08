@@ -1793,6 +1793,49 @@ test://example/catalog.yaml:
 }
 
 #[test]
+fn test_redacted_key_with_connector_and_relaxed_write_schema() {
+    let outcome = common::run(
+        include_str!("schema_inference.yaml"),
+        r##"
+driver:
+  liveInferredSchemas:
+    testing/foobar:
+      properties:
+        key:
+          type: string
+          minimum: null
+          maximum: null
+      required: [key]
+
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      writeSchema:
+        $defs:
+          "flow://connector-schema":
+            $id: "flow://connector-schema"
+            type: object
+            properties:
+              key:
+                type: string
+            required: [key]
+            additionalProperties: true
+            x-infer-schema: true
+        allOf:
+          - $ref: "flow://connector-schema"
+        properties:
+          key:
+            type: string
+            minimum: null
+            maximum: null
+            redact: { strategy: sha256 }
+"##,
+    );
+
+    insta::assert_debug_snapshot!(outcome.errors, @"[]");
+}
+
+#[test]
 fn test_collection_inferred_schema_add_blocking() {
     // A redact annotation on a required write schema property raises an error.
     let outcome = common::run_errors(
@@ -1922,6 +1965,149 @@ test://example/int-string.schema:
 "#,
     );
     insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_read_schema_redact_not_in_write_schema() {
+    // A redact annotation in the read schema with no corresponding annotation
+    // in the write schema is non-functional: redaction runs at capture time
+    // against the write schema, so stored data is not protected.
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/redact-read-only:
+      key: [/id]
+      writeSchema:
+        type: object
+        properties:
+          id: { type: string }
+          email: { type: string }
+        required: [id]
+      readSchema:
+        type: object
+        properties:
+          id: { type: string }
+          email:
+            type: string
+            redact: { strategy: sha256 }
+        required: [id]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_redact_inside_managed_defs_connector_schema() {
+    // A redact annotation placed inside a `$defs` entry whose `$id` is
+    // `flow://connector-schema` is silently overwritten on the next discover.
+    // The `$defs` key here is intentionally a user-chosen name (not the
+    // canonical URI), so this test also covers the discriminator: the check
+    // matches on `$id`, not the `$defs` key.
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/redact-in-defs:
+      key: [/id]
+      writeSchema:
+        $defs:
+          connector:
+            $id: "flow://connector-schema"
+            type: object
+            properties:
+              id: { type: string }
+              email:
+                type: string
+                redact: { strategy: sha256 }
+            required: [id]
+        $ref: "flow://connector-schema"
+      readSchema:
+        $defs:
+          flow://inferred-schema:
+            $id: flow://inferred-schema
+            type: object
+            properties:
+              id: { type: string }
+              _meta:
+                type: object
+                properties:
+                  uuid: { type: string }
+                required: [uuid]
+            required: [id, _meta]
+            x-collection-generation-id: 0000000000000001
+        allOf:
+          - $ref: flow://relaxed-write-schema
+          - $ref: flow://inferred-schema
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_redact_at_top_level_passes() {
+    // A redact annotation at the top level of writeSchema (outside $defs),
+    // also present in readSchema, is the supported placement and produces
+    // no errors.
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/catalog.yaml:
+  collections:
+    testing/redact-supported:
+      key: [/id]
+      writeSchema:
+        type: object
+        properties:
+          id: { type: string }
+          email:
+            type: string
+            redact: { strategy: sha256 }
+        required: [id]
+      readSchema:
+        type: object
+        properties:
+          id: { type: string }
+          email:
+            type: string
+            redact: { strategy: sha256 }
+        required: [id]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors, @"[]");
+}
+
+#[test]
+fn test_redact_inside_inferred_schema_def_is_allowed() {
+    // Regression: a collection that pairs schema inference with redaction. The
+    // live inferred schema faithfully carries the write schema's `redact`
+    // annotation, and validation inlines it into `$defs/flow://inferred-schema`
+    // before the managed-defs scan runs. That system-generated `redact` must
+    // not be flagged as a misplacement, which previously trapped such
+    // collections in a failed-publish loop the moment their inferred schema
+    // next updated.
+    let errors = common::run_errors(
+        include_str!("schema_inference.yaml"),
+        r#"
+driver:
+  liveInferredSchemas:
+    testing/foobar:
+      properties:
+        timestamp:
+          redact: { strategy: sha256 }
+
+test://example/catalog.yaml:
+  collections:
+    testing/foobar:
+      writeSchema:
+        properties:
+          timestamp:
+            redact: { strategy: sha256 }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors, @"[]");
 }
 
 #[test]

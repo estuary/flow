@@ -114,6 +114,7 @@ async fn walk_materialization<C: Connectors>(
     let models::MaterializationDef {
         on_incompatible_schema_change,
         source: sources,
+        target_naming,
         endpoint,
         bindings: bindings_model,
         mut shards,
@@ -243,7 +244,7 @@ async fn walk_materialization<C: Connectors>(
                 built_collections,
                 materialization,
                 data_plane.control_id,
-                noop_materializations || shards.disable,
+                shards.disable,
                 &live_bindings_model,
                 &live_bindings_spec,
                 &mut model_fixes,
@@ -252,7 +253,7 @@ async fn walk_materialization<C: Connectors>(
         })
         .collect();
 
-    // Do we need to disable the whole task due to a reset source collection?
+    // Disable the whole task if any binding requested it (group-by change with onIncompatibleSchemaChange: disableTask).
     if let Some(reason) = bindings
         .iter()
         .filter_map(|(_, _, disable_task, _)| disable_task.as_ref())
@@ -370,22 +371,50 @@ async fn walk_materialization<C: Connectors>(
 
         let materialize::response::validated::Binding {
             case_insensitive_fields,
-            constraints,
             delta_updates,
             resource_path: validated_path,
             ser_policy,
+            ..
         } = validated;
 
-        for (field, constraint) in constraints {
-            use materialize::response::validated::constraint::Type;
-            let type_ = Type::try_from(constraint.r#type);
-            if matches!(type_, Ok(Type::Invalid) | Err(_)) {
+        // Validate the list-form `projection_constraints`, mirroring the
+        // Go-side Response_Validated_Binding.Validate(): each entry must name a
+        // field and carry a constraint. Malformed entries are dropped by
+        // `normalize_constraints`, so they're caught here against the raw response.
+        for (index, pc) in validated.projection_constraints.iter().enumerate() {
+            if pc.field.is_empty() {
                 Error::Connector {
                     detail: anyhow::anyhow!(
-                        "connector returned invalid constraint for field {field}: {type_:?}"
+                        "connector returned a projection constraint with an empty field (index {index})"
                     ),
                 }
                 .push(scope, errors);
+            }
+            if pc.constraint.is_none() {
+                Error::Connector {
+                    detail: anyhow::anyhow!(
+                        "connector returned a projection constraint with no constraint for field {:?}",
+                        pc.field
+                    ),
+                }
+                .push(scope, errors);
+            }
+        }
+
+        let normalized_constraints = field_selection::normalize_constraints(validated);
+
+        for (field, constraints) in &normalized_constraints {
+            use materialize::response::validated::constraint::Type;
+            for constraint in constraints {
+                let type_ = Type::try_from(constraint.r#type);
+                if matches!(type_, Ok(Type::Invalid) | Err(_)) {
+                    Error::Connector {
+                        detail: anyhow::anyhow!(
+                            "connector returned invalid constraint for field {field}: {type_:?}"
+                        ),
+                    }
+                    .push(scope, errors);
+                }
             }
         }
 
@@ -417,7 +446,7 @@ async fn walk_materialization<C: Connectors>(
             group_by,
             live_spec,
             &model,
-            constraints,
+            &normalized_constraints,
         );
 
         // "Incompatible" conflicts have different treatment compared to other conflicts.
@@ -624,6 +653,7 @@ async fn walk_materialization<C: Connectors>(
     };
     let model = models::MaterializationDef {
         source: sources,
+        target_naming,
         on_incompatible_schema_change,
         endpoint,
         bindings: bindings_model,
@@ -782,19 +812,9 @@ fn walk_materialization_binding<'a>(
             .push(scope, errors);
             return (model_path, model, None, None);
         }
-        (true, models::OnIncompatibleSchemaChange::Backfill) => {
+        (true, _) => {
             model_fixes.push(format!("backfilled binding of reset collection {source}"));
             model.backfill += 1;
-        }
-        (true, models::OnIncompatibleSchemaChange::DisableBinding) => {
-            model_fixes.push(format!("disabling binding of reset collection {source}"));
-            model.disable = true;
-            return (model_path, model, None, None);
-        }
-        (true, models::OnIncompatibleSchemaChange::DisableTask) => {
-            // Caller handles disabling the task.
-            let reason = format!("reset of collection {source}");
-            return (model_path, model, Some(reason), None);
         }
     }
 

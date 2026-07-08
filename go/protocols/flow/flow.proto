@@ -119,6 +119,7 @@ message Inference {
   message String {
     reserved 1, 2, 5;
     // Annotated Content-Type when the projection is of "string" type.
+    // Deprecated for non-string projections; prefer `Inference.content_media_type`.
     string content_type = 3;
     // Annotated format when the projection is of "string" type.
     string format = 4;
@@ -127,6 +128,14 @@ message Inference {
     // Maximum length when the projection is of "string" type. Zero for no
     // limit.
     uint32 max_length = 6;
+    // Minimum value for a numeric-formatted string (format: integer/number).
+    // Corresponds to the x-str-minimum schema keyword. Empty string means no
+    // bound.
+    string str_minimum = 8;
+    // Maximum value for a numeric-formatted string (format: integer/number).
+    // Corresponds to the x-str-maximum schema keyword. Empty string means no
+    // bound.
+    string str_maximum = 9;
   }
   String string = 3;
   // The title from the schema, if provided.
@@ -186,6 +195,12 @@ message Inference {
   Reduce reduce = 12;
   // Applied `redact` strategy.
   Redact redact = 13;
+  // Annotated `contentMediaType` of the schema. The JSON-Schema spec
+  // defines this annotation only for strings; Flow extends it to apply
+  // to any type, so it surfaces at the top level. For backward
+  // compatibility, `Inference.String.content_type` continues to be populated
+  // whenever this projection includes the "string" type.
+  string content_media_type = 14;
 }
 
 message NetworkPort {
@@ -220,8 +235,7 @@ message CollectionSpec {
   // JSON pointer locating the UUID of each collection document.
   string uuid_ptr = 4;
   // Logical partition fields of this collection, and their applied order.
-  // At present partitions are always in ascending lexicographic order on
-  // their field name, but this could change at some point.
+  // Partitions are always in ascending lexicographic order on their field name.
   repeated string partition_fields = 5;
   // Logical projections of this collection, ordered on ascending field.
   repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
@@ -256,7 +270,7 @@ message CollectionSpec {
     ];
     // Transforms of the derivation.
     message Transform {
-      // Next tag: 14.
+      // Next tag: 15.
 
       // Stable and unique name of this transform.
       string name = 1 [ (gogoproto.casttype) = "Transform" ];
@@ -295,6 +309,11 @@ message CollectionSpec {
       // Backfill counter for this transform.
       // Every increment of this counter results in a new backfill.
       uint32 backfill = 13;
+      // Stable key under which this transform's runtime state is indexed.
+      // Computed from the transform name and backfill counter, and forms the
+      // final segment of `journal_read_suffix`. Parallels the `state_key` of
+      // CaptureSpec and MaterializationSpec bindings.
+      string state_key = 14;
     }
     repeated Transform transforms = 3 [ (gogoproto.nullable) = false ];
     // JSON types of shuffle key components extracted by the transforms of this derivation.

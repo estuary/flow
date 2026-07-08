@@ -1,0 +1,21 @@
+---
+source: crates/shuffle/src/log/state.rs
+expression: drain(&mut flush)
+---
+[
+    (
+        3,
+        1,
+        1/0,
+    ),
+    (
+        1,
+        1,
+        1/0,
+    ),
+    (
+        0,
+        1,
+        1/0,
+    ),
+]

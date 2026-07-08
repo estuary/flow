@@ -24,6 +24,22 @@ impl MaybeControlClaims {
     }
 }
 
+/// Locale is a placeholder, since we only support a single locale today. Once
+/// we support more than one locale, we should try to determine this
+/// automatically based on the request headers. For now, we just hard code it.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Locale {
+    EnUS, // English, US, the only locale we currently have translations for
+}
+
+impl AsRef<str> for Locale {
+    fn as_ref(&self) -> &str {
+        match *self {
+            Locale::EnUS => "en-US",
+        }
+    }
+}
+
 /// Envelope packages common fields and request-derived parameters which are
 /// universal across the Estuary API.
 #[derive(Debug)]
@@ -48,6 +64,10 @@ pub struct Envelope {
     pub started: tokens::DateTime,
     /// Database pool to use during request processing.
     pub pg_pool: sqlx::PgPool,
+    /// The desired locale for any internationalized text values. This is
+    /// primarily just used with connectors at the moment, though it could be
+    /// used by any api that returns human-readable text.
+    pub locale: Locale,
 }
 
 impl Envelope {
@@ -243,6 +263,12 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                 None => MaybeControlClaims::with_unauthenticated(),
             };
 
+            // Placeholder. In the future, we should determine this value from
+            // the request headers (e.g. Accept-Language and/or the auth token).
+            // For now, we hard code it, because we don't have translations for
+            // any other locales anyway.
+            let locale = Locale::EnUS;
+
             Ok(Envelope {
                 maybe_claims,
                 retry_after: retry_after.unwrap_or(tokens::DateTime::UNIX_EPOCH),
@@ -250,6 +276,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                 started: started.unwrap_or_else(|| tokens::now()),
                 pg_pool: state.pg_pool.clone(),
                 original_uri,
+                locale,
             })
         }
     }

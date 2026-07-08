@@ -18,6 +18,7 @@ bigdecimal = { workspace = true }
 bumpalo = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+highway = { workspace = true }
 itertools = { workspace = true }
 lz4 = { workspace = true, optional = true }
 regex = { workspace = true }

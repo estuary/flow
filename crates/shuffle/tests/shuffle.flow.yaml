@@ -1,0 +1,74 @@
+collections:
+  testing/apples:
+    schema:
+      type: object
+      required: [id, category]
+      properties:
+        id: { type: string }
+        category: { type: string }
+        value: { type: integer }
+    key: [/id]
+    projections:
+      category:
+        location: /category
+        partition: true
+
+  testing/bananas:
+    schema:
+      type: object
+      required: [id, category]
+      properties:
+        id: { type: string }
+        category: { type: string }
+        value: { type: integer }
+    key: [/id]
+    projections:
+      category:
+        location: /category
+        partition: true
+
+  testing/cherries:
+    schema:
+      type: object
+      required: [id, category]
+      properties:
+        id: { type: string }
+        category: { type: string }
+        value: { type: integer }
+    key: [/id]
+    projections:
+      category:
+        location: /category
+        partition: true
+
+captures:
+  testing/capture:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-test:dev
+        config: {}
+    bindings:
+      - resource: { stream: apples }
+        target: testing/apples
+      - resource: { stream: bananas }
+        target: testing/bananas
+      - resource: { stream: cherries }
+        target: testing/cherries
+
+materializations:
+  testing/materialization:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-sqlite:dev
+        config: {}
+    bindings:
+      - source:
+          name: testing/apples
+          partitions:
+            include:
+              category: [alpha, gamma]
+        resource: { table: apples }
+      - source: testing/bananas
+        resource: { table: bananas }
+      - source: testing/cherries
+        resource: { table: cherries }

@@ -288,6 +288,9 @@ pub struct BrokerSpec {
     /// Maximum number of assigned Journal replicas.
     #[prost(uint32, tag = "2")]
     pub journal_limit: u32,
+    /// When true, this broker has been signaled to exit.
+    #[prost(bool, tag = "3")]
+    pub exiting: bool,
 }
 /// Fragment is a content-addressed description of a contiguous Journal span,
 /// defined by the \[begin, end) offset range covered by the Fragment and the
@@ -372,6 +375,11 @@ pub struct ReadRequest {
     /// to skip persisted Fragments having a modication time before the bound.
     #[prost(int64, tag = "8")]
     pub begin_mod_time: i64,
+    /// Minimum Etcd revision the broker must have read through before resolving
+    /// the request. If the broker is behind, it waits for its KeySpace to catch
+    /// up.
+    #[prost(int64, tag = "9")]
+    pub min_etcd_revision: i64,
 }
 /// ReadResponse is the streamed response message of the broker Read RPC.
 /// Responses messages are of two types:
@@ -490,6 +498,11 @@ pub struct AppendRequest {
     pub subtract_registers: ::core::option::Option<LabelSet>,
     #[prost(enumeration = "append_request::Suspend", tag = "9")]
     pub suspend: i32,
+    /// Minimum Etcd revision the broker must have read through before resolving
+    /// the request. If the broker is behind, it waits for its KeySpace to catch
+    /// up.
+    #[prost(int64, tag = "10")]
+    pub min_etcd_revision: i64,
     /// Content chunks to be appended. Immediately prior to closing the stream,
     /// the client must send an empty chunk (eg, zero-valued AppendRequest) to
     /// indicate the Append should be committed. Absence of this empty chunk
@@ -522,6 +535,19 @@ pub mod append_request {
         /// persist content to the remote store as per usual -- but it can result in
         /// many small files if a journal is repeatedly suspended and resumed.
         Now = 3,
+        /// SUSPEND_KEEP proceeds without modifying the journal's suspension level:
+        /// a suspended journal is neither resumed (as SUSPEND_RESUME would) nor
+        /// failed (as SUSPEND_NO_RESUME would). This allows an empty append -- in
+        /// practice one issued by `gazctl journals reset-head` -- to reset the write
+        /// head of a partially-suspended journal through its single remaining
+        /// replica, without resuming it and thereby triggering a restoration of its
+        /// full replication topology. A fully-suspended journal still fails with
+        /// status SUSPENDED, as it has no replica able to serve the append.
+        ///
+        /// SUSPEND_KEEP appends may not carry content (doing so fails with
+        /// NOT_ALLOWED), as content would otherwise be committed through the
+        /// journal's reduced-replication topology.
+        Keep = 4,
     }
     impl Suspend {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -534,6 +560,7 @@ pub mod append_request {
                 Self::NoResume => "SUSPEND_NO_RESUME",
                 Self::IfFlushed => "SUSPEND_IF_FLUSHED",
                 Self::Now => "SUSPEND_NOW",
+                Self::Keep => "SUSPEND_KEEP",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -543,6 +570,7 @@ pub mod append_request {
                 "SUSPEND_NO_RESUME" => Some(Self::NoResume),
                 "SUSPEND_IF_FLUSHED" => Some(Self::IfFlushed),
                 "SUSPEND_NOW" => Some(Self::Now),
+                "SUSPEND_KEEP" => Some(Self::Keep),
                 _ => None,
             }
         }

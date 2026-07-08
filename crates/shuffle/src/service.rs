@@ -1,8 +1,15 @@
-use crate::{anyhow_to_status, new_channel, queue, session, slice};
+use crate::{anyhow_to_status, log, new_channel, session, slice};
 use proto_flow::shuffle;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+/// Default shuffle disk limit, in bytes (2 GiB), before a LogActor engages
+/// back-pressure. The single home for this value: the runtime sidecar's
+/// `--shuffle-disk-limit-bytes` CLI default and flowctl's in-process loopback
+/// Services all reference it so they cannot drift apart. Tasks may override
+/// this default per-shard via the `estuary.dev/shuffle-disk-limit` label.
+pub const DEFAULT_SHUFFLE_DISK_LIMIT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// Service is the implementation of the Shuffle gRPC service trait.
 #[derive(Clone)]
@@ -13,52 +20,93 @@ pub struct ServiceImpl {
     /// The endpoint of this service as seen by peers (e.g. "http://127.0.0.1:9876").
     pub(crate) peer_endpoint: String,
     /// Factory for building Gazette journal Clients.
-    pub(crate) journal_client_factory: JournalClientFactory,
+    pub(crate) journal_client_factory: gazette::journal::ClientFactory,
+    /// Default shuffle disk limit in bytes before a LogActor engages
+    /// back-pressure, used for any task that doesn't set a per-shard override
+    /// via the `estuary.dev/shuffle-disk-limit` label.
+    pub(crate) shuffle_disk_limit_bytes: u64,
     /// Transport channels to dialed peers.
     pub(crate) channels: std::sync::Mutex<HashMap<String, tonic::transport::Channel>>,
-    /// Shared state for coordinating Queue RPCs from multiple Slices into a single QueueActor.
-    /// Keyed by (session_id, queue_member_index).
-    pub(crate) queue_joins: std::sync::Mutex<HashMap<(u64, u32), queue::QueueJoin>>,
+    /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
+    /// Keyed by (directory, log_shard_index).
+    pub(crate) log_joins: std::sync::Mutex<HashMap<(String, u32), log::LogJoin>>,
+    /// Registry of in-flight Session/Slice/Log handlers, for the admin surface.
+    pub(crate) registry: service_kit::Registry,
+    /// Signs `SHUFFLE` bearer tokens for every outbound shuffle hop.
+    pub(crate) signer: Option<proto_grpc::Signer>,
 }
 
-/// JournalClientFactory is a boxed closure which builds and returns a Gazette
-/// journal Client for reads of the Collection on behalf of a task Name.
-pub type JournalClientFactory =
-    Box<dyn Fn(models::Collection, models::Name) -> gazette::journal::Client + Send + Sync>;
-
 impl Service {
-    pub fn new(peer_endpoint: String, journal_client_factory: JournalClientFactory) -> Self {
+    pub fn new(
+        peer_endpoint: String,
+        journal_client_factory: gazette::journal::ClientFactory,
+        shuffle_disk_limit_bytes: u64,
+        registry: service_kit::Registry,
+        signer: Option<proto_grpc::Signer>,
+    ) -> Self {
         Self(Arc::new(ServiceImpl {
             peer_endpoint,
             journal_client_factory,
+            shuffle_disk_limit_bytes,
             channels: std::sync::Mutex::new(HashMap::new()),
-            queue_joins: std::sync::Mutex::new(HashMap::new()),
+            log_joins: std::sync::Mutex::new(HashMap::new()),
+            registry,
+            signer,
         }))
+    }
+
+    /// Build a Service for an in-process loopback peer (e.g. `flowctl collections
+    /// read` or `flowctl preview`): no AuthN+AuthZ signer is needed because the
+    /// only peer is ourselves, and the shuffle disk limit takes its default.
+    pub fn new_loopback(
+        peer_endpoint: String,
+        journal_client_factory: gazette::journal::ClientFactory,
+        registry: service_kit::Registry,
+    ) -> Self {
+        Self::new(
+            peer_endpoint,
+            journal_client_factory,
+            DEFAULT_SHUFFLE_DISK_LIMIT_BYTES,
+            registry,
+            None, // No AuthN+AuthZ signer (local loopback).
+        )
+    }
+
+    /// Wrap this service in its typed tonic server, applying the
+    /// max-message-size overrides so it can be composed with sibling
+    /// services on a shared `tonic::transport::Server::builder()`.
+    pub fn into_tonic_service(self) -> proto_grpc::shuffle::shuffle_server::ShuffleServer<Self> {
+        proto_grpc::shuffle::shuffle_server::ShuffleServer::new(self)
+            .max_decoding_message_size(usize::MAX)
+            .max_encoding_message_size(usize::MAX)
     }
 
     /// Build a tonic Router containing the Shuffle service.
     pub fn build_tonic_server(self) -> tonic::transport::server::Router {
-        tonic::transport::Server::builder().add_service(
-            proto_grpc::shuffle::shuffle_server::ShuffleServer::new(self)
-                .max_decoding_message_size(usize::MAX)
-                .max_encoding_message_size(usize::MAX),
-        )
+        tonic::transport::Server::builder().add_service(self.into_tonic_service())
+    }
+
+    /// Return endpoint of this service as seen by peers.
+    pub fn peer_endpoint(&self) -> &str {
+        &self.peer_endpoint
     }
 
     pub fn spawn_session<R>(
         &self,
+        authz: proto_grpc::Authorizer,
         request_rx: R,
-    ) -> mpsc::Receiver<tonic::Result<shuffle::SessionResponse>>
+    ) -> mpsc::UnboundedReceiver<tonic::Result<shuffle::SessionResponse>>
     where
         R: futures::Stream<Item = tonic::Result<shuffle::SessionRequest>> + Send + Unpin + 'static,
     {
         let service = self.clone();
-        let (response_tx, response_rx) = new_channel::<tonic::Result<shuffle::SessionResponse>>();
+        let (response_tx, response_rx) =
+            mpsc::unbounded_channel::<tonic::Result<shuffle::SessionResponse>>();
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = session::serve_session(service, request_rx, response_tx).await {
-                let _ = error_tx.send(Err(anyhow_to_status(e))).await;
+            if let Err(e) = session::serve_session(service, authz, request_rx, response_tx).await {
+                let _ = error_tx.send(Err(anyhow_to_status(e)));
             }
         });
         response_rx
@@ -66,6 +114,7 @@ impl Service {
 
     pub fn spawn_slice<R>(
         &self,
+        authz: proto_grpc::Authorizer,
         request_rx: R,
     ) -> mpsc::Receiver<tonic::Result<shuffle::SliceResponse>>
     where
@@ -76,30 +125,41 @@ impl Service {
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = slice::serve_slice(service, request_rx, response_tx).await {
+            if let Err(e) = slice::serve_slice(service, authz, request_rx, response_tx).await {
                 let _ = error_tx.send(Err(anyhow_to_status(e))).await;
             }
         });
         response_rx
     }
 
-    pub fn spawn_queue<R>(
+    pub fn spawn_log<R>(
         &self,
+        authz: proto_grpc::Authorizer,
         request_rx: R,
-    ) -> mpsc::Receiver<tonic::Result<shuffle::QueueResponse>>
+    ) -> mpsc::Receiver<tonic::Result<shuffle::LogResponse>>
     where
-        R: futures::Stream<Item = tonic::Result<shuffle::QueueRequest>> + Send + Unpin + 'static,
+        R: futures::Stream<Item = tonic::Result<shuffle::LogRequest>> + Send + Unpin + 'static,
     {
         let service = self.clone();
-        let (response_tx, response_rx) = new_channel::<tonic::Result<shuffle::QueueResponse>>();
+        let (response_tx, response_rx) = new_channel::<tonic::Result<shuffle::LogResponse>>();
         let error_tx = response_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = queue::serve_queue(service, request_rx, response_tx).await {
+            if let Err(e) = log::serve_log(service, authz, request_rx, response_tx).await {
                 let _ = error_tx.send(Err(anyhow_to_status(e))).await;
             }
         });
         response_rx
+    }
+
+    /// Build gRPC client metadata bearing a self-signed `SHUFFLE` token, scoped
+    /// to `shard_id`'s task prefix, when a [`proto_grpc::Signer`] is configured.
+    /// Empty metadata otherwise (unauthenticated local contexts, e.g. preview).
+    pub(crate) fn shuffle_bearer(&self, shard_id: &str) -> tonic::Result<proto_grpc::Metadata> {
+        match &self.signer {
+            Some(signer) => signer.shard_bearer(proto_flow::capability::SHUFFLE, shard_id),
+            None => Ok(proto_grpc::Metadata::new()),
+        }
     }
 
     pub(crate) fn dial_channel(&self, endpoint: &str) -> tonic::Result<tonic::transport::Channel> {
@@ -127,8 +187,22 @@ impl Service {
             // connection unexpectedly.
             // See: https://github.com/grpc/grpc/blob/master/doc/keepalive.md
             .http2_keep_alive_interval(std::time::Duration::from_secs(301))
-            .initial_connection_window_size(i32::MAX as u32)
-            .connect_lazy();
+            .initial_connection_window_size(i32::MAX as u32);
+
+        let channel = if endpoint.starts_with("http://") {
+            // In-process `http://` loopback used by `flowctl preview` and
+            // tests.
+            channel
+        } else {
+            channel
+                .tls_config(
+                    tonic::transport::ClientTlsConfig::new()
+                        .with_native_roots()
+                        .assume_http2(true),
+                )
+                .map_err(|err| tonic::Status::internal(err.to_string()))?
+        }
+        .connect_lazy();
 
         guard.insert(endpoint.to_string(), channel.clone());
         Ok(channel)
@@ -146,36 +220,44 @@ impl std::ops::Deref for Service {
 #[tonic::async_trait]
 impl proto_grpc::shuffle::shuffle_server::Shuffle for Service {
     type SessionStream =
-        tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::SessionResponse>>;
+        tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<shuffle::SessionResponse>>;
     type SliceStream =
         tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::SliceResponse>>;
-    type QueueStream =
-        tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::QueueResponse>>;
+    type LogStream = tokio_stream::wrappers::ReceiverStream<tonic::Result<shuffle::LogResponse>>;
 
     async fn session(
         &self,
-        request: tonic::Request<tonic::Streaming<shuffle::SessionRequest>>,
+        mut request: tonic::Request<tonic::Streaming<shuffle::SessionRequest>>,
     ) -> tonic::Result<tonic::Response<Self::SessionStream>> {
+        let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
         Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(self.spawn_session(request.into_inner())),
+            tokio_stream::wrappers::UnboundedReceiverStream::new(
+                self.spawn_session(authz, request.into_inner()),
+            ),
         ))
     }
 
     async fn slice(
         &self,
-        request: tonic::Request<tonic::Streaming<shuffle::SliceRequest>>,
+        mut request: tonic::Request<tonic::Streaming<shuffle::SliceRequest>>,
     ) -> tonic::Result<tonic::Response<Self::SliceStream>> {
+        let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
         Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(self.spawn_slice(request.into_inner())),
+            tokio_stream::wrappers::ReceiverStream::new(
+                self.spawn_slice(authz, request.into_inner()),
+            ),
         ))
     }
 
-    async fn queue(
+    async fn log(
         &self,
-        request: tonic::Request<tonic::Streaming<shuffle::QueueRequest>>,
-    ) -> tonic::Result<tonic::Response<Self::QueueStream>> {
+        mut request: tonic::Request<tonic::Streaming<shuffle::LogRequest>>,
+    ) -> tonic::Result<tonic::Response<Self::LogStream>> {
+        let authz = proto_grpc::Authorizer::from_request(&mut request, self.signer.is_none())?;
         Ok(tonic::Response::new(
-            tokio_stream::wrappers::ReceiverStream::new(self.spawn_queue(request.into_inner())),
+            tokio_stream::wrappers::ReceiverStream::new(
+                self.spawn_log(authz, request.into_inner()),
+            ),
         ))
     }
 }

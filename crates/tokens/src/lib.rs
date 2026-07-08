@@ -126,6 +126,7 @@ impl<Token> Clone for PendingWatch<Token> {
 impl<Token> PendingWatch<Token> {
     /// Return a future that resolves when the PendingWatch becomes ready,
     /// yielding a reference to the dyn Watch.
+    #[inline]
     pub fn ready<'a>(
         &'a self,
     ) -> impl std::future::Future<Output = &'a Arc<dyn Watch<Token>>> + 'a {
@@ -139,6 +140,7 @@ impl<Token> PendingWatch<Token> {
 
     /// Return a future that resolves when the PendingWatch becomes ready,
     /// yielding an owned dyn Watch.
+    #[inline]
     pub fn ready_owned(self) -> impl std::future::Future<Output = Arc<dyn Watch<Token>>> {
         let Self { inner, signal } = self;
 
@@ -149,8 +151,24 @@ impl<Token> PendingWatch<Token> {
     }
 
     /// Return a future that resolves when the PendingWatch becomes ready.
+    #[inline]
     pub fn ready_signal(&self) -> WaitForCancellationFutureOwned {
         self.signal.clone().cancelled_owned()
+    }
+
+    /// Borrow the underlying Watch without awaiting readiness. Before the first
+    /// refresh its `token()` is an "awaiting initial refresh" error; callers
+    /// that require a resolved Token should `ready().await` instead. Intended
+    /// for synchronous reads once readiness has already been established.
+    #[inline]
+    pub fn watch(&self) -> &Arc<dyn Watch<Token>> {
+        &self.inner
+    }
+
+    /// Consume this PendingWatch and return its components.
+    #[inline]
+    pub fn into_parts(self) -> (Arc<dyn Watch<Token>>, CancellationToken) {
+        (self.inner, self.signal)
     }
 }
 

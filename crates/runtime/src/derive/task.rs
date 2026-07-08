@@ -12,7 +12,7 @@ impl Task {
             version,
         } = open.clone().open.context("expected Open")?;
 
-        let response::Opened {} = opened.opened.as_ref().context("expected Opened")?;
+        let response::Opened { .. } = opened.opened.as_ref().context("expected Opened")?;
 
         let flow::CollectionSpec {
             ack_template_json: _,
@@ -129,6 +129,7 @@ impl Transform {
             read_only: _,
             shuffle_key: _,
             shuffle_lambda_config_json: _,
+            state_key: _,
         } = spec;
 
         let flow::CollectionSpec {
