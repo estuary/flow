@@ -80,6 +80,10 @@ async fn do_update_quotas(
     if tenant.payment_provider == Some(PaymentProvider::External) {
         update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
         status.updated_quotas = true;
+        tracing::info!(
+            tenant = %tenant.tenant,
+            "ran quota update because payment provider is set to external",
+        );
         return Ok(());
     }
 
@@ -119,6 +123,10 @@ async fn do_update_quotas(
         // Updating tenant quotas using name
         update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
         status.updated_quotas = true;
+        tracing::info!(
+            tenant = %tenant.tenant,
+            "ran quota update because default payment method was set within billing provider",
+        );
     }
     Ok(())
 }
