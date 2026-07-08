@@ -135,8 +135,6 @@ const PAID_TASKS_QUOTA_MIN: i32 = 100;
 const COLLECTIONS_QUOTAS_MIN: i32 = 10000;
 
 /// Update the quotas to the necessary amount of 100 tasks and 10000 collections.
-///
-/// Returns true on success, false if no row was updated, or an error.
 async fn update_tenant_quotas_by_name(
     pool: &sqlx::PgPool,
     tenant_name: &str,
