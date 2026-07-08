@@ -1,5 +1,5 @@
 use super::{Binding, Task};
-use crate::task_schema::{relax_inferred_datetime_formats, shard_flag_enabled};
+use crate::task_schema::relax_inferred_datetime_formats;
 use anyhow::Context;
 use proto_flow::flow;
 use proto_flow::materialize::{Request, request};
@@ -29,7 +29,7 @@ impl Task {
         // Opt-in, per-task relaxation of read-side date-time `format`
         // enforcement inherited from the collection's inferred schema. See
         // Binding::new and estuary/flow#3133.
-        let relax_inferred_datetime = shard_flag_enabled(
+        let relax_inferred_datetime = labels::shard_flag_enabled(
             shard_template.as_ref(),
             labels::RELAX_INFERRED_DATETIME_FLAG,
         );

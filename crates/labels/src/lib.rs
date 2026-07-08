@@ -249,6 +249,22 @@ pub fn maybe_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
     }
 }
 
+/// Return whether shard feature-flag `flag` (a fully-qualified flag label such
+/// as [`RELAX_INFERRED_DATETIME_FLAG`]) is set to "true" within a task's
+/// `shard_template` labels. Task runtimes call this to gate per-task behavior
+/// at the point they build read-side validators. A missing shard template,
+/// missing labels, or any non-"true" value all read as disabled.
+pub fn shard_flag_enabled(
+    shard_template: Option<&proto_gazette::consumer::ShardSpec>,
+    flag: &str,
+) -> bool {
+    shard_template
+        .and_then(|shard| shard.labels.as_ref())
+        .and_then(|set| maybe_one(set, flag).ok())
+        .map(|value| value == "true")
+        .unwrap_or(false)
+}
+
 /// Returns whether `set` is matched by `selector`, faithfully porting gazette's
 /// `LabelSelector.Matches` (`go.gazette.dev/core/broker/protocol`):
 /// an excluded label matching any of `set` is a non-match; otherwise every
@@ -386,6 +402,33 @@ impl<'a> LabelJoin<'a> {
 #[cfg(test)]
 mod test {
     use crate::*;
+
+    #[test]
+    fn shard_flag_enabled_cases() {
+        let flag = RELAX_INFERRED_DATETIME_FLAG;
+
+        let shard_with = |value: &str| proto_gazette::consumer::ShardSpec {
+            labels: Some(build_set([(flag, value)])),
+            ..Default::default()
+        };
+
+        assert!(shard_flag_enabled(Some(&shard_with("true")), flag));
+
+        // Any value other than "true" reads as disabled.
+        assert!(!shard_flag_enabled(Some(&shard_with("false")), flag));
+
+        // Flag absent, no labels, or no shard template at all.
+        let no_flag = proto_gazette::consumer::ShardSpec {
+            labels: Some(build_set([(COLLECTION, "acmeCo/foo")])),
+            ..Default::default()
+        };
+        assert!(!shard_flag_enabled(Some(&no_flag), flag));
+        assert!(!shard_flag_enabled(
+            Some(&proto_gazette::consumer::ShardSpec::default()),
+            flag
+        ));
+        assert!(!shard_flag_enabled(None, flag));
+    }
 
     #[test]
     fn label_range_cases() {
