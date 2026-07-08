@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n            dp.data_plane_name,\n            dp.cidr_blocks::text[] as \"cidr_blocks!: Vec<String>\",\n            dp.gcp_service_account_email,\n            dp.aws_iam_user_arn,\n            dp.azure_application_name,\n            dp.azure_application_client_id,\n            dp.private_links as \"private_links!: Vec<serde_json::Value>\",\n            dp.aws_link_endpoints as \"aws_link_endpoints: Vec<serde_json::Value>\",\n            dp.azure_link_endpoints as \"azure_link_endpoints: Vec<serde_json::Value>\",\n            dp.gcp_psc_endpoints as \"gcp_psc_endpoints: Vec<serde_json::Value>\"\n        from unnest($1::text[]) as input(name)\n        join data_planes dp on dp.data_plane_name = input.name\n        ",
+  "query": "select\n            dp.data_plane_name,\n            dp.cidr_blocks::text[] as \"cidr_blocks!: Vec<String>\",\n            dp.gcp_service_account_email,\n            dp.aws_iam_user_arn,\n            dp.azure_application_name,\n            dp.azure_application_client_id,\n            dp.aws_link_endpoints as \"aws_link_endpoints: Vec<serde_json::Value>\",\n            dp.azure_link_endpoints as \"azure_link_endpoints: Vec<serde_json::Value>\",\n            dp.gcp_psc_endpoints as \"gcp_psc_endpoints: Vec<serde_json::Value>\"\n        from unnest($1::text[]) as input(name)\n        join data_planes dp on dp.data_plane_name = input.name\n        ",
   "describe": {
     "columns": [
       {
@@ -35,21 +35,16 @@
       },
       {
         "ordinal": 6,
-        "name": "private_links!: Vec<serde_json::Value>",
-        "type_info": "JsonArray"
-      },
-      {
-        "ordinal": 7,
         "name": "aws_link_endpoints: Vec<serde_json::Value>",
         "type_info": "JsonArray"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "azure_link_endpoints: Vec<serde_json::Value>",
         "type_info": "JsonArray"
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "gcp_psc_endpoints: Vec<serde_json::Value>",
         "type_info": "JsonArray"
       }
@@ -66,11 +61,10 @@
       true,
       true,
       true,
-      false,
       true,
       true,
       true
     ]
   },
-  "hash": "a93ae7bf9e1f6b70def0680845e783a097cab9a98b20f17a5f125f993c295062"
+  "hash": "9dbbc797f9e651eb717f5430186ae1d15adc381c81c4a832f458bcd3171c4044"
 }

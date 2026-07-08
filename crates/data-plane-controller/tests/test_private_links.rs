@@ -26,13 +26,15 @@ async fn test_private_links() {
     let mut state: Option<stack::State> = None;
     let mut inbox: VecDeque<(models::Id, Option<Message>)> = VecDeque::new();
     let mut row_state = initial_state();
-    row_state.stack.config.model.private_links =
-        vec![stack::PrivateLink::AWS(stack::AWSPrivateLink {
+    row_state.stack.config.model.private_links = vec![stack::PrivateLinkEntry {
+        id: Some(models::Id::new([0, 0, 0, 0, 0, 0, 0xb, 0x1])),
+        config: stack::PrivateLink::AWS(stack::AWSPrivateLink {
             az_ids: vec!["a".to_string(), "b".to_string()],
             region: "us-west-2".to_string(),
             service_name: "service".to_string(),
             service_region: None,
-        })];
+        }),
+    }];
 
     inbox.push_back((
         models::Id::zero(),
@@ -73,12 +75,15 @@ async fn test_private_links() {
         .config
         .model
         .private_links
-        .push(stack::PrivateLink::AWS(stack::AWSPrivateLink {
-            az_ids: vec!["b".to_string(), "c".to_string()],
-            region: "us-west-2".to_string(),
-            service_name: "service-2".to_string(),
-            service_region: None,
-        }));
+        .push(stack::PrivateLinkEntry {
+            id: Some(models::Id::new([0, 0, 0, 0, 0, 0, 0xb, 0x2])),
+            config: stack::PrivateLink::AWS(stack::AWSPrivateLink {
+                az_ids: vec!["b".to_string(), "c".to_string()],
+                region: "us-west-2".to_string(),
+                service_name: "service-2".to_string(),
+                service_region: None,
+            }),
+        });
 
     inbox.push_back((models::Id::zero(), Some(Message::Converge)));
 
