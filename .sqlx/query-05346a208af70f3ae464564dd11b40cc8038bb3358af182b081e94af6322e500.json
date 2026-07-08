@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            id AS \"id: models::Id\",\n            generation,\n            config AS \"config!: sqlx::types::Json<stack::PrivateLink>\"\n        FROM internal.data_plane_private_links\n        WHERE data_plane_id = $1\n        ORDER BY created_at, id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "generation",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "config!: sqlx::types::Json<stack::PrivateLink>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "05346a208af70f3ae464564dd11b40cc8038bb3358af182b081e94af6322e500"
+}

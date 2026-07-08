@@ -28,6 +28,16 @@ pub enum Status {
     AwaitDNS2,
 }
 
+/// A private link's identity and desired-config version, pinned when a converge
+/// reads its desired state. The controller's post-converge status write matches
+/// on both, so a link edited mid-converge (which bumps its generation) is left
+/// for a follow-up converge rather than stamped with a stale status.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PinnedLink {
+    pub id: models::Id,
+    pub generation: i64,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct State {
     // DataPlane which this controller manages.
@@ -64,6 +74,14 @@ pub struct State {
     // Is there a pending converge for this data-plane?
     #[serde(default, skip_serializing_if = "is_false")]
     pub pending_converge: bool,
+
+    // Private links pinned by (id, generation) at the `PulumiUp1` poll of the
+    // current converge. The post-converge status write only lands on rows whose
+    // generation still matches, so a link edited mid-converge is skipped and
+    // settled by the follow-up converge queued when the per-poll refresh
+    // observes the edit. Empty outside an active converge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pinned_links: Vec<PinnedLink>,
 
     // When Some, updated Pulumi stack exports to be written back into the `data_planes` row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -114,7 +132,7 @@ pub struct DataPlane {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allow_cidrs: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub private_links: Vec<PrivateLink>,
+    pub private_links: Vec<PrivateLinkEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_private_routes: Vec<ExtraRoute>,
     // When true, the host-local podman `flow-connectors` network is created
@@ -178,6 +196,20 @@ pub struct GCPBYOC {
 // API and the data-plane controller can speak the same shape. The DPC still
 // references them through this module, so re-export them here.
 pub use models::{AWSPrivateLink, AzurePrivateLink, GCPPrivateServiceConnect, PrivateLink};
+
+/// An element of the stack model's `private_links`: the link's user-owned
+/// configuration plus the id of its `data_plane_private_links` row, serialized
+/// as a sibling `id` field of the flattened config. est-dry-dock treats the id
+/// as opaque and echoes it back in its per-link `link_results` export, which is
+/// how each result is attributed to its link's row.
+/// `id` is None only for stack configs persisted before ids were sent.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PrivateLinkEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<models::Id>,
+    #[serde(flatten)]
+    pub config: PrivateLink,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -309,18 +341,44 @@ pub struct ControlExports {
     pub azure_link_endpoints: Vec<serde_json::Value>,
     pub bastion_tunnel_private_key: Option<String>,
     pub cidr_blocks: Vec<sqlx::types::ipnetwork::IpNetwork>,
-    // TODO(whb): Remove #[serde(default)] once est-dry-dock is deployed with gcp_psc_endpoints output.
-    #[serde(default)]
     pub gcp_psc_endpoints: Vec<serde_json::Value>,
     pub gcp_service_account_email: String,
     pub hmac_keys: Vec<String>,
     pub ssh_key: String,
+    // Per-link provisioning results, one entry per model `private_links` entry,
+    // addressed by the control-plane link id each entry echoes back.
+    // None for stack outputs produced by an est-dry-dock which pre-dates the
+    // export, in which case no per-link statuses are written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_results: Option<Vec<LinkResult>>,
     // Computed by the controller based on Dekaf deployment status.
     // Not exported by Pulumi, hence the default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dekaf_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dekaf_registry_address: Option<String>,
+}
+
+/// A per-link provisioning result from est-dry-dock's `control.link_results`
+/// export, addressed by the control-plane link id it echoes back.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct LinkResult {
+    /// Id of the `data_plane_private_links` row this result addresses.
+    /// None when the model entry carried no id (outputs of a converge which
+    /// pre-dates sending ids); such entries cannot be attributed and are
+    /// skipped by the status write.
+    #[serde(default)]
+    pub id: Option<models::Id>,
+    /// `provisioned` or `failed`. `failed` is a per-link input validation
+    /// error caught by the Pulumi program, and is authoritative. `provisioned`
+    /// means the link's resources were registered and the program completed;
+    /// it is trusted because exports are only read after a successful
+    /// `pulumi up`.
+    pub status: String,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -593,12 +651,15 @@ mod test {
             serde_json::from_value::<DataPlane>(fixtures.get("aws_private_link").unwrap().clone())
                 .unwrap()
                 .private_links[0],
-            PrivateLink::AWS(AWSPrivateLink {
-                az_ids: vec!["a".to_string(), "b".to_string()],
-                region: "us-west-2".to_string(),
-                service_name: "service".to_string(),
-                service_region: None,
-            }),
+            PrivateLinkEntry {
+                id: None,
+                config: PrivateLink::AWS(AWSPrivateLink {
+                    az_ids: vec!["a".to_string(), "b".to_string()],
+                    region: "us-west-2".to_string(),
+                    service_name: "service".to_string(),
+                    service_region: None,
+                }),
+            },
         );
 
         let azure_parsed = serde_json::from_value::<DataPlane>(
@@ -607,12 +668,15 @@ mod test {
         .unwrap();
         assert_eq!(
             azure_parsed.private_links[0],
-            PrivateLink::Azure(AzurePrivateLink {
-                location: "eastus".to_string(),
-                service_name: "service".to_string(),
-                resource_type: Some("managedInstance".to_string()),
-                dns_name: Some("privatelink.database.windows.net".to_string()),
-            }),
+            PrivateLinkEntry {
+                id: None,
+                config: PrivateLink::Azure(AzurePrivateLink {
+                    location: "eastus".to_string(),
+                    service_name: "service".to_string(),
+                    resource_type: Some("managedInstance".to_string()),
+                    dns_name: Some("privatelink.database.windows.net".to_string()),
+                }),
+            },
         );
         assert_eq!(
             azure_parsed.azure_byoc,
@@ -645,15 +709,18 @@ mod test {
         .unwrap();
         assert_eq!(
             gcp_psc_parsed.private_links[0],
-            PrivateLink::GCP(GCPPrivateServiceConnect {
-                service_attachment:
-                    "projects/customer-project/regions/us-central1/serviceAttachments/customer-db"
-                        .to_string(),
-                region: "us-central1".to_string(),
-                dns_zone_name: "estuary-psc".to_string(),
-                dns_record_names: vec!["customer-db".to_string(), "customer-api".to_string()],
-                all_ports: true,
-            }),
+            PrivateLinkEntry {
+                id: None,
+                config: PrivateLink::GCP(GCPPrivateServiceConnect {
+                    service_attachment:
+                        "projects/customer-project/regions/us-central1/serviceAttachments/customer-db"
+                            .to_string(),
+                    region: "us-central1".to_string(),
+                    dns_zone_name: "estuary-psc".to_string(),
+                    dns_record_names: vec!["customer-db".to_string(), "customer-api".to_string()],
+                    all_ports: true,
+                }),
+            },
         );
         assert_eq!(
             gcp_psc_parsed.gcp_byoc,
@@ -661,6 +728,78 @@ mod test {
                 project_id: "12345678".to_string(),
             }),
         );
+    }
+
+    // The wire shape est-dry-dock parses: `id` is a sibling of the flattened
+    // link config, omitted when None, and round-trips losslessly.
+    #[test]
+    fn private_link_entry_round_trip() {
+        let with_id = PrivateLinkEntry {
+            id: Some(models::Id::new([0, 0, 0, 0, 0, 0, 0xb, 0x1])),
+            config: PrivateLink::AWS(AWSPrivateLink {
+                az_ids: vec!["use1-az1".to_string()],
+                region: "us-east-1".to_string(),
+                service_name: "com.amazonaws.vpce.us-east-1.vpce-svc-abc".to_string(),
+                service_region: None,
+            }),
+        };
+        let raw = serde_json::to_string(&with_id).unwrap();
+        assert_eq!(
+            raw,
+            r#"{"id":"0000000000000b01","region":"us-east-1","az_ids":["use1-az1"],"service_name":"com.amazonaws.vpce.us-east-1.vpce-svc-abc"}"#,
+        );
+        assert_eq!(
+            serde_json::from_str::<PrivateLinkEntry>(&raw).unwrap(),
+            with_id
+        );
+
+        // Entries without an id (persisted state which pre-dates ids, or the
+        // legacy element shape) parse with id None and serialize without it.
+        let without_id = r#"{"service_name":"svc","location":"eastus"}"#;
+        let parsed: PrivateLinkEntry = serde_json::from_str(without_id).unwrap();
+        assert_eq!(parsed.id, None);
+        assert!(matches!(parsed.config, PrivateLink::Azure(_)));
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), without_id);
+    }
+
+    // Stack outputs from an est-dry-dock which pre-dates the `link_results`
+    // export parse with None rather than erroring, so a mixed-version fleet
+    // cannot fail exports parsing; per-entry `id`/`error`/`details` are
+    // likewise optional.
+    #[test]
+    fn control_exports_link_results_are_optional() {
+        let base = serde_json::json!({
+            "aws_iam_user_arn": "arn:aws:iam::123456:user/data-planes/data-plane-abcd",
+            "aws_link_endpoints": [],
+            "azure_application_client_id": "12345678-1234-1234-1234-123456789abc",
+            "azure_application_name": "data-plane-123.dp.estuary-data.com",
+            "azure_link_endpoints": [],
+            "bastion_tunnel_private_key": null,
+            "cidr_blocks": [],
+            "gcp_psc_endpoints": [],
+            "gcp_service_account_email": "data-plane-abcd@project.iam.gserviceaccount.com",
+            "hmac_keys": [],
+            "ssh_key": "ssh_key fixture"
+        });
+
+        let parsed: ControlExports = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(parsed.link_results.map(|r| r.len()), None);
+
+        let mut with_null = base.clone();
+        with_null["link_results"] = serde_json::Value::Null;
+        let parsed: ControlExports = serde_json::from_value(with_null).unwrap();
+        assert_eq!(parsed.link_results.map(|r| r.len()), None);
+
+        // A minimal entry: only `status` is required.
+        let mut with_minimal = base;
+        with_minimal["link_results"] = serde_json::json!([{"status": "provisioned"}]);
+        let parsed: ControlExports = serde_json::from_value(with_minimal).unwrap();
+        let results = parsed.link_results.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, None);
+        assert_eq!(results[0].status, "provisioned");
+        assert_eq!(results[0].error, None);
+        assert!(results[0].details.is_none());
     }
 
     #[test]

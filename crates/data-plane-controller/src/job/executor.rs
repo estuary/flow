@@ -35,6 +35,12 @@ pub struct Outcome {
     pub publish_stack: Option<stack::PulumiStack>,
     // KMS key used to encrypt HMAC keys
     pub kms_key: String,
+    // Private links pinned by (id, generation) at the `PulumiUp1` poll of this
+    // converge. The post-converge status write only lands on rows whose
+    // generation still matches, so a link edited mid-converge is skipped and
+    // settled by the follow-up converge queued when the per-poll refresh
+    // observes the edit.
+    pub pinned_links: Vec<stack::PinnedLink>,
 }
 
 /// Type-erased function for dispatching work execution.
@@ -186,10 +192,30 @@ impl Executor {
         let sleep = match state_ref.status {
             Status::Idle => self.on_idle(state_ref, inbox, releases, row_state).await?,
             status => {
-                // Refresh private_links from the current DB row on every poll,
-                // so that retries pick up changes made to the data_planes table.
-                state_ref.stack.config.model.private_links =
-                    row_state.stack.config.model.private_links;
+                // Refresh private_links from the current data_plane_private_links
+                // rows on every poll, so that retries pick up edits to the
+                // table. A change observed here also queues a follow-up
+                // converge: the refresh
+                // folds the edit into the config the idle diff compares
+                // against, and the edit's generation bump makes this converge's
+                // status write skip its row, so without a follow-up it would
+                // sit `pending` until the periodic forced converge.
+                if state_ref.stack.config.model.private_links
+                    != row_state.stack.config.model.private_links
+                {
+                    state_ref.stack.config.model.private_links =
+                        row_state.stack.config.model.private_links;
+                    state_ref.pending_converge = true;
+                }
+
+                // Pin the (id, generation) of the links this converge applies at
+                // the poll that dispatches `pulumi up`, and deliberately do not
+                // refresh it on later polls: the exported link results reflect
+                // what `PulumiUp1` provisioned, so the status write must attribute
+                // them to the exact link versions read here.
+                if matches!(status, Status::PulumiUp1) {
+                    state_ref.pinned_links = row_state.pinned_links.clone();
+                }
 
                 // For all non-Idle statuses, dispatch to service worker.
                 let action =
@@ -214,6 +240,7 @@ impl Executor {
             publish_exports: state_ref.publish_exports.take(),
             publish_stack,
             kms_key: self.controller_config.secrets_provider.clone(),
+            pinned_links: state_ref.pinned_links.clone(),
         })
     }
 
@@ -393,7 +420,6 @@ async fn fetch_row_state(
             logs_token,
             data_plane_name,
             data_plane_fqdn,
-            private_links AS "private_links: Vec<sqlx::types::Json<stack::PrivateLink>>",
             pulumi_key AS "pulumi_key",
             pulumi_stack AS "pulumi_stack!"
         FROM data_planes
@@ -411,7 +437,38 @@ async fn fetch_row_state(
     config.model.name = Some(row.data_plane_name);
     config.model.fqdn = Some(row.data_plane_fqdn);
 
-    config.model.private_links = row.private_links.into_iter().map(|link| link.0).collect();
+    // Desired links come from `data_plane_private_links`. Each link's
+    // (id, generation) is pinned so the post-converge status write attributes
+    // link results to the exact configuration version this converge applied.
+    let link_rows = sqlx::query!(
+        r#"
+        SELECT
+            id AS "id: models::Id",
+            generation,
+            config AS "config!: sqlx::types::Json<stack::PrivateLink>"
+        FROM internal.data_plane_private_links
+        WHERE data_plane_id = $1
+        ORDER BY created_at, id
+        "#,
+        row.data_plane_id as models::Id,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to fetch data-plane private links")?;
+
+    let mut private_links = Vec::with_capacity(link_rows.len());
+    let mut pinned_links = Vec::with_capacity(link_rows.len());
+    for link in link_rows {
+        pinned_links.push(stack::PinnedLink {
+            id: link.id,
+            generation: link.generation,
+        });
+        private_links.push(stack::PrivateLinkEntry {
+            id: Some(link.id),
+            config: link.config.0,
+        });
+    }
+    config.model.private_links = private_links;
 
     let stack = if let Some(key) = row.pulumi_key {
         stack::PulumiStack {
@@ -442,6 +499,7 @@ async fn fetch_row_state(
         preview_branch: String::new(),
         pending_refresh: false,
         pending_converge: false,
+        pinned_links,
         publish_exports: None,
         publish_stack: None,
     })
@@ -545,6 +603,10 @@ impl automations::Outcome for Outcome {
             // These fields are already implied by other row columns.
             model.name = None;
             model.fqdn = None;
+            // Never read back: `fetch_row_state` unconditionally overwrites the
+            // model's links from `data_plane_private_links` rows, so persisting
+            // them here would only store a stale copy that drifts from the table.
+            model.private_links = Vec::new();
 
             _ = sqlx::query!(
                 r#"
@@ -575,6 +637,7 @@ impl automations::Outcome for Outcome {
             bastion_tunnel_private_key,
             azure_application_name,
             azure_application_client_id,
+            link_results,
             dekaf_address,
             dekaf_registry_address,
         }) = self.publish_exports
@@ -618,13 +681,284 @@ impl automations::Outcome for Outcome {
             .execute(&mut *txn)
             .await
             .context("failed to publish exports into data_planes row")?;
+
+            write_private_link_statuses(
+                &mut *txn,
+                self.data_plane_id,
+                &self.pinned_links,
+                link_results.as_deref().unwrap_or_default(),
+            )
+            .await?;
         }
 
         Ok(automations::Action::Sleep(self.sleep))
     }
 }
 
+/// Records each private link's observed status after a converge from the
+/// per-link results est-dry-dock exports, matched to the links this converge
+/// pinned by the control-plane id each result echoes back.
+///
+/// A pinned link with no matching result is left untouched: results without an
+/// id (a converge which pre-dated sending ids, such as the handoff converge of
+/// a rolling controller deploy) cannot be attributed, and a link absent from
+/// the results entirely was not observed. In both cases the row keeps its
+/// prior status until a converge which observes it.
+///
+/// Only rows whose generation still matches the value pinned when this converge
+/// read its desired links are updated. A link edited mid-converge has a bumped
+/// generation, so it is skipped here (this converge did not provision its
+/// current config) and is settled by the follow-up converge queued when the
+/// per-poll refresh observed the edit.
+async fn write_private_link_statuses(
+    conn: &mut sqlx::PgConnection,
+    data_plane_id: models::Id,
+    pinned_links: &[stack::PinnedLink],
+    link_results: &[stack::LinkResult],
+) -> anyhow::Result<()> {
+    let pinned_ids: Vec<models::Id> = pinned_links.iter().map(|l| l.id).collect();
+    let pinned_generations: Vec<i64> = pinned_links.iter().map(|l| l.generation).collect();
+
+    let mut result_ids: Vec<models::Id> = Vec::new();
+    let mut result_statuses: Vec<String> = Vec::new();
+    let mut result_errors: Vec<Option<String>> = Vec::new();
+    let mut result_details: Vec<Option<serde_json::Value>> = Vec::new();
+
+    for result in link_results {
+        let Some(id) = result.id else { continue };
+
+        // Guard the status column's check constraint: a status this controller
+        // doesn't know is skipped (no observation) rather than failing the
+        // write, so a newer est-dry-dock cannot wedge an older controller.
+        if !matches!(result.status.as_str(), "provisioned" | "failed") {
+            tracing::warn!(
+                link_id = %id,
+                status = %result.status,
+                "skipping link result with unexpected status"
+            );
+            continue;
+        }
+        result_ids.push(id);
+        result_statuses.push(result.status.clone());
+        result_errors.push(result.error.clone());
+        result_details.push(result.details.clone());
+    }
+
+    sqlx::query!(
+        r#"
+        WITH pinned AS (
+            SELECT id, generation
+                FROM unnest($2::flowid[], $3::bigint[]) AS p(id, generation)
+        ),
+        results AS (
+            SELECT id, status, error, detail
+                FROM unnest($4::flowid[], $5::text[], $6::text[], $7::jsonb[])
+                    AS r(id, status, error, detail)
+        )
+        UPDATE internal.data_plane_private_links l SET
+            status = r.status,
+            details = r.detail,
+            error = r.error,
+            observed_at = now(),
+            updated_at = now()
+        FROM internal.data_plane_private_links l2
+        JOIN pinned p ON p.id = l2.id AND p.generation = l2.generation
+        JOIN results r ON r.id = l2.id
+        WHERE l.id = l2.id
+          AND l2.data_plane_id = $1
+        "#,
+        data_plane_id as models::Id,
+        pinned_ids as Vec<models::Id>,
+        pinned_generations as Vec<i64>,
+        result_ids as Vec<models::Id>,
+        &result_statuses,
+        result_errors as Vec<Option<String>>,
+        result_details as Vec<Option<serde_json::Value>>,
+    )
+    .execute(&mut *conn)
+    .await
+    .context("failed to update private link statuses")?;
+
+    Ok(())
+}
+
 const IDLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 const POLL_AGAIN: std::time::Duration = std::time::Duration::ZERO;
 const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
 const CONVERGE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(4 * 60 * 60);
+
+#[cfg(test)]
+mod tests {
+    use super::stack;
+    use super::stack::PinnedLink;
+    use super::write_private_link_statuses;
+
+    async fn link_id(pool: &sqlx::PgPool, identity: &str) -> models::Id {
+        sqlx::query_scalar!(
+            r#"SELECT id as "id: models::Id"
+               FROM internal.data_plane_private_links WHERE service_identity = $1"#,
+            identity,
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn status_of(pool: &sqlx::PgPool, identity: &str) -> (String, Option<serde_json::Value>) {
+        let row = sqlx::query!(
+            r#"
+            SELECT status, details as "details: sqlx::types::Json<serde_json::Value>"
+            FROM internal.data_plane_private_links WHERE service_identity = $1
+            "#,
+            identity,
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        (row.status, row.details.map(|d| d.0))
+    }
+
+    async fn error_of(pool: &sqlx::PgPool, identity: &str) -> Option<String> {
+        sqlx::query_scalar!(
+            r#"SELECT error
+               FROM internal.data_plane_private_links WHERE service_identity = $1"#,
+            identity,
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    // Matches this converge's exported link results to the pinned links by id
+    // and skips any link whose generation no longer matches the pinned value.
+    // Covers a provisioned result (details recorded), a failed result (error
+    // recorded), no-observation for a pinned link absent from the results,
+    // skipped entries (a null id and an unknown status), and the generation
+    // guard (a row edited after the pin is skipped, and pinning its current
+    // generation processes it).
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "fixtures", scripts("private_link_statuses"))
+    )]
+    async fn write_private_link_statuses_records_and_guards_generation(pool: sqlx::PgPool) {
+        let data_plane_id: models::Id = sqlx::query_scalar!(
+            r#"SELECT id as "id: models::Id" FROM data_planes WHERE data_plane_name = $1"#,
+            "ops/dp/private/testCo/aws-1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // This converge reported svc-a provisioned, svc-g failed, and svc-edited
+        // provisioned; svc-orphan is absent from the results (no observation:
+        // its only entries are one with a null id, which cannot be attributed,
+        // and one with a status this controller does not know).
+        let results = vec![
+            stack::LinkResult {
+                id: Some(link_id(&pool, "svc-a").await),
+                status: "provisioned".to_string(),
+                error: None,
+                details: Some(serde_json::json!({
+                    "service_name": "svc-a",
+                    "dns_entries": [{"dns_name": "svc-a.example"}]
+                })),
+            },
+            stack::LinkResult {
+                id: Some(link_id(&pool, "svc-g").await),
+                status: "failed".to_string(),
+                error: Some("Invalid PrivateLink Availability Zone ID".to_string()),
+                details: None,
+            },
+            stack::LinkResult {
+                id: Some(link_id(&pool, "svc-edited").await),
+                status: "provisioned".to_string(),
+                error: None,
+                details: Some(serde_json::json!({"service_name": "svc-edited"})),
+            },
+            stack::LinkResult {
+                id: None,
+                status: "provisioned".to_string(),
+                error: None,
+                details: Some(serde_json::json!({"service_name": "svc-orphan"})),
+            },
+            stack::LinkResult {
+                id: Some(link_id(&pool, "svc-orphan").await),
+                status: "certainly-not-a-status".to_string(),
+                error: None,
+                details: None,
+            },
+        ];
+
+        // Pin every link at generation 1. svc-edited is at generation 2 in the
+        // fixture (an edit landed after this converge read its desired state), so
+        // its pinned generation no longer matches the row.
+        let pinned = vec![
+            PinnedLink {
+                id: link_id(&pool, "svc-a").await,
+                generation: 1,
+            },
+            PinnedLink {
+                id: link_id(&pool, "svc-orphan").await,
+                generation: 1,
+            },
+            PinnedLink {
+                id: link_id(&pool, "svc-edited").await,
+                generation: 1,
+            },
+            PinnedLink {
+                id: link_id(&pool, "svc-g").await,
+                generation: 1,
+            },
+        ];
+
+        let mut conn = pool.acquire().await.unwrap();
+        write_private_link_statuses(&mut conn, data_plane_id, &pinned, &results)
+            .await
+            .unwrap();
+
+        // A provisioned result -> provisioned with its details.
+        let (status, details) = status_of(&pool, "svc-a").await;
+        assert_eq!(status, "provisioned");
+        assert_eq!(details.unwrap()["service_name"], "svc-a");
+
+        // A failed result -> failed with its error, details cleared.
+        let (status, details) = status_of(&pool, "svc-g").await;
+        assert_eq!(status, "failed");
+        assert!(details.is_none());
+        assert_eq!(
+            error_of(&pool, "svc-g").await.as_deref(),
+            Some("Invalid PrivateLink Availability Zone ID"),
+        );
+
+        // Absent from the results -> no observation: prior status and details
+        // are retained.
+        let (status, details) = status_of(&pool, "svc-orphan").await;
+        assert_eq!(status, "provisioned");
+        assert_eq!(details.unwrap()["service_name"], "svc-orphan");
+
+        // The pinned generation no longer matches the row, so its result is not
+        // applied and the row keeps its pre-edit observation.
+        let (status, details) = status_of(&pool, "svc-edited").await;
+        assert_eq!(status, "provisioned");
+        assert_eq!(details.unwrap()["stale"], true);
+
+        // Pinning svc-edited at its current generation (2) lets a later
+        // converge apply its result, refreshing status and details.
+        let results = vec![stack::LinkResult {
+            id: Some(link_id(&pool, "svc-edited").await),
+            status: "provisioned".to_string(),
+            error: None,
+            details: Some(serde_json::json!({"service_name": "svc-edited", "fresh": true})),
+        }];
+        let pinned = vec![PinnedLink {
+            id: link_id(&pool, "svc-edited").await,
+            generation: 2,
+        }];
+        write_private_link_statuses(&mut conn, data_plane_id, &pinned, &results)
+            .await
+            .unwrap();
+        let (status, details) = status_of(&pool, "svc-edited").await;
+        assert_eq!(status, "provisioned");
+        assert_eq!(details.unwrap()["fresh"], true);
+    }
+}
