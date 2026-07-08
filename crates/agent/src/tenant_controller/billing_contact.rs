@@ -1,18 +1,9 @@
 use std::sync::Arc;
 
 use super::{TaskStatus, Tenant};
-use crate::tenant_controller::outcome::Outcome;
+use crate::tenant_controller::{outcome::Outcome, retry_backoff};
 use anyhow::Context;
 use control_plane_api::billing::{BillingProvider, CUSTOMER_NAME_METADATA_KEY};
-
-fn retry_backoff(failures: u32) -> std::time::Duration {
-    match failures {
-        0 => std::time::Duration::ZERO,
-        1 => std::time::Duration::from_secs(60),
-        2 => std::time::Duration::from_secs(300),
-        _ => std::time::Duration::from_secs(900),
-    }
-}
 
 pub async fn reconcile(
     status: &mut TaskStatus,

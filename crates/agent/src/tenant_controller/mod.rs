@@ -23,6 +23,15 @@ fn is_zero(i: &u32) -> bool {
     *i == 0
 }
 
+pub fn retry_backoff(failures: u32) -> std::time::Duration {
+    match failures {
+        0 => std::time::Duration::ZERO,
+        1 => std::time::Duration::from_secs(60),
+        2 => std::time::Duration::from_secs(300),
+        _ => std::time::Duration::from_secs(900),
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
@@ -46,13 +55,6 @@ impl TenantController {
         Self { billing_provider }
     }
 }
-
-// NOTE(BB): This was copied from the crates/billing-integrations/src/publish.rs
-// I wasn't sure if we wanted to add the dependency between the two crates, because
-// Nothing in there is public.
-//
-// Should we promote this to another crate and share it between the two crates
-// that are using it?
 
 pub(crate) struct Tenant {
     pub tenant: String,

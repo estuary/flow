@@ -1,4 +1,4 @@
-use crate::tenant_controller::{Outcome, PaymentProvider, TaskStatus, Tenant};
+use crate::tenant_controller::{Outcome, PaymentProvider, TaskStatus, Tenant, retry_backoff};
 use anyhow::Context as _;
 use control_plane_api::billing::{self, BillingProvider};
 use std::sync::Arc;
@@ -9,15 +9,6 @@ pub struct QuotaUpdateStatus {
     pub updated_quotas: bool,
     #[serde(default)]
     pub task_status: TaskStatus,
-}
-
-fn retry_backoff(failures: u32) -> std::time::Duration {
-    match failures {
-        0 => std::time::Duration::ZERO,
-        1 => std::time::Duration::from_secs(60),
-        2 => std::time::Duration::from_secs(300),
-        _ => std::time::Duration::from_secs(900),
-    }
 }
 
 pub async fn update_quotas(
