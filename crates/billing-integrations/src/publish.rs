@@ -60,6 +60,11 @@ pub struct PublishInvoice {
     pub clean_up: bool,
     /// Run in read-only mode: classify all invoices and report what would
     /// happen, without creating or modifying anything in Stripe.
+    ///
+    /// The preview checks that each invoice could be issued (a billing email is
+    /// resolvable), but it cannot reconcile the final invoice total against
+    /// Stripe, since that requires actually creating the invoice and its line
+    /// items.
     #[clap(long, default_value_t = false)]
     pub dry_run: bool,
 }
@@ -905,6 +910,27 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                         Ok((result, response.subtotal, response.billed_prefix.to_owned(), annotation))
                     }
                     Ok(action) if cmd.dry_run => {
+                        // A real run calls ensure_customer_for_invoicing, which bails
+                        // when no email can be resolved for the tenant. Mirror that
+                        // read-only so the preview reports such tenants as errors
+                        // instead of claiming the invoice would be published. (The
+                        // invoice total cannot be reconciled without creating the
+                        // invoice in Stripe, so that check is necessarily skipped.)
+                        if !billing_email_available(&client, &db_pool, &response.billed_prefix)
+                            .await?
+                        {
+                            tracing::warn!(
+                                tenant = response.billed_prefix,
+                                "[dry-run] Would fail: no customer email, tenants.billing_email, or admin user to invoice"
+                            );
+                            return Ok((
+                                InvoiceResult::Error,
+                                response.subtotal,
+                                response.billed_prefix.to_owned(),
+                                annotation,
+                            ));
+                        }
+
                         let result = match &action {
                             InvoiceAction::Create { replace: Some(id), .. } => {
                                 tracing::info!(
@@ -1127,20 +1153,47 @@ async fn ensure_customer_for_invoicing(
     if customer.email.is_none() {
         let db_email = billing_row.as_ref().and_then(|r| r.billing_email.clone());
 
-        if let Some(email) = db_email {
-            tracing::info!("Using billing_email from tenants table: {email}");
-            stripe::Customer::update(
-                client,
-                &customer.id,
-                stripe::UpdateCustomer {
-                    email: Some(&email),
-                    ..Default::default()
-                },
-            )
-            .await?;
-        } else {
-            let responses = sqlx::query!(
-                r#"
+        let email = match db_email {
+            Some(email) => {
+                tracing::info!("Using billing_email from tenants table: {email}");
+                email
+            }
+            None => match earliest_admin_email(db_client, tenant).await? {
+                Some(email) => {
+                    tracing::warn!(
+                        "Stripe customer object is missing an email. Going with {email}, an admin on that tenant."
+                    );
+                    email
+                }
+                None => bail!(
+                    "Stripe customer object is missing an email. No admins found for tenant {tenant}, unable to create invoice without email. Skipping"
+                ),
+            },
+        };
+
+        stripe::Customer::update(
+            client,
+            &customer.id,
+            stripe::UpdateCustomer {
+                email: Some(&email),
+                ..Default::default()
+            },
+        )
+        .await?;
+    }
+    Ok(customer)
+}
+
+/// Read-only: the email of the earliest-created admin user on the tenant, if any.
+async fn earliest_admin_email(
+    db_client: &Pool<Postgres>,
+    tenant: &str,
+) -> anyhow::Result<Option<String>> {
+    // NOTE: the SQL text below is intentionally indented to stay byte-identical
+    // to the query this was extracted from, so it keeps hitting the same
+    // offline sqlx cache entry.
+    let responses = sqlx::query!(
+        r#"
                     select users.email as email
                     from user_grants
                     join auth.users as users on user_grants.user_id = users.id
@@ -1148,35 +1201,41 @@ async fn ensure_customer_for_invoicing(
                     and user_grants.capability = 'admin'
                     order by users.created_at asc
                 "#,
-                tenant
-            )
-            .fetch_all(db_client)
-            .await?;
+        tenant
+    )
+    .fetch_all(db_client)
+    .await?;
 
-            if let Some(email) = responses
-                .iter()
-                .find_map(|response| response.email.to_owned())
-            {
-                tracing::warn!(
-                    "Stripe customer object is missing an email. Going with {email}, an admin on that tenant."
-                );
-                stripe::Customer::update(
-                    client,
-                    &customer.id,
-                    stripe::UpdateCustomer {
-                        email: Some(&email),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-            } else {
-                bail!(
-                    "Stripe customer object is missing an email. No admins found for tenant {tenant}, unable to create invoice without email. Found users: {found:?} Skipping",
-                    found = responses,
-                    tenant = tenant
-                );
-            }
+    Ok(responses.into_iter().find_map(|r| r.email))
+}
+
+/// Read-only mirror of the email requirement enforced by
+/// `ensure_customer_for_invoicing`: an existing customer email, else
+/// `tenants.billing_email`, else the earliest tenant admin. Returns whether an
+/// email could be resolved without performing any writes, so --dry-run can
+/// report tenants that would fail to invoice rather than over-reporting success.
+async fn billing_email_available(
+    client: &stripe::Client,
+    db_client: &Pool<Postgres>,
+    tenant: &str,
+) -> anyhow::Result<bool> {
+    if let Some(customer) = find_customer(client, tenant).await? {
+        if customer.email.is_some() {
+            return Ok(true);
         }
     }
-    Ok(customer)
+
+    // Fetches billing_address too (unused here) to reuse the cached query that
+    // ensure_customer_for_invoicing already issues.
+    let billing_row = sqlx::query!(
+        r#"SELECT billing_email, billing_address FROM tenants WHERE tenant = $1"#,
+        tenant,
+    )
+    .fetch_optional(db_client)
+    .await?;
+    if billing_row.and_then(|r| r.billing_email).is_some() {
+        return Ok(true);
+    }
+
+    Ok(earliest_admin_email(db_client, tenant).await?.is_some())
 }
