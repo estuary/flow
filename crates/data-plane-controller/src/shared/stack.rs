@@ -28,6 +28,16 @@ pub enum Status {
     AwaitDNS2,
 }
 
+/// A private link's identity and desired-config version, pinned when a converge
+/// reads its desired state. The controller's post-converge status write matches
+/// on both, so a link edited mid-converge (which bumps its generation) is left
+/// for the converge that edit queued rather than stamped with a stale status.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PinnedLink {
+    pub id: models::Id,
+    pub generation: i64,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct State {
     // DataPlane which this controller manages.
@@ -64,6 +74,14 @@ pub struct State {
     // Is there a pending converge for this data-plane?
     #[serde(default, skip_serializing_if = "is_false")]
     pub pending_converge: bool,
+
+    // Private links pinned by (id, generation) at the `PulumiUp1` poll of the
+    // current converge. The post-converge status write only lands on rows whose
+    // generation still matches, so a link edited mid-converge is skipped and
+    // settled by the converge its own generation bump queued. Empty outside an
+    // active converge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pinned_links: Vec<PinnedLink>,
 
     // When Some, updated Pulumi stack exports to be written back into the `data_planes` row.
     #[serde(default, skip_serializing_if = "Option::is_none")]

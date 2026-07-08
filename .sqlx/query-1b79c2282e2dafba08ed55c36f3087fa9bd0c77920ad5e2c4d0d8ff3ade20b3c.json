@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH pinned AS (\n            SELECT id, generation\n                FROM unnest($2::flowid[], $3::bigint[]) AS p(id, generation)\n        ),\n        endpoints AS (\n            SELECT 'aws'::text AS provider, ep ->> 'service_name' AS identity, ep AS detail\n                FROM unnest($4::jsonb[]) AS ep\n            UNION ALL\n            SELECT 'azure'::text, ep ->> 'service_name', ep\n                FROM unnest($5::jsonb[]) AS ep\n            UNION ALL\n            SELECT 'gcp'::text, ep ->> 'service_attachment', ep\n                FROM unnest($6::jsonb[]) AS ep\n        ),\n        published_providers AS (\n            SELECT DISTINCT provider FROM endpoints\n        )\n        UPDATE internal.data_plane_private_links l SET\n            status = CASE WHEN e.identity IS NOT NULL THEN 'provisioned' ELSE 'pending' END,\n            details = e.detail,\n            observed_at = now(),\n            updated_at = now()\n        FROM internal.data_plane_private_links l2\n        JOIN pinned p ON p.id = l2.id AND p.generation = l2.generation\n        LEFT JOIN endpoints e\n            ON e.provider = l2.provider AND e.identity = l2.service_identity\n        WHERE l.id = l2.id\n          AND l2.data_plane_id = $1\n          AND l2.provider IN (SELECT provider FROM published_providers)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "Int8Array",
+        "JsonbArray",
+        "JsonbArray",
+        "JsonbArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1b79c2282e2dafba08ed55c36f3087fa9bd0c77920ad5e2c4d0d8ff3ade20b3c"
+}
