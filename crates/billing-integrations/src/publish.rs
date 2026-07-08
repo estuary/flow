@@ -501,6 +501,28 @@ impl Invoice {
             );
             let existing = stripe::Invoice::retrieve(client, &existing_id, &[]).await?;
 
+            // Re-verify the invoice is still an updatable draft. It was a draft at
+            // classification time, but a concurrent run or a human finalizing /
+            // paying / voiding it in Stripe could have changed that; mutating a
+            // finalized invoice's line items would otherwise fail with an opaque
+            // Stripe error. Mirrors the guard on the delete/recreate path above.
+            match existing.status {
+                Some(stripe::InvoiceStatus::Draft) => {}
+                Some(status) => {
+                    bail!(
+                        "Invoice {id} changed to state {status} since classification, cannot update.",
+                        id = existing_id.to_string(),
+                        status = status
+                    );
+                }
+                None => {
+                    bail!(
+                        "Unexpected missing status from invoice {id}",
+                        id = existing_id.to_string()
+                    );
+                }
+            }
+
             // The create path sets the collection method from `mode`, but the update
             // path reuses whatever the invoice was originally created with. Reconcile
             // it here so a manual invoice previously stored as `charge_automatically`
