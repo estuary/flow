@@ -5,6 +5,7 @@ pub(crate) mod recovery;
 mod rocksdb;
 mod service;
 pub mod split_policy;
+mod task_schema;
 
 use rocksdb::RocksDB;
 pub use service::Service;

@@ -1,4 +1,5 @@
 use super::Binding;
+use crate::shard::task_schema::relax_inferred_datetime_formats;
 use anyhow::Context;
 use proto_flow::flow;
 
@@ -14,10 +15,18 @@ pub fn build_bindings(
         name,
         network_ports: _,
         recovery_log_template: _,
-        shard_template: _,
+        shard_template,
         inactive_bindings: _,
         triggers_json: _,
     } = spec;
+
+    // Opt-in, per-task relaxation of read-side date-time `format` enforcement
+    // inherited from the collection's inferred schema. See build_binding and
+    // estuary/flow#3133.
+    let relax_inferred_datetime = labels::shard_flag_enabled(
+        shard_template.as_ref(),
+        labels::RELAX_INFERRED_DATETIME_FLAG,
+    );
 
     let ops::proto::ShardLabeling {
         range,
@@ -64,7 +73,9 @@ pub fn build_bindings(
     let bindings = bindings
         .into_iter()
         .enumerate()
-        .map(|(index, spec)| build_binding(spec, &ser_policy).context(index))
+        .map(|(index, spec)| {
+            build_binding(spec, &ser_policy, relax_inferred_datetime).context(index)
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     let shard_ref = ops::ShardRef {
@@ -82,6 +93,7 @@ pub fn build_bindings(
 fn build_binding(
     spec: &flow::materialization_spec::Binding,
     default_ser_policy: &doc::SerPolicy,
+    relax_inferred_datetime: bool,
 ) -> anyhow::Result<Binding> {
     let flow::materialization_spec::Binding {
         backfill: _,
@@ -162,6 +174,17 @@ fn build_binding(
     }
     .clone();
 
+    // When enabled for this task, strip `date`/`date-time`/`time` `format`
+    // keywords contributed by the collection's inferred schema so that
+    // historical, non-conforming values are not retroactively rejected on read.
+    // Capture-time write-schema validation is unaffected.
+    let read_schema_json = if relax_inferred_datetime {
+        relax_inferred_datetime_formats(&read_schema_json)
+            .context("relaxing inferred date-time formats of read schema")?
+    } else {
+        read_schema_json
+    };
+
     Ok(Binding {
         collection_name: collection_name.clone(),
         delta_updates: *delta_updates,
@@ -205,4 +228,59 @@ pub fn combine_spec(bindings: &[Binding]) -> anyhow::Result<doc::combine::Spec> 
         combiner_specs,
         Vec::new(),
     ))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    // A read schema whose inlined inferred schema tags a field
+    // `format: date-time`, as the control plane assembles it.
+    const READ_SCHEMA: &str = r#"{
+        "$defs": {
+            "flow://inferred-schema": {
+                "$id": "flow://inferred-schema",
+                "type": "object",
+                "properties": { "ts": { "type": "string", "format": "date-time" } }
+            }
+        },
+        "allOf": [ { "$ref": "flow://inferred-schema" } ]
+    }"#;
+
+    fn binding_accepts(relax_inferred_datetime: bool, doc: &str) -> bool {
+        let spec = flow::materialization_spec::Binding {
+            collection: Some(flow::CollectionSpec {
+                read_schema_json: bytes::Bytes::from(READ_SCHEMA),
+                ..Default::default()
+            }),
+            field_selection: Some(flow::FieldSelection::default()),
+            ..Default::default()
+        };
+        let binding =
+            build_binding(&spec, &doc::SerPolicy::noop(), relax_inferred_datetime).unwrap();
+
+        let mut validator =
+            doc::Validator::new(doc::validation::build_bundle(&binding.read_schema_json).unwrap())
+                .unwrap();
+
+        let alloc = doc::HeapNode::new_allocator();
+        let mut de = serde_json::Deserializer::from_str(doc);
+        let node = doc::HeapNode::from_serde(&mut de, &alloc).unwrap();
+
+        validator.is_valid(&node)
+    }
+
+    #[test]
+    fn test_v2_binding_relaxes_inferred_datetime_when_flagged() {
+        let legacy = r#"{"ts": "2026-06-17 12:46:17.375663+00:00"}"#;
+        let conforming = r#"{"ts": "2026-06-17T12:46:17.375663+00:00"}"#;
+
+        // Flag OFF: the read validator rejects the legacy value.
+        assert!(!binding_accepts(false, legacy));
+        assert!(binding_accepts(false, conforming));
+
+        // Flag ON: the legacy value is tolerated; conforming values still pass.
+        assert!(binding_accepts(true, legacy));
+        assert!(binding_accepts(true, conforming));
+    }
 }

@@ -1,3 +1,4 @@
+use crate::shard::task_schema::relax_inferred_datetime_formats;
 use anyhow::Context;
 use proto_flow::flow;
 
@@ -49,6 +50,7 @@ pub(super) struct Transform {
 fn build_transform(
     t: &flow::collection_spec::derivation::Transform,
     ser_policy: &doc::SerPolicy,
+    relax_inferred_datetime: bool,
 ) -> anyhow::Result<Transform> {
     let collection = t
         .collection
@@ -62,6 +64,17 @@ fn build_transform(
         collection.write_schema_json.clone()
     } else {
         collection.read_schema_json.clone()
+    };
+
+    // When enabled for this task, strip `date`/`date-time`/`time` `format`
+    // keywords contributed by the source collection's inferred schema so that
+    // historical, non-conforming values are not retroactively rejected when read
+    // into the derivation. Capture-time write-schema validation is unaffected.
+    let schema_json = if relax_inferred_datetime {
+        relax_inferred_datetime_formats(&schema_json)
+            .context("relaxing inferred date-time formats of read schema")?
+    } else {
+        schema_json
     };
 
     // Resolve the extractors of a transform's shuffle key, applied to source
@@ -106,8 +119,17 @@ impl Task {
         let flow::collection_spec::Derivation {
             transforms,
             redact_salt,
+            shard_template,
             ..
         } = derivation.as_ref().context("missing derivation")?;
+
+        // Opt-in, per-task relaxation of read-side date-time `format`
+        // enforcement inherited from each source collection's inferred schema.
+        // See build_transform and estuary/flow#3133.
+        let relax_inferred_datetime = labels::shard_flag_enabled(
+            shard_template.as_ref(),
+            labels::RELAX_INFERRED_DATETIME_FLAG,
+        );
 
         // The built `Transform.state_key` is intentionally left unpopulated until the
         // V2 derivation migration completes (the frozen V1 derive connectors reject the
@@ -123,7 +145,7 @@ impl Task {
 
         let sources = transforms
             .iter()
-            .map(|t| build_transform(t, &ser_policy))
+            .map(|t| build_transform(t, &ser_policy, relax_inferred_datetime))
             .collect::<anyhow::Result<Vec<Transform>>>()?;
 
         let partition_template = partition_template
@@ -202,5 +224,59 @@ impl Task {
             self.redact_salt.to_vec(),
             validator,
         ))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    // A source-collection read schema whose inlined inferred schema tags a
+    // field `format: date-time`, as the control plane assembles it.
+    const READ_SCHEMA: &str = r#"{
+        "$defs": {
+            "flow://inferred-schema": {
+                "$id": "flow://inferred-schema",
+                "type": "object",
+                "properties": { "ts": { "type": "string", "format": "date-time" } }
+            }
+        },
+        "allOf": [ { "$ref": "flow://inferred-schema" } ]
+    }"#;
+
+    fn transform_accepts(relax_inferred_datetime: bool, doc: &str) -> bool {
+        let spec = flow::collection_spec::derivation::Transform {
+            collection: Some(flow::CollectionSpec {
+                read_schema_json: bytes::Bytes::from(READ_SCHEMA),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let transform =
+            build_transform(&spec, &doc::SerPolicy::noop(), relax_inferred_datetime).unwrap();
+
+        let mut validator =
+            doc::Validator::new(doc::validation::build_bundle(&transform.schema_json).unwrap())
+                .unwrap();
+
+        let alloc = doc::HeapNode::new_allocator();
+        let mut de = serde_json::Deserializer::from_str(doc);
+        let node = doc::HeapNode::from_serde(&mut de, &alloc).unwrap();
+
+        validator.is_valid(&node)
+    }
+
+    #[test]
+    fn test_v2_transform_relaxes_inferred_datetime_when_flagged() {
+        let legacy = r#"{"ts": "2026-06-17 12:46:17.375663+00:00"}"#;
+        let conforming = r#"{"ts": "2026-06-17T12:46:17.375663+00:00"}"#;
+
+        // Flag OFF: the source read validator rejects the legacy value.
+        assert!(!transform_accepts(false, legacy));
+        assert!(transform_accepts(false, conforming));
+
+        // Flag ON: the legacy value is tolerated; conforming values still pass.
+        assert!(transform_accepts(true, legacy));
+        assert!(transform_accepts(true, conforming));
     }
 }
