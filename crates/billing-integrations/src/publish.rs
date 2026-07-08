@@ -477,7 +477,6 @@ impl Invoice {
             }
         }
 
-        // Create or reuse the invoice
         // Manual invoices should always be sent as invoices rather than
         // charged to the customer's payment method.
         let mode = if self.invoice_type == InvoiceType::Manual {
@@ -485,13 +484,51 @@ impl Invoice {
         } else {
             mode
         };
+        let collection_method = match mode {
+            ChargeType::AutoCharge => stripe::CollectionMethod::ChargeAutomatically,
+            ChargeType::SendInvoice => stripe::CollectionMethod::SendInvoice,
+        };
+        // `send_invoice` requires a due date; `charge_automatically` must not carry one.
+        let due_date = match mode {
+            ChargeType::SendInvoice => Some((Utc::now() + Duration::days(30)).timestamp()),
+            ChargeType::AutoCharge => None,
+        };
 
         let invoice = if let Some(existing_id) = existing_invoice_id {
             tracing::debug!(
                 "Updating existing invoice {id}",
                 id = existing_id.to_string()
             );
-            stripe::Invoice::retrieve(client, &existing_id, &[]).await?
+            let existing = stripe::Invoice::retrieve(client, &existing_id, &[]).await?;
+
+            // The create path sets the collection method from `mode`, but the update
+            // path reuses whatever the invoice was originally created with. Reconcile
+            // it here so a manual invoice previously stored as `charge_automatically`
+            // is moved to `send_invoice` instead of silently auto-charging the card.
+            if existing.collection_method != Some(collection_method) {
+                #[derive(serde::Serialize)]
+                struct UpdateInvoice {
+                    collection_method: stripe::CollectionMethod,
+                    due_date: Option<i64>,
+                }
+                tracing::debug!(
+                    "Reconciling collection method of invoice {id} to {collection_method:?}",
+                    id = existing_id.to_string()
+                );
+                let updated: stripe::Invoice = client
+                    .post_form(
+                        &format!("/invoices/{existing_id}"),
+                        UpdateInvoice {
+                            collection_method,
+                            due_date,
+                        },
+                    )
+                    .await
+                    .context("Reconciling collection method of existing invoice")?;
+                updated
+            } else {
+                existing
+            }
         } else {
             let description_text = format!(
                 "Your Flow bill for the billing period between {date_start_human} - {date_end_human}. Tenant: {tenant}",
@@ -501,17 +538,9 @@ impl Invoice {
                 client,
                 stripe::CreateInvoice {
                     customer: Some(customer.id.to_owned()),
-                    due_date: match mode {
-                        ChargeType::SendInvoice => {
-                            Some((Utc::now() + Duration::days(30)).timestamp())
-                        }
-                        ChargeType::AutoCharge => None,
-                    },
+                    due_date,
                     description: Some(description_text.as_str()),
-                    collection_method: Some(match mode {
-                        ChargeType::AutoCharge => stripe::CollectionMethod::ChargeAutomatically,
-                        ChargeType::SendInvoice => stripe::CollectionMethod::SendInvoice,
-                    }),
+                    collection_method: Some(collection_method),
                     auto_advance: Some(false),
                     custom_fields: Some(vec![
                         stripe::CreateInvoiceCustomFields {
