@@ -74,13 +74,24 @@ async fn do_update_quotas(
     if status.updated_quotas {
         return Ok(());
     }
+    // Check this first because its possible for us to error out while communicating with
+    // the billing provider, and it's possible for the customer to not exist within
+    // stripe as well.
+    if tenant.payment_provider == Some(PaymentProvider::External) {
+        update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
+        status.updated_quotas = true;
+        return Ok(());
+    }
+
     let Some(provider) = billing_provider else {
         return Ok(());
     };
+
     let customer = provider
         .find_customer(&tenant.tenant)
         .await
         .context("looking up Stripe customer")?;
+
     let Some(customer) = customer else {
         return Ok(());
     };
@@ -99,10 +110,12 @@ async fn do_update_quotas(
     };
     // If the default payment is configured OR the payment_provider is set to external
 
-    // Open question: How do we handle this if the tenant.payment_provider is not set to external and the payment
-    // provider is set to stripe do we mark this as completed? Assuming that we still continue retrying
-    if has_default_payment_configured || tenant.payment_provider == Some(PaymentProvider::External)
-    {
+    // In the event that this is false we don't recheck at that time
+    // It's possible that both the has has_default_payment_configured is false
+    // and the payment provider is None or stipe, in that case we leave the door
+    // open to a retry the next time the set their default payment method or
+    // update anything to do with their contact information.
+    if has_default_payment_configured {
         // Updating tenant quotas using name
         update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
         status.updated_quotas = true;
@@ -110,30 +123,32 @@ async fn do_update_quotas(
     Ok(())
 }
 
-/// Update the quotas to the necessary amount of 100 tasks and 1000 collections.
+const PAID_TASKS_QUOTA_MIN: i32 = 100;
+const COLLECTIONS_QUOTAS_MIN: i32 = 10000;
+
+/// Update the quotas to the necessary amount of 100 tasks and 10000 collections.
 ///
 /// Returns true on success, false if no row was updated, or an error.
 async fn update_tenant_quotas_by_name(
     pool: &sqlx::PgPool,
     tenant_name: &str,
-) -> anyhow::Result<bool> {
-    // NOTE(BB): Do we need this (tasks_quota <= 10 OR collections_quota <= 500)? What is
-    // the actual default here and what could other be configured to?
-    let result = sqlx::query!(
+) -> anyhow::Result<()> {
+    let _ = sqlx::query!(
         r#"
             UPDATE tenants
                 SET
-                    tasks_quota = GREATEST(tasks_quota, 100),
-                    collections_quota = GREATEST(collections_quota, 10000)
+                    tasks_quota = GREATEST(tasks_quota, $2),
+                    collections_quota = GREATEST(collections_quota, $3)
                 WHERE tenants.tenant = $1
-                AND (tasks_quota <= 10 OR collections_quota <= 500)
             "#,
         tenant_name,
+        PAID_TASKS_QUOTA_MIN,
+        COLLECTIONS_QUOTAS_MIN,
     )
     .execute(pool)
     .await?;
 
-    Ok(result.rows_affected() >= 1)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -226,8 +241,8 @@ mod test {
     }
 
     pub struct UpdatedQueryCheck {
-        tasks_quota: i64,
-        collections_quota: i64,
+        tasks_quota: i32,
+        collections_quota: i32,
     }
 
     #[sqlx::test(
@@ -258,21 +273,11 @@ mod test {
         fixtures(path = "fixtures", scripts("quotas"))
     )]
     async fn quota_update_success_set_in_db(pool: sqlx::PgPool) {
-        // let tenant_name = "test_name";
-
+        // Isolate the `payment_provider = External` path: the customer has NO
+        // default payment method configured, so `has_default_payment_configured`
+        // is false and the External flag is the only reason quotas get raised.
         let provider = InMemoryBillingProvider::new();
         provider.add_customer(TENANT_1, CUSTOMER_ID, None);
-        provider
-            .update_customer_default_payment_method(
-                &CUSTOMER_ID.parse().unwrap(),
-                Some("card_123456"),
-            )
-            .await
-            .unwrap();
-        provider
-            .update_customer_billing_profile(&CUSTOMER_ID.parse().unwrap(), None, None, None)
-            .await
-            .unwrap();
 
         let provider = Arc::new(provider);
         let tenant = Tenant {

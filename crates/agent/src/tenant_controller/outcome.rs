@@ -11,7 +11,7 @@ impl Outcome {
     /// with the smallest duration is used.
     pub fn next_action(self, other: Outcome) -> Outcome {
         match (self, other) {
-            (Outcome::Idle, Outcome::Idle) => todo!(),
+            (Outcome::Idle, Outcome::Idle) => Outcome::Idle,
             (Outcome::WaitForRetry(duration), Outcome::Idle)
             | (Outcome::Idle, Outcome::WaitForRetry(duration)) => Self::WaitForRetry(duration),
             (Outcome::WaitForRetry(d1), Outcome::WaitForRetry(d2)) => {

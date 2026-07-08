@@ -33,12 +33,13 @@ impl TenantController {
     }
 }
 
-/// NOTE(BB): This was copied from the crates/billing-integrations/src/publish.rs
-/// I wasn't sure if we wanted to add the dependency between the two crates, because
-/// Nothing in there is public.
-///
-/// SHould we promote this to another crate and share it between the two crates
-/// that are using it?
+// NOTE(BB): This was copied from the crates/billing-integrations/src/publish.rs
+// I wasn't sure if we wanted to add the dependency between the two crates, because
+// Nothing in there is public.
+//
+// Should we promote this to another crate and share it between the two crates
+// that are using it?
+
 #[derive(
     serde::Serialize,
     serde::Deserialize,
@@ -122,9 +123,6 @@ impl Executor for TenantController {
             quota_status.failures = 0;
             quota_status.next_retry = None;
         }
-        // NOTE(BB): Logically because of the structure of the functions
-        // the only error that's allowed to reach this point is a date time
-        // overflow error
 
         // Processing all of the different operations, and recording their name
         // so we can emit better error messages.
