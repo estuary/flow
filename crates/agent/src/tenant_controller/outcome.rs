@@ -9,7 +9,7 @@ impl Outcome {
     ///
     /// WaitForRetry is always chosen, before Idle, and the WaitForRetry
     /// with the smallest duration is used.
-    pub fn next_action(self, other: Outcome) -> Outcome {
+    pub fn combine(self, other: Outcome) -> Outcome {
         match (self, other) {
             (Outcome::Idle, Outcome::Idle) => Outcome::Idle,
             (Outcome::WaitForRetry(duration), Outcome::Idle)

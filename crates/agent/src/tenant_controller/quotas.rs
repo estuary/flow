@@ -1,20 +1,14 @@
-use std::sync::Arc;
-
+use crate::tenant_controller::{Outcome, PaymentProvider, TaskStatus, Tenant};
 use anyhow::Context as _;
-use control_plane_api::billing::BillingProvider;
-
-use crate::tenant_controller::{Outcome, PaymentProvider, Tenant};
+use control_plane_api::billing::{self, BillingProvider};
+use std::sync::Arc;
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct QuotaUpdateStatus {
     #[serde(default)]
     pub updated_quotas: bool,
     #[serde(default)]
-    pub failures: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_retry: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
+    pub task_status: TaskStatus,
 }
 
 fn retry_backoff(failures: u32) -> std::time::Duration {
@@ -32,7 +26,7 @@ pub async fn update_quotas(
     tenant: &Tenant,
     billing_provider: &Option<Arc<dyn BillingProvider>>,
 ) -> anyhow::Result<Outcome> {
-    if let Some(next_retry) = status.next_retry {
+    if let Some(next_retry) = status.task_status.next_retry {
         let now = chrono::Utc::now();
         if next_retry > now {
             let wait = (next_retry - now)
@@ -44,21 +38,22 @@ pub async fn update_quotas(
 
     match do_update_quotas(status, pool, tenant, billing_provider).await {
         Ok(()) => {
-            status.failures = 0;
-            status.next_retry = None;
-            status.last_error = None;
+            status.task_status.failures = 0;
+            status.task_status.next_retry = None;
+            status.task_status.last_error = None;
             Ok(Outcome::Idle)
         }
         Err(err) => {
-            status.failures += 1;
-            let backoff = retry_backoff(status.failures);
-            status.next_retry = Some(chrono::Utc::now() + chrono::Duration::from_std(backoff)?);
-            status.last_error = Some(format!("{err:#}"));
+            status.task_status.failures += 1;
+            let backoff = retry_backoff(status.task_status.failures);
+            status.task_status.next_retry =
+                Some(chrono::Utc::now() + chrono::Duration::from_std(backoff)?);
+            status.task_status.last_error = Some(format!("{err:#}"));
             tracing::warn!(
                 tenant = %tenant.tenant,
-                failures = status.failures,
+                failures = status.task_status.failures,
                 ?backoff,
-                "failed while updating tenant quotas failed: {err:#}",
+                "failed while updating tenant quotas: {err:#}",
             );
             Ok(Outcome::WaitForRetry(backoff))
         }
@@ -78,12 +73,19 @@ async fn do_update_quotas(
     // the billing provider, and it's possible for the customer to not exist within
     // stripe as well.
     if tenant.payment_provider == Some(PaymentProvider::External) {
-        update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
-        status.updated_quotas = true;
-        tracing::info!(
-            tenant = %tenant.tenant,
-            "ran quota update because payment provider is set to external",
-        );
+        let did_update = update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
+        if did_update {
+            tracing::info!(
+                tenant = %tenant.tenant,
+                "Ran quota update because payment provider is set to external",
+            );
+        } else {
+            tracing::warn!(
+                tenant = %tenant.tenant,
+                "Ran quota update but didn't update any rows",
+            );
+        }
+        status.updated_quotas = did_update;
         return Ok(());
     }
 
@@ -99,34 +101,22 @@ async fn do_update_quotas(
     let Some(customer) = customer else {
         return Ok(());
     };
-    // There are two ways to set the default payment method:
-    // 1. customer.default_source.is_some() (old)
-    // 2. customer.invoice_settings.default_payment_method.is_some() (new)
 
-    // This is the old way of checking for a default payment method according to AI.
-    let has_default_payment_configured = if customer.default_source.is_some() {
-        true
-    } else if let Some(invoice_settings) = customer.invoice_settings.as_ref() {
-        // This is the new way of handling default payment method.
-        invoice_settings.default_payment_method.is_some()
-    } else {
-        false
-    };
-    // If the default payment is configured OR the payment_provider is set to external
-
-    // In the event that this is false we don't recheck at that time
-    // It's possible that both the has has_default_payment_configured is false
-    // and the payment provider is None or stipe, in that case we leave the door
-    // open to a retry the next time the set their default payment method or
-    // update anything to do with their contact information.
-    if has_default_payment_configured {
+    if billing::default_payment_method_id(&customer).is_some() {
         // Updating tenant quotas using name
-        update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
-        status.updated_quotas = true;
-        tracing::info!(
-            tenant = %tenant.tenant,
-            "ran quota update because default payment method was set within billing provider",
-        );
+        let did_update = update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
+        if did_update {
+            tracing::info!(
+                tenant = %tenant.tenant,
+                "Ran quota update because default payment method was set within billing provider",
+            );
+        } else {
+            tracing::warn!(
+                tenant = %tenant.tenant,
+                "Ran quota update but didn't update any rows",
+            );
+        }
+        status.updated_quotas = did_update;
     }
     Ok(())
 }
@@ -138,8 +128,8 @@ const COLLECTIONS_QUOTAS_MIN: i32 = 10000;
 async fn update_tenant_quotas_by_name(
     pool: &sqlx::PgPool,
     tenant_name: &str,
-) -> anyhow::Result<()> {
-    let _ = sqlx::query!(
+) -> anyhow::Result<bool> {
+    let result = sqlx::query!(
         r#"
             UPDATE tenants
                 SET
@@ -154,11 +144,11 @@ async fn update_tenant_quotas_by_name(
     .execute(pool)
     .await?;
 
-    Ok(())
+    Ok(result.rows_affected() > 0)
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
 
     use super::super::Tenant;
     use super::{Outcome, QuotaUpdateStatus, update_quotas};
@@ -229,8 +219,8 @@ mod test {
         let mut status = QuotaUpdateStatus::default();
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
         assert!(matches!(outcome, Outcome::Idle));
-        assert!(status.updated_quotas);
-        assert_eq!(status.failures, 0);
+        assert!(!status.updated_quotas);
+        assert_eq!(status.task_status.failures, 0);
     }
 
     async fn get_tenants_quotas(pool: &sqlx::PgPool, tenant_name: &str) -> UpdatedQueryCheck {
@@ -268,7 +258,7 @@ mod test {
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
         assert!(matches!(outcome, Outcome::Idle));
         assert!(status.updated_quotas);
-        assert_eq!(status.failures, 0);
+        assert_eq!(status.task_status.failures, 0);
         let quotas = get_tenants_quotas(&pool, TENANT_1).await;
         assert_eq!(quotas.tasks_quota, 100);
         assert_eq!(quotas.collections_quota, 10000);
@@ -297,7 +287,7 @@ mod test {
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
         assert!(matches!(outcome, Outcome::Idle));
         assert!(status.updated_quotas);
-        assert_eq!(status.failures, 0);
+        assert_eq!(status.task_status.failures, 0);
         let quotas = get_tenants_quotas(&pool, TENANT_1).await;
         assert_eq!(quotas.tasks_quota, 100);
         assert_eq!(quotas.collections_quota, 10000);
@@ -321,8 +311,8 @@ mod test {
         let outcome = run(&provider, &mut status, &tenant, &pool).await;
         assert!(matches!(outcome, Outcome::Idle));
         assert!(status.updated_quotas);
-        assert_eq!(status.failures, 0);
-        // Verifing no change.
+        assert_eq!(status.task_status.failures, 0);
+
         let quotas = get_tenants_quotas(&pool, TENANT_2).await;
         assert_eq!(quotas.tasks_quota, 200);
         assert_eq!(quotas.collections_quota, 20000);

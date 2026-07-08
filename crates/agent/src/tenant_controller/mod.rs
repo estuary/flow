@@ -2,12 +2,26 @@ mod billing_contact;
 mod outcome;
 mod quotas;
 
+use crate::tenant_controller::outcome::Outcome;
 use anyhow::Context;
 use automations::{Action, Executor, task_types};
+use billing_types::PaymentProvider;
 use control_plane_api::billing::BillingProvider;
 use std::sync::Arc;
 
-use crate::tenant_controller::outcome::Outcome;
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TaskStatus {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub failures: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_retry: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+fn is_zero(i: &u32) -> bool {
+    *i == 0
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -18,7 +32,7 @@ pub enum Message {
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TenantControllerState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub billing_contact: Option<billing_contact::BillingContactStatus>,
+    pub billing_contact: Option<TaskStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quota_status: Option<quotas::QuotaUpdateStatus>,
 }
@@ -40,24 +54,6 @@ impl TenantController {
 // Should we promote this to another crate and share it between the two crates
 // that are using it?
 
-#[derive(
-    serde::Serialize,
-    serde::Deserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    PartialOrd,
-    Eq,
-    Ord,
-    Hash,
-    Copy,
-    sqlx::Type,
-)]
-#[sqlx(type_name = "payment_provider_type", rename_all = "lowercase")]
-pub enum PaymentProvider {
-    Stripe,
-    External,
-}
 pub(crate) struct Tenant {
     pub tenant: String,
     pub billing_email: Option<String>,
@@ -120,39 +116,17 @@ impl Executor for TenantController {
         if woken_by_message {
             billing_status.failures = 0;
             billing_status.next_retry = None;
-            quota_status.failures = 0;
-            quota_status.next_retry = None;
+            quota_status.task_status.failures = 0;
+            quota_status.task_status.next_retry = None;
         }
 
-        // Processing all of the different operations, and recording their name
-        // so we can emit better error messages.
-        let mut results = vec![];
-        results.push((
-            "billing contact",
-            billing_contact::reconcile(billing_status, &tenant, &self.billing_provider).await,
-        ));
-        results.push((
-            "quota updates",
-            quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await,
-        ));
+        let result =
+            billing_contact::reconcile(billing_status, &tenant, &self.billing_provider).await?;
+        let result = result.combine(
+            quotas::update_quotas(quota_status, pool, &tenant, &self.billing_provider).await?,
+        );
 
-        // Processing all error after all operations are completed, building an error message
-        // and returning that instead.
-        let mut error_messages = vec![];
-        let mut total_outcome = Outcome::Idle;
-        for (operation, response) in results {
-            match response {
-                Ok(outcome) => total_outcome = total_outcome.next_action(outcome),
-                Err(err) => error_messages
-                    .push(format!("{operation} produced the following error: {err:#}")),
-            }
-        }
-        // Check for error sand return
-        if !error_messages.is_empty() {
-            return Err(anyhow::anyhow!(error_messages.join("\n")));
-        }
-
-        match total_outcome {
+        match result {
             Outcome::Idle => Ok(Action::Suspend),
             Outcome::WaitForRetry(duration) => Ok(Action::Sleep(duration)),
         }

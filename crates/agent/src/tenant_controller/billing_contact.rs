@@ -1,23 +1,9 @@
 use std::sync::Arc;
 
-use super::Tenant;
+use super::{TaskStatus, Tenant};
 use crate::tenant_controller::outcome::Outcome;
 use anyhow::Context;
 use control_plane_api::billing::{BillingProvider, CUSTOMER_NAME_METADATA_KEY};
-
-#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
-pub struct BillingContactStatus {
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub failures: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_retry: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
-}
-
-fn is_zero(i: &u32) -> bool {
-    *i == 0
-}
 
 fn retry_backoff(failures: u32) -> std::time::Duration {
     match failures {
@@ -29,7 +15,7 @@ fn retry_backoff(failures: u32) -> std::time::Duration {
 }
 
 pub async fn reconcile(
-    status: &mut BillingContactStatus,
+    status: &mut TaskStatus,
     tenant_row: &Tenant,
     billing_provider: &Option<Arc<dyn BillingProvider>>,
 ) -> anyhow::Result<Outcome> {
@@ -148,7 +134,7 @@ mod tests {
     };
 
     use super::super::Tenant;
-    use super::{BillingContactStatus, Outcome, reconcile};
+    use super::{Outcome, TaskStatus, reconcile};
 
     const TENANT: &str = "acmeCo/";
     const CUSTOMER_ID: &str = "cus_test";
@@ -209,7 +195,7 @@ mod tests {
 
     async fn run(
         provider: &Arc<InMemoryBillingProvider>,
-        status: &mut BillingContactStatus,
+        status: &mut TaskStatus,
         row: &Tenant,
     ) -> Outcome {
         let provider: Option<Arc<dyn BillingProvider>> = Some(provider.clone());
@@ -244,7 +230,7 @@ mod tests {
         let baseline = provider.update_billing_profile_call_count();
         let outcome = run(
             &provider,
-            &mut BillingContactStatus::default(),
+            &mut TaskStatus::default(),
             &tenant_row(None, None, None),
         )
         .await;
@@ -260,7 +246,7 @@ mod tests {
         let baseline = provider.update_billing_profile_call_count();
         run(
             &provider,
-            &mut BillingContactStatus::default(),
+            &mut TaskStatus::default(),
             &tenant_row(Some("new@example.com"), None, None),
         )
         .await;
@@ -284,7 +270,7 @@ mod tests {
         let baseline = provider.update_billing_profile_call_count();
         run(
             &provider,
-            &mut BillingContactStatus::default(),
+            &mut TaskStatus::default(),
             &tenant_row(None, Some("Acme Billing"), None),
         )
         .await;
@@ -304,7 +290,7 @@ mod tests {
     async fn missing_customer_is_idle() {
         let empty = Arc::new(InMemoryBillingProvider::new());
         let row = tenant_row(Some("new@example.com"), None, None);
-        let mut status = BillingContactStatus::default();
+        let mut status = TaskStatus::default();
 
         let outcome = run(&empty, &mut status, &row).await;
         assert!(matches!(outcome, Outcome::Idle));
@@ -324,7 +310,7 @@ mod tests {
         let baseline = provider.update_billing_profile_call_count();
         run(
             &provider,
-            &mut BillingContactStatus::default(),
+            &mut TaskStatus::default(),
             &tenant_row(None, None, Some(stored_address("Boston"))),
         )
         .await;
@@ -340,7 +326,7 @@ mod tests {
         let baseline = provider.update_billing_profile_call_count();
         run(
             &provider,
-            &mut BillingContactStatus::default(),
+            &mut TaskStatus::default(),
             &tenant_row(None, None, Some(stored_address("Boston"))),
         )
         .await;
@@ -357,7 +343,7 @@ mod tests {
     #[tokio::test]
     async fn retry_backoff_state_machine() {
         let provider = customer_with(None, None, None).await;
-        let mut status = BillingContactStatus::default();
+        let mut status = TaskStatus::default();
 
         // A failure (here, an un-deserializable stored address) records a retry.
         let outcome = run(
