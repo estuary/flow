@@ -104,6 +104,33 @@ impl Schema {
         Ok(Self(serde_json::value::to_raw_value(&relaxed)?.into()))
     }
 
+    /// Return a copy of this read-schema bundle in which `date`, `date-time`,
+    /// and `time` `format` keywords are removed from the inlined inferred
+    /// schema — the `$defs` entry keyed by [`Self::REF_INFERRED_SCHEMA_URL`].
+    /// Every other keyword, every other `$defs` entry, and the remainder of the
+    /// bundle are left exactly as-is. If the bundle does not inline an inferred
+    /// schema (e.g. a single-schema collection), this is a no-op copy.
+    ///
+    /// This is deliberately much narrower than [`Self::to_relaxed_schema`]: it
+    /// touches only `format`, only for the three formats whose validator
+    /// delegates to the `time` crate (whose RFC3339 interpretation has drifted
+    /// over time), and only within the inferred schema. It exists so read-side
+    /// (materialize / derive) document validation does not retroactively reject
+    /// historical documents whose date-time values predate a tightening of the
+    /// `format` validator, while leaving capture-time write-schema enforcement
+    /// and schema inference strict. See estuary/flow#3133.
+    pub fn relax_inferred_datetime_formats(&self) -> serde_json::Result<Self> {
+        let mut bundle = serde_json::from_str::<serde_json::Value>(self.get())?;
+
+        if let Some(inferred) = bundle
+            .get_mut("$defs")
+            .and_then(|defs| defs.get_mut(Self::REF_INFERRED_SCHEMA_URL))
+        {
+            relax_datetime_formats(inferred);
+        }
+        Ok(Self(RawValue::from_value(&bundle)))
+    }
+
     /// Extend this Schema with added $defs definitions.
     /// The $id keyword of definition is set to its id, and its id is also
     /// used to key the property of $defs under which the sub-schema lives.
@@ -159,6 +186,51 @@ pub struct AddDef<'a> {
     pub schema: &'a Schema,
     // Should this definition overwrite one that's already present?
     pub overwrite: bool,
+}
+
+/// `format` values whose read-side enforcement is relaxed by
+/// [`Schema::relax_inferred_datetime_formats`]. These are exactly the formats
+/// whose validator delegates to the `time` crate, whose interpretation of
+/// RFC3339 has drifted over time (see estuary/flow#3133, #3108, #3116).
+const RELAXED_DATETIME_FORMATS: [&str; 3] = ["date", "date-time", "time"];
+
+/// Recursively remove `date`/`date-time`/`time` `format` keywords from `node`
+/// and its sub-schemas. It descends *only* through schema-bearing keywords, so
+/// a `format` string appearing within a data-valued keyword (`enum`, `const`,
+/// `default`, ...) is never touched — only genuine `format` schema keywords are
+/// removed.
+fn relax_datetime_formats(node: &mut serde_json::Value) {
+    let serde_json::Value::Object(obj) = node else {
+        return;
+    };
+
+    if let Some(serde_json::Value::String(format)) = obj.get("format") {
+        if RELAXED_DATETIME_FORMATS.contains(&format.as_str()) {
+            _ = obj.remove("format");
+        }
+    }
+
+    // Keywords holding a map of named sub-schemas.
+    for keyword in ["properties", "patternProperties", "$defs", "definitions"] {
+        if let Some(serde_json::Value::Object(map)) = obj.get_mut(keyword) {
+            map.values_mut().for_each(relax_datetime_formats);
+        }
+    }
+    // Keywords holding an array of sub-schemas.
+    for keyword in ["allOf", "anyOf", "oneOf", "prefixItems"] {
+        if let Some(serde_json::Value::Array(arr)) = obj.get_mut(keyword) {
+            arr.iter_mut().for_each(relax_datetime_formats);
+        }
+    }
+    // Keywords holding a single sub-schema. `items` may hold either a single
+    // sub-schema or (for tuple validation) an array of sub-schemas.
+    for keyword in ["additionalProperties", "additionalItems", "items", "not"] {
+        match obj.get_mut(keyword) {
+            Some(serde_json::Value::Array(arr)) => arr.iter_mut().for_each(relax_datetime_formats),
+            Some(sub) => relax_datetime_formats(sub),
+            None => {}
+        }
+    }
 }
 
 /// RelaxedSchema is an opinionated relaxation of a JSON-Schema, which removes
@@ -557,5 +629,122 @@ mod test {
                 "additionalProperties": {}
             })
         );
+    }
+
+    #[test]
+    fn test_relax_inferred_datetime_only_touches_inferred_defs_formats() {
+        // A read-schema bundle shaped like one assembled by the control plane:
+        // the inferred schema is inlined as a `$defs` entry keyed by its URL,
+        // alongside the (relaxed) write schema, with a top-level `allOf`.
+        let bundle = schema!({
+            "$defs": {
+                "flow://inferred-schema": {
+                    "$id": "flow://inferred-schema",
+                    "type": "object",
+                    "required": ["ts"],
+                    "properties": {
+                        // date-time formats: relaxed away.
+                        "ts": { "type": "string", "format": "date-time", "minLength": 1 },
+                        "d": { "type": "string", "format": "date" },
+                        "t": { "type": "string", "format": "time" },
+                        // Non-time formats: preserved.
+                        "email": { "type": "string", "format": "email" },
+                        "ip": { "type": "string", "format": "ipv4" },
+                        // A property literally named "format" holding a
+                        // sub-schema must not be mistaken for a keyword.
+                        "format": { "type": "string" },
+                        // Nested containers are descended into.
+                        "nested": {
+                            "type": "object",
+                            "properties": {
+                                "inner_ts": { "type": "string", "format": "date-time" }
+                            },
+                            "additionalProperties": { "type": "string", "format": "time" }
+                        },
+                        "list": {
+                            "type": "array",
+                            "items": { "type": "string", "format": "date-time" }
+                        },
+                        // A `date-time` string appearing as *data* (enum/const/
+                        // default) is never touched.
+                        "kind": { "type": "string", "enum": ["date-time", "date"] },
+                        "constish": { "const": { "format": "date-time" } }
+                    }
+                },
+                "flow://write-schema": {
+                    "$id": "flow://write-schema",
+                    "properties": {
+                        // Author-declared format outside the inferred schema is
+                        // left strictly enforced.
+                        "authored": { "type": "string", "format": "date-time" }
+                    }
+                }
+            },
+            "allOf": [
+                {"$ref": "flow://write-schema"},
+                {"$ref": "flow://inferred-schema"}
+            ]
+        });
+
+        let relaxed = bundle.relax_inferred_datetime_formats().unwrap().to_value();
+
+        assert_eq!(
+            relaxed,
+            json!({
+                "$defs": {
+                    "flow://inferred-schema": {
+                        "$id": "flow://inferred-schema",
+                        "type": "object",
+                        "required": ["ts"],
+                        "properties": {
+                            "ts": { "type": "string", "minLength": 1 },
+                            "d": { "type": "string" },
+                            "t": { "type": "string" },
+                            "email": { "type": "string", "format": "email" },
+                            "ip": { "type": "string", "format": "ipv4" },
+                            "format": { "type": "string" },
+                            "nested": {
+                                "type": "object",
+                                "properties": {
+                                    "inner_ts": { "type": "string" }
+                                },
+                                "additionalProperties": { "type": "string" }
+                            },
+                            "list": {
+                                "type": "array",
+                                "items": { "type": "string" }
+                            },
+                            "kind": { "type": "string", "enum": ["date-time", "date"] },
+                            "constish": { "const": { "format": "date-time" } }
+                        }
+                    },
+                    // Untouched: only the inferred `$def` is relaxed.
+                    "flow://write-schema": {
+                        "$id": "flow://write-schema",
+                        "properties": {
+                            "authored": { "type": "string", "format": "date-time" }
+                        }
+                    }
+                },
+                "allOf": [
+                    {"$ref": "flow://write-schema"},
+                    {"$ref": "flow://inferred-schema"}
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn test_relax_inferred_datetime_is_noop_without_inferred_defs() {
+        // A single-schema collection (no inlined inferred schema) is unchanged,
+        // including any authored date-time formats.
+        let bundle = schema!({
+            "type": "object",
+            "properties": {
+                "ts": { "type": "string", "format": "date-time" }
+            }
+        });
+        let relaxed = bundle.relax_inferred_datetime_formats().unwrap().to_value();
+        assert_eq!(relaxed, bundle.to_value());
     }
 }

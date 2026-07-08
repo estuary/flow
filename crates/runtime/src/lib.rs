@@ -11,6 +11,7 @@ mod image_connector;
 mod local_connector;
 mod materialize;
 mod rocksdb;
+mod task_schema;
 mod task_service;
 mod tokio_context;
 mod unary;

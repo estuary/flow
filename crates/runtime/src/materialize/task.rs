@@ -1,4 +1,5 @@
 use super::{Binding, Task};
+use crate::task_schema::{relax_inferred_datetime_formats, shard_flag_enabled};
 use anyhow::Context;
 use proto_flow::flow;
 use proto_flow::materialize::{Request, request};
@@ -19,11 +20,19 @@ impl Task {
             name,
             network_ports: _,
             recovery_log_template: _,
-            shard_template: _,
+            shard_template,
             inactive_bindings: _,
             triggers_json: _,
         } = spec.as_ref().context("missing materialization")?;
         let range = range.context("missing range")?;
+
+        // Opt-in, per-task relaxation of read-side date-time `format`
+        // enforcement inherited from the collection's inferred schema. See
+        // Binding::new and estuary/flow#3133.
+        let relax_inferred_datetime = shard_flag_enabled(
+            shard_template.as_ref(),
+            labels::RELAX_INFERRED_DATETIME_FLAG,
+        );
 
         if range.r_clock_begin != 0 || range.r_clock_end != u32::MAX {
             anyhow::bail!("materialization cannot split on r-clock: {range:?}");
@@ -62,7 +71,9 @@ impl Task {
         let bindings = bindings
             .into_iter()
             .enumerate()
-            .map(|(index, spec)| Binding::new(spec, &ser_policy).context(index))
+            .map(|(index, spec)| {
+                Binding::new(spec, &ser_policy, relax_inferred_datetime).context(index)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         let shard_ref = ops::ShardRef {
@@ -103,6 +114,7 @@ impl Binding {
     pub fn new(
         spec: &flow::materialization_spec::Binding,
         default_ser_policy: &doc::SerPolicy,
+        relax_inferred_datetime: bool,
     ) -> anyhow::Result<Self> {
         let flow::materialization_spec::Binding {
             backfill: _,
@@ -177,6 +189,17 @@ impl Binding {
             read_schema_json
         }
         .clone();
+
+        // When enabled for this task, strip `date`/`date-time`/`time` `format`
+        // keywords contributed by the collection's inferred schema so that
+        // historical, non-conforming values are not retroactively rejected on
+        // read. Capture-time write-schema validation is unaffected.
+        let read_schema_json = if relax_inferred_datetime {
+            relax_inferred_datetime_formats(&read_schema_json)
+                .context("relaxing inferred date-time formats of read schema")?
+        } else {
+            read_schema_json
+        };
 
         let uuid_ptr = json::Pointer::from_str(uuid_ptr.as_str());
 
