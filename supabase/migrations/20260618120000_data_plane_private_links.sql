@@ -22,6 +22,15 @@ create table internal.data_plane_private_links (
     -- The polymorphic link configuration: the same element shape as the legacy
     -- `data_planes.private_links` array; round-trips `models::PrivateLink`.
     config jsonb not null,
+    -- Monotonic version of the desired configuration, bumped by the
+    -- desired-edit trigger below on every `config`/`provider` change. The
+    -- controller pins each link's `(id, generation)` when it reads desired
+    -- state for a converge and only lands that converge's observed status on
+    -- rows whose generation still matches, so an edit racing a converge cannot
+    -- be stamped with a status computed from the pre-edit configuration. The
+    -- column is introduced here but first read by the controller in the cutover
+    -- change, so the observation mechanism needs no later schema migration.
+    generation bigint not null default 1,
     -- The provider's service identifier, used as the join key against the
     -- controller's provisioned endpoint outputs and to enforce uniqueness.
     -- Identities are only meaningful per provider (AWS and Azure both key on
@@ -147,6 +156,34 @@ select
     elem::jsonb
 from public.data_planes dp,
      lateral unnest(dp.private_links) as elem;
+
+-- Any edit of the user-owned desired columns invalidates the observed status:
+-- bump the generation and clear the observation columns in the same write. The
+-- invariant then holds for every writer, not just the API mutations but also
+-- the hand edits support performs directly against this table. Scoped to
+-- `update of config, provider` like the wake trigger below, so the controller's
+-- post-converge status write (which sets only status/details/observed_at/
+-- updated_at) does not fire it and does not bump the generation it just pinned.
+-- Runs as invoker (not `security definer`): it only rewrites fields of the row
+-- already being updated.
+create function internal.on_data_plane_private_links_desired_edit() returns trigger
+    language plpgsql
+    set search_path to ''
+    as $$
+begin
+    new.generation := old.generation + 1;
+    new.status := 'pending';
+    new.details := null;
+    new.error := null;
+    new.observed_at := null;
+    new.updated_at := now();
+    return new;
+end;
+$$;
+
+create trigger data_plane_private_links_desired_edit
+    before update of config, provider on internal.data_plane_private_links
+    for each row execute function internal.on_data_plane_private_links_desired_edit();
 
 -- When a link's desired configuration changes (an insert, a delete, or a
 -- `config`/`provider` update; see the trigger's `update of` scope below):

@@ -1,7 +1,12 @@
--- Exercises the `on_data_plane_private_links_change` trigger: on a desired-config
--- change (insert, config/provider update, delete) it reprojects the rows into
--- the parent data plane's `private_links` column and wakes the controller task
--- with a `converge` message; a controller-owned status update fires neither.
+-- Exercises the two triggers on `data_plane_private_links`. The
+-- `on_data_plane_private_links_change` trigger, on a desired-config change
+-- (insert, config/provider update, delete), reprojects the rows into the parent
+-- data plane's `private_links` column and wakes the controller task with a
+-- `converge` message. The `data_plane_private_links_desired_edit` trigger, on a
+-- config/provider update, bumps the generation and clears the observation
+-- columns. A controller-owned status update (status/details/observed_at only)
+-- fires neither: it does not reproject, does not enqueue, and does not bump the
+-- generation it just pinned.
 
 create function tests.test_data_plane_private_links_trigger()
 returns setof text as $$
@@ -52,9 +57,13 @@ begin
     exists(select 1 from internal.tasks t, lateral unnest(t.inbox) m
            where t.task_id = v_task_id and m ->> 1 = 'converge'),
     'the enqueued message is a converge');
+  return query select is(
+    (select generation from internal.data_plane_private_links where data_plane_id = v_dp_id),
+    1::bigint, 'a freshly inserted link starts at generation 1');
 
-  -- A controller-owned status update is outside the trigger's update-of scope,
-  -- so it neither reprojects nor enqueues (this is what prevents a reconverge loop).
+  -- A controller-owned status update is outside both triggers' update-of scope,
+  -- so it neither reprojects nor enqueues (this is what prevents a reconverge
+  -- loop) and does not bump the generation the controller pinned for it.
   update internal.data_plane_private_links
      set status = 'provisioned', details = '{}'::jsonb, observed_at = now()
    where data_plane_id = v_dp_id;
@@ -62,8 +71,13 @@ begin
   return query select is(
     (select array_length(inbox, 1) from internal.tasks where task_id = v_task_id),
     1, 'a status-only update does not enqueue');
+  return query select is(
+    (select generation from internal.data_plane_private_links where data_plane_id = v_dp_id),
+    1::bigint, 'a status-only update does not bump the generation');
 
-  -- A config change reprojects (the new region shows up) and enqueues again.
+  -- A config change reprojects (the new region shows up) and enqueues again,
+  -- and the desired-edit trigger bumps the generation and clears the observed
+  -- status set just above.
   update internal.data_plane_private_links
      set config = config || '{"region":"us-west-2"}'::jsonb
    where data_plane_id = v_dp_id;
@@ -74,6 +88,13 @@ begin
   return query select is(
     (select array_length(inbox, 1) from internal.tasks where task_id = v_task_id),
     2, 'config update enqueues another converge');
+  return query select is(
+    (select generation from internal.data_plane_private_links where data_plane_id = v_dp_id),
+    2::bigint, 'config update bumps the generation');
+  return query select ok(
+    (select status = 'pending' and details is null and observed_at is null
+       from internal.data_plane_private_links where data_plane_id = v_dp_id),
+    'config update resets the observed status columns');
 
   -- Delete reprojects to an empty list and enqueues.
   delete from internal.data_plane_private_links where data_plane_id = v_dp_id;

@@ -35,9 +35,6 @@ pub struct Outcome {
     pub publish_stack: Option<stack::PulumiStack>,
     // KMS key used to encrypt HMAC keys
     pub kms_key: String,
-    // Read instant of the desired links applied by this converge; the
-    // per-link status write skips rows changed after it.
-    pub links_read_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Type-erased function for dispatching work execution.
@@ -194,15 +191,6 @@ impl Executor {
                 state_ref.stack.config.model.private_links =
                     row_state.stack.config.model.private_links;
 
-                // Pin the read instant of the links this converge applies at
-                // the poll that dispatches `pulumi up`. It is deliberately not
-                // refreshed on later polls of the same converge: the endpoint
-                // outputs reflect what `PulumiUp1` provisioned, so the status
-                // write must not consider rows edited after this read.
-                if matches!(status, Status::PulumiUp1) {
-                    state_ref.links_read_at = row_state.links_read_at;
-                }
-
                 // For all non-Idle statuses, dispatch to service worker.
                 let action =
                     Action::from_status(status).context("cannot convert status to action")?;
@@ -226,7 +214,6 @@ impl Executor {
             publish_exports: state_ref.publish_exports.take(),
             publish_stack,
             kms_key: self.controller_config.secrets_provider.clone(),
-            links_read_at: state_ref.links_read_at,
         })
     }
 
@@ -408,8 +395,7 @@ async fn fetch_row_state(
             data_plane_fqdn,
             private_links AS "private_links: Vec<sqlx::types::Json<stack::PrivateLink>>",
             pulumi_key AS "pulumi_key",
-            pulumi_stack AS "pulumi_stack!",
-            now() AS "links_read_at!: chrono::DateTime<chrono::Utc>"
+            pulumi_stack AS "pulumi_stack!"
         FROM data_planes
         WHERE controller_task_id = $1
         "#,
@@ -425,11 +411,6 @@ async fn fetch_row_state(
     config.model.name = Some(row.data_plane_name);
     config.model.fqdn = Some(row.data_plane_fqdn);
 
-    // The controller reads desired links from the `private_links` column, which
-    // the `data_plane_private_links` trigger keeps projected from the per-link
-    // rows. Reading the table directly is deferred to the contract change that
-    // drops this column, so the controller has no deploy-ordering dependency on
-    // the agent-api cutover.
     config.model.private_links = row.private_links.into_iter().map(|link| link.0).collect();
 
     let stack = if let Some(key) = row.pulumi_key {
@@ -461,7 +442,6 @@ async fn fetch_row_state(
         preview_branch: String::new(),
         pending_refresh: false,
         pending_converge: false,
-        links_read_at: Some(row.links_read_at),
         publish_exports: None,
         publish_stack: None,
     })
@@ -638,183 +618,13 @@ impl automations::Outcome for Outcome {
             .execute(&mut *txn)
             .await
             .context("failed to publish exports into data_planes row")?;
-
-            write_private_link_statuses(
-                &mut *txn,
-                self.data_plane_id,
-                &aws_link_endpoints,
-                &azure_link_endpoints,
-                &gcp_psc_endpoints,
-                self.links_read_at,
-            )
-            .await?;
         }
 
         Ok(automations::Action::Sleep(self.sleep))
     }
 }
 
-/// Records each private link's observed status after a converge by matching this
-/// converge's provisioned endpoints to links on `(provider, service_identity)`:
-/// a matched endpoint means `provisioned` with the endpoint stored as `details`,
-/// no match means `pending`. This is the temporary bridge until est-dry-dock
-/// emits a per-link result keyed by the link id (which will also enable `failed`).
-///
-/// Two guards keep a converge from recording a stale status:
-///  * Only providers that published at least one endpoint this converge are
-///    re-evaluated (`published_providers`), so a transient empty or partial
-///    export cannot flip an already-`provisioned` link back to `pending` and
-///    null its details. A removed link is deleted, not emptied, so a genuine
-///    teardown never relies on the array going empty.
-///  * Rows changed after `links_read_at` (the instant this converge read its
-///    desired links) are skipped: this converge did not apply their config, so
-///    matching them against its endpoints would record a stale status (an
-///    identity-preserving edit landing mid-converge would read as `provisioned`
-///    with pre-edit details). The wake trigger has already queued the converge
-///    that settles them. A NULL `links_read_at` (task state from a prior binary
-///    version) disables this guard rather than skipping the write.
-async fn write_private_link_statuses(
-    conn: &mut sqlx::PgConnection,
-    data_plane_id: models::Id,
-    aws_link_endpoints: &[serde_json::Value],
-    azure_link_endpoints: &[serde_json::Value],
-    gcp_psc_endpoints: &[serde_json::Value],
-    links_read_at: Option<chrono::DateTime<chrono::Utc>>,
-) -> anyhow::Result<()> {
-    sqlx::query!(
-        r#"
-        WITH endpoints AS (
-            SELECT 'aws'::text AS provider, ep ->> 'service_name' AS identity, ep AS detail
-                FROM unnest($2::jsonb[]) AS ep
-            UNION ALL
-            SELECT 'azure'::text, ep ->> 'service_name', ep
-                FROM unnest($3::jsonb[]) AS ep
-            UNION ALL
-            SELECT 'gcp'::text, ep ->> 'service_attachment', ep
-                FROM unnest($4::jsonb[]) AS ep
-        ),
-        published_providers AS (
-            SELECT DISTINCT provider FROM endpoints
-        )
-        UPDATE internal.data_plane_private_links l SET
-            status = CASE WHEN e.identity IS NOT NULL THEN 'provisioned' ELSE 'pending' END,
-            details = e.detail,
-            observed_at = now(),
-            updated_at = now()
-        FROM internal.data_plane_private_links l2
-        LEFT JOIN endpoints e
-            ON e.provider = l2.provider AND e.identity = l2.service_identity
-        WHERE l.id = l2.id
-          AND l2.data_plane_id = $1
-          AND l2.provider IN (SELECT provider FROM published_providers)
-          AND ($5::timestamptz IS NULL OR l2.updated_at <= $5)
-        "#,
-        data_plane_id as models::Id,
-        aws_link_endpoints,
-        azure_link_endpoints,
-        gcp_psc_endpoints,
-        links_read_at,
-    )
-    .execute(&mut *conn)
-    .await
-    .context("failed to update private link statuses")?;
-
-    Ok(())
-}
-
 const IDLE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 const POLL_AGAIN: std::time::Duration = std::time::Duration::ZERO;
 const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
 const CONVERGE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(4 * 60 * 60);
-
-#[cfg(test)]
-mod tests {
-    use super::write_private_link_statuses;
-
-    async fn status_of(pool: &sqlx::PgPool, identity: &str) -> (String, Option<serde_json::Value>) {
-        let row = sqlx::query!(
-            r#"
-            SELECT status, details as "details: sqlx::types::Json<serde_json::Value>"
-            FROM internal.data_plane_private_links WHERE service_identity = $1
-            "#,
-            identity,
-        )
-        .fetch_one(pool)
-        .await
-        .unwrap();
-        (row.status, row.details.map(|d| d.0))
-    }
-
-    // Covers the two guards on the post-converge status write: the
-    // published-providers guard (a provider with no endpoints this converge is
-    // left untouched) and the `links_read_at` time guard (a row edited after the
-    // read is skipped, and a NULL instant disables the guard).
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(path = "fixtures", scripts("private_link_statuses"))
-    )]
-    async fn write_private_link_statuses_applies_guards(pool: sqlx::PgPool) {
-        let data_plane_id: models::Id = sqlx::query_scalar!(
-            r#"SELECT id as "id: models::Id" FROM data_planes WHERE data_plane_name = $1"#,
-            "ops/dp/private/testCo/aws-1",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-        // This converge published one AWS endpoint (svc-a) and nothing for Azure
-        // or GCP.
-        let aws = vec![serde_json::json!({
-            "service_name": "svc-a",
-            "dns_entries": [{"dns_name": "svc-a.example"}]
-        })];
-        let none: Vec<serde_json::Value> = Vec::new();
-
-        // Read instant sits between the old rows (2020-01) and the edited row
-        // (2020-06), so the time guard is active for svc-edited.
-        let read_at = Some(
-            "2020-03-01T00:00:00Z"
-                .parse::<chrono::DateTime<chrono::Utc>>()
-                .unwrap(),
-        );
-        let mut conn = pool.acquire().await.unwrap();
-        write_private_link_statuses(&mut conn, data_plane_id, &aws, &none, &none, read_at)
-            .await
-            .unwrap();
-
-        // AWS published and matched, row predates the read -> provisioned.
-        let (status, details) = status_of(&pool, "svc-a").await;
-        assert_eq!(status, "provisioned");
-        assert_eq!(details.unwrap()["service_name"], "svc-a");
-
-        // AWS published but unmatched, row predates the read -> demoted to
-        // pending, details cleared.
-        let (status, details) = status_of(&pool, "svc-orphan").await;
-        assert_eq!(status, "pending");
-        assert!(details.is_none());
-
-        // AWS published but the row was edited after the read, so the time guard
-        // skips it: it stays provisioned (an unguarded pass would demote it,
-        // since no published endpoint matches svc-edited).
-        assert_eq!(status_of(&pool, "svc-edited").await.0, "provisioned");
-
-        // Azure and GCP published no endpoints, so the published-providers guard
-        // leaves their links untouched.
-        assert_eq!(status_of(&pool, "svc-az").await.0, "pending");
-        assert_eq!(status_of(&pool, "svc-g").await.0, "provisioned");
-
-        // A NULL read instant disables the time guard: with svc-edited now among
-        // the published endpoints it is processed rather than skipped, and its
-        // details are refreshed.
-        let aws = vec![
-            serde_json::json!({"service_name": "svc-a"}),
-            serde_json::json!({"service_name": "svc-edited", "fresh": true}),
-        ];
-        write_private_link_statuses(&mut conn, data_plane_id, &aws, &none, &none, None)
-            .await
-            .unwrap();
-        let (status, details) = status_of(&pool, "svc-edited").await;
-        assert_eq!(status, "provisioned");
-        assert_eq!(details.unwrap()["fresh"], true);
-    }
-}

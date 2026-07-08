@@ -538,31 +538,23 @@ fn map_link_db_error(err: sqlx::Error) -> async_graphql::Error {
     async_graphql::Error::new(err.to_string())
 }
 
-/// An id-addressed private link the caller is authorized to modify: its owning
-/// data-plane name and its current observed status.
-struct ModifiableLink {
-    data_plane_name: String,
-    status: String,
-}
-
-/// Resolves an id-addressed private link and authorizes the caller to modify it,
-/// returning the owning data-plane name and the link's current status. A link
-/// that does not exist and a link the caller may not modify both return the same
-/// "not found" error, so an unauthorized caller cannot probe which link ids
-/// exist. This deliberately uses the visibility gate ([`super::may_access`])
-/// rather than the hard gate ([`super::verify_authorization`]) so a denial is
-/// hidden as not-found instead of surfacing as a distinguishable
-/// permission-denied that names the data plane.
+/// Resolves an id-addressed private link, authorizes the caller to modify it,
+/// and returns the owning data-plane name. A link that does not exist and a link
+/// the caller may not modify both return the same "not found" error, so an
+/// unauthorized caller cannot probe which link ids exist. This deliberately uses
+/// the visibility gate ([`super::may_access`]) rather than the hard gate
+/// ([`super::verify_authorization`]) so a denial is hidden as not-found instead
+/// of surfacing as a distinguishable permission-denied that names the data plane.
 async fn resolve_modifiable_link(
     ctx: &Context<'_>,
     id: models::Id,
-) -> async_graphql::Result<ModifiableLink> {
+) -> async_graphql::Result<String> {
     let env = ctx.data::<crate::Envelope>()?;
     let not_found = || async_graphql::Error::new(format!("private link '{id}' not found"));
 
     let Some(row) = sqlx::query!(
         r#"
-        SELECT dp.data_plane_name, l.status
+        SELECT dp.data_plane_name
         FROM internal.data_plane_private_links l
         JOIN data_planes dp ON dp.id = l.data_plane_id
         WHERE l.id = $1
@@ -583,10 +575,7 @@ async fn resolve_modifiable_link(
         return Err(not_found());
     }
 
-    Ok(ModifiableLink {
-        data_plane_name: row.data_plane_name,
-        status: row.status,
-    })
+    Ok(row.data_plane_name)
 }
 
 #[async_graphql::Object]
@@ -649,12 +638,12 @@ impl DataPlanesMutation {
         })
     }
 
-    /// Replaces the configuration of an existing private link by id. Changing
-    /// the configuration resets its observed status to `pending` until the
-    /// controller reconverges. A link that is already `pending` cannot be
-    /// updated (its previous desired config has not converged yet); remove it
-    /// and add a new one to correct it. Requires `ModifyDataPlanePrivateNetworking`
-    /// on the owning data plane.
+    /// Replaces the configuration of an existing private link by id. Any edit
+    /// resets the observed status to `pending` and re-triggers convergence: the
+    /// desired-edit trigger clears the observation columns and bumps the link's
+    /// internal generation, so a converge already in flight against the previous
+    /// configuration cannot later stamp this link with a stale status. Requires
+    /// `ModifyDataPlanePrivateNetworking` on the owning data plane.
     pub async fn update_data_plane_private_link(
         &self,
         ctx: &Context<'_>,
@@ -662,29 +651,17 @@ impl DataPlanesMutation {
         config: models::PrivateLink,
     ) -> async_graphql::Result<DataPlanePrivateLink> {
         let env = ctx.data::<crate::Envelope>()?;
-        let link = resolve_modifiable_link(ctx, id).await?;
-
-        // A pending link has not converged to its current desired config yet, so
-        // editing it would move the goalposts mid-flight; the correction path is
-        // to remove it and add a new one. `provisioned` and `failed` links are
-        // editable in place.
-        if link.status == "pending" {
-            return Err(async_graphql::Error::new(
-                "cannot update a private link while it is pending; remove it and add a new one instead",
-            ));
-        }
+        resolve_modifiable_link(ctx, id).await?;
 
         let provider = config.provider();
+        // Only the desired columns are set here; the desired-edit trigger resets
+        // status/details/error/observed_at and bumps generation in the same
+        // write, and `RETURNING` reflects those trigger-applied values.
         let row = sqlx::query!(
             r#"
             UPDATE internal.data_plane_private_links SET
                 provider = $2,
-                config = $3,
-                status = 'pending',
-                details = NULL,
-                error = NULL,
-                observed_at = NULL,
-                updated_at = now()
+                config = $3
             WHERE id = $1
             RETURNING
                 status,
@@ -699,9 +676,9 @@ impl DataPlanesMutation {
         .fetch_optional(&env.pg_pool)
         .await
         .map_err(map_link_db_error)?
-        // The row was authorized by `resolve_modifiable_link_data_plane` above,
-        // but a concurrent remove (or a cascading data-plane teardown) can delete
-        // it before this UPDATE runs. Report the same existence-hiding not-found
+        // The row was authorized by `resolve_modifiable_link` above, but a
+        // concurrent remove (or a cascading data-plane teardown) can delete it
+        // before this UPDATE runs. Report the same existence-hiding not-found
         // rather than leaking a raw "no rows returned" sqlx error.
         .ok_or_else(|| async_graphql::Error::new(format!("private link '{id}' not found")))?;
 
@@ -725,9 +702,7 @@ impl DataPlanesMutation {
         id: models::Id,
     ) -> async_graphql::Result<models::Id> {
         let env = ctx.data::<crate::Envelope>()?;
-        // Deletion is permitted in any status, including `pending`: it is the
-        // correction path for a link that cannot yet be updated in place.
-        let link = resolve_modifiable_link(ctx, id).await?;
+        let data_plane_name = resolve_modifiable_link(ctx, id).await?;
 
         _ = sqlx::query!(
             "DELETE FROM internal.data_plane_private_links WHERE id = $1",
@@ -736,7 +711,6 @@ impl DataPlanesMutation {
         .execute(&env.pg_pool)
         .await?;
 
-        let data_plane_name = link.data_plane_name;
         tracing::info!(link_id = %id, %data_plane_name, "removed data plane private link");
         Ok(id)
     }
@@ -1171,8 +1145,8 @@ mod tests {
         let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
         let dp = "ops/dp/private/aliceCo/aws-us-east-1-c1";
 
-        // The fixture's AWS link id; it is `provisioned`, so its config can be
-        // replaced in place. Doing so resets the observed status to `pending`.
+        // The fixture's AWS link id; it starts `provisioned`. Replacing its
+        // config resets the observed status to `pending`.
         let aws_id = "0000000000000a01";
         let updated: serde_json::Value = server
             .graphql(
@@ -1188,17 +1162,22 @@ mod tests {
             "com.amazonaws.vpce.us-east-1.vpce-svc-new999"
         );
 
-        // The link is now `pending`, so a further update is rejected: the
-        // correction path for a pending link is remove-and-add, not edit.
-        let rejected: serde_json::Value = server
+        // Editing a link that is already `pending` is allowed: it replaces the
+        // config and stays `pending` for the next converge. The desired-edit
+        // trigger bumps the link's generation on this write, which is what keeps
+        // a converge racing the earlier edit from stamping a stale status.
+        let reupdated: serde_json::Value = server
             .graphql(
                 &update_link_mutation(aws_id, VALID_AWS_INPUT),
                 Some(&alice_token),
             )
             .await;
+        let link = &reupdated["data"]["updateDataPlanePrivateLink"];
+        assert_eq!(link["id"], aws_id, "got: {reupdated}");
+        assert_eq!(link["status"], "PENDING");
         assert_eq!(
-            first_error_message(&rejected),
-            "cannot update a private link while it is pending; remove it and add a new one instead",
+            link["config"]["serviceName"],
+            "com.amazonaws.vpce.us-east-1.vpce-svc-abc123"
         );
 
         // Removing a link is allowed in any status, `pending` included; it

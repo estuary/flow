@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE internal.data_plane_private_links SET\n                provider = $2,\n                config = $3,\n                status = 'pending',\n                details = NULL,\n                error = NULL,\n                observed_at = NULL,\n                updated_at = now()\n            WHERE id = $1\n            RETURNING\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            ",
+  "query": "\n            UPDATE internal.data_plane_private_links SET\n                provider = $2,\n                config = $3\n            WHERE id = $1\n            RETURNING\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            ",
   "describe": {
     "columns": [
       {
@@ -38,5 +38,5 @@
       true
     ]
   },
-  "hash": "a038df69f72f6c60f2c84cedfcd3d1d3289de27e43e2c1f135f9fa268bc70bff"
+  "hash": "5d36304542ef2b363be35afffd4e061ba3d1d823a1cd9f77cb7c7592270d5664"
 }
