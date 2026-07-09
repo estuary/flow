@@ -279,8 +279,24 @@ Per stack, under `~/flow-local/<name>/` (= `${FLOW_STACK_DIR}`):
 
 Build artifacts are per-stack too: `~/cargo-target/<name>/` (Rust) and
 `~/cargo-target/<name>/go-bin/` (Go). Concurrent `cargo build` in two checkouts
-doesn't serialize on a shared target-dir lock. sccache, the Go build cache, and
+doesn't serialize on a shared target-dir lock. The Go build cache
+(`~/cargo-target/.go-build`), `~/.cache/sccache`, and
 `~/rocksdb-<version>` stay shared (content-addressed / read-only).
+
+### The compressed build-artifact filesystem (VMs)
+
+Per-stack target dirs are large (20-60G each) and overlap heavily across
+checkouts. On dev VMs, `~/cargo-target` is therefore a **compressed,
+self-deduplicating btrfs filesystem** on a sparse loopback image
+(`~/cargo-target.img`, sized to 50% of the disk): zstd compression plus a
+10-minute `duperemove` + `fstrim` timer that collapses shared
+extents and punches freed space back into the sparse image. The shared Go build
+cache lives under it (`.go-build`), since Go stores it uncompressed and it
+compresses well. sccache writes with zstd already, and thus stays off the image.
+
+`mise run bootstrap:cargo-target-fs` (run from `vm:create-post`) sets this up;
+it is idempotent and Linux-only. The systemd dedup timer is
+`cargo-target-dedupe.timer`.
 
 ## flowctl against a stack
 
