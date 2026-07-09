@@ -457,11 +457,18 @@ async fn serve(
     // Optionally drive TLS handshake if needed
     let socket: Box<dyn Connection> = match tls_acceptor {
         Some(acceptor) => {
-            let tls_stream = tokio::time::timeout(tls_handshake_timeout, acceptor.accept(socket))
+            match tokio::time::timeout(tls_handshake_timeout, acceptor.accept(socket))
                 .await
                 .context("TLS handshake timed out")?
-                .context("TLS handshake failed")?;
-            Box::new(tls_stream)
+            {
+                Ok(tls_stream) => Box::new(tls_stream),
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    // A TLS connection that immediately closes is probably an health probe.
+                    tracing::debug!(reason = %e, "client disconnected");
+                    return Ok(());
+                }
+                Err(e) => return Err(e).context("TLS handshake failed"),
+            }
         }
         None => Box::new(socket),
     };
