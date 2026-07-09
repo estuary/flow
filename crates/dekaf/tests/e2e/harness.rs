@@ -10,6 +10,20 @@ fn test_namespace_prefix() -> String {
     format!("{tenant}/dekaf")
 }
 
+/// The running stack's default data-plane name (FLOW_CLUSTER, set by
+/// mise/tasks/local/stack-env). Local-stack identity is dynamic per checkout,
+/// so these tests must be run via `mise run ci:dekaf-e2e`.
+pub fn cluster_name() -> String {
+    std::env::var("FLOW_CLUSTER")
+        .expect("FLOW_CLUSTER must be set — run via 'mise run ci:dekaf-e2e'")
+}
+
+/// The second data-plane used by migration tests (`${FLOW_CLUSTER}-2`, matching
+/// the ci:dekaf-e2e task's `local:data-plane "${FLOW_CLUSTER}-2"`).
+pub fn cluster_name_2() -> String {
+    format!("{}-2", cluster_name())
+}
+
 pub fn init_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
@@ -41,10 +55,16 @@ fn flowctl_command() -> anyhow::Result<async_process::Command> {
         std::env::var("SSL_CERT_FILE").unwrap_or_else(|_| format!("{}/flow-local/ca.crt", home));
     let auth_token = std::env::var("FLOW_AUTH_TOKEN").context("FLOW_AUTH_TOKEN must be set")?;
 
+    // Target this stack's flowctl profile (= its name). FLOWCTL_PROFILE is
+    // ambient under mise, but pass it explicitly so the command doesn't depend
+    // on env inheritance.
+    let profile = std::env::var("FLOW_STACK_NAME")
+        .expect("FLOW_STACK_NAME must be set — run via 'mise run ci:dekaf-e2e'");
+
     let mut cmd = async_process::Command::new(flowctl);
     cmd.env("FLOW_AUTH_TOKEN", auth_token);
     cmd.env("SSL_CERT_FILE", ca_cert);
-    cmd.arg("--profile").arg("local");
+    cmd.arg("--profile").arg(profile);
     Ok(cmd)
 }
 
@@ -72,12 +92,13 @@ impl DekafTestEnv {
         let temp_file = tempfile::Builder::new().suffix(".json").tempfile()?;
         std::fs::write(temp_file.path(), serde_json::to_string_pretty(&catalog)?)?;
 
+        let init_data_plane = format!("ops/dp/public/{}", cluster_name());
         let output = async_process::output(flowctl_command()?.args([
             "catalog",
             "publish",
             "--auto-approve",
             "--init-data-plane",
-            "ops/dp/public/local-cluster",
+            &init_data_plane,
             "--source",
             temp_file.path().to_str().unwrap(),
         ]))
@@ -252,11 +273,11 @@ impl DekafTestEnv {
         Ok(())
     }
 
-    /// Get Kafka connection info for the default dataplane (local-cluster).
+    /// Get Kafka connection info for the stack's default dataplane.
     pub async fn connection_info(&self) -> anyhow::Result<ConnectionInfo> {
         let username = self.materialization_name().unwrap_or_default();
         let collections = self.collection_names().map(String::from).collect();
-        connection_info_for_dataplane("local-cluster", username, collections).await
+        connection_info_for_dataplane(&cluster_name(), username, collections).await
     }
 
     pub fn upstream_broker_urls(&self) -> anyhow::Result<Vec<String>> {
@@ -513,8 +534,6 @@ pub struct ConnectionInfo {
     pub collections: Vec<String>,
 }
 
-const LOCAL_DB_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
-
 static DB_POOL: OnceLock<sqlx::PgPool> = OnceLock::new();
 
 pub async fn db_pool() -> anyhow::Result<&'static sqlx::PgPool> {
@@ -522,9 +541,12 @@ pub async fn db_pool() -> anyhow::Result<&'static sqlx::PgPool> {
         return Ok(pool);
     }
 
+    // Stack Postgres port is dynamic; FLOW_PG_URL is set by stack-env.
+    let pg_url = std::env::var("FLOW_PG_URL")
+        .expect("FLOW_PG_URL must be set — run via 'mise run ci:dekaf-e2e'");
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
-        .connect(LOCAL_DB_URL)
+        .connect(&pg_url)
         .await
         .context("failed to connect to local postgres")?;
 

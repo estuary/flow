@@ -8,29 +8,34 @@ set -euo pipefail
 #USAGE flag "--debug" help="Enable debug logging and show all test output"
 
 
+source "$(dirname "$0")/../local/lib.sh"
+ensure_stack_env
+
+# The Rust e2e fixtures read FLOW_CLUSTER / FLOW_PG_URL at runtime (see
+# crates/dekaf/tests/e2e/harness.rs), so this task runs against any stack —
+# the primary checkout or a worktree.
+
 FILTER="${usage_filter:-}"
 UPDATE_SNAPSHOTS="${usage_update_snapshots:-false}"
 CONCURRENCY="${usage_concurrency:-"num-cpus"}"
 DEBUG="${usage_debug:-false}"
 
-FLOW_LOCAL="${HOME}/flow-local"
-CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${HOME}/cargo-target}"
-
-DEKAF1_KAFKA_PORT=8050  # 8000 + 50
-DEKAF2_KAFKA_PORT=8250  # 8200 + 50
+DP2_BASE=$((FLOW_PLANE_BASE + 200))
+DEKAF1_KAFKA_PORT=$((FLOW_PLANE_BASE + 50))
+DEKAF2_KAFKA_PORT=$((DP2_BASE + 50))
 
 echo "Building flowctl..."
 cargo build -p flowctl --quiet
 
-# local-cluster with Dekaf is expected to already be running from local:stack.
-# Bring up local-cluster-2 BEFORE provisioning the tenant so that its
-# initialized storage mapping picks up both public planes.
-echo "Setting up local-cluster-2 dataplane with Dekaf..."
-mise run local:data-plane local-cluster-2 8200 --num-brokers 4 --num-reactors 1 --link --dekaf
+# ${FLOW_CLUSTER} with Dekaf is expected to already be running from
+# local:stack --dekaf. Bring up a second plane BEFORE provisioning the tenant so
+# that its initialized storage mapping picks up both public planes.
+echo "Setting up ${FLOW_CLUSTER}-2 dataplane with Dekaf..."
+mise run local:data-plane "${FLOW_CLUSTER}-2" "${DP2_BASE}" --num-brokers 4 --num-reactors 1 --link --dekaf
 
 echo "Provisioning test tenant..."
 mise run local:test-tenant
-source "${FLOW_LOCAL}/test-tenant-test.env" # Default tenant is 'test'.
+source "${FLOW_STACK_DIR}/test-tenant-test.env" # Default tenant is 'test'.
 
 echo "Waiting for Dekaf instances..."
 TIMEOUT=60
@@ -53,7 +58,7 @@ echo "Running Dekaf E2E tests..."
 export DEKAF_BROKER="localhost:${DEKAF1_KAFKA_PORT}"
 export DEKAF_REGISTRY="http://localhost:$((DEKAF1_KAFKA_PORT + 1))"
 export SSL_CERT_FILE="${FLOW_LOCAL}/ca.crt"
-export DEKAF_UPSTREAM_BROKER_URLS="tcp://localhost:29092"
+export DEKAF_UPSTREAM_BROKER_URLS="tcp://localhost:${FLOW_PORT_KAFKA}"
 export DEKAF_ENCRYPTION_SECRET="test-encryption-secret-32-bytes!"
 
 if [ "${DEBUG}" = "true" ]; then
@@ -93,14 +98,14 @@ if [ "${TEST_EXIT_CODE}" -ne 0 ]; then
     echo "Tests failed! Dumping service logs..."
     echo "========================================"
     echo ""
-    echo "--- Dekaf (local-cluster) logs ---"
-    journalctl --user -u flow-dekaf@local-cluster --no-pager -n 200 || true
+    echo "--- Dekaf (${FLOW_CLUSTER}) logs ---"
+    journalctl --user -u "flow-dekaf@${FLOW_CLUSTER}" --no-pager -n 200 || true
     echo ""
-    echo "--- Dekaf (local-cluster-2) logs ---"
-    journalctl --user -u flow-dekaf@local-cluster-2 --no-pager -n 200 || true
+    echo "--- Dekaf (${FLOW_CLUSTER}-2) logs ---"
+    journalctl --user -u "flow-dekaf@${FLOW_CLUSTER}-2" --no-pager -n 200 || true
     echo ""
     echo "--- Agent logs ---"
-    journalctl --user -u flow-control-agent --no-pager -n 200 || true
+    journalctl --user -u "flow-control-agent@${FLOW_STACK_NAME}" --no-pager -n 200 || true
     echo ""
     exit "${TEST_EXIT_CODE}"
 fi
