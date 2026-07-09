@@ -1,4 +1,4 @@
-//! Fixture input for `flowctl preview --fixture`.
+//! Fixture input for `flowctl raw preview-next --fixture`.
 //!
 //! flowctl reads a newline-delimited fixture file and writes its transactions
 //! directly as shuffle log segments (via the public [`shuffle::log::Writer`]),

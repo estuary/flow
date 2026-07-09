@@ -124,7 +124,7 @@ pub struct CliContext {
     config: config::Config,
     /// Selected output format (table / JSON / YAML) for command results.
     output: output::Output,
-    /// Tracks in-flight work units; cloned into preview connector drivers.
+    /// Tracks in-flight work units; cloned into preview-next connector drivers.
     registry: service_kit::Registry,
 }
 
