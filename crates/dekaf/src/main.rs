@@ -10,8 +10,7 @@ use dekaf::{
 };
 use flow_client::{
     DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
-    LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
-    LOCAL_PG_URL,
+    LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
 };
 use futures::TryStreamExt;
 use rustls::pki_types::CertificateDer;
@@ -30,10 +29,14 @@ use url::Url;
 #[command(about, version)]
 pub struct Cli {
     /// Endpoint of the Estuary API to use.
+    ///
+    /// With `--local`, set this (via the flag or `API_ENDPOINT`) to the target
+    /// stack's PostgREST URL; local ports are dynamic, so there is no compiled
+    /// local default. `mise run local:data-plane` supplies it in the generated
+    /// dekaf env file.
     #[arg(
         long,
         default_value = DEFAULT_PG_URL.as_str(),
-        default_value_if("local", "true", Some(LOCAL_PG_URL.as_str())),
         env = "API_ENDPOINT"
     )]
     api_endpoint: Url,
@@ -46,10 +49,14 @@ pub struct Cli {
     )]
     api_key: String,
     /// Endpoint of the Estuary agent API to use.
+    ///
+    /// With `--local`, set this (via the flag or `AGENT_ENDPOINT`) to the target
+    /// stack's agent URL; local ports are dynamic, so there is no compiled local
+    /// default. `mise run local:data-plane` supplies it in the generated dekaf
+    /// env file.
     #[arg(
             long,
             default_value = DEFAULT_AGENT_URL.as_str(),
-            default_value_if("local", "true", Some(LOCAL_AGENT_URL.as_str())),
             env = "AGENT_ENDPOINT"
         )]
     agent_endpoint: Url,
@@ -250,11 +257,11 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
 
     let upstream_kafka_urls = cli.default_broker_urls.clone();
 
-    let (api_endpoint, api_key) = if cli.local {
-        (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
-    } else {
-        (cli.api_endpoint, cli.api_key)
-    };
+    // Endpoints are resolved by clap from flags/env (with `--local` selecting the
+    // local anon api_key default). Local-stack ports are dynamic, so a local
+    // deployment must pass API_ENDPOINT/AGENT_ENDPOINT explicitly — the
+    // local:data-plane task does this in the generated dekaf env file.
+    let (api_endpoint, api_key) = (cli.api_endpoint, cli.api_key);
 
     let user_agent = format!("dekaf-{}", env!("CARGO_PKG_VERSION"));
     let client_base = flow_client::Client::new(
