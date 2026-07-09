@@ -4,7 +4,11 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-bundled_ops_catalog="$(cat ${1} | sed "s/'/''/g")"
+# Target this stack's default data plane. FLOW_CLUSTER is ambient inside a mise
+# context (mise/tasks/local/stack-env); mise is mandatory.
+DP_NAME="${FLOW_CLUSTER:?FLOW_CLUSTER must be set — run via 'mise run' (see local/README.md)}"
+
+bundled_ops_catalog="$(sed "s/'/''/g" "${1}")"
 
 cat << EOF
 begin;
@@ -24,7 +28,7 @@ begin
 
     -- Queue a publication of the draft.
     insert into publications (id, user_id, draft_id, data_plane_name) values
-    (publication_id, ops_user_id, new_draft_id, 'ops/dp/public/local-cluster');
+    (publication_id, ops_user_id, new_draft_id, 'ops/dp/public/${DP_NAME}');
 
     insert into draft_specs (draft_id, catalog_name, spec_type, spec)
     select new_draft_id, "key", 'collection'::catalog_spec_type, "value"

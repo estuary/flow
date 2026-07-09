@@ -7,7 +7,7 @@
 # SQL sink (README has the queries). Both variants are bindings of one task and
 # route through runtime-next via `enable-runtime-v2`. Feeding this file to
 # `flowctl raw preview-next` builds the derivation it imports, plus the
-# materialize-postgres image — and needs a reachable `supabase_db_flow`.
+# materialize-postgres image — and needs a reachable `db`.
 #
 #   - `soak_accounts`        standard (merge): one row per id (root reduce is
 #                            lastWriteWins, so the row holds the account's latest
@@ -27,7 +27,7 @@ materializations:
       connector:
         image: ghcr.io/estuary/materialize-postgres:dev
         config:
-          address: supabase_db_flow:5432
+          address: db:5432
           database: postgres
           user: postgres
           credentials:

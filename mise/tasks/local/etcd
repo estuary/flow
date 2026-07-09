@@ -1,15 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Start etcd via systemd"
-#MISE depends=["local:common"]
+#MISE description="Start etcd via systemd (for this stack)"
 
-# Link systemd unit if not already linked
-UNIT_FILE="${HOME}/.config/systemd/user/flow-etcd.service"
-if [ ! -f "$UNIT_FILE" ]; then
-    ln -sf "$(pwd)/local/systemd/flow-etcd.service" "$UNIT_FILE"
-    systemctl --user daemon-reload
-fi
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
+prepare_dirs
 
-# Start the service
-systemctl --user start flow-etcd
+NAME="${FLOW_STACK_NAME}"
+
+# All ETCD_* config lives in the env file so the unit stays parameter-free.
+# etcd advertises on this stack's client/peer ports; a single-node cluster with
+# a per-stack data dir keeps stacks fully independent.
+ENV_FILE="${FLOW_ENV_DIR}/etcd-${NAME}.env"
+{
+    emit_common_vars
+    cat <<EOF
+
+# Etcd configuration for stack ${NAME}.
+ETCD_DATA_DIR="${FLOW_STACK_DIR}/etcd/"
+ETCD_LOG_LEVEL=info
+ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:${FLOW_PORT_ETCD}
+ETCD_ADVERTISE_CLIENT_URLS=http://etcd.flow.localhost:${FLOW_PORT_ETCD}
+ETCD_LISTEN_PEER_URLS=http://0.0.0.0:${FLOW_PORT_ETCD_PEER}
+ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd.flow.localhost:${FLOW_PORT_ETCD_PEER}
+ETCD_INITIAL_CLUSTER=default=http://etcd.flow.localhost:${FLOW_PORT_ETCD_PEER}
+EOF
+} > "${ENV_FILE}"
+
+link_unit flow-etcd@.service
+systemctl --user daemon-reload
+systemctl --user start "flow-etcd@${NAME}"

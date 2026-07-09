@@ -1,4 +1,4 @@
-address: supabase_db_flow
+address: db
 database: postgres
 password: stats_loader_password
 user: stats_loader
