@@ -4,8 +4,8 @@
 //! `raw stats`) by hosting an ephemeral, single-shard `shuffle::Service` on a
 //! loopback tonic server and draining a `shuffle::proto::Task` — invoking a
 //! caller callback for each committed, non-ACK document and, after each
-//! checkpoint, an optional checkpoint callback. (`preview` also uses the
-//! `shuffle` crate, but drives its own Session directly rather than through
+//! checkpoint, an optional checkpoint callback. (`raw preview-next` also uses
+//! the `shuffle` crate, but drives its own Session directly rather than through
 //! this module.)
 //!
 //! Reads are non-blocking by default. The Session always tails its journals, so

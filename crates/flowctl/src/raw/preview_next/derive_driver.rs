@@ -5,8 +5,8 @@
 //! as the `Task.sqlite_vfs_uri` (production supplies a recorded recovery-log
 //! VFS instead).
 
-use crate::preview::Controls;
-use crate::preview::services::Run;
+use crate::raw::preview_next::Controls;
+use crate::raw::preview_next::services::Run;
 use anyhow::Context;
 use prost::Message;
 use proto_flow::{flow, flow::collection_spec::derivation::ConnectorType, runtime as cruntime};
@@ -23,7 +23,8 @@ pub async fn run_sessions(
     controls: Controls,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
-    let join_shards = crate::preview::shards::build_derive_join_shards(run.n_shards, spec)?;
+    let join_shards =
+        crate::raw::preview_next::shards::build_derive_join_shards(run.n_shards, spec)?;
 
     // SQLite derivations require a VFS URI; preview supplies a plain tempfile
     // path (the connector opens it with SQLite's default file VFS).
