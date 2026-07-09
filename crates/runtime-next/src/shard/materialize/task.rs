@@ -9,7 +9,7 @@ pub fn build_bindings(
 ) -> anyhow::Result<(Vec<Binding>, ops::ShardRef)> {
     let flow::MaterializationSpec {
         bindings,
-        config_json,
+        config_json: _,
         connector_type: _,
         name,
         network_ports: _,
@@ -31,40 +31,10 @@ pub fn build_bindings(
         anyhow::bail!("materialization cannot split on r-clock: {range:?}");
     }
 
-    // TODO(johnny): Hack to limit serialized value sizes for these common materialization connectors
-    // that don't handle large strings very well. This should be negotiated via connector protocol.
-    // See go/runtime/materialize.go:135
-    let ser_policy = if let Some(limit) = [
-        ("ghcr.io/estuary/materialize-azure-fabric-warehouse", 1000),
-        ("ghcr.io/estuary/materialize-bigquery", 1500),
-        ("ghcr.io/estuary/materialize-kafka", 1000),
-        ("ghcr.io/estuary/materialize-snowflake", 1000),
-        ("ghcr.io/estuary/materialize-redshift", 1000),
-        ("ghcr.io/estuary/materialize-sqlite", 1000),
-    ]
-    .iter()
-    .filter_map(|(image, limit)| {
-        config_json
-            .windows(image.len())
-            .any(|window| window == image.as_bytes())
-            .then_some(*limit)
-    })
-    .next()
-    {
-        doc::SerPolicy {
-            str_truncate_after: 1 << 16, // Truncate at 64KB.
-            nested_obj_truncate_after: limit,
-            array_truncate_after: limit,
-            ..doc::SerPolicy::noop()
-        }
-    } else {
-        doc::SerPolicy::noop()
-    };
-
     let bindings = bindings
         .into_iter()
         .enumerate()
-        .map(|(index, spec)| build_binding(spec, &ser_policy).context(index))
+        .map(|(index, spec)| build_binding(spec).context(index))
         .collect::<Result<Vec<_>, _>>()?;
 
     let shard_ref = ops::ShardRef {
@@ -79,10 +49,7 @@ pub fn build_bindings(
 }
 
 // Build the runtime structure for a single binding.
-fn build_binding(
-    spec: &flow::materialization_spec::Binding,
-    default_ser_policy: &doc::SerPolicy,
-) -> anyhow::Result<Binding> {
+fn build_binding(spec: &flow::materialization_spec::Binding) -> anyhow::Result<Binding> {
     let flow::materialization_spec::Binding {
         backfill: _,
         collection,
@@ -122,25 +89,23 @@ fn build_binding(
         write_schema_json,
     } = collection.as_ref().context("missing collection")?;
 
-    // TODO(whb): At some point once all built materialization specs have
-    // been updated we can get rid of the `default_ser_policy` parameter and
-    // just default to doc::SerPolicy::noop() with overrides from the
-    // specific binding serialization policy.
-    let ser_policy = if let Some(binding_ser_policy) = binding_ser_policy {
-        let mut base = doc::SerPolicy::noop();
+    // The policy is negotiated via the connector protocol: connectors return it
+    // in their Validated response and it's baked into the built binding spec.
+    // Absent or zero-valued limits mean the connector doesn't require that kind
+    // of truncation, and map to the no-op policy's unbounded limits.
+    let mut ser_policy = doc::SerPolicy::noop();
+    if let Some(binding_ser_policy) = binding_ser_policy {
         if binding_ser_policy.str_truncate_after > 0 {
-            base.str_truncate_after = binding_ser_policy.str_truncate_after as usize;
-        };
+            ser_policy.str_truncate_after = binding_ser_policy.str_truncate_after as usize;
+        }
         if binding_ser_policy.nested_obj_truncate_after > 0 {
-            base.nested_obj_truncate_after = binding_ser_policy.nested_obj_truncate_after as usize;
-        };
+            ser_policy.nested_obj_truncate_after =
+                binding_ser_policy.nested_obj_truncate_after as usize;
+        }
         if binding_ser_policy.array_truncate_after > 0 {
-            base.array_truncate_after = binding_ser_policy.array_truncate_after as usize;
-        };
-        base
-    } else {
-        default_ser_policy.clone()
-    };
+            ser_policy.array_truncate_after = binding_ser_policy.array_truncate_after as usize;
+        }
+    }
 
     // Keys are extracted with a no-op policy, never the binding's `ser_policy`:
     // a truncated key would collide distinct rows, and matching the shuffle
