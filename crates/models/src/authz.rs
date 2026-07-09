@@ -48,6 +48,11 @@ impl std::fmt::Display for Capability {
     derive(sqlx::Type),
     sqlx(type_name = "capability_bundle", rename_all = "snake_case")
 )]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(rename_items = "PascalCase")
+)]
 pub enum CapabilityBundle {
     Viewer,
     Writer,

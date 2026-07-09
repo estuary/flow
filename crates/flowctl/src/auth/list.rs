@@ -6,7 +6,7 @@ use anyhow::Context;
     schema_path = "../flow-client/control-plane-api.graphql",
     query_path = "src/auth/list-authorized-prefixes.graphql",
     response_derives = "Serialize,Clone",
-    extern_enums("Capability")
+    extern_enums("Capability", "LegacyCapability")
 )]
 struct ListAuthorizedPrefixes;
 

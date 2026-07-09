@@ -23,7 +23,7 @@ pub struct Status {
     schema_path = "../flow-client/control-plane-api.graphql",
     query_path = "src/catalog/status.graphql",
     response_derives = "Debug,Serialize",
-    extern_enums("CatalogType", "Capability"),
+    extern_enums("CatalogType", "LegacyCapability"),
     skip_serializing_none
 )]
 struct ConnectedStatusQuery;

@@ -374,12 +374,13 @@ input BoolFilter {
 }
 
 """
-Capability within the Estuary role-based access control (RBAC) authorization system.
+Deprecated alias of `LegacyCapability`, preserved under the original
+`Capability` name while clients migrate off it. Do not use in new
+operations; prefer `withCapability` (on the `prefixes` filter) and
+`capabilityLegacy` (on `createInviteLink`). Removed once the deprecated
+inputs are dropped.
 """
 enum Capability {
-	"""
-	Note that the discriminants here align with those in the database type.
-	"""
 	none
 	read
 	write
@@ -398,6 +399,18 @@ enum CapabilityBit {
 	ModifyDataPlanePrivateNetworking
 	ViewBilling
 	EditBilling
+	Delegate
+	Assume
+}
+
+enum CapabilityBundle {
+	Viewer
+	Writer
+	Editor
+	Admin
+	Billing
+	TeamAdmin
+	ManageDataPlane
 	Delegate
 	Assume
 }
@@ -692,7 +705,7 @@ type DataPlane {
 	"""
 	The current user's capability to this data plane's name prefix.
 	"""
-	userCapability: Capability!
+	userCapability: LegacyCapability!
 	"""
 	Cloud provider where this data-plane is hosted.
 	"""
@@ -905,7 +918,7 @@ type InviteLink {
 	"""
 	The capability level granted by this invite link.
 	"""
-	capability: Capability!
+	capability: LegacyCapability!
 	"""
 	Whether this invite link can only be used once.
 	"""
@@ -1040,6 +1053,19 @@ type JobStatus {
 	lockFailures: [LockFailure!]!
 }
 
+"""
+Capability within the Estuary role-based access control (RBAC) authorization system.
+"""
+enum LegacyCapability {
+	"""
+	Note that the discriminants here align with those in the database type.
+	"""
+	none
+	read
+	write
+	admin
+}
+
 type LiveSpec {
 	liveSpecId: Id!
 	catalogName: String!
@@ -1090,7 +1116,7 @@ type LiveSpecRef {
 	the result would be `userCapability: null`, and all other fields on the
 	LiveSpecRef would also be null.
 	"""
-	userCapability: Capability
+	userCapability: LegacyCapability
 	"""
 	Returns the live spec that the reference points to, if the user has access to it.
 	"""
@@ -1271,7 +1297,7 @@ type MutationRoot {
 	The caller must have admin capability on the catalog prefix.
 	Share the returned token with the intended recipient out-of-band.
 	"""
-	createInviteLink(catalogPrefix: Prefix!, capability: Capability!, singleUse: Boolean! = true, detail: String): InviteLink!
+	createInviteLink(catalogPrefix: Prefix!, capability: Capability @deprecated(reason: "The `Capability` type is being renamed; use `capabilityLegacy` (LegacyCapability) instead."), capabilityLegacy: LegacyCapability, singleUse: Boolean! = true, detail: String): InviteLink!
 	"""
 	Redeem an invite link token, granting the caller access to the associated
 	catalog prefix with the specified capability.
@@ -1399,7 +1425,7 @@ type PrefixRef {
 	directly. Once that migration lands, this field and its derivation
 	can be deleted.
 	"""
-	userCapability: Capability!
+	userCapability: LegacyCapability!
 	"""
 	Fine-grained capabilities the user has at this prefix.
 	"""
@@ -1433,9 +1459,18 @@ type PrefixRefEdge {
 
 input PrefixesBy {
 	"""
-	Filter returned prefixes by user capability.
+	Filter to prefixes where the user's capability is at least this legacy
+	level (an ordered read/write/admin threshold).
+	
+	Deprecated: a "minimum" has no meaning in the orthogonal capability
+	model. Use `withCapability` to filter by a specific capability instead.
+	Exactly one of the two must be set.
 	"""
-	minCapability: Capability!
+	minCapability: Capability @deprecated(reason: "a minimum capability has no meaning in the orthogonal capability model; use withCapability instead.")
+	"""
+	Filter to prefixes where the user holds this capability.
+	"""
+	withCapability: CapabilityBundle
 }
 
 """
@@ -1641,7 +1676,7 @@ type RedeemInviteLinkResult {
 	"""
 	The capability level that was granted.
 	"""
-	capability: Capability!
+	capability: LegacyCapability!
 }
 
 type RefreshTokenInfo {
@@ -2007,7 +2042,7 @@ type StorageMapping {
 	"""
 	The current user's capability to this storage mapping's prefix.
 	"""
-	userCapability: Capability!
+	userCapability: LegacyCapability!
 }
 
 type StorageMappingConnection {

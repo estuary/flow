@@ -75,7 +75,7 @@ pub enum CatalogType {
 #[cfg_attr(
     feature = "async-graphql",
     derive(async_graphql::Enum),
-    graphql(rename_items = "lowercase")
+    graphql(name = "LegacyCapability", rename_items = "lowercase")
 )]
 pub enum Capability {
     /// Note that the discriminants here align with those in the database type.

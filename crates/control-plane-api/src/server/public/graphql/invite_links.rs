@@ -173,12 +173,26 @@ impl InviteLinksMutation {
         &self,
         ctx: &Context<'_>,
         catalog_prefix: models::Prefix,
-        capability: models::Capability,
+        #[graphql(
+            deprecation = "The `Capability` type is being renamed; use `capabilityLegacy` (LegacyCapability) instead."
+        )]
+        capability: Option<super::capability_compat::CapabilityCompat>,
+        capability_legacy: Option<models::Capability>,
         #[graphql(default = true)] single_use: bool,
         detail: Option<String>,
     ) -> async_graphql::Result<InviteLink> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
+
+        let capability: models::Capability = match (capability, capability_legacy) {
+            (Some(deprecated), None) => deprecated.into(),
+            (None, Some(legacy)) => legacy,
+            (Some(_), Some(_)) | (None, None) => {
+                return Err(async_graphql::Error::new(
+                    "provide exactly one of `capability` (deprecated) or `capabilityLegacy`",
+                ));
+            }
+        };
 
         if capability == models::Capability::None {
             return Err(async_graphql::Error::new(
