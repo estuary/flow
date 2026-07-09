@@ -251,7 +251,7 @@ inference breaks, `accounts` never comes up.
 Each `events/*` collection keeps `events.schema.json` as its **writeSchema** and adds a
 **readSchema** of `allOf: [{$ref: flow://write-schema}, {$ref: flow://inferred-schema}]`.
 Inference propagates six hops: runtime emits `inferred schema updated` → L1 rollup
-(`ops/rollups/L1/public/local-cluster/inferred-schemas`) → L2 → the `stats-view`
+(`ops/rollups/L1/public/<data-plane>/inferred-schemas`) → L2 → the `stats-view`
 materialization writes the `inferred_schemas` control-plane table → a DB trigger schedules
 the collection controller → it republishes the collection with the real schema inlined.
 
@@ -277,27 +277,28 @@ Any *other* error, or a window that never closes, is a defect.
 ### Verification
 
 ```bash
-PG='psql postgresql://postgres:postgres@localhost:5432/postgres -tAc'
+# FLOW_PG_URL is ambient via mise (this stack's Postgres).
+PG() { psql "$FLOW_PG_URL" -tAc "$@"; }
 
 # Inferred-schema rows: expect exactly the three events/* (NOT accounts — see above). None
 # at all ⇒ the runtime→L1→L2→materialize path is broken (the motivating bug class); rows
 # present but accounts never converges ⇒ the controller-republish / downstream-activation hop.
-$PG "SELECT collection_name, md5 FROM inferred_schemas WHERE collection_name LIKE 'test/soak/%';"
+PG "SELECT collection_name, md5 FROM inferred_schemas WHERE collection_name LIKE 'test/soak/%';"
 
 # Built read schema of an events collection, once converged:
-$PG "SELECT built_spec->'readSchema' FROM live_specs WHERE catalog_name = 'test/soak/events/alpha';"
+PG "SELECT built_spec->'readSchema' FROM live_specs WHERE catalog_name = 'test/soak/events/alpha';"
 #   - must NOT contain 'inferredSchemaIsNotAvailable' (placeholder gone)
 #   - 'seq' under flow://inferred-schema has a 'maximum' (doc-inferred, widened)
 #   - 'id' and 'oracle/seq' have no bounds (sourced, stable)
 ```
 
-(The L1 collection `ops/rollups/L1/public/local-cluster/inferred-schemas` carries the same
+(The L1 collection `ops/rollups/L1/public/<data-plane>/inferred-schemas` carries the same
 `test/soak/*` documents, but reading it needs `ops/` access — use the `inferred_schemas`
 table above, which `stats-view` materializes it into.)
 
 ### Caveats and knobs
 
-- **Preview ordering.** `flowctl --profile local preview` of the derivation or ledger inlines
+- **Preview ordering.** `flowctl preview` (the profile is ambient via mise) of the derivation or ledger inlines
   the inferred schema from the control plane, so it only works **after** the published stack
   has converged; on a fresh stack it inlines the placeholder and every read fails. Capture
   preview is unaffected (captures don't read). Re-publishing `test/soak/` bumps the collection
@@ -307,128 +308,92 @@ table above, which `stats-view` materializes it into.)
 
 ## Setup
 
-Install the Python deps into the in-project venv (`.venv`, gitignored; `poetry.toml` pins
-it in-project so the wrapper finds it):
+The poetry project lives at the **repo root** (not here in `tests/soak/`). Install Python
+dependencies into its in-project venv (`.venv`, gitignored; the root `poetry.toml` pins it
+in-project so the wrapper finds it):
 
 ```bash
-cd ~/estuary/flow && poetry install --no-root
+# From the repo root:
+poetry install --no-root
 ```
 
-**Materialization target.** `views` writes to the local stack's own **`supabase_db_flow`**
-(db/user/password all `postgres`) in a dedicated `soak` schema, wiped by `supabase db reset`
-on each stack start (ephemeral — re-published next run). It needs no extra wiring: both at
-Validate time and at runtime the connector runs on the `supabase_network_flow` Docker network
-and reaches `supabase_db_flow:5432` directly — see `local/README.md` ("Connectors run on the
-Supabase Docker network").
+**Materialization target.** `views` writes to the local stack's own Supabase Postgres —
+addressed by the stable network alias **`db`** (db/user/password all `postgres`) — in a
+dedicated `soak` schema, wiped by `supabase db reset` on each stack start (ephemeral —
+re-published next run). It needs no extra wiring: both at Validate time and at runtime the
+connector runs on the stack's `supabase_network_<stack>` Docker network and reaches `db:5432`
+directly — see `local/README.md` ("Connectors run on the Supabase Docker network").
 
 ## Running
 
-### In-process (`flowctl raw preview-next`)
-
-Fastest loop: `runtime-next` in-process, no reactor/publish/auth (see
-`plans/runtime-v2/preview-harness.md`).
-
-```bash
-FLOWCTL=~/cargo-target/debug/flowctl
-
-# Single unbounded session, stop after 4s.
-"$FLOWCTL" raw preview-next --source tests/soak/capture/flow.yaml \
-  --name test/soak/source --sessions=-1 --timeout 4s
-
-# Cross-session exactly-once: 3 sessions × 3 txns over one persistent RocksDB tempdir.
-"$FLOWCTL" raw preview-next --source tests/soak/capture/flow.yaml \
-  --name test/soak/source --sessions 3,3,3 --timeout 30s
-
-# Shard scale-out: N synthetic shards split the u32 space into disjoint windows.
-# (Lower `idRange` in the config to force seq>0 reuse.)
-"$FLOWCTL" raw preview-next --source tests/soak/capture/flow.yaml \
-  --name test/soak/source --shards 4 --sessions=-1 --timeout 4s
-```
-
-The `accounts` derivation and `ledger` also run under preview-next, with two extra
-requirements. They are **image connectors** (derive-typescript needs Docker/Deno/a musl
-`flow-connector-init` entrypoint — see the preview-harness doc), and — unlike the capture
-— they **read source journals from the local stack**, so the upstream tasks must already
-be published and running (below) and the read must be authenticated against the stack
-(tenant token, `--profile local`, and the local CA — see `local/README.md`):
-
-```bash
-set -a; . ~/flow-local/test-tenant-test.env; set +a
-export SSL_CERT_FILE=~/flow-local/ca.crt
-
-# Derivation — union, in-order, oracle, conservation. Add --shards N for real cross-shard
-# Flush scatter/gather; --sessions 3,3,3 for the cross-session exactly-once probe.
-"$FLOWCTL" --profile local raw preview-next --source tests/soak/derivation/flow.yaml \
-  --name test/soak/accounts --sessions=-1 --timeout 8s
-
-# Ledger — Loads, max-keys/exists, oracle integrity, StartedCommit→Acknowledge
-# conservation. Same --shards / --sessions variations apply.
-"$FLOWCTL" --profile local raw preview-next --source tests/soak/materialization/ledger.flow.yaml \
-  --name test/soak/ledger --sessions=-1 --timeout 8s
-```
-
-Verify a derivation run by scanning its published stream for `ok: false` / `violation`
-and stderr for ERROR; verify a ledger run by grepping stderr for ERROR. (The derivation's
-output combiner emits ~2 docs/key/txn by design, and multi-shard runs may emit an
-occasional empty `["...",]` line — both nondeterministic preview quirks, not defects.)
-
-### Published to a local data plane
-
-Higher fidelity: the published `enable-runtime-v2` labels route every task through the V2
-reactor apps; derive/materialize also register `leader.*` handlers on the sidecar
-(`curl -s localhost:8061/debug/handlers.json | jq '.live[].kind'` confirms V2 routing).
+`FLOW_STACK_DIR`, `FLOWCTL_PROFILE`, and `flowctl` itself are ambient inside the checkout
+via mise (see `local/README.md` if your shell lacks them).
 
 ```bash
 # One-time per stack reset: (re-)provision the `test` tenant, then publish the chain.
 mise run local:test-tenant --tenant test --user alice@example.com
-set -a; . ~/flow-local/test-tenant-test.env; set +a
-FLOWCTL=~/cargo-target/debug/flowctl
-"$FLOWCTL" --profile local catalog publish --source tests/soak/flow.yaml --auto-approve
+set -a; . "$FLOW_STACK_DIR/test-tenant-test.env"; set +a
+flowctl catalog publish --source tests/soak/flow.yaml --auto-approve
 
 # Read connector ops logs (set SSL_CERT_FILE first, or you'll see TLS UnknownIssuer):
 export SSL_CERT_FILE=~/flow-local/ca.crt
-"$FLOWCTL" --profile local logs --task test/soak/ledger --since 30m | grep -i error
+flowctl logs --task test/soak/ledger --since 30m | grep -i error
 
 # Read a task's per-transaction ops stats:
-"$FLOWCTL" --profile local raw stats --task test/soak/accounts --since 5m -o json
+flowctl raw stats --task test/soak/accounts --since 5m -o json
 ```
 
 A published capture runs continuously. Disable it by republishing with
-`shards: {disable: true}`, or `flowctl --profile local catalog delete --prefix test/soak/`.
+`shards: {disable: true}`, or `flowctl catalog delete --prefix test/soak/
+--dangerous-auto-approve` (the flag skips the interactive confirmation, which
+aborts in non-TTY shells).
 
-#### Verifying the materialized tables
+### Verifying
 
-Once `views` is running, the `soak` schema fills in `supabase_db_flow`; query it through
-the host-mapped port. All checks hold *continuously* (MVCC always hands a query a
+#### Reported Violations
+
+Derivation `test/soak/accounts` and materialization `test/soak/ledger` both self-verify
+report violations through their task logs. `../accounts` additionally reports violations
+as published documents.
+
+#### Materialized Tables
+
+Once `views` is running, the `soak` schema fills in the stack's Supabase Postgres (`db`);
+query it through the host-mapped port. All checks hold *continuously* (MVCC always hands a query a
 committed, balanced snapshot), so there's no need to pause the capture.
 
 ```bash
-PG='psql postgresql://postgres:postgres@localhost:5432/postgres -tAc'
+PG() { psql "$FLOW_PG_URL" -tAc "$@"; }
 
 # 1. Conservation (standard): real balances sum to exactly 0.
-$PG "SELECT COALESCE(SUM(balance),0) FROM soak.soak_accounts WHERE id >= 0;"            # => 0
+PG "SELECT COALESCE(SUM(balance),0) FROM soak.soak_accounts WHERE id >= 0;"             # => 0
 
 # 2. Oracle-vs-computed (standard): every reduced {seq,set,balance} equals the oracle.
-$PG "SELECT count(*) FROM soak.soak_accounts WHERE id >= 0
+PG "SELECT count(*) FROM soak.soak_accounts WHERE id >= 0
        AND (ok IS NOT TRUE OR balance <> \"oracle/balance\"
          OR seq <> \"oracle/seq\" OR (\"set\")::jsonb <> (\"oracle/set\")::jsonb);"      # => 0
 
 # 3. No violation sentinels (negative id) reached the sink.
-$PG "SELECT id, \"violation/sum\" FROM soak.soak_accounts WHERE id < 0;"                # => (none)
+PG "SELECT id, \"violation/sum\" FROM soak.soak_accounts WHERE id < 0;"                 # => (none)
 
 # 4. Conservation (delta): latest balance per id, then sum.
-$PG "SELECT COALESCE(SUM(balance),0) FROM
+PG "SELECT COALESCE(SUM(balance),0) FROM
        (SELECT DISTINCT ON (id) id, balance FROM soak.soak_accounts_delta
           WHERE id >= 0 ORDER BY id, seq DESC) latest;"                                # => 0
 
 # 5. Oracle-vs-computed on EVERY delta row (not just the latest).
-$PG "SELECT count(*) FROM soak.soak_accounts_delta WHERE id >= 0
+PG "SELECT count(*) FROM soak.soak_accounts_delta WHERE id >= 0
        AND (ok IS NOT TRUE OR balance <> \"oracle/balance\"
          OR seq <> \"oracle/seq\" OR (\"set\")::jsonb <> (\"oracle/set\")::jsonb);"      # => 0
 
 # 6. Standard vs delta agree: latest delta snapshot per id matches the standard row.
-$PG "SELECT s.id FROM soak.soak_accounts s
+PG "SELECT s.id FROM soak.soak_accounts s
        JOIN LATERAL (SELECT balance, seq FROM soak.soak_accounts_delta d
                        WHERE d.id = s.id ORDER BY seq DESC LIMIT 1) d ON true
        WHERE s.id >= 0 AND (s.balance <> d.balance OR s.seq <> d.seq);"                # => (none)
 ```
+
+### Debugging
+
+derive/materialize also register `leader.*` handlers on the sidecar
+(`curl -s localhost:${FLOW_SIDECAR_PORT}/debug/handlers.json | jq '.live[].kind'` confirms V2 routing).
