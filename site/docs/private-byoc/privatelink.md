@@ -138,12 +138,24 @@ For Azure private or BYOC deployments, we can establish connections to your endp
 
 You will need to create an [Azure Private Link Service](https://learn.microsoft.com/en-us/azure/private-link/private-link-service-overview) which also requires having an [Azure Load Balancer](https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-overview) in front of the services you intend to expose. After creating these resources, make sure your LoadBalancer is able to route traffic correctly to your instances. You can check this by looking at the Monitoring -> Metrics page of your LoadBalancer and checking for its Health Probe Status.
 
-Once you have your Private Link Service set up, we need these details from you to establish the connection. Send them to your Estuary point of contact:
+### Connecting to a native Azure resource
 
-* The service URI, like `/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service`; this can be found by navigating to the private link service's details page in your Azure Portal and copying the URL
+If the resource you want to connect to already supports Private Link directly (for example Azure SQL Database, Azure SQL Managed Instance, or a Storage Account), you don't need to create your own Private Link Service or Load Balancer. Instead, send us the resource ID of the PaaS resource itself as the service URI, along with its **sub-resource type** (Azure calls this a "group ID"), so the private endpoint targets the right capability of the resource. Common values:
+
+* `sqlServer` for Azure SQL Database
+* `managedInstance` for Azure SQL Managed Instance
+* `blob` for Blob Storage (other Storage sub-resources include `file`, `queue`, and `table`)
+
+See the [Private Link resource types documentation](https://learn.microsoft.com/en-us/azure/private-link/private-endpoint-overview#private-link-resource) for the full list of sub-resource types by service.
+
+Once you have your Private Link Service (or PaaS resource) ready, we need these details from you to establish the connection. Send them to your Estuary point of contact:
+
+* The service URI, like `/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service`; this can be found by navigating to the private link service's (or resource's) details page in your Azure Portal and copying the URL
 * Location for the private endpoint, like `westus`
+* If connecting to a native Azure resource rather than your own Private Link Service, its sub-resource type, like `sqlServer` or `blob`
+* Optionally, a DNS name you'd like to use to reach the endpoint, like `mydb.database.windows.net`. If provided, we'll create a private DNS zone with this name in your data plane's network and point it at the private endpoint, so the hostname resolves automatically
 
-After establishing the connection we will give you a private IP address which you can use to connect to your endpoint when setting up your task on the Estuary web app.
+After establishing the connection we will give you a private IP address (and a resolvable hostname, if you gave us a DNS name) which you can use to connect to your endpoint when setting up your task on the Estuary web app.
 
 ## GCP Private Service Connect
 
