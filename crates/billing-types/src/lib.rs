@@ -159,6 +159,26 @@ impl InvoiceSearch<'_> {
     }
 }
 
+/// This represents the payment type that's used within our tenants table.
+#[derive(
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Eq,
+    Ord,
+    Hash,
+    Copy,
+    sqlx::Type,
+)]
+#[sqlx(type_name = "payment_provider_type", rename_all = "lowercase")]
+pub enum PaymentProvider {
+    Stripe,
+    External,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

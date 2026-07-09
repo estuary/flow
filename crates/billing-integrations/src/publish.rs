@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use billing_types::{
-    InvoiceMetadata, InvoiceSearch, InvoiceType, SearchParams, TENANT_METADATA_KEY,
-    customer_create_idempotency_key, customer_search_query, stripe_search,
+    InvoiceMetadata, InvoiceSearch, InvoiceType, PaymentProvider, SearchParams,
+    TENANT_METADATA_KEY, customer_create_idempotency_key, customer_search_query, stripe_search,
 };
 use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
@@ -120,15 +120,6 @@ impl InvoiceResult {
             InvoiceResult::Error => "Error publishing invoices".to_string(),
         }
     }
-}
-
-#[derive(
-    Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Copy, sqlx::Type,
-)]
-#[sqlx(type_name = "payment_provider_type", rename_all = "lowercase")]
-enum PaymentProvider {
-    Stripe,
-    External,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, sqlx::FromRow)]

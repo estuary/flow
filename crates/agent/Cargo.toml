@@ -14,6 +14,7 @@ activate = { path = "../activate" }
 allocator = { path = "../allocator" }
 async-process = { path = "../async-process" }
 automations = { path = "../automations" }
+billing-types = { path = "../billing-types" }
 build = { path = "../build" }
 control-plane-api = { path = "../control-plane-api" }
 coroutines = { path = "../coroutines" }
@@ -81,7 +82,9 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 assemble = { path = "../assemble" }
-control-plane-api = { path = "../control-plane-api", features = ["test-support"] }
+control-plane-api = { path = "../control-plane-api", features = [
+    "test-support",
+] }
 insta = { workspace = true }
 md5 = { workspace = true }
 tokio = { workspace = true }

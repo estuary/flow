@@ -117,6 +117,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "base64 0.22.1",
+ "billing-types",
  "build",
  "bytes",
  "chrono",

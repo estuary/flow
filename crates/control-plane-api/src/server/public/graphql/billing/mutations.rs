@@ -109,6 +109,7 @@ impl BillingMutation {
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
 
+        wake_tenant_controller(&env.pg_pool, tenant.as_str()).await?;
         let primary_payment_method = billing::default_payment_method_id(&updated_customer)
             .and_then(|id| methods.iter().find(|m| m.id.as_str() == id))
             .map(PaymentMethod::from);
@@ -212,6 +213,16 @@ impl BillingMutation {
             primary_payment_method,
         })
     }
+}
+
+async fn wake_tenant_controller(pool: &sqlx::PgPool, tenant_name: &str) -> anyhow::Result<()> {
+    sqlx::query!(
+        "SELECT internal.wake_tenant_controller($1::TEXT)",
+        tenant_name
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, SimpleObject)]
