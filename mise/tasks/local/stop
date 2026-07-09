@@ -4,6 +4,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/reap-lib.sh"
 ensure_stack_env
 
 NAME="${FLOW_STACK_NAME}"
@@ -15,8 +16,9 @@ echo "Stopping stack '${NAME}' services..."
 # <dp>-<port> where the dp name belongs to this stack's data-plane family
 # ${FLOW_CLUSTER} (e.g. flow-gazette@local-<name>-cluster-10200); ${FLOW_CLUSTER}
 # starts with `local-` because the control plane requires it, so it — not the
-# raw stack name — is what scopes the data-plane units. The registry entry is
-# intentionally retained (allocation is sticky); use local:stack-release to free.
+# raw stack name — is what scopes the data-plane units. The registry entry and
+# build cache are intentionally retained (allocation is sticky); a slot is freed
+# only by deleting the checkout, which local:stack-prune then reclaims.
 systemctl --user stop \
     "flow-*@${NAME}.service" \
     "flow-*@${NAME}.target" \
@@ -75,7 +77,13 @@ for _ in 1 2 3 4 5; do
     sleep 2
 done
 
-echo "Stack '${NAME}' stopped and its state removed."
-echo "  Unit templates and the stack registry are left intact."
-echo "  Free the registry slot with: mise run local:stack-release"
+# Stopping is cheap and reversible: this stack KEEPS its registry slot and its
+# build cache, so a later start is instant. Releasing them happens only when the
+# checkout itself is deleted — so garbage-collect any that have been, now.
+reap_gone_locked "${FLOW_LOCAL}/stacks.tsv" "${FLOW_LOCAL}/stacks.lock" || true
+
+echo "Stack '${NAME}' stopped and its runtime state removed."
+echo "  Its registry slot and build cache are kept for an instant restart."
+echo "  To release them, delete this git worktree — it is reclaimed"
+echo "  automatically the next time any checkout starts or stops a stack."
 echo "  Check remaining units with: systemctl --user list-units 'flow-*'"

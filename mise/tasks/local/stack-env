@@ -55,6 +55,10 @@ _se_lock="${_se_flow_local}/stacks.lock"
 mkdir -p "${_se_flow_local}" 2>/dev/null \
     || _se_die "cannot create ${_se_flow_local} — check permissions"
 
+# The stack garbage collector. Sourced (defines functions only, no side effects)
+# so the allocation path below can reclaim slots of deleted checkouts.
+source "$(dirname "${BASH_SOURCE[0]}")/reap-lib.sh"
+
 # Sanitize the checkout basename into a stack name: lowercase, non [a-z0-9-]
 # -> '-', collapse repeats, trim leading/trailing '-', clip to 40 chars. A data
 # plane is named `local-<name>-cluster` (see FLOW_CLUSTER below), so
@@ -86,6 +90,16 @@ _se_lookup_or_allocate() {
                 exit 0
             fi
         fi
+
+        # This checkout is new. Before claiming a slot, reclaim any belonging to
+        # checkouts that have since been deleted — the sole release signal is a
+        # gone directory. This is what makes "delete a worktree, switch to the
+        # next" self-clean, and lets a registry full of removed checkouts heal
+        # itself instead of dead-ending on "no free index". Runs only on this
+        # (rare) new-checkout path; an already-registered checkout returned above
+        # and never pays for the scan. We already hold the lock, so call the
+        # un-locked variant.
+        reap_gone_entries "${_se_registry}"
 
         # Allocate the lowest free index in 0..15.
         local idx="" i
@@ -133,7 +147,7 @@ _se_alloc_rc=$?
 case "${_se_alloc_rc}" in
     0) IFS=$'\t' read -r _se_index _se_name _se_new <<<"${_se_alloc}" ;;
     2) _se_die "cannot lock ${_se_lock} — check permissions" ;;
-    3) _se_die "no free stack index (0..15 all taken); run 'mise run local:stack-release' in an unused checkout" ;;
+    3) _se_die "no free stack index: all 16 (0..15) are live checkouts. Remove a git worktree you're done with — its slot is reclaimed automatically the next time any checkout starts or stops a stack." ;;
     4) _se_die "cannot write registry ${_se_registry} — check permissions" ;;
     *) _se_die "stack allocation failed (code ${_se_alloc_rc})" ;;
 esac

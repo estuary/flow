@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Reclaim slots of checkouts that were deleted (idempotent; also auto-run at stack joints)"
+#
+# Scans the stack registry and reclaims every entry whose checkout directory no
+# longer exists — stopping its orphaned units and freeing its slot, disk, and
+# volumes. That gone directory is the ONE and ONLY release signal: a stopped-
+# but-present checkout keeps its slot and build cache untouched.
+#
+# Idempotent and safe to run anytime. It is invoked automatically at natural
+# joints (local:stack, local:stop), so you rarely run it by hand — the intended
+# flow is simply: delete a worktree when done, and it is reclaimed in the
+# background the next time you start or stop a stack anywhere.
+
+source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/reap-lib.sh"
+ensure_stack_env
+
+REGISTRY="${FLOW_LOCAL}/stacks.tsv"
+
+if [ ! -f "${REGISTRY}" ]; then
+    echo "No registry present; nothing to reclaim."
+    exit 0
+fi
+
+before="$(wc -l < "${REGISTRY}")"
+reap_gone_locked "${REGISTRY}" "${FLOW_LOCAL}/stacks.lock"
+reclaimed=$(( before - $(wc -l < "${REGISTRY}") ))
+
+if [ "${reclaimed}" -le 0 ]; then
+    echo "Nothing to reclaim; every registered checkout still exists."
+else
+    echo "Reclaimed ${reclaimed} deleted checkout(s); their slots are free for reuse."
+fi

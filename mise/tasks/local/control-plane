@@ -71,7 +71,7 @@ systemctl --user start "flow-control-plane@${NAME}.target"
 # Generate this stack's flowctl profile. Every stack's profile needs explicit
 # URLs: flowctl no longer compiles in any local defaults (ports are per-stack and
 # dynamic). URLs are refreshed on every start because a checkout's index (and
-# thus its ports) can change across local:stack-release re-allocations; a prior
+# thus its ports) can change across re-allocations after a slot is reclaimed; a prior
 # `flowctl --profile ${NAME} login` may have stored tokens we must preserve, so
 # when a profile already exists we merge new URLs into it rather than overwrite.
 PROFILE_DIR="${HOME}/.config/flowctl"
