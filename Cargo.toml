@@ -286,9 +286,20 @@ lto = "thin"
 # for GitHub Actions caching. Use "full" if you want an actual debugger.
 debug = "none"
 strip = "debuginfo"
-incremental = true
+
+# Disable incremental compilation. Two reasons:
+# - sccache (RUSTC_WRAPPER) refuses to cache incremental compiles, so with
+#   incremental ON only third-party deps get cache hits and the workspace crates
+#   bypass sccache entirely. Off, they hit the shared sccache cache too.
+# - The per-crate incremental/ dir is large and inherently checkout-specific
+#   (it churns every rebuild), so it dominates each stack's target-dir footprint
+#   while sharing nothing across checkouts. Net: faster cold and
+#   checkout-switching rebuilds via sccache, and a much smaller target dir,
+#   at the cost of slower same-crate warm rebuilds within a single checkout.
+incremental = false
+
 lto = "off"
-opt-level = 1       # Basic optimization. As fast to build as none.
+opt-level = 1 # Basic optimization. As fast to build as none.
 
 [patch.'crates-io']
 

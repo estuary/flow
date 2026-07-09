@@ -1,29 +1,81 @@
 #!/usr/bin/env bash
-#MISE description="Stop all Flow development services"
+#MISE description="Stop this stack's Flow services and clean up its state (scoped)"
 
 set -euo pipefail
 
-echo "Stopping all flow-* systemd services..."
-systemctl --user stop 'flow-*' 2>/dev/null || true
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
 
-# Clean up linked and generated systemd files.
-rm -r "${HOME}/.config/systemd/user" || true
-# Clean up control plane builds.
-rm -r "${HOME}/flow-local/builds/" || true
-# Clean up environment files generated for systemd units.
-rm -r "${HOME}/flow-local/env" || true
-# Clean up Etcd data directory.
-rm -r "${HOME}/flow-local/etcd/" || true
-# Clean up gazette journal fragments.
-rm -r "${HOME}/flow-local/fragments/" || true
-# Clean up test tenant credentials. The glob is left unquoted so the shell
-# expands it; quoting it would pass a literal `*` that matches nothing.
-rm -rf "${HOME}"/flow-local/test-tenant-* || true
+NAME="${FLOW_STACK_NAME}"
 
-# Reload to drop unit files.
+echo "Stopping stack '${NAME}' services..."
+
+# Stop only this stack's units. Control-plane units are instanced on the exact
+# stack name (flow-supabase@${NAME}). Data-plane units are instanced on
+# <dp>-<port> where the dp name belongs to this stack's data-plane family
+# ${FLOW_CLUSTER} (e.g. flow-gazette@local-<name>-cluster-10200); ${FLOW_CLUSTER}
+# starts with `local-` because the control plane requires it, so it — not the
+# raw stack name — is what scopes the data-plane units. The registry entry is
+# intentionally retained (allocation is sticky); use local:stack-release to free.
+systemctl --user stop \
+    "flow-*@${NAME}.service" \
+    "flow-*@${NAME}.target" \
+    "flow-*@${FLOW_CLUSTER}.service" \
+    "flow-*@${FLOW_CLUSTER}.target" \
+    "flow-*@${FLOW_CLUSTER}-*.service" \
+    "flow-*@${FLOW_CLUSTER}-*.target" 2>/dev/null || true
+
+# Remove only this stack's drop-in topology and generated env files.
+rm -rf "${HOME}/.config/systemd/user/flow-"*"@${NAME}.service.d" \
+       "${HOME}/.config/systemd/user/flow-"*"@${NAME}.target.d" \
+       "${HOME}/.config/systemd/user/flow-"*"@${FLOW_CLUSTER}.service.d" \
+       "${HOME}/.config/systemd/user/flow-"*"@${FLOW_CLUSTER}.target.d" \
+       "${HOME}/.config/systemd/user/flow-"*"@${FLOW_CLUSTER}-"*.service.d \
+       "${HOME}/.config/systemd/user/flow-"*"@${FLOW_CLUSTER}-"*.target.d 2>/dev/null || true
+# The globs are left unquoted so the shell expands them.
+rm -f "${FLOW_ENV_DIR}"/*"-${NAME}.env" \
+      "${FLOW_ENV_DIR}"/*"-${FLOW_CLUSTER}.env" \
+      "${FLOW_ENV_DIR}"/*"-${FLOW_CLUSTER}-"*.env 2>/dev/null || true
+
+# Remove this stack's private runtime state (etcd data, fragments, builds,
+# test-tenant credentials). TLS material and the registry are shared/retained.
+#
+# Deliberately KEEP ${FLOW_STACK_DIR}/.supabase-started: the supabase postgres
+# volume survives `supabase stop`, so the sentinel is what makes the next
+# `supabase start` run `db reset` and give a clean, freshly-migrated database.
+# Removing it would leave the next start on the "first start" path (no reset),
+# silently resurrecting this stack's stale catalog state.
+rm -rf "${FLOW_STACK_DIR}/etcd" \
+       "${FLOW_STACK_DIR}/fragments" \
+       "${FLOW_STACK_DIR}/builds" 2>/dev/null || true
+rm -f "${FLOW_STACK_DIR}"/test-tenant-*.env 2>/dev/null || true
+
+# Reload to drop the removed drop-ins, and clear failed state for this stack.
 systemctl --user daemon-reload
-# Reset failed units to clear their state.
-systemctl --user reset-failed flow-*
+systemctl --user reset-failed \
+    "flow-*@${NAME}.service" \
+    "flow-*@${NAME}.target" \
+    "flow-*@${FLOW_CLUSTER}.service" \
+    "flow-*@${FLOW_CLUSTER}.target" \
+    "flow-*@${FLOW_CLUSTER}-*.service" \
+    "flow-*@${FLOW_CLUSTER}-*.target" 2>/dev/null || true
 
-echo "All Flow services stopped."
-echo "Check remaining services with: systemctl --user list-units 'flow-*'"
+# Best-effort: drop this stack's now-idle Supabase Docker network, which
+# `supabase stop` sometimes leaves behind. Stack-scoped by name. The daemon can
+# report the network busy for a few seconds after the containers exit (endpoints
+# still detaching), so retry briefly; if it still won't go, leave it — a later
+# stop (or manual `docker network rm`) reaps it.
+for _ in 1 2 3 4 5; do
+    if docker network rm "supabase_network_${NAME}" >/dev/null 2>&1; then
+        break
+    fi
+    if ! docker network inspect "supabase_network_${NAME}" >/dev/null 2>&1; then
+        break # already gone
+    fi
+    sleep 2
+done
+
+echo "Stack '${NAME}' stopped and its state removed."
+echo "  Unit templates and the stack registry are left intact."
+echo "  Free the registry slot with: mise run local:stack-release"
+echo "  Check remaining units with: systemctl --user list-units 'flow-*'"

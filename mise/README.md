@@ -106,21 +106,35 @@ This starts:
 
 - Supabase (database, auth, edge functions)
 - Control plane agent and config-encryption service
-- A `local-cluster` data plane with 4 gazette brokers and 1 reactor
+- A `local-<stack>-cluster` data plane with 4 gazette brokers and 1 reactor
 - Links the data plane to the control plane
 
-Check service status:
+Add `--dekaf` to also start the Dekaf Kafka shim (it is off by default). It ends
+by printing a stack card; run `mise run local:stack-info` any time for this
+stack's full port map, units, and ready-to-paste commands.
+
+Each checkout (the primary clone or a linked git worktree) gets its own fully
+isolated **stack** with its own ports, database, and build artifacts, so several
+can run at once. Every checkout follows identical rules — there is no
+special/canonical stack. The primary clone is stack `flow`; a worktree's name is
+its directory basename, and each allocates the lowest free index. See
+[`local/README.md`](../local/README.md) for the stack model, the
+`base(i) = 10000 + 1000·index` port rule, and the registry. RAM bounds
+concurrency to roughly two full stacks per 16 GiB.
+
+Check service status (`mise run local:stack-info` prints the exact names; stack
+`flow`, index 0, shown):
 
 ```bash
-systemctl --user list-dependencies flow-control-plane.target
-systemctl --user list-dependencies flow-plane@local-cluster.target
+systemctl --user list-dependencies flow-control-plane@flow.target
+systemctl --user list-dependencies flow-plane@local-flow-cluster.target
 ```
 
 View logs:
 
 ```bash
-journalctl --user -u flow-control-agent -f
-journalctl --user -u flow-gazette@local-cluster-8000 -f
+journalctl --user -u flow-control-agent@flow -f
+journalctl --user -u flow-gazette@local-flow-cluster-10200 -f
 ```
 
 ### Run CI Tests Locally
@@ -139,7 +153,11 @@ This runs format checks, builds, and all test suites in the same order as CI.
 mise run local:stop
 ```
 
-This stops all services and cleans up generated state. Advanced users can stop individual components via systemd (e.g., `systemctl --user stop flow-plane@local-cluster.target`).
+This stops **this stack's** services and cleans up its generated state, leaving
+any other stacks (and the shared unit templates and TLS material) untouched. The
+registry slot is retained across stop/start; `mise run local:stack-release` frees
+it. Advanced users can stop individual components via systemd (e.g.,
+`systemctl --user stop flow-plane@local-flow-cluster.target`).
 
 ### Deleting VMs
 
@@ -166,18 +184,26 @@ The [Estuary UI](https://github.com/estuary/ui) runs on your host and connects t
 
 ```bash
 # From your HOST (not the VM)
-mise run vm:port-forward lima-tiger         # Lima VM (note: SSH uses lima- prefix)
-mise run vm:port-forward dev-<you>-panther  # GCP instance
+mise run vm:port-forward lima-tiger              # sole stack on the host (no arg)
+mise run vm:port-forward dev-<you>-panther       # sole stack on the GCP instance
+mise run vm:port-forward dev-<you>-panther myfix # a specific stack named 'myfix'
 ```
 
-This forwards:
+The optional second argument selects which stack to forward; if the host has
+exactly one stack you can omit it. The task reads the remote registry to resolve
+the stack's index (hence its ports) and forwards in **two modes**:
 
-- Supabase (PostgREST, Postgres, Studio, Mailpit) on ports 5431-5434
-- Control plane agent (8675) and config-encryption (8765)
-- Data plane brokers (8000-8003) and reactors (8098-8099)
-- Cockpit system UI (9090)
+- **Remap** — the classic laptop ports map to this stack's real ports, for
+  fixed-address clients (saved psql/Studio/Mailpit bookmarks, the UI dev-server
+  `.env`): laptop `5431→api`, `5432→db`, `5433→studio`, `5434→mailpit`,
+  `8675→agent`, `8765→config-enc`. This belongs to one stack at a time.
+- **Identity** — this stack's real ports forward to themselves, for
+  advertisement-following clients (`flowctl` over `*.flow.localhost`): api, db,
+  agent, config-encryption, plane-0 brokers/reactors/sidecar-admin/dekaf, and
+  cockpit 9090.
 
-Leave the port-forward running while developing with the UI.
+Pass `--no-remap` to forward a second stack alongside (identity sets never
+collide). Leave the port-forward running while developing with the UI.
 
 ### Claude Code in VM
 
@@ -287,7 +313,9 @@ mise tasks
 
 | Task                             | Description                                                 |
 | -------------------------------- | ----------------------------------------------------------- |
-| `local:stack`                    | Start full control plane + data plane                       |
+| `local:stack [--dekaf]`          | Start full control plane + data plane (Dekaf opt-in)        |
+| `local:stack-env`                | Print this checkout's stack env (index, name, ports, paths) |
+| `local:stack-release`            | Stop this stack and free its registry index for reuse       |
 | `local:control-plane`            | Start control plane only                                    |
 | `local:data-plane <name> <port>` | Start a data plane                                          |
 | `local:data-plane-controller`    | Start data-plane-controller (service + job) in dry-run mode |
@@ -295,8 +323,7 @@ mise tasks
 | `local:seed-controller-job`      | Seed a controller job to trigger data plane converge        |
 | `local:supabase`                 | Start Supabase only                                         |
 | `local:bigtable`                 | Start BigTable emulator only                                |
-| `local:stop`                     | Stop all services and clean up                              |
-| `local:dekaf`                    | Start Dekaf against local stack                             |
+| `local:stop`                     | Stop this stack's services and clean up its state           |
 | `local:dekaf-kafka`              | Start local Kafka for Dekaf testing                         |
 
 ### CI Tasks

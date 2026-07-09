@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Stop this stack and release its registry slot (index) for reuse"
+
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
+
+NAME="${FLOW_STACK_NAME}"
+REGISTRY="${FLOW_LOCAL}/stacks.tsv"
+LOCKFILE="${FLOW_LOCAL}/stacks.lock"
+ROOT="$(flow_repo_root)"
+
+# Stop the stack first: releasing the slot while it runs would let another
+# checkout claim the index and collide on ports.
+mise run local:stop
+
+if [ ! -f "${REGISTRY}" ]; then
+    echo "No registry present; nothing to release."
+    exit 0
+fi
+
+# Remove this checkout's line under the shared lock.
+(
+    flock 9
+    tmp="$(mktemp "${FLOW_LOCAL}/stacks.tsv.XXXXXX")"
+    awk -F'\t' -v r="${ROOT}" '$3 != r' "${REGISTRY}" > "${tmp}"
+    mv "${tmp}" "${REGISTRY}"
+) 9>"${LOCKFILE}"
+
+# Reclaim this stack's build artifacts — the largest thing it leaves behind (tens
+# of GB), pure build output regenerated on the next build. Guarded so an empty or
+# short value can't escalate into an rm of $HOME or all of ~/cargo-target.
+if [ -n "${CARGO_TARGET_DIR:-}" ] \
+    && [ "${CARGO_TARGET_DIR}" != "${HOME}/cargo-target" ] \
+    && [ -d "${CARGO_TARGET_DIR}" ]; then
+    echo "Reclaiming build artifacts at ${CARGO_TARGET_DIR} ..."
+    rm -rf "${CARGO_TARGET_DIR}"
+fi
+
+# Reclaim this stack's Supabase Docker volumes, which `supabase stop` (run by the
+# local:stop above) deliberately preserves. Volumes are `supabase_<component>_<id>`
+# with id == this stack's name; names never contain '_' (stack-env sanitizes to
+# [a-z0-9-]), so the segment after the final '_' is exactly the id — match it
+# precisely so 'flow' can't reap 'flow-2'.
+if command -v docker >/dev/null 2>&1; then
+    while IFS= read -r _vol; do
+        [ "${_vol##*_}" = "${NAME}" ] || continue
+        docker volume rm "${_vol}" >/dev/null
+    done < <(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '^supabase_' || true)
+fi
+
+# Drop this stack's private state dir; with the volume gone its retained
+# .supabase-started sentinel is meaningless. Shared TLS and the registry live in
+# ${FLOW_LOCAL}, not here. Guarded like the target dir.
+if [ -n "${FLOW_STACK_DIR:-}" ] \
+    && [ "${FLOW_STACK_DIR}" != "${FLOW_LOCAL}" ] \
+    && [ -d "${FLOW_STACK_DIR}" ]; then
+    rm -rf "${FLOW_STACK_DIR}"
+fi
+
+echo "Released stack '${NAME}' (checkout ${ROOT}) from the registry."
+echo "Its index is now free for reuse. The next mise invocation here will"
+echo "re-allocate a slot for this checkout (and rebuild from scratch)."
