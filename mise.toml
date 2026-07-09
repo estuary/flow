@@ -68,6 +68,15 @@ CGO_CPPFLAGS = """
 
 RUSTC_WRAPPER = "sccache"
 
+# Place the Go build cache under ~/cargo-target so that inside VMs it lands on
+# the compressed, deduplicated btrfs filesystem (see
+# mise/tasks/bootstrap/cargo-target-fs). Go stores this cache uncompressed, so
+# btrfs's single compression pass does real work on it.
+#
+# SCCACHE_DIR is deliberately NOT moved here. sccache already zstd-compresses
+# every cache entry itself.
+GOCACHE = "{{ env.HOME }}/cargo-target/.go-build"
+
 # Resolve this checkout's local-stack identity (index, name, ports, paths) and
 # make its FLOW_* / CARGO_TARGET_DIR / GOBIN / CGO_LDFLAGS variables ambient for
 # everything run inside the checkout: mise tasks, CI, and bare `cargo build`,
