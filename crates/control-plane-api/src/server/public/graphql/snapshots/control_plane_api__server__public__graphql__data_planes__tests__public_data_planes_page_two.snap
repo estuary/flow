@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+expression: page_two
+---
+{
+  "data": {
+    "publicDataPlanes": {
+      "edges": [
+        {
+          "node": {
+            "name": "ops/dp/public/gcp-us-central1-c2"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "ops/dp/public/gcp-us-central1-c2",
+        "hasNextPage": true
+      }
+    }
+  }
+}

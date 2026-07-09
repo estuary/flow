@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+expression: page_one
+---
+{
+  "data": {
+    "publicDataPlanes": {
+      "edges": [
+        {
+          "node": {
+            "name": "ops/dp/public/aws-us-west-2-c1"
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "ops/dp/public/aws-us-west-2-c1",
+        "hasNextPage": true
+      }
+    }
+  }
+}
