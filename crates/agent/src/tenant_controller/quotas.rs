@@ -61,8 +61,7 @@ async fn do_update_quotas(
         return Ok(());
     }
     // Check this first because its possible for us to error out while communicating with
-    // the billing provider, and it's possible for the customer to not exist within
-    // stripe as well.
+    // the billing provider, it's possible for the customer to not exist.
     if tenant.payment_provider == Some(PaymentProvider::External) {
         let did_update = update_tenant_quotas_by_name(pool, &tenant.tenant).await?;
         if did_update {
@@ -261,8 +260,7 @@ mod tests {
     )]
     async fn quota_update_success_set_in_db(pool: sqlx::PgPool) {
         // Isolate the `payment_provider = External` path: the customer has NO
-        // default payment method configured, so `has_default_payment_configured`
-        // is false and the External flag is the only reason quotas get raised.
+        // default payment method configured but is configured inside of stripe.
         let provider = InMemoryBillingProvider::new();
         provider.add_customer(TENANT_1, CUSTOMER_ID, None);
 
