@@ -161,7 +161,7 @@ pub async fn create_data_plane(
             on conflict do nothing
             "#,
             &prefix as &str,
-            &[models::authz::CapabilityBundle::ManageDataPlane]
+            &[models::authz::CapabilityBundle::ManageDataPlanes]
                 as &[models::authz::CapabilityBundle],
             &[] as &[models::authz::CapabilityBundle],
         )

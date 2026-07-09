@@ -183,7 +183,7 @@ mod tests {
         use models::authz::CapabilityBundle;
 
         // Two user grants at the same prefix carrying disjoint
-        // bundles (Editor and TeamAdmin share no bits). The
+        // bundles (Edit and ManageUsers share no bits). The
         // per-prefix CapabilitySet observed via reachable_prefixes
         // is the union of the two bundles' bits.
         let ug = tables::UserGrants::from_iter(vec![
@@ -191,13 +191,13 @@ mod tests {
                 user_id: ALICE,
                 object_role: models::Prefix::new("acmeCo/"),
                 capability: models::Capability::None,
-                bundles: vec![CapabilityBundle::Editor],
+                bundles: vec![CapabilityBundle::Edit],
             },
             tables::UserGrant {
                 user_id: ALICE,
                 object_role: models::Prefix::new("acmeCo/"),
                 capability: models::Capability::None,
-                bundles: vec![CapabilityBundle::TeamAdmin],
+                bundles: vec![CapabilityBundle::ManageUsers],
             },
         ]);
         let rg = tables::RoleGrants::new();
@@ -205,7 +205,7 @@ mod tests {
         let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
         assert_eq!(
             reachable["acmeCo/"].0,
-            CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
+            CapabilityBundle::Edit.capabilities() | CapabilityBundle::ManageUsers.capabilities(),
         );
     }
 
@@ -214,8 +214,8 @@ mod tests {
         use models::authz::CapabilityBundle;
 
         // Alice is admin on acmeCo/. Two role grants reach
-        // sharedCo/ from acmeCo/ carrying disjoint bundles (Editor
-        // and TeamAdmin share no bits). At sharedCo/, the BFS
+        // sharedCo/ from acmeCo/ carrying disjoint bundles (Edit
+        // and ManageUsers share no bits). At sharedCo/, the BFS
         // emits a NodeRef per role grant, and reachable_prefixes
         // unions their bits into a single per-prefix CapabilitySet.
         let ug = tables::UserGrants::from_iter(vec![tables::UserGrant {
@@ -229,20 +229,20 @@ mod tests {
                 subject_role: models::Prefix::new("acmeCo/"),
                 object_role: models::Prefix::new("sharedCo/"),
                 capability: models::Capability::None,
-                bundles: vec![CapabilityBundle::Editor],
+                bundles: vec![CapabilityBundle::Edit],
             },
             tables::RoleGrant {
                 subject_role: models::Prefix::new("acmeCo/"),
                 object_role: models::Prefix::new("sharedCo/"),
                 capability: models::Capability::None,
-                bundles: vec![CapabilityBundle::TeamAdmin],
+                bundles: vec![CapabilityBundle::ManageUsers],
             },
         ]);
 
         let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, ALICE);
         assert_eq!(
             reachable["sharedCo/"].0,
-            CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
+            CapabilityBundle::Edit.capabilities() | CapabilityBundle::ManageUsers.capabilities(),
         );
     }
 
@@ -264,7 +264,7 @@ mod tests {
                 user_id: ALICE,
                 object_role: models::Prefix::new("acmeCo/data/"),
                 capability: models::Capability::None,
-                bundles: vec![CapabilityBundle::Writer],
+                bundles: vec![CapabilityBundle::Write],
             },
         ]);
         let rg = tables::RoleGrants::new();

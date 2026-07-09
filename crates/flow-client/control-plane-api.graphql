@@ -404,13 +404,13 @@ enum CapabilityBit {
 }
 
 enum CapabilityBundle {
-	Viewer
-	Writer
-	Editor
+	View
+	Write
+	Edit
 	Admin
-	Billing
-	TeamAdmin
-	ManageDataPlane
+	ManageBilling
+	ManageUsers
+	ManageDataPlanes
 	Delegate
 	Assume
 }

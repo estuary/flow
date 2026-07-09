@@ -54,13 +54,13 @@ impl std::fmt::Display for Capability {
     graphql(rename_items = "PascalCase")
 )]
 pub enum CapabilityBundle {
-    Viewer,
-    Writer,
-    Editor,
+    View,
+    Write,
+    Edit,
     Admin,
-    Billing,
-    TeamAdmin,
-    ManageDataPlane,
+    ManageBilling,
+    ManageUsers,
+    ManageDataPlanes,
     Delegate,
     Assume,
 }
@@ -74,10 +74,10 @@ impl CapabilityBundle {
             // trust (it's what authorizes deploying tasks into the plane),
             // so viewing the plane's private-networking configuration comes
             // with it. Mutating that configuration stays in the separately
-            // granted `ManageDataPlane` bundle.
-            Self::Viewer => CatalogRead | JournalRead | ViewDataPlanePrivateNetworking,
-            Self::Writer => Self::Viewer.capabilities() | JournalAppend,
-            // `Editor` is the bundle for users who exercise authority
+            // granted `ManageDataPlanes` bundle.
+            Self::View => CatalogRead | JournalRead | ViewDataPlanePrivateNetworking,
+            Self::Write => Self::View.capabilities() | JournalAppend,
+            // `Edit` is the bundle for users who exercise authority
             // over a catalog namespace, not just observe it:
             // - `SpecEdit`: publish or modify specs at this prefix.
             // - `Delegate`: enters the user's `user_grant` into the
@@ -93,7 +93,7 @@ impl CapabilityBundle {
             //   same graph the eventual running task does. `Delegate`
             //   is per-grant rather than implied by any capability so
             //   that different bundles can take different positions on
-            //   chaining: `Viewer` deliberately omits it so view access
+            //   chaining: `View` deliberately omits it so view access
             //   to `acmeCo/` does not silently leak through to every
             //   upstream `acmeCo/` consumes from (the `C reads B reads
             //   A` privacy case). Editors opt in because they're the
@@ -103,23 +103,23 @@ impl CapabilityBundle {
             // - `JournalRead` grants an editor the ability to test or preview the
             //   tasks they author (e.g. `flowctl preview` against a
             //   derivation under edit).
-            // - `CatalogRead` (inherited from `Viewer`): on a separate
+            // - `CatalogRead` (inherited from `View`): on a separate
             //   axis from the bits above. Included because editing
             //   without seeing the model is awkward, not because of
             //   functional coupling.
-            Self::Editor => CatalogRead | JournalRead | SpecEdit | Delegate,
+            Self::Edit => CatalogRead | JournalRead | SpecEdit | Delegate,
             Self::Admin => {
-                Self::Editor.capabilities()
-                    // Because Editor doesn't bundle `JournalAppend`,
+                Self::Edit.capabilities()
+                    // Because `Edit` doesn't bundle `JournalAppend`,
                     // and we haven't unbundled things from Admin yet
-                    | Self::Writer.capabilities()
-                    | Self::TeamAdmin.capabilities()
-                    | Self::Billing.capabilities()
-                    | Self::ManageDataPlane.capabilities()
+                    | Self::Write.capabilities()
+                    | Self::ManageUsers.capabilities()
+                    | Self::ManageBilling.capabilities()
+                    | Self::ManageDataPlanes.capabilities()
             }
-            Self::Billing => ViewBilling | EditBilling,
-            Self::TeamAdmin => CreateGrant | DeleteGrant | CreateInviteLink,
-            Self::ManageDataPlane => {
+            Self::ManageBilling => ViewBilling | EditBilling,
+            Self::ManageUsers => CreateGrant | DeleteGrant | CreateInviteLink,
+            Self::ManageDataPlanes => {
                 ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking
             }
             Self::Delegate => Delegate.into(),
@@ -131,8 +131,8 @@ impl CapabilityBundle {
 pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
     match capability {
         super::Capability::None => CapabilitySet::empty(),
-        super::Capability::Read => CapabilityBundle::Viewer.capabilities(),
-        super::Capability::Write => CapabilityBundle::Writer.capabilities(),
+        super::Capability::Read => CapabilityBundle::View.capabilities(),
+        super::Capability::Write => CapabilityBundle::Write.capabilities(),
         super::Capability::Admin => CapabilityBundle::Admin.capabilities(),
     }
 }

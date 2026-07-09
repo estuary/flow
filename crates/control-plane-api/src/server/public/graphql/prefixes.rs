@@ -253,7 +253,7 @@ mod tests {
                 &serde_json::json!({
                     "query": r#"
                     query {
-                        prefixes(by: { withCapability: Editor }) {
+                        prefixes(by: { withCapability: Edit }) {
                             edges {
                                 node {
                                     prefix
@@ -277,7 +277,7 @@ mod tests {
             .expect("edges array");
         assert!(
             !edges.is_empty(),
-            "withCapability: Editor should return prefixes: {response}"
+            "withCapability: Edit should return prefixes: {response}"
         );
 
         // Supplying both the deprecated and the new input is rejected.
@@ -286,7 +286,7 @@ mod tests {
                 &serde_json::json!({
                     "query": r#"
                     query {
-                        prefixes(by: { minCapability: read, withCapability: Editor }) {
+                        prefixes(by: { minCapability: read, withCapability: Edit }) {
                             edges { node { prefix } }
                         }
                     }

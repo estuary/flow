@@ -643,11 +643,11 @@ mod tests {
     }
 
     // A caller with only legacy `read` on the DP prefix can view the
-    // private-networking fields (the `Viewer` bundle carries
+    // private-networking fields (the `View` bundle carries
     // `ViewDataPlanePrivateNetworking`, because `read` on a data-plane
     // prefix already conveys deploy-level trust) but cannot mutate them:
     // `ModifyDataPlanePrivateNetworking` only comes via the separately
-    // granted `ManageDataPlane` bundle.
+    // granted `ManageDataPlanes` bundle.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(
@@ -776,7 +776,7 @@ mod tests {
 
         let dp = "ops/dp/private/aliceCo/aws-us-east-1-c1";
 
-        // View still resolves: `read` -> Viewer -> ViewDataPlanePrivateNetworking
+        // View still resolves: `read` -> View -> ViewDataPlanePrivateNetworking
         // does not depend on the cleared bundle.
         let view: serde_json::Value = server
             .graphql(
