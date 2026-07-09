@@ -1,0 +1,32 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+expression: response
+---
+{
+  "data": {
+    "publicDataPlanes": {
+      "edges": [
+        {
+          "cursor": "ops/dp/public/aws-us-west-2-c1",
+          "node": {
+            "cloudProvider": "AWS",
+            "name": "ops/dp/public/aws-us-west-2-c1",
+            "region": "us-west-2"
+          }
+        },
+        {
+          "cursor": "ops/dp/public/gcp-us-central1-c2",
+          "node": {
+            "cloudProvider": "GCP",
+            "name": "ops/dp/public/gcp-us-central1-c2",
+            "region": "us-central1"
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "hasPreviousPage": false
+      }
+    }
+  }
+}

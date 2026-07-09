@@ -1465,6 +1465,50 @@ input ProtocolFilter {
 }
 
 """
+A public data plane, as visible to unauthenticated callers.
+"""
+type PublicDataPlane {
+	"""
+	Name of this data-plane under the catalog namespace.
+	"""
+	name: String!
+	"""
+	Cloud provider where this data-plane is hosted.
+	"""
+	cloudProvider: DataPlaneCloudProvider!
+	"""
+	Cloud region where this data-plane is hosted.
+	For example: "us-east-1" (AWS), "us-central1" (GCP), "eastus" (Azure).
+	"""
+	region: String!
+}
+
+type PublicDataPlaneConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [PublicDataPlaneEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type PublicDataPlaneEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: PublicDataPlane!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
 Summary of a publication that was attempted by a controller.
 """
 type PublicationInfo {
@@ -1585,6 +1629,16 @@ type QueryRoot {
 	Only data planes the user has at least read capability to are returned.
 	"""
 	dataPlanes(after: String, before: String, first: Int, last: Int): DataPlaneConnection!
+	"""
+	Returns all public data planes.
+	
+	This query requires no authentication. It exposes only the name, cloud
+	provider, and region of public data planes, so that account-creation
+	flows can offer a data-plane selection before the user has signed up.
+	
+	Results are paginated and sorted by name.
+	"""
+	publicDataPlanes(after: String, before: String, first: Int, last: Int): PublicDataPlaneConnection!
 	"""
 	List invite links the caller has admin access to.
 	
