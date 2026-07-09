@@ -73,7 +73,9 @@ for a checkout prints one line to stderr. Consequently:
   env causes fingerprint churn in the shared per-stack dir.)
 
 The first mise use in a fresh worktree allocates its slot (cheap, idempotent,
-sticky across stop/start). `mise run local:stack-release` frees the slot.
+sticky across stop/start). You release a slot by **deleting the worktree**; it
+is reclaimed automatically the next time any checkout starts or stops a stack
+(or on demand via `mise run local:stack-prune`).
 
 ## The port rule is load-bearing
 
@@ -192,33 +194,42 @@ a machine-global namespace, so the **most recently started stack's templates
 win**; restart other stacks after changing a template. Keep templates minimal to
 make divergence rare.
 
-## `local:stop` is scoped; `local:stack-release` frees the slot
+## `local:stop` is cheap; deleting the worktree is what releases a stack
 
 `local:stop` is a stack-scoped guillotine — it stops only *this* stack's units,
 removes only this stack's drop-ins, env files, and runtime state
 (`~/flow-local/<name>/{etcd,fragments,builds}` and `test-tenant-*.env`), and
 `reset-failed`s only this stack. It **never** `rm -r ~/.config/systemd/user`,
 leaves the shared TLS material and unit template symlinks in place, and
-**retains the registry entry** (allocation is sticky).
+**retains the registry entry, build artifacts, and supabase docker volumes**.
 
-It deliberately **keeps `~/flow-local/<name>/.supabase-started`**: the supabase
-postgres volume survives `supabase stop`, so that sentinel is what makes the
-next start run `db reset` for a clean, freshly-migrated database. (Removing it
-would drop the next start onto the first-start path — no reset — silently
-resurrecting stale catalog state from the surviving volume.)
-
-```bash
-mise run local:stop            # stop + wipe THIS stack's state; keep its slot
-mise run local:stack-release   # stop, then free the registry index for reuse
-```
-
-Independence: with two stacks up, stopping one leaves the other's units, DB,
-etcd, fragments, and flowctl profile untouched. `systemctl --user restart
+With two stacks up, stopping one leaves the other's units, DB, etcd, fragments,
+and flowctl profile untouched. `systemctl --user restart
 flow-supabase@<stack>` wipes only that stack's DB (see below).
 
 Also note: `flow-plane-link@<dp>.service` has an `ExecStop=` that deletes
 `live_specs` + the data plane row from Postgres. That fires whenever the link
 service stops — even on a tidy `systemctl stop flow-plane@<dp>.target`.
+
+### Release a stack by deleting its worktree
+
+The whole lifecycle is:
+
+```bash
+git worktree add ../feature-x     # first mise use here grabs a free slot
+# ...develop, mise run local:stack, etc...
+git worktree remove ../feature-x  # (or plain rm -rf) — that's the release
+```
+
+The removed checkout's slot, build cache, state dir, and Supabase volumes are
+reclaimed by `local:stack-prune`, which is idempotent and **runs automatically**
+at natural joints (`local:stack` and `local:stop`) so starting work in a *new*
+worktree cleans up ones you've deleted. Run it by hand with `mise run local:stack-prune`.
+
+Reclaiming a deleted checkout **stops its orphaned units first**: `git worktree
+remove` does not stop a running stack's `systemd --user` units, and handing that
+index to a new checkout while they still hold their ports would collide.
+
 
 ## Supabase: first start vs every subsequent start
 
@@ -380,13 +391,6 @@ With a single stack on the host you can omit `[stack]`. It:
 
 Use `--no-remap` to forward a second stack alongside (identity sets never
 collide; the classic remap set belongs to one stack).
-
-## How many stacks fit?
-
-RAM bounds concurrency: roughly 2.5–4 GiB per full stack, so a 16 GiB VM runs 2,
-maybe 3 — not the 16-slot cap. CPU contention between concurrent cargo builds is
-inherent. Bigger VM shapes are the fix. Stale registry entries from deleted
-worktrees hold a slot until `local:stack-release`, but are otherwise harmless.
 
 ## Standalone helpers
 

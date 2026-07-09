@@ -155,9 +155,11 @@ mise run local:stop
 
 This stops **this stack's** services and cleans up its generated state, leaving
 any other stacks (and the shared unit templates and TLS material) untouched. The
-registry slot is retained across stop/start; `mise run local:stack-release` frees
-it. Advanced users can stop individual components via systemd (e.g.,
-`systemctl --user stop flow-plane@local-flow-cluster.target`).
+registry slot and build cache are retained across stop/start, so restarting is
+cheap. A slot is released only by **deleting its worktree**, after which
+`local:stack-prune` reclaims it (automatically run on stack start/stop).
+Advanced users can stop individual components via systemd
+(e.g., `systemctl --user stop flow-plane@local-flow-cluster.target`).
 
 ### Deleting VMs
 
@@ -315,7 +317,7 @@ mise tasks
 | -------------------------------- | ----------------------------------------------------------- |
 | `local:stack [--dekaf]`          | Start full control plane + data plane (Dekaf opt-in)        |
 | `local:stack-env`                | Print this checkout's stack env (index, name, ports, paths) |
-| `local:stack-release`            | Stop this stack and free its registry index for reuse       |
+| `local:stack-prune`              | Reclaim slots of deleted checkouts (auto-run at stack joints) |
 | `local:control-plane`            | Start control plane only                                    |
 | `local:data-plane <name> <port>` | Start a data plane                                          |
 | `local:data-plane-controller`    | Start data-plane-controller (service + job) in dry-run mode |

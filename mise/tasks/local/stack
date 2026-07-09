@@ -6,7 +6,13 @@ set -euo pipefail
 #USAGE flag "--dekaf" help="Also start Dekaf for the default data plane"
 
 source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/reap-lib.sh"
 ensure_stack_env
+
+# Opportunistically reclaim slots of checkouts deleted since we last looked.
+# Quiet unless something is actually reaped; starting a stack is a natural joint
+# to garbage-collect worktrees you've removed.
+reap_gone_locked "${FLOW_LOCAL}/stacks.tsv" "${FLOW_LOCAL}/stacks.lock" || true
 
 DP_NAME="${FLOW_CLUSTER}"
 DBURL="${FLOW_PG_URL}"

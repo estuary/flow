@@ -261,6 +261,30 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
     // local anon api_key default). Local-stack ports are dynamic, so a local
     // deployment must pass API_ENDPOINT/AGENT_ENDPOINT explicitly — the
     // local:data-plane task does this in the generated dekaf env file.
+    //
+    // Guard the surprising case of `--local` with no endpoint: clap would
+    // otherwise fall through to the *production* defaults, pointing a local anon
+    // token at prod. A real local stack's endpoint is never the prod URL, so an
+    // unchanged prod default under `--local` is always a mistake — fail loud.
+    if cli.local {
+        if cli.api_endpoint == *DEFAULT_PG_URL {
+            bail!(
+                "--local requires an explicit API_ENDPOINT (or --api-endpoint): \
+                 local-stack ports are dynamic, so there is no local default. Run \
+                 dekaf via `mise run local:data-plane`, or set API_ENDPOINT to your \
+                 stack's PostgREST URL (see `mise run local:stack-info`)."
+            );
+        }
+        if cli.agent_endpoint == *DEFAULT_AGENT_URL {
+            bail!(
+                "--local requires an explicit AGENT_ENDPOINT (or --agent-endpoint): \
+                 local-stack ports are dynamic, so there is no local default. Run \
+                 dekaf via `mise run local:data-plane`, or set AGENT_ENDPOINT to your \
+                 stack's agent URL (see `mise run local:stack-info`)."
+            );
+        }
+    }
+
     let (api_endpoint, api_key) = (cli.api_endpoint, cli.api_key);
 
     let user_agent = format!("dekaf-{}", env!("CARGO_PKG_VERSION"));
