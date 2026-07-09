@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Print everything about this checkout's stack: ports, units, and ready-to-paste commands"
+
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
+
+B="${FLOW_STACK_BASE}"
+PB="${FLOW_PLANE_BASE}"
+
+echo "Stack '${FLOW_STACK_NAME}'  (index ${FLOW_STACK_INDEX}, ports ${B}-$((B + 999)))"
+echo "  checkout : $(flow_repo_root)"
+echo "  state dir: ${FLOW_STACK_DIR}"
+echo "  data plane (FLOW_CLUSTER): ${FLOW_CLUSTER}"
+echo "  cargo target: ${CARGO_TARGET_DIR}"
+echo ""
+
+echo "Ports (last three digits identify the service uniformly across all stacks):"
+printf '  %-22s %s\n' "etcd client / peer" "${FLOW_PORT_ETCD} / ${FLOW_PORT_ETCD_PEER}"
+printf '  %-22s %s\n' "dashboard (site_url)" "${FLOW_PORT_DASHBOARD}"
+printf '  %-22s %s\n' "supabase api" "${FLOW_PORT_SUPABASE_API}"
+printf '  %-22s %s\n' "supabase db" "${FLOW_PORT_SUPABASE_DB}"
+printf '  %-22s %s\n' "supabase studio" "${FLOW_PORT_SUPABASE_STUDIO}"
+printf '  %-22s %s\n' "supabase mailpit" "${FLOW_PORT_SUPABASE_MAILPIT}"
+printf '  %-22s %s\n' "agent" "${FLOW_PORT_AGENT}"
+printf '  %-22s %s\n' "config-encryption" "${FLOW_PORT_CONFIG_ENC}"
+printf '  %-22s %s\n' "bigtable emulator" "${FLOW_PORT_BIGTABLE}"
+printf '  %-22s %s\n' "dekaf kafka / ctrl" "${FLOW_PORT_KAFKA} / ${FLOW_PORT_KAFKA_CTRL}"
+printf '  %-22s %s\n' "plane 0 base" "${PB} (brokers ${PB}+, reactors ${PB}+99 down, dekaf +50/51/52, sidecar +60/61)"
+echo ""
+
+echo "Units for this stack:"
+UNITS="$(systemctl --user list-units --all --no-legend --no-pager \
+    "flow-*@${FLOW_STACK_NAME}.service" \
+    "flow-*@${FLOW_STACK_NAME}.target" \
+    "flow-*@${FLOW_CLUSTER}.service" \
+    "flow-*@${FLOW_CLUSTER}.target" \
+    "flow-*@${FLOW_CLUSTER}-*.service" \
+    "flow-*@${FLOW_CLUSTER}-*.target" 2>/dev/null \
+    | awk '{printf "  %-52s %s %s\n", $1, $3, $4}')"
+if [ -n "${UNITS}" ]; then
+    printf '%s\n' "${UNITS}"
+else
+    echo "  (none running — start with: mise run local:stack)"
+fi
+echo ""
+
+REACTOR_PORT=$((PB + 99))
+echo "Ready-to-paste commands:"
+echo "  psql \"\$FLOW_PG_URL\"                       # Supabase Postgres  localhost:${FLOW_PORT_SUPABASE_DB}"
+echo "  flowctl catalog list                       # FLOWCTL_PROFILE=${FLOW_STACK_NAME} is ambient here"
+echo "  export SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt   # per-command; needed for broker/reactor TLS calls"
+echo "  journalctl --user -u flow-reactor@${FLOW_CLUSTER}-${REACTOR_PORT} -f"
+echo "  mise run local:test-tenant && source ${FLOW_STACK_DIR}/test-tenant-test.env"
+echo ""
+
+print_stack_card
