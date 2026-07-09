@@ -8,7 +8,9 @@ set -euo pipefail
 #  * local-view                                  -> local/ops-publication.sh
 #  * ops-task-template                           -> flowctl (ops logs/stats reads)
 
-FLOWCTL="${CARGO_TARGET_DIR:-${HOME}/cargo-target}/debug/flowctl"
+# CARGO_TARGET_DIR is per-stack (from stack-env); mise is mandatory, so require
+# it rather than guessing the shared classic path.
+FLOWCTL="${CARGO_TARGET_DIR:?CARGO_TARGET_DIR is unset — run via 'mise run'}/debug/flowctl"
 
 # Canonicalize the repo root to match how flowctl canonicalizes source paths,
 # so the prefix we normalize below matches the `file://` ids flowctl emits.

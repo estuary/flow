@@ -1,0 +1,21 @@
+[Unit]
+Description=Flow BigTable Emulator (%i)
+Documentation=https://github.com/estuary/flow
+
+[Service]
+Type=simple
+
+EnvironmentFile=%h/flow-local/env/bigtable-%i.env
+
+# The emulator listens on the fixed container-internal 8086; the host-published
+# port is per-stack (FLOW_PORT_BIGTABLE), and the container name embeds %i so
+# stacks don't collide.
+ExecStart=docker run --rm --name flow-bigtable-%i \
+  -p ${FLOW_PORT_BIGTABLE}:8086 \
+  google/cloud-sdk:latest \
+  gcloud beta emulators bigtable start --host-port=0.0.0.0:8086
+
+ExecStop=-/bin/sh -c 'docker stop flow-bigtable-%i >/dev/null 2>&1 || true'
+
+Restart=on-failure
+RestartSec=5s

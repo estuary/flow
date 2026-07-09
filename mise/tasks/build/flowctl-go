@@ -13,13 +13,19 @@ fi
 VERSION=$(git describe --dirty --tags)
 DATE=$(date +%F-%T-%Z)
 
+# GOBIN is per-stack (from stack-env). mise is mandatory: fail rather than
+# silently writing to a shared ~/go/bin that this stack's units can't see and
+# that other worktrees would clobber.
+GOBIN="${GOBIN:?GOBIN is unset — run via 'mise run'; direct execution is unsupported}"
+mkdir -p "${GOBIN}"
+
 # The use of -ldflags plays an additional role beyond embedding version info:
 # it forces Go to re-link flowctl-go on every invocation, which is necessary to
 # pick up any changes to the linked libbindings.a. Go's build cache would otherwise
 # skip relinking if no Go source files changed.
 
 go build \
-    -o ${HOME}/go/bin/flowctl-go \
+    -o ${GOBIN}/flowctl-go \
     -v \
     -tags libsqlite3 \
 	-ldflags "-X go.gazette.dev/core/mainboilerplate.Version=${VERSION} -X go.gazette.dev/core/mainboilerplate.BuildDate=${DATE}" \

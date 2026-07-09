@@ -1,0 +1,15 @@
+[Unit]
+Description=Flow Config Encryption Service (%i)
+PartOf=flow-control-plane@%i.target
+
+[Service]
+Type=simple
+TimeoutStartSec=300
+
+EnvironmentFile=%h/flow-local/env/config-encryption-%i.env
+
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && cargo build -p config-encryption'
+ExecStart=sh -c 'exec ${CARGO_TARGET_DIR}/debug/flow-config-encryption'
+
+Restart=on-failure
+RestartSec=5s

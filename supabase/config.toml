@@ -1,10 +1,13 @@
-# A string used to distinguish different Supabase projects on the same host. Defaults to the working
-# directory name when running `supabase init`.
-project_id = "flow"
+# A string used to distinguish different Supabase projects on the same host.
+# Per-stack: resolved from FLOW_SUPABASE_PROJECT_ID (the stack name) by the
+# supabase CLI's env() substitution.
+# These env() refs are ambient via mise (mise/tasks/local/stack-env); an unset or
+# non-numeric port is a hard parse error (fail-loud), not a silent default.
+project_id = "env(FLOW_SUPABASE_PROJECT_ID)"
 
 [api]
 # Port to use for the API URL.
-port = 5431
+port = "env(FLOW_PORT_SUPABASE_API)"
 # Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
 # endpoints.
 schemas = ["public"]
@@ -16,26 +19,28 @@ max_rows = 1000
 
 [db]
 # Port to use for the local database URL.
-port = 5432
+port = "env(FLOW_PORT_SUPABASE_DB)"
 # The database major version to use. This has to be the same as your remote database's. Run `SHOW
 # server_version;` on the remote database to check.
 major_version = 15
 
 [studio]
 # Port to use for Supabase Studio.
-port = 5433
+port = "env(FLOW_PORT_SUPABASE_STUDIO)"
 
 # Email testing server. Emails sent with the local dev setup are not actually sent - rather, they
 # are monitored, and you can view the emails that would have been sent from the web interface.
 [inbucket]
 # Port to use for the email testing server web interface.
-port = 5434
+port = "env(FLOW_PORT_SUPABASE_MAILPIT)"
 
 [auth]
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://localhost:3000"
+site_url = "env(FLOW_SITE_URL)"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
+# env() does not work inside TOML arrays (supabase/cli#2774), so this stays static;
+# it only matters for OAuth redirects, which are unused locally.
 additional_redirect_urls = ["https://localhost:3000"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 seconds (one
 # week).
