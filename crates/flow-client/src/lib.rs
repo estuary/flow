@@ -61,14 +61,13 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_DASHBOARD_URL: url::Url = url::Url::parse("https://dashboard.estuary.dev/").unwrap();
     pub static ref DEFAULT_PG_URL: url::Url = url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap();
     pub static ref DEFAULT_CONFIG_ENCRYPTION_URL: url::Url = url::Url::parse("https://config-encryption.estuary.dev/").unwrap();
-
-    // Used only when profile is "local".
-    pub static ref LOCAL_AGENT_URL: url::Url = url::Url::parse("http://localhost:8675/").unwrap();
-    pub static ref LOCAL_DASHBOARD_URL: url::Url = url::Url::parse("http://localhost:3000/").unwrap();
-    pub static ref LOCAL_PG_URL: url::Url = url::Url::parse("http://localhost:5431/rest/v1").unwrap();
-    pub static ref LOCAL_CONFIG_ENCRYPTION_URL: url::Url = url::Url::parse("http://localhost:8765/").unwrap();
 }
 
+// Local-stack endpoint URLs are no longer compiled in: each stack's ports are
+// dynamic (see mise/tasks/local/stack-env) and reach consumers through
+// generated flowctl profiles and systemd env files. The token/HMAC/FQDN
+// constants below are stack-invariant and are still referenced by generated
+// profiles and test fixtures, so they remain.
 pub const DEFAULT_PG_PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
 pub const LOCAL_PG_PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 pub const LOCAL_DATA_PLANE_HMAC: &str = "c3VwZXJzZWNyZXQ=";
