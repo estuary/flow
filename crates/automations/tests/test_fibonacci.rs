@@ -20,8 +20,12 @@ const DEQUEUE_INTERVAL: Duration = Duration::from_secs(5);
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(10);
 // Amount of time each poll sleeps before responding.
 const SLEEP_FOR: Duration = Duration::from_secs(0);
-// Database under test.
-const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+// Database under test. The local stack's Postgres port is dynamic (one stack
+// per checkout), so the URL comes from FLOW_PG_URL (set by
+// mise/tasks/local/stack-env). Run this test via mise so the env is set.
+fn fixed_database_url() -> String {
+    std::env::var("FLOW_PG_URL").expect("FLOW_PG_URL must be set — run via 'mise run'")
+}
 
 #[tokio::test]
 async fn test_fibonacci_bench() {
@@ -34,7 +38,7 @@ async fn test_fibonacci_bench() {
         .finish();
     let _ = tracing::subscriber::set_global_default(subscriber);
 
-    let pool = sqlx::postgres::PgPool::connect(&FIXED_DATABASE_URL)
+    let pool = sqlx::postgres::PgPool::connect(&fixed_database_url())
         .await
         .expect("connect");
 

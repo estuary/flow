@@ -40,7 +40,13 @@ use tokio::sync::Semaphore;
 
 use self::connectors::MockDiscoverConnectors;
 
-const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+// The local stack's Postgres port is dynamic (one stack per checkout), so the
+// URL comes from FLOW_PG_URL (set by mise/tasks/local/stack-env). Run these
+// integration tests via mise (e.g. `mise run ...`) so the ambient env is set.
+fn fixed_database_url() -> String {
+    std::env::var("FLOW_PG_URL")
+        .expect("FLOW_PG_URL must be set — run integration tests via 'mise run'")
+}
 
 pub fn set_of(names: &[&str]) -> BTreeSet<String> {
     names.into_iter().map(|n| n.to_string()).collect()
@@ -212,7 +218,7 @@ impl HarnessBuilder {
             .finish();
         let _ = tracing::subscriber::set_global_default(subscriber);
 
-        let pool = sqlx::PgPool::connect(FIXED_DATABASE_URL)
+        let pool = sqlx::PgPool::connect(&fixed_database_url())
             .await
             .expect("Failed to connect to database");
 
