@@ -58,3 +58,49 @@ begin
 
 end;
 $$ language plpgsql;
+
+create function tests.test_tenant_controller_payment_provider()
+returns setof text as $$
+declare
+  v_task_id public.flowid;
+begin
+
+  -- Inserting a tenant auto-creates a controller task; it starts un-woken and
+  -- defaults to the 'stripe' payment provider.
+  insert into tenants (tenant) values ('acmeCo/');
+  select controller_task_id into v_task_id from tenants where tenant = 'acmeCo/';
+
+  -- Setting the provider to 'external' wakes the controller and enqueues a wake
+  -- message on its task inbox.
+  update tenants set payment_provider = 'external' where tenant = 'acmeCo/';
+  return query select ok(
+    (select wake_at is not null from internal.tasks where task_id = v_task_id),
+    'setting payment_provider to external wakes the controller'
+  );
+  return query select ok(
+    (select exists(
+       select 1 from internal.tasks, unnest(inbox) as msg
+       where task_id = v_task_id and (msg -> 1)::jsonb = '{"type":"wake"}'::jsonb
+     )),
+    'a wake message is enqueued on the controller task inbox'
+  );
+
+  -- A repeated no-op update (external -> external) must not re-wake the
+  -- controller: the IS DISTINCT FROM guard suppresses it.
+  update internal.tasks set wake_at = null where task_id = v_task_id;
+  update tenants set payment_provider = 'external' where tenant = 'acmeCo/';
+  return query select ok(
+    (select wake_at is null from internal.tasks where task_id = v_task_id),
+    'a no-op payment_provider update does not re-wake the controller'
+  );
+
+  -- Transitioning away from external (external -> stripe) must not wake the
+  -- controller: the trigger only fires when the new value is 'external'.
+  update tenants set payment_provider = 'stripe' where tenant = 'acmeCo/';
+  return query select ok(
+    (select wake_at is null from internal.tasks where task_id = v_task_id),
+    'changing payment_provider away from external does not wake the controller'
+  );
+
+end;
+$$ language plpgsql;
