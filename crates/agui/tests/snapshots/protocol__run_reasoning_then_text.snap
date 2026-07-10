@@ -1,0 +1,68 @@
+---
+source: crates/agui/tests/protocol.rs
+expression: events
+---
+[
+  {
+    "type": "RUN_STARTED",
+    "threadId": "t-1",
+    "runId": "r-reason"
+  },
+  {
+    "type": "REASONING_MESSAGE_START",
+    "messageId": "r-reason-msg-1",
+    "role": "reasoning"
+  },
+  {
+    "type": "REASONING_MESSAGE_CONTENT",
+    "messageId": "r-reason-msg-1",
+    "delta": "Let me th"
+  },
+  {
+    "type": "REASONING_MESSAGE_CONTENT",
+    "messageId": "r-reason-msg-1",
+    "delta": "ink about"
+  },
+  {
+    "type": "REASONING_MESSAGE_CONTENT",
+    "messageId": "r-reason-msg-1",
+    "delta": " Boston."
+  },
+  {
+    "type": "REASONING_MESSAGE_END",
+    "messageId": "r-reason-msg-1"
+  },
+  {
+    "type": "TEXT_MESSAGE_START",
+    "messageId": "r-reason-msg-2",
+    "role": "assistant"
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "r-reason-msg-2",
+    "delta": "It i"
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "r-reason-msg-2",
+    "delta": "s 72"
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "r-reason-msg-2",
+    "delta": "F."
+  },
+  {
+    "type": "TEXT_MESSAGE_END",
+    "messageId": "r-reason-msg-2"
+  },
+  {
+    "type": "RUN_FINISHED",
+    "threadId": "t-1",
+    "runId": "r-reason",
+    "result": {
+      "stopReason": "end_turn",
+      "usage": {}
+    }
+  }
+]

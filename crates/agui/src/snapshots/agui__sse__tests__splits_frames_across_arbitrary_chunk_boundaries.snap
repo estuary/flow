@@ -1,0 +1,18 @@
+---
+source: crates/agui/src/sse.rs
+expression: frames
+---
+[
+    SseFrame {
+        event: Some(
+            "message_start",
+        ),
+        data: "{\"type\":\"message_start\"}",
+    },
+    SseFrame {
+        event: Some(
+            "ping",
+        ),
+        data: "{\"type\":\"ping\"}",
+    },
+]

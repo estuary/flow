@@ -11,6 +11,7 @@ license.workspace = true
 
 [dependencies]
 activate = { path = "../activate" }
+agui = { path = "../agui" }
 allocator = { path = "../allocator" }
 async-process = { path = "../async-process" }
 automations = { path = "../automations" }

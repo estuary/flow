@@ -1,0 +1,69 @@
+---
+source: crates/agui/tests/protocol.rs
+expression: events
+---
+[
+  {
+    "type": "RUN_STARTED",
+    "threadId": "t-1",
+    "runId": "r-tool"
+  },
+  {
+    "type": "TEXT_MESSAGE_START",
+    "messageId": "r-tool-msg-1",
+    "role": "assistant"
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "r-tool-msg-1",
+    "delta": "Che"
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "r-tool-msg-1",
+    "delta": "cki"
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "r-tool-msg-1",
+    "delta": "ng."
+  },
+  {
+    "type": "TEXT_MESSAGE_END",
+    "messageId": "r-tool-msg-1"
+  },
+  {
+    "type": "TOOL_CALL_START",
+    "toolCallId": "call_mock_1",
+    "toolCallName": "get_weather",
+    "parentMessageId": "r-tool-msg-1"
+  },
+  {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "call_mock_1",
+    "delta": "{\"locat"
+  },
+  {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "call_mock_1",
+    "delta": "ion\":\"B"
+  },
+  {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "call_mock_1",
+    "delta": "oston\"}"
+  },
+  {
+    "type": "TOOL_CALL_END",
+    "toolCallId": "call_mock_1"
+  },
+  {
+    "type": "RUN_FINISHED",
+    "threadId": "t-1",
+    "runId": "r-tool",
+    "result": {
+      "stopReason": "tool_use",
+      "usage": {}
+    }
+  }
+]

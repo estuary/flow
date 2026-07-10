@@ -1,0 +1,32 @@
+---
+source: crates/agui/src/anthropic.rs
+expression: collect_events(TEXT_AND_TOOL)
+---
+(
+    [
+        TextStart,
+        TextDelta(
+            "Let me check.",
+        ),
+        TextEnd,
+        ToolCallStart {
+            id: "toolu_abc",
+            name: "get_weather",
+        },
+        ToolCallArgsDelta(
+            "{\"loc",
+        ),
+        ToolCallArgsDelta(
+            "ation\":\"Boston\"}",
+        ),
+        ToolCallEnd,
+        Finished {
+            stop_reason: "tool_use",
+            usage: Object {
+                "input_tokens": Number(20),
+                "output_tokens": Number(32),
+            },
+        },
+    ],
+    None,
+)

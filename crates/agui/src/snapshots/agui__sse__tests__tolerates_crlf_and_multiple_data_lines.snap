@@ -1,0 +1,12 @@
+---
+source: crates/agui/src/sse.rs
+expression: frames
+---
+[
+    SseFrame {
+        event: Some(
+            "e",
+        ),
+        data: "line1\nline2",
+    },
+]

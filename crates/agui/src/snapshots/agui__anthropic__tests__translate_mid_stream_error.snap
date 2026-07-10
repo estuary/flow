@@ -1,0 +1,15 @@
+---
+source: crates/agui/src/anthropic.rs
+expression: collect_events(MID_STREAM_ERROR)
+---
+(
+    [
+        TextStart,
+        TextDelta(
+            "Partial",
+        ),
+    ],
+    Some(
+        "Anthropic stream error: Overloaded",
+    ),
+)

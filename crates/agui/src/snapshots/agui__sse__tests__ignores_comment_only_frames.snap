@@ -1,0 +1,10 @@
+---
+source: crates/agui/src/sse.rs
+expression: frames
+---
+[
+    SseFrame {
+        event: None,
+        data: "{\"type\":\"message_stop\"}",
+    },
+]

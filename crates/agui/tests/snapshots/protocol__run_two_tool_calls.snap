@@ -1,0 +1,63 @@
+---
+source: crates/agui/tests/protocol.rs
+expression: events
+---
+[
+  {
+    "type": "RUN_STARTED",
+    "threadId": "t-1",
+    "runId": "r-tools"
+  },
+  {
+    "type": "TOOL_CALL_START",
+    "toolCallId": "call_mock_1",
+    "toolCallName": "alpha"
+  },
+  {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "call_mock_1",
+    "delta": "{"
+  },
+  {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "call_mock_1",
+    "delta": "}"
+  },
+  {
+    "type": "TOOL_CALL_END",
+    "toolCallId": "call_mock_1"
+  },
+  {
+    "type": "TOOL_CALL_START",
+    "toolCallId": "call_mock_2",
+    "toolCallName": "beta"
+  },
+  {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "call_mock_2",
+    "delta": "{\"x"
+  },
+  {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "call_mock_2",
+    "delta": "\":1"
+  },
+  {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "call_mock_2",
+    "delta": "}"
+  },
+  {
+    "type": "TOOL_CALL_END",
+    "toolCallId": "call_mock_2"
+  },
+  {
+    "type": "RUN_FINISHED",
+    "threadId": "t-1",
+    "runId": "r-tools",
+    "result": {
+      "stopReason": "tool_use",
+      "usage": {}
+    }
+  }
+]

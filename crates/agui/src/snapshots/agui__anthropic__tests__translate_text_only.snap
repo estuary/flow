@@ -1,0 +1,24 @@
+---
+source: crates/agui/src/anthropic.rs
+expression: collect_events(TEXT_ONLY)
+---
+(
+    [
+        TextStart,
+        TextDelta(
+            "Hello",
+        ),
+        TextDelta(
+            " there",
+        ),
+        TextEnd,
+        Finished {
+            stop_reason: "end_turn",
+            usage: Object {
+                "input_tokens": Number(12),
+                "output_tokens": Number(5),
+            },
+        },
+    ],
+    None,
+)

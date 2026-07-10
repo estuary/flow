@@ -47,6 +47,12 @@ struct Args {
     #[derivative(Debug = "ignore")]
     #[clap(long = "stripe-api-key", env = "STRIPE_API_KEY")]
     stripe_api_key: Option<String>,
+    /// Anthropic API key. When provided, the AG-UI (agentic) endpoint is
+    /// enabled and backed by the Anthropic Messages API. Without it, that
+    /// endpoint reports that agentic features are not configured.
+    #[derivative(Debug = "ignore")]
+    #[clap(long = "anthropic-api-key", env = "ANTHROPIC_API_KEY")]
+    anthropic_api_key: Option<String>,
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
@@ -363,8 +369,12 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             )) as Arc<dyn control_plane_api::billing::BillingProvider>
         });
     let tenant_controller_billing_provider = billing_provider.clone();
+    let agui_provider: Option<Arc<dyn agui::Provider>> = args
+        .anthropic_api_key
+        .map(|api_key| Arc::new(agui::AnthropicProvider::new(api_key)) as Arc<dyn agui::Provider>);
     let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
+        agui_provider,
         billing_provider,
         jwt_secret.as_bytes(),
         pg_pool.clone(),

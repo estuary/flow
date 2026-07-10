@@ -104,6 +104,7 @@ name = "agent"
 version = "0.0.0"
 dependencies = [
  "activate",
+ "agui",
  "aide",
  "allocator",
  "anyhow",
@@ -174,6 +175,21 @@ dependencies = [
  "validator",
  "xxhash-rust",
  "zeroize",
+]
+
+[[package]]
+name = "agui"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "futures",
+ "insta",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2068,6 +2084,7 @@ name = "control-plane-api"
 version = "0.0.0"
 dependencies = [
  "activate",
+ "agui",
  "aide",
  "allocator",
  "anyhow",
@@ -7090,10 +7107,12 @@ dependencies = [
  "system-configuration 0.5.1",
  "tokio",
  "tokio-rustls 0.24.1",
+ "tokio-util",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "webpki-roots 0.25.4",
  "winreg",

@@ -1,0 +1,40 @@
+---
+source: crates/agui/tests/protocol.rs
+expression: parsed
+---
+RunAgentInput {
+    thread_id: "t-1",
+    run_id: "r-1",
+    parent_run_id: None,
+    state: Object {},
+    messages: [
+        User {
+            id: "u1",
+            content: Text(
+                "Hi, what's the weather in Boston?",
+            ),
+            name: None,
+        },
+    ],
+    tools: [
+        Tool {
+            name: "get_weather",
+            description: "Get current weather for a location",
+            parameters: Object {
+                "properties": Object {
+                    "location": Object {
+                        "type": String("string"),
+                    },
+                },
+                "required": Array [
+                    String("location"),
+                ],
+                "type": String("object"),
+            },
+            metadata: None,
+        },
+    ],
+    context: [],
+    forwarded_props: Object {},
+    resume: None,
+}

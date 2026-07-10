@@ -1,0 +1,44 @@
+---
+source: crates/agui/tests/protocol.rs
+expression: events
+---
+[
+  {
+    "type": "RUN_STARTED",
+    "threadId": "t-1",
+    "runId": "r-2"
+  },
+  {
+    "type": "TEXT_MESSAGE_START",
+    "messageId": "r-2-msg-1",
+    "role": "assistant"
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "r-2-msg-1",
+    "delta": "The weathe"
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "r-2-msg-1",
+    "delta": "r in Bosto"
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "r-2-msg-1",
+    "delta": "n is 72F."
+  },
+  {
+    "type": "TEXT_MESSAGE_END",
+    "messageId": "r-2-msg-1"
+  },
+  {
+    "type": "RUN_FINISHED",
+    "threadId": "t-1",
+    "runId": "r-2",
+    "result": {
+      "stopReason": "end_turn",
+      "usage": {}
+    }
+  }
+]

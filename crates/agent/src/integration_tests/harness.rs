@@ -1656,7 +1656,8 @@ impl TestHarness {
 
         let app = Arc::new(control_plane_api::App::new(
             id_gen,
-            None,
+            None, // agui_provider
+            None, // billing_provider
             &jwt_secret,
             self.pool.clone(),
             self.publisher.clone(),

@@ -1,6 +1,7 @@
 use axum::response::IntoResponse;
 use std::sync::Arc;
 
+mod agui;
 pub mod graphql;
 mod open_metrics;
 pub mod status;
@@ -66,6 +67,9 @@ pub(crate) fn api_v1_router(
             "/api/graphql",
             axum::routing::post(graphql::graphql_handler),
         )
+        // Registered as a plain (non-OpenAPI) route: the response is an SSE
+        // stream, not JSON, so it has no aide schema.
+        .route("/api/v1/agui", axum::routing::post(agui::handle_agui))
         .route("/graphiql", axum::routing::get(graphql::graphql_graphiql))
         // The openapi json is itself documented as an API route
         .api_route("/api/v1/openapi.json", aide::axum::routing::get(serve_docs))

@@ -34,6 +34,9 @@ pub enum Rejection {
 /// App is the wired application state of the control-plane API.
 pub struct App {
     pub _id_generator: std::sync::Mutex<models::IdGenerator>,
+    /// Optional LLM provider backing the AG-UI (agentic) endpoint. When `None`,
+    /// the endpoint returns `unavailable` rather than being routed at all.
+    pub agui_provider: Option<Arc<dyn agui::Provider>>,
     pub billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
     pub control_plane_jwt_decode_keys: Vec<tokens::jwt::DecodingKey>,
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
@@ -45,6 +48,7 @@ pub struct App {
 impl App {
     pub fn new(
         id_generator: models::IdGenerator,
+        agui_provider: Option<Arc<dyn agui::Provider>>,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
         jwt_secret: &[u8],
         pg_pool: sqlx::PgPool,
@@ -53,6 +57,7 @@ impl App {
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
+            agui_provider,
             billing_provider,
             control_plane_jwt_decode_keys: vec![tokens::jwt::DecodingKey::from_secret(jwt_secret)],
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),

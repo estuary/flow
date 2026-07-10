@@ -1,0 +1,63 @@
+---
+source: crates/agui/src/anthropic.rs
+expression: build_request_body(&request)
+---
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Weather in Boston?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Checking.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_1",
+          "input": {
+            "location": "Boston"
+          },
+          "name": "get_weather",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "unavailable",
+          "is_error": true,
+          "tool_use_id": "toolu_1",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-4-8",
+  "stream": true,
+  "system": "You are helpful.\n\nPrefer metric units.\n\nThe user has provided the following context:\n- current page: /dashboard\n- selected rows: 3",
+  "tools": [
+    {
+      "description": "Look up weather",
+      "input_schema": {
+        "properties": {
+          "location": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_weather"
+    }
+  ]
+}

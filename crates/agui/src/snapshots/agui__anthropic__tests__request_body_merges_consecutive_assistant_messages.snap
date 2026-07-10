@@ -1,0 +1,47 @@
+---
+source: crates/agui/src/anthropic.rs
+expression: build_request_body(&request)
+---
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Weather?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Let me check.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_9",
+          "input": {
+            "location": "Boston"
+          },
+          "name": "get_weather",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "72F",
+          "tool_use_id": "toolu_9",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-4-8",
+  "stream": true
+}

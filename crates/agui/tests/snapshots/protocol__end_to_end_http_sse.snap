@@ -1,0 +1,27 @@
+---
+source: crates/agui/tests/protocol.rs
+expression: raw
+---
+data: {"type":"RUN_STARTED","threadId":"t-1","runId":"r-http"}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"r-http-msg-1","role":"assistant"}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"r-http-msg-1","delta":"Hell"}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"r-http-msg-1","delta":"o wo"}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"r-http-msg-1","delta":"rld"}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"r-http-msg-1"}
+
+data: {"type":"TOOL_CALL_START","toolCallId":"call_mock_1","toolCallName":"get_weather","parentMessageId":"r-http-msg-1"}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"call_mock_1","delta":"{\"locat"}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"call_mock_1","delta":"ion\":\"B"}
+
+data: {"type":"TOOL_CALL_ARGS","toolCallId":"call_mock_1","delta":"oston\"}"}
+
+data: {"type":"TOOL_CALL_END","toolCallId":"call_mock_1"}
+
+data: {"type":"RUN_FINISHED","threadId":"t-1","runId":"r-http","result":{"stopReason":"tool_use","usage":{}}}

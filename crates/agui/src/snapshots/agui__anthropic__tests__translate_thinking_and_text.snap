@@ -1,0 +1,25 @@
+---
+source: crates/agui/src/anthropic.rs
+expression: collect_events(THINKING_AND_TEXT)
+---
+(
+    [
+        ReasoningStart,
+        ReasoningDelta(
+            "Weather in Boston.",
+        ),
+        ReasoningEnd,
+        TextStart,
+        TextDelta(
+            "It is sunny.",
+        ),
+        TextEnd,
+        Finished {
+            stop_reason: "end_turn",
+            usage: Object {
+                "output_tokens": Number(9),
+            },
+        },
+    ],
+    None,
+)

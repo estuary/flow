@@ -116,6 +116,7 @@ impl TestServer {
 
         let app = Arc::new(crate::App::new(
             models::IdGenerator::new(0),
+            None, // agui_provider
             billing_provider,
             b"test-jwt-secret-for-integration-tests",
             pg_pool.clone(),

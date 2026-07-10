@@ -1,0 +1,64 @@
+---
+source: crates/agui/tests/protocol.rs
+expression: parsed
+---
+RunAgentInput {
+    thread_id: "t-1",
+    run_id: "r-2",
+    parent_run_id: None,
+    state: Object {},
+    messages: [
+        User {
+            id: "u1",
+            content: Text(
+                "Hi, what's the weather in Boston?",
+            ),
+            name: None,
+        },
+        Assistant {
+            id: "a1",
+            content: None,
+            name: None,
+            tool_calls: [
+                ToolCall {
+                    id: "toolu_1",
+                    kind: "function",
+                    function: FunctionCall {
+                        name: "get_weather",
+                        arguments: "{\"location\":\"Boston\"}",
+                    },
+                    encrypted_value: None,
+                },
+            ],
+            encrypted_value: None,
+        },
+        Tool {
+            id: "t1",
+            content: "{\"tempF\":72}",
+            tool_call_id: "toolu_1",
+            error: None,
+            encrypted_value: None,
+        },
+    ],
+    tools: [
+        Tool {
+            name: "get_weather",
+            description: "Get current weather for a location",
+            parameters: Object {
+                "properties": Object {
+                    "location": Object {
+                        "type": String("string"),
+                    },
+                },
+                "required": Array [
+                    String("location"),
+                ],
+                "type": String("object"),
+            },
+            metadata: None,
+        },
+    ],
+    context: [],
+    forwarded_props: Object {},
+    resume: None,
+}
