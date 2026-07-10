@@ -116,7 +116,9 @@ impl TestServer {
 
         let app = Arc::new(crate::App::new(
             models::IdGenerator::new(0),
-            None, // agui_provider
+            // Tests exercise the AG-UI endpoint against the deterministic mock
+            // provider; production wiring selects a real provider elsewhere.
+            Some(Arc::new(agui::MockProvider) as Arc<dyn agui::Provider>),
             billing_provider,
             b"test-jwt-secret-for-integration-tests",
             pg_pool.clone(),

@@ -50,3 +50,95 @@ fn authorize_agentic(
 ) -> Result<(), crate::ApiError> {
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_server;
+
+    /// A minimal but complete `RunAgentInput`. The `forwardedProps._mock` script
+    /// drives the `MockProvider` deterministically (text -> tool call -> finish),
+    /// and message ids derive from `runId`, so the resulting SSE body is stable.
+    fn mock_run_input() -> serde_json::Value {
+        serde_json::json!({
+            "threadId": "t-agui",
+            "runId": "r-agui",
+            "state": {},
+            "messages": [{"id": "u1", "role": "user", "content": "hi"}],
+            "tools": [],
+            "context": [],
+            "forwardedProps": {
+                "_mock": [
+                    {"text": "Hello world"},
+                    {"toolCall": {"name": "get_weather", "args": "{\"location\":\"Boston\"}"}},
+                    {"finish": {"stopReason": "tool_use"}}
+                ]
+            }
+        })
+    }
+
+    /// Without a bearer token the `Envelope` yields unauthenticated claims, which
+    /// this authenticated endpoint rejects before any stream begins. The
+    /// `unauthenticated` gRPC status maps to HTTP 401.
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn agui_unauthenticated_is_rejected(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let response = reqwest::Client::new()
+            .post(format!("http://{}/api/v1/agui", server.addr))
+            .header("accept", "text/event-stream")
+            .json(&mock_run_input())
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status().as_u16(), 401);
+    }
+
+    /// A valid Supabase-style JWT passes `Envelope` auth and the agentic gate,
+    /// selects the mock provider, and streams a well-formed AG-UI SSE response
+    /// end-to-end through the real router.
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn agui_authenticated_streams_sse(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        // `make_access_token` mints a self-signed ControlClaims JWT; no user row
+        // is required because the endpoint only verifies the token signature and
+        // `aud`, not catalog grants.
+        let token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.com"),
+        );
+
+        let response = reqwest::Client::new()
+            .post(format!("http://{}/api/v1/agui", server.addr))
+            .header("accept", "text/event-stream")
+            .bearer_auth(&token)
+            .json(&mock_run_input())
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status().as_u16(), 200);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("text/event-stream"),
+        );
+
+        // The mock stream is finite, so `text()` reads the whole SSE body.
+        let raw = response.text().await.unwrap();
+        insta::assert_snapshot!(raw);
+    }
+}
