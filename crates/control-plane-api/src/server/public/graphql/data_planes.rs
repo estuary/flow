@@ -741,7 +741,7 @@ mod tests {
     }
 
     // Existing tenants can still view their private data plane's private links
-    // even before the `manage_data_plane` backfill runs, which is what later
+    // even before the `manage_data_planes` backfill runs, which is what later
     // adds the ability to modify them. Clearing the bundle reproduces that
     // pre-backfill state: the links stay readable, the update mutation is denied.
     #[sqlx::test(
@@ -751,10 +751,10 @@ mod tests {
             scripts("data_planes", "alice", "private_links")
         )
     )]
-    async fn test_modify_denied_when_role_grant_lacks_manage_data_plane(pool: sqlx::PgPool) {
+    async fn test_modify_denied_when_role_grant_lacks_manage_data_planes(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
-        // Strip the `manage_data_plane` bundle from the only edge carrying
+        // Strip the `manage_data_planes` bundle from the only edge carrying
         // Alice to the private dp, leaving its legacy `read` untouched.
         sqlx::query(
             r#"UPDATE role_grants
@@ -802,11 +802,11 @@ mod tests {
         assert_eq!(
             private_dp["node"]["privateLinks"].as_array().unwrap().len(),
             3,
-            "read must still grant view after the manage_data_plane bundle is cleared: {private_dp}",
+            "read must still grant view after the manage_data_planes bundle is cleared: {private_dp}",
         );
 
         // Modify is denied: ModifyDataPlanePrivateNetworking flowed only
-        // through the now-cleared `manage_data_plane` bundle on the edge.
+        // through the now-cleared `manage_data_planes` bundle on the edge.
         let denied: serde_json::Value = server
             .graphql(&update_mutation(dp, VALID_AWS_INPUT), Some(&alice_token))
             .await;
