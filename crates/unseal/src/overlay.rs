@@ -55,15 +55,9 @@ fn extract_overlay(sealed: &models::RawValue) -> anyhow::Result<Option<serde_jso
 /// Validate that every location an `overlay` would modify under JSON Merge Patch semantics
 /// is annotated `nonsensitive: true` in `schema`, or lies within a `nonsensitive` subtree.
 ///
-/// The walk mirrors merge-patch: an object recurses property-by-property, while any scalar,
-/// array, or `null` (a merge-patch write or delete) is a leaf modification which must land
-/// on a nonsensitive location. An un-annotated location is treated as sensitive, so a
-/// config whose schema lacks any annotations rejects all overlays.
-///
-/// A `nonsensitive` annotation is authoritative for its entire subtree: it is a human
-/// assertion that everything within is safe to modify outside the SOPS MAC. This is the
-/// sole protection, so the annotations must be vetted with a high bar and re-vetted whenever
-/// a connector's config schema changes.
+/// A `nonsensitive` annotation is a human assertion that everything within is safe to modify
+/// outside the SOPS MAC. This is the sole protection, so the annotations must be vetted by a
+/// human and should err on the side of safety when it's unclear if a location is sensitive.
 fn validate_overlay_nonsensitive(overlay: &serde_json::Value, schema: &[u8]) -> anyhow::Result<()> {
     let bundle = doc::validation::build_bundle(schema).context("building config schema")?;
     let validator = doc::Validator::new(bundle).context("preparing config schema validator")?;
@@ -84,34 +78,30 @@ fn check_location(
         return Ok(());
     }
 
-    // A scalar, array, or null is a merge-patch write/delete at a location which,
-    // per the previous check, is not marked nonsensitive and thus an error.
-    let serde_json::Value::Object(fields) = node else {
-        anyhow::bail!(
-            "overlay modifies location {}, which is not marked nonsensitive",
-            display_ptr(ptr),
-        );
+    let fields = match node {
+        // A non-empty object recurses: each member is itself a write, checked in turn.
+        serde_json::Value::Object(fields) if !fields.is_empty() => fields,
+        // An empty object looks inert but is not. Under JSON Merge Patch a non-object
+        // base is first replaced by `{}` before members are merged (RFC 7396), so an
+        // empty object could still silently clobber a scalar or array secret it lands
+        // on. An empty object is safe IFF the schema requires that location to be an
+        // object in the target.
+        serde_json::Value::Object(_) if located.type_ == json::schema::types::OBJECT => {
+            return Ok(());
+        }
+        // A scalar, array, `null`, or clobbering empty object is a merge-patch write
+        // at a location which, per the check above, is not marked nonsensitive.
+        _ => {
+            anyhow::bail!("overlay modifies location '{ptr}', which is not marked nonsensitive")
+        }
     };
 
-    // Otherwise iterate object fields and check each subproperty
     for (property, child) in fields {
         ptr.push(Token::Property(property.clone()));
         check_location(root, ptr, child)?;
         ptr.0.pop();
     }
     Ok(())
-}
-
-fn display_ptr(ptr: &json::Pointer) -> String {
-    let mut out = String::new();
-    for token in ptr.iter() {
-        out.push('/');
-        out.push_str(&token.to_string());
-    }
-    if out.is_empty() {
-        out.push('/');
-    }
-    out
 }
 
 #[cfg(test)]
@@ -172,9 +162,19 @@ mod test {
 
     #[test]
     fn empty_overlay_is_a_noop() {
+        // A whole-config empty overlay, and an empty object over the object-typed
+        // (and thus never-clobbered) `credentials` location, are both true no-ops.
         check(json!({})).unwrap();
-        // An empty object writes nothing even at an otherwise-sensitive location.
         check(json!({"credentials": {}})).unwrap();
+    }
+
+    #[test]
+    fn empty_object_clobbering_a_scalar_is_rejected() {
+        // `address` is a sensitive string. An empty object is not the no-op it looks
+        // like: merge-patch would reset the string to `{}`, dropping the secret, so it
+        // must be rejected the same as any other write to a sensitive location.
+        let err = check(json!({"address": {}})).unwrap_err();
+        assert!(err.to_string().contains("/address"), "{err}");
     }
 
     #[test]
