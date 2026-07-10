@@ -5,7 +5,17 @@ expression: redeem_response
 {
   "data": {
     "redeemInviteLink": {
+      "capabilities": [
+        "View",
+        "Write"
+      ],
       "capability": "write",
+      "capabilityBits": [
+        "CatalogRead",
+        "JournalRead",
+        "JournalAppend",
+        "ViewDataPlanePrivateNetworking"
+      ],
       "catalogPrefix": "aliceCo/"
     }
   }

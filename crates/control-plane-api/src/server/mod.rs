@@ -106,7 +106,8 @@ where
 
 /// Looks up the user's authorization grants for each item in
 /// `prefixes_or_names`, and calls the provided `attach` function with each
-/// item and its capability. The `Some` results are returned in a vec.
+/// item, its legacy capability, and its fine-grained capability set.
+/// The `Some` results are returned in a vec.
 pub fn attach_user_capabilities<I, F, T>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
@@ -115,7 +116,7 @@ pub fn attach_user_capabilities<I, F, T>(
 ) -> Vec<T>
 where
     I: IntoIterator<Item = String>,
-    F: FnMut(String, Option<models::Capability>) -> Option<T>,
+    F: FnMut(String, Option<models::Capability>, models::authz::CapabilitySet) -> Option<T>,
 {
     prefixes_or_names
         .into_iter()
@@ -126,7 +127,13 @@ where
                 claims.sub,
                 &prefix,
             );
-            attach(prefix, capability)
+            let capabilities = tables::UserGrant::get_user_capabilities(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                claims.sub,
+                &prefix,
+            );
+            attach(prefix, capability, capabilities)
         })
         .collect()
 }

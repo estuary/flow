@@ -11,7 +11,7 @@
 
 /// Deprecated alias of `LegacyCapability`, preserved under the original
 /// `Capability` name while clients migrate off it. Do not use in new
-/// operations; prefer `withCapability` (on the `prefixes` filter) and
+/// operations; prefer `withCapabilities` (on the `prefixes` filter) and
 /// `capabilityLegacy` (on `createInviteLink`). Removed once the deprecated
 /// inputs are dropped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, async_graphql::Enum)]

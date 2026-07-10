@@ -184,6 +184,20 @@ impl super::UserGrant {
             .max()
     }
 
+    /// Returns the union of capability bits the user holds at prefixes
+    /// covering `object_role_or_name`, across every path through the
+    /// grant graph. An empty set means the user has no access.
+    pub fn get_user_capabilities<'a>(
+        role_grants: &'a [super::RoleGrant],
+        user_grants: &'a [super::UserGrant],
+        user_id: uuid::Uuid,
+        object_role_or_name: &str,
+    ) -> authz::CapabilitySet {
+        Self::reachable_nodes(role_grants, user_grants, user_id)
+            .filter(|n| object_role_or_name.starts_with(n.object_role))
+            .fold(authz::CapabilitySet::empty(), |set, n| set | n.capabilities)
+    }
+
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],

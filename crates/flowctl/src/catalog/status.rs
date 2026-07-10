@@ -24,6 +24,9 @@ pub struct Status {
     query_path = "src/catalog/status.graphql",
     response_derives = "Debug,Serialize",
     extern_enums("CatalogType", "LegacyCapability"),
+    // flowctl knowingly consumes the deprecated legacy-capability fields
+    // until it migrates to fine-grained capabilities.
+    deprecated = "allow",
     skip_serializing_none
 )]
 struct ConnectedStatusQuery;

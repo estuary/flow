@@ -542,7 +542,15 @@ pub struct StorageMapping {
     /// The storage definition containing stores and data plane assignments.
     pub spec: async_graphql::Json<models::StorageDef>,
     /// The current user's capability to this storage mapping's prefix.
+    #[graphql(
+        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilities` instead."
+    )]
     pub user_capability: models::Capability,
+    /// Capability bundles the user holds to this storage mapping's prefix:
+    /// every bundle whose full capability set is covered by `capabilityBits`.
+    pub capabilities: Vec<models::authz::CapabilityBundle>,
+    /// Fine-grained capabilities the user has to this storage mapping's prefix.
+    pub capability_bits: Vec<models::authz::Capability>,
 }
 
 pub type PaginatedStorageMappings = Connection<
@@ -672,6 +680,12 @@ impl StorageMappingsQuery {
                         row.catalog_prefix
                     ))
                 })?;
+                let capabilities = tables::UserGrant::get_user_capabilities(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    claims.sub,
+                    &row.catalog_prefix,
+                );
 
                 // Strip "collection-data/" suffix from store prefixes before returning to user.
                 let user_facing_spec = strip_collection_data_suffix(row.spec);
@@ -683,6 +697,8 @@ impl StorageMappingsQuery {
                         detail: row.detail,
                         spec: async_graphql::Json(user_facing_spec),
                         user_capability,
+                        capabilities: models::authz::CapabilityBundle::covered_by(capabilities),
+                        capability_bits: capabilities.iter().collect(),
                     },
                 ))
             })

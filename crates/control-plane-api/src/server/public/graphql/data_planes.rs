@@ -26,7 +26,15 @@ pub struct DataPlane {
     /// Address of reactors within the data-plane.
     pub reactor_address: String,
     /// The current user's capability to this data plane's name prefix.
+    #[graphql(
+        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilities` instead."
+    )]
     pub user_capability: models::Capability,
+    /// Capability bundles the user holds to this data plane's name prefix:
+    /// every bundle whose full capability set is covered by `capabilityBits`.
+    pub capabilities: Vec<models::authz::CapabilityBundle>,
+    /// Fine-grained capabilities the user has to this data plane's name prefix.
+    pub capability_bits: Vec<models::authz::Capability>,
     /// Cloud provider where this data-plane is hosted.
     pub cloud_provider: DataPlaneCloudProvider,
     /// Cloud region where this data-plane is hosted.
@@ -399,7 +407,7 @@ impl DataPlanesQuery {
             env.snapshot(),
             env.claims()?,
             names.into_iter(),
-            |data_plane_name, user_capability| {
+            |data_plane_name, user_capability, user_capabilities| {
                 let dp = row_data.get(&data_plane_name)?;
                 let details = details_map.get(&data_plane_name);
                 let (cloud_provider, region, tag, is_public) =
@@ -409,6 +417,8 @@ impl DataPlanesQuery {
                     fqdn: dp.data_plane_fqdn.clone(),
                     reactor_address: dp.reactor_address.clone(),
                     user_capability: user_capability.expect("capability guaranteed by pre-filter"),
+                    capabilities: models::authz::CapabilityBundle::covered_by(user_capabilities),
+                    capability_bits: user_capabilities.iter().collect(),
                     cloud_provider,
                     region,
                     tag,
@@ -559,6 +569,8 @@ mod tests {
                                     tag
                                     isPublic
                                     userCapability
+                                    capabilities
+                                    capabilityBits
                                     cidrBlocks
                                     gcpServiceAccountEmail
                                     awsIamUserArn
