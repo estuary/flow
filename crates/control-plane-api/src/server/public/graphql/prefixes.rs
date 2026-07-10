@@ -26,7 +26,8 @@ pub struct PrefixesBy {
     ///
     /// Deprecated: a "minimum" has no meaning in the orthogonal capability
     /// model. Use `withCapability` to filter by a specific capability instead.
-    /// Exactly one of the two must be set.
+    /// At most one of the two may be set; omitting both applies no
+    /// capability filter.
     #[graphql(
         deprecation = "a minimum capability has no meaning in the orthogonal capability model; use withCapability instead."
     )]
