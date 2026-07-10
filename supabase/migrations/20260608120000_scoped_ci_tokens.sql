@@ -151,8 +151,17 @@ grant execute on function public.create_scoped_refresh_token(text, interval, tex
 -- This is the wiring that makes the scoped access token usable; it mirrors how `dekaf`
 -- is already a member of authenticator. SET ROLE evaluates privileges and RLS exactly as
 -- a direct login as the role would, so behavior matches the current psql path.
-grant github_action_connector_refresh to authenticator;
-grant data_plane_releases_ci to authenticator;
+do $$
+begin
+    -- Cluster-global role memberships; guard so concurrent sqlx::test
+    -- migration runs don't update the shared pg_auth_members tuple at once
+    -- ("tuple concurrently updated"). See 00_polyfill.sql.
+    if current_database() = 'postgres' then
+        grant github_action_connector_refresh to authenticator;
+        grant data_plane_releases_ci to authenticator;
+    end if;
+end
+$$;
 
 -- Re-queue connector tag publishing. SECURITY INVOKER: runs as the assumed role
 -- (github_action_connector_refresh), which already holds UPDATE on connector_tags and
