@@ -5,6 +5,15 @@ use proto_flow::flow;
 use proto_gazette::{broker, consumer};
 use std::time::Duration;
 
+pub fn inference_redact(redact: &shape::Redact) -> flow::inference::Redact {
+    match redact {
+        shape::Redact::Multiple => flow::inference::Redact::Multiple,
+        shape::Redact::Strategy(redact::Strategy::Block) => flow::inference::Redact::Block,
+        shape::Redact::Strategy(redact::Strategy::Sha256) => flow::inference::Redact::Sha256,
+        shape::Redact::Unset => flow::inference::Redact::Unset,
+    }
+}
+
 pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     let default_json: bytes::Bytes = shape
         .default
@@ -48,12 +57,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         }
         shape::Reduce::Unset => flow::inference::Reduce::Unset,
     };
-    let redact = match shape.redact {
-        shape::Redact::Multiple => flow::inference::Redact::Multiple,
-        shape::Redact::Strategy(redact::Strategy::Block) => flow::inference::Redact::Block,
-        shape::Redact::Strategy(redact::Strategy::Sha256) => flow::inference::Redact::Sha256,
-        shape::Redact::Unset => flow::inference::Redact::Unset,
-    };
+    let redact = inference_redact(&shape.redact);
 
     let content_media_type = shape
         .content_media_type
