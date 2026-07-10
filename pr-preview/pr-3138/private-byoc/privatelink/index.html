@@ -7,8 +7,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary&#39;s [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can&#39;t find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)." data-mcp-enabled="true" data-mcp-server-url="https://estuary.mcp.kapa.ai"></script><link rel="stylesheet" href="/pr-preview/pr-3138/assets/css/styles.5d76ff13.css">
-<script src="/pr-preview/pr-3138/assets/js/runtime~main.917dd2cc.js" defer="defer"></script>
-<script src="/pr-preview/pr-3138/assets/js/main.47463574.js" defer="defer"></script>
+<script src="/pr-preview/pr-3138/assets/js/runtime~main.a08babfe.js" defer="defer"></script>
+<script src="/pr-preview/pr-3138/assets/js/main.5805a13b.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -135,27 +135,25 @@ This lets you transfer data between your private or BYOC deployment and external
 </li>
 </ol>
 <h2 class="anchor anchorTargetStickyNavbar_Vzrq" id="azure-private-link">Azure Private Link<a href="#azure-private-link" class="hash-link" aria-label="Direct link to Azure Private Link" title="Direct link to Azure Private Link" translate="no">​</a></h2>
-<p>For Azure private or BYOC deployments, we can establish connections to your endpoints using Azure Private Link or PaaS resource.</p>
+<p>For Azure private or BYOC deployments, we can establish connections to your endpoints using Azure Private Link.</p>
 <p>You will need to follow different steps depending on your resource type:</p>
 <ul>
 <li class=""><a href="#connecting-with-azure-private-link-service" class="">The resource requires an explicit Azure Private Link Service</a></li>
 <li class=""><a href="#connecting-to-a-native-azure-resource" class="">The resource already supports Private Link directly</a></li>
 </ul>
-<p>Once you have your Private Link Service or PaaS resource ready, we need these details from you to establish the connection. Send them to your Estuary point of contact:</p>
+<p>Once that&#x27;s set up, send these details to your Estuary point of contact:</p>
 <ul>
-<li class="">The service URI, like <code>/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service</code>; this can be found by navigating to the private link service&#x27;s (or resource&#x27;s) details page in your Azure Portal and copying the URL</li>
+<li class="">The service URI, like <code>/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service</code>; found on the private link service&#x27;s (or resource&#x27;s) details page in your Azure Portal</li>
 <li class="">Location for the private endpoint, like <code>westus</code></li>
-<li class="">If connecting to a native Azure resource rather than your own Private Link Service, its sub-resource type, like <code>sqlServer</code> or <code>blob</code></li>
+<li class="">If connecting to a native Azure resource, its sub-resource type (see below)</li>
 <li class="">Optionally, a DNS name you&#x27;d like to use to reach the endpoint, like <code>mydb.database.windows.net</code>. If provided, we&#x27;ll create a private DNS zone with this name in your data plane&#x27;s network and point it at the private endpoint, so the hostname resolves automatically</li>
 </ul>
 <p>After establishing the connection, we will give you a private IP address (and a resolvable hostname, if you gave us a DNS name) which you can use to connect to your endpoint when setting up your connector task.</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="connecting-with-azure-private-link-service">Connecting with Azure Private Link Service<a href="#connecting-with-azure-private-link-service" class="hash-link" aria-label="Direct link to Connecting with Azure Private Link Service" title="Direct link to Connecting with Azure Private Link Service" translate="no">​</a></h3>
-<p>You will need to create an <a href="https://learn.microsoft.com/en-us/azure/private-link/private-link-service-overview" target="_blank" rel="noopener noreferrer" class="">Azure Private Link Service</a> which also requires having an <a href="https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-overview" target="_blank" rel="noopener noreferrer" class="">Azure Load Balancer</a> in front of the services you intend to expose.</p>
-<p>After creating these resources, make sure your LoadBalancer is able to route traffic correctly to your instances. You can check this by looking at the Monitoring -&gt; Metrics page of your LoadBalancer and checking for its Health Probe Status.</p>
+<p>You will need to create an <a href="https://learn.microsoft.com/en-us/azure/private-link/private-link-service-overview" target="_blank" rel="noopener noreferrer" class="">Azure Private Link Service</a> fronted by an <a href="https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-overview" target="_blank" rel="noopener noreferrer" class="">Azure Load Balancer</a> that routes traffic to your instances. Confirm routing is correct via the LoadBalancer&#x27;s Monitoring -&gt; Metrics page and its Health Probe Status.</p>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="connecting-to-a-native-azure-resource">Connecting to a native Azure resource<a href="#connecting-to-a-native-azure-resource" class="hash-link" aria-label="Direct link to Connecting to a native Azure resource" title="Direct link to Connecting to a native Azure resource" translate="no">​</a></h3>
 <p>If the resource you want to connect to already supports Private Link directly (for example Azure SQL Database, Azure SQL Managed Instance, or a Storage Account), use the resource ID of the PaaS resource itself as the service URI.</p>
-<p>You will also need to send us the resource&#x27;s <strong>sub-resource type</strong> (Azure calls this a &quot;group ID&quot;), so the private endpoint targets the right capability of the resource.</p>
-<p>Common values:</p>
+<p>You&#x27;ll also need to send us the resource&#x27;s <strong>sub-resource type</strong> (Azure&#x27;s term for this is &quot;group ID&quot;), so the private endpoint targets the right capability of the resource. Common values:</p>
 <ul>
 <li class=""><code>sqlServer</code> for Azure SQL Database</li>
 <li class=""><code>managedInstance</code> for Azure SQL Managed Instance</li>
