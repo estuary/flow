@@ -18,6 +18,9 @@ use lz4_flex::frame::BlockMode;
 pub struct Read {
     /// Journal offset to be served by this Read.
     /// (Actual next offset may be larger if a fragment was removed).
+    /// The underlying journal read begins up to OFFSET_READBACK bytes
+    /// earlier, and documents which end at-or-before this offset are
+    /// suppressed rather than served.
     pub(crate) offset: i64,
     /// Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
@@ -44,9 +47,6 @@ pub struct Read {
 
     // Include task name in emitted metrics
     task_name: String,
-
-    // Offset before which no documents should be emitted
-    offset_start: i64,
 
     deletes: DeletionMode,
 
@@ -78,6 +78,27 @@ pub enum ReadTarget {
     Docs(usize),
 }
 
+/// Journal reads begin this many bytes before the offset being served, and
+/// `next_batch` suppresses documents which end at-or-before that offset.
+/// Dekaf maps each document to the Kafka offset of its final byte, so a
+/// consumer may fetch at an offset which lands in the middle of a document,
+/// for example when it plans fetches by numerically partitioning the offset
+/// space. Reading backwards lets such a fetch serve its containing document,
+/// which a read started at the fetch offset would scan past and drop.
+/// It's sized to be larger than the maximum size of a single document (64MB).
+const OFFSET_READBACK: i64 = 1 << 26; // 64MB
+
+/// Map an offset to be served into the journal offset at which its read
+/// begins, up to OFFSET_READBACK bytes earlier. Non-positive offsets have
+/// special broker semantics (-1 reads from the write head) and pass through.
+fn readback_offset(offset: i64) -> i64 {
+    if offset > 0 {
+        (offset - OFFSET_READBACK).max(0)
+    } else {
+        offset
+    }
+}
+
 impl Read {
     pub async fn new(
         task_state_listener: task_manager::TaskStateListener,
@@ -98,13 +119,21 @@ impl Read {
             .name
             .as_str();
 
+        // Data-preview reads pass a fragment-start offset, which is always a
+        // document boundary, and don't require reading backwards.
+        let stream_offset = if rewrite_offsets_from.is_none() {
+            readback_offset(offset)
+        } else {
+            offset
+        };
+
         let (stream, stream_exp) = Self::new_stream(
             collection.not_before,
             task_state_listener.clone(),
             partition_template_name.to_owned(),
             partition.spec.name.clone(),
             buffer_size,
-            offset,
+            stream_offset,
         )
         .await?;
 
@@ -137,7 +166,6 @@ impl Read {
             },
             rewrite_offsets_from,
             deletes: auth.deletions(),
-            offset_start: offset,
             partition_leader_epoch: collection.binding_backfill_counter as i32,
         })
     }
@@ -148,7 +176,7 @@ impl Read {
         partition_template_name: String,
         journal_name: String,
         buffer_size: usize,
-        offset_start: i64,
+        offset: i64,
     ) -> anyhow::Result<(ReadJsonLines, std::time::SystemTime)> {
         let (not_before_sec, _) = not_before
             .map(|c: Clock| Clock::to_unix(&c))
@@ -184,7 +212,7 @@ impl Read {
         Ok((
             client.read_json_lines(
                 broker::ReadRequest {
-                    offset: offset_start,
+                    offset,
                     block: true,
                     journal: journal_name.clone(),
                     begin_mod_time: not_before_sec as i64,
@@ -219,7 +247,7 @@ impl Read {
                 self.partition_template_name.clone(),
                 self.journal_name.clone(),
                 self.buffer_size,
-                self.offset,
+                readback_offset(self.offset),
             )
             .await?;
         }
@@ -319,14 +347,23 @@ impl Read {
             let (root, next_offset) = match read {
                 ReadJsonLine::Meta(response) => {
                     self.last_write_head = response.write_head;
-                    // Skip self.offset forward in case we're skipping past a gap
-                    self.offset = response.offset;
+                    // Skip self.offset forward in case we're skipping past a gap,
+                    // but never move it backward: the journal read begins up to
+                    // OFFSET_READBACK bytes before the offset being served.
+                    self.offset = self.offset.max(response.offset);
                     continue;
                 }
                 ReadJsonLine::Doc { root, next_offset } => (root, next_offset),
             };
 
-            if next_offset < self.offset_start {
+            // Suppress documents which end at-or-before the offset being
+            // served, scanned over because the journal read began up to
+            // OFFSET_READBACK bytes earlier. This must be inclusive: a
+            // document ending exactly at `self.offset` maps to Kafka offset
+            // `self.offset - 1`, which consumers have already read. Notably,
+            // a caught-up consumer polling at the write head must not be
+            // re-served the trailing transaction ACK.
+            if next_offset <= self.offset {
                 continue;
             }
 
