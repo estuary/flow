@@ -1,0 +1,14 @@
+{
+  "name": "agui-interop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Interop harness driving the official @ag-ui/client against the Rust AG-UI server (crates/agui example `serve`).",
+  "scripts": {
+    "test": "node interop.mjs"
+  },
+  "dependencies": {
+    "@ag-ui/client": "0.0.57",
+    "@ag-ui/core": "0.0.57"
+  }
+}
