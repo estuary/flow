@@ -33,8 +33,8 @@ ln ${CARGO_TARGET_DIR}/release/dekaf ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/flowctl ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/oidc-discovery-server ${PACKAGE_DIR}/
 ln ${CARGO_TARGET_DIR}/release/runtime-sidecar ${PACKAGE_DIR}/
-ln ${HOME}/go/bin/gazette ${PACKAGE_DIR}/
-ln ${HOME}/go/bin/flowctl-go ${PACKAGE_DIR}/
+ln ${GOBIN}/gazette ${PACKAGE_DIR}/
+ln ${GOBIN}/flowctl-go ${PACKAGE_DIR}/
 ln $(which etcd) ${PACKAGE_DIR}/
 
 cp crates/flow-web/pkg/estuary-flow-web-*.tgz ${HOME}/flow-package/estuary-flow-web.tgz
