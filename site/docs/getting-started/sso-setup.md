@@ -22,9 +22,33 @@ To enable the SSO option on Estuary's end, [contact support](mailto:support@estu
 
    Provide the domain(s) used for your company's email addresses.
 
+3. **Tenant Name** (if you have one)
+
+   If you already created a tenant, include its name so support can associate your SSO provider with it. If you don't have a tenant yet, you can create one after signing in with SSO — see the next section.
+
 You will also need to configure SSO with your identity provider on your end. See [the list of details](#estuary-sso-details) below for information on Estuary that you can share with your identity provider.
 
-After SSO is fully enabled for your domain, you may log into Estuary via the [SSO login page](https://dashboard.estuary.dev/sso/login) and create your tenant. This login flow is also accessible via the main sign in page.
+### Starting Fresh with SSO
+
+You don't need an existing tenant — or a Google, GitHub, or Azure login — to set up SSO. To use SSO from the start:
+
+1. [Contact support](mailto:support@estuary.dev) with your metadata and company domain, as described above.
+
+2. Once support confirms SSO is enabled for your domain, sign in through the [SSO login page](https://dashboard.estuary.dev/sso/login). This login flow is also accessible via the main sign in page.
+
+3. Create your tenant.
+
+4. Reply to support with your tenant name so they can associate your SSO provider with the tenant. This lets invite links direct your teammates through SSO, and is required if you want to make SSO mandatory for your organization.
+
+5. Invite your teammates, as described in [Add SSO Users to Your Tenant](#add-sso-users-to-your-tenant).
+
+### Adding SSO to an Existing Tenant
+
+If you created your tenant with a Google, GitHub, or Azure account, include the tenant name in your support request. After your SSO provider is associated with your tenant, sign in through the [SSO login page](https://dashboard.estuary.dev/sso/login) using the same email address: your permissions transfer automatically from your previous account to your new SSO identity.
+
+### Requiring SSO
+
+Estuary can also make SSO mandatory for your organization. When enabled, members whose email addresses use your company domain can no longer sign in with Google, GitHub, or Azure and are directed to SSO instead. Let support know if you'd like this enforced for your domain.
 
 ## Add SSO Users to Your Tenant
 
