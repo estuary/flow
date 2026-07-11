@@ -217,6 +217,10 @@ pub struct SequencedDoc {
     pub replay: bool,
     /// Updated producer state to commit after processing this document.
     pub producer_state: ProducerState,
+    /// Backfill-begin control-doc clock this document committed (zero = none).
+    pub backfill_begin: uuid::Clock,
+    /// Backfill-complete control-doc clock this document committed (zero = none).
+    pub backfill_complete: uuid::Clock,
 }
 
 /// Gate on `adjusted_clock` relative to `now`: if the clock is in the future,
@@ -329,6 +333,7 @@ pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> Resolve
 pub fn sequence_producer(
     mut producer_state: ProducerState,
     journal: &str,
+    truncated_at: uuid::Clock,
     binding: &crate::Binding,
     meta: &super::read::Meta,
 ) -> anyhow::Result<SequencedDoc> {
@@ -336,6 +341,7 @@ pub fn sequence_producer(
         producer,
         clock,
         flags,
+        backfill_event: marker,
         begin_offset,
         end_offset,
     } = meta;
@@ -365,6 +371,9 @@ pub fn sequence_producer(
             outcome,
             uuid::SequenceOutcome::ContinueExtendSpan | uuid::SequenceOutcome::AckCommit
         );
+
+    let mut backfill_begin = uuid::Clock::zero();
+    let mut backfill_complete = uuid::Clock::zero();
 
     // Match over `outcome` to update `producer_state` and determine append/commit.
     let (is_append, is_commit) = match outcome {
@@ -398,15 +407,32 @@ pub fn sequence_producer(
             // CONTINUE_TXN documents in this journal only. Cross-journal
             // visibility for the same producer transaction is handled separately
             // via `extract_causal_hints`.
+            //
+            // A committing ACK also folds any backfill marker it carries. Markers
+            // are broadcast on ACKs and delivered exactly once per committed
+            // generation; a conservative re-read that replays the ACK as
+            // `AckDuplicate` (or an `AckDeepRollback`) must NOT re-fold, which is
+            // why the fold lives on this arm alone.
+            match marker {
+                Some(super::read::BackfillEvent::BackfillBegin) => backfill_begin = *clock,
+                Some(super::read::BackfillEvent::BackfillComplete { truncated_at }) => {
+                    backfill_complete = *truncated_at
+                }
+                None => {}
+            }
             producer_state.offset = -*end_offset;
             (false, true)
         }
         uuid::SequenceOutcome::AckDuplicate => (false, false),
     };
 
-    // A `notBefore` or `notAfter` suppresses document append, but doesn't impact
-    // the propagation of flush and progress reporting.
-    let is_append = is_append && *clock >= binding.not_before && *clock < binding.not_after;
+    // A `notBefore`/`notAfter` window and the journal's `truncated_at`
+    // truncation boundary all suppress document append, but don't impact the
+    // propagation of flush and progress reporting.
+    let is_append = is_append
+        && *clock >= binding.not_before
+        && *clock >= truncated_at
+        && *clock < binding.not_after;
 
     tracing::trace!(
         %journal,
@@ -426,6 +452,8 @@ pub fn sequence_producer(
         is_commit,
         replay,
         producer_state,
+        backfill_begin,
+        backfill_complete,
     })
 }
 
@@ -624,6 +652,7 @@ mod test {
             flags,
             begin_offset,
             end_offset,
+            backfill_event: None,
         }
     }
 
@@ -640,7 +669,13 @@ mod test {
         meta: &Meta,
     ) -> anyhow::Result<SequencedDoc> {
         let producer_state = read_state.producer_state(meta.producer);
-        sequence_producer(producer_state, &read_state.journal, binding, meta)
+        sequence_producer(
+            producer_state,
+            &read_state.journal,
+            read_state.truncated_at,
+            binding,
+            meta,
+        )
     }
 
     /// Build a checkpoint entry for a producer with zero clocks and a committed offset.
@@ -672,9 +707,10 @@ mod test {
 
     impl TestState {
         fn commit(&mut self, read_id: usize, producer: Producer, seq: SequencedDoc) {
-            _ = self.reads[read_id]
-                .pending
-                .insert(producer, seq.producer_state);
+            let read = &mut self.reads[read_id];
+            read.backfill_begin = read.backfill_begin.max(seq.backfill_begin);
+            read.backfill_complete = read.backfill_complete.max(seq.backfill_complete);
+            _ = read.pending.insert(producer, seq.producer_state);
             if seq.is_commit {
                 self.flush.set_ready();
             }
@@ -818,6 +854,7 @@ mod test {
         let s = sequence_producer(
             state,
             "test/journal",
+            Clock::zero(),
             &binding,
             &meta(p1, Clock::from_u64(150), OUTSIDE, 500, 600),
         )
@@ -831,6 +868,7 @@ mod test {
         let s = sequence_producer(
             state,
             "test/journal",
+            Clock::zero(),
             &binding,
             &meta(p1, Clock::from_u64(150), CONTINUE, 500, 600),
         )
@@ -840,6 +878,7 @@ mod test {
         let s = sequence_producer(
             s.producer_state,
             "test/journal",
+            Clock::zero(),
             &binding,
             &meta(p1, Clock::from_u64(150), ACK, 600, 700),
         )
@@ -872,6 +911,7 @@ mod test {
             sequence_producer(
                 gapped,
                 journal,
+                Clock::zero(),
                 &binding,
                 &meta(p, Clock::from_u64(clock), flags, 400, 500),
             )
@@ -991,6 +1031,7 @@ mod test {
         let s = sequence_producer(
             committed,
             journal,
+            Clock::zero(),
             &binding,
             &meta(p, Clock::from_u64(1_001), CONTINUE, 900, 950),
         )
@@ -1014,6 +1055,7 @@ mod test {
         let s = sequence_producer(
             s.producer_state,
             journal,
+            Clock::zero(),
             &binding,
             &meta(p, Clock::from_u64(1_002), CONTINUE, 950, 1_000),
         )
@@ -1025,6 +1067,7 @@ mod test {
         let s = sequence_producer(
             s.producer_state,
             journal,
+            Clock::zero(),
             &binding,
             &meta(p, Clock::from_u64(1_003), ACK, 1_000, 1_050),
         )
@@ -1071,6 +1114,9 @@ mod test {
         s.reads.push(ReadState {
             binding_index: 0,
             journal: "test/journal/A".into(),
+            truncated_at: Clock::zero(),
+            backfill_begin: Clock::zero(),
+            backfill_complete: Clock::zero(),
             settled: producers,
             pending: Default::default(),
             read_offset: 0,
@@ -1125,6 +1171,9 @@ mod test {
         s.reads.push(ReadState {
             binding_index: 0,
             journal: "test/journal/A".into(),
+            truncated_at: Clock::zero(),
+            backfill_begin: Clock::zero(),
+            backfill_complete: Clock::zero(),
             settled: producers,
             pending: Default::default(),
             read_offset: 0,
@@ -1229,6 +1278,7 @@ mod test {
             }],
             flushed_lsn: vec![],
             unresolved_hints: 0,
+            ..Default::default()
         };
 
         // Request + flushed → has_progressed gates, take_progressed consumes.
@@ -1285,6 +1335,9 @@ mod test {
         s.reads.push(ReadState {
             binding_index: 0,
             journal: "test/journal/A".into(),
+            truncated_at: Clock::zero(),
+            backfill_begin: Clock::zero(),
+            backfill_complete: Clock::zero(),
             settled: producers,
             pending: Default::default(),
             read_offset: 0,
@@ -1378,6 +1431,135 @@ mod test {
             seq.producer_state.offset, -450,
             "rollback yields committed offset"
         );
+    }
+
+    #[test]
+    fn test_sequence_ack_backfill_markers_fold_on_commit() {
+        let bindings = vec![test_binding(0, true, None, "/suffix")];
+        let mut s = test_state(bindings);
+
+        let p1 = producer(0x01);
+
+        let ResolvedCheckpoint { producers, .. } =
+            resolve_checkpoint(vec![checkpoint_entry(&p1, 0)]);
+        s.reads.push(ReadState {
+            binding_index: 0,
+            journal: "test/journal/A".into(),
+            truncated_at: Clock::zero(),
+            backfill_begin: Clock::zero(),
+            backfill_complete: Clock::zero(),
+            settled: producers,
+            pending: Default::default(),
+            read_offset: 0,
+            prev_read_offset: 0,
+            write_head: 0,
+            prev_write_head: 0,
+        });
+
+        // A BackfillBegin marker rides on an ACK. In a journal the producer never
+        // wrote to (no pending span), it sequences as AckEmpty: it commits, folds
+        // its clock into backfill_begin, and is never appended (ACKs never append).
+        let seq = sequence(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(10, 0),
+                flags: ACK,
+                begin_offset: 100,
+                end_offset: 150,
+                backfill_event: Some(super::super::read::BackfillEvent::BackfillBegin),
+            },
+        )
+        .unwrap();
+        assert!(!seq.is_append, "ACKs never append");
+        assert!(seq.is_commit, "AckEmpty commits");
+        assert_eq!(
+            seq.backfill_begin,
+            Clock::from_unix(10, 0),
+            "reports its clock"
+        );
+        assert_eq!(seq.backfill_complete, Clock::zero());
+        s.commit(0, p1, seq);
+        assert_eq!(s.reads[0].backfill_begin, Clock::from_unix(10, 0));
+
+        // A BackfillComplete marker at a later clock carries the begin boundary it
+        // completed as `truncated_at` (so a reader need not have seen the begin).
+        let seq = sequence(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(20, 0),
+                flags: ACK,
+                begin_offset: 150,
+                end_offset: 200,
+                backfill_event: Some(super::super::read::BackfillEvent::BackfillComplete {
+                    truncated_at: Clock::from_unix(10, 0),
+                }),
+            },
+        )
+        .unwrap();
+        assert!(!seq.is_append);
+        assert!(seq.is_commit);
+        assert_eq!(seq.backfill_begin, Clock::zero());
+        assert_eq!(seq.backfill_complete, Clock::from_unix(10, 0));
+        s.commit(0, p1, seq);
+        assert_eq!(s.reads[0].backfill_begin, Clock::from_unix(10, 0));
+        assert_eq!(s.reads[0].backfill_complete, Clock::from_unix(10, 0));
+
+        // A conservative re-read replays the same complete ACK (same clock). It
+        // sequences as AckDuplicate: no commit, and crucially NO re-fold — the
+        // marker must not be re-delivered within an already-resolved checkpoint.
+        let seq = sequence(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(20, 0),
+                flags: ACK,
+                begin_offset: 200,
+                end_offset: 250,
+                backfill_event: Some(super::super::read::BackfillEvent::BackfillComplete {
+                    truncated_at: Clock::from_unix(10, 0),
+                }),
+            },
+        )
+        .unwrap();
+        assert!(!seq.is_append);
+        assert!(!seq.is_commit, "AckDuplicate suppresses flush");
+        assert_eq!(
+            seq.backfill_complete,
+            Clock::zero(),
+            "duplicate does not re-fold"
+        );
+        s.commit(0, p1, seq);
+        assert_eq!(
+            s.reads[0].backfill_complete,
+            Clock::from_unix(10, 0),
+            "unchanged on duplicate"
+        );
+
+        // A fresh BackfillBegin ACK at a later clock supersedes the prior begin
+        // via the commit-time max fold into the read.
+        let seq = sequence(
+            &s.reads[0],
+            &s.bindings[0],
+            &Meta {
+                producer: p1,
+                clock: Clock::from_unix(30, 0),
+                flags: ACK,
+                begin_offset: 250,
+                end_offset: 300,
+                backfill_event: Some(super::super::read::BackfillEvent::BackfillBegin),
+            },
+        )
+        .unwrap();
+        assert!(seq.is_commit);
+        assert_eq!(seq.backfill_begin, Clock::from_unix(30, 0));
+        s.commit(0, p1, seq);
+        assert_eq!(s.reads[0].backfill_begin, Clock::from_unix(30, 0));
+        assert_eq!(s.reads[0].backfill_complete, Clock::from_unix(10, 0));
     }
 
     /// Build a passthrough PartitionFilter that accepts any value for the given fields.
@@ -1543,7 +1725,7 @@ mod test {
             ),
         ];
 
-        let journal_acks = publisher::intents::build_transaction_intents(&txn);
+        let journal_acks = publisher::intents::build_transaction_intents(&txn, None);
 
         // For each journal's first ACK, extract hints into causal_hints.
         // build_transaction_intents returns NDJSON bytes per journal;

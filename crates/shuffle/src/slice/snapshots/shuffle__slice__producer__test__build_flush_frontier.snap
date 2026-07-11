@@ -1,6 +1,5 @@
 ---
 source: crates/shuffle/src/slice/producer.rs
-assertion_line: 400
 expression: snap
 ---
 [
@@ -13,6 +12,8 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            latest_backfill_begin: {},
+            latest_backfill_complete: {},
             unresolved_hints: 0,
         },
         [],
@@ -55,12 +56,17 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            latest_backfill_begin: {},
+            latest_backfill_complete: {},
             unresolved_hints: 0,
         },
         [
             ReadState {
                 binding_index: 0,
                 journal: "journal/B",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
@@ -77,6 +83,9 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/A",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -93,6 +102,9 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/C",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {},
                 pending: {},
                 read_offset: 123,
@@ -140,6 +152,8 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            latest_backfill_begin: {},
+            latest_backfill_complete: {},
             unresolved_hints: 2,
         },
         [],
@@ -168,12 +182,17 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            latest_backfill_begin: {},
+            latest_backfill_complete: {},
             unresolved_hints: 0,
         },
         [
             ReadState {
                 binding_index: 0,
                 journal: "journal/A",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -190,6 +209,9 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/B",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {},
                 pending: {},
                 read_offset: 0,
@@ -257,12 +279,17 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            latest_backfill_begin: {},
+            latest_backfill_complete: {},
             unresolved_hints: 2,
         },
         [
             ReadState {
                 binding_index: 0,
                 journal: "journal/A",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -279,6 +306,9 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/B",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
@@ -351,12 +381,17 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            latest_backfill_begin: {},
+            latest_backfill_complete: {},
             unresolved_hints: 1,
         },
         [
             ReadState {
                 binding_index: 2,
                 journal: "journal/X",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
@@ -373,6 +408,9 @@ expression: snap
             ReadState {
                 binding_index: 0,
                 journal: "journal/X",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),
@@ -412,6 +450,8 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            latest_backfill_begin: {},
+            latest_backfill_complete: {},
             unresolved_hints: 1,
         },
         [],
@@ -440,12 +480,17 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            latest_backfill_begin: {},
+            latest_backfill_complete: {},
             unresolved_hints: 1,
         },
         [
             ReadState {
                 binding_index: 0,
                 journal: "journal/A",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),
@@ -511,12 +556,17 @@ expression: snap
                 0/0,
                 0/0,
             ],
+            latest_backfill_begin: {},
+            latest_backfill_complete: {},
             unresolved_hints: 1,
         },
         [
             ReadState {
                 binding_index: 0,
                 journal: "journal/A",
+                truncated_at: Clock(0s 0ns),
+                backfill_begin: Clock(0s 0ns),
+                backfill_complete: Clock(0s 0ns),
                 settled: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 0ns),
