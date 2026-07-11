@@ -526,7 +526,19 @@ expression: json_test(msg)
     "keyPacked": "VkseCQ=="
   },
   "flush": {
-    "statePatches": [{"flushed":1}]
+    "statePatches": [{"flushed":1}],
+    "backfillBegins": [
+      {
+        "binding": 2,
+        "timestamp": "2023-11-14T22:13:20+00:00"
+      }
+    ],
+    "backfillCompletes": [
+      {
+        "binding": 3,
+        "timestamp": "2023-11-14T22:21:40.123+00:00"
+      }
+    ]
   },
   "store": {
     "binding": 3,

@@ -86,5 +86,11 @@ expression: json_test(msg)
       "mergePatch": true
     }
   },
+  "backfillBegin": {
+    "binding": 4
+  },
+  "backfillComplete": {
+    "binding": 5
+  },
   "$internal": "EgJIaRgB"
 }
