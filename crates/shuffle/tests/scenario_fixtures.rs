@@ -330,6 +330,36 @@ async fn shuffle_scenarios() {
     .await;
     data_plane.reset().await.expect("reset");
 
+    control_docs_are_metadata_only(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    control_docs_reach_all_partitions(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    resume_with_backfill_metadata(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
     gapped_replay(
         &materialization_spec,
         &capture_spec,
@@ -488,7 +518,7 @@ async fn continue_then_ack(
     // Commit the transaction.
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
-        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)], None);
     pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
@@ -659,7 +689,7 @@ async fn multiple_producers(
     // Now commit P2's transaction.
     let (producer, commit_clock, journals) = pub2.commit_intents();
     let journal_acks =
-        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)], None);
     pub2.write_intents(journal_acks).await.unwrap();
 
     // Second checkpoint: P2 now committed. Reader yields P2's doc.
@@ -774,8 +804,10 @@ async fn resume_from_checkpoint(
 
     // Commit with ACK spanning both journals.
     let (producer_id, commit_clock, journals) = pub_.commit_intents();
-    let journal_acks =
-        publisher::intents::build_transaction_intents(&[(producer_id, commit_clock, journals)]);
+    let journal_acks = publisher::intents::build_transaction_intents(
+        &[(producer_id, commit_clock, journals)],
+        None,
+    );
     pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
@@ -929,7 +961,7 @@ async fn multi_partition_transaction(
     // Commit with ACK intents spanning both journals.
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
-        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)], None);
     pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
@@ -1031,7 +1063,7 @@ async fn partition_filtered_hints(
     // Commit with ACK intents spanning all three partition journals.
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
-        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)], None);
     pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
@@ -1128,7 +1160,7 @@ async fn clock_window_filtering(
     // Commit with ACK intents spanning both journals.
     let (producer, commit_clock, journals) = pub_.commit_intents();
     let journal_acks =
-        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)], None);
     pub_.write_intents(journal_acks).await.unwrap();
 
     let mut session = shuffle::SessionClient::open(
@@ -1235,11 +1267,10 @@ async fn rollback(
     .unwrap();
 
     let (p2_id, commit_clock_p2, p2_journals) = pub2.commit_intents();
-    let p2_acks = publisher::intents::build_transaction_intents(&[(
-        p2_id,
-        commit_clock_p2,
-        p2_journals.clone(),
-    )]);
+    let p2_acks = publisher::intents::build_transaction_intents(
+        &[(p2_id, commit_clock_p2, p2_journals.clone())],
+        None,
+    );
     pub2.write_intents(p2_acks).await.unwrap();
 
     // P1 commits OUTSIDE_TXN docs.
@@ -1519,7 +1550,8 @@ async fn gapped_replay(
     // (its first newer document), triggers a replay of [F, ack.begin), and on
     // completion re-presents the ACK to commit and deliver P2's span.
     let (producer, commit_clock, journals) = pub2.commit_intents();
-    let acks = publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+    let acks =
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)], None);
     pub2.write_intents(acks).await.unwrap();
 
     let frontier2 = next_resolved_checkpoint(&mut resumed, "gapped replay").await;
@@ -1654,7 +1686,8 @@ async fn gapped_continue_trigger(
     // P2 commits. Its ACK is read by the (now un-gapped) main read after the
     // replay completes, committing both of P2's CONTINUE documents together.
     let (producer, commit_clock, journals) = pub2.commit_intents();
-    let acks = publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+    let acks =
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)], None);
     pub2.write_intents(acks).await.unwrap();
 
     let frontier2 = next_resolved_checkpoint(&mut resumed, "gapped continue replay").await;
@@ -1769,7 +1802,8 @@ async fn gapped_replay_blocks_other_journal(
     // Slice: it is ready while the apples replay is in flight, and the blocking
     // gate must hold it until the replay completes, then let it flow.
     let (producer, commit_clock, journals) = pub2.commit_intents();
-    let acks = publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+    let acks =
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)], None);
     pub2.write_intents(acks).await.unwrap();
 
     pub3.enqueue(
@@ -1995,15 +2029,18 @@ async fn hint_elevated_offset_flip(
 
     // P2 commits: its ACK's end offset M becomes apples' maximum offset (M > O).
     let (p2_id, p2_commit, p2_journals) = pub2.commit_intents();
-    let p2_acks = publisher::intents::build_transaction_intents(&[(p2_id, p2_commit, p2_journals)]);
+    let p2_acks =
+        publisher::intents::build_transaction_intents(&[(p2_id, p2_commit, p2_journals)], None);
     pub2.write_intents(p2_acks).await.unwrap();
 
     // T1 commits at H1 — but only bananas' ACK is written (P1 "crashed" before
     // writing apples'). The apples read can never observe T1's commit directly;
     // only the causal hint (apples, P1) @ H1 from bananas' ACK covers the span.
     let (p1_id, t1_commit, t1_journals) = pub1.commit_intents();
-    let mut t1_acks =
-        publisher::intents::build_transaction_intents(&[(p1_id, t1_commit, t1_journals.clone())]);
+    let mut t1_acks = publisher::intents::build_transaction_intents(
+        &[(p1_id, t1_commit, t1_journals.clone())],
+        None,
+    );
     t1_acks.retain(|journal, _| journal.contains("bananas"));
     assert_eq!(t1_acks.len(), 1, "T1 spans apples and bananas");
     pub1.write_intents(t1_acks).await.unwrap();
@@ -2083,8 +2120,10 @@ async fn hint_elevated_offset_flip(
     pub1.flush().await.unwrap();
 
     let (_, t2_commit, _) = pub1.commit_intents();
-    let mut t2_acks =
-        publisher::intents::build_transaction_intents(&[(p1_id, t2_commit, t1_journals.clone())]);
+    let mut t2_acks = publisher::intents::build_transaction_intents(
+        &[(p1_id, t2_commit, t1_journals.clone())],
+        None,
+    );
     let ack_b2: Vec<(String, bytes::Bytes)> = t2_acks
         .iter()
         .filter(|(journal, _)| journal.contains("bananas"))
@@ -2290,4 +2329,379 @@ async fn gapped_outside_violation(
         "expected OutsideWithPrecedingContinue teardown, got: {err}",
     );
     // The session tore down on error; there is no clean close to perform.
+}
+
+/// Broadcast a standalone backfill marker as ACK intents across `journals`
+/// (models `marker_commit` + `build_transaction_intents` + `write_intents`).
+/// `clock` must exceed each journal's last committed clock so the ACK sequences
+/// as `AckEmpty`; the marker folds into the frontier as metadata, never a doc.
+async fn broadcast_marker(
+    pub_: &mut publisher::Publisher,
+    producer: uuid::Producer,
+    clock: uuid::Clock,
+    journals: &[String],
+    marker: &publisher::intents::BackfillMarker,
+) {
+    let acks = publisher::intents::build_transaction_intents(
+        &[(producer, clock, journals.to_vec())],
+        Some(marker),
+    );
+    pub_.write_intents(acks).await.unwrap();
+}
+
+/// Publish backfill marker ACKs and a regular document. Verify the markers fold
+/// into checkpoint metadata but never appear as read documents (they ride on
+/// ACKs, which are never appended to shuffle logs).
+async fn control_docs_are_metadata_only(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join("control_docs_are_metadata_only");
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x11]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+
+    // Write one ordinary data document and commit it. This establishes the
+    // collection's physical partition (so a marker broadcast can reach it) and
+    // yields the partition journal name for the broadcast.
+    pub_.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "data",
+                    "category": "alpha",
+                    "value": 7,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    let (producer, data_commit, journals) = pub_.commit_intents();
+    let partitions = journals.clone();
+    let data_acks =
+        publisher::intents::build_transaction_intents(&[(producer, data_commit, journals)], None);
+    pub_.write_intents(data_acks).await.unwrap();
+
+    // Broadcast a standalone BackfillBegin marker ACK. `commit_intents` ticks a
+    // fresh clock past the data commit; that clock is the truncation boundary.
+    let (producer, begin_clock, _) = pub_.commit_intents();
+    broadcast_marker(
+        &mut pub_,
+        producer,
+        begin_clock,
+        &partitions,
+        &publisher::intents::BackfillMarker::Begin,
+    )
+    .await;
+
+    // Broadcast a standalone BackfillComplete marker ACK carrying the begin
+    // clock as its `truncated_at` boundary.
+    let (producer, complete_clock, _) = pub_.commit_intents();
+    broadcast_marker(
+        &mut pub_,
+        producer,
+        complete_clock,
+        &partitions,
+        &publisher::intents::BackfillMarker::Complete {
+            truncated_at: begin_clock.as_u64(),
+        },
+    )
+    .await;
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    // The begin and complete markers ride separate ACKs and may land in separate
+    // checkpoint flushes; aggregate across checkpoints until both are visible.
+    let binding_0: u16 = 0;
+    let mut frontier = session.next_checkpoint().await.expect("next_checkpoint");
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let mut read = collect_read_entries(&frontier, &scenario_dir, &mut shard_state);
+    while frontier.latest_backfill_begin.get(&binding_0) != Some(&begin_clock)
+        || frontier.latest_backfill_complete.get(&binding_0) != Some(&begin_clock)
+    {
+        let next = session.next_checkpoint().await.expect("next_checkpoint");
+        read.extend(collect_read_entries(&next, &scenario_dir, &mut shard_state));
+        frontier = frontier.reduce(next);
+    }
+    assert_eq!(
+        frontier.latest_backfill_begin.get(&binding_0),
+        Some(&begin_clock)
+    );
+    assert_eq!(
+        frontier.latest_backfill_complete.get(&binding_0),
+        Some(&begin_clock)
+    );
+
+    insta::assert_debug_snapshot!(
+        "control_docs_are_metadata_only",
+        Checkpoint {
+            frontier: &frontier,
+            read,
+        }
+    );
+
+    session.close().await.expect("close");
+}
+
+/// A backfill marker is broadcast as an ACK to every partition journal of the
+/// collection, so a reader observes it regardless of its partition selector,
+/// and its pairwise causal hints hold the checkpoint back until every *read*
+/// journal's marker ACK is seen.
+///
+/// Seed the alpha, beta, and gamma partitions, then broadcast a BackfillBegin
+/// marker ACK to all three. The reader's selector excludes beta, yet it must
+/// still observe the backfill begin via the included alpha/gamma partitions —
+/// which only holds because the marker ACK reached those journals too. The
+/// beta-directed hints are dropped by the reader's partition filter, so the
+/// hold-back spans exactly the read subset (alpha + gamma).
+async fn control_docs_reach_all_partitions(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let scenario_dir = log_dir.join("control_docs_reach_all_partitions");
+    std::fs::create_dir_all(&scenario_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x08]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+
+    // Seed one document into each of alpha/beta/gamma so all three physical
+    // partitions exist and are listable, then commit them.
+    for category in ["alpha", "beta", "gamma"] {
+        pub_.enqueue(
+            |uuid| {
+                Ok((
+                    0,
+                    serde_json::json!({
+                        "_meta": {"uuid": uuid.to_string()},
+                        "id": format!("seed-{category}"),
+                        "category": category,
+                        "value": 0,
+                    }),
+                ))
+            },
+            uuid::Flags::CONTINUE_TXN,
+        )
+        .await
+        .unwrap();
+    }
+    let (producer_id, commit_clock, journals) = pub_.commit_intents();
+    let all_partitions = journals.clone();
+    let journal_acks = publisher::intents::build_transaction_intents(
+        &[(producer_id, commit_clock, journals)],
+        None,
+    );
+    pub_.write_intents(journal_acks).await.unwrap();
+
+    // Broadcast a BackfillBegin marker ACK to every partition (including the
+    // excluded beta). `commit_intents` ticks a fresh clock past the seed commit;
+    // the marker's pairwise hints span all three journals.
+    let (producer_id, begin_clock, _) = pub_.commit_intents();
+    broadcast_marker(
+        &mut pub_,
+        producer_id,
+        begin_clock,
+        &all_partitions,
+        &publisher::intents::BackfillMarker::Begin,
+    )
+    .await;
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &scenario_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open");
+
+    // Aggregate checkpoints until the (terminal) frontier carries the backfill
+    // begin. The reader excludes beta, so observing it at all proves the control
+    // doc reached the included alpha/gamma partitions.
+    let binding_0: u16 = 0;
+    let mut frontier = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+    while frontier.latest_backfill_begin.get(&binding_0).is_none() {
+        let next = next_resolved_checkpoint(&mut session, "next_checkpoint").await;
+        frontier = frontier.reduce(next);
+    }
+    assert!(
+        frontier.latest_backfill_begin.get(&binding_0).is_some(),
+        "a selector that excludes beta still observed the broadcast backfill begin",
+    );
+
+    session.close().await.expect("close");
+}
+
+/// Verify that `latest_backfill_begin` and `latest_backfill_complete` survive
+/// the checkpoint→wire→resume round-trip through the Session handler.
+///
+/// Phase 1: Publish control docs + data in a committed transaction. Capture
+///   a checkpoint whose frontier carries non-empty backfill maps.
+/// Phase 2: Reopen a new session using that frontier as the resume
+///   checkpoint. Write additional data and poll a checkpoint. The resumed
+///   session must have accepted the backfill metadata from the resume
+///   frontier — the session would error if the resume checkpoint were
+///   malformed, and new progress comes back correctly layered on top.
+async fn resume_with_backfill_metadata(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let phase1_dir = log_dir.join("resume_backfill_p1");
+    let phase2_dir = log_dir.join("resume_backfill_p2");
+    std::fs::create_dir_all(&phase1_dir).unwrap();
+    std::fs::create_dir_all(&phase2_dir).unwrap();
+
+    let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x21]);
+    let mut pub_ = make_publisher(capture_spec, journal_client, producer);
+
+    // ---- Phase 1: Commit data + marker ACKs, capture a checkpoint. ----
+
+    // Write a data document and commit it, establishing the partition and
+    // yielding its journal name for the marker broadcast.
+    pub_.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "rb-data",
+                    "category": "alpha",
+                    "value": 42,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    let (producer_id, commit_clock, journals) = pub_.commit_intents();
+    let partitions = journals.clone();
+    let journal_acks = publisher::intents::build_transaction_intents(
+        &[(producer_id, commit_clock, journals)],
+        None,
+    );
+    pub_.write_intents(journal_acks).await.unwrap();
+
+    // Broadcast a standalone BackfillBegin marker ACK; its clock is the boundary.
+    let (producer_id, begin_clock, _) = pub_.commit_intents();
+    broadcast_marker(
+        &mut pub_,
+        producer_id,
+        begin_clock,
+        &partitions,
+        &publisher::intents::BackfillMarker::Begin,
+    )
+    .await;
+
+    // Broadcast a standalone BackfillComplete marker ACK carrying the begin clock.
+    let (producer_id, complete_clock, _) = pub_.commit_intents();
+    broadcast_marker(
+        &mut pub_,
+        producer_id,
+        complete_clock,
+        &partitions,
+        &publisher::intents::BackfillMarker::Complete {
+            truncated_at: begin_clock.as_u64(),
+        },
+    )
+    .await;
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &phase1_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open phase 1");
+
+    // Aggregate checkpoint deltas until both the backfill begin clock (from
+    // the OUTSIDE_TXN BackfillBegin commit) and the backfill complete clock
+    // (from the OUTSIDE_TXN BackfillComplete commit after the span's ACK) are
+    // visible. The two control docs commit in separate flush cycles.
+    let binding_0: u16 = 0;
+    let mut phase1_frontier = session.next_checkpoint().await.expect("phase 1 checkpoint");
+    while phase1_frontier.latest_backfill_begin.get(&binding_0) != Some(&begin_clock)
+        || phase1_frontier.latest_backfill_complete.get(&binding_0) != Some(&begin_clock)
+    {
+        let next = session
+            .next_checkpoint()
+            .await
+            .expect("phase 1 next checkpoint");
+        phase1_frontier = phase1_frontier.reduce(next);
+    }
+    assert_eq!(
+        phase1_frontier.latest_backfill_begin.get(&binding_0),
+        Some(&begin_clock),
+        "phase 1 frontier should carry backfill begin"
+    );
+    assert_eq!(
+        phase1_frontier.latest_backfill_complete.get(&binding_0),
+        Some(&begin_clock),
+        "phase 1 frontier should carry the backfill begin clock as its truncation boundary"
+    );
+    session.close().await.expect("close phase 1");
+
+    // ---- Phase 2: Resume from phase1_frontier, write more data. ----
+
+    pub_.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "rb-new",
+                    "category": "alpha",
+                    "value": 99,
+                }),
+            ))
+        },
+        uuid::Flags::OUTSIDE_TXN,
+    )
+    .await
+    .unwrap();
+    pub_.flush().await.unwrap();
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &phase2_dir),
+        phase1_frontier.clone(),
+    )
+    .await
+    .expect("SessionClient::open phase 2 (resume with backfill metadata)");
+
+    let phase2_frontier = next_resolved_checkpoint(&mut session, "phase 2 checkpoint").await;
+
+    let mut phase2_shard_state: ShardState = (0..1).map(|_| None).collect();
+    let phase2_read = collect_read_entries(&phase2_frontier, &phase2_dir, &mut phase2_shard_state);
+    insta::assert_debug_snapshot!(
+        "resume_with_backfill_metadata",
+        Checkpoint {
+            frontier: &phase2_frontier,
+            read: phase2_read,
+        }
+    );
+
+    session.close().await.expect("close phase 2");
 }
