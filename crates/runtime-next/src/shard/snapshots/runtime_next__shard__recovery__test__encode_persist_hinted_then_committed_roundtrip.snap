@@ -1,6 +1,5 @@
 ---
 source: crates/runtime-next/src/shard/recovery.rs
-assertion_line: 797
 expression: "decode_pairs(store, &mapping).unwrap()"
 ---
 DecodedRecover {
@@ -20,6 +19,7 @@ DecodedRecover {
             0: b"mk-v1",
         },
         trigger_params_json: b"",
+        active_backfills: {},
     },
     committed_frontier: [
         JournalFrontier {

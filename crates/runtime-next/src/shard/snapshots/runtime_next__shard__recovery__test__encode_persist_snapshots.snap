@@ -38,6 +38,14 @@ expression: snapshot
                 from: b"FH:",
                 to: b"FH;",
             },
+            DeleteRange {
+                from: b"HB:",
+                to: b"HB;",
+            },
+            DeleteRange {
+                from: b"HC:",
+                to: b"HC;",
+            },
             Put {
                 key: b"FH:acme/events/000\0materialize/mat/t1\0\x01\xaa\0\0\0\0",
                 value: b"\x11d\0\0\0\0\0\0\0 \xfa\x01",
