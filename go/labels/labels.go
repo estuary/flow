@@ -36,6 +36,13 @@ const (
 	KeyEndMax = "ffffffff"
 	// ManagedByFlow is a value for the Gazette labels.ManagedBy label.
 	ManagedByFlow = "estuary.dev/flow"
+	// TruncatedAt is the publication timestamp after which journal data is current,
+	// determined by the last backfill-begin timestamp of the collection's capture.
+	//
+	// Its value is a fixed-width, 16-character hex encoding of a uint64 Gazette
+	// message.Clock. A reader raises its effective not_before to this clock to
+	// skip the stale pre-backfill prefix.
+	TruncatedAt = "estuary.dev/truncated-at"
 )
 
 // ShardSpec labels.
@@ -112,7 +119,10 @@ func IsRuntimeLabel(label string) bool {
 		// R-Clock splits are performed dynamically by the runtime.
 		RClockBegin, RClockEnd,
 		// Shard splits are performed dynamically by the runtime.
-		SplitTarget, SplitSource:
+		SplitTarget, SplitSource,
+		// The backfill truncation boundary is applied to live journals by the
+		// capture runtime, so convergence must preserve it (not rebuild it away).
+		TruncatedAt:
 		return true
 	default:
 		return false
