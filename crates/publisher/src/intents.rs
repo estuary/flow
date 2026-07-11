@@ -3,6 +3,13 @@ use itertools::Itertools;
 use proto_gazette::uuid;
 use std::collections::BTreeMap;
 
+/// A backfill marker carried as body fields on the ACK documents of a marker
+/// broadcast transaction.
+pub enum BackfillMarker {
+    Begin,
+    Complete { truncated_at: u64 },
+}
+
 /// Build per-journal ACK intent documents for a committed transaction.
 ///
 /// Each element of `transaction` is a (producer, clock, journals) tuple
@@ -15,6 +22,7 @@ use std::collections::BTreeMap;
 /// hints as they'd be redundant.
 pub fn build_transaction_intents(
     transaction: &[(uuid::Producer, uuid::Clock, Vec<String>)],
+    marker: Option<&BackfillMarker>,
 ) -> BTreeMap<String, bytes::Bytes> {
     // Flatten and index on journal, then producer.
     let mut flattened: Vec<(&str, uuid::Producer, uuid::Clock)> = transaction
@@ -82,26 +90,24 @@ pub fn build_transaction_intents(
 
         let this_uuid = uuid::build(*this_producer, *this_commit, uuid::Flags::ACK_TXN);
         let mut buf = Vec::new();
-        write_ndjson(
-            &mut buf,
-            &serde_json::json!({
-                "_meta": { "uuid": this_uuid },
-                "is_ack": true,
-                "hints": hinted_journals,
-            }),
-        );
+        let mut doc = serde_json::json!({
+            "_meta": { "uuid": this_uuid },
+            "is_ack": true,
+            "hints": hinted_journals,
+        });
+        apply_marker(&mut doc, marker);
+        write_ndjson(&mut buf, &doc);
 
         // Remainder of `these_producers` also need ACK documents.
         // They were already hinted by the first ACK of this journal, and don't carry hints themselves.
         for (_this_journal, this_producer, this_commit) in these_producers {
             let this_uuid = uuid::build(*this_producer, *this_commit, uuid::Flags::ACK_TXN);
-            write_ndjson(
-                &mut buf,
-                &serde_json::json!({
-                    "_meta": { "uuid": this_uuid },
-                    "is_ack": true,
-                }),
-            );
+            let mut doc = serde_json::json!({
+                "_meta": { "uuid": this_uuid },
+                "is_ack": true,
+            });
+            apply_marker(&mut doc, marker);
+            write_ndjson(&mut buf, &doc);
         }
 
         journal_acks.insert(this_journal.to_string(), bytes::Bytes::from(buf));
@@ -113,6 +119,29 @@ pub fn build_transaction_intents(
 fn write_ndjson(buf: &mut Vec<u8>, doc: &serde_json::Value) {
     serde_json::to_writer(&mut *buf, doc).expect("serialization of Value cannot fail");
     buf.push(b'\n');
+}
+
+fn apply_marker(doc: &mut serde_json::Value, marker: Option<&BackfillMarker>) {
+    let Some(marker) = marker else { return };
+    let obj = doc
+        .as_object_mut()
+        .expect("ACK document is a JSON object literal");
+
+    match marker {
+        BackfillMarker::Begin => {
+            obj.insert("backfillBegin".to_string(), serde_json::Value::Bool(true));
+        }
+        BackfillMarker::Complete { truncated_at } => {
+            obj.insert(
+                "backfillComplete".to_string(),
+                serde_json::Value::Bool(true),
+            );
+            obj.insert(
+                "truncatedAt".to_string(),
+                serde_json::Value::String(labels::truncated_at_value(*truncated_at)),
+            );
+        }
+    }
 }
 
 /// Decode causal hints embedded in an ACK document.
@@ -329,14 +358,14 @@ mod test {
 
     #[test]
     fn test_empty_transaction() {
-        let result = parse_intents(build_transaction_intents(&[]));
+        let result = parse_intents(build_transaction_intents(&[], None));
         insta::assert_json_snapshot!(result);
     }
 
     #[test]
     fn test_single_producer_single_journal() {
         let txn = vec![(P1, clock(100), js(&["acmeCo/anvils/part=a/pivot=00"]))];
-        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn)));
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn, None)));
     }
 
     #[test]
@@ -349,7 +378,7 @@ mod test {
                 "acmeCo/anvils/part=b/pivot=00",
             ]),
         )];
-        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn)));
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn, None)));
     }
 
     #[test]
@@ -358,7 +387,7 @@ mod test {
             (P1, clock(100), js(&["acmeCo/anvils/part=a/pivot=00"])),
             (P2, clock(200), js(&["acmeCo/anvils/part=a/pivot=00"])),
         ];
-        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn)));
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn, None)));
     }
 
     // Three producers across four journals with overlapping membership.
@@ -394,7 +423,41 @@ mod test {
                 ]),
             ),
         ];
-        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn)));
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(&txn, None)));
+    }
+
+    #[test]
+    fn test_marker_begin_broadcast() {
+        let txn = vec![(
+            P1,
+            clock(0x1122334455667788),
+            js(&[
+                "acmeCo/anvils/part=a/pivot=00",
+                "acmeCo/anvils/part=b/pivot=00",
+                "acmeCo/anvils/part=c/pivot=00",
+            ]),
+        )];
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(
+            &txn,
+            Some(&BackfillMarker::Begin),
+        )));
+    }
+
+    #[test]
+    fn test_marker_complete_broadcast() {
+        let truncated_at = uuid::Clock::from_unix(1_700_000_000, 0).as_u64();
+        let txn = vec![(
+            P1,
+            clock(0x1122334455667788),
+            js(&[
+                "acmeCo/anvils/part=a/pivot=00",
+                "acmeCo/anvils/part=b/pivot=00",
+            ]),
+        )];
+        insta::assert_json_snapshot!(parse_intents(build_transaction_intents(
+            &txn,
+            Some(&BackfillMarker::Complete { truncated_at }),
+        )));
     }
 
     // --- decode_transaction_hints tests ---
@@ -414,7 +477,7 @@ mod test {
     /// no hints.
     fn assert_round_trip(txn: &[(uuid::Producer, uuid::Clock, Vec<String>)]) {
         let expected = flatten_transaction(txn);
-        let journal_acks = parse_intents(build_transaction_intents(txn));
+        let journal_acks = parse_intents(build_transaction_intents(txn, None));
 
         for (journal, acks) in &journal_acks {
             // First ACK carries hints.
