@@ -70,6 +70,17 @@ async fn fetch_records_at_nonempty(
     }
 }
 
+/// Extract the high watermark from a FetchResponse for the test partition.
+fn fetch_high_watermark(resp: &messages::FetchResponse) -> anyhow::Result<i64> {
+    let partition = resp
+        .responses
+        .iter()
+        .find(|t| t.topic.as_str() == TOPIC)
+        .and_then(|t| t.partitions.iter().find(|p| p.partition_index == PARTITION))
+        .context("missing partition in fetch response")?;
+    Ok(partition.high_watermark)
+}
+
 /// Resolve the earliest (-2) or latest (-1) offset via ListOffsets.
 async fn resolve_offset(client: &mut TestKafkaClient, timestamp: i64) -> anyhow::Result<i64> {
     let resp = client
@@ -233,6 +244,83 @@ async fn test_fetch_at_write_head_returns_no_records() -> anyhow::Result<()> {
             );
         }
     }
+
+    Ok(())
+}
+
+/// A caught-up Fetch must observe documents which arrived before the request
+/// was sent.
+///
+/// After serving each Fetch response, Dekaf immediately starts reading the
+/// next batch, using the served request's `max_wait_ms` as the new read's
+/// timeout. When the consumer pauses between fetches, that read times out
+/// empty with no request in flight, and its result is cached on the session.
+/// A document published after the timeout is then invisible to the next
+/// Fetch: instead of long-polling for the request's own `max_wait_ms`, Dekaf
+/// serves the cached empty result carrying the pre-publication high
+/// watermark. A consumer fetching at the write head sees an empty response
+/// with `high_watermark == fetch_offset`, which librdkafka surfaces as
+/// `PARTITION_EOF` even though the broker holds newer data. A real Kafka
+/// broker starts the long-poll clock when the Fetch request arrives, so it
+/// would serve the document.
+#[tokio::test]
+async fn test_caught_up_fetch_observes_documents_published_while_idle() -> anyhow::Result<()> {
+    super::init_tracing();
+
+    let env = DekafTestEnv::setup("fetch_idle_publish", FIXTURE).await?;
+    env.inject_documents("data", (0..4).map(payload)).await?;
+
+    let info = env.connection_info().await?;
+    let token = env.dekaf_token()?;
+    let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
+
+    let low = resolve_offset(&mut client, -2).await?;
+    let high = resolve_offset(&mut client, -1).await?;
+    let all = read_all_records(&mut client, low, high).await?;
+    assert_eq!(all.last().map(|r| r.offset), Some(high - 1));
+
+    // The fetch which served the final records also started a server-side
+    // read at `high`, whose timer (this session's `max_wait_ms` of 1s) began
+    // immediately. Let it expire while the journal is idle.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Publish another document and wait until ListOffsets reports it, proving
+    // the broker can see it before the next Fetch is sent. Keep this window
+    // short: after ~60s an unpolled read is reaped, and a fresh read started
+    // by the next Fetch would mask the cached-result path under test.
+    env.inject_documents("data", vec![payload(99)]).await?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(45);
+    let new_high = loop {
+        let latest = resolve_offset(&mut client, -1).await?;
+        if latest > high {
+            break latest;
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for the injected document to become visible"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+
+    let first = client.fetch_with_epoch(TOPIC, PARTITION, high, -1).await?;
+    let first_records = decode_fetch_records(&first)?;
+    let first_high_watermark = fetch_high_watermark(&first)?;
+
+    // Issued only to diagnose a failure below: when the first response is a
+    // stale cached result, this identical retry serves the document instead.
+    let second = client.fetch_with_epoch(TOPIC, PARTITION, high, -1).await?;
+    let second_records = decode_fetch_records(&second)?;
+    let second_high_watermark = fetch_high_watermark(&second)?;
+
+    assert!(
+        !(first_records.is_empty() && first_high_watermark <= high),
+        "a caught-up fetch at {high} must serve the document published while idle, or at \
+         minimum advertise the new high watermark {new_high}; an empty response with \
+         high_watermark <= fetch_offset makes librdkafka report PARTITION_EOF despite \
+         available data. Got 0 records with high_watermark={first_high_watermark}; an \
+         identical retry returned {} records with high_watermark={second_high_watermark}",
+        second_records.len(),
+    );
 
     Ok(())
 }
