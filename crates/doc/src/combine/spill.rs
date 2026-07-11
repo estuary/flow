@@ -197,12 +197,31 @@ struct Segment {
     keys: Arc<[Box<[Extractor]>]>, // Keys for comparing Entries across Segments.
     next: Range<u64>,              // Next chunk of this Segment.
     tail: bytes::Bytes,            // Remainder of the current chunk.
+    ordinal: usize,                // Index of this segment within the spill `ranges`.
+    cutoffs: Arc<[u32]>,           // Per-binding spill-segment cutoffs (see Accumulator).
 }
 
 impl Segment {
+    /// Parse the next Entry and stamp it stale when this segment's `ordinal` is
+    /// below its binding's cutoff (the segment predates the binding's truncate).
+    /// Centralized so no parse site forgets to fence.
+    fn parse_entry(
+        ordinal: usize,
+        cutoffs: &[u32],
+        chunk: bytes::Bytes,
+    ) -> Result<(Entry, bytes::Bytes), io::Error> {
+        let (mut entry, rest) = Entry::parse(chunk)?;
+        if ordinal < cutoffs.get(entry.meta.binding()).copied().unwrap_or(0) as usize {
+            entry.meta.set_stale();
+        }
+        Ok((entry, rest))
+    }
+
     /// Build a new Segment covering the given range of the spill file.
     fn new<R: io::Read + io::Seek>(
         keys: Arc<[Box<[Extractor]>]>,
+        cutoffs: Arc<[u32]>,
+        ordinal: usize,
         r: &mut R,
         range: Range<u64>,
     ) -> Result<Self, io::Error> {
@@ -250,13 +269,15 @@ impl Segment {
         }
 
         let chunk: bytes::Bytes = raw_buf.into_vec().into();
-        let (head, tail) = Entry::parse(chunk)?;
+        let (head, tail) = Self::parse_entry(ordinal, &cutoffs, chunk)?;
 
         Ok(Self {
             head,
             keys,
             next,
             tail,
+            ordinal,
+            cutoffs,
         })
     }
 
@@ -271,10 +292,12 @@ impl Segment {
             keys,
             next,
             tail,
+            ordinal,
+            cutoffs,
         } = self;
 
         if !tail.is_empty() {
-            let (head, tail) = Entry::parse(tail)?;
+            let (head, tail) = Self::parse_entry(ordinal, &cutoffs, tail)?;
 
             Ok((
                 popped,
@@ -283,10 +306,12 @@ impl Segment {
                     keys,
                     next,
                     tail,
+                    ordinal,
+                    cutoffs,
                 }),
             ))
         } else if !next.is_empty() {
-            Ok((popped, Some(Self::new(keys, r, next)?)))
+            Ok((popped, Some(Self::new(keys, cutoffs, ordinal, r, next)?)))
         } else {
             Ok((popped, None))
         }
@@ -297,10 +322,11 @@ impl Ord for Segment {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         let (l, r) = (&self.head, &other.head);
 
-        // Order entries on (binding, key, !front, spill-order):
-        // For each (binding, key), we take front() entries first, and then
-        // take the Segment which was produced into the spill file first.
-        // This maintains the left-to-right associative ordering of reductions.
+        // Order entries on (binding, key, stale, !front, spill-order):
+        // For each (binding, key), stale entries sort first and then front()
+        // entries, and then we take the Segment which was produced into the
+        // spill file first. This maintains the left-to-right associative
+        // ordering of reductions.
         //
         // `meta` contains a packed structure that's order-preserving over
         // (binding, key), so we first test it for inequality.
@@ -309,6 +335,7 @@ impl Ord for Segment {
             .then_with(|| {
                 Extractor::compare_key(&self.keys[l.meta.binding()], l.root.get(), r.root.get())
             })
+            .then_with(|| l.meta.stale().cmp(&r.meta.stale()).reverse())
             .then_with(|| l.meta.front().cmp(&r.meta.front()).reverse())
             .then_with(|| self.next.start.cmp(&other.next.start))
     }
@@ -351,7 +378,44 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
             self.heap.push(cmp::Reverse(segment));
         }
 
-        let Entry { mut meta, root } = entry;
+        let Entry { mut meta, mut root } = entry;
+
+        // Advance past stale entries to the first fresh entry of their key,
+        // ORing their front() existence onto it. A stale run with no fresh
+        // successor emits nothing.
+        let mut stale_front = false;
+        while meta.stale() {
+            stale_front |= meta.front();
+
+            let Some(cmp::Reverse(segment)) = self.heap.pop() else {
+                return Ok(None); // Trailing stale run: nothing to emit.
+            };
+            let (next, segment) = segment.pop_head(&mut self.spill)?;
+            if let Some(segment) = segment {
+                self.heap.push(cmp::Reverse(segment));
+            }
+
+            let same_key = meta.0 == next.meta.0
+                && Extractor::compare_key(
+                    &self.spec.keys[meta.binding()],
+                    root.get(),
+                    next.root.get(),
+                )
+                .is_eq();
+
+            Entry { meta, root } = next;
+            self.in_group = false;
+
+            if !same_key {
+                // Orphaned stale run: drop its existence (next may differ in binding).
+                stale_front = false;
+            }
+        }
+
+        if stale_front {
+            meta.set_front(); // Transfer stale existence onto the fresh output.
+        }
+
         let is_full = self.spec.is_full[meta.binding()];
         let key = self.spec.keys[meta.binding()].as_ref();
         let validator = &mut self.spec.validators[meta.binding()];
@@ -478,12 +542,25 @@ impl<F: io::Read + io::Seek> Iterator for SpillDrainer<F> {
 
 impl<F: io::Read + io::Seek> SpillDrainer<F> {
     /// Build a new SpillDrainer which drains the given segment ranges previously
-    /// written to the spill file.
-    pub fn new(spec: Spec, mut spill: F, ranges: &[Range<u64>]) -> Result<Self, std::io::Error> {
+    /// written to the spill file. `cutoffs` fences segments by ordinal: an entry
+    /// in the segment at ordinal `i` is stamped stale when `i < cutoffs[binding]`;
+    /// an empty `cutoffs` fences nothing.
+    pub fn new(
+        spec: Spec,
+        mut spill: F,
+        ranges: &[Range<u64>],
+        cutoffs: Arc<[u32]>,
+    ) -> Result<Self, std::io::Error> {
         let mut heap = BinaryHeap::with_capacity(ranges.len());
 
-        for range in ranges {
-            let segment = Segment::new(spec.keys.clone(), &mut spill, range.clone())?;
+        for (ordinal, range) in ranges.iter().enumerate() {
+            let segment = Segment::new(
+                spec.keys.clone(),
+                cutoffs.clone(),
+                ordinal,
+                &mut spill,
+                range.clone(),
+            )?;
             heap.push(cmp::Reverse(segment));
         }
 
@@ -555,7 +632,8 @@ mod test {
         ");
 
         // Parse the region as a Segment.
-        let mut segment = Segment::new(keys, &mut spill, ranges[0].clone()).unwrap();
+        let mut segment =
+            Segment::new(keys, Vec::new().into(), 0, &mut spill, ranges[0].clone()).unwrap();
 
         // First chunk has two documents.
         assert_eq!(segment.head.meta.binding(), 0);
@@ -672,7 +750,7 @@ mod test {
 
         // Map from SpillWriter => SpillDrainer.
         let (spill, ranges) = spill.into_parts();
-        let drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
+        let drainer = SpillDrainer::new(spec, spill, &ranges, Vec::new().into()).unwrap();
 
         let actual = drainer
             .map_ok(|doc| {
@@ -808,7 +886,7 @@ mod test {
             spill.write_segment(&segment, CHUNK_TARGET_SIZE).unwrap();
         }
         let (spill, ranges) = spill.into_parts();
-        let mut drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
+        let mut drainer = SpillDrainer::new(spec, spill, &ranges, Vec::new().into()).unwrap();
 
         // "aaa" is front() & validated, and matches the schema.
         assert!(matches!(
@@ -939,7 +1017,7 @@ mod test {
 
         // Read back through SpillDrainer and verify ordering
         let (spill, _) = spill.into_parts();
-        let mut drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
+        let mut drainer = SpillDrainer::new(spec, spill, &ranges, Vec::new().into()).unwrap();
 
         let all_keys: Vec<String> = std::iter::from_fn(|| drainer.next())
             .map(|doc| {
@@ -1018,7 +1096,7 @@ mod test {
         }
 
         let (spill, ranges) = spill.into_parts();
-        let drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
+        let drainer = SpillDrainer::new(spec, spill, &ranges, Vec::new().into()).unwrap();
 
         let actual = drainer
             .map_ok(|doc| {
@@ -1076,6 +1154,97 @@ mod test {
           ]
         ]
         "###);
+    }
+
+    #[test]
+    fn test_stale_flag_header_roundtrip() {
+        // A STALE flag set in memory must survive the 24-byte entry header's
+        // persisted flags byte, independent of any ordinal fence.
+        let alloc = Bump::new();
+        let mut meta = Meta::new(0, &[], false, true);
+        meta.set_stale();
+        let entries = vec![HeapEntry {
+            meta,
+            root: HeapRoot::from_heap_node(HeapNode::from_node(&json!({"key": "k"}), &alloc)),
+        }];
+
+        let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+        spill.write_segment(&entries, CHUNK_TARGET_SIZE).unwrap();
+        let (mut spill, ranges) = spill.into_parts();
+
+        // Empty cutoffs fence nothing, so staleness can only come from the
+        // persisted flag.
+        let keys: Arc<[Box<[Extractor]>]> = Vec::new().into();
+        let segment =
+            Segment::new(keys, Vec::new().into(), 0, &mut spill, ranges[0].clone()).unwrap();
+        assert!(segment.head.meta.stale());
+        assert_eq!(segment.head.meta.binding(), 0);
+        assert!(segment.head.meta.known_valid());
+    }
+
+    #[test]
+    fn test_cross_segment_cutoff() {
+        // A front Loaded and a fresh source of one key, split across two spill
+        // segments, still partition on drain when a cutoff fences the older
+        // segment by ordinal; a stale-only key emits nothing.
+        let schema = json::schema::build(
+            &url::Url::parse("http://example/schema").unwrap(),
+            &json!({
+                "properties": { "v": { "type": "array", "reduce": { "strategy": "append" } } },
+                "reduce": { "strategy": "merge" }
+            }),
+        )
+        .unwrap();
+        let spec = Spec::with_one_binding(
+            true,
+            vec![Extractor::with_default(
+                "/key",
+                &SerPolicy::noop(),
+                json!("def"),
+            )],
+            "source",
+            Vec::new(),
+            Validator::new(schema).unwrap(),
+        );
+
+        let alloc = Bump::new();
+        // Segment 0 (fenced by the cutoff) holds a front Loaded for "k" and a
+        // stale-only key "z"; segment 1 holds the fresh source for "k".
+        let fixtures = vec![
+            segment_fixture(
+                &[
+                    (0, json!({"key": "k", "v": ["stale"]}), true),
+                    (0, json!({"key": "z", "v": ["orphan"]}), true),
+                ],
+                &alloc,
+            ),
+            segment_fixture(&[(0, json!({"key": "k", "v": ["fresh"]}), false)], &alloc),
+        ];
+
+        let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+        for segment in fixtures {
+            spill.write_segment(&segment, CHUNK_TARGET_SIZE).unwrap();
+        }
+        let (spill, ranges) = spill.into_parts();
+
+        // cutoffs[0] = 1 fences segment 0 (ordinal 0 < 1), stamping its entries
+        // stale; segment 1 (ordinal 1) is unfenced.
+        let drained = SpillDrainer::new(spec, spill, &ranges, vec![1u32].into())
+            .unwrap()
+            .map_ok(|doc| {
+                (
+                    serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap(),
+                    doc.meta.front(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(
+            drained,
+            vec![(json!({"key": "k", "v": ["fresh"]}), true)],
+            "stale content dropped, existence transferred; orphan 'z' emits nothing",
+        );
     }
 
     fn to_hex(b: &[u8]) -> String {
