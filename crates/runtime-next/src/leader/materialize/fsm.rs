@@ -105,6 +105,11 @@ pub enum Action {
     Flush {
         // Prior transaction's C:Acknowledged patches.
         connector_patches: bytes::Bytes,
+        // Backfill-begin markers observed this transaction, forwarded to each
+        // shard's connector as a notification.
+        backfill_begins: BTreeMap<u16, uuid::Clock>,
+        // Backfill-complete markers observed this transaction.
+        backfill_completes: BTreeMap<u16, uuid::Clock>,
     },
     /// Broadcast `L:Store`.
     Store,
@@ -327,7 +332,16 @@ impl HeadIdle {
                 self.extents.open = now;
                 self.combiner_usage_bytes = vec![0; task.n_shards];
             }
-            self.extents.frontier = self.extents.frontier.reduce(frontier.clone());
+
+            // Extents fold in the full frontier minus an unresolved peek's
+            // backfill markers — they must not reach Flush/durable state until
+            // they resolve.
+            let mut extents_delta = frontier.clone();
+            if extents_delta.unresolved_hints != 0 {
+                extents_delta.latest_backfill_begin = Default::default();
+                extents_delta.latest_backfill_complete = Default::default();
+            }
+            self.extents.frontier = self.extents.frontier.reduce(extents_delta);
 
             return (
                 Action::Load { frontier },
@@ -391,7 +405,11 @@ impl HeadIdle {
             };
 
             return (
-                Action::Flush { connector_patches },
+                Action::Flush {
+                    connector_patches,
+                    backfill_begins: extents.frontier.latest_backfill_begin.clone(),
+                    backfill_completes: extents.frontier.latest_backfill_complete.clone(),
+                },
                 Head::Flush(HeadFlush {
                     extents,
                     pending,

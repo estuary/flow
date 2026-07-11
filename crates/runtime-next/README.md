@@ -181,6 +181,78 @@ key. An authoritative (unmarked) checkpoint implies no V2 transaction has
 committed, so clearing `FC:` loses no V2 state. The transaction loop then
 only ever writes `FC:` deltas.
 
+## Backfill truncation (materialize)
+
+When a source collection is backfill-truncated, documents a materialization
+sourced before the truncation boundary are superseded and must not combine
+with — or reduce forward into — documents at or above it. The shard actor
+(`shard/materialize/boundaries.rs`) tracks per-binding the latest observed
+truncation boundary (`Begin`) clock; boundaries classify ingress rather than
+tagging combiner entries.
+
+The combiner (`doc::combine`) marks superseded entries with a one-bit **STALE**
+flag. A stale entry is never validated or reduced; on drain it is discarded,
+transferring only its `front()` existence onto the first fresh entry of a
+shared `(binding, key)` — so a truncated row's destination presence is
+preserved while its value is not. Staleness reaches an entry three ways, all
+collapsing to the same flag:
+
+- **`truncate(binding)`** at the moment a boundary is learned reclassifies
+  everything the accumulator already holds: the live MemTable drops the
+  binding's pre-boundary source documents outright (they carry no existence)
+  and flags its Loaded fronts stale in place, while every spill segment already
+  written is fenced by a per-binding **ordinal cutoff** (`cutoffs[binding]` =
+  segment count). At drain, an entry in a segment below its binding's cutoff is
+  stamped stale.
+- **`add_stale_front`** flags a Loaded row classified stale on arrival.
+- The **persisted flag** rides the spill entry header, so an entry flagged in
+  memory and then spilled (under memory pressure, into a segment at or above the
+  cutoff) is still stale at drain — staleness is `persisted-flag OR ordinal
+  fence`.
+
+The split is **exhaustive** because `observe_begin` has a single call site — at
+L:Load receipt, before the scan — so every combiner add is unambiguously either
+*before* it (reclassified by `truncate`) or *after* it (self-classifying at
+ingress): the scan drops pre-boundary source documents by their shuffle clock,
+and Loaded rows split into fresh fronts vs. stale fronts by their embedded
+document-UUID clock. Loaded rows classify by the document UUID (not message
+timing) because staleness is a property of when the row was last *stored*: a row
+can load stale many transactions after the one that truncated its binding.
+
+Cutoffs are **accumulator-local** and die with the accumulator — a recycled
+(drained) accumulator starts with zeroed cutoffs at the same moment its spill
+file is truncated to length 0, so segment ordinals and their fences restart
+together. The per-binding boundary **clocks**, by contrast, are the persistent
+runtime state that outlives any single accumulator.
+
+Consequences and requirements:
+
+- **Once a binding has observed a `Begin`, its Loaded rows must expose a
+  parseable document UUID** (at the binding's configured pointer, typically
+  `/_meta/uuid`) so each row can be classified against the boundary; a missing
+  or malformed UUID then fails the transaction. A binding that has never
+  truncated has no boundary, so its Loaded rows are fresh regardless of clock
+  and need no UUID — this spares the many pre-existing materializations,
+  unrelated to truncation, whose rows carry none. Delta-update bindings never
+  load and are unaffected.
+- **Boundaries must be visible before the documents they fence.** A `Begin`
+  rides eagerly on unresolved shuffle peeks (see `crates/shuffle`), so the shard
+  applies it before scanning any document at or above its clock, and each
+  document then classifies against the current boundary. This assumes a single
+  writer per truncating collection; concurrent writers are undefined.
+- **Markers are latest-state, not an event log.** The leader keeps
+  session-cumulative per-binding `Begin`/`Complete` maps; each connector
+  `Flush` projects the transaction's latest observed clocks. An eager
+  (unresolved-peek) `Begin` is used only to stamp outgoing `Load` frontiers
+  for shard classification — it never enters transaction extents, the
+  connector `Flush`, or durable `Persist` state until its causal hints
+  resolve and it rides a fully-resolved frontier.
+- **No persisted combiner state.** Neither the STALE flags nor the segment
+  cutoffs survive a session: cutoffs are accumulator-local and reset when the
+  accumulator is recycled. The per-binding boundary clocks live in the shard
+  session, and on recovery the shard reconstructs them from the leader's
+  cumulative `Begin` (committed ∪ hinted) delivered on the first `L:Load`.
+
 ## Status
 
 - `leader::materialize` / `shard::materialize` and `leader::derive` /

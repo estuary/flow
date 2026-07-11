@@ -203,6 +203,8 @@ where
             publisher,
             session,
             task,
+            backfill_begin,
+            backfill_complete,
         } = startup::run(
             build,
             drop_v1_rollback,
@@ -238,6 +240,8 @@ where
         };
 
         let mut actor = actor::Actor::new(
+            backfill_begin,
+            backfill_complete,
             service.http_client.clone(),
             legacy_checkpoint,
             metrics,
