@@ -98,6 +98,28 @@ impl runtime_next::Publisher for PreviewPublisher {
         Ok(())
     }
 
+    async fn marker_commit(
+        &mut self,
+        _binding_index: usize,
+    ) -> tonic::Result<
+        Option<(
+            proto_gazette::uuid::Producer,
+            proto_gazette::uuid::Clock,
+            Vec<String>,
+        )>,
+    > {
+        // No journal IO: no backfill marker is broadcast.
+        Ok(None)
+    }
+
+    async fn apply_truncated_at_labels(
+        &mut self,
+        _active_backfills: &BTreeMap<u32, u64>,
+    ) -> tonic::Result<()> {
+        // No journal IO: there are no `truncated-at` journal labels to apply.
+        Ok(())
+    }
+
     fn commit_intents(
         &mut self,
     ) -> Option<(

@@ -1,5 +1,6 @@
 use bytes::BufMut;
-use proto_gazette::uuid;
+use futures::StreamExt;
+use proto_gazette::{broker, uuid};
 
 /// Publisher is responsible for transactional publishing of documents to
 /// journal partitions, creating partitions on-demand and as needed.
@@ -236,6 +237,40 @@ impl Publisher {
         (self.producer, clock, journal_names)
     }
 
+    /// Snapshot a backfill marker broadcast: every partition journal of a Mapped
+    /// collection binding, plus a ticked commit clock and producer identity. Unlike
+    /// [`Self::commit_intents`] (only appended journals), a marker must reach *every*
+    /// partition so a reader observes it regardless of its selector.
+    pub async fn marker_commit(
+        &mut self,
+        binding_idx: usize,
+    ) -> tonic::Result<(uuid::Producer, uuid::Clock, Vec<String>)> {
+        // Snapshot the journals to broadcast to, releasing the partitions watch
+        // borrow before returning.
+        let journals: Vec<String> = match &self.bindings[binding_idx] {
+            super::Binding::Mapped(_) => {
+                let super::LazyBindingClient::Mapped(lazy) = &self.binding_clients[binding_idx]
+                else {
+                    unreachable!("Mapped binding has Mapped lazy client");
+                };
+                let (_client, partitions) = &(**lazy);
+                let partitions = partitions.ready().await;
+                let refresh = partitions.token();
+                refresh
+                    .result()?
+                    .iter()
+                    .map(|split| split.name.to_string())
+                    .collect()
+            }
+            super::Binding::Fixed(_) => {
+                unreachable!("backfill markers are only broadcast to Mapped collection bindings")
+            }
+        };
+
+        let clock = self.clock.tick();
+        Ok((self.producer, clock, journals))
+    }
+
     /// Write pre-serialized ACK intent documents to their journals.
     ///
     /// Takes the output of `intents::build_transaction_intents()` — per-journal
@@ -359,6 +394,58 @@ impl Publisher {
         )
     }
 
+    /// Apply the `estuary.dev/truncated-at` journal label to the partitions of
+    /// each active backfill. Journals already at the target value are skipped.
+    pub async fn apply_truncated_at_labels(
+        &mut self,
+        active_backfills: &std::collections::BTreeMap<usize, u64>,
+    ) -> tonic::Result<()> {
+        for (&index, &clock) in active_backfills {
+            let target = labels::truncated_at_value(clock);
+
+            let super::Binding::Mapped(binding) = &self.bindings[index] else {
+                return Err(tonic::Status::internal(format!(
+                    "binding {index} has an active backfill but is not a Mapped collection binding"
+                )));
+            };
+            let client = self.binding_clients[index].client();
+
+            // Watch the partition listing: the watch handles transient-error
+            // backoff and restates the journals after every change, so a lost CAS
+            // race (`false`) is retried on the snapshot that the racing writer's
+            // own change delivers.
+            let watch = client.clone().list_watch(broker::ListRequest {
+                selector: Some(broker::LabelSelector {
+                    include: Some(labels::build_set([(
+                        "name:prefix",
+                        binding.partitions_prefix.as_str(),
+                    )])),
+                    exclude: None,
+                }),
+                watch: true,
+                ..Default::default()
+            });
+            let mut watch = std::pin::pin!(watch);
+
+            loop {
+                match watch.next().await {
+                    Some(Ok(listing)) => {
+                        if advance_truncated_at_labels(client, listing, &target).await? {
+                            break;
+                        }
+                    }
+                    // Transient — retried on the next poll.
+                    Some(Err(gazette::RetryError { inner, .. })) if inner.is_transient() => {}
+                    Some(Err(gazette::RetryError { inner, .. })) => {
+                        return Err(status_from_gazette(inner));
+                    }
+                    None => break,
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Access the lazy Client and partitions watch for the Mapped binding at
     /// `index`. Panics if the binding is Fixed. Primarily used by tests.
     pub fn mapped_binding_client(
@@ -373,6 +460,253 @@ impl Publisher {
             super::LazyBindingClient::Fixed(_) => {
                 panic!("binding {index} is Fixed, not Mapped")
             }
+        }
+    }
+}
+
+async fn advance_truncated_at_labels(
+    client: &gazette::journal::Client,
+    listing: broker::ListResponse,
+    target: &str,
+) -> tonic::Result<bool> {
+    for journal in listing.journals {
+        let Some(change) = truncated_at_label_change(journal, target)? else {
+            continue;
+        };
+
+        match retry_transient("apply truncated-at label", || {
+            client.apply(broker::ApplyRequest {
+                changes: vec![change.clone()],
+            })
+        })
+        .await
+        {
+            Ok(_) => {}
+            Err(gazette::Error::BrokerStatus(broker::Status::EtcdTransactionFailed)) => {
+                return Ok(false);
+            }
+            Err(err) => return Err(status_from_gazette(err)),
+        }
+    }
+    Ok(true)
+}
+
+/// Convert a gazette client Error into a tonic::Status, preserving a gRPC status
+/// when present and otherwise wrapping the error as Internal.
+fn status_from_gazette(err: gazette::Error) -> tonic::Status {
+    match err {
+        gazette::Error::Grpc(status) => status,
+        other => tonic::Status::internal(other.to_string()),
+    }
+}
+
+async fn retry_transient<T, F, Fut>(what: &'static str, mut op: F) -> gazette::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = gazette::Result<T>>,
+{
+    let mut attempt: u32 = 0;
+    loop {
+        let err = match op().await {
+            ok @ Ok(_) => return ok,
+            Err(err) => err,
+        };
+        attempt += 1;
+
+        if !err.is_transient() || attempt == 8 {
+            return Err(err);
+        }
+
+        // Exponential backoff from a 100ms base, capped at 10 seconds.
+        let backoff = std::time::Duration::from_millis(100)
+            .saturating_mul(2u32.saturating_pow(attempt - 1))
+            .min(std::time::Duration::from_secs(10));
+        tracing::warn!(what, attempt, %err, "gazette RPC failed; retrying after backoff");
+        tokio::time::sleep(backoff).await;
+    }
+}
+
+/// Build the apply Change that advances `journal`'s `estuary.dev/truncated-at`
+/// label to `target`, or `None` if the journal is already at or beyond it. The
+/// fixed-width hex encoding sorts lexically by clock, so the skip covers both an
+/// equal label (idempotent) and a newer one (a later backfill already applied,
+/// or clock skew across a restart) -- the label only ever advances.
+fn truncated_at_label_change(
+    journal: broker::list_response::Journal,
+    target: &str,
+) -> tonic::Result<Option<broker::apply_request::Change>> {
+    let Some(mut spec) = journal.spec else {
+        return Err(tonic::Status::internal(
+            "list response journal is missing its spec",
+        ));
+    };
+    let current = spec
+        .labels
+        .as_ref()
+        .and_then(|set| labels::maybe_one(set, labels::TRUNCATED_AT).ok())
+        .unwrap_or("");
+
+    if current >= target {
+        return Ok(None);
+    }
+
+    spec.labels = Some(labels::set_value(
+        spec.labels.take().unwrap_or_default(),
+        labels::TRUNCATED_AT,
+        target,
+    ));
+
+    Ok(Some(broker::apply_request::Change {
+        expect_mod_revision: journal.mod_revision,
+        upsert: Some(spec),
+        delete: String::new(),
+    }))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    // A list-response journal carrying `truncated_at` (when Some) plus an
+    // unrelated label, used to check the advance decision and that other labels
+    // survive the upsert.
+    fn journal(mod_revision: i64, truncated_at: Option<&str>) -> broker::list_response::Journal {
+        let mut set = labels::build_set([("estuary.dev/collection", "the/collection")]);
+        if let Some(value) = truncated_at {
+            set = labels::set_value(set, labels::TRUNCATED_AT, value);
+        }
+        broker::list_response::Journal {
+            spec: Some(broker::JournalSpec {
+                name: "the/collection/pivot=00".to_string(),
+                labels: Some(set),
+                ..Default::default()
+            }),
+            mod_revision,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_truncated_at_label_change_advances_only() {
+        let target = labels::truncated_at_value(0x20);
+
+        // No label yet, an older label, and an equal-then-newer label: the
+        // decision is "advance only" -- skip unless strictly older than target.
+        let absent = truncated_at_label_change(journal(1, None), &target).unwrap();
+        assert!(absent.is_some(), "absent label advances");
+
+        let older = labels::truncated_at_value(0x10);
+        let older = truncated_at_label_change(journal(1, Some(&older)), &target).unwrap();
+        assert!(older.is_some(), "older label advances");
+
+        let equal = truncated_at_label_change(journal(1, Some(&target)), &target).unwrap();
+        assert!(equal.is_none(), "equal label is skipped (idempotent)");
+
+        let newer = labels::truncated_at_value(0x30);
+        let newer = truncated_at_label_change(journal(1, Some(&newer)), &target).unwrap();
+        assert!(newer.is_none(), "newer label is never regressed");
+    }
+
+    #[test]
+    fn test_truncated_at_label_change_builds_upsert() {
+        let target = labels::truncated_at_value(0x20);
+        let prior = labels::truncated_at_value(0x10);
+
+        let change = truncated_at_label_change(journal(42, Some(&prior)), &target)
+            .unwrap()
+            .expect("older label advances");
+
+        // The CAS guard carries the listed revision, and the upsert sets the
+        // target label while preserving the journal's unrelated labels.
+        assert_eq!(change.expect_mod_revision, 42);
+        let set = change.upsert.unwrap().labels.unwrap();
+        assert_eq!(
+            labels::maybe_one(&set, labels::TRUNCATED_AT).unwrap(),
+            target
+        );
+        assert_eq!(
+            labels::maybe_one(&set, "estuary.dev/collection").unwrap(),
+            "the/collection"
+        );
+    }
+
+    #[test]
+    fn test_truncated_at_label_change_requires_spec() {
+        let target = labels::truncated_at_value(0x20);
+        let no_spec = broker::list_response::Journal {
+            spec: None,
+            mod_revision: 1,
+            ..Default::default()
+        };
+        assert!(truncated_at_label_change(no_spec, &target).is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_retry_transient_budget_and_passthrough() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        struct Case {
+            name: &'static str,
+            fail_times: u32,
+            transient: bool,
+            expect_ok: bool,
+            expect_calls: u32,
+        }
+        let cases = [
+            Case {
+                name: "immediate success",
+                fail_times: 0,
+                transient: true,
+                expect_ok: true,
+                expect_calls: 1,
+            },
+            Case {
+                name: "transient then success",
+                fail_times: 3,
+                transient: true,
+                expect_ok: true,
+                expect_calls: 4,
+            },
+            Case {
+                name: "terminal surfaces at once",
+                fail_times: 99,
+                transient: false,
+                expect_ok: false,
+                expect_calls: 1,
+            },
+            Case {
+                name: "transient exhausts budget",
+                fail_times: 99,
+                transient: true,
+                expect_ok: false,
+                expect_calls: 8, // mirrors retry_transient's attempt budget
+            },
+        ];
+
+        for case in cases {
+            let calls = AtomicU32::new(0);
+            let result = retry_transient("test", || {
+                let n = calls.fetch_add(1, Ordering::SeqCst);
+                let out: gazette::Result<u32> = if n < case.fail_times {
+                    Err(if case.transient {
+                        gazette::Error::Grpc(tonic::Status::unavailable("transient"))
+                    } else {
+                        gazette::Error::BrokerStatus(broker::Status::EtcdTransactionFailed)
+                    })
+                } else {
+                    Ok(n)
+                };
+                std::future::ready(out)
+            })
+            .await;
+
+            assert_eq!(result.is_ok(), case.expect_ok, "{}", case.name);
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                case.expect_calls,
+                "{}",
+                case.name
+            );
         }
     }
 }

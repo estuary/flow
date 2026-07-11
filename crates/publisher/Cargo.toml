@@ -39,4 +39,5 @@ proto-grpc = { path = "../proto-grpc" }
 tables = { path = "../tables" }
 
 insta = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 url = { workspace = true }

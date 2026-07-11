@@ -6566,7 +6566,6 @@ dependencies = [
  "base64 0.22.1",
  "build",
  "bytes",
- "chrono",
  "doc",
  "extractors",
  "futures",
