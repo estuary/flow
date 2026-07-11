@@ -102,7 +102,7 @@ pub struct JournalFrontier {
     pub journal_name_suffix: ::prost::alloc::string::String,
     /// Binding index under which the journal is read.
     /// When persisting across sessions, this should be mapped via the task binding's
-    /// `journal_read_suffix` to ensure stability across task versions.
+    /// `state_key` to ensure stability across task versions.
     #[prost(uint32, tag = "3")]
     pub binding: u32,
     /// Delta of journal bytes read since the last checkpoint.
@@ -128,6 +128,41 @@ pub struct Frontier {
     /// Per-shard flushed LSN, indexed by shard_index.
     #[prost(uint64, repeated, tag = "2")]
     pub flushed_lsn: ::prost::alloc::vec::Vec<u64>,
+    /// Latest backfill-begin clock for each binding in the checkpoint delta.
+    /// Populated only on a terminal (empty-journals) frontier of a Progressed
+    /// or NextCheckpoint sequence. Empty otherwise.
+    #[prost(message, repeated, tag = "3")]
+    pub latest_backfill_begin: ::prost::alloc::vec::Vec<frontier::BackfillBegin>,
+    /// Latest backfill-complete clock for each binding in the checkpoint delta.
+    /// Populated only on a terminal (empty-journals) frontier of a Progressed
+    /// or NextCheckpoint sequence. Empty otherwise.
+    #[prost(message, repeated, tag = "4")]
+    pub latest_backfill_complete: ::prost::alloc::vec::Vec<frontier::BackfillComplete>,
+}
+/// Nested message and enum types in `Frontier`.
+pub mod frontier {
+    /// BackfillBegin is a binding's latest backfill-begin clock, keyed by binding
+    /// index.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct BackfillBegin {
+        /// Binding index.
+        #[prost(uint32, tag = "1")]
+        pub binding: u32,
+        /// Clock of the binding's most recent backfill-begin.
+        #[prost(fixed64, tag = "2")]
+        pub clock: u64,
+    }
+    /// BackfillComplete reports a binding's most recent backfill-complete event,
+    /// keyed by binding index.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct BackfillComplete {
+        /// Binding index.
+        #[prost(uint32, tag = "1")]
+        pub binding: u32,
+        /// Truncation boundary of the completed backfill: the backfill's begin clock.
+        #[prost(fixed64, tag = "2")]
+        pub clock: u64,
+    }
 }
 /// SessionRequest is sent by the Coordinator to manage the shuffle session.
 #[derive(Clone, PartialEq, ::prost::Message)]
