@@ -24,6 +24,7 @@ func TestRuntimeLabels(t *testing.T) {
 		{RClockEnd, true},
 		{SplitSource, true},
 		{SplitTarget, true},
+		{TruncatedAt, true},
 		{TaskName, false},
 		{TaskType, false},
 		{labels.ContentType, false},
