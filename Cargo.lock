@@ -5905,6 +5905,9 @@ name = "parser"
 version = "0.0.0"
 dependencies = [
  "apache-avro",
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-schema",
  "assert_cmd",
  "base64 0.22.1",
  "bytes",
@@ -5917,6 +5920,7 @@ dependencies = [
  "doc",
  "encoding_rs",
  "flate2",
+ "half",
  "insta",
  "itertools 0.14.0",
  "json",

@@ -46,6 +46,10 @@ apache-avro = { version = "0", default-features = false, features = [
     "zstandard",
     "bzip",
 ] }
+# Pinned to match `parquet`.
+arrow-array = "56"
+arrow-buffer = "56"
+arrow-schema = "56"
 
 # For some reason, the version requirement "0" resulted in cargo downgrading
 # this dependency to an incompatible version. The requirement here is intended
@@ -78,6 +82,7 @@ gcp_auth = "0.12"
 googleapis-tonic-google-bigtable-v2 = "0.36"
 graphql_client = "*"
 handlebars = "6"
+half = "2"
 hex = "0"
 hexdump = "0"
 humantime = "2"
