@@ -41,6 +41,9 @@ arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 # 16-bit floats.
 half = { workspace = true }
+# Experimental: decode the Parquet VARIANT logical type to JSON.
+parquet-variant = { workspace = true }
+parquet-variant-json = { workspace = true }
 protobuf = { workspace = true }
 protobuf-json-mapping = { workspace = true }
 protobuf-parse = { workspace = true }

@@ -120,6 +120,10 @@ num-format = "0"
 indicatif = "0"
 open = "3"
 parquet = { version = "56", features = ["json"] }
+# Experimental Parquet Variant support (semi-structured / shredded VARIANT
+# logical type). Used by the parser to decode variant columns to JSON.
+parquet-variant = "0.1"
+parquet-variant-json = "0.1"
 pathfinding = "4"
 pbjson = "0"
 pbjson-types = "0"

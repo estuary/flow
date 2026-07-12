@@ -15,11 +15,14 @@ use arrow_array::builder::{
 use arrow_array::{ArrayRef, RecordBatch};
 use arrow_schema::{DataType, Field, Fields, Schema, TimeUnit};
 use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
-use parquet::data_type::{Int64Type, Int96, Int96Type};
+use parquet::basic::{Compression, LogicalType, Repetition, Type as PhysicalType};
+use parquet::data_type::{ByteArray, ByteArrayType, Int64Type, Int96, Int96Type};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::parser::parse_message_type;
+use parquet::schema::types::Type as SchemaType;
+use parquet_variant::VariantBuilder;
+use parquet_variant_json::JsonToVariant;
 
 /// Compression codec to apply to written row groups.
 #[derive(Debug, Clone, Copy)]
@@ -233,6 +236,86 @@ pub fn write_timestamp_nanos_parquet(path: &std::path::Path, total_rows: usize) 
     )
     .unwrap();
     writer.write(&batch).unwrap();
+    writer.close().unwrap();
+}
+
+/// JSON documents encoded, one per row (cycled), into the VARIANT fixture.
+/// Covers objects, arrays, nesting, and scalars so the decode is exercised
+/// across variant value kinds.
+pub const VARIANT_JSON_SAMPLES: &[&str] = &[
+    r#"{"name":"acme","active":true,"count":3}"#,
+    r#"[1,2,3,"four",null]"#,
+    r#"{"nested":{"a":1,"b":[true,false]},"tags":["x","y"]}"#,
+    r#"42"#,
+    r#""just a string""#,
+    r#"{"mixed":[{"k":1},{"k":2}],"f":1.5,"n":null}"#,
+];
+
+/// Writes a parquet file whose `v` column is an unshredded VARIANT group
+/// (`required group v (VARIANT) { required binary metadata; required binary
+/// value }`), with values encoding [`VARIANT_JSON_SAMPLES`] in row order. Uses
+/// the low-level writer because arrow cannot emit VARIANT groups.
+pub fn write_variant_parquet(path: &std::path::Path, total_rows: usize) {
+    let metadata_field = SchemaType::primitive_type_builder("metadata", PhysicalType::BYTE_ARRAY)
+        .with_repetition(Repetition::REQUIRED)
+        .build()
+        .unwrap();
+    let value_field = SchemaType::primitive_type_builder("value", PhysicalType::BYTE_ARRAY)
+        .with_repetition(Repetition::REQUIRED)
+        .build()
+        .unwrap();
+    let variant_group = SchemaType::group_type_builder("v")
+        .with_repetition(Repetition::REQUIRED)
+        .with_logical_type(Some(LogicalType::Variant))
+        .with_fields(vec![Arc::new(metadata_field), Arc::new(value_field)])
+        .build()
+        .unwrap();
+    let id_field = SchemaType::primitive_type_builder("id", PhysicalType::INT64)
+        .with_repetition(Repetition::REQUIRED)
+        .build()
+        .unwrap();
+    let schema = Arc::new(
+        SchemaType::group_type_builder("schema")
+            .with_fields(vec![Arc::new(id_field), Arc::new(variant_group)])
+            .build()
+            .unwrap(),
+    );
+
+    // Encode each row's JSON sample into (metadata, value) variant buffers.
+    let mut metadatas = Vec::with_capacity(total_rows);
+    let mut values = Vec::with_capacity(total_rows);
+    for i in 0..total_rows {
+        let mut builder = VariantBuilder::new();
+        builder
+            .append_json(VARIANT_JSON_SAMPLES[i % VARIANT_JSON_SAMPLES.len()])
+            .unwrap();
+        let (metadata, value) = builder.finish();
+        metadatas.push(ByteArray::from(metadata));
+        values.push(ByteArray::from(value));
+    }
+    let ids: Vec<i64> = (0..total_rows as i64).collect();
+
+    let props = Arc::new(
+        WriterProperties::builder()
+            .set_compression(Compression::SNAPPY)
+            .build(),
+    );
+    let file = std::fs::File::create(path).expect("create fixture file");
+    let mut writer = SerializedFileWriter::new(file, schema, props).unwrap();
+    let mut rg = writer.next_row_group().unwrap();
+
+    // Leaf columns are written in order: id, v.metadata, v.value.
+    let mut col = rg.next_column().unwrap().unwrap();
+    col.typed::<Int64Type>().write_batch(&ids, None, None).unwrap();
+    col.close().unwrap();
+    let mut col = rg.next_column().unwrap().unwrap();
+    col.typed::<ByteArrayType>().write_batch(&metadatas, None, None).unwrap();
+    col.close().unwrap();
+    let mut col = rg.next_column().unwrap().unwrap();
+    col.typed::<ByteArrayType>().write_batch(&values, None, None).unwrap();
+    col.close().unwrap();
+
+    rg.close().unwrap();
     writer.close().unwrap();
 }
 

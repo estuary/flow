@@ -15,6 +15,10 @@
 //! Arrow types not on the [`datatype_supported`] allow-list fall back to the
 //! record API. No type the parquet reader produces today hits this path; it is a
 //! defensive backstop.
+//!
+//! The one intentional departure from the record API is the VARIANT logical type
+//! ([`variant_to_value`]): the record API emits base64 of the raw variant binary,
+//! while this decodes it to the JSON value it encodes.
 use super::{Input, Output, ParseError, Parser};
 use arrow_array::{
     Array, BinaryArray, BinaryViewArray, BooleanArray, Date32Array, Decimal128Array,
@@ -31,11 +35,14 @@ use base64::prelude::BASE64_STANDARD;
 use chrono::{TimeZone, Utc};
 use num_bigint::{BigInt, Sign};
 use parquet::arrow::arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder};
-use parquet::basic::Type as PhysicalType;
+use parquet::basic::{LogicalType, Type as PhysicalType};
 use parquet::file::reader::SerializedFileReader;
 use parquet::record::reader::RowIter;
-use parquet::schema::types::SchemaDescriptor;
+use parquet::schema::types::{SchemaDescriptor, Type as SchemaType};
+use parquet_variant::Variant;
+use parquet_variant_json::VariantToJson;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::sync::Arc;
 
@@ -114,7 +121,7 @@ impl Iterator for RecordRowIter {
 struct ArrowRowIter {
     reader: ParquetRecordBatchReader,
     plans: Arc<Vec<ColPlan>>,
-    buffered: std::vec::IntoIter<Value>,
+    buffered: std::vec::IntoIter<Result<Value, ParseError>>,
 }
 
 impl ArrowRowIter {
@@ -132,8 +139,8 @@ impl Iterator for ArrowRowIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(value) = self.buffered.next() {
-                return Some(Ok(value));
+            if let Some(result) = self.buffered.next() {
+                return Some(result);
             }
             match self.reader.next()? {
                 Ok(batch) => self.buffered = convert_batch(&batch, &self.plans).into_iter(),
@@ -150,37 +157,84 @@ impl Iterator for ArrowRowIter {
 enum ColPlan {
     Leaf,
     Int96Millis,
+    /// An (unshredded) VARIANT group: decode `{metadata, value}` binary into the
+    /// JSON value it encodes. Unlike every other plan, this intentionally departs
+    /// from the record API, which cannot decode variant and emits base64 blobs.
+    Variant,
     Struct(Vec<ColPlan>),
     List(Box<ColPlan>),
     Map(Box<ColPlan>, Box<ColPlan>),
 }
 
-/// Walks the Arrow fields in lock-step with the parquet leaf columns, which
-/// enumerate in the same depth-first order.
+/// Walks the Arrow fields in lock-step with the parquet leaf columns (same
+/// depth-first order), and scans the parquet schema for VARIANT-annotated groups,
+/// which the Arrow schema shows as a plain struct.
 fn build_column_plans(schema: &arrow_schema::Schema, parquet: &SchemaDescriptor) -> Vec<ColPlan> {
+    let mut variant_paths = HashSet::new();
+    collect_variant_paths(parquet.root_schema(), "", &mut variant_paths);
+
     let mut leaves = parquet.columns().iter().map(|c| c.physical_type());
     schema
         .fields()
         .iter()
-        .map(|f| build_plan(f.data_type(), &mut leaves))
+        .map(|f| build_plan(f.data_type(), f.name(), &variant_paths, &mut leaves))
         .collect()
+}
+
+/// Records the dotted paths of every group annotated with the VARIANT logical
+/// type. Variant internals are not descended into.
+fn collect_variant_paths(group: &SchemaType, prefix: &str, out: &mut HashSet<String>) {
+    for field in group.get_fields() {
+        let path = if prefix.is_empty() {
+            field.name().to_string()
+        } else {
+            format!("{prefix}.{}", field.name())
+        };
+        if !field.is_group() {
+            continue;
+        }
+        if matches!(field.get_basic_info().logical_type(), Some(LogicalType::Variant)) {
+            out.insert(path);
+        } else {
+            collect_variant_paths(field, &path, out);
+        }
+    }
 }
 
 fn build_plan(
     data_type: &DataType,
+    path: &str,
+    variant_paths: &HashSet<String>,
     leaves: &mut impl Iterator<Item = PhysicalType>,
 ) -> ColPlan {
     match data_type {
-        DataType::Struct(fields) => {
-            ColPlan::Struct(fields.iter().map(|f| build_plan(f.data_type(), leaves)).collect())
+        // A VARIANT group reads as a `Struct{metadata, value}`. Detect it by the
+        // parquet annotation plus that exact unshredded shape; consume its two
+        // leaf columns to keep the leaf iterator aligned. Shredded variants (with
+        // a `typed_value`) are not yet handled and fall through to a plain struct.
+        DataType::Struct(fields)
+            if variant_paths.contains(path) && is_unshredded_variant(fields) =>
+        {
+            leaves.next();
+            leaves.next();
+            ColPlan::Variant
         }
-        DataType::List(field) | DataType::LargeList(field) => {
-            ColPlan::List(Box::new(build_plan(field.data_type(), leaves)))
-        }
+        DataType::Struct(fields) => ColPlan::Struct(
+            fields
+                .iter()
+                .map(|f| build_plan(f.data_type(), &child_path(path, f.name()), variant_paths, leaves))
+                .collect(),
+        ),
+        DataType::List(field) | DataType::LargeList(field) => ColPlan::List(Box::new(build_plan(
+            field.data_type(),
+            &child_path(path, field.name()),
+            variant_paths,
+            leaves,
+        ))),
         DataType::Map(entries, _) => match entries.data_type() {
             DataType::Struct(kv) if kv.len() == 2 => {
-                let key = build_plan(kv[0].data_type(), leaves);
-                let value = build_plan(kv[1].data_type(), leaves);
+                let key = build_plan(kv[0].data_type(), path, variant_paths, leaves);
+                let value = build_plan(kv[1].data_type(), path, variant_paths, leaves);
                 ColPlan::Map(Box::new(key), Box::new(value))
             }
             _ => {
@@ -200,9 +254,26 @@ fn build_plan(
     }
 }
 
+fn child_path(prefix: &str, name: &str) -> String {
+    format!("{prefix}.{name}")
+}
+
+/// The canonical unshredded VARIANT layout: exactly a `metadata` and a `value`
+/// binary field.
+fn is_unshredded_variant(fields: &arrow_schema::Fields) -> bool {
+    fields.len() == 2
+        && fields.iter().any(|f| f.name() == "metadata" && is_binary(f.data_type()))
+        && fields.iter().any(|f| f.name() == "value" && is_binary(f.data_type()))
+}
+
+fn is_binary(data_type: &DataType) -> bool {
+    matches!(data_type, DataType::Binary | DataType::LargeBinary | DataType::BinaryView)
+}
+
 /// Column order does not affect output: `serde_json` serializes object keys
-/// sorted.
-fn convert_batch(batch: &RecordBatch, plans: &[ColPlan]) -> Vec<Value> {
+/// sorted. A row failing to convert (only VARIANT can) becomes an `Err` in its
+/// slot, matching how the record path surfaces per-row errors.
+fn convert_batch(batch: &RecordBatch, plans: &[ColPlan]) -> Vec<Result<Value, ParseError>> {
     let schema = batch.schema();
     let columns = batch.columns();
     let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
@@ -210,26 +281,37 @@ fn convert_batch(batch: &RecordBatch, plans: &[ColPlan]) -> Vec<Value> {
     let mut rows = Vec::with_capacity(batch.num_rows());
     for row in 0..batch.num_rows() {
         let mut object = serde_json::Map::with_capacity(columns.len());
+        let mut error = None;
         for ((name, column), plan) in names.iter().zip(columns.iter()).zip(plans.iter()) {
-            object.insert((*name).to_string(), array_to_value(column.as_ref(), row, plan));
+            match array_to_value(column.as_ref(), row, plan) {
+                Ok(value) => {
+                    object.insert((*name).to_string(), value);
+                }
+                Err(e) => {
+                    error = Some(e);
+                    break;
+                }
+            }
         }
-        rows.push(Value::Object(object));
+        rows.push(error.map_or_else(|| Ok(Value::Object(object)), Err));
     }
     rows
 }
 
-fn array_to_value(array: &dyn Array, row: usize, plan: &ColPlan) -> Value {
+fn array_to_value(array: &dyn Array, row: usize, plan: &ColPlan) -> Result<Value, ParseError> {
     if array.is_null(row) {
-        return Value::Null;
+        return Ok(Value::Null);
     }
 
     match plan {
-        ColPlan::Leaf => leaf_to_value(array, row),
+        ColPlan::Leaf => Ok(leaf_to_value(array, row)),
 
         ColPlan::Int96Millis => {
             let nanos = downcast::<TimestampNanosecondArray>(array).value(row);
-            Value::String(convert_timestamp_millis_to_string(int96_nanos_to_millis(nanos)))
+            Ok(Value::String(convert_timestamp_millis_to_string(int96_nanos_to_millis(nanos))))
         }
+
+        ColPlan::Variant => variant_to_value(array, row),
 
         ColPlan::Struct(child_plans) => {
             let structs = downcast::<StructArray>(array);
@@ -243,9 +325,9 @@ fn array_to_value(array: &dyn Array, row: usize, plan: &ColPlan) -> Value {
                 .zip(structs.columns().iter())
                 .zip(child_plans.iter())
             {
-                object.insert(field.name().clone(), array_to_value(column.as_ref(), row, child));
+                object.insert(field.name().clone(), array_to_value(column.as_ref(), row, child)?);
             }
-            Value::Object(object)
+            Ok(Value::Object(object))
         }
 
         ColPlan::List(child) => {
@@ -265,17 +347,48 @@ fn array_to_value(array: &dyn Array, row: usize, plan: &ColPlan) -> Value {
             let values = map.values();
             let mut object = serde_json::Map::with_capacity(end - start);
             for i in start..end {
-                let key = array_to_value(keys.as_ref(), i, key_plan);
+                let key = array_to_value(keys.as_ref(), i, key_plan)?;
                 // Match the record API: string keys are used verbatim, other
                 // key types fall back to their JSON string representation.
                 let key = key
                     .as_str()
                     .map(|s| s.to_owned())
                     .unwrap_or_else(|| key.to_string());
-                object.insert(key, array_to_value(values.as_ref(), i, value_plan));
+                object.insert(key, array_to_value(values.as_ref(), i, value_plan)?);
             }
-            Value::Object(object)
+            Ok(Value::Object(object))
         }
+    }
+}
+
+/// Decodes an unshredded VARIANT cell into the JSON value it encodes. This is
+/// the one conversion with no record-API equivalent: the record path emits
+/// base64 of the raw variant binary.
+fn variant_to_value(array: &dyn Array, row: usize) -> Result<Value, ParseError> {
+    let structs = downcast::<StructArray>(array);
+    let metadata = binary_field(structs, "metadata", row);
+    let value = binary_field(structs, "value", row);
+
+    let variant = Variant::try_new(metadata, value)?;
+    let mut buffer = Vec::new();
+    variant.to_json(&mut buffer)?;
+    Ok(serde_json::from_slice(&buffer)?)
+}
+
+/// The variant metadata/value fields are required, so a null is read as empty.
+fn binary_field<'a>(structs: &'a StructArray, name: &str, row: usize) -> &'a [u8] {
+    let column = structs
+        .column_by_name(name)
+        .expect("variant struct must have the named binary field");
+    if column.is_null(row) {
+        return &[];
+    }
+    let column = column.as_ref();
+    match column.data_type() {
+        DataType::Binary => downcast::<BinaryArray>(column).value(row),
+        DataType::LargeBinary => downcast::<LargeBinaryArray>(column).value(row),
+        DataType::BinaryView => downcast::<BinaryViewArray>(column).value(row),
+        other => unreachable!("variant {name} field is {other:?}, expected binary"),
     }
 }
 
@@ -371,12 +484,11 @@ fn leaf_to_value(array: &dyn Array, row: usize) -> Value {
     }
 }
 
-fn list_to_value(elements: &dyn Array, plan: &ColPlan) -> Value {
-    Value::Array(
-        (0..elements.len())
-            .map(|i| array_to_value(elements, i, plan))
-            .collect(),
-    )
+fn list_to_value(elements: &dyn Array, plan: &ColPlan) -> Result<Value, ParseError> {
+    let values = (0..elements.len())
+        .map(|i| array_to_value(elements, i, plan))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Value::Array(values))
 }
 
 const NANOS_IN_DAY: i64 = 24 * 60 * 60 * 1_000_000_000;
@@ -535,8 +647,8 @@ mod test {
     use serde_json::json;
 
     use super::parquet_gen::{
-        Codec, write_flat_parquet, write_int96_timestamp_parquet, write_rich_parquet,
-        write_timestamp_nanos_parquet,
+        Codec, VARIANT_JSON_SAMPLES, write_flat_parquet, write_int96_timestamp_parquet,
+        write_rich_parquet, write_timestamp_nanos_parquet, write_variant_parquet,
     };
 
     fn input_for_file(rel_path: impl AsRef<std::path::Path>) -> Input {
@@ -622,6 +734,35 @@ mod test {
             strings.iter().any(|s| s.starts_with("1969-12-31")),
             "expected the pre-epoch INT96 sample to render as a 1969 timestamp"
         );
+    }
+
+    /// VARIANT columns decode to the JSON they encode (a deliberate departure
+    /// from the record API, which emits base64 of the raw variant binary). This
+    /// is a golden round-trip: JSON -> variant -> parquet -> parser -> JSON.
+    #[test]
+    fn variant_decodes_to_json() {
+        let dir = tempdir::TempDir::new("pq-variant").unwrap();
+        let path = dir.path().join("variant.parquet");
+        let rows = 600;
+        write_variant_parquet(&path, rows);
+
+        // The variant group reads as Struct{metadata,value} of binary, which is
+        // Arrow-eligible, so this exercises the fast path.
+        assert_uses_arrow_path(&path);
+
+        let actual = parser_output(&path);
+        assert_eq!(actual.len(), rows);
+        for (i, row) in actual.iter().enumerate() {
+            let expected: Value =
+                serde_json::from_str(VARIANT_JSON_SAMPLES[i % VARIANT_JSON_SAMPLES.len()]).unwrap();
+            assert_eq!(
+                row.get("v"),
+                Some(&expected),
+                "variant row {i} should decode to its source JSON, got {row}"
+            );
+            // The id column still decodes normally alongside the variant.
+            assert_eq!(row.get("id"), Some(&Value::Number((i as i64).into())));
+        }
     }
 
     /// The Arrow allow-list must still reject genuinely unsupported Arrow types,
