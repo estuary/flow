@@ -151,6 +151,20 @@ impl CapabilityBundle {
     }
 }
 
+/// Maps a legacy capability to the bundle it explicitly selects.
+/// Grant-shaped objects (invite links, grants) use this to echo the
+/// selection that was made, where `CapabilityBundle::covered_by` would
+/// also list every bundle the selection happens to imply (an `admin`
+/// grant covers `ManageUsers`, `ManageBilling`, and so on).
+pub fn bundles_for_legacy(capability: super::Capability) -> Vec<CapabilityBundle> {
+    match capability {
+        super::Capability::None => Vec::new(),
+        super::Capability::Read => vec![CapabilityBundle::View],
+        super::Capability::Write => vec![CapabilityBundle::Write],
+        super::Capability::Admin => vec![CapabilityBundle::Admin],
+    }
+}
+
 pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
     match capability {
         super::Capability::None => CapabilitySet::empty(),

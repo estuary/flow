@@ -13,8 +13,10 @@ pub struct InviteLink {
         deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilities` instead."
     )]
     pub capability: models::Capability,
-    /// Capability bundles granted by this invite link, derived from its
-    /// legacy capability level.
+    /// Capability bundles explicitly granted by this invite link,
+    /// reflecting the selection made when the link was created.
+    /// Bundles implied by the selection are not listed; `capabilityBits`
+    /// carries the full effective set.
     pub capabilities: Vec<models::authz::CapabilityBundle>,
     /// Fine-grained capabilities granted by this invite link, derived
     /// from its legacy capability level.
@@ -41,8 +43,10 @@ pub struct RedeemInviteLinkResult {
         deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilities` instead."
     )]
     pub capability: models::Capability,
-    /// Capability bundles that were granted, derived from the invite
-    /// link's legacy capability level.
+    /// Capability bundles explicitly granted by the invite link,
+    /// reflecting the selection made when the link was created.
+    /// Bundles implied by the selection are not listed; `capabilityBits`
+    /// carries the full effective set.
     pub capabilities: Vec<models::authz::CapabilityBundle>,
     /// Fine-grained capabilities that were granted, derived from the
     /// invite link's legacy capability level.
@@ -160,9 +164,7 @@ impl InviteLinksQuery {
                                 token: r.token,
                                 catalog_prefix: models::Prefix::new(&r.catalog_prefix),
                                 capability: r.capability,
-                                capabilities: models::authz::CapabilityBundle::covered_by(
-                                    models::authz::bits_for_legacy(r.capability),
-                                ),
+                                capabilities: models::authz::bundles_for_legacy(r.capability),
                                 capability_bits: models::authz::bits_for_legacy(r.capability)
                                     .iter()
                                     .collect(),
@@ -276,9 +278,7 @@ impl InviteLinksMutation {
             token: row.token,
             catalog_prefix,
             capability,
-            capabilities: models::authz::CapabilityBundle::covered_by(
-                models::authz::bits_for_legacy(capability),
-            ),
+            capabilities: models::authz::bundles_for_legacy(capability),
             capability_bits: models::authz::bits_for_legacy(capability).iter().collect(),
             single_use,
             detail,
@@ -392,9 +392,7 @@ impl InviteLinksMutation {
         Ok(RedeemInviteLinkResult {
             catalog_prefix: models::Prefix::new(&invite.catalog_prefix),
             capability: invite.capability,
-            capabilities: models::authz::CapabilityBundle::covered_by(
-                models::authz::bits_for_legacy(invite.capability),
-            ),
+            capabilities: models::authz::bundles_for_legacy(invite.capability),
             capability_bits: models::authz::bits_for_legacy(invite.capability)
                 .iter()
                 .collect(),

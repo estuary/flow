@@ -30,8 +30,9 @@ pub struct DataPlane {
         deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilities` instead."
     )]
     pub user_capability: models::Capability,
-    /// Capability bundles the user holds to this data plane's name prefix:
-    /// every bundle whose full capability set is covered by `capabilityBits`.
+    /// Capability bundles the user effectively holds to this data plane's
+    /// name prefix: every bundle whose full capability set is covered by
+    /// `capabilityBits`, regardless of which bundles were explicitly granted.
     pub capabilities: Vec<models::authz::CapabilityBundle>,
     /// Fine-grained capabilities the user has to this data plane's name prefix.
     pub capability_bits: Vec<models::authz::Capability>,

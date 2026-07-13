@@ -6,7 +6,6 @@ expression: create_response
   "data": {
     "createInviteLink": {
       "capabilities": [
-        "View",
         "Write"
       ],
       "capability": "write",

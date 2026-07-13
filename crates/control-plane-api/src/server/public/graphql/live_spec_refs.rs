@@ -40,9 +40,11 @@ pub struct LiveSpecRef {
         deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilities` instead."
     )]
     pub user_capability: Option<models::Capability>,
-    /// Capability bundles the user holds to the referent: every bundle
-    /// whose full capability set is covered by `capabilityBits`.
-    /// Null when the user has no access, mirroring `userCapability`.
+    /// Capability bundles the user effectively holds to the referent:
+    /// every bundle whose full capability set is covered by
+    /// `capabilityBits`, regardless of which bundles were explicitly
+    /// granted. Null when the user has no access, mirroring
+    /// `userCapability`.
     pub capabilities: Option<Vec<models::authz::CapabilityBundle>>,
     /// Fine-grained capabilities the user has to the referent.
     /// Null when the user has no access, mirroring `userCapability`.
