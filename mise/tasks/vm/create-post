@@ -4,12 +4,13 @@ set -euo pipefail
 #MISE hide=true
 
 mise run bootstrap:apt-packages-ci-base
-mise install
-mise run bootstrap:ide-settings
 
 # Back ~/cargo-target with a compressed, self-deduplicating btrfs filesystem
 # before anything builds into it (see mise/tasks/bootstrap/cargo-target-fs).
 mise run bootstrap:cargo-target-fs
+
+mise install
+mise run bootstrap:ide-settings
 
 rustup default stable
 
