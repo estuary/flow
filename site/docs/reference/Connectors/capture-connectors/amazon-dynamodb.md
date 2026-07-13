@@ -1,3 +1,7 @@
+---
+description: Stream DynamoDB table updates into Estuary using DynamoDB Streams. Supports automatic table discovery and backfills, with guides for permissions and settings.
+---
+
 # Amazon DynamoDB
 
 This connector uses DynamoDB streams to continuously capture updates from DynamoDB tables into one or more Estuary collections.

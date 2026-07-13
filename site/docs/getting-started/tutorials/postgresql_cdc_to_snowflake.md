@@ -2,6 +2,7 @@
 id: postgresql_cdc_to_snowflake
 title: PostgreSQL CDC Streaming to Snowflake
 sidebar_position: 1
+description: Build your first Estuary Data Flow from PostgreSQL to Snowflake using CDC. Guide covers capture setup, collections, materialization, and publishing.
 ---
 
 <head>

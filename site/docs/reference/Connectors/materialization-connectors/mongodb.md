@@ -1,3 +1,7 @@
+---
+description: Materialize Estuary data collections into MongoDB collections. Supports SSH tunneling, delta updates, and hard deletes.
+---
+
 # MongoDB
 
 This connector materializes data from your Estuary collections to your MongoDB collections.

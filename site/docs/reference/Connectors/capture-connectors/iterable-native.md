@@ -1,3 +1,7 @@
+---
+description: Use the Iterable connector to sync campaigns, events, users, lists, templates, and channels, using API key authentication with backfill schedule configuration.
+---
+
 # Iterable
 
 This connector captures data from Iterable into Estuary collections.

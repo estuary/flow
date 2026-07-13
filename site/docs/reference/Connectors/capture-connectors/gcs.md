@@ -1,3 +1,6 @@
+---
+description: Read files from Google Cloud Storage into Estuary. Configure bucket prefixes, service account access, regex filters, and parser settings.
+---
 
 # Google Cloud Storage
 

@@ -1,4 +1,6 @@
-
+---
+description: Capture Amazon SQS messages into Estuary, using AWS IAM secret and access keys, with deletion configuration.
+---
 
 # Amazon SQS
 

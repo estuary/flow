@@ -1,5 +1,6 @@
 ---
 sidebar_position: 6
+description: Edit Estuary captures, materializations, and collection schemas in the dashboard to make changes to existing tasks.
 slug: /guides/edit-data-flows/
 ---
 

@@ -1,3 +1,6 @@
+---
+description: Use Estuary redaction to block or hash sensitive capture fields at write time. Guide covers dashboard setup, spec config using schema annotations, and custom salts.
+---
 
 # Redaction
 

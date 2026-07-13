@@ -1,4 +1,5 @@
 ---
+description: Use Estuary materialization triggers to fire webhooks after a materialization commits new data. Configure webhook URLs, headers, payloads, and retries to integrate with Slack, dbt, and GitHub.
 slug: /concepts/materialization-triggers/
 ---
 

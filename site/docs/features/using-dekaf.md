@@ -1,4 +1,5 @@
 ---
+description: Read Estuary collections using Kafka consumers with Dekaf. Includes topic emulation, schema registry support, connection details, and examples.
 slug: /guides/dekaf_reading_collections_from_kafka/
 ---
 

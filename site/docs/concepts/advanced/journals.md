@@ -1,3 +1,7 @@
+---
+description: Learn how Estuary journals store collection data as real-time logs, organized as fragment files in cloud storage. Understand physical partitions, hive layouts, and managing journals through spec files.
+---
+
 # Journals
 
 :::tip

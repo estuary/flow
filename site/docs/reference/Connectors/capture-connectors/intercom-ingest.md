@@ -1,3 +1,6 @@
+---
+description: Capture Intercom webhook events with the HTTP Ingest connector. Configure webhook paths, capture query parameters, and set authentication details.
+---
 
 # Intercom HTTP Ingest (Webhook)
 

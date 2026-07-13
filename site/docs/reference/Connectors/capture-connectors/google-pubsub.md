@@ -1,3 +1,6 @@
+---
+description: Use the Google Cloud Pub/Sub connector to capture messages into Estuary in JSON format, with automatic topic discovery.
+---
 
 # Google Cloud Pub/Sub
 

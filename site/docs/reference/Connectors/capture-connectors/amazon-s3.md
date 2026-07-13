@@ -1,4 +1,6 @@
-
+---
+description: Capture files from Amazon S3 buckets or specific bucket prefixes into Estuary. Configure IAM access, bucket policies, and parser settings related to file format and compression.
+---
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';

@@ -1,3 +1,7 @@
+---
+description: Materialize data collections into indices in an Elasticsearch cluster. Configure connector authentication, hard deletes, number of replicas, and delta updates.
+---
+
 # Elasticsearch
 
 This connector materializes Estuary collections into indices in an Elasticsearch cluster.

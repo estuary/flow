@@ -1,3 +1,7 @@
+---
+description: Use Estuary's Salesforce connector to capture Salesforce standard and custom objects. Supports formula field handling, custom fields, and multiple authentication methods.
+---
+
 # Salesforce
 
 This connector captures data from Salesforce objects into Estuary collections.

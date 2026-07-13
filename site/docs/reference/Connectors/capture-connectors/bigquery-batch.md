@@ -1,3 +1,7 @@
+---
+description: Run BigQuery batch captures with Estuary's connector. Configure periodic SQL queries, service accounts, cursor columns, and poll intervals.
+---
+
 # BigQuery Batch Query Connector
 
 This connector captures data from BigQuery into Estuary collections by periodically

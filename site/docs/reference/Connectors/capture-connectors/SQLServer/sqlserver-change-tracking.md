@@ -1,5 +1,6 @@
 ---
 sidebar_position: 3
+description: Capture SQL Server updates with the Change Tracking connector. Includes setup guides for self-hosted and cloud instances.
 ---
 
 # Microsoft SQL Server (Change Tracking)

@@ -1,5 +1,6 @@
 ---
 sidebar_position: 6
+description: Capture Amazon RDS PostgreSQL changes with Estuary's CDC connector. Setup guide includes logical replication, WAL handling, replication slots, publications, watermarks tables, and backfills.
 ---
 
 # Amazon RDS for PostgreSQL

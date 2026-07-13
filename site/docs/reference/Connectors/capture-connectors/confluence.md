@@ -1,3 +1,6 @@
+---
+description: Use the Confluence connector to capture pages, spaces, blog posts, groups, and audits with an Atlassian API token, email, and domain.
+---
 
 # Confluence
 

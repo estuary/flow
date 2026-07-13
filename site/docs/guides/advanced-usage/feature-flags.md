@@ -1,5 +1,6 @@
 ---
 sidebar_position: 2
+description: Configure Estuary feature flags for advanced connector behavior. Common feature flag options for captures and materializations include handling schema inference, backfills, and new bindings.
 ---
 
 # Feature Flags

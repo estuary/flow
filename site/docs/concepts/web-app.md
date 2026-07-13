@@ -1,5 +1,6 @@
 ---
 sidebar_position: 12
+description: Learn how to use the Estuary dashboard to create, manage, and monitor captures, collections, materializations, users, and billing details.
 ---
 
 # Web Application

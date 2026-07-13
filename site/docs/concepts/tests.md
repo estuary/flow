@@ -1,6 +1,8 @@
 ---
 sidebar_position: 11
+description: Learn how to use tests to validate Data Flow behavior in Estuary with ingest and verify steps. Handle partition selectors, test reductions, and reuse common fixtures.
 ---
+
 # Tests
 
 Estuary's web application automatically performs basic tests to validate the configurations of captures and materializations.

@@ -1,3 +1,7 @@
+---
+description: Capture Gainsight NXT customer success data in real time with Estuary, including companies, users, CTAs, and activity timelines.
+---
+
 # Gainsight NXT
 
 This connector captures data from [Gainsight NXT](https://www.gainsight.com/), a customer success platform. It uses Gainsight's REST API to capture data in real-time.
@@ -15,7 +19,7 @@ The exceptions are `activity_timelines` and `companies` streams, which use their
 | [`call_to_actions`](<https://support.gainsight.com/gainsight_nxt/04Cockpit_and_Playbooks/00Cockpit_Horizon_Experience/Cockpit_API_Documentation/Call_To_Action_(CTA)_API_Documentation#Fetch_CTA_API>) | incremental  | ModifiedDate     | `/v1/data/objects/query/call_to_action` |
 | [`companies`](https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs/Company_and_Relationship_API/Company_API_Documentation#Read_API)                                                      | incremental  | ModifiedDate     |                                         |
 | [`cs_tasks`](https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs/Cockpit_API/Task_APIs#Fetch_Task_List_API)                                                                             | incremental  | ModifiedDate     | `/v1/data/objects/query/cs_task`        |
-| `success_plans`                                                                                                                                                                                        | incremental  | ModifiedDate     | `/v1/data/objects/query/cta_grooup`     |
+| `success_plans`                                                                                                                                                                                        | incremental  | ModifiedDate     | `/v1/data/objects/query/cta_group`     |
 | [`users`](https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs/User_Management_APIs/User_Management_APIs#Fetch_User_Details)                                                             | incremental  | ModifiedDate     | `/v1/data/objects/query/gsuser`         |
 
 ## Prerequisites

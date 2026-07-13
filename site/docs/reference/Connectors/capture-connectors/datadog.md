@@ -1,3 +1,7 @@
+---
+description: Use the Datadog connector to capture RUM and logs data in Estuary, using a Datadog access token and application key.
+---
+
 # Datadog
 
 This connector captures data from [Datadog](https://docs.datadoghq.com/api/latest) into Estuary collections.

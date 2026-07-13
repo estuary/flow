@@ -1,4 +1,5 @@
 ---
+description: Flatten array fields in a collection with a TypeScript derivation. Covers working with schemas, transformation code, previewing results, and publishing steps.
 slug: /guides/flatten-array/
 ---
 

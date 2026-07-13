@@ -1,3 +1,6 @@
+---
+description: Connect Notion to Estuary via OAuth2.0 or access token for blocks, comments, databases, pages, and users data.
+---
 
 # Notion
 

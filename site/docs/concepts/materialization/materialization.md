@@ -1,4 +1,5 @@
 ---
+description: Learn how Estuary's materializations push data collections to destinations using merge or delta updates, projected fields, and schema naming rules. See an example connector specification to define the endpoint and bindings.
 slug: /concepts/materialization/
 ---
 

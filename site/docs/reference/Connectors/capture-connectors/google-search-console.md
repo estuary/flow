@@ -1,3 +1,6 @@
+---
+description: Bring Google Search Console data into Estuary, including search analytics by country, date, device, page, and query, along with sites and sitemaps.
+---
 
 # Google Search Console
 

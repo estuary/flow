@@ -1,3 +1,7 @@
+---
+description: Use the Dynamics 365 Finance and Operations connector to capture CSV exports from Synapse Link into Estuary.
+---
+
 # Microsoft Dynamics 365 Finance and Operations
 
 This connector captures data from [Microsoft Dynamics 365 Finance and Operations](https://www.microsoft.com/en-us/dynamics-365) into Estuary collections. It does so by capturing data exported to Azure Data Lake Storage via [Azure Synapse Link for Dataverse](https://learn.microsoft.com/en-us/power-apps/maker/data-platform/azure-synapse-link-select-fno-data).

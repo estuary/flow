@@ -1,3 +1,7 @@
+---
+description: Use the Amazon Redshift batch query connector to capture tables to Estuary. Configure network access, polling schedules, and query templates.
+---
+
 # Amazon Redshift Batch Query Connector
 
 This connector captures data from Amazon Redshift databases into Estuary collections by

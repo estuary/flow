@@ -1,4 +1,5 @@
 ---
+description: Build a stateless TypeScript transformation in Estuary using flowctl and demo Wikipedia data. Covers spec files, transformation code, and publishing steps.
 slug: /guides/transform_data_using_typescript/
 ---
 

@@ -1,3 +1,7 @@
+---
+description: Read files from Google Drive folders with Estuary's connector, using OAuth2 or service account credentials, with settings for regex filters and parser configuration.
+---
+
 # Google Drive
 
 This connector lets you capture data from your Google Drive account into Estuary collections.

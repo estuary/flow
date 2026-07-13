@@ -1,3 +1,6 @@
+---
+description: Capture Shopify store data through the GraphQL Admin API, including orders, customers, products, and inventory. Configure multi-store setup with client credentials or access token authentication.
+---
 
 # Shopify (GraphQL)
 

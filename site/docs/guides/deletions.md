@@ -1,4 +1,5 @@
 ---
+description: Learn how Estuary handles soft and hard deletes using _meta/op delete events and how to correctly propagate deletions using derivations.
 slug: /reference/deletions/
 ---
 

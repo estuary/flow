@@ -1,3 +1,7 @@
+---
+description: Understand Estuary task shards for captures, derivations, and materializations, including scaling, transactions, and recovery logs.
+---
+
 # Task Shards
 
 Catalog [tasks](../README.md#tasks) — captures, derivations, and materializations —

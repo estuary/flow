@@ -1,3 +1,6 @@
+---
+description: Capture JSON records from Amazon Kinesis streams with Estuary's connector, using an IAM user with Kinesis permissions.
+---
 
 # Amazon Kinesis
 

@@ -1,5 +1,5 @@
 ---
-description: Using the append reduction strategy
+description: Learn about Estuary's append reduction strategy to reduce arrays. Covers append reduction behavior and test examples.
 slug: /reference/reduction-strategies/append/
 sidebar_position: 1
 ---

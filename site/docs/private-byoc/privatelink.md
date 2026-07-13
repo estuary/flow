@@ -1,3 +1,6 @@
+---
+description: Configure AWS PrivateLink, Azure Private Link, or GCP Private Service Connect for private and BYOC Estuary deployments without public internet exposure.
+---
 
 # Configure Connections with PrivateLink
 

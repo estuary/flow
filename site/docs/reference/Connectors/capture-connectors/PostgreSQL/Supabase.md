@@ -1,6 +1,8 @@
 ---
 sidebar_position: 6
+description: Capture Supabase updates with Estuary's CDC connector. Setup guide includes logical replication, WAL handling, replication slots, publications, watermarks tables, and backfills.
 ---
+
 # Supabase
 
 This connector uses change data capture (CDC) to continuously capture updates in a Supabase PostgreSQL database into one or more Estuary collections.

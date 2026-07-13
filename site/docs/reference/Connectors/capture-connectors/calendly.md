@@ -1,3 +1,7 @@
+---
+description: Capture Calendly scheduling data in Estuary, including event invitees, event types, scheduled events, and groups, using an access token.
+---
+
 # Calendly
 
 This connector captures data from Calendly into Estuary collections.

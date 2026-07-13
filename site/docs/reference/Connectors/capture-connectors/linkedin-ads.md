@@ -1,3 +1,6 @@
+---
+description: Manage LinkedIn Ads data flows in Estuary for accounts, campaigns, creatives, video ads, and ad analytics. Configure account ids and use OAuth2 or an access token for authentication.
+---
 
 # LinkedIn Ads
 

@@ -1,3 +1,7 @@
+---
+description: Keep HubSpot CRM and marketing data fresh in downstream systems with Estuary, from contacts and deals to tickets, workflows, and custom objects.
+---
+
 # HubSpot ( Real-Time )
 
 This connector captures data from HubSpot into Estuary collections.
