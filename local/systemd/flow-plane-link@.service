@@ -11,12 +11,15 @@ RemainAfterExit=yes
 # Load instance-specific environment with data plane configuration
 EnvironmentFile=%h/flow-local/env/plane-link-%i.env
 
-# NOTE(johnny): Created publication races start-up of the reactor.
-ExecStartPre=sleep 2
-
 # Call control-plane API to register the data plane
 # Use printf to build JSON and avoid shell quoting complexities
 # DEKAF_ADDRESS and DEKAF_REGISTRY_ADDRESS are optional; if not set, omit them from the payload
+#
+# The curl --retry flags wait out control-plane agent start-up: --retry-connrefused
+# re-issues while the agent isn't listening yet, and --retry covers transient 5xx
+# during warm-up, bounded to 120s of 2s-spaced attempts. The agent binds its API
+# port only once it can serve (crates/agent/src/main.rs), so a connection being
+# accepted means ready; a non-transient 4xx still fails fast with its body.
 ExecStart=/bin/bash -c ' \
     if [ -n "${DEKAF_ADDRESS:-}" ] && [ -n "${DEKAF_REGISTRY_ADDRESS:-}" ]; then \
         printf "{\\"name\\":\\"%%s\\",\\"category\\":{\\"manual\\":{\\"brokerAddress\\":\\"%%s\\",\\"reactorAddress\\":\\"%%s\\",\\"hmacKeys\\":[\\"%%s\\"],\\"dekafAddress\\":\\"%%s\\",\\"dekafRegistryAddress\\":\\"%%s\\"}}}" \
@@ -29,6 +32,10 @@ ExecStart=/bin/bash -c ' \
         -X POST \
         -H "content-type: application/json" \
         -H "authorization: bearer ${SYSTEM_USER_TOKEN}" \
+        --retry 60 \
+        --retry-connrefused \
+        --retry-delay 2 \
+        --retry-max-time 120 \
         --fail-with-body \
         --data-binary @- \
         ${AGENT_API}/admin/create-data-plane \
@@ -42,6 +49,10 @@ ExecStart=/bin/bash -c ' \
         -X POST \
         -H "content-type: application/json" \
         -H "authorization: bearer ${SYSTEM_USER_TOKEN}" \
+        --retry 60 \
+        --retry-connrefused \
+        --retry-delay 2 \
+        --retry-max-time 120 \
         --fail-with-body \
         --data-binary @- \
         ${AGENT_API}/admin/update-l2-reporting \
