@@ -6,7 +6,10 @@ use anyhow::Context;
     schema_path = "../flow-client/control-plane-api.graphql",
     query_path = "src/auth/list-authorized-prefixes.graphql",
     response_derives = "Serialize,Clone",
-    extern_enums("Capability", "LegacyCapability")
+    extern_enums("Capability", "LegacyCapability"),
+    // flowctl knowingly consumes the deprecated legacy-capability fields
+    // until it migrates to fine-grained capabilities.
+    deprecated = "allow"
 )]
 struct ListAuthorizedPrefixes;
 
