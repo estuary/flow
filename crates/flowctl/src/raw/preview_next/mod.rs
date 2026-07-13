@@ -61,7 +61,9 @@ pub struct Preview {
     /// Path to a transactions fixture to feed in place of live collection data.
     /// Newline-delimited JSON: documents `["collection/name", {...}]` separated
     /// by `{"commit": true}` transaction markers. Fixtures are only for
-    /// derivations and materializations, and require `--shards 1`.
+    /// derivations and materializations. Under `--shards N`, fixture documents
+    /// are hash-routed to shards by their collection key, mirroring live
+    /// shuffled reads.
     ///
     /// A regular file is read eagerly and may be split across `--sessions`.
     /// A named pipe (FIFO), or `-` for stdin, streams: transactions are fed
@@ -146,9 +148,6 @@ impl Preview {
         let fixture = fixture.as_deref();
         let delay: Option<std::time::Duration> = delay.map(|d| d.into());
 
-        if fixture.is_some() && *shards != 1 {
-            anyhow::bail!("--fixture requires --shards 1");
-        }
         if (*output_state || *output_apply) && *shards != 1 {
             anyhow::bail!("--output-state and --output-apply require --shards 1");
         }
@@ -397,6 +396,7 @@ fn prepare_sessions<S>(
             &task,
             source,
             std::path::Path::new(&run.shuffle_log_dir),
+            run.n_shards,
             frontier_tx,
             session_stop.clone(),
             hold.clone(),
@@ -585,6 +585,7 @@ fn start_fixtures(
         std::path::Path::new(fixture_path),
         std::path::Path::new(&run.shuffle_log_dir),
         &requested_targets,
+        run.n_shards,
     )?;
     let session_targets = plan.session_targets.clone();
     let session_dirs = plan.session_dirs.clone();
