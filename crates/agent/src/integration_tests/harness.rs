@@ -177,6 +177,9 @@ pub struct TestHarness {
     pub test_name: String,
     pub pool: sqlx::PgPool,
     pub publisher: Publisher,
+    /// Live authorization Snapshot watch, retained so tests can force it to
+    /// re-fetch from Postgres after mutating grants. See `refresh_snapshot`.
+    pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
@@ -264,7 +267,7 @@ impl HarnessBuilder {
             publisher.clone(),
             discover_handler.clone(),
             logs_tx.clone(),
-            snapshot_watch,
+            snapshot_watch.clone(),
             1.0, // auto_discover_probability
             publication_cooldown,
             crate::controllers::ControllerConfig::default(),
@@ -279,6 +282,7 @@ impl HarnessBuilder {
             test_name,
             pool,
             publisher,
+            snapshot_watch,
             builds_root,
             discover_handler,
             control_plane,
@@ -290,6 +294,9 @@ impl HarnessBuilder {
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
+        // The Snapshot was taken before `truncate_tables` cleared grants; re-fetch
+        // so authorization sees the truncated baseline rather than stale grants.
+        harness.refresh_snapshot().await;
 
         harness
     }
@@ -544,6 +551,25 @@ impl TestHarness {
         &mut self.control_plane
     }
 
+    /// Forces the in-memory authorization Snapshot to re-fetch from Postgres, so
+    /// that grant changes written directly to the DB become visible to publication
+    /// authorization. Integration tests run with paused time and never refresh the
+    /// Snapshot automatically, so grant-mutating helpers call this explicitly.
+    pub async fn refresh_snapshot(&self) {
+        let current = self.snapshot_watch.token();
+        let Ok(snapshot) = current.result() else {
+            return; // No live Snapshot to revoke; nothing to refresh.
+        };
+        let prev_version = current.version();
+        // Cancelling `revoke` signals `PgSnapshotSource` to re-fetch immediately,
+        // even under paused test time (the trigger is cancellation, not a timer).
+        snapshot.revoke.cancel();
+        // Wait until the watch publishes the newer, re-fetched Snapshot.
+        while self.snapshot_watch.version() == prev_version {
+            tokio::task::yield_now().await;
+        }
+    }
+
     /// Setup a new tenant with the given name, and return the id of the user
     /// who has `admin` capabilities to it. Performs essentially the same setup
     /// as the beta onboarding directive, so the user_grants, role_grants,
@@ -556,10 +582,13 @@ impl TestHarness {
             "full_name": format!("Full ({tenant}) Name"),
         });
 
-        control_plane_api::directives::beta_onboard::provision_test_tenant(
+        let user_id = control_plane_api::directives::beta_onboard::provision_test_tenant(
             &self.pool, tenant, &email, meta,
         )
-        .await
+        .await;
+        // Grants were just written; re-sync the authorization Snapshot.
+        self.refresh_snapshot().await;
+        user_id
     }
 
     pub async fn add_role_grant(&mut self, subject: &str, object: &str, capability: Capability) {
@@ -575,6 +604,8 @@ impl TestHarness {
         .execute(&self.pool)
         .await
         .unwrap();
+        // Re-sync the authorization Snapshot with the new grant.
+        self.refresh_snapshot().await;
     }
 
     pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
@@ -589,6 +620,8 @@ impl TestHarness {
         .await
         .unwrap();
         txn.commit().await.unwrap();
+        // Re-sync the authorization Snapshot with the new grant.
+        self.refresh_snapshot().await;
     }
 
     pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
