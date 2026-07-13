@@ -1156,14 +1156,37 @@ impl Session {
                             ),
                         ));
 
-                        let response_high_watermark = resolve_high_watermark(
+                        let response_high_watermark = match resolve_high_watermark(
                             self.auth.as_ref().unwrap(),
                             key.0.as_str(),
                             partition_request.partition as usize,
                             pending.leader_epoch,
                             pending.last_write_head,
                         )
-                        .await?;
+                        .await
+                        {
+                            Ok(high_watermark) => high_watermark,
+                            Err(error) => {
+                                let error_code = if Self::is_redirect_error(&error) {
+                                    ResponseError::NotLeaderOrFollower.code()
+                                } else {
+                                    ResponseError::OffsetNotAvailable.code()
+                                };
+                                tracing::warn!(
+                                    ?error,
+                                    collection = key.0.as_str(),
+                                    partition = partition_request.partition,
+                                    "failed to refresh Fetch high watermark"
+                                );
+                                partition_responses.push(
+                                    PartitionData::default()
+                                        .with_partition_index(partition_request.partition)
+                                        .with_error_code(error_code),
+                                );
+                                self.reads.remove(&key);
+                                continue;
+                            }
+                        };
 
                         partition_data = partition_data
                             .with_high_watermark(response_high_watermark)
