@@ -160,6 +160,12 @@ impl Client {
             .map_err(crate::Error::Grpc)?
             .into_inner();
 
+        // Surface the store's own diagnostic, which `check_ok` would discard.
+        if resp.status() == broker::Status::FragmentStoreUnhealthy {
+            return Err(crate::Error::FragmentStoreUnhealthy(
+                resp.store_health_error,
+            ));
+        }
         check_ok(resp.status(), resp)
     }
 

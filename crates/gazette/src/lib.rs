@@ -23,6 +23,8 @@ pub enum Error {
     BearerToken(#[source] tonic::metadata::errors::InvalidMetadataValue),
     #[error("unexpected broker status: {0:?}")]
     BrokerStatus(broker::Status),
+    #[error("fragment store is unhealthy: {0}")]
+    FragmentStoreUnhealthy(String),
     #[error("unexpected consumer status: {0:?}")]
     ConsumerStatus(consumer::Status),
     #[error("failed to parse document at journal offset range {location:?}")]
@@ -130,6 +132,10 @@ impl Error {
                 // All other errors are not transient (callers may special case).
                 _ => false,
             },
+
+            // The store has failed its health check for an extended period;
+            // this is a persistent operator-level condition, not transient.
+            Error::FragmentStoreUnhealthy(_) => false,
 
             Error::AppendRead(_) => false,
             Error::BearerToken(_) => false,
