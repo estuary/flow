@@ -26,6 +26,19 @@ jobs:
       - name: Deploy Supabase Edge Functions
         if: ${{ github.ref == 'refs/heads/master' }}
         id: deploy-supabase-fn
+        # supabase/config.toml uses env() substitution (resolved from mise's
+        # stack-env during local dev). This job runs the CLI outside mise, and
+        # the CLI parses config.toml on startup — unset env() vars are a hard
+        # parse error — so supply arbitrary values that merely let it parse. The
+        # remote target is selected by --project-ref, so the specific values are
+        # irrelevant (they are NOT a canonical local stack — stacks are dynamic).
+        env:
+          FLOW_SUPABASE_PROJECT_ID: parse-only
+          FLOW_PORT_SUPABASE_API: "5431"
+          FLOW_PORT_SUPABASE_DB: "5432"
+          FLOW_PORT_SUPABASE_STUDIO: "5433"
+          FLOW_PORT_SUPABASE_MAILPIT: "5434"
+          FLOW_SITE_URL: http://localhost:3000
         run: |
           echo ${{ secrets.SUPABASE_ACCESS_TOKEN }} | supabase login
           supabase functions deploy oauth --project-ref eyrcnmuzzyriypdajwdk

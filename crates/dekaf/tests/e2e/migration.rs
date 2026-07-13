@@ -1,7 +1,7 @@
 use super::raw_kafka::{TestKafkaClient, fetch_partition_error, list_offsets_partition_error};
 use super::{
-    DekafTestEnv, connection_info_for_dataplane, trigger_migration, wait_for_dekaf_redirect,
-    wait_for_migration_complete,
+    DekafTestEnv, cluster_name, cluster_name_2, connection_info_for_dataplane, trigger_migration,
+    wait_for_dekaf_redirect, wait_for_migration_complete,
 };
 use anyhow::Context;
 use serde_json::json;
@@ -62,8 +62,8 @@ async fn test_rdkafka_handles_redirect() -> anyhow::Result<()> {
 
     drop(consumer);
 
-    let migration_id =
-        trigger_migration(&env.namespace, "local-cluster", "local-cluster-2").await?;
+    let (src_cluster, tgt_cluster) = (cluster_name(), cluster_name_2());
+    let migration_id = trigger_migration(&env.namespace, &src_cluster, &tgt_cluster).await?;
 
     wait_for_migration_complete(migration_id, MIGRATION_TIMEOUT).await?;
 
@@ -72,14 +72,14 @@ async fn test_rdkafka_handles_redirect() -> anyhow::Result<()> {
     env.wait_for_primary(capture_name, SHARD_PRIMARY_TIMEOUT)
         .await?;
 
-    // Wait until Dekaf on local-cluster knows about the redirect to local-cluster-2.
-    // This polls until the control plane's snapshot refresh sees the migrated task,
-    // and Dekaf's cached state has refreshed and picked it up.
+    // Wait until Dekaf on the source cluster knows about the redirect to the
+    // target cluster. This polls until the control plane's snapshot refresh sees
+    // the migrated task, and Dekaf's cached state has refreshed and picked it up.
     let username = env.materialization_name().unwrap_or_default();
     let password = env.dekaf_token()?;
     wait_for_dekaf_redirect(
-        "local-cluster",
-        "local-cluster-2",
+        &src_cluster,
+        &tgt_cluster,
         username,
         &password,
         MIGRATION_TIMEOUT,
@@ -96,7 +96,7 @@ async fn test_rdkafka_handles_redirect() -> anyhow::Result<()> {
     )
     .await?;
 
-    // Create new consumer connected to local-cluster, should redirect automatically
+    // Create new consumer connected to the source cluster, should redirect automatically
     let consumer = env.kafka_consumer_with_group_id(&group_id).await?;
     consumer.subscribe(&["test_topic"])?;
 
@@ -132,9 +132,10 @@ async fn test_migration_protocol_responses() -> anyhow::Result<()> {
     let username = env.materialization_name().context("no materialization")?;
     let password = env.dekaf_token()?;
     let collections: Vec<String> = env.collection_names().map(|s| s.to_string()).collect();
+    let (src_cluster, tgt_cluster) = (cluster_name(), cluster_name_2());
     let src_info =
-        connection_info_for_dataplane("local-cluster", username, collections.clone()).await?;
-    let tgt_info = connection_info_for_dataplane("local-cluster-2", username, collections).await?;
+        connection_info_for_dataplane(&src_cluster, username, collections.clone()).await?;
+    let tgt_info = connection_info_for_dataplane(&tgt_cluster, username, collections).await?;
 
     let mut client = TestKafkaClient::connect(&src_info.broker, username, &password).await?;
 
@@ -158,8 +159,7 @@ async fn test_migration_protocol_responses() -> anyhow::Result<()> {
     drop(client);
 
     let capture_name = env.capture_name().context("no capture")?;
-    let migration_id =
-        trigger_migration(&env.namespace, "local-cluster", "local-cluster-2").await?;
+    let migration_id = trigger_migration(&env.namespace, &src_cluster, &tgt_cluster).await?;
 
     wait_for_migration_complete(migration_id, MIGRATION_TIMEOUT).await?;
 
@@ -167,8 +167,8 @@ async fn test_migration_protocol_responses() -> anyhow::Result<()> {
         .await?;
 
     wait_for_dekaf_redirect(
-        "local-cluster",
-        "local-cluster-2",
+        &src_cluster,
+        &tgt_cluster,
         username,
         &password,
         MIGRATION_TIMEOUT,

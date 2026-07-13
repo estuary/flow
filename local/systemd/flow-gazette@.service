@@ -1,19 +1,20 @@
 [Unit]
 Description=Flow Broker (%i)
 Documentation=https://github.com/estuary/flow
-After=flow-etcd.service
+# After=flow-etcd@<stack>.service is added as a drop-in by the gazette task,
+# which knows this instance's stack (the etcd instance is keyed by stack name,
+# not by the <dp>-<port> instance name here).
 
 [Service]
 Type=simple
 TimeoutStartSec=600
 
-# Load instance-specific environment
+# Single consolidated env file (common build/runtime vars inlined at generation).
 # Instance format: <cluster>-<port> (e.g., foobar-8080)
-EnvironmentFile=%h/flow-local/env/common.env
 EnvironmentFile=%h/flow-local/env/gazette-%i.env
 
 ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/gazette'
-ExecStart=%h/go/bin/gazette serve
+ExecStart=sh -c 'exec ${GOBIN}/gazette serve'
 
 Restart=on-failure
 RestartSec=5s

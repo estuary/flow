@@ -1,14 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Start a local stack (control plane and 'local-cluster' data plane)"
+#MISE description="Start a local stack (control plane and '<stack>-cluster' data plane)"
 #MISE depends=["build:connector-init", "build:rocksdb", "local:control-plane"]
-mise run local:data-plane local-cluster 8000 --num-brokers 4 --num-reactors 1 --link --dekaf
+#USAGE flag "--dekaf" help="Also start Dekaf for the default data plane"
 
-# Publish the bundled local-view ops catalog to the control plane.
-BUNDLED_CATALOG=$(cat ./ops-catalog/local-view.bundle.json | sed "s/'/''/g")
+source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/reap-lib.sh"
+ensure_stack_env
 
-psql postgresql://postgres:postgres@localhost:5432/postgres << EOF
+# Opportunistically reclaim slots of checkouts deleted since we last looked.
+# Quiet unless something is actually reaped; starting a stack is a natural joint
+# to garbage-collect worktrees you've removed.
+reap_gone_locked "${FLOW_LOCAL}/stacks.tsv" "${FLOW_LOCAL}/stacks.lock" || true
+
+DP_NAME="${FLOW_CLUSTER}"
+DBURL="${FLOW_PG_URL}"
+
+DEKAF_FLAG=""
+if [ "${usage_dekaf:-false}" = "true" ]; then
+    DEKAF_FLAG="--dekaf"
+fi
+
+# The ops.us-central1.v1/ storage mapping is seeded WITHOUT a data_planes
+# binding (seed.sql), because the data-plane name is stack-specific. Set it to
+# this stack's default data plane BEFORE linking, unconditionally and
+# stack-agnostically: the data-plane link runs an L2-reporting publication whose
+# build validates that the ops.us-central1.v1/ collections' data plane is listed
+# in this storage mapping (validation::StorageMappingMissingDataPlanes /
+# DataPlaneNotInStorageMapping), so the mapping must name it first. jsonb_set
+# creates the key when absent.
+psql "${DBURL}" -c "
+    UPDATE public.storage_mappings
+    SET spec = jsonb_set(spec::jsonb, '{data_planes}', '[\"ops/dp/public/${DP_NAME}\"]'::jsonb)::json
+    WHERE catalog_prefix = 'ops.us-central1.v1/';"
+
+# shellcheck disable=SC2086 # DEKAF_FLAG is intentionally word-split (empty or --dekaf).
+mise run local:data-plane "${DP_NAME}" "${FLOW_PLANE_BASE}" --num-brokers 4 --num-reactors 1 --link ${DEKAF_FLAG}
+
+# Publish the bundled local-view ops catalog to the control plane. The bundle
+# bakes the classic bigtable emulator endpoint (172.17.0.1:8086); rewrite the
+# port to this stack's shifted bigtable port so the ops stats materialization
+# reaches the right emulator. The postgres target is already the stable network
+# alias `db`.
+BUNDLED_CATALOG=$(sed \
+    -e "s/172\.17\.0\.1:8086/172.17.0.1:${FLOW_PORT_BIGTABLE}/g" \
+    -e "s/'/''/g" \
+    ./ops-catalog/local-view.bundle.json)
+
+psql "${DBURL}" << EOF
 begin;
 do \$\$
 declare
@@ -26,7 +66,7 @@ begin
 
     -- Queue a publication of the draft.
     insert into publications (id, user_id, draft_id, data_plane_name) values
-    (publication_id, ops_user_id, new_draft_id, 'ops/dp/public/local-cluster');
+    (publication_id, ops_user_id, new_draft_id, 'ops/dp/public/${DP_NAME}');
 
     insert into draft_specs (draft_id, catalog_name, spec_type, spec)
     select new_draft_id, "key", 'collection'::catalog_spec_type, "value"
@@ -40,3 +80,7 @@ end \$\$
 language plpgsql;
 commit;
 EOF
+
+echo ""
+echo "Stack '${FLOW_STACK_NAME}' is up."
+print_stack_card

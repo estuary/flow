@@ -183,13 +183,28 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		addr = "http://localhost:" + port
 	}
 
+	// temp-data-plane predates multi-stack local infrastructure. The agent and
+	// dashboard ports are per-stack now (mise/tasks/local/stack-env), so read
+	// them from FLOW_PORT_AGENT / FLOW_PORT_DASHBOARD, keeping the historical
+	// literals as defaults for invocations outside a stack env.
+	var envOr = func(key, def string) string {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+		return def
+	}
+	var dashboardPort = envOr("FLOW_PORT_DASHBOARD", "3000")
+	var controlAPI = "http://agent.flow.localhost:" + envOr("FLOW_PORT_AGENT", "8675")
+	var dashboard = "http://dashboard.flow.localhost:" + dashboardPort
+	var allowOrigin = "http://localhost:" + dashboardPort
+
 	var args = []string{
 		pkgbin.MustLocate("flowctl-go"),
 		"serve",
 		"consumer",
 		"--broker.address", gazetteAddr,
 		"--broker.cache.size", "128",
-		"--consumer.allow-origin", "http://localhost:3000",
+		"--consumer.allow-origin", allowOrigin,
 		"--consumer.limit", "1024",
 		"--consumer.max-hot-standbys", "0",
 		"--consumer.port", port,
@@ -198,8 +213,8 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"--etcd.address", etcdAddr,
 		"--flow.allow-local", "true",
 		"--flow.builds-root", buildsRoot,
-		"--flow.control-api", "http://agent.flow.localhost:8675",
-		"--flow.dashboard", "http://dashboard.flow.localhost:3000",
+		"--flow.control-api", controlAPI,
+		"--flow.dashboard", dashboard,
 		"--flow.test-apis",
 		"--log.format", cmd.Log.Format,
 		"--log.level", cmd.Log.Level,

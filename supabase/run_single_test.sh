@@ -77,7 +77,7 @@ EOF
 # by injecting a shutdown function that checks pgTAP for any errors and
 # raises an exception if there is one. Combined with `ON_ERROR_STOP`, this
 # will cause `psql` to error.
-psql_input 1 | psql --set ON_ERROR_STOP=1 postgres://postgres:postgres@localhost:5432/postgres
+psql_input 1 | psql --set ON_ERROR_STOP=1 "${FLOW_PG_URL:?FLOW_PG_URL must be set — run via 'mise run ci:sql-tap'}"
 
 test_exit_code=$?
 
@@ -87,7 +87,7 @@ test_exit_code=$?
 # a failure, let's re-run the tests without the exception to get the pretty output.
 if [ $test_exit_code -ne 0 ]; then
   echo "There was a test failure, re-running to show meaningful output";
-  psql_input 0 | psql --set ON_ERROR_STOP=1 postgres://postgres:postgres@localhost:5432/postgres;
+  psql_input 0 | psql --set ON_ERROR_STOP=1 "${FLOW_PG_URL:?FLOW_PG_URL must be set — run via 'mise run ci:sql-tap'}";
   # Lastly, make sure to indicate that there was a failure so we can fail the CI run.
   exit 1
 fi

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PATH=${PATH}:~/cargo-target/debug/:~/cargo-target/$(uname -m)-unknown-linux-musl/debug/ \
-~/go/bin/flowctl-go test --source examples/flow.yaml
+# CARGO_TARGET_DIR and GOBIN are per-checkout (see mise/tasks/local/stack-env).
+# flowctl-go spawns flow-connector-init (musl) and other Rust binaries found on
+# PATH; mise's _.path covers ${CARGO_TARGET_DIR}/debug but not the musl dir.
+PATH=${PATH}:${CARGO_TARGET_DIR}/debug:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug \
+"${GOBIN}/flowctl-go" test --source examples/flow.yaml

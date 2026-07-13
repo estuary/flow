@@ -48,8 +48,11 @@ insert into public.role_grants (subject_role, object_role, capability) values
 insert into public.storage_mappings (catalog_prefix, spec) values
   ('ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc", "prefix": "collection-data/"}]}'),
   ('recovery/ops/', '{"stores": [{"provider": "GCS", "bucket": "estuary-flow-poc"}]}'),
-  -- For access within local stack contexts:
-  ('ops.us-central1.v1/', '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}], "data_planes": ["ops/dp/public/local-cluster"]}'),
+  -- For access within local stack contexts. The `data_planes` binding is stack-
+  -- specific (the running stack's dynamic data-plane name), so it is NOT seeded
+  -- here; `mise run local:stack` sets it to ops/dp/public/${FLOW_CLUSTER} after
+  -- the data-plane link.
+  ('ops.us-central1.v1/', '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]}'),
   ('recovery/ops.us-central1.v1/', '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}')
   ;
 

@@ -1,51 +1,119 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-#MISE description="SSH to a remote host (or VM) and forward all Estuary platform ports"
+#MISE description="SSH to a remote host (or VM) and forward a stack's Estuary platform ports"
 #USAGE arg "<hostname>" help="The hostname of host to SSH to (e.x. 'lima-dev')"
+#USAGE arg "[stack]" help="Stack name to forward (default: the sole stack, if there is exactly one)"
+#USAGE flag "--no-remap" help="Only identity-forward real ports (skip the classic-port remaps), so a second stack can be forwarded concurrently"
 
-echo "Port forwarding to host '${usage_hostname:?}'. Press Ctrl+C to terminate."
-echo "  PostgREST API:          http://localhost:5431"
-echo "  Postgres DB:            http://localhost:5432"
-echo "  Supabase Studio:        http://localhost:5433"
-echo "  Mailpit (email login):  http://localhost:5434"
-echo "  Cockpit Systemd UI:     http://localhost:9090"
-echo "  Broker (example):       https://broker-local-cluster.flow.localhost:8000/"
-echo "  Reactor (example):      https://reactor-local-cluster.flow.localhost:8099/"
+HOST="${usage_hostname:?}"
+STACK="${usage_stack:-}"
+NO_REMAP="${usage_no_remap:-false}"
 
-C=''
+# Resolve the stack's index (hence its port base) from the remote registry.
+REGISTRY="$(ssh "${HOST}" 'cat ~/flow-local/stacks.tsv 2>/dev/null' || true)"
+if [ -z "${REGISTRY}" ]; then
+    echo "Error: no stacks registered on ${HOST} (~/flow-local/stacks.tsv is empty/absent)." >&2
+    echo "       Start a stack there first: mise run local:stack" >&2
+    exit 1
+fi
 
-ssh ${usage_hostname:?} \
-    -N ${C# Do not execute remote command (just forward ports)} \
-    \
-    ${C# Supabase } \
-    -L 5431:localhost:5431 ${C# PostgREST API} \
-    -L 5432:localhost:5432 ${C# Postgres DB} \
-    -L 5433:localhost:5433 ${C# Studio} \
-    -L 5434:localhost:5434 ${C# Mailpit} \
-    ${C# local-cluster Data Plane} \
-    -L 8000:localhost:8000 ${C# gazette 1} \
-    -L 8001:localhost:8001 ${C# gazette 2} \
-    -L 8002:localhost:8002 ${C# gazette 3} \
-    -L 8003:localhost:8003 ${C# gazette 4} \
-    -L 8061:localhost:8061 ${C# runtime-sidecar debug } \
-    -L 8098:localhost:8098 ${C# reactor 2} \
-    -L 8099:localhost:8099 ${C# reactor 1} \
-    ${C# Control Plane} \
-    -L 8675:localhost:8675 ${C# Control-plane agent} \
-    -L 8765:localhost:8765 ${C# Control-plane config-encryption} \
-    ${C# Cockpit Systemd UI} \
-    -L 9090:localhost:9090 \
-    ${C# Reserved for Secondary Data Plane} \
-    -L 10000:localhost:10000 \
-    -L 10001:localhost:10001 \
-    -L 10002:localhost:10002 \
-    -L 10003:localhost:10003 \
-    -L 10098:localhost:10098 \
-    -L 10099:localhost:10099 \
-    ${C# Reserved for Tertiary Data Plane} \
-    -L 10100:localhost:10100 \
-    -L 10101:localhost:10101 \
-    -L 10102:localhost:10102 \
-    -L 10103:localhost:10103 \
-    -L 10198:localhost:10198 \
-    -L 10199:localhost:10199 \
+if [ -z "${STACK}" ]; then
+    # Default to the sole stack if there is exactly one; otherwise require a choice.
+    COUNT="$(printf '%s\n' "${REGISTRY}" | grep -c .)"
+    if [ "${COUNT}" -eq 1 ]; then
+        STACK="$(printf '%s\n' "${REGISTRY}" | awk -F'\t' '{print $2; exit}')"
+    else
+        echo "Error: ${HOST} has ${COUNT} stacks; specify which to forward." >&2
+        echo "Known stacks:" >&2
+        printf '%s\n' "${REGISTRY}" | awk -F'\t' '{printf "  index %s  %s\n", $1, $2}' >&2
+        exit 1
+    fi
+fi
+
+INDEX="$(printf '%s\n' "${REGISTRY}" | awk -F'\t' -v n="${STACK}" '$2==n {print $1; exit}')"
+if [ -z "${INDEX}" ]; then
+    echo "Error: stack '${STACK}' not found in ${HOST}:~/flow-local/stacks.tsv" >&2
+    echo "Known stacks:" >&2
+    printf '%s\n' "${REGISTRY}" | awk -F'\t' '{printf "  index %s  %s\n", $1, $2}' >&2
+    exit 1
+fi
+
+BASE=$((10000 + 1000 * INDEX))
+CLUSTER="local-${STACK}-cluster"   # see stack-env FLOW_CLUSTER
+PB=$((BASE + 200))                 # plane 0's block
+
+# Real (advertised) service ports for this stack.
+API=$((BASE + 10))
+DB=$((BASE + 11))
+STUDIO=$((BASE + 12))
+MAILPIT=$((BASE + 13))
+AGENT=$((BASE + 20))
+CONFIG_ENC=$((BASE + 21))
+
+# SSH -L specs are "listen:host:dst". We build two sets:
+#
+#   remap    — laptop's classic ports (5431-5434/8675/8765) -> this stack's real
+#              ports. For fixed-address clients (saved psql/Studio/Mailpit
+#              bookmarks, dashboard dev-server .env). This is the ONLY place
+#              classic ports survive, and it belongs to ONE stack at a time.
+#   identity — real port -> same real port. For advertisement-following clients
+#              (flowctl --profile <stack>): gazette/reactor routes, the
+#              data_planes row's broker/reactor/dekaf addresses, all advertise
+#              real ports on *.flow.localhost (loopback on the laptop too).
+#              Identity sets never collide (disjoint per-stack blocks), so a
+#              second stack can be forwarded alongside with --no-remap.
+FORWARDS=()
+
+if [ "${NO_REMAP}" != "true" ]; then
+    FORWARDS+=(
+        "5431:localhost:${API}"
+        "5432:localhost:${DB}"
+        "5433:localhost:${STUDIO}"
+        "5434:localhost:${MAILPIT}"
+        "8675:localhost:${AGENT}"
+        "8765:localhost:${CONFIG_ENC}"
+    )
+fi
+
+# Identity: control plane (real ports) + plane 0 footprint + cockpit.
+IDENTITY=(
+    "${API}"                # PostgREST API
+    "${DB}"                 # Postgres DB
+    "${AGENT}"              # Control-plane agent
+    "${CONFIG_ENC}"         # Config-encryption
+    "$((PB + 0))"           # gazette broker 1
+    "$((PB + 1))"           # gazette broker 2
+    "$((PB + 2))"           # gazette broker 3
+    "$((PB + 3))"           # gazette broker 4
+    "$((PB + 50))"          # dekaf kafka
+    "$((PB + 51))"          # dekaf schema registry
+    "$((PB + 52))"          # dekaf metrics
+    "$((PB + 61))"          # runtime-sidecar admin
+    "$((PB + 98))"          # reactor 2
+    "$((PB + 99))"          # reactor 1
+    9090                    # Cockpit (machine-global)
+)
+for p in "${IDENTITY[@]}"; do
+    FORWARDS+=("${p}:localhost:${p}")
+done
+
+echo "Port forwarding stack '${STACK}' (index ${INDEX}, base ${BASE}) from '${HOST}'. Ctrl+C to stop."
+if [ "${NO_REMAP}" != "true" ]; then
+    echo "  Remaps (classic laptop ports -> this stack):"
+    echo "    localhost:5431 -> API (:${API})    localhost:5432 -> DB (:${DB})"
+    echo "    localhost:5433 -> Studio (:${STUDIO})  localhost:5434 -> Mailpit (:${MAILPIT})"
+    echo "    localhost:8675 -> agent (:${AGENT})  localhost:8765 -> config-enc (:${CONFIG_ENC})"
+fi
+echo "  Identity forwards (real ports, for flowctl --profile ${STACK}):"
+echo "    API ${API}, DB ${DB}, agent ${AGENT}, config-enc ${CONFIG_ENC}"
+echo "    brokers ${PB}-$((PB + 3)), reactors $((PB + 98))/$((PB + 99)), sidecar-admin $((PB + 61)), dekaf $((PB + 50))/$((PB + 51))/$((PB + 52))"
+echo "    cockpit 9090"
+echo "    (broker-${CLUSTER}.flow.localhost:$((PB + 0)) / reactor-${CLUSTER}.flow.localhost:$((PB + 99)))"
+
+SSH_ARGS=(-N)
+for spec in "${FORWARDS[@]}"; do
+    SSH_ARGS+=(-L "${spec}")
+done
+
+exec ssh "${HOST}" "${SSH_ARGS[@]}"

@@ -3,8 +3,7 @@ use std::path::PathBuf;
 
 use flow_client_next::{
     DEFAULT_AGENT_URL, DEFAULT_CONFIG_ENCRYPTION_URL, DEFAULT_DASHBOARD_URL,
-    DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL, LOCAL_AGENT_URL, LOCAL_CONFIG_ENCRYPTION_URL,
-    LOCAL_DASHBOARD_URL, LOCAL_PG_PUBLIC_TOKEN, LOCAL_PG_URL,
+    DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
     user_auth::{RefreshToken, UserToken},
 };
 
@@ -42,9 +41,6 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_encryption_url: Option<url::Url>,
 
-    #[serde(skip)]
-    is_local: bool,
-
     // Legacy API stanza, which is being phased out.
     #[serde(default, skip_serializing)]
     api: Option<DeprecatedAPISection>,
@@ -67,53 +63,29 @@ impl Config {
     }
 
     pub fn get_agent_url(&self) -> &url::Url {
-        if let Some(agent_url) = &self.agent_url {
-            agent_url
-        } else if self.is_local {
-            &LOCAL_AGENT_URL
-        } else {
-            &DEFAULT_AGENT_URL
-        }
+        self.agent_url.as_ref().unwrap_or(&DEFAULT_AGENT_URL)
     }
 
     pub fn get_dashboard_url(&self) -> &url::Url {
-        if let Some(dashboard_url) = &self.dashboard_url {
-            dashboard_url
-        } else if self.is_local {
-            &LOCAL_DASHBOARD_URL
-        } else {
-            &DEFAULT_DASHBOARD_URL
-        }
+        self.dashboard_url
+            .as_ref()
+            .unwrap_or(&DEFAULT_DASHBOARD_URL)
     }
 
     pub fn get_pg_public_token(&self) -> &str {
-        if let Some(pg_public_token) = &self.pg_public_token {
-            pg_public_token
-        } else if self.is_local {
-            LOCAL_PG_PUBLIC_TOKEN
-        } else {
-            DEFAULT_PG_PUBLIC_TOKEN
-        }
+        self.pg_public_token
+            .as_deref()
+            .unwrap_or(DEFAULT_PG_PUBLIC_TOKEN)
     }
 
     pub fn get_pg_url(&self) -> &url::Url {
-        if let Some(pg_url) = &self.pg_url {
-            pg_url
-        } else if self.is_local {
-            &LOCAL_PG_URL
-        } else {
-            &DEFAULT_PG_URL
-        }
+        self.pg_url.as_ref().unwrap_or(&DEFAULT_PG_URL)
     }
 
     pub fn get_config_encryption_url(&self) -> &url::Url {
-        if let Some(config_encryption_url) = &self.config_encryption_url {
-            config_encryption_url
-        } else if self.is_local {
-            &LOCAL_CONFIG_ENCRYPTION_URL
-        } else {
-            &DEFAULT_CONFIG_ENCRYPTION_URL
-        }
+        self.config_encryption_url
+            .as_ref()
+            .unwrap_or(&DEFAULT_CONFIG_ENCRYPTION_URL)
     }
 
     /// Loads the config corresponding to the given named `profile`.
@@ -157,8 +129,6 @@ impl Config {
             config.user_access_token = Some(access_token);
             config.user_refresh_token = refresh_token;
         }
-
-        config.is_local = profile == "local";
 
         Ok(config)
     }
