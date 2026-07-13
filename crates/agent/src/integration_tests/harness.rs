@@ -242,6 +242,9 @@ impl HarnessBuilder {
         let mock_connectors = connectors::MockDiscoverConnectors::default();
         let discover_handler = DiscoverHandler::new(mock_connectors.clone());
 
+        let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pool.clone());
+        let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
+
         let builder = control_plane_api::publications::builds::new_builder(mock_connectors);
         let publisher = Publisher::new(
             "/not/a/real/flowctl-go".into(),
@@ -251,11 +254,9 @@ impl HarnessBuilder {
             pool.clone(),
             models::IdGenerator::new(1),
             builder,
+            snapshot_watch.clone(),
         )
         .with_skip_all_tests();
-
-        let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pool.clone());
-        let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
 
         let control_plane = TestControlPlane::new(PGControlPlane::new(
             pool.clone(),

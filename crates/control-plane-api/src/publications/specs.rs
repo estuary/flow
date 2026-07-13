@@ -663,6 +663,47 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
     names
 }
 
+/// Fetches a `LiveSpec` row for every catalog name drafted or referenced by
+/// `draft`, plus the injected ops collections. Rows are returned without user
+/// or spec capabilities: authorization is performed by the caller against the
+/// in-memory grant snapshot via `is_authorized`. Pass the rows to
+/// `populate_live_catalog` to resolve them (and their storage mappings,
+/// data-planes, and inferred schemas) into a `LiveCatalog` for the build.
+pub async fn fetch_live_specs_for_draft(
+    user_id: Uuid,
+    draft: &tables::DraftCatalog,
+    db: &sqlx::PgPool,
+) -> anyhow::Result<Vec<crate::live_specs::LiveSpec>> {
+    // We're expecting a row for each catalog name that's either drafted or
+    // referenced by a drafted spec, even if the live spec does not exist.
+    // Note that `all_catalog_names` returns a sorted and deduplicated list of catalog names.
+    let mut all_spec_names = draft
+        .all_catalog_names()
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>();
+
+    // Ops collections must be injected as part of the `LiveCatalog`, so that they can be included
+    // in the build. Users do not need any permissions to these collections, as long as they
+    // haven't drafted them. Note that it's not a build error for these ops collections to be
+    // missing, but the resulting build will not function properly in the data plane without them.
+    let ops_collection_names = get_ops_collection_names();
+    for ops_collection in ops_collection_names.iter() {
+        // `all_spec_names` is sorted, so we can use binary search to avoid duplicating the ops
+        // collection names.
+        if let Err(i) = all_spec_names.binary_search(ops_collection) {
+            all_spec_names.insert(i, ops_collection.clone());
+        }
+    }
+
+    // Capabilities are not fetched: authorization uses the in-memory grant snapshot.
+    let rows = crate::live_specs::fetch_live_specs(user_id, &all_spec_names, false, false, db)
+        .await
+        .context("fetching live specs")?;
+
+    Ok(rows)
+}
+
 pub async fn resolve_live_specs(
     user_id: Uuid,
     draft: &tables::DraftCatalog,
@@ -709,12 +750,12 @@ pub async fn resolve_live_specs(
     // Start by making an easy way to lookup whether each row was drafted or not.
     let drafted_names = draft.all_spec_names().collect::<HashSet<_>>();
 
-    // Gather IDs of data-planes in use by live specs.
-    let mut data_plane_ids = Vec::new();
-
-    // AuthZ errors will be pushed to the live catalog
+    // AuthZ errors are pushed to the live catalog. Catalog names that fail an
+    // authorization check are collected in `unauthorized` so that their specs
+    // are excluded when `populate_live_catalog` resolves the catalog contents.
     let mut live = tables::LiveCatalog::default();
-    for spec_row in rows {
+    let mut unauthorized = HashSet::new();
+    for spec_row in &rows {
         let catalog_name = spec_row.catalog_name.as_str();
         let n_errors = live.errors.len();
 
@@ -734,6 +775,7 @@ pub async fn resolve_live_specs(
                 });
                 // Continue because we'll otherwise produce superfluous auth errors
                 // of referenced collections.
+                unauthorized.insert(catalog_name.to_string());
                 continue;
             }
             // Spec authz must always be checked, even if we're not checking user authz
@@ -783,13 +825,55 @@ pub async fn resolve_live_specs(
                     scope,
                     error: anyhow::anyhow!("User is not authorized to read this catalog name"),
                 });
+                unauthorized.insert(catalog_name.to_string());
                 continue;
             }
         }
 
-        // Don't add the spec if the row had authorization errors, just as an extra precaution in
-        // case the user isn't authorized to know about a spec.
+        // Record specs that accrued authorization errors, as an extra precaution
+        // in case the user isn't authorized to know about a spec. Their specs are
+        // excluded from the resolved catalog in `populate_live_catalog`.
         if live.errors.len() > n_errors {
+            unauthorized.insert(catalog_name.to_string());
+        }
+    }
+
+    // Everything below is independent of authorization: resolve the live specs,
+    // storage mappings, data-planes, and inferred schemas needed to build the draft.
+    populate_live_catalog(
+        user_id,
+        draft,
+        rows,
+        &unauthorized,
+        explicit_plane_name,
+        &mut live,
+        db,
+    )
+    .await?;
+
+    Ok(live)
+}
+
+/// Populates `live` with the resolved live specs, storage mappings, data-planes,
+/// and inferred schemas required to build `draft`. This is the portion of
+/// resolving a draft's live dependencies that is independent of authorization:
+/// callers perform authorization checks and pass the set of `unauthorized`
+/// catalog names whose specs must be excluded from the resolved catalog.
+pub async fn populate_live_catalog(
+    user_id: Uuid,
+    draft: &tables::DraftCatalog,
+    rows: Vec<crate::live_specs::LiveSpec>,
+    unauthorized: &HashSet<String>,
+    explicit_plane_name: Option<&str>,
+    live: &mut tables::LiveCatalog,
+    db: &sqlx::PgPool,
+) -> anyhow::Result<()> {
+    // Gather IDs of data-planes in use by live specs.
+    let mut data_plane_ids = Vec::new();
+
+    for spec_row in rows {
+        // Skip specs that failed authorization in `resolve_live_specs`.
+        if unauthorized.contains(&spec_row.catalog_name) {
             continue;
         }
 
@@ -818,6 +902,7 @@ pub async fn resolve_live_specs(
     }
 
     // Note that we don't need storage mappings for live specs, only the drafted ones.
+    let drafted_names = draft.all_spec_names().collect::<HashSet<_>>();
     let mut tenant_names = drafted_names
         .iter()
         .flat_map(|name| tenant(name))
@@ -903,9 +988,9 @@ pub async fn resolve_live_specs(
     .into_iter()
     .collect();
 
-    resolve_inferred_schemas(draft, &mut live, db).await?;
+    resolve_inferred_schemas(draft, live, db).await?;
 
-    Ok(live)
+    Ok(())
 }
 
 /// Returns an option because `catalog_name` is from a drafted spec, and we've yet to
@@ -944,7 +1029,7 @@ async fn resolve_inferred_schemas(
     Ok(())
 }
 
-fn spec_meta(
+pub fn spec_meta(
     draft: &tables::DraftCatalog,
     catalog_name: &str,
 ) -> (

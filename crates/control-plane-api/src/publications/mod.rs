@@ -1,4 +1,7 @@
+use std::sync::Arc;
 use std::u32;
+
+use crate::Snapshot;
 
 use super::logs;
 use anyhow::Context;
@@ -141,7 +144,9 @@ impl PublicationResult {
 }
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
-#[derive(Debug, Clone)]
+
+#[derive(Clone)]
+#[allow(dead_code)]
 pub struct Publisher {
     flowctl_go: std::path::PathBuf,
     builds_root: url::Url,
@@ -152,6 +157,7 @@ pub struct Publisher {
     builder: std::sync::Arc<Box<dyn builds::Builder>>,
     skip_tests: bool,
     skip_connector_table_check: bool,
+    snapshot: Arc<dyn tokens::Watch<Snapshot>>,
 }
 
 pub struct UncommittedBuild {
@@ -229,6 +235,7 @@ impl Publisher {
         pool: sqlx::PgPool,
         build_id_gen: models::IdGenerator,
         builder: Box<dyn builds::Builder>,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
     ) -> Self {
         Self {
             flowctl_go,
@@ -240,6 +247,7 @@ impl Publisher {
             builder: std::sync::Arc::new(builder),
             skip_tests: false,
             skip_connector_table_check: false,
+            snapshot,
         }
     }
 
@@ -400,12 +408,129 @@ impl Publisher {
             });
         }
 
-        let live_catalog = specs::resolve_live_specs(
+        // Authorize the draft's live-spec dependencies against the in-memory grant
+        // snapshot, then resolve the remaining catalog state (live specs, storage
+        // mappings, data-planes, and inferred schemas) needed for the build.
+        let snapshot = self.snapshot.token();
+        let snapshot = snapshot
+            .result()
+            .map_err(|status| anyhow::anyhow!("authorization snapshot is unavailable: {status}"))?;
+
+        let rows = specs::fetch_live_specs_for_draft(user_id, &draft, &self.db).await?;
+
+        let ops_collection_names = specs::get_ops_collection_names();
+        let drafted_names = draft
+            .all_spec_names()
+            .collect::<std::collections::HashSet<_>>();
+
+        // AuthZ errors are pushed to the live catalog. Catalog names that fail an
+        // authorization check are collected in `unauthorized` so their specs are
+        // excluded when `populate_live_catalog` resolves the catalog contents.
+        let mut live_catalog = tables::LiveCatalog::default();
+        let mut unauthorized = std::collections::HashSet::new();
+        for spec_row in &rows {
+            let catalog_name = spec_row.catalog_name.as_str();
+            let n_errors = live_catalog.errors.len();
+
+            if drafted_names.contains(catalog_name) {
+                // Metadata about the drafted spec. This must exist in `draft`,
+                // otherwise `spec_meta` will panic.
+                let (catalog_type, reads_from, writes_to) = specs::spec_meta(&draft, catalog_name);
+                let scope = tables::synthetic_scope(catalog_type, catalog_name);
+
+                // A drafted catalog name requires the user to be admin-authorized to it.
+                if verify_user_authz
+                    && !tables::UserGrant::is_authorized(
+                        &snapshot.role_grants,
+                        &snapshot.user_grants,
+                        user_id,
+                        catalog_name,
+                        models::Capability::Admin,
+                    )
+                {
+                    live_catalog.errors.push(tables::Error {
+                        scope: scope.clone(),
+                        error: anyhow::anyhow!(
+                            "User is not authorized to create or change this catalog name"
+                        ),
+                    });
+                    // Continue because we'll otherwise produce superfluous auth errors
+                    // of referenced collections.
+                    unauthorized.insert(catalog_name.to_string());
+                    continue;
+                }
+                // Spec authz must always be checked, even if we're not checking user authz.
+                // The spec (identified by its own catalog name) must be read-authorized to
+                // each source it reads and write-authorized to each target it writes.
+                for source in reads_from {
+                    if !tables::RoleGrant::is_authorized(
+                        &snapshot.role_grants,
+                        catalog_name,
+                        source.as_str(),
+                        models::Capability::Read,
+                    ) {
+                        live_catalog.errors.push(tables::Error {
+                            scope: scope.clone(),
+                            error: anyhow::anyhow!(
+                                "Specification '{catalog_name}' is not read-authorized to '{source}'."
+                            ),
+                        });
+                    }
+                }
+                for target in writes_to {
+                    if !tables::RoleGrant::is_authorized(
+                        &snapshot.role_grants,
+                        catalog_name,
+                        target.as_str(),
+                        models::Capability::Write,
+                    ) {
+                        live_catalog.errors.push(tables::Error {
+                            scope: scope.clone(),
+                            error: anyhow::anyhow!(
+                                "Specification is not write-authorized to '{target}'."
+                            ),
+                        });
+                    }
+                }
+            // Ops collections are automatically injected, and the user does not need (or have)
+            // any access capability to them as long as they are not drafted.
+            } else if !ops_collection_names.contains(&spec_row.catalog_name) {
+                // A referenced (non-drafted) live spec requires the user to be read-authorized
+                // to it, just to know that it exists. Note that the _user_ does not need write:
+                // the _spec_ carries its own capabilities regardless of the user's.
+                if verify_user_authz
+                    && !tables::UserGrant::is_authorized(
+                        &snapshot.role_grants,
+                        &snapshot.user_grants,
+                        user_id,
+                        catalog_name,
+                        models::Capability::Read,
+                    )
+                {
+                    live_catalog.errors.push(tables::Error {
+                        scope: tables::synthetic_scope("unauthorized", &spec_row.catalog_name),
+                        error: anyhow::anyhow!("User is not authorized to read this catalog name"),
+                    });
+                    unauthorized.insert(catalog_name.to_string());
+                    continue;
+                }
+            }
+
+            // Record specs that accrued authorization errors, as an extra precaution in
+            // case the user isn't authorized to know about a spec.
+            if live_catalog.errors.len() > n_errors {
+                unauthorized.insert(catalog_name.to_string());
+            }
+        }
+
+        specs::populate_live_catalog(
             user_id,
             &draft,
-            &self.db,
-            verify_user_authz,
+            rows,
+            &unauthorized,
             explicit_plane_name,
+            &mut live_catalog,
+            &self.db,
         )
         .await?;
 
