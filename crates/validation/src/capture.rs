@@ -446,6 +446,7 @@ async fn walk_capture<C: Connectors>(
         network_ports,
         inactive_bindings,
         redact_salt,
+        created_at: crate::created_at_date(control_id),
     };
     let model = models::CaptureDef {
         auto_discover,

@@ -184,6 +184,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             config_json: bytes::Bytes::new(),
             inactive_bindings: Vec::new(),
             redact_salt: b"pass-through-capture-salt".as_slice().into(),
+            created_at: String::new(),
         };
         live.captures.insert_row(
             capture,
@@ -347,6 +348,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             config_json: bytes::Bytes::new(),
             inactive_bindings: Vec::new(),
             triggers_json: bytes::Bytes::new(),
+            created_at: String::new(),
         };
         live.materializations.insert_row(
             materialization,

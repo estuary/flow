@@ -17,6 +17,7 @@ pub fn build_bindings(
         shard_template: _,
         inactive_bindings: _,
         triggers_json: _,
+        created_at: _,
     } = spec;
 
     let ops::proto::ShardLabeling {

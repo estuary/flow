@@ -74,11 +74,13 @@ pub async fn do_discover(
             name: capture.capture.to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: serde_json::to_string(&config).unwrap().into(),
+            created_at: String::new(),
         },
         models::CaptureEndpoint::Local(config) => capture::request::Discover {
             name: capture.capture.to_string(),
             connector_type: flow::capture_spec::ConnectorType::Local as i32,
             config_json: serde_json::to_string(config).unwrap().into(),
+            created_at: String::new(),
         },
     };
     let discover = capture::Request {

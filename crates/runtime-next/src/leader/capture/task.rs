@@ -72,6 +72,7 @@ impl Task {
             shard_template,
             inactive_bindings: _,
             redact_salt,
+            created_at: _,
         } = spec.as_ref().context("missing capture")?;
         let range = range.context("missing range")?;
 

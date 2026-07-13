@@ -650,6 +650,7 @@ async fn walk_materialization<C: Connectors>(
         network_ports,
         inactive_bindings,
         triggers_json,
+        created_at: crate::created_at_date(control_id),
     };
     let model = models::MaterializationDef {
         source: sources,
