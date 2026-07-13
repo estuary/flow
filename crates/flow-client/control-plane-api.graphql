@@ -374,11 +374,8 @@ input BoolFilter {
 }
 
 """
-Deprecated alias of `LegacyCapability`, preserved under the original
-`Capability` name while clients migrate off it. Do not use in new
-operations; prefer `withCapabilities` (on the `prefixes` filter) and
-`capabilityLegacy` (on `createInviteLink`). Removed once the deprecated
-inputs are dropped.
+Alias of `LegacyCapability`, preserved under the original `Capability`
+name while clients migrate off it. Do not use in new operations.
 """
 enum Capability {
 	none
@@ -1332,7 +1329,7 @@ type MutationRoot {
 	The caller must have admin capability on the catalog prefix.
 	Share the returned token with the intended recipient out-of-band.
 	"""
-	createInviteLink(catalogPrefix: Prefix!, capability: Capability @deprecated(reason: "The `Capability` type is being renamed; use `capabilityLegacy` (LegacyCapability) instead."), capabilityLegacy: LegacyCapability @deprecated(reason: "The legacy read/write/admin capability model is being replaced by fine-grained capabilities (CapabilityBit)."), singleUse: Boolean! = true, detail: String): InviteLink!
+	createInviteLink(catalogPrefix: Prefix!, capability: Capability!, singleUse: Boolean! = true, detail: String): InviteLink!
 	"""
 	Redeem an invite link token, granting the caller access to the associated
 	catalog prefix with the specified capability.

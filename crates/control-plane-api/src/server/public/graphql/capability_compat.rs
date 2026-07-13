@@ -4,16 +4,14 @@
 //! `models::Capability` now publishes under the name `LegacyCapability`. This
 //! enum re-publishes the identical `none`/`read`/`write`/`admin` values under
 //! the original name `Capability`, so client operations written against the
-//! pre-rename schema keep validating while the frontend migrates to the
-//! `LegacyCapability`-typed inputs. It is wired only to the deprecated
-//! `capability` / `minCapability` input positions and is deleted once those
-//! inputs are removed.
+//! pre-rename schema keep validating. It is wired to the deprecated
+//! `minCapability` filter (prefer `withCapabilities`) and to
+//! `createInviteLink`'s `capability` argument, which stays legacy-typed until
+//! invite links store explicit capability bundles. It is deleted once both
+//! positions are gone.
 
-/// Deprecated alias of `LegacyCapability`, preserved under the original
-/// `Capability` name while clients migrate off it. Do not use in new
-/// operations; prefer `withCapabilities` (on the `prefixes` filter) and
-/// `capabilityLegacy` (on `createInviteLink`). Removed once the deprecated
-/// inputs are dropped.
+/// Alias of `LegacyCapability`, preserved under the original `Capability`
+/// name while clients migrate off it. Do not use in new operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, async_graphql::Enum)]
 #[graphql(name = "Capability", rename_items = "lowercase")]
 pub enum CapabilityCompat {
