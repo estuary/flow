@@ -541,7 +541,9 @@ pub struct StorageMapping {
     pub detail: Option<String>,
     /// The storage definition containing stores and data plane assignments.
     pub spec: async_graphql::Json<models::StorageDef>,
-    /// The current user's capability to this storage mapping's prefix.
+    /// The current user's capability to this storage mapping's prefix,
+    /// for gating admin UI features (the query requires only read, while
+    /// the create/update mutations require admin).
     #[graphql(
         deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilities` instead."
     )]
@@ -549,9 +551,11 @@ pub struct StorageMapping {
     /// Capability bundles the user effectively holds to this storage
     /// mapping's prefix: every bundle whose full capability set is covered
     /// by `capabilityBits`, regardless of which bundles were explicitly
-    /// granted.
+    /// granted. For gating admin UI features (the query requires only
+    /// read, while the create/update mutations require admin).
     pub capabilities: Vec<models::authz::CapabilityBundle>,
-    /// Fine-grained capabilities the user has to this storage mapping's prefix.
+    /// Fine-grained capabilities the user has to this storage mapping's
+    /// prefix, for gating admin UI features.
     pub capability_bits: Vec<models::authz::Capability>,
 }
 

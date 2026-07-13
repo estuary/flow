@@ -2092,18 +2092,22 @@ type StorageMapping {
 	"""
 	spec: JSON!
 	"""
-	The current user's capability to this storage mapping's prefix.
+	The current user's capability to this storage mapping's prefix,
+	for gating admin UI features (the query requires only read, while
+	the create/update mutations require admin).
 	"""
 	userCapability: LegacyCapability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
 	"""
 	Capability bundles the user effectively holds to this storage
 	mapping's prefix: every bundle whose full capability set is covered
 	by `capabilityBits`, regardless of which bundles were explicitly
-	granted.
+	granted. For gating admin UI features (the query requires only
+	read, while the create/update mutations require admin).
 	"""
 	capabilities: [CapabilityBundle!]!
 	"""
-	Fine-grained capabilities the user has to this storage mapping's prefix.
+	Fine-grained capabilities the user has to this storage mapping's
+	prefix, for gating admin UI features.
 	"""
 	capabilityBits: [CapabilityBit!]!
 }
