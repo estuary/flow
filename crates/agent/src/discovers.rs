@@ -262,24 +262,34 @@ async fn prepare_discover(
         image: image_composed,
         config: endpoint_config,
     });
+
+    // Fetch any live capture up-front: an existing task's creation date —
+    // embedded in its control-plane Id — is carried on the Discover request,
+    // so that re-discovers resolve connector feature-flag defaults as the
+    // running task does. It's empty for a task which doesn't exist yet.
+    // Filter to only specs that the user can read. If they can't admin, then
+    // wait until they try to publish to surface that error.
+    let name = &[capture_name.to_string()];
+    let live =
+        live_specs::get_live_specs(user_id, name, Some(models::Capability::Read), pool).await?;
+    let live_capture = live.captures.into_iter().next();
+    let created_at = live_capture
+        .as_ref()
+        .map(|l| l.control_id.timestamp().date_naive().to_string())
+        .unwrap_or_default();
+
     if let Some(drafted) = draft.captures.get_mut_by_key(&capture_name) {
         if let Some(model) = drafted.model.as_mut() {
             model.endpoint = endpoint;
         }
     } else {
-        let name = &[capture_name.to_string()];
-        // Filter to only specs that the user can read. If they can't admin, then wait until they
-        // try to publish to surface that error.
-        let live =
-            live_specs::get_live_specs(user_id, name, Some(models::Capability::Read), pool).await?;
-
         // See if there's an existing live capture with this name
         if let Some(tables::LiveCapture {
             capture,
             last_pub_id,
             mut model,
             ..
-        }) = live.captures.into_iter().next()
+        }) = live_capture
         {
             model.endpoint = endpoint;
             draft.captures.insert(tables::DraftCapture {
@@ -331,6 +341,7 @@ async fn prepare_discover(
         update_only,
         reset_on_key_change,
         logs_token,
+        created_at,
     })
 }
 
@@ -370,13 +381,15 @@ mod test {
                 }')
             ),
             p4 as (
-                -- This is here to assert that it is ignored due to the presence of the drafted capture
-                insert into live_specs (catalog_name, spec_type, controller_task_id, spec) values
-                ('aliceCo/dir/source-thingy', 'capture', '1122334455667788'::flowid, '{
-                    "bindings": [ {"target": "who/cares" } ],
+                -- The live model is ignored due to the presence of the drafted capture,
+                -- but the task's creation date (embedded in its id) is resolved into
+                -- the prepared Discover.
+                insert into live_specs (id, catalog_name, spec_type, controller_task_id, spec, built_spec) values
+                ('0011223344556677'::flowid, 'aliceCo/dir/source-thingy', 'capture', '1122334455667788'::flowid, '{
+                    "bindings": [ {"resource": {}, "target": "who/cares" } ],
                     "endpoint": { "connector": { "config": { "a": "liveA" }, "image": "live/image" } },
                     "interval": "90m"
-                }')
+                }', '{}')
             ),
             p5 as (
                 insert into internal.tasks (task_id, task_type) values ('1122334455667788'::flowid, 2)
@@ -456,5 +469,14 @@ mod test {
         };
         assert!(cfg.config.get().contains("discoversA"));
         assert_eq!(image_composed, cfg.image);
+
+        // The prepared Discover resolved the task's creation date from the
+        // timestamp embedded in the live spec's id.
+        let expect_date = Id::from_hex("0011223344556677")
+            .unwrap()
+            .timestamp()
+            .date_naive()
+            .to_string();
+        assert_eq!(expect_date, result.created_at);
     }
 }

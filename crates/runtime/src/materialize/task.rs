@@ -23,6 +23,7 @@ impl Task {
             shard_template: _,
             inactive_bindings: _,
             triggers_json: _,
+            created_at: _,
         } = spec.as_ref().context("missing materialization")?;
         let range = range.context("missing range")?;
 

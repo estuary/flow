@@ -51,6 +51,12 @@ pub mod request {
         /// Connector configuration, as an encoded JSON object.
         #[prost(bytes = "bytes", tag = "2")]
         pub config_json: ::prost::bytes::Bytes,
+        /// Date on which the capture task was created, as a UTC date in RFC 3339
+        /// "full-date" format (YYYY-MM-DD). Empty if the task doesn't exist yet:
+        /// a connector discovering on behalf of a to-be-created task should
+        /// assume a current date.
+        #[prost(string, tag = "4")]
+        pub created_at: ::prost::alloc::string::String,
     }
     /// Validate a capture configuration and proposed bindings.
     /// Validate is run out-of-band with ongoing capture invocations.

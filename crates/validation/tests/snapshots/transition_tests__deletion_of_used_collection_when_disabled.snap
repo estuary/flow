@@ -198,6 +198,7 @@ Outcome {
                     },
                 ],
                 redact_salt: b"pass-through-capture-salt",
+                created_at: "2025-05-07",
             },
             previous_spec: CaptureSpec {
                 name: "the/capture",
@@ -270,6 +271,7 @@ Outcome {
                 network_ports: [],
                 inactive_bindings: [],
                 redact_salt: b"pass-through-capture-salt",
+                created_at: "",
             },
             is_touch: 0,
             dependency_hash: NULL,
@@ -1075,6 +1077,7 @@ Outcome {
                     },
                 ],
                 triggers_json: b"",
+                created_at: "2025-05-07",
             },
             previous_spec: MaterializationSpec {
                 name: "the/materialization",
@@ -1155,6 +1158,7 @@ Outcome {
                 network_ports: [],
                 inactive_bindings: [],
                 triggers_json: b"",
+                created_at: "",
             },
             is_touch: 0,
             dependency_hash: NULL,

@@ -615,6 +615,20 @@ where
     }
 }
 
+// The task creation date (UTC, YYYY-MM-DD) which is stamped into built task
+// specs, resolving connector feature-flag defaults as-of task creation.
+// A task's creation time is embedded in its control-plane Id. A task being
+// created has no control-plane Id yet — it's assigned only as the publication
+// commits — and its first build leaves the date empty: the task is brand new,
+// and its connector assumes a current date. The task's next build stamps it.
+fn created_at_date(control_id: models::Id) -> String {
+    if control_id.is_zero() {
+        String::new()
+    } else {
+        control_id.timestamp().date_naive().to_string()
+    }
+}
+
 // Load the resource path encoded in /_meta/path, or return an empty Vec
 // if there is no such location, or it's not an array of strings.
 pub fn load_resource_meta_path(resource_config_json: &[u8]) -> Vec<String> {

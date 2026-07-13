@@ -411,6 +411,11 @@ message CaptureSpec {
   repeated Binding inactive_bindings = 9;
   // Salt used for redacting sensitive fields in captured documents.
   bytes redact_salt = 10;
+  // Date on which this task was created, as a UTC date in RFC 3339
+  // "full-date" format (YYYY-MM-DD). Empty during a task's first build,
+  // before its creation is committed: the task is brand new, and a
+  // connector should assume a current date.
+  string created_at = 11;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
@@ -492,6 +497,11 @@ message MaterializationSpec {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "triggers"
   ];
+  // Date on which this task was created, as a UTC date in RFC 3339
+  // "full-date" format (YYYY-MM-DD). Empty during a task's first build,
+  // before its creation is committed: the task is brand new, and a
+  // connector should assume a current date.
+  string created_at = 11;
 }
 
 // OAuth2 describes an OAuth2 provider

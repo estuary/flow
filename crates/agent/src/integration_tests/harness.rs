@@ -2106,6 +2106,7 @@ impl ControlPlane for TestControlPlane {
         reset_on_key_change: bool,
         logs_token: Uuid,
         data_plane_id: models::Id,
+        created_at: String,
     ) -> anyhow::Result<DiscoverOutput> {
         self.inner
             .discover(
@@ -2115,6 +2116,7 @@ impl ControlPlane for TestControlPlane {
                 reset_on_key_change,
                 logs_token,
                 data_plane_id,
+                created_at,
             )
             .await
     }
