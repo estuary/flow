@@ -35,13 +35,14 @@ gcloud compute instances create ${INSTANCE_NAME} \
   --project ${usage_project:?} \
   --zone ${usage_zone:?} \
   --machine-type ${usage_machine_type:?} \
+  --enable-nested-virtualization \
   --image-family ${usage_image_family:?} \
   --image-project ubuntu-os-cloud \
   --network-interface subnet=default \
   --metadata ssh-keys="${SSH_KEYS}" \
   --tags dev-vm \
-  --labels dev-vm=true,owner=${USERNAME} \
-  --boot-disk-size 128GB \
+  --labels dev-vm=true,owner=${USERNAME},drataexclude=test-equipment \
+  --boot-disk-size 256GB \
   --boot-disk-type hyperdisk-balanced \
 
 # Add additional ssh configuration if not already present.
@@ -94,32 +95,13 @@ if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
   exit 1
 fi
 
-ssh ${INSTANCE_NAME} <<EOF
-# Install mise.
-curl -v https://mise.run | sh
-EOF
+# Copy GCP-only idle shutdown files before the shared bootstrap runs create-post.
+ssh ${INSTANCE_NAME} mkdir -p /tmp/idle-shutdown
+scp mise/tasks/vm/files/idle-shutdown.* ${INSTANCE_NAME}:/tmp/idle-shutdown/
 
-# Copy idle shutdown files to VM.
-scp -r mise/tasks/vm/files ${INSTANCE_NAME}:/tmp/idle-shutdown
-
-# Use a second shell, so that mise is now on the PATH.
-ssh ${INSTANCE_NAME} <<EOF
-mkdir -p ~/estuary
-pushd ~/estuary
-
-# Check out the flow repository.
-GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
-git clone git@github.com:estuary/flow.git
-pushd flow
-
-# Attempt to switch to the host's current branch.
-# Don't fail if it doesn't exist (use the primary branch instead).
-git checkout $(git branch --show-current) || true
-
-# Boostrap the VM environment.
-~/.local/bin/mise trust .
-~/.local/bin/mise run vm:create-post
-EOF
+# Install and bootstrap Flow using the host's forwarded SSH agent.
+ssh ${INSTANCE_NAME} bash -s \
+  < mise/tasks/vm/files/bootstrap-flow.sh
 
 # Tear down the mux so the next connection picks up new group memberships.
 ssh -O exit ${INSTANCE_NAME} 2>/dev/null || true
