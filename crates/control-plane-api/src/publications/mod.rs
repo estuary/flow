@@ -469,10 +469,20 @@ impl Publisher {
                         source.as_str(),
                         models::Capability::Read,
                     ) {
+                        // The grants relevant to this spec are those whose subject_role
+                        // is a prefix of the spec's own catalog name. This reproduces the
+                        // old `role_grants WHERE starts_with(catalog_name, subject_role)`
+                        // query against the in-memory grant snapshot.
+                        let spec_capabilities = snapshot
+                            .role_grants
+                            .iter()
+                            .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+                            .collect::<Vec<_>>();
                         live_catalog.errors.push(tables::Error {
                             scope: scope.clone(),
                             error: anyhow::anyhow!(
-                                "Specification '{catalog_name}' is not read-authorized to '{source}'."
+                                "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
+                                serde_json::to_string_pretty(&spec_capabilities).unwrap()
                             ),
                         });
                     }
