@@ -35,6 +35,40 @@ struct PendingRead {
     handle: tokio_util::task::AbortOnDropHandle<anyhow::Result<(Read, BatchResult)>>,
 }
 
+/// Resolve a current, non-regressing high watermark for a Fetch response.
+async fn resolve_high_watermark(
+    auth: &SessionAuthentication,
+    collection_name: &str,
+    partition_index: usize,
+    expected_leader_epoch: i32,
+    observed_high_watermark: i64,
+) -> anyhow::Result<i64> {
+    let collection = match Collection::new(auth, collection_name).await?.ready() {
+        Ok(collection) => collection,
+        Err(reason) => bail!(
+            "cannot refresh Fetch high watermark for unavailable collection {}: {reason:?}",
+            collection_name
+        ),
+    };
+    anyhow::ensure!(
+        collection.binding_backfill_counter as i32 == expected_leader_epoch,
+        "leader epoch changed while refreshing Fetch high watermark"
+    );
+
+    let current_high_watermark = collection
+        .fetch_partition_offset(partition_index, -1)
+        .await?
+        .with_context(|| {
+            format!(
+                "partition {} of collection {} disappeared",
+                partition_index, collection_name
+            )
+        })?
+        .offset;
+
+    Ok(observed_high_watermark.max(current_high_watermark))
+}
+
 #[derive(Clone, Debug)]
 enum SessionDataPreviewState {
     Unknown,
@@ -1122,9 +1156,18 @@ impl Session {
                             ),
                         ));
 
+                        let response_high_watermark = resolve_high_watermark(
+                            self.auth.as_ref().unwrap(),
+                            key.0.as_str(),
+                            partition_request.partition as usize,
+                            pending.leader_epoch,
+                            pending.last_write_head,
+                        )
+                        .await?;
+
                         partition_data = partition_data
-                            .with_high_watermark(pending.last_write_head)
-                            .with_last_stable_offset(pending.last_write_head)
+                            .with_high_watermark(response_high_watermark)
+                            .with_last_stable_offset(response_high_watermark)
                             .with_current_leader(
                                 messages::fetch_response::LeaderIdAndEpoch::default()
                                     .with_leader_id(messages::BrokerId(1))
