@@ -704,13 +704,13 @@ type DataPlane {
 	"""
 	The current user's capability to this data plane's name prefix.
 	"""
-	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead.")
 	"""
 	Capability bundles the user effectively holds to this data plane's
 	name prefix: every bundle whose full capability set is covered by
 	`capabilityBits`, regardless of which bundles were explicitly granted.
 	"""
-	capabilities: [CapabilityBundle!]!
+	capabilityBundles: [CapabilityBundle!]!
 	"""
 	Fine-grained capabilities the user has to this data plane's name prefix.
 	"""
@@ -927,14 +927,14 @@ type InviteLink {
 	"""
 	The capability level granted by this invite link.
 	"""
-	capability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	capability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead.")
 	"""
 	Capability bundles explicitly granted by this invite link,
 	reflecting the selection made when the link was created.
 	Bundles implied by the selection are not listed; `capabilityBits`
 	carries the full effective set.
 	"""
-	capabilities: [CapabilityBundle!]!
+	capabilityBundles: [CapabilityBundle!]!
 	"""
 	Fine-grained capabilities granted by this invite link, derived
 	from its legacy capability level.
@@ -1124,7 +1124,7 @@ type LiveSpecRef {
 	the result would be `userCapability: null`, and all other fields on the
 	LiveSpecRef would also be null.
 	"""
-	userCapability: Capability @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	userCapability: Capability @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead.")
 	"""
 	Capability bundles the user effectively holds to the referent:
 	every bundle whose full capability set is covered by
@@ -1132,7 +1132,7 @@ type LiveSpecRef {
 	granted. Null when the user has no access, mirroring
 	`userCapability`.
 	"""
-	capabilities: [CapabilityBundle!]
+	capabilityBundles: [CapabilityBundle!]
 	"""
 	Fine-grained capabilities the user has to the referent.
 	Null when the user has no access, mirroring `userCapability`.
@@ -1450,10 +1450,16 @@ type PrefixRef {
 	"""
 	Fine-grained capabilities the user has at this prefix.
 	Identical to `capabilityBits`, retained under this name until
-	clients migrate; `capabilities` is then re-typed to report
-	capability bundles, as it does on other types.
+	clients migrate.
 	"""
-	capabilities: [CapabilityBit!]! @deprecated(reason: "Renamed to `capabilityBits`; `capabilities` will later report capability bundles.")
+	capabilities: [CapabilityBit!]! @deprecated(reason: "Renamed to `capabilityBits`.")
+	"""
+	Capability bundles the user effectively holds at this prefix:
+	every bundle whose full capability set is covered by
+	`capabilityBits`, regardless of which bundles were explicitly
+	granted.
+	"""
+	capabilityBundles: [CapabilityBundle!]!
 	"""
 	Fine-grained capabilities the user has at this prefix.
 	"""
@@ -1497,9 +1503,10 @@ input PrefixesBy {
 	"""
 	minCapability: Capability @deprecated(reason: "a minimum capability has no meaning in the orthogonal capability model; use withCapabilities instead.")
 	"""
-	Filter to prefixes where the user holds all of these capabilities.
+	Filter to prefixes where the user holds all of these fine-grained
+	capabilities.
 	"""
-	withCapabilities: [CapabilityBundle!]
+	withCapabilities: [CapabilityBit!]
 }
 
 """
@@ -1705,14 +1712,14 @@ type RedeemInviteLinkResult {
 	"""
 	The capability level that was granted.
 	"""
-	capability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	capability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead.")
 	"""
 	Capability bundles explicitly granted by the invite link,
 	reflecting the selection made when the link was created.
 	Bundles implied by the selection are not listed; `capabilityBits`
 	carries the full effective set.
 	"""
-	capabilities: [CapabilityBundle!]!
+	capabilityBundles: [CapabilityBundle!]!
 	"""
 	Fine-grained capabilities that were granted, derived from the
 	invite link's legacy capability level.
@@ -2085,7 +2092,7 @@ type StorageMapping {
 	for gating admin UI features (the query requires only read, while
 	the create/update mutations require admin).
 	"""
-	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead.")
 	"""
 	Capability bundles the user effectively holds to this storage
 	mapping's prefix: every bundle whose full capability set is covered
@@ -2093,7 +2100,7 @@ type StorageMapping {
 	granted. For gating admin UI features (the query requires only
 	read, while the create/update mutations require admin).
 	"""
-	capabilities: [CapabilityBundle!]!
+	capabilityBundles: [CapabilityBundle!]!
 	"""
 	Fine-grained capabilities the user has to this storage mapping's
 	prefix, for gating admin UI features.

@@ -27,13 +27,13 @@ pub struct DataPlane {
     pub reactor_address: String,
     /// The current user's capability to this data plane's name prefix.
     #[graphql(
-        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilities` instead."
+        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead."
     )]
     pub user_capability: models::Capability,
     /// Capability bundles the user effectively holds to this data plane's
     /// name prefix: every bundle whose full capability set is covered by
     /// `capabilityBits`, regardless of which bundles were explicitly granted.
-    pub capabilities: Vec<models::authz::CapabilityBundle>,
+    pub capability_bundles: Vec<models::authz::CapabilityBundle>,
     /// Fine-grained capabilities the user has to this data plane's name prefix.
     pub capability_bits: Vec<models::authz::Capability>,
     /// Cloud provider where this data-plane is hosted.
@@ -418,7 +418,9 @@ impl DataPlanesQuery {
                     fqdn: dp.data_plane_fqdn.clone(),
                     reactor_address: dp.reactor_address.clone(),
                     user_capability: user_capability.expect("capability guaranteed by pre-filter"),
-                    capabilities: models::authz::CapabilityBundle::covered_by(user_capabilities),
+                    capability_bundles: models::authz::CapabilityBundle::covered_by(
+                        user_capabilities,
+                    ),
                     capability_bits: user_capabilities.iter().collect(),
                     cloud_provider,
                     region,
@@ -570,7 +572,7 @@ mod tests {
                                     tag
                                     isPublic
                                     userCapability
-                                    capabilities
+                                    capabilityBundles
                                     capabilityBits
                                     cidrBlocks
                                     gcpServiceAccountEmail

@@ -104,7 +104,7 @@ impl LiveSpec {
                 Some(LiveSpecRef {
                     catalog_name: models::Name::new(name),
                     user_capability,
-                    capabilities: (!bits.is_empty())
+                    capability_bundles: (!bits.is_empty())
                         .then(|| models::authz::CapabilityBundle::covered_by(bits)),
                     capability_bits: (!bits.is_empty()).then(|| bits.iter().collect()),
                 })

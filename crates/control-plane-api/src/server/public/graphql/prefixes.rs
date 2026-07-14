@@ -20,12 +20,14 @@ pub struct PrefixRef {
     pub user_capability: models::Capability,
     /// Fine-grained capabilities the user has at this prefix.
     /// Identical to `capabilityBits`, retained under this name until
-    /// clients migrate; `capabilities` is then re-typed to report
-    /// capability bundles, as it does on other types.
-    #[graphql(
-        deprecation = "Renamed to `capabilityBits`; `capabilities` will later report capability bundles."
-    )]
+    /// clients migrate.
+    #[graphql(deprecation = "Renamed to `capabilityBits`.")]
     pub capabilities: Vec<models::authz::Capability>,
+    /// Capability bundles the user effectively holds at this prefix:
+    /// every bundle whose full capability set is covered by
+    /// `capabilityBits`, regardless of which bundles were explicitly
+    /// granted.
+    pub capability_bundles: Vec<models::authz::CapabilityBundle>,
     /// Fine-grained capabilities the user has at this prefix.
     pub capability_bits: Vec<models::authz::Capability>,
 }
@@ -43,8 +45,9 @@ pub struct PrefixesBy {
         deprecation = "a minimum capability has no meaning in the orthogonal capability model; use withCapabilities instead."
     )]
     pub min_capability: Option<models::Capability>,
-    /// Filter to prefixes where the user holds all of these capabilities.
-    pub with_capabilities: Option<Vec<models::authz::CapabilityBundle>>,
+    /// Filter to prefixes where the user holds all of these fine-grained
+    /// capabilities.
+    pub with_capabilities: Option<Vec<models::authz::Capability>>,
 }
 
 pub type PaginatedPrefixes = connection::Connection<
@@ -72,18 +75,14 @@ impl PrefixesQuery {
         let env = ctx.data::<crate::Envelope>()?;
 
         // Legacy `minCapability` (a threshold on the ordered read/write/admin
-        // scale) and `withCapabilities` (capability bundles) both reduce to a
-        // required `CapabilitySet`; a prefix matches when the user's
-        // capabilities there are a superset of it. With neither set the
+        // scale) and `withCapabilities` (fine-grained capability bits) both
+        // reduce to a required `CapabilitySet`; a prefix matches when the
+        // user's capabilities there are a superset of it. With neither set the
         // required set is empty, so every reachable prefix matches (no filter).
         let required_bits: models::authz::CapabilitySet =
             match (by.min_capability, by.with_capabilities) {
                 (Some(legacy), None) => legacy.into(),
-                (None, Some(bundles)) => bundles
-                    .into_iter()
-                    .fold(models::authz::CapabilitySet::empty(), |set, bundle| {
-                        set | bundle.capabilities()
-                    }),
+                (None, Some(bits)) => bits.into_iter().collect(),
                 (None, None) => models::authz::CapabilitySet::empty(),
                 (Some(_), Some(_)) => {
                     return Err(async_graphql::Error::new(
@@ -115,6 +114,7 @@ impl PrefixesQuery {
                     prefix: models::Prefix::new(*prefix),
                     user_capability: *legacy,
                     capabilities: bits.iter().collect(),
+                    capability_bundles: models::authz::CapabilityBundle::covered_by(*bits),
                     capability_bits: bits.iter().collect(),
                 })
                 .collect();
@@ -170,6 +170,7 @@ mod tests {
                                     prefix
                                     userCapability
                                     capabilities
+                                    capabilityBundles
                                     capabilityBits
                                 }
                             }
@@ -217,6 +218,16 @@ mod tests {
                       "EditBilling",
                       "Delegate"
                     ],
+                    "capabilityBundles": [
+                      "View",
+                      "Write",
+                      "Edit",
+                      "Admin",
+                      "ManageBilling",
+                      "ManageUsers",
+                      "ManageDataPlanes",
+                      "Delegate"
+                    ],
                     "prefix": "aliceCo/",
                     "userCapability": "admin"
                   }
@@ -235,6 +246,10 @@ mod tests {
                       "JournalAppend",
                       "ViewDataPlanePrivateNetworking"
                     ],
+                    "capabilityBundles": [
+                      "View",
+                      "Write"
+                    ],
                     "prefix": "aliceCo/data/",
                     "userCapability": "write"
                   }
@@ -250,6 +265,9 @@ mod tests {
                       "CatalogRead",
                       "JournalRead",
                       "ViewDataPlanePrivateNetworking"
+                    ],
+                    "capabilityBundles": [
+                      "View"
                     ],
                     "prefix": "ops/dp/public/",
                     "userCapability": "read"
@@ -315,14 +333,14 @@ mod tests {
 
         let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
 
-        // The `withCapabilities` bundle filter is accepted and returns the
-        // prefixes where the user holds all of the listed capability bundles.
+        // The `withCapabilities` filter is accepted and returns the prefixes
+        // where the user holds all of the listed fine-grained capabilities.
         let response: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": r#"
                     query {
-                        prefixes(by: { withCapabilities: [Edit] }) {
+                        prefixes(by: { withCapabilities: [SpecEdit] }) {
                             edges {
                                 node {
                                     prefix
@@ -346,18 +364,18 @@ mod tests {
             .expect("edges array");
         assert!(
             !edges.is_empty(),
-            "withCapabilities: [Edit] should return prefixes: {response}"
+            "withCapabilities: [SpecEdit] should return prefixes: {response}"
         );
 
-        // Listing multiple bundles requires the user to hold all of them, so
-        // the result can only narrow: every prefix returned for
-        // [Edit, ManageUsers] must also appear in the [Edit] result.
+        // Listing multiple capabilities requires the user to hold all of
+        // them, so the result can only narrow: every prefix returned for
+        // [SpecEdit, CreateGrant] must also appear in the [SpecEdit] result.
         let narrowed: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": r#"
                     query {
-                        prefixes(by: { withCapabilities: [Edit, ManageUsers] }) {
+                        prefixes(by: { withCapabilities: [SpecEdit, CreateGrant] }) {
                             edges { node { prefix } }
                         }
                     }
@@ -368,7 +386,7 @@ mod tests {
             .await;
         assert!(
             narrowed.get("errors").is_none(),
-            "multi-bundle withCapabilities query returned errors: {narrowed}"
+            "multi-capability withCapabilities query returned errors: {narrowed}"
         );
         let edit_prefixes: Vec<&str> = edges
             .iter()
@@ -381,7 +399,7 @@ mod tests {
             let prefix = edge["node"]["prefix"].as_str().expect("prefix string");
             assert!(
                 edit_prefixes.contains(&prefix),
-                "prefix {prefix} returned for [Edit, ManageUsers] but not for [Edit]: {narrowed}"
+                "prefix {prefix} returned for [SpecEdit, CreateGrant] but not for [SpecEdit]: {narrowed}"
             );
         }
 
@@ -391,7 +409,7 @@ mod tests {
                 &serde_json::json!({
                     "query": r#"
                     query {
-                        prefixes(by: { minCapability: read, withCapabilities: [Edit] }) {
+                        prefixes(by: { minCapability: read, withCapabilities: [SpecEdit] }) {
                             edges { node { prefix } }
                         }
                     }

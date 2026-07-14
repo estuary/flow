@@ -545,7 +545,7 @@ pub struct StorageMapping {
     /// for gating admin UI features (the query requires only read, while
     /// the create/update mutations require admin).
     #[graphql(
-        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilities` instead."
+        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead."
     )]
     pub user_capability: models::Capability,
     /// Capability bundles the user effectively holds to this storage
@@ -553,7 +553,7 @@ pub struct StorageMapping {
     /// by `capabilityBits`, regardless of which bundles were explicitly
     /// granted. For gating admin UI features (the query requires only
     /// read, while the create/update mutations require admin).
-    pub capabilities: Vec<models::authz::CapabilityBundle>,
+    pub capability_bundles: Vec<models::authz::CapabilityBundle>,
     /// Fine-grained capabilities the user has to this storage mapping's
     /// prefix, for gating admin UI features.
     pub capability_bits: Vec<models::authz::Capability>,
@@ -703,7 +703,9 @@ impl StorageMappingsQuery {
                         detail: row.detail,
                         spec: async_graphql::Json(user_facing_spec),
                         user_capability,
-                        capabilities: models::authz::CapabilityBundle::covered_by(capabilities),
+                        capability_bundles: models::authz::CapabilityBundle::covered_by(
+                            capabilities,
+                        ),
                         capability_bits: capabilities.iter().collect(),
                     },
                 ))
