@@ -572,14 +572,20 @@ async fn verify_unchanged_revisions(
         )
         .collect();
 
-    // Never lock or revision-check the injected ops collections. `resolve_live_specs`
-    // injects ops.us-central1.v1/{logs,stats} into *every* build so the runtime knows
-    // where to write telemetry; the publication does not modify them and has no
-    // correctness dependency on their `last_pub_id`. Locking them made every publication
-    // in the fleet take `FOR UPDATE` on the same two rows, serializing all publishes
-    // globally (estuary/sre#54). They stay in the build; we only skip locking them.
+    // Never lock or revision-check ops collections which are present only through
+    // injection. `resolve_live_specs` injects ops.us-central1.v1/{logs,stats} into
+    // *every* build so the runtime knows where to write telemetry; the publication does
+    // not modify them and has no correctness dependency on their `last_pub_id`. Locking
+    // them made every publication in the fleet take `FOR UPDATE` on the same two rows,
+    // serializing all publishes globally (estuary/sre#54). They stay in the build; we
+    // only skip locking them. An ops collection which is a genuine dependency of a
+    // drafted spec (e.g. a reporting derivation reading ops stats) is still locked and
+    // revision-checked, as is a drafted ops collection itself (via `update_live_specs`).
     let injected_ops = get_ops_collection_names();
-    expected.retain(|name, _| !injected_ops.contains(*name));
+    if expected.keys().any(|name| injected_ops.contains(*name)) {
+        let drafted_deps = drafted_dependencies(output);
+        expected.retain(|name, _| !injected_ops.contains(*name) || drafted_deps.contains(*name));
+    }
 
     let catalog_names = expected.keys().map(|k| *k).collect::<Vec<_>>();
     let live_revisions = db::lock_live_specs(&catalog_names, txn).await?;
@@ -602,7 +608,6 @@ async fn verify_unchanged_revisions(
     }
     // Remaining expected pub ids are for `live_specs` rows which have been deleted since we started the publication.
     for (catalog_name, expect_pub_id) in expected {
-        if !expect_pub_id.is_zero() {}
         errors.push(LockFailure {
             catalog_name: catalog_name.to_string(),
             actual: None,
@@ -610,6 +615,49 @@ async fn verify_unchanged_revisions(
         });
     }
     Ok(errors)
+}
+
+/// Returns the names of all collections and captures which drafted specs of this build
+/// read from or write to.
+fn drafted_dependencies(output: &build::Output) -> BTreeSet<String> {
+    let mut deps = BTreeSet::new();
+    for model in output
+        .built
+        .built_captures
+        .iter()
+        .filter(|r| !r.is_passthrough())
+        .filter_map(|r| r.model())
+    {
+        deps.extend(model.all_dependencies());
+    }
+    for model in output
+        .built
+        .built_collections
+        .iter()
+        .filter(|r| !r.is_passthrough())
+        .filter_map(|r| r.model())
+    {
+        deps.extend(model.all_dependencies());
+    }
+    for model in output
+        .built
+        .built_materializations
+        .iter()
+        .filter(|r| !r.is_passthrough())
+        .filter_map(|r| r.model())
+    {
+        deps.extend(model.all_dependencies());
+    }
+    for model in output
+        .built
+        .built_tests
+        .iter()
+        .filter(|r| !r.is_passthrough())
+        .filter_map(|r| r.model())
+    {
+        deps.extend(model.all_dependencies());
+    }
+    deps
 }
 
 fn to_raw_value<T: serde::Serialize, W, F>(
@@ -666,6 +714,12 @@ fn includes_escaped_null(json: &RawValue) -> bool {
 
 /// This is a temporary standin for a function that will lookup the ops collection names based on
 /// the data plane that's associated with the tenants of published tasks.
+///
+/// NOTE: `resolve_live_specs` (which injects these collections into every build) and
+/// `verify_unchanged_revisions` (which skips locking of injected collections at commit)
+/// must agree on this set. If this lookup becomes data-plane-dependent, both call sites
+/// need the same data-plane context, or the commit-time skip will diverge from what was
+/// actually injected at build time.
 pub fn get_ops_collection_names() -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     names.insert("ops.us-central1.v1/logs".to_string());
