@@ -37,15 +37,9 @@ pub struct LiveSpecRef {
     /// the result would be `userCapability: null`, and all other fields on the
     /// LiveSpecRef would also be null.
     #[graphql(
-        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead."
+        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilityBits` instead."
     )]
     pub user_capability: Option<models::Capability>,
-    /// Capability bundles the user effectively holds to the referent:
-    /// every bundle whose full capability set is covered by
-    /// `capabilityBits`, regardless of which bundles were explicitly
-    /// granted. Null when the user has no access, mirroring
-    /// `userCapability`.
-    pub capability_bundles: Option<Vec<models::authz::CapabilityBundle>>,
     /// Fine-grained capabilities the user has to the referent.
     /// Null when the user has no access, mirroring `userCapability`.
     pub capability_bits: Option<Vec<models::authz::Capability>>,
@@ -206,8 +200,6 @@ pub async fn paginate_live_specs_refs(
             Some(LiveSpecRef {
                 catalog_name: models::Name::new(name),
                 user_capability: maybe_capability,
-                capability_bundles: (!bits.is_empty())
-                    .then(|| models::authz::CapabilityBundle::covered_by(bits)),
                 capability_bits: (!bits.is_empty()).then(|| bits.iter().collect()),
             })
         },
@@ -383,8 +375,6 @@ impl LiveSpecsQuery {
                     LiveSpecRef {
                         catalog_name: models::Name::new(name),
                         user_capability,
-                        capability_bundles: (!bits.is_empty())
-                            .then(|| models::authz::CapabilityBundle::covered_by(bits)),
                         capability_bits: (!bits.is_empty()).then(|| bits.iter().collect()),
                     },
                 ))

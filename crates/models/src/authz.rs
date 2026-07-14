@@ -66,29 +66,6 @@ pub enum CapabilityBundle {
 }
 
 impl CapabilityBundle {
-    /// Every bundle variant, in declaration order.
-    pub const ALL: [Self; 9] = [
-        Self::View,
-        Self::Write,
-        Self::Edit,
-        Self::Admin,
-        Self::ManageBilling,
-        Self::ManageUsers,
-        Self::ManageDataPlanes,
-        Self::Delegate,
-        Self::Assume,
-    ];
-
-    /// Returns every bundle whose full capability set is covered by `set`.
-    /// These are exactly the bundles that would match `set` under a
-    /// superset filter such as the `prefixes` query's `withCapabilities`.
-    pub fn covered_by(set: CapabilitySet) -> Vec<Self> {
-        Self::ALL
-            .into_iter()
-            .filter(|bundle| set.is_superset(bundle.capabilities()))
-            .collect()
-    }
-
     pub fn capabilities(&self) -> CapabilitySet {
         use Capability::*;
         match self {
@@ -153,9 +130,9 @@ impl CapabilityBundle {
 
 /// Maps a legacy capability to the bundle it explicitly selects.
 /// Grant-shaped objects (invite links, grants) use this to echo the
-/// selection that was made, where `CapabilityBundle::covered_by` would
-/// also list every bundle the selection happens to imply (an `admin`
-/// grant covers `ManageUsers`, `ManageBilling`, and so on).
+/// selection that was made, not every bundle the selection happens to
+/// imply (an `admin` grant also covers `ManageUsers`, `ManageBilling`,
+/// and so on).
 pub fn bundles_for_legacy(capability: super::Capability) -> Vec<CapabilityBundle> {
     match capability {
         super::Capability::None => Vec::new(),

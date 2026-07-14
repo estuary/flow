@@ -23,11 +23,6 @@ pub struct PrefixRef {
     /// clients migrate.
     #[graphql(deprecation = "Renamed to `capabilityBits`.")]
     pub capabilities: Vec<models::authz::Capability>,
-    /// Capability bundles the user effectively holds at this prefix:
-    /// every bundle whose full capability set is covered by
-    /// `capabilityBits`, regardless of which bundles were explicitly
-    /// granted.
-    pub capability_bundles: Vec<models::authz::CapabilityBundle>,
     /// Fine-grained capabilities the user has at this prefix.
     pub capability_bits: Vec<models::authz::Capability>,
 }
@@ -114,7 +109,6 @@ impl PrefixesQuery {
                     prefix: models::Prefix::new(*prefix),
                     user_capability: *legacy,
                     capabilities: bits.iter().collect(),
-                    capability_bundles: models::authz::CapabilityBundle::covered_by(*bits),
                     capability_bits: bits.iter().collect(),
                 })
                 .collect();
@@ -170,7 +164,6 @@ mod tests {
                                     prefix
                                     userCapability
                                     capabilities
-                                    capabilityBundles
                                     capabilityBits
                                 }
                             }
@@ -218,16 +211,6 @@ mod tests {
                       "EditBilling",
                       "Delegate"
                     ],
-                    "capabilityBundles": [
-                      "View",
-                      "Write",
-                      "Edit",
-                      "Admin",
-                      "ManageBilling",
-                      "ManageUsers",
-                      "ManageDataPlanes",
-                      "Delegate"
-                    ],
                     "prefix": "aliceCo/",
                     "userCapability": "admin"
                   }
@@ -246,10 +229,6 @@ mod tests {
                       "JournalAppend",
                       "ViewDataPlanePrivateNetworking"
                     ],
-                    "capabilityBundles": [
-                      "View",
-                      "Write"
-                    ],
                     "prefix": "aliceCo/data/",
                     "userCapability": "write"
                   }
@@ -265,9 +244,6 @@ mod tests {
                       "CatalogRead",
                       "JournalRead",
                       "ViewDataPlanePrivateNetworking"
-                    ],
-                    "capabilityBundles": [
-                      "View"
                     ],
                     "prefix": "ops/dp/public/",
                     "userCapability": "read"

@@ -16,9 +16,6 @@ expression: response
               "JournalRead",
               "ViewDataPlanePrivateNetworking"
             ],
-            "capabilityBundles": [
-              "View"
-            ],
             "cidrBlocks": [
               "10.0.0.0/16",
               "192.168.1.0/24"
@@ -43,9 +40,6 @@ expression: response
               "CatalogRead",
               "JournalRead",
               "ViewDataPlanePrivateNetworking"
-            ],
-            "capabilityBundles": [
-              "View"
             ],
             "cidrBlocks": [
               "172.16.0.0/12"

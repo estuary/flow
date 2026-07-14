@@ -704,13 +704,7 @@ type DataPlane {
 	"""
 	The current user's capability to this data plane's name prefix.
 	"""
-	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead.")
-	"""
-	Capability bundles the user effectively holds to this data plane's
-	name prefix: every bundle whose full capability set is covered by
-	`capabilityBits`, regardless of which bundles were explicitly granted.
-	"""
-	capabilityBundles: [CapabilityBundle!]!
+	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBits` instead.")
 	"""
 	Fine-grained capabilities the user has to this data plane's name prefix.
 	"""
@@ -1124,15 +1118,7 @@ type LiveSpecRef {
 	the result would be `userCapability: null`, and all other fields on the
 	LiveSpecRef would also be null.
 	"""
-	userCapability: Capability @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead.")
-	"""
-	Capability bundles the user effectively holds to the referent:
-	every bundle whose full capability set is covered by
-	`capabilityBits`, regardless of which bundles were explicitly
-	granted. Null when the user has no access, mirroring
-	`userCapability`.
-	"""
-	capabilityBundles: [CapabilityBundle!]
+	userCapability: Capability @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBits` instead.")
 	"""
 	Fine-grained capabilities the user has to the referent.
 	Null when the user has no access, mirroring `userCapability`.
@@ -1453,13 +1439,6 @@ type PrefixRef {
 	clients migrate.
 	"""
 	capabilities: [CapabilityBit!]! @deprecated(reason: "Renamed to `capabilityBits`.")
-	"""
-	Capability bundles the user effectively holds at this prefix:
-	every bundle whose full capability set is covered by
-	`capabilityBits`, regardless of which bundles were explicitly
-	granted.
-	"""
-	capabilityBundles: [CapabilityBundle!]!
 	"""
 	Fine-grained capabilities the user has at this prefix.
 	"""
@@ -2092,15 +2071,7 @@ type StorageMapping {
 	for gating admin UI features (the query requires only read, while
 	the create/update mutations require admin).
 	"""
-	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead.")
-	"""
-	Capability bundles the user effectively holds to this storage
-	mapping's prefix: every bundle whose full capability set is covered
-	by `capabilityBits`, regardless of which bundles were explicitly
-	granted. For gating admin UI features (the query requires only
-	read, while the create/update mutations require admin).
-	"""
-	capabilityBundles: [CapabilityBundle!]!
+	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilityBits` instead.")
 	"""
 	Fine-grained capabilities the user has to this storage mapping's
 	prefix, for gating admin UI features.
