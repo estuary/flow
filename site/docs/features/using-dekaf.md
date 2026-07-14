@@ -170,7 +170,7 @@ your consumer-group offsets and your deserializer. Permissive Avro/JSON decoders
 silently drop records that fail to decode — switch to a strict or fail-fast mode to surface
 the error rather than discarding the record.
 
-## Consumer behaviors to know
+## Consumer behaviors
 
 Dekaf maps Estuary collections (backed by Gazette journals) onto the Kafka protocol, so a
 few behaviors differ from a native Kafka broker. These apply to every consumer (kcat,
