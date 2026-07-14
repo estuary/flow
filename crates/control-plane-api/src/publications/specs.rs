@@ -704,70 +704,52 @@ pub async fn fetch_live_specs_for_draft(
     Ok(rows)
 }
 
-pub async fn resolve_live_specs(
+/// Authorizes each of the draft's live-spec dependencies against the in-memory
+/// grant `snapshot`. Returns a `LiveCatalog` carrying any authorization errors,
+/// together with the set of catalog names that failed authorization. Those names
+/// must be excluded when `populate_live_catalog` later resolves the catalog
+/// contents. AuthZ failures are reported as errors on the returned `LiveCatalog`
+/// rather than as an `Err`.
+///
+/// This performs no IO, so that authorization can be unit-tested against a
+/// `Snapshot` fixture. The caller fetches `rows` (via `fetch_live_specs_for_draft`)
+/// and performs the subsequent `populate_live_catalog` resolution.
+pub fn authorize_draft_specs(
     user_id: Uuid,
     draft: &tables::DraftCatalog,
-    db: &sqlx::PgPool,
+    rows: &[crate::live_specs::LiveSpec],
     verify_user_authz: bool,
-    explicit_plane_name: Option<&str>,
-) -> anyhow::Result<tables::LiveCatalog> {
-    // We're expecting to get a row for catalog name that's either drafted or referenced
-    // by a drafted spec, even if the live spec does not exist. In that case, the row will
-    // still contain information on the user and spec capabilities.
-    // Note that `all_catalog_names` returns a sorted and deduplicated list of catalog names.
-    let mut all_spec_names = draft
-        .all_catalog_names()
-        .iter()
-        .map(|n| n.to_string())
-        .collect::<Vec<_>>();
-
-    // Ops collections must be injected as part of the `LiveCatalog`, so that they can be included
-    // in the build. Users do not need any permissions to these collections, as long as they
-    // haven't drafted them. Note that it's not a build error for these ops collections to be
-    // missing, but the resulting build will not function properly in the data plane without them.
-    // We may wish to validate their presence in the future, but for now we let it slide so that we
-    // don't need to bootstrap ops collections as part of unit/integration tests.
+    snapshot: &crate::Snapshot,
+) -> (tables::LiveCatalog, HashSet<String>) {
     let ops_collection_names = get_ops_collection_names();
-    for ops_collection in ops_collection_names.iter() {
-        // `all_spec_names` is sorted, so we can use binary search to avoid duplicating the ops
-        // collection names.
-        if let Err(i) = all_spec_names.binary_search(ops_collection) {
-            all_spec_names.insert(i, ops_collection.clone());
-        }
-    }
-
-    let rows = crate::live_specs::fetch_live_specs(
-        user_id,
-        &all_spec_names,
-        verify_user_authz,
-        true, // always fetch spec capabilities
-        db,
-    )
-    .await
-    .context("fetching live specs")?;
-
-    // Check the user and spec authorizations.
-    // Start by making an easy way to lookup whether each row was drafted or not.
     let drafted_names = draft.all_spec_names().collect::<HashSet<_>>();
 
     // AuthZ errors are pushed to the live catalog. Catalog names that fail an
-    // authorization check are collected in `unauthorized` so that their specs
-    // are excluded when `populate_live_catalog` resolves the catalog contents.
-    let mut live = tables::LiveCatalog::default();
+    // authorization check are collected in `unauthorized` so their specs are
+    // excluded when `populate_live_catalog` resolves the catalog contents.
+    let mut live_catalog = tables::LiveCatalog::default();
     let mut unauthorized = HashSet::new();
-    for spec_row in &rows {
+    for spec_row in rows {
         let catalog_name = spec_row.catalog_name.as_str();
-        let n_errors = live.errors.len();
+        let n_errors = live_catalog.errors.len();
 
         if drafted_names.contains(catalog_name) {
-            // Get the metadata about the draft spec that matches this catalog name.
-            // This must exist in `draft`, otherwise `spec_meta` will panic.
+            // Metadata about the drafted spec. This must exist in `draft`,
+            // otherwise `spec_meta` will panic.
             let (catalog_type, reads_from, writes_to) = spec_meta(draft, catalog_name);
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
-            // If the spec is included in the draft, then the user must have admin capability to it.
-            if verify_user_authz && !matches!(spec_row.user_capability, Some(Capability::Admin)) {
-                live.errors.push(tables::Error {
+            // A drafted catalog name requires the user to be admin-authorized to it.
+            if verify_user_authz
+                && !tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    user_id,
+                    catalog_name,
+                    Capability::Admin,
+                )
+            {
+                live_catalog.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
                         "User is not authorized to create or change this catalog name"
@@ -778,51 +760,66 @@ pub async fn resolve_live_specs(
                 unauthorized.insert(catalog_name.to_string());
                 continue;
             }
-            // Spec authz must always be checked, even if we're not checking user authz
+            // Spec authz must always be checked, even if we're not checking user authz.
+            // The spec (identified by its own catalog name) must be read-authorized to
+            // each source it reads and write-authorized to each target it writes.
             for source in reads_from {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    source.starts_with(c.object_role.as_str()) && c.capability >= Capability::Read
-                }) {
-                    live.errors.push(tables::Error {
+                if !tables::RoleGrant::is_authorized(
+                    &snapshot.role_grants,
+                    catalog_name,
+                    source.as_str(),
+                    Capability::Read,
+                ) {
+                    // The grants relevant to this spec are those whose subject_role
+                    // is a prefix of the spec's own catalog name. This reproduces the
+                    // old `role_grants WHERE starts_with(catalog_name, subject_role)`
+                    // query against the in-memory grant snapshot.
+                    let spec_capabilities = snapshot
+                        .role_grants
+                        .iter()
+                        .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+                        .collect::<Vec<_>>();
+                    live_catalog.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            serde_json::to_string_pretty(&spec_capabilities).unwrap()
                         ),
                     });
                 }
             }
             for target in writes_to {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    target.starts_with(c.object_role.as_str())
-                        && matches!(c.capability, Capability::Write | Capability::Admin)
-                }) {
-                    live.errors.push(tables::Error {
+                if !tables::RoleGrant::is_authorized(
+                    &snapshot.role_grants,
+                    catalog_name,
+                    target.as_str(),
+                    Capability::Write,
+                ) {
+                    live_catalog.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
-                            "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            "Specification is not write-authorized to '{target}'."
                         ),
                     });
                 }
             }
-        // Ops collections are automatically injected, and the user does not need (or have) any
-        // access capability to them as long as they are not drafted.
+        // Ops collections are automatically injected, and the user does not need (or have)
+        // any access capability to them as long as they are not drafted.
         } else if !ops_collection_names.contains(&spec_row.catalog_name) {
-            // This is a live spec that is not included in the draft.
-            // The user needs read capability to it because it was referenced by one of the specs
-            // in their draft. Note that the _user_ does not need `Capability::Write` as long as
-            // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
-            // know it exists.
+            // A referenced (non-drafted) live spec requires the user to be read-authorized
+            // to it, just to know that it exists. Note that the _user_ does not need write:
+            // the _spec_ carries its own capabilities regardless of the user's.
             if verify_user_authz
-                && !spec_row
-                    .user_capability
-                    .map(|c| c >= Capability::Read)
-                    .unwrap_or(false)
+                && !tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    user_id,
+                    catalog_name,
+                    Capability::Read,
+                )
             {
-                let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
-                live.errors.push(tables::Error {
-                    scope,
+                live_catalog.errors.push(tables::Error {
+                    scope: tables::synthetic_scope("unauthorized", &spec_row.catalog_name),
                     error: anyhow::anyhow!("User is not authorized to read this catalog name"),
                 });
                 unauthorized.insert(catalog_name.to_string());
@@ -830,28 +827,14 @@ pub async fn resolve_live_specs(
             }
         }
 
-        // Record specs that accrued authorization errors, as an extra precaution
-        // in case the user isn't authorized to know about a spec. Their specs are
-        // excluded from the resolved catalog in `populate_live_catalog`.
-        if live.errors.len() > n_errors {
+        // Record specs that accrued authorization errors, as an extra precaution in
+        // case the user isn't authorized to know about a spec.
+        if live_catalog.errors.len() > n_errors {
             unauthorized.insert(catalog_name.to_string());
         }
     }
 
-    // Everything below is independent of authorization: resolve the live specs,
-    // storage mappings, data-planes, and inferred schemas needed to build the draft.
-    populate_live_catalog(
-        user_id,
-        draft,
-        rows,
-        &unauthorized,
-        explicit_plane_name,
-        &mut live,
-        db,
-    )
-    .await?;
-
-    Ok(live)
+    (live_catalog, unauthorized)
 }
 
 /// Populates `live` with the resolved live specs, storage mappings, data-planes,
@@ -872,7 +855,7 @@ pub async fn populate_live_catalog(
     let mut data_plane_ids = Vec::new();
 
     for spec_row in rows {
-        // Skip specs that failed authorization in `resolve_live_specs`.
+        // Skip specs that failed authorization in `authorize_draft_specs`.
         if unauthorized.contains(&spec_row.catalog_name) {
             continue;
         }
@@ -1169,5 +1152,143 @@ mod test {
                 panic!("expected success for example: {example}, but got error: {error:?}");
             }
         }
+    }
+
+    // Catalog names present in `Snapshot::build_fixture`, chosen to exercise each
+    // authorization branch for the `bobCo` fixture user (write on `bobCo/`, admin
+    // on `bobCo/tires/`).
+    fn bob_user_id() -> Uuid {
+        Uuid::parse_str("20202020-2020-2020-2020-202020202020").unwrap()
+    }
+
+    // A minimal `LiveSpec` row carrying only the `catalog_name`, which is all that
+    // `authorize_draft_specs` reads: capabilities now come from the snapshot.
+    fn live_spec_row(catalog_name: &str) -> crate::live_specs::LiveSpec {
+        crate::live_specs::LiveSpec {
+            id: Id::zero(),
+            last_pub_id: Id::zero(),
+            last_build_id: Id::zero(),
+            data_plane_id: Id::zero(),
+            catalog_name: catalog_name.to_string(),
+            spec_type: None,
+            spec: None,
+            built_spec: None,
+            inferred_schema_md5: None,
+            user_capability: None,
+            spec_capabilities: sqlx::types::Json(Vec::new()),
+            dependency_hash: None,
+        }
+    }
+
+    // Draft of two materializations that read from a single source each, plus the
+    // rows `fetch_live_specs_for_draft` would return: the two drafted specs, one
+    // referenced (non-drafted) live spec, and an injected ops collection.
+    fn draft_and_rows() -> (tables::DraftCatalog, Vec<crate::live_specs::LiveSpec>) {
+        let catalog: models::Catalog = serde_json::from_value(serde_json::json!({
+            "materializations": {
+                // User is write (not admin) to `bobCo/widgets/`, so this fails the
+                // drafted-spec admin check. Its source is bobCo-authorized, so with
+                // user authz disabled it produces no spec-authz error.
+                "bobCo/widgets/materialize-y": {
+                    "endpoint": { "connector": { "image": "materialize/test:test", "config": {} } },
+                    "bindings": [
+                        { "resource": { "table": "mangoes" }, "source": "bobCo/widgets/mangoes" }
+                    ]
+                },
+                // User is admin to `bobCo/tires/`, but the spec is not read-authorized
+                // to an `aliceCo/` source, so the spec-authz check always fails.
+                "bobCo/tires/materialize-x": {
+                    "endpoint": { "connector": { "image": "materialize/test:test", "config": {} } },
+                    "bindings": [
+                        { "resource": { "table": "data" }, "source": "aliceCo/wonderland/data" }
+                    ]
+                }
+            }
+        }))
+        .unwrap();
+
+        let rows = vec![
+            live_spec_row("bobCo/widgets/materialize-y"),
+            live_spec_row("bobCo/tires/materialize-x"),
+            // Referenced but not drafted: requires the user to be read-authorized.
+            live_spec_row("aliceCo/wonderland/data"),
+            // Injected ops collection: authorization is always skipped.
+            live_spec_row("ops.us-central1.v1/logs"),
+        ];
+
+        (catalog.into(), rows)
+    }
+
+    #[test]
+    fn test_authorize_draft_specs_enforces_user_and_spec_authz() {
+        let snapshot = crate::Snapshot::build_fixture(None);
+        let (draft, rows) = draft_and_rows();
+
+        let (live_catalog, unauthorized) =
+            authorize_draft_specs(bob_user_id(), &draft, &rows, true, &snapshot);
+
+        // One error per non-ops row: the drafted admin failure, the drafted
+        // spec-read failure, and the referenced user-read failure.
+        assert_eq!(3, live_catalog.errors.len());
+
+        let expected_unauthorized: HashSet<String> = [
+            "bobCo/widgets/materialize-y",
+            "bobCo/tires/materialize-x",
+            "aliceCo/wonderland/data",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+        assert_eq!(expected_unauthorized, unauthorized);
+
+        // The injected ops collection is neither authorized nor rejected.
+        assert!(!unauthorized.contains("ops.us-central1.v1/logs"));
+
+        let messages = live_catalog
+            .errors
+            .iter()
+            .map(|e| e.error.to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("not authorized to create or change")),
+            "expected drafted admin error, got: {messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("is not read-authorized to 'aliceCo/wonderland/data'")),
+            "expected spec-read error, got: {messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("not authorized to read this catalog name")),
+            "expected referenced user-read error, got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn test_authorize_draft_specs_still_checks_spec_authz_without_user_authz() {
+        let snapshot = crate::Snapshot::build_fixture(None);
+        let (draft, rows) = draft_and_rows();
+
+        // With user authz disabled, both user-gated checks (drafted admin and
+        // referenced read) are skipped, but spec-level authz is always enforced.
+        let (live_catalog, unauthorized) =
+            authorize_draft_specs(bob_user_id(), &draft, &rows, false, &snapshot);
+
+        assert_eq!(1, live_catalog.errors.len());
+        assert!(
+            live_catalog.errors[0]
+                .error
+                .to_string()
+                .contains("is not read-authorized to 'aliceCo/wonderland/data'")
+        );
+
+        let expected_unauthorized: HashSet<String> =
+            std::iter::once("bobCo/tires/materialize-x".to_string()).collect();
+        assert_eq!(expected_unauthorized, unauthorized);
     }
 }
