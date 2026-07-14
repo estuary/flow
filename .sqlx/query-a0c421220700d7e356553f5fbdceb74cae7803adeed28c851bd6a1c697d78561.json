@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO internal.data_plane_private_links (data_plane_id, provider, config)\n            SELECT dp.id, $2, $3\n            FROM data_planes dp WHERE dp.data_plane_name = $1\n            RETURNING\n                id as \"id: models::Id\",\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            ",
+  "query": "\n            INSERT INTO internal.data_plane_private_links (data_plane_id, config)\n            SELECT dp.id, $2\n            FROM data_planes dp WHERE dp.data_plane_name = $1\n            RETURNING\n                id as \"id: models::Id\",\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            ",
   "describe": {
     "columns": [
       {
@@ -32,7 +32,6 @@
     "parameters": {
       "Left": [
         "Text",
-        "Text",
         "Jsonb"
       ]
     },
@@ -44,5 +43,5 @@
       true
     ]
   },
-  "hash": "0ddbff5d49f2a04dd2385cc72649380b8e462366ab7ef67727d23a1d456e0cb1"
+  "hash": "a0c421220700d7e356553f5fbdceb74cae7803adeed28c851bd6a1c697d78561"
 }
