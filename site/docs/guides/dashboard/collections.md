@@ -1,5 +1,6 @@
 ---
 sidebar_position: 2
+description: Manage Estuary collections in the dashboard. View collection status, usage stats, data previews, schemas, alerts, and history.
 ---
 
 # Collections

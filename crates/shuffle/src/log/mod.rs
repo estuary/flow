@@ -83,6 +83,7 @@ pub mod reader;
 mod state;
 pub mod writer;
 
+pub use block::BlockMeta;
 pub use reader::{FrontierScan, Reader, Remainder};
 pub use writer::Writer;
 

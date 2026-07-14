@@ -1,0 +1,16 @@
+[Unit]
+Description=Flow Etcd (%i)
+Documentation=https://github.com/estuary/flow
+
+[Service]
+Type=simple
+
+# All ETCD_* config (data dir, listen/advertise URLs on this stack's ports) is
+# generated into the env file, so the unit stays parameter-free.
+EnvironmentFile=%h/flow-local/env/etcd-%i.env
+
+# sh wrapper launches etcd using PATH from the env file.
+ExecStart=sh -c 'exec etcd'
+
+Restart=on-failure
+RestartSec=5s

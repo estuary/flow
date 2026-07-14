@@ -1,6 +1,7 @@
 ---
 id: deployment-options
 title: Deployment Options
+description: Compare Estuary public, private, and BYOC deployments for SaaS setups to dedicated infrastructure for compliance and data residency needs.
 sidebar_position: 3
 ---
 

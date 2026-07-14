@@ -19,6 +19,11 @@ pub struct Shard {
     /// Multiple shard indices may share a single directory.
     #[prost(string, tag = "4")]
     pub directory: ::prost::alloc::string::String,
+    /// Maximum aggregate size in bytes of buffered, sealed on-disk shuffle segment
+    /// files for this shard before the Log actor engages back-pressure. Zero means
+    /// unset, in which case the shuffle Service's default limit is used.
+    #[prost(uint64, tag = "5")]
+    pub shuffle_disk_limit_bytes: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionPartitions {

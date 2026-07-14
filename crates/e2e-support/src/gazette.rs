@@ -25,7 +25,14 @@ impl GazetteCluster {
         let (encode_key, _decode_keys) = tokens::jwt::parse_base64_hmac_keys([&base64_key])
             .map_err(|status| anyhow::anyhow!("failed to parse HMAC key: {status}"))?;
 
-        let gazette_bin = format!("{}/go/bin/gazette", std::env::var("HOME")?);
+        // `mise run build:gazette` installs the broker into this stack's GOBIN,
+        // which is per-checkout (see mise/tasks/local/stack-env) and no longer
+        // the shared ~/go/bin. Prefer GOBIN when set (the mise path); fall back
+        // to the default Go bin dir for invocations outside a mise stack.
+        let gazette_bin = match std::env::var_os("GOBIN") {
+            Some(gobin) => std::path::Path::new(&gobin).join("gazette"),
+            None => std::path::Path::new(&std::env::var("HOME")?).join("go/bin/gazette"),
+        };
         let etcd_endpoint = etcd.endpoint();
         let tempdir = etcd.tempdir.path();
 
@@ -72,7 +79,8 @@ impl GazetteCluster {
                 .spawn()
                 .map_err(|err| {
                     anyhow::anyhow!(
-                        "failed to spawn gazette broker {i} (is ~/go/bin/gazette built?): {err}"
+                        "failed to spawn gazette broker {i} from {} (run 'mise run build:gazette'): {err}",
+                        gazette_bin.display(),
                     )
                 })?
                 .into();

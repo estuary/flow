@@ -1,5 +1,8 @@
+---
+description: Set up Estuary SSO login on your tenant for a specific company domain. Guide includes Estuary's SAML 2.0 URLs and adding new users to your tenant.
+---
 
-# Log into Estuary Using SSO
+# Set Up SSO Login
 
 You can register or log into the [Estuary dashboard](https://dashboard.estuary.dev/) with one of several methods. Sign in with either:
 * A Google account

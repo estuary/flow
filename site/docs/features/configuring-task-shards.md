@@ -1,5 +1,6 @@
 ---
-sidebar_position: 5
+sidebar_position: 2
+description: Tune Estuary task shard behavior by configuring log levels, minimum and maximum transaction durations, and disabling processing.
 slug: /reference/Configuring-task-shards/
 ---
 

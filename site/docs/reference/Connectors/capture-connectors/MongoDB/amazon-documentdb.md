@@ -1,3 +1,7 @@
+---
+description: Capture Amazon DocumentDB's MongoDB-compatible collections with Estuary's connector, using either change stream or batch capture modes.
+---
+
 # Amazon DocumentDB
 
 This connector captures data from your Amazon DocumentDB collections into Estuary collections.

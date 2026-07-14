@@ -1,3 +1,6 @@
+---
+description: Report GA4 property data in Estuary, including active users, devices, locations, pages, traffic sources, and custom reports, using OAuth or a service account key.
+---
 
 # Google Analytics 4
 

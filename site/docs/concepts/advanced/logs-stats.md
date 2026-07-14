@@ -1,3 +1,7 @@
+---
+description: Learn how Estuary stores task logs and stats in ops collections. Use these special collections to debug workflows, track throughput, and review metrics.
+---
+
 # Logs and Statistics
 
 Estuary collects logs and statistics of catalog tasks to aid in debugging and refinement of your workflows.

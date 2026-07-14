@@ -65,6 +65,10 @@ const (
 	LogsJournal = "estuary.dev/logs-journal"
 	// Journal to which task stats are directed.
 	StatsJournal = "estuary.dev/stats-journal"
+	// ShuffleDiskLimit is the maximum aggregate size in bytes of buffered,
+	// sealed on-disk shuffle segment files before the shuffle reader engages
+	// back-pressure. If unset, the data-plane default is used.
+	ShuffleDiskLimit = "estuary.dev/shuffle-disk-limit"
 	// Hostname of the shard's task under the connector networking feature.
 	// Present only on shards of tasks that use the connector networking feature.
 	Hostname = "estuary.dev/hostname"

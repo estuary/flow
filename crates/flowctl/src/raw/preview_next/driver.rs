@@ -3,7 +3,9 @@
 //! SessionLoop/Join/Task envelopes the controller (Go in production) would
 //! normally send.
 
+use crate::raw::preview_next::Controls;
 use crate::raw::preview_next::services::Run;
+use anyhow::Context;
 use prost::Message;
 use proto_flow::{flow, runtime as cruntime};
 use runtime_next::proto;
@@ -18,10 +20,15 @@ pub async fn run_sessions(
     run: &Run,
     spec: &flow::MaterializationSpec,
     session_targets: Vec<u32>,
+    fixture_dirs: Vec<String>,
+    controls: Controls,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
     let join_shards =
         crate::raw::preview_next::shards::build_materialize_join_shards(run.n_shards, spec)?;
+    // Encode the spec once; each shard's Task carries a cheap refcount clone of
+    // these bytes rather than deep-cloning and re-encoding the spec per shard.
+    let spec_bytes: bytes::Bytes = spec.encode_to_vec().into();
 
     let mut handles = Vec::with_capacity(run.n_shards as usize);
     for i in 0..run.n_shards {
@@ -30,21 +37,24 @@ pub async fn run_sessions(
             shuffle_log_dir: run.shuffle_log_dir.clone(),
             rocksdb_path: run.rocksdb_path.clone(),
             network: run.network.clone(),
-            log_handler: run.log_handler,
             registry: run.registry.clone(),
         };
-        let spec = spec.clone();
+        let spec_bytes = spec_bytes.clone();
         let join_shards = join_shards.clone();
         let session_targets = session_targets.clone();
+        let fixture_dirs = fixture_dirs.clone();
+        let controls = controls.clone();
         let stop_token = stop_token.clone();
 
         handles.push(tokio::spawn(async move {
             drive_one_shard(
                 run_handle,
-                spec,
+                spec_bytes,
                 i,
                 join_shards,
                 session_targets,
+                fixture_dirs,
+                controls,
                 stop_token,
             )
             .await
@@ -82,41 +92,49 @@ struct RunHandle {
     shuffle_log_dir: String,
     rocksdb_path: String,
     network: String,
-    log_handler: fn(&::ops::Log),
     registry: service_kit::Registry,
 }
 
 async fn drive_one_shard(
     run: RunHandle,
-    spec: flow::MaterializationSpec,
+    spec_bytes: bytes::Bytes,
     shard_index: u32,
     join_shards: Vec<proto::join::Shard>,
     session_targets: Vec<u32>,
+    fixture_dirs: Vec<String>,
+    controls: Controls,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
     let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
 
     let task_name = format!("preview-shard-{shard_index:03}");
 
-    let publisher_factory: gazette::journal::ClientFactory = std::sync::Arc::new({
-        move |_authz_sub: String, _authz_obj: String| -> gazette::journal::Client {
-            unreachable!("live Publisher is not used by preview ({_authz_sub}, {_authz_obj})")
-        }
-    });
-
     let shard_svc = runtime_next::shard::Service::new(
         cruntime::Plane::Local,
         run.network.clone(),
-        run.log_handler,
         None,
         task_name,
-        publisher_factory,
+        controls.publisher_factory.clone(),
+        controls.logger_factory.clone(),
         run.registry,
         None, // No AuthN+AuthZ signer (local loopback).
     );
 
     let mut response_rx = shard_svc.spawn_materialize(UnboundedReceiverStream::new(request_rx));
-    let spec_bytes: bytes::Bytes = spec.encode_to_vec().into();
+
+    // Seed shard zero's RocksDB with any `--initial-state` before the runtime
+    // opens it at SessionLoop, so it recovers the state on its first scan.
+    if shard_index == 0 && !controls.initial_state_json.is_empty() {
+        super::seed_preview_state(
+            cruntime::RocksDbDescriptor {
+                rocksdb_path: run.rocksdb_path.clone(),
+                rocksdb_env_memptr: 0,
+            },
+            &controls.initial_state_json,
+        )
+        .await
+        .context("seeding --initial-state into shard-zero RocksDB")?;
+    }
 
     // Open the SessionLoop once. `runtime-next` opens RocksDB here and keeps
     // the handle live across the repeated Join/Task sessions below.
@@ -141,13 +159,20 @@ async fn drive_one_shard(
         }
         let session_index = idx + 1;
 
+        // A fixture preview reads each session from its own directory (fresh
+        // segments from segment one); live preview shares the run's directory.
+        let shuffle_directory = fixture_dirs
+            .get(idx)
+            .cloned()
+            .unwrap_or_else(|| run.shuffle_log_dir.clone());
+
         request_tx
             .send(Ok(proto::Materialize {
                 join: Some(proto::Join {
                     etcd_mod_revision: session_index as i64,
                     shards: join_shards.clone(),
                     shard_index,
-                    shuffle_directory: run.shuffle_log_dir.clone(),
+                    shuffle_directory,
                     shuffle_endpoint: run.peer_endpoint.clone(),
                     leader_endpoint: run.peer_endpoint.clone(),
                 }),
@@ -167,10 +192,9 @@ async fn drive_one_shard(
             .send(Ok(proto::Materialize {
                 task: Some(proto::Task {
                     spec: spec_bytes.clone(),
-                    preview: true,
                     max_transactions: target_txns,
                     sqlite_vfs_uri: String::new(),
-                    publisher_id: Default::default(), // Unused when `preview`.
+                    publisher_id: Default::default(), // The harness forwards no leader producer.
                 }),
                 ..Default::default()
             }))

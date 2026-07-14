@@ -1,5 +1,6 @@
 ---
 sidebar_position: 1
+description: Edit Estuary Data Flow specs locally with flowctl. Covers authentication, pulling catalog specs, editing flow.yaml files, testing, and publishing.
 ---
 import Mermaid from '@theme/Mermaid';
 

@@ -1303,6 +1303,13 @@ expression: "&schema"
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "shuffleDiskLimit": {
+          "title": "Maximum shuffle disk usage before back-pressure, in bytes.",
+          "description": "Bounds the aggregate size of buffered, sealed shuffle segment files on a\nshard's disk. When exceeded, the shuffle reader back-pressures upstream\njournal reads (released once the backlog falls below half).\nIf not set, the data-plane default (currently 2 GiB) is used.\nEXPERIMENTAL: this field MAY be removed.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 67108864
         }
       },
       "additionalProperties": false,
@@ -1883,6 +1890,15 @@ expression: "&schema"
           "items": {
             "$ref": "#/$defs/TriggerConfig"
           }
+        },
+        "interval": {
+          "title": "Minimum interval between trigger deliveries.",
+          "description": "A burst of transactions within the interval collapses into a single\ndelivery covering the full span.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+(s|m|h|d)$"
         }
       },
       "additionalProperties": false,

@@ -14,7 +14,8 @@ cat > ${VSCODE_SETTINGS} << EOF
         "CGO_LDFLAGS": "${CGO_LDFLAGS}",
         "CGO_CFLAGS": "${CGO_CFLAGS}",
         "CGO_CPPFLAGS": "${CGO_CPPFLAGS}",
-        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/",
+        "GOBIN": "${GOBIN}",
+        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
     },
     "rust-analyzer.cargo.extraEnv": {
         "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
@@ -23,23 +24,41 @@ cat > ${VSCODE_SETTINGS} << EOF
         "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
         "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
         "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
+        "RUSTC_WRAPPER": "${RUSTC_WRAPPER}",
         "RUSTFLAGS": "${RUSTFLAGS}",
         "SNAPPY_LIB_DIR": "${SNAPPY_LIB_DIR}",
         "SNAPPY_STATIC": "${SNAPPY_STATIC}",
     },
+    // runnables.extraEnv is the env for tests RUN from the gutter, so it must
+    // carry the per-stack runtime vars the tests read (FLOW_PG_URL, FLOW_CLUSTER,
+    // FLOW_PORT_BIGTABLE, FLOW_STACK_NAME) and GOBIN/PATH for binaries the tests
+    // shell out to (flowctl-go, gazette), matching the mise task environment.
     "rust-analyzer.runnables.extraEnv": {
         "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
+        "GOBIN": "${GOBIN}",
         "JEMALLOC_OVERRIDE": "${JEMALLOC_OVERRIDE}",
-        "PATH": "${PATH}",
+        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
         "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
         "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
         "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
+        "RUSTC_WRAPPER": "${RUSTC_WRAPPER}",
         "RUSTFLAGS": "${RUSTFLAGS}",
         "SNAPPY_LIB_DIR": "${SNAPPY_LIB_DIR}",
         "SNAPPY_STATIC": "${SNAPPY_STATIC}",
+        "FLOW_PG_URL": "${FLOW_PG_URL}",
+        "FLOW_CLUSTER": "${FLOW_CLUSTER}",
+        "FLOW_STACK_NAME": "${FLOW_STACK_NAME}",
+        "FLOW_PORT_BIGTABLE": "${FLOW_PORT_BIGTABLE}",
     },
+    // Runtime env for a DEBUGGED test process (same per-stack vars as runnables).
     "lldb.launch.env": {
-        "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres",
+        "DATABASE_URL": "${FLOW_PG_URL}",
+        "FLOW_PG_URL": "${FLOW_PG_URL}",
+        "FLOW_CLUSTER": "${FLOW_CLUSTER}",
+        "FLOW_STACK_NAME": "${FLOW_STACK_NAME}",
+        "FLOW_PORT_BIGTABLE": "${FLOW_PORT_BIGTABLE}",
+        "GOBIN": "${GOBIN}",
+        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
         "SOPS_AGE_KEY": "AGE-SECRET-KEY-1UX6ZHA36JJZCFCV9U7FVHZZECHCCKA8NCFT27L68HV0NPRQ2V5ZSRKJJPU"
     },
 
@@ -70,7 +89,8 @@ cat > ${ZED_SETTINGS} << EOF
                     "CGO_LDFLAGS": "${CGO_LDFLAGS}",
                     "CGO_CFLAGS": "${CGO_CFLAGS}",
                     "CGO_CPPFLAGS": "${CGO_CPPFLAGS}",
-                    "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/"
+                    "GOBIN": "${GOBIN}",
+                    "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}"
                 }
             }
         },
@@ -84,6 +104,7 @@ cat > ${ZED_SETTINGS} << EOF
                         "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
                         "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
                         "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
+                        "RUSTC_WRAPPER": "${RUSTC_WRAPPER}",
                         "RUSTFLAGS": "${RUSTFLAGS}",
                         "SNAPPY_LIB_DIR": "${SNAPPY_LIB_DIR}",
                         "SNAPPY_STATIC": "${SNAPPY_STATIC}"
@@ -92,14 +113,20 @@ cat > ${ZED_SETTINGS} << EOF
                 "runnables": {
                     "extraEnv": {
                         "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
+                        "GOBIN": "${GOBIN}",
                         "JEMALLOC_OVERRIDE": "${JEMALLOC_OVERRIDE}",
-                        "PATH": "${PATH}",
+                        "PATH": "${PATH}:${CARGO_TARGET_DIR}/debug/:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug/:${GOBIN}",
                         "ROCKSDB_INCLUDE_DIR": "${ROCKSDB_INCLUDE_DIR}",
                         "ROCKSDB_LIB_DIR": "${ROCKSDB_LIB_DIR}",
                         "ROCKSDB_VERSION": "${ROCKSDB_VERSION}",
+                        "RUSTC_WRAPPER": "${RUSTC_WRAPPER}",
                         "RUSTFLAGS": "${RUSTFLAGS}",
                         "SNAPPY_LIB_DIR": "${SNAPPY_LIB_DIR}",
-                        "SNAPPY_STATIC": "${SNAPPY_STATIC}"
+                        "SNAPPY_STATIC": "${SNAPPY_STATIC}",
+                        "FLOW_PG_URL": "${FLOW_PG_URL}",
+                        "FLOW_CLUSTER": "${FLOW_CLUSTER}",
+                        "FLOW_STACK_NAME": "${FLOW_STACK_NAME}",
+                        "FLOW_PORT_BIGTABLE": "${FLOW_PORT_BIGTABLE}"
                     }
                 },
                 "cachePriming": {

@@ -1,3 +1,7 @@
+---
+description: Use the YouTube Analytics connector to capture channel and playlist reports, including traffic source and demographic data.
+---
+
 # YouTube Analytics
 
 This connector captures data from YouTube Analytics into Estuary collections.

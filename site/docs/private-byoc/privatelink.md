@@ -1,3 +1,6 @@
+---
+description: Configure AWS PrivateLink, Azure Private Link, or GCP Private Service Connect for private and BYOC Estuary deployments without public internet exposure.
+---
 
 # Configure Connections with PrivateLink
 
@@ -95,6 +98,10 @@ When accessing services cross-region, you must use the **regional** DNS name (e.
 
 * **Connection request never appears in your console**: check that Estuary's principal is on **Allow principals** *and* that the data plane region is in your endpoint service's Supported Regions list.
 * **Connection accepted but the connector still fails to resolve the host**: verify the connector is using the *regional* DNS name returned by Estuary, not a zonal variant.
+
+#### Pre-registering an endpoint ahead of time
+
+You can register an additional endpoint service with Estuary before you need it, such as a standby or backup database kept ready for upgrades, failover, or disaster recovery. It sits idle without affecting your live connection, and the DNS name Estuary returns is stable, so cutting over is just a matter of repointing the capture's `address`. See [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers).
 
 ### Variations
 

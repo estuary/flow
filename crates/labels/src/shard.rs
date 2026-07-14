@@ -32,6 +32,14 @@ pub fn encode_labeling(mut set: LabelSet, labeling: &ops::ShardLabeling) -> Labe
     set = set_value(set, crate::LOGS_JOURNAL, &labeling.logs_journal);
     set = set_value(set, crate::STATS_JOURNAL, &labeling.stats_journal);
 
+    if labeling.shuffle_disk_limit_bytes != 0 {
+        set = set_value(
+            set,
+            crate::SHUFFLE_DISK_LIMIT,
+            &labeling.shuffle_disk_limit_bytes.to_string(),
+        );
+    }
+
     set
 }
 
@@ -74,6 +82,11 @@ pub fn decode_labeling(set: &LabelSet) -> Result<ops::ShardLabeling, Error> {
     let logs_journal = maybe_one(set, crate::LOGS_JOURNAL)?.to_string();
     let stats_journal = maybe_one(set, crate::STATS_JOURNAL)?.to_string();
 
+    let shuffle_disk_limit_bytes = match maybe_one(set, crate::SHUFFLE_DISK_LIMIT)? {
+        "" => 0,
+        value => value.parse()?,
+    };
+
     let mut flags = std::collections::BTreeMap::new();
     for label in &set.labels {
         if let Some(name) = label.name.strip_prefix(crate::FLAG_PREFIX) {
@@ -100,6 +113,7 @@ pub fn decode_labeling(set: &LabelSet) -> Result<ops::ShardLabeling, Error> {
         logs_journal,
         stats_journal,
         flags,
+        shuffle_disk_limit_bytes,
     })
 }
 
@@ -186,6 +200,7 @@ mod test {
             .into(),
             logs_journal: "logs/journal".to_string(),
             stats_journal: "stats/journal".to_string(),
+            shuffle_disk_limit_bytes: 134217728,
         };
 
         let set = encode_labeling(LabelSet::default(), &labeling);
@@ -232,6 +247,10 @@ mod test {
             {
               "name": "estuary.dev/rclock-end",
               "value": "ffffffff"
+            },
+            {
+              "name": "estuary.dev/shuffle-disk-limit",
+              "value": "134217728"
             },
             {
               "name": "estuary.dev/split-source",

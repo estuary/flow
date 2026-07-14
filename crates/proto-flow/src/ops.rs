@@ -40,6 +40,11 @@ pub struct ShardLabeling {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    /// Maximum aggregate size in bytes of buffered, sealed on-disk shuffle segment
+    /// files before the shuffle reader engages back-pressure. Zero means unset, in
+    /// which case the data-plane default is used.
+    #[prost(uint64, tag = "13")]
+    pub shuffle_disk_limit_bytes: u64,
 }
 /// Common `shard` sub-document logged by Stats and Log.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

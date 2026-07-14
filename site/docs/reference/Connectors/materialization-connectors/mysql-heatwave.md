@@ -1,3 +1,7 @@
+---
+description: Use the MySQL HeatWave connector to materialize collections into Oracle MySQL HeatWave instances. Configure SSH tunneling, SSL mode, hard deletes, and additional creation SQL.
+---
+
 # MySQL HeatWave
 
 This connector lets you materialize data from your Estuary collections directly into Oracle MySQL HeatWave instances.

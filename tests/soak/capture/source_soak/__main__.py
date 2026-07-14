@@ -30,6 +30,53 @@ DOCUMENT_SCHEMA: dict[str, Any] = json.loads(_SCHEMA_PATH.read_text())
 DOCUMENT_KEY = ["/id", "/seq"]
 
 
+def _build_sourced_schema() -> dict[str, Any]:
+    """A partial, connector-authoritative document schema, emitted per binding as a
+    `SourcedSchema` to drive the runtime's SourcedSchema path (README "Schema
+    inference"). Derived from events.schema.json so the wire contract stays a single
+    source of truth.
+
+    We schematize only the STABLE fields — `id`, `ts`, `set`, `oracle` — and
+    deliberately OMIT the GROWING ones (`seq`, `balanceDelta`, `transfer`), leaving
+    them to doc-driven inference. This mirrors the common production pattern
+    (schematize known-true keys/fixed fields, lean on inference for dynamic portions)
+    and exercises sourced and inferred behavior side by side:
+
+      * A sourced numeric field carries no bounds, and `NumericShape::widen` seeds
+        `minimum`/`maximum` only when a numeric type first arrives unbounded
+        (crates/doc/src/shape/widen.rs), so `id` / `oracle.seq` / `oracle.balance`
+        stay bounds-free and STABLE forever.
+      * The omitted top-level fields enter inference from captured docs and bracket
+        their bounds at 10x boundaries, so they WIDEN as magnitudes grow — each
+        crossing republishes the collection and re-runs the whole inference loop.
+
+    `additionalProperties: false` at the top level is LOAD-BEARING: unknown document
+    properties are promoted into inference only when the object shape is closed
+    (widen.rs), so without it `seq`/`balanceDelta`/`transfer` would never be inferred
+    at all. We close `oracle` for the same reason; `set` already closes itself in
+    events.schema.json. The schema must also pass the runtime's `inspect_closed()`
+    check (every schematized object closed), which these closures satisfy.
+    """
+    props = DOCUMENT_SCHEMA["properties"]
+    oracle = {**props["oracle"], "additionalProperties": False}
+    return {
+        "$schema": DOCUMENT_SCHEMA["$schema"],
+        "type": "object",
+        "additionalProperties": False,
+        # Drop `seq` — it's doc-inferred, so it can't be required by the sourced schema.
+        "required": [f for f in DOCUMENT_SCHEMA["required"] if f != "seq"],
+        "properties": {
+            "id": props["id"],
+            "ts": props["ts"],
+            "set": props["set"],
+            "oracle": oracle,
+        },
+    }
+
+
+SOURCED_SCHEMA: dict[str, Any] = _build_sourced_schema()
+
+
 # --- IO ----------------------------------------------------------------------
 
 _STDOUT = sys.stdout.buffer
@@ -302,6 +349,20 @@ async def run_capture(open: models.OpenRequest, stop: asyncio.Event) -> None:
     base, width = id_window(open.range, config.idRange)
     accounts = Accounts(base, width, open.state)
     accounts.prune_out_of_window()
+
+    # Emit one SourcedSchema per binding before any Captured doc. SourcedSchema is
+    # transactional — it takes effect at the next Checkpoint — and in-memory inferred
+    # shapes are per-shard-lifetime, so re-seeding once per Open (re-)establishes the
+    # sourced fields after every shard restart. The connector is long-lived streaming,
+    # so this is low-rate; the normal checkpoint cadence commits it.
+    for binding in range(len(bindings)):
+        emit(
+            Response(
+                sourcedSchema=models.SourcedSchema(
+                    binding=binding, documentSchema=SOURCED_SCHEMA
+                )
+            )
+        )
 
     log(
         "INFO",

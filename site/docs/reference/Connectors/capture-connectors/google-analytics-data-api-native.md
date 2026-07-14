@@ -1,3 +1,6 @@
+---
+description: Build Google Analytics Data API captures in Estuary with streams for website activity, traffic, and custom reports. Connect via OAuth.
+---
 
 # Google Analytics Data API
 

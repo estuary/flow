@@ -1,5 +1,5 @@
 ---
-description: This connector materializes Estuary collections into tables in a Amazon RDS for PostgreSQL database.
+description: Materialize data collections into an Amazon RDS for PostgreSQL database. Estuary's connector supports IAM auth, SSH tunneling, custom create SQL, hard deletes, and delta updates.
 ---
 
 # Amazon RDS for PostgreSQL

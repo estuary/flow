@@ -211,14 +211,16 @@ pub struct CheckpointPipeline {
     /// Checkpoint awaiting resolution of unresolved causal hints (hinted_commit > last_commit).
     /// `unresolved.unresolved_hints` is the count of producers awaiting resolution.
     unresolved: crate::Frontier,
-    /// Mark-and-sweep flag for detecting stalled causal hint resolution.
-    /// Set to `true` on the first tick where `unresolved.unresolved_hints > 0`.
-    /// If still `true` on a subsequent tick AND no progress has been made
-    /// in `unresolved` between those ticks, hint resolution has stalled and
-    /// we return an error to tear down the session. Cleared on any progress
-    /// in `unresolved` (any producer's `last_commit` advancing) — the same
-    /// underlying signal that drives `unresolved_peek_progress`.
-    unresolved_armed: bool,
+    /// Mark-and-sweep counter for detecting stalled causal hint resolution.
+    /// Incremented on each tick where `unresolved.unresolved_hints > 0` and no
+    /// progress has been made in `unresolved` since the prior tick. Reset to
+    /// zero on any progress in `unresolved` (any producer's `last_commit`
+    /// advancing) — the same underlying signal that drives
+    /// `unresolved_peek_progress`. When the accumulated stall
+    /// (`unresolved_stalled_ticks * ACTOR_TICKER_INTERVAL`) reaches
+    /// [`crate::CAUSAL_HINT_RESOLUTION_TIMEOUT`], hint resolution has stalled and
+    /// we return an error to tear down the session.
+    unresolved_stalled_ticks: u32,
     /// Set true whenever `unresolved` advances via `resolve_hints`,
     /// or `progressed` is promoted into `unresolved`. `take_ready()` clears.
     /// Signals that a peek may be returned to the client in lieu of blocking.
@@ -279,7 +281,7 @@ impl CheckpointPipeline {
         Self {
             progressed: Default::default(),
             unresolved,
-            unresolved_armed: false,
+            unresolved_stalled_ticks: 0,
             unresolved_peek_progress: false,
             ready: Default::default(),
             requested: false,
@@ -425,8 +427,8 @@ impl CheckpointPipeline {
 
         // Was there any progress against `unresolved` (partial or full)?
         if advanced_count != 0 {
-            // Disarm the timeout and arm the peek emission path.
-            self.unresolved_armed = false;
+            // Reset the stall counter and arm the peek emission path.
+            self.unresolved_stalled_ticks = 0;
             self.unresolved_peek_progress = true;
 
             // When progress advances causal hints, fold its flushed_lsn into
@@ -474,27 +476,39 @@ impl CheckpointPipeline {
 
     /// Called on each actor tick to detect stalled causal hint resolution.
     ///
-    /// Uses mark-and-sweep: the first tick with unresolved hints arms the flag.
-    /// Any progress in `unresolved` between ticks (handled in
-    /// `on_progressed_chunk`/`try_promote`) disarms it. If still armed on
-    /// the next tick — i.e. no progress at all in the interval — return an
-    /// error with details about which producers and journals are stuck.
+    /// Uses mark-and-sweep: each tick with unresolved hints increments a stall
+    /// counter. Any progress in `unresolved` between ticks (handled in
+    /// `on_progressed_chunk`/`try_promote`) resets it. Once the accumulated
+    /// stall (counter × `ACTOR_TICKER_INTERVAL`) reaches
+    /// [`crate::CAUSAL_HINT_RESOLUTION_TIMEOUT`] — i.e. no progress at all across
+    /// that span — return an error with details about which producers and
+    /// journals are stuck.
     pub fn on_tick(&mut self) -> anyhow::Result<()> {
         if self.unresolved.unresolved_hints == 0 {
-            return Ok(());
-        }
-        if !self.unresolved_armed {
-            service_kit::event!(
-                tracing::Level::DEBUG,
-                "pipeline",
-                unresolved_hints = self.unresolved.unresolved_hints,
-                "causal hint resolution timeout armed"
-            );
-            self.unresolved_armed = true;
+            self.unresolved_stalled_ticks = 0;
             return Ok(());
         }
 
-        // Armed and still unresolved: build a detailed error.
+        self.unresolved_stalled_ticks += 1;
+        let stalled = crate::ACTOR_TICKER_INTERVAL * self.unresolved_stalled_ticks;
+
+        if stalled < crate::CAUSAL_HINT_RESOLUTION_TIMEOUT {
+            // The first tick merely observes unresolved hints, which routinely
+            // resolve within a single tick. Only a stall that survives at least
+            // one tick boundary is worth a WARN.
+            if self.unresolved_stalled_ticks > 1 {
+                service_kit::event!(
+                    tracing::Level::WARN,
+                    "pipeline",
+                    unresolved_hints = self.unresolved.unresolved_hints,
+                    stalled_ticks = self.unresolved_stalled_ticks,
+                    "causal hint resolution stalled"
+                );
+            }
+            return Ok(());
+        }
+
+        // Stall horizon exceeded and still unresolved: build a detailed error.
         let mut details = String::new();
         for jf in &self.unresolved.journals {
             for p in &jf.producers {
@@ -566,9 +580,9 @@ impl CheckpointPipeline {
 
         self.unresolved = std::mem::take(&mut self.progressed);
 
-        // Promoting to `unresolved` is itself progress: it disarms
-        // the timeout and may enable the peek path.
-        self.unresolved_armed = false;
+        // Promoting to `unresolved` is itself progress: it resets
+        // the stall counter and may enable the peek path.
+        self.unresolved_stalled_ticks = 0;
         self.unresolved_peek_progress = self.unresolved.unresolved_hints != 0;
 
         if self.unresolved.unresolved_hints == 0 {
@@ -621,7 +635,7 @@ impl std::fmt::Debug for CheckpointPipeline {
             .field("progressed", &self.progressed.journals.len())
             .field("unresolved", &self.unresolved.journals.len())
             .field("unresolved_count", &self.unresolved.unresolved_hints)
-            .field("unresolved_armed", &self.unresolved_armed)
+            .field("unresolved_stalled_ticks", &self.unresolved_stalled_ticks)
             .field("unresolved_peek_progress", &self.unresolved_peek_progress)
             .field("ready", &self.ready.journals.len())
             .field("requested", &self.requested)
@@ -1146,11 +1160,16 @@ mod test {
 
     #[test]
     fn test_on_tick_mark_and_sweep() {
+        // Number of consecutive stalled ticks before the timeout fires.
+        let ticks_to_timeout = (crate::CAUSAL_HINT_RESOLUTION_TIMEOUT.as_secs()
+            / crate::ACTOR_TICKER_INTERVAL.as_secs()) as u32;
+        assert!(ticks_to_timeout >= 2, "test assumes a multi-tick horizon");
+
         let mut pipeline = test_pipeline();
 
         // No unresolved hints: tick is a no-op.
         pipeline.on_tick().unwrap();
-        assert!(!pipeline.unresolved_armed);
+        assert_eq!(pipeline.unresolved_stalled_ticks, 0);
 
         // Introduce unresolved hints across two journals/producers.
         ingest_progressed(
@@ -1169,17 +1188,19 @@ mod test {
             vec![],
         );
         assert_eq!(pipeline.unresolved.unresolved_hints, 2);
-        assert!(!pipeline.unresolved_armed);
+        assert_eq!(pipeline.unresolved_stalled_ticks, 0);
 
-        // First tick: arms the flag.
-        pipeline.on_tick().unwrap();
-        assert!(pipeline.unresolved_armed);
+        // Ticks accumulate the stall counter without erroring until the horizon.
+        for expect in 1..ticks_to_timeout {
+            pipeline.on_tick().unwrap();
+            assert_eq!(pipeline.unresolved_stalled_ticks, expect);
+        }
 
-        // Second tick while still unresolved: errors with diagnostic.
+        // The tick that reaches the horizon errors with diagnostic.
         let err = pipeline.on_tick().unwrap_err();
         insta::assert_snapshot!("on_tick_timeout_error", format!("{err}"));
 
-        // Partial advance disarms (last 50 → still 50 hinted; advance
+        // Partial advance resets the counter (last 50 → still 50 hinted; advance
         // last_commit toward but not past hinted_commit on a different hint).
         let mut pipeline = test_pipeline();
         ingest_progressed(
@@ -1188,24 +1209,28 @@ mod test {
             vec![],
         );
         pipeline.on_tick().unwrap();
-        assert!(pipeline.unresolved_armed);
+        assert_eq!(pipeline.unresolved_stalled_ticks, 1);
 
         ingest_progressed(
             &mut pipeline,
             vec![jf("journal/A", 0, vec![pf(0x01, 60, 0, -200)])],
             vec![],
         );
-        // Not resolved (60 < 100), but advanced — disarms.
+        // Not resolved (60 < 100), but advanced — resets the counter.
         assert_eq!(pipeline.unresolved.unresolved_hints, 1);
-        assert!(!pipeline.unresolved_armed, "partial progress disarms");
+        assert_eq!(
+            pipeline.unresolved_stalled_ticks, 0,
+            "partial progress resets the stall counter"
+        );
 
-        // Tick re-arms; another tick with no further progress errors.
-        pipeline.on_tick().unwrap();
-        assert!(pipeline.unresolved_armed);
+        // Counter climbs again; the horizon tick with no further progress errors.
+        for _ in 0..ticks_to_timeout - 1 {
+            pipeline.on_tick().unwrap();
+        }
         let err = pipeline.on_tick().unwrap_err();
         assert!(format!("{err}").contains("timed out"), "{err}");
 
-        // Full resolution disarms and clears unresolved_count.
+        // Full resolution resets the counter and clears unresolved_count.
         let mut pipeline = test_pipeline();
         ingest_progressed(
             &mut pipeline,
@@ -1219,9 +1244,9 @@ mod test {
             vec![],
         );
         assert_eq!(pipeline.unresolved.unresolved_hints, 0);
-        assert!(!pipeline.unresolved_armed);
+        assert_eq!(pipeline.unresolved_stalled_ticks, 0);
         pipeline.on_tick().unwrap();
-        assert!(!pipeline.unresolved_armed);
+        assert_eq!(pipeline.unresolved_stalled_ticks, 0);
     }
 
     #[test]
@@ -1630,6 +1655,7 @@ mod test {
             }),
             endpoint: String::new(),
             directory: "/test/dir".to_string(),
+            ..Default::default()
         };
         assert!(validate_shard_ranges(&[full]).is_ok());
 
@@ -1643,6 +1669,7 @@ mod test {
             }),
             endpoint: String::new(),
             directory: "/test/dir".to_string(),
+            ..Default::default()
         };
 
         // Valid r-clock splitting within a single key group.
@@ -1694,6 +1721,7 @@ mod test {
                 }),
                 endpoint: String::new(),
                 directory: "/test/dir".to_string(),
+                ..Default::default()
             },
         ])
         .unwrap_err();
@@ -1710,6 +1738,7 @@ mod test {
             }),
             endpoint: String::new(),
             directory: "/test/dir".to_string(),
+            ..Default::default()
         }])
         .unwrap_err();
         assert!(format!("{err}").contains("no '/' prefix"), "{err}");

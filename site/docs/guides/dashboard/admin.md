@@ -1,5 +1,6 @@
 ---
 sidebar_position: 4
+description: Manage Estuary admin settings for access grants, user invitations, organization notifications, storage mappings, CLI access, and billing.
 ---
 
 # Admin Settings

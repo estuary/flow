@@ -1,3 +1,6 @@
+---
+description: Publish Estuary collections to Google Pub/Sub topics. Configure multiplex topics and authenticate with OAuth or service account credentials in this delta updates connector.
+---
 
 # Google Cloud Pub/Sub
 

@@ -1,6 +1,8 @@
 ---
 sidebar_position: 7
+description: Learn how imports resolve Estuary Data Flow specs across files, fetch resources locally, and are used with tranformation resources.
 ---
+
 # Imports
 
 When you work on a draft Data Flow [using `flowctl draft`](../guides/flowctl/edit-draft-from-webapp.md),

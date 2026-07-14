@@ -8,6 +8,16 @@ use std::time::Duration;
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Triggers {
+    /// # Minimum interval between trigger deliveries.
+    /// A burst of transactions within the interval collapses into a single
+    /// delivery covering the full span.
+    #[schemars(schema_with = "super::duration_schema")]
+    #[serde(
+        default,
+        with = "humantime_serde",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub interval: Option<Duration>,
     /// # Trigger Configurations
     /// List of webhook triggers to fire when new data is materialized.
     pub config: Vec<TriggerConfig>,
@@ -92,6 +102,24 @@ impl TriggerVariables {
             run_id: "2024-01-01T00:00:00.000Z".to_string(),
         }
     }
+
+    /// Merge `other` into `self`, widening this window to cover both. Used to
+    /// collapse a burst of debounced transactions into a single delivery.
+    pub fn merge(&mut self, other: &TriggerVariables) {
+        for name in &other.collection_names {
+            if !self.collection_names.contains(name) {
+                self.collection_names.push(name.clone());
+            }
+        }
+        self.collection_names.sort();
+
+        if other.flow_published_at_min < self.flow_published_at_min {
+            self.flow_published_at_min = other.flow_published_at_min.clone();
+        }
+        if other.flow_published_at_max > self.flow_published_at_max {
+            self.flow_published_at_max = other.flow_published_at_max.clone();
+        }
+    }
 }
 
 /// Render a single payload template string with the given context.
@@ -124,19 +152,23 @@ pub fn build_template_context(
 
 /// Original values of HMAC-excluded fields for a single trigger config,
 /// captured by `strip_hmac_excluded_fields` and restored by
-/// `restore_hmac_excluded_fields`.
+/// `restore_hmac_excluded_fields`. `interval` is the shared top-level
+/// `Triggers.interval`, duplicated into every record so the token remains a
+/// flat per-config Vec for external consumers (flow-web).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HmacExcludedOriginals {
     pub payload_template: String,
     pub timeout: Duration,
     pub max_attempts: u32,
+    pub interval: Option<Duration>,
 }
 
-/// Replace HMAC-excluded fields in each trigger config with placeholder values,
-/// returning the original values. Call `restore_hmac_excluded_fields` after the
-/// SOPS operation to put the originals back.
+/// Replace HMAC-excluded fields with placeholder values, returning the
+/// original values. Call `restore_hmac_excluded_fields` after the SOPS
+/// operation to put the originals back.
 pub fn strip_hmac_excluded_fields(triggers: &mut Triggers) -> Vec<HmacExcludedOriginals> {
+    let interval = std::mem::take(&mut triggers.interval);
     triggers
         .config
         .iter_mut()
@@ -144,6 +176,7 @@ pub fn strip_hmac_excluded_fields(triggers: &mut Triggers) -> Vec<HmacExcludedOr
             payload_template: std::mem::take(&mut config.payload_template),
             timeout: std::mem::replace(&mut config.timeout, Duration::ZERO),
             max_attempts: std::mem::replace(&mut config.max_attempts, 0),
+            interval,
         })
         .collect()
 }
@@ -153,6 +186,7 @@ pub fn restore_hmac_excluded_fields(
     triggers: &mut Triggers,
     originals: Vec<HmacExcludedOriginals>,
 ) {
+    triggers.interval = originals.first().and_then(|orig| orig.interval);
     for (config, orig) in triggers.config.iter_mut().zip(originals) {
         config.payload_template = orig.payload_template;
         config.timeout = orig.timeout;
@@ -193,6 +227,7 @@ mod test {
     #[test]
     fn strip_and_restore_hmac_excluded_fields() {
         let mut triggers = Triggers {
+            interval: Some(Duration::from_secs(1800)),
             config: vec![TriggerConfig {
                 url: "https://example.com/webhook".to_string(),
                 method: HttpMethod::POST,

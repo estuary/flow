@@ -1,0 +1,34 @@
+---
+source: crates/validation/tests/skim_projections_tests.rs
+expression: "(projections, errors)"
+---
+(
+    [
+        (
+            "_meta/flow_truncated",
+            "/_meta/flow_truncated",
+            "REDACT_UNSET",
+        ),
+        (
+            "flow_document",
+            "",
+            "REDACT_UNSET",
+        ),
+        (
+            "flow_published_at",
+            "/_meta/uuid",
+            "REDACT_UNSET",
+        ),
+        (
+            "id",
+            "/id",
+            "REDACT_UNSET",
+        ),
+        (
+            "secret",
+            "/secret",
+            "REDACT_BLOCK",
+        ),
+    ],
+    [],
+)

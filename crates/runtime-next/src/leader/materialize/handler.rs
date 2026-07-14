@@ -4,8 +4,13 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
-pub(crate) async fn serve<R>(
-    service: crate::Service,
+pub(crate) async fn serve<
+    R,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    L: crate::LoggerFactory,
+>(
+    service: crate::Service<S, P, L>,
     authz: proto_grpc::Authorizer,
     request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
@@ -23,8 +28,13 @@ where
         .await
 }
 
-async fn serve_inner<R>(
-    service: crate::Service,
+async fn serve_inner<
+    R,
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    L: crate::LoggerFactory,
+>(
+    service: crate::Service<S, P, L>,
     authz: proto_grpc::Authorizer,
     mut request_rx: R,
     response_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
@@ -168,6 +178,7 @@ where
             range: labeling.range,
             directory,
             endpoint,
+            shuffle_disk_limit_bytes: labeling.shuffle_disk_limit_bytes,
         });
 
         // Labels are identical across shards (enforced by Join equality check).
@@ -186,6 +197,7 @@ where
             committed_close,
             committed_frontier,
             idempotent_replay,
+            logger,
             pending_ack_intents,
             pending_trigger_params,
             publisher,
@@ -229,6 +241,7 @@ where
             service.http_client.clone(),
             legacy_checkpoint,
             metrics,
+            logger,
             publisher,
             shard_tx,
             task,

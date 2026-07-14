@@ -1,6 +1,6 @@
 ---
 sidebar_position: 1
-description: Common pain points you might have, and how Estuary addresses them.
+description: See how Estuary helps data teams unify batch and streaming pipelines, reduce warehouse costs, transform data, improve integrity, scale workflows, and address other common pain points.
 ---
 
 # Who Should Use Estuary?

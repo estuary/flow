@@ -1,4 +1,5 @@
 ---
+description: Understand Estuary’s materialization protocol for transactions, implementation patterns that support exactly-once semantics, and sequence phases.
 slug: /reference/Connectors/materialization-protocol/
 ---
 

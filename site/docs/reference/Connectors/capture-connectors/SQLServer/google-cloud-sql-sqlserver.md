@@ -1,5 +1,6 @@
 ---
 sidebar_position: 6
+description: Capture SQL Server changes from Google Cloud SQL instances with Estuary’s CDC connector. Setup guide includes database/table CDC setup, permissions, SSH tunneling, and DDL handling.
 ---
 
 # Google Cloud SQL for SQL Server

@@ -1,5 +1,6 @@
 ---
-sidebar_position: 2
+sidebar_position: 1
+description: Connect Estuary docs to your IDE or AI tool with MCP setup guides for Cursor, VS Code, Claude, ChatGPT Desktop, and other clients.
 ---
 
 # MCP Integration

@@ -1,4 +1,5 @@
 use super::connector;
+use crate::Logger as _;
 use crate::leader::capture::fsm;
 use crate::proto;
 use anyhow::Context;
@@ -9,8 +10,8 @@ use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
-pub(crate) async fn serve<R, L: crate::LogHandler>(
-    service: crate::shard::Service<L>,
+pub(crate) async fn serve<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: crate::shard::Service<P, L>,
     mut controller_rx: R,
     controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
 ) -> anyhow::Result<()>
@@ -100,16 +101,17 @@ where
     Ok(())
 }
 
-async fn serve_unary<L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_unary<P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
     request: capture::Request,
     log_level: ops::LogLevel,
 ) -> anyhow::Result<proto::Capture> {
     let is_spec = request.spec.is_some();
     let is_discover = request.discover.is_some();
     let is_validate = request.validate.is_some();
-    let (connector_tx, mut connector_rx, _container) =
-        connector::start(service, log_level, request).await?;
+    let logger = service.logger_factory.open(&service.task_name);
+    let (connector_tx, mut connector_rx, _container, _token_restart_at) =
+        connector::start(service, &logger, log_level, request).await?;
     std::mem::drop(connector_tx);
 
     let verify = crate::verify("Capture", "unary response", "connector");
@@ -140,8 +142,8 @@ async fn serve_unary<L: crate::LogHandler>(
     Ok(response)
 }
 
-async fn serve_session_loop<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session_loop<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     session_loop: proto::SessionLoop,
@@ -184,8 +186,8 @@ where
     Ok(())
 }
 
-async fn serve_session<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     db: crate::shard::RocksDB,
@@ -215,8 +217,8 @@ where
     .await
 }
 
-async fn serve_session_inner<R, L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn serve_session_inner<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     db: crate::shard::RocksDB,
@@ -253,6 +255,7 @@ where
     handler.set_field("etcd_mod_revision", join.etcd_mod_revision);
     handler.set_phase("joined");
 
+    let logger = service.logger_factory.open(&service.task_name);
     let metrics = super::Metrics::new(&shard_id);
 
     _ = controller_tx.send(Ok(proto::Capture {
@@ -267,7 +270,6 @@ where
     let verify = crate::verify("Capture", "Task", "controller");
     let proto::Task {
         spec,
-        preview,
         max_transactions,
         sqlite_vfs_uri: _,
         publisher_id: _, // Captures are leaderless; the shard's own producer is used.
@@ -295,13 +297,14 @@ where
         .map(|(i, b)| (b.state_key.clone(), i as u32))
         .collect();
     sorted_state_keys.sort();
-    let (mut db, recover) = db
+    let (mut db, mut recover) = db
         .scan(sorted_state_keys)
         .await
         .context("scanning RocksDB")?;
+    db = db.seed_connector_state(&mut recover).await?;
     let proto::Recover {
         ack_intents,
-        connector_state_json,
+        mut connector_state_json,
         last_applied,
         ..
     } = recover;
@@ -313,9 +316,9 @@ where
     // unchanged-spec short-circuit compares like for like — independent of how
     // the controller (Go gogoproto) happened to frame `Task.spec`.
     let next_applied = bytes::Bytes::from(spec.encode_to_vec());
-    let mut connector_state_json = connector_state_json;
     db = apply_loop(
         service,
+        &logger,
         db,
         &binding_state_keys,
         &last_applied,
@@ -331,12 +334,15 @@ where
             capture: Some(spec.clone()),
             version: version.clone(),
             range: Some(range.clone()),
-            state_json: non_empty_state(&connector_state_json),
+            state_json: connector_state_json,
+            // Populated by `connector::start` with the matched endpoint's inner
+            // sealed configuration, which is not yet extracted from `spec` here.
+            sealed_config_json: Default::default(),
         }),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container) =
-        connector::start(service, log_level, open.clone()).await?;
+    let (connector_tx, mut connector_rx, container, token_restart_at) =
+        connector::start(service, &logger, log_level, open.clone()).await?;
     let verify = crate::verify("Capture", "Opened", "connector");
     let opened = match verify.not_eof(connector_rx.next().await)? {
         capture::Response {
@@ -354,19 +360,20 @@ where
         max_transactions,
     )?);
 
-    let collection_specs = spec.bindings.iter().filter_map(|b| b.collection.as_ref());
-    let publisher = if preview {
-        crate::Publisher::new_preview(collection_specs)
-    } else {
-        crate::Publisher::new_real(
+    let collection_specs: Vec<&flow::CollectionSpec> = spec
+        .bindings
+        .iter()
+        .filter_map(|b| b.collection.as_ref())
+        .collect();
+    let publisher = service
+        .publisher_factory
+        .open(
             shard_id,
             producer,
-            &service.publisher_factory,
             &labeling.stats_journal,
-            collection_specs,
+            &collection_specs,
         )
-        .context("creating publisher")?
-    };
+        .context("opening publisher")?;
 
     _ = controller_tx.send(Ok(proto::Capture {
         opened: Some(proto::capture::Opened { container }),
@@ -394,9 +401,11 @@ where
         connector_tx,
         db,
         metrics,
+        logger,
         publisher,
         shapes,
         task.clone(),
+        token_restart_at,
     )
     .serve(connector_rx, controller_rx, head, tail)
     .await?;
@@ -422,8 +431,9 @@ where
 /// against partially-advanced state — the connector's Apply must be idempotent
 /// across repeated invocations of the same target spec (see the `C:Apply` proto
 /// comment).
-async fn apply_loop<L: crate::LogHandler>(
-    service: &crate::shard::Service<L>,
+async fn apply_loop<P: crate::PublisherFactory, L: crate::LoggerFactory>(
+    service: &crate::shard::Service<P, L>,
+    logger: &L::Logger,
     mut db: crate::shard::RocksDB,
     binding_state_keys: &[String],
     last_applied: &bytes::Bytes,
@@ -459,11 +469,12 @@ async fn apply_loop<L: crate::LogHandler>(
             version: next_version.to_string(),
             last_capture: last_spec.clone(),
             last_version: last_version.clone(),
-            state_json: non_empty_state(connector_state_json),
+            state_json: connector_state_json.clone(),
         };
 
-        let (connector_tx, mut connector_rx, _container) = connector::start(
+        let (connector_tx, mut connector_rx, _container, _token_restart_at) = connector::start(
             service,
+            logger,
             log_level,
             capture::Request {
                 apply: Some(apply),
@@ -490,6 +501,10 @@ async fn apply_loop<L: crate::LogHandler>(
                 response => return Err(verify.fail_msg(response)),
             };
         verify.eof(connector_rx.next().await)?;
+
+        logger.event(crate::LogEvent::Applied {
+            action_description: &action_description,
+        });
 
         service_kit::event!(
             tracing::Level::INFO,
@@ -521,14 +536,14 @@ async fn apply_loop<L: crate::LogHandler>(
         *connector_state_json =
             crate::patches::apply_state_patches(connector_state_json, &applied_patches_json)?;
 
+        // Persist the iteration's patches, observing the delta as it's emitted.
+        let persist = proto::Persist {
+            connector_patches_json: applied_patches_json,
+            ..Default::default()
+        };
+        logger.event(crate::LogEvent::Persist { persist: &persist });
         db = db
-            .persist(
-                &proto::Persist {
-                    connector_patches_json: applied_patches_json,
-                    ..Default::default()
-                },
-                binding_state_keys,
-            )
+            .persist(&persist, binding_state_keys)
             .await
             .context("persisting capture Apply connector patches")?;
     }
@@ -537,16 +552,6 @@ async fn apply_loop<L: crate::LogHandler>(
         "capture apply loop did not converge after {MAX_APPLY_ITERATIONS} iterations; \
          connector continues to return state patches"
     );
-}
-
-/// Connector `state_json` defaults to an empty JSON object when no state has
-/// been persisted yet, since connectors expect a JSON document.
-fn non_empty_state(connector_state_json: &bytes::Bytes) -> bytes::Bytes {
-    if connector_state_json.is_empty() {
-        bytes::Bytes::from_static(b"{}")
-    } else {
-        connector_state_json.clone()
-    }
 }
 
 fn labels_build_for(spec: &flow::CaptureSpec) -> String {

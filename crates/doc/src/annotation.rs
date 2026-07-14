@@ -14,6 +14,11 @@ pub enum Annotation {
     Redact(redact::Strategy),
     /// "secret" or "airbyte_secret" annotation keyword.
     Secret(bool),
+    /// "nonsensitive" annotation keyword. Marks a location (or subtree) as not
+    /// security-relevant, meaning it may be carried in a plaintext `sops.overlay`
+    /// and modified without re-encrypting the configuration. This annotation must
+    /// only be added after human review, un-annotated locations are treated as sensitive.
+    Nonsensitive(bool),
     /// "multiline" annotation keyword marks fields that should have a multiline text input in the
     /// UI. This is from the airbyte spec.
     Multiline(bool),
@@ -41,6 +46,7 @@ impl schema::Annotation for Annotation {
             Annotation::Reduce(_) => "reduce",
             Annotation::Redact(_) => "redact",
             Annotation::Secret(_) => "secret",
+            Annotation::Nonsensitive(_) => "nonsensitive",
             Annotation::Multiline(_) => "multiline",
             Annotation::Advanced(_) => "advanced",
             Annotation::Order(_) => "order",
@@ -54,8 +60,8 @@ impl schema::Annotation for Annotation {
             // `x-str-minimum` / `x-str-maximum` are enforced validation keywords
             // not annotations so we need to preempt the starts_with("x-") check.
             schema::keywords::X_STR_MINIMUM | schema::keywords::X_STR_MAXIMUM => false,
-            "reduce" | "redact" | "secret" | "airbyte_secret" | "multiline" | "advanced"
-            | "order" | "discriminator" => true,
+            "reduce" | "redact" | "secret" | "airbyte_secret" | "nonsensitive" | "multiline"
+            | "advanced" | "order" | "discriminator" => true,
             key if key.starts_with("x-") || key.starts_with("X-") => true,
             _ => schema::CoreAnnotation::uses_keyword(keyword),
         }
@@ -69,6 +75,7 @@ impl schema::Annotation for Annotation {
             "redact" => Ok(Annotation::Redact(redact::Strategy::try_from(value)?)),
             "order" => Ok(Annotation::Order(i32::deserialize(value)?)),
             "secret" | "airbyte_secret" => Ok(Annotation::Secret(bool::deserialize(value)?)),
+            "nonsensitive" => Ok(Annotation::Nonsensitive(bool::deserialize(value)?)),
             "multiline" => Ok(Annotation::Multiline(bool::deserialize(value)?)),
             "advanced" => Ok(Annotation::Advanced(bool::deserialize(value)?)),
             "discriminator" => Ok(Annotation::Discriminator(value.clone())),

@@ -6,7 +6,6 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
@@ -130,7 +129,7 @@ func (c *captureAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.En
 
 	// Build Join from this current shard topology, and send.
 	var join *pr.Join
-	if join, err = c.buildJoin(shard); err != nil {
+	if join, err = c.buildJoin(); err != nil {
 		return fmt.Errorf("building Join: %w", err)
 	}
 	_ = c.client.Send(&pr.Capture{Join: join})
@@ -149,7 +148,6 @@ func (c *captureAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.En
 	_ = c.client.Send(&pr.Capture{
 		Task: &pr.Task{
 			Spec:            specBytes,
-			Preview:         false,
 			MaxTransactions: 0,
 		},
 	})
@@ -229,27 +227,30 @@ func (c *captureAppV2) Coordinator() *shuffle.Coordinator {
 	panic("runtime-v2: Coordinator unreachable")
 }
 
-func (c *captureAppV2) buildJoin(shard consumer.Shard) (*pr.Join, error) {
+func (c *captureAppV2) buildJoin() (*pr.Join, error) {
+	// Use the term's already-captured ShardSpec and labeling rather than
+	// shard.Spec(). Gazette's shard.Spec() re-acquires State.KS.Mu for read,
+	// and since it aliases the lock we hold below, a recursive read-lock under
+	// a queued Etcd writer would deadlock (Go blocks new readers once a writer
+	// waits). c.term is a coherent topology snapshot, so this is also correct.
+	var shardSpec = c.term.shardSpec
+
 	var ks = c.host.service.State.KS
 	ks.Mu.RLock()
 	defer ks.Mu.RUnlock()
 
 	var state = c.host.service.State
 	var rev = ks.Header.Revision
-	var asn, createRev, ok = primaryAssignment(state, shard.Spec().Id)
+	var asn, createRev, ok = primaryAssignment(state, shardSpec.Id)
 	if !ok {
-		return nil, fmt.Errorf("local shard %s does not have a PRIMARY assignment", shard.Spec().Id)
-	}
-	var labeling, err = labels.ParseShardLabels(shard.Spec().LabelSet)
-	if err != nil {
-		return nil, fmt.Errorf("parsing labels for %s: %w", shard.Spec().Id, err)
+		return nil, fmt.Errorf("local shard %s does not have a PRIMARY assignment", shardSpec.Id)
 	}
 
 	return &pr.Join{
 		EtcdModRevision: rev,
 		Shards: []*pr.Join_Shard{{
-			Id:                 shard.Spec().Id.String(),
-			Labeling:           &labeling,
+			Id:                 shardSpec.Id.String(),
+			Labeling:           &c.term.labels,
 			Reactor:            &pb.ProcessSpec_ID{Zone: asn.MemberZone, Suffix: asn.MemberSuffix},
 			EtcdCreateRevision: createRev,
 		}},

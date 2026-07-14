@@ -327,7 +327,7 @@ pub fn recv_client_start_commit(
     txn: &mut Transaction,
 ) -> anyhow::Result<(Request, rocksdb::WriteBatch)> {
     let verify = verify("client", "StartCommit with runtime_checkpoint");
-    let request = verify.not_eof(request)?;
+    let mut request = verify.not_eof(request)?;
 
     let Request {
         start_commit:
@@ -335,7 +335,7 @@ pub fn recv_client_start_commit(
                 runtime_checkpoint: Some(runtime_checkpoint),
             }),
         ..
-    } = &request
+    } = &mut request
     else {
         return verify.fail(request);
     };
@@ -343,6 +343,17 @@ pub fn recv_client_start_commit(
     // TODO(johnny): Diff the previous and current checkpoint to build a
     // merge-able, incremental update that's written to the WriteBatch.
     let _last_checkpoint = last_checkpoint;
+
+    // The V2 leader stamps a synthetic "committed-close" source into the
+    // consumer.Checkpoint on each commit, recording the V2 RocksDB epoch.
+    // If V1 inherits a checkpoint from a prior V2 run, the marker is
+    // preserved verbatim across V1 commits. A subsequent V2 rollforward
+    // would then mistake the stale marker for an in-sync RocksDB state
+    // and ignore the legacy_checkpoint, resuming from V2's stale frontier
+    // and re-processing whatever V1 had advanced past. Strip the marker
+    // so V2 startup treats V1's advanced sources as authoritative.
+    runtime_checkpoint.sources.remove("committed-close");
+    let runtime_checkpoint = runtime_checkpoint.clone();
 
     let mut wb = rocksdb::WriteBatch::default();
 
@@ -352,7 +363,7 @@ pub fn recv_client_start_commit(
     );
     wb.put(RocksDB::CHECKPOINT_KEY, runtime_checkpoint.encode_to_vec());
 
-    txn.checkpoint = runtime_checkpoint.clone();
+    txn.checkpoint = runtime_checkpoint;
 
     Ok((request, wb))
 }

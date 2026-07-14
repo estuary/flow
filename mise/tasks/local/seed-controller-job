@@ -4,7 +4,10 @@ set -euo pipefail
 #MISE description="Seed a controller job to trigger data plane converge"
 #MISE depends=["local:supabase"]
 
-PGURL="postgresql://postgres:postgres@localhost:5432/postgres"
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
+
+PGURL="postgresql://postgres:postgres@localhost:${FLOW_PORT_SUPABASE_DB}/postgres"
 
 # 1. Find the most recent data plane
 DATA_PLANE_QUERY="
@@ -20,7 +23,7 @@ DATA_PLANE_INFO=$(psql "${PGURL}" -t -A -F'|' -c "${DATA_PLANE_QUERY}")
 # 2. Validate data plane exists
 if [ -z "${DATA_PLANE_INFO}" ]; then
     echo "Error: No data plane found."
-    echo "Please run: mise run local:data-plane local-cluster 8100 --num-brokers 1 --num-reactors 1 --link"
+    echo "Please run: mise run local:stack (or mise run local:data-plane ${FLOW_CLUSTER} ${FLOW_PLANE_BASE} --num-brokers 1 --num-reactors 1 --link)"
     exit 1
 fi
 
@@ -42,7 +45,7 @@ UPDATE data_planes
 SET config = '{
     \"builds_root\": \"file:///tmp/flow-local/builds/\",
     \"gcp_project\": \"local-dev\",
-    \"control_plane_api\": \"http://agent.flow.localhost:8675/\",
+    \"control_plane_api\": \"http://agent.flow.localhost:${FLOW_PORT_AGENT}/\",
     \"data_buckets\": [],
     \"builds_kms_keys\": [],
     \"ssh_subnets\": [],

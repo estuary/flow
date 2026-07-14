@@ -32,7 +32,9 @@ jobs:
             - name: Cache Rust workspace
               uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
               with:
-                  workspaces: ". -> ../../../cargo-target"
+                  # CI's single checkout registers as index 0 / `flow`, so the
+                  # per-stack target dir is ../../../cargo-target/flow.
+                  workspaces: ". -> ../../../cargo-target/flow"
 
             - name: Cache RocksDB
               uses: actions/cache@v4
@@ -58,5 +60,5 @@ jobs:
             - run: mise run ci:gnu-dev
             - run: mise run build:gazette
             - run: mise run build:flowctl-go
-            - run: mise run local:stack
+            - run: mise run local:stack --dekaf
             - run: mise run ci:dekaf-e2e

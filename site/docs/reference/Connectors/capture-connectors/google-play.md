@@ -1,3 +1,6 @@
+---
+description: Use Estuary's Google Play connector to capture from monthly reports for crashes, installs, and reviews with Google service account credentials.
+---
 
 # Google Play
 

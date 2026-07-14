@@ -20,7 +20,7 @@ enum Phase {
 }
 
 /// Shard-side derivation reactor for one joined leader session.
-pub(super) struct Actor {
+pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // FIFO of outbound connector requests, drained head-first into
     // `connector_tx` as channel capacity permits.
     connector_pending: Vec<derive::Request>,
@@ -34,33 +34,40 @@ pub(super) struct Actor {
     db_persist_fut:
         Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Persisted)>>>,
     // Output-combiner drain + publish future, when in flight.
-    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output>>>,
+    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
     // Channel for sending to the leader.
     leader_tx: mpsc::UnboundedSender<proto::Derive>,
     // Per-session metrics counters.
     metrics: super::Metrics,
+    // Logger through which the drain reports inferred-schema updates. Cloned
+    // into each drain future.
+    logger: L,
     // Publisher for derived documents; parked while a drain borrows it.
-    publisher: Option<crate::Publisher>,
+    publisher: Option<P>,
     // C:Published measures of the open transaction (reset at each L:Store).
     published_docs: u64,
     published_bytes: u64,
     // C:Published measures snapshotted at L:Store for the in-flight drain's L:Stored.
     staged_published_docs: u64,
     staged_published_bytes: u64,
+    // Long-lived per-journal throttle policy, fed once per transaction
+    split_policy: crate::shard::split_policy::SplitPolicy,
+    split_fut: Option<crate::shard::SplitFuture>,
     // Task being executed.
     task: Arc<Task>,
     // Inferred write shape; parked while a drain borrows it.
     write_shape: Option<doc::Shape>,
 }
 
-impl Actor {
+impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         codec: connector_init::Codec,
         connector_tx: mpsc::Sender<derive::Request>,
         db: crate::shard::RocksDB,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
         metrics: super::Metrics,
-        publisher: crate::Publisher,
+        logger: L,
+        publisher: P,
         task: Arc<Task>,
         write_shape: doc::Shape,
     ) -> Self {
@@ -73,29 +80,32 @@ impl Actor {
             drain_fut: None,
             leader_tx,
             metrics,
+            logger,
             publisher: Some(publisher),
             published_docs: 0,
             published_bytes: 0,
             staged_published_docs: 0,
             staged_published_bytes: 0,
+            split_policy: crate::shard::split_policy::SplitPolicy::new(),
+            split_fut: None,
             task,
             write_shape: Some(write_shape),
         }
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<R, C, L>(
+    pub async fn serve<Ctrl, Conn, Ldr>(
         mut self,
         accumulator: crate::Accumulator,
-        connector_rx: &mut C,
-        controller_rx: &mut R,
-        leader_rx: &mut L,
+        connector_rx: &mut Conn,
+        controller_rx: &mut Ctrl,
+        leader_rx: &mut Ldr,
         shuffle_reader: shuffle::log::Reader,
     ) -> anyhow::Result<crate::shard::RocksDB>
     where
-        R: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
-        C: futures::Stream<Item = tonic::Result<derive::Response>> + Send + Unpin + 'static,
-        L: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
+        Ctrl: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
+        Conn: futures::Stream<Item = tonic::Result<derive::Response>> + Send + Unpin + 'static,
+        Ldr: futures::Stream<Item = tonic::Result<proto::Derive>> + Send + Unpin + 'static,
     {
         // Source-document validators, indexed by transform. Built once and lent
         // to each `Scanner::step` to re-validate documents that the shuffle read
@@ -130,6 +140,7 @@ impl Actor {
                 drain_in_flight = self.drain_fut.is_some(),
                 persist_in_flight = self.db_persist_fut.is_some(),
                 phase = phase_kind,
+                split_in_flight = self.split_fut.is_some(),
                 "shard derive Actor::serve iteration"
             );
 
@@ -224,6 +235,10 @@ impl Actor {
                     self.write_shape = Some(output.write_shape);
                     self.drain_fut = None;
 
+                    // The drain just flushed this transaction's collection appends,
+                    // check the throttling stats
+                    self.observe_throttle();
+
                     service_kit::event!(
                         tracing::Level::DEBUG,
                         "leader",
@@ -242,6 +257,15 @@ impl Actor {
                         }),
                         ..Default::default()
                     });
+                }
+                // An automatic journal-split completion.
+                (journal, outcome) = maybe_fut(&mut self.split_fut) => {
+                    crate::shard::finish_split(
+                        &mut self.split_policy,
+                        &journal,
+                        outcome,
+                        std::time::Instant::now(),
+                    );
                 }
                 // Wait for capacity to send to the connector.
                 true = wake_connector_tx => {}
@@ -377,10 +401,19 @@ impl Actor {
 
             let task = Arc::clone(&self.task);
             let metrics = self.metrics.clone();
+            let logger = self.logger.clone();
             self.drain_fut = Some(
                 async move {
-                    drain::drain_and_publish(drainer, parser, publisher, task, write_shape, metrics)
-                        .await
+                    drain::drain_and_publish(
+                        drainer,
+                        parser,
+                        publisher,
+                        task,
+                        write_shape,
+                        metrics,
+                        logger,
+                    )
+                    .await
                 }
                 .boxed(),
             );
@@ -414,6 +447,27 @@ impl Actor {
         }
 
         Ok((phase, false))
+    }
+
+    /// Drain this transaction's per-journal throttle samples from the publisher
+    /// and feed them into the long-lived split policy, then start a split of
+    /// at most one persistently-throttled journal — off the hot path, parked
+    /// as `split_fut`.
+    fn observe_throttle(&mut self) {
+        // Callers ensure the publisher is Some whenever this is called, so unwrap here.
+        let publisher = self
+            .publisher
+            .as_mut()
+            .expect("publisher is Some whenever observe_throttle is called");
+        let now = std::time::Instant::now();
+        crate::shard::observe_throttle_samples(
+            &mut self.split_policy,
+            publisher.take_throttle_samples(),
+            now,
+        );
+        if self.split_fut.is_none() {
+            self.split_fut = crate::shard::start_due_split(&mut self.split_policy, publisher, now);
+        }
     }
 
     fn on_connector_response(
@@ -515,7 +569,6 @@ mod tests {
     use super::super::task::Transform;
     use super::*;
     use proto_flow::derive::response;
-    use proto_flow::flow;
     use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
     fn test_task() -> Task {
@@ -534,6 +587,89 @@ mod tests {
             write_schema_json: bytes::Bytes::from_static(b"{}"),
             write_shape: doc::Shape::nothing(),
         }
+    }
+
+    /// `observe_throttle` parks at most one split for a due journal, never
+    /// replaces an in-flight split, and is suppressed by cooldown and by the
+    /// terminal `ignore` set.
+    #[tokio::test]
+    async fn observe_throttle_split_dispatch() {
+        let (actor_to_conn_tx, _conn_rx) = mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
+        let (actor_to_leader_tx, _leader_rx) = mpsc::unbounded_channel::<proto::Derive>();
+        let task = Arc::new(test_task());
+
+        let spec = proto_flow::flow::CollectionSpec {
+            name: task.collection_name.clone(),
+            partition_template: Some(proto_gazette::broker::JournalSpec {
+                name: "test/derived/v1".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let publisher = crate::JournalPublisher::new_test_real([&spec]);
+        let write_shape = task.write_shape.clone();
+
+        let mut actor = Actor::new(
+            connector_init::Codec::Proto,
+            actor_to_conn_tx,
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            actor_to_leader_tx,
+            super::super::Metrics::new("test/shard"),
+            crate::TracingLogger,
+            publisher,
+            task,
+            write_shape,
+        );
+
+        // Seed a policy under which the observed journal is immediately due.
+        const J: &str = "test/derived/v1/pivot=00";
+        actor.split_policy = crate::shard::split_policy::SplitPolicy::with_config(
+            crate::shard::split_policy::Config {
+                threshold: -1.0,
+                min_observation_span: std::time::Duration::ZERO,
+                ..Default::default()
+            },
+        );
+        actor
+            .split_policy
+            .observe(J, true, std::time::Instant::now());
+
+        // Exactly one split is dispatched and parked for the due journal.
+        actor.observe_throttle();
+        assert!(actor.split_fut.is_some());
+
+        // An in-flight split is never replaced: park a sentinel, re-evaluate
+        // (J is still due), and observe the sentinel itself resolve.
+        actor.split_fut = Some(
+            async {
+                (
+                    "sentinel".to_string(),
+                    Ok(publisher::SplitOutcome::Transient),
+                )
+            }
+            .boxed(),
+        );
+        actor.observe_throttle();
+        let (journal, _outcome) = actor.split_fut.take().unwrap().await;
+        assert_eq!(journal, "sentinel");
+
+        // A completed split puts J in cooldown: nothing re-dispatches.
+        crate::shard::finish_split(
+            &mut actor.split_policy,
+            J,
+            Ok(publisher::SplitOutcome::Split),
+            std::time::Instant::now(),
+        );
+        actor.observe_throttle();
+        assert!(actor.split_fut.is_none());
+
+        // An ignored journal never re-triggers, even under fresh pressure.
+        actor.split_policy.ignore(J);
+        actor
+            .split_policy
+            .observe(J, true, std::time::Instant::now());
+        actor.observe_throttle();
+        assert!(actor.split_fut.is_none());
     }
 
     /// Drive `Actor::serve` end-to-end over mpsc channels standing in for the
@@ -559,10 +695,6 @@ mod tests {
 
         let task = Arc::new(test_task());
         let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
-        let publisher = crate::Publisher::new_preview([&flow::CollectionSpec {
-            name: task.collection_name.clone(),
-            ..Default::default()
-        }]);
         let write_shape = task.write_shape.clone();
         let db = crate::shard::RocksDB::open(None).await.unwrap();
         let shuffle_dir = tempfile::tempdir().unwrap();
@@ -574,7 +706,8 @@ mod tests {
             db,
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
-            publisher,
+            crate::TracingLogger,
+            crate::publish::NoopPublisher,
             task,
             write_shape,
         );

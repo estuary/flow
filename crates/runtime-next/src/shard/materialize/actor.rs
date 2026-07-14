@@ -55,6 +55,10 @@ pub(super) struct Actor {
     max_keys: Vec<(Bytes, Bytes)>,
     // Per-session metrics counters.
     metrics: super::Metrics,
+    // When Some, a deadline at which we ask the leader for a graceful session
+    // stop, ahead of the expiry of IAM credentials injected into the connector
+    // config. The session's restart re-runs the connector with fresh tokens.
+    token_restart_at: Option<tokio::time::Instant>,
 }
 
 impl Actor {
@@ -68,7 +72,16 @@ impl Actor {
         leader_tx: mpsc::UnboundedSender<proto::Materialize>,
         max_keys: Vec<(Bytes, Bytes)>,
         metrics: super::Metrics,
+        token_restart_at: Option<std::time::SystemTime>,
     ) -> Self {
+        // Map the wall-clock deadline onto the monotonic clock driving `serve`.
+        let token_restart_at = token_restart_at.map(|at| {
+            let delay = at
+                .duration_since(std::time::SystemTime::now())
+                .unwrap_or_default();
+            tokio::time::Instant::now() + delay
+        });
+
         Self {
             bindings,
             connector_pending: Vec::new(),
@@ -82,22 +95,23 @@ impl Actor {
             load_keys: Default::default(),
             max_keys,
             metrics,
+            token_restart_at,
         }
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<R, C, L>(
+    pub async fn serve<Ctrl, Conn, Ldr>(
         mut self,
         accumulator: crate::Accumulator,
-        connector_rx: &mut C,
-        controller_rx: &mut R,
-        leader_rx: &mut L,
+        connector_rx: &mut Conn,
+        controller_rx: &mut Ctrl,
+        leader_rx: &mut Ldr,
         shuffle_reader: shuffle::log::Reader,
     ) -> anyhow::Result<crate::shard::RocksDB>
     where
-        R: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
-        C: futures::Stream<Item = tonic::Result<materialize::Response>> + Send + Unpin + 'static,
-        L: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
+        Ctrl: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
+        Conn: futures::Stream<Item = tonic::Result<materialize::Response>> + Send + Unpin + 'static,
+        Ldr: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
     {
         let mut phase = Phase::Idle {
             accumulator,
@@ -242,6 +256,21 @@ impl Actor {
                 }
                 // Next, wait for capacity to send to the connector.
                 true = wake_connector_tx => {}
+                // Next, a graceful session restart ahead of IAM token expiry.
+                // The leader Stops at the next transaction boundary, and the
+                // restarted session mints fresh tokens for the connector.
+                _ = maybe_deadline(self.token_restart_at) => {
+                    service_kit::event!(
+                        tracing::Level::INFO,
+                        "leader",
+                        "injected IAM credentials expire soon; requesting graceful session stop",
+                    );
+                    _ = self.leader_tx.send(proto::Materialize {
+                        stop: Some(proto::Stop {}),
+                        ..Default::default()
+                    });
+                    self.token_restart_at = None;
+                }
                 // Periodic tick ensures the iteration trace fires even when otherwise idle.
                 _ = ticker.tick() => {}
             }
@@ -538,6 +567,13 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> T {
     }
 }
 
+async fn maybe_deadline(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,6 +614,7 @@ mod tests {
                 flushed: HashMap::new(),
                 max_keys: Vec::new(),
                 metrics: super::super::Metrics::new("test/shard"),
+                token_restart_at: None,
             },
             leader_rx,
             connector_rx,
@@ -675,6 +712,7 @@ mod tests {
             flushed: HashMap::new(),
             max_keys: Vec::new(),
             metrics: super::super::Metrics::new("test/shard"),
+            token_restart_at: None,
         };
 
         let accumulator =

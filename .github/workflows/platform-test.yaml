@@ -43,7 +43,7 @@ jobs:
       - name: Cache Rust workspace
         uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
         with:
-          workspaces: ". -> ../../../cargo-target"
+          workspaces: ". -> ../../../cargo-target/flow"
 
       - name: Cache RocksDB
         uses: actions/cache@v4
@@ -94,7 +94,7 @@ jobs:
       - name: Cache Rust workspace
         uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
         with:
-          workspaces: ". -> ../../../cargo-target"
+          workspaces: ". -> ../../../cargo-target/flow"
 
       - name: Cache RocksDB
         uses: actions/cache@v4
@@ -135,7 +135,10 @@ jobs:
         env:
           STRIPE_API_KEY: ${{ secrets.STRIPE_TESTMODE_API_KEY }}
         if: env.STRIPE_API_KEY != ''
-        run: cargo nextest run --frozen --run-ignored ignored-only -E 'test(graphql_billing_live_stripe)'
+        # Run via `mise exec` so the ambient stack env (FLOW_PG_URL for the DB,
+        # CARGO_TARGET_DIR for --frozen binaries) is present; the agent
+        # integration tests read FLOW_PG_URL at runtime.
+        run: mise exec -- cargo nextest run --frozen --run-ignored ignored-only -E 'test(graphql_billing_live_stripe)'
 
       - run: mise run ci:doctest
       - run: mise run ci:gotest

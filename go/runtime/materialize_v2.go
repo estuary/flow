@@ -221,7 +221,6 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 	_ = m.client.Send(&pr.Materialize{
 		Task: &pr.Task{
 			Spec:            specBytes,
-			Preview:         false,
 			MaxTransactions: 0,
 		},
 	})

@@ -1,3 +1,6 @@
+---
+description: Analyze Meta ad performance with Estuary's Facebook Ads connector for campaigns, ad sets, creatives, and insights. Configure OAuth2 or access token authentication.
+---
 
 # Facebook Ads (Meta)
 

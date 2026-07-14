@@ -1,5 +1,6 @@
 ---
 sidebar_position: 1
+description: Review Estuary security features, including data and connector secret encryption, immutable infrastructure, RBAC, and guides on using IAM, PrivateLink, and redaction.
 ---
 
 # Security Features

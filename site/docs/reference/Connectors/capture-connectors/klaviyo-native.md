@@ -1,3 +1,7 @@
+---
+description: Sync Klaviyo marketing data with Estuary, including campaigns, flows, events, lists, profiles, and segments, with API key setup and backfill window settings.
+---
+
 # Klaviyo
 
 This connector captures data from Klaviyo into Estuary collections.

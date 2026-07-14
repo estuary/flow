@@ -1,3 +1,7 @@
+---
+description: Bring Looker analytics metadata into Estuary, including dashboards, folders, LookML models, explores, roles, and users.
+---
+
 # Looker
 
 This connector captures data from [Looker](https://cloud.google.com/looker/docs/reference/looker-api/latest) into Estuary collections.

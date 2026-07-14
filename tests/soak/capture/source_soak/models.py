@@ -170,6 +170,18 @@ class Captured(BaseModel):
     doc: Any  # The event document; events.schema.json is its single source of truth.
 
 
+class SourcedSchema(BaseModel):
+    """flow.capture.Response.SourcedSchema: a partial, connector-authoritative
+    document schema for a binding. The runtime intersects it with the write schema
+    and unions it into the binding's running inferred shape (README "Schema
+    inference"). `schema_json` serializes as `documentSchema`, an inline JSON schema
+    object. It is transactional — taking effect at the next Checkpoint — so we emit
+    it before the first captured docs of a session."""
+
+    binding: int
+    documentSchema: dict[str, Any]
+
+
 class Checkpoint(BaseModel):
     state: ConnectorState
 
@@ -183,4 +195,5 @@ class Response(BaseModel):
     applied: Applied | None = None
     opened: Opened | None = None
     captured: Captured | None = None
+    sourcedSchema: SourcedSchema | None = None
     checkpoint: Checkpoint | None = None

@@ -1,3 +1,6 @@
+---
+description: Run Estuary data infrastructure in a private cloud environment for enhanced security and regional control in an isolated data plane.
+---
 
 # Private Deployments
 

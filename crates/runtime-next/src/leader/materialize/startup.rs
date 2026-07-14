@@ -11,21 +11,23 @@ use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 
 /// Outcomes of the leader protocol startup phase.
-pub(super) struct Startup {
+pub(super) struct Startup<P: crate::Publisher, S: crate::leader::ShuffleSession, L: crate::Logger> {
     // Clock at which the last-committed transaction closed.
     pub committed_close: uuid::Clock,
     // Fully committed Frontier.
     pub committed_frontier: shuffle::Frontier,
     // Is the first transaction an idempotent replay of a recovered hinted Frontier?
     pub idempotent_replay: bool,
+    // Logger of task-centric state changes and events.
+    pub logger: L,
     // Recovered ACK intents of the last transaction.
     pub pending_ack_intents: BTreeMap<String, Bytes>,
     // Recovered variables for the task.
     pub pending_trigger_params: Bytes,
     // Publisher for writing stats and ACK intents.
-    pub publisher: crate::Publisher,
+    pub publisher: P,
     // Initiated shuffle session for the task and topology.
-    pub session: shuffle::SessionClient,
+    pub session: S,
     // Task definition.
     pub task: Task,
 }
@@ -36,17 +38,21 @@ pub(super) struct Startup {
     skip_all,
     fields(shard_zero = %shard_ids[0], shards = shard_ids.len())
 )]
-pub(super) async fn run(
+pub(super) async fn run<
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    L: crate::LoggerFactory,
+>(
     build: String,
     drop_v1_rollback: bool,
     ops_stats_journal: String,
     reactors: Vec<String>,
     shard_rx: &mut Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
     shard_tx: &Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
-    service: &crate::Service,
+    service: &crate::Service<S, P, L>,
     shard_ids: Vec<String>,
     shard_shuffles: Vec<shuffle::proto::Shard>,
-) -> anyhow::Result<Startup> {
+) -> anyhow::Result<Startup<P::Publisher, S::Session, L::Logger>> {
     let n_shards = reactors.len();
     assert_eq!(n_shards, shard_rx.len());
     assert_eq!(n_shards, shard_tx.len());
@@ -80,7 +86,6 @@ pub(super) async fn run(
 
     // Build task definition.
     let proto::Task {
-        preview,
         max_transactions,
         spec: spec_bytes,
         sqlite_vfs_uri: _,
@@ -93,19 +98,19 @@ pub(super) async fn run(
         .await
         .context("building task definition")?;
 
-    // Initialize publisher.
-    let publisher = if preview {
-        crate::Publisher::new_preview([])
-    } else {
-        crate::Publisher::new_real(
+    // Open a Logger for runtime events, bound to the task.
+    let logger = service.logger_factory.open(&task.shard_ref.name);
+
+    // Open a publisher for stats and ACK intents (no collection bindings).
+    let publisher = service
+        .publisher_factory
+        .open(
             shard_ids[0].clone(), // Shard zero is AuthZ subject.
             crate::publish::producer_from_bytes(&publisher_id)?,
-            &service.publisher_factory,
             &ops_stats_journal,
-            [], // No additional bindings.
+            &[],
         )
-        .context("creating publisher")?
-    };
+        .context("opening publisher")?;
 
     // Receive Recover fan-in.
     let proto::Recover {
@@ -153,6 +158,7 @@ pub(super) async fn run(
         &spec_bytes,
         &task.shard_ref.build,
         &mut connector_state_json,
+        &logger,
     )
     .await?;
 
@@ -335,19 +341,17 @@ pub(super) async fn run(
     let shuffle_task = shuffle::proto::Task {
         task: Some(shuffle::proto::task::Task::Materialization(spec)),
     };
-    let session = shuffle::SessionClient::open(
-        &service.shuffle_service,
-        shuffle_task,
-        shard_shuffles,
-        resume_frontier,
-    )
-    .await
-    .context("opening shuffle Session")?;
+    let session = service
+        .shuffle_factory
+        .open(shuffle_task, shard_shuffles, resume_frontier)
+        .await
+        .context("opening shuffle Session")?;
 
     Ok(Startup {
         committed_close,
         committed_frontier,
         idempotent_replay,
+        logger,
         pending_ack_intents,
         pending_trigger_params,
         publisher,
@@ -411,7 +415,7 @@ async fn send_persist(
 // with the OLD `last_applied` against the partially-advanced state,
 // requiring the connector's Apply to be idempotent across repeated
 // invocations of the same target spec.
-async fn apply_loop(
+async fn apply_loop<L: crate::Logger>(
     rx: &mut BoxStream<'static, tonic::Result<proto::Materialize>>,
     tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     peer: &str,
@@ -419,6 +423,7 @@ async fn apply_loop(
     next_applied: &Bytes,
     next_version: &str,
     connector_state_json: &mut Bytes,
+    logger: &L,
 ) -> anyhow::Result<()> {
     let verify_applied = crate::verify("Materialize", "Applied", peer);
     let last_version = if last_applied.is_empty() {
@@ -455,13 +460,16 @@ async fn apply_loop(
                     }),
                 ..
             } => {
-                let patches_clone: bytes::Bytes = connector_patches_json.clone();
+                logger.event(crate::LogEvent::Applied {
+                    action_description: &action_description,
+                });
+
                 service_kit::event!(
                     tracing::Level::INFO,
                     "leader",
                     iteration,
-                    action_description = action_description.clone(),
-                    patches = service_kit::event::debug(patches_clone),
+                    action_description,
+                    patches = service_kit::event::debug(connector_patches_json.clone()),
                     "connector Apply completed",
                 );
                 connector_patches_json
@@ -501,18 +509,14 @@ async fn apply_loop(
         *connector_state_json =
             crate::patches::apply_state_patches(connector_state_json, &applied_patches_json)?;
 
-        // Persist the iteration's patches to shard zero.
-        send_persist(
-            rx,
-            tx,
-            peer,
-            proto::Persist {
-                seq_no: iteration, // End-of-sequence.
-                connector_patches_json: applied_patches_json,
-                ..Default::default()
-            },
-        )
-        .await?;
+        // Persist the iteration's patches to shard zero, observing the delta.
+        let persist = proto::Persist {
+            seq_no: iteration, // End-of-sequence.
+            connector_patches_json: applied_patches_json,
+            ..Default::default()
+        };
+        logger.event(crate::LogEvent::Persist { persist: &persist });
+        send_persist(rx, tx, peer, persist).await?;
     }
 
     anyhow::bail!(
@@ -603,9 +607,18 @@ mod tests {
 
         let same = Bytes::new();
         let mut state = Bytes::from_static(b"{\"k\":1}");
-        apply_loop(&mut rx, &leader_tx, "p", &same, &same, "v1", &mut state)
-            .await
-            .unwrap();
+        apply_loop(
+            &mut rx,
+            &leader_tx,
+            "p",
+            &same,
+            &same,
+            "v1",
+            &mut state,
+            &crate::TracingLogger,
+        )
+        .await
+        .unwrap();
 
         let m = leader_rx.try_recv().unwrap().unwrap();
         let apply = m.apply.expect("Apply was sent");
@@ -629,9 +642,18 @@ mod tests {
         let last = Bytes::new();
         let next = Bytes::from_static(b"new-spec-bytes");
         let mut state = Bytes::from_static(b"{}");
-        apply_loop(&mut rx, &leader_tx, "p", &last, &next, "v2", &mut state)
-            .await
-            .unwrap();
+        apply_loop(
+            &mut rx,
+            &leader_tx,
+            "p",
+            &last,
+            &next,
+            "v2",
+            &mut state,
+            &crate::TracingLogger,
+        )
+        .await
+        .unwrap();
 
         let m1 = leader_rx.try_recv().unwrap().unwrap();
         let apply = m1.apply.unwrap();
@@ -668,9 +690,18 @@ mod tests {
         let last = Bytes::new();
         let next = Bytes::from_static(b"spec");
         let mut state = Bytes::from_static(br#"{"nested":{"a":0},"keep":"v0","drop":"x"}"#);
-        apply_loop(&mut rx, &leader_tx, "p", &last, &next, "v2", &mut state)
-            .await
-            .unwrap();
+        apply_loop(
+            &mut rx,
+            &leader_tx,
+            "p",
+            &last,
+            &next,
+            "v2",
+            &mut state,
+            &crate::TracingLogger,
+        )
+        .await
+        .unwrap();
 
         // Apply (iter 1) — connector observes the original state.
         let apply1 = leader_rx.try_recv().unwrap().unwrap().apply.unwrap();
@@ -775,9 +806,18 @@ mod tests {
             let last = Bytes::new();
             let next = Bytes::from_static(b"spec");
             let mut state = Bytes::from_static(b"{}");
-            let err = apply_loop(&mut rx, &leader_tx, "p", &last, &next, "v2", &mut state)
-                .await
-                .unwrap_err();
+            let err = apply_loop(
+                &mut rx,
+                &leader_tx,
+                "p",
+                &last,
+                &next,
+                "v2",
+                &mut state,
+                &crate::TracingLogger,
+            )
+            .await
+            .unwrap_err();
             let s = format!("{err:?}");
             assert!(
                 s.contains(case.expect),

@@ -31,7 +31,7 @@ TAG="${1:-local}"
 
 echo "Adding connector image_name: '${CONNECTOR}', image_tag: '${TAG}'" 1>&2
 
-psql 'postgres://postgres:postgres@localhost:5432/postgres' <<EOF
+psql "${FLOW_PG_URL:?FLOW_PG_URL must be set — run via 'mise run' (see local/README.md)}" <<EOF
     begin;
 
     insert into connectors (image_name, title, short_description, logo_url, external_url, recommended) values (

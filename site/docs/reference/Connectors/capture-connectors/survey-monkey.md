@@ -1,3 +1,7 @@
+---
+description: Use the SurveyMonkey connector to sync surveys, pages, questions, and responses, using OAuth or an access token, with caching to handle API limits.
+---
+
 # Survey Monkey
 
 This connector captures data from SurveyMonkey surveys into Estuary collections via the SurveyMonkey API.

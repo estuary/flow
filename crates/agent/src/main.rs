@@ -127,6 +127,7 @@ struct Args {
     /// Optional api key for sending alert notification emails via resend. If
     /// not provided, then sending alert emails will be disabled, and any alert
     /// emails that would be sent will instead be logged as warnings.
+    #[derivative(Debug = "ignore")]
     #[clap(
         long,
         env,
@@ -151,6 +152,13 @@ struct Args {
     #[clap(long, env, default_value = "1h")]
     #[arg(value_parser = humantime::parse_duration)]
     tenant_alert_interval: std::time::Duration,
+
+    /// When `true`, any *newly-created* capture without an explicit
+    /// `enable-runtime-v2` shard flag is published onto runtime v2. Existing
+    /// captures are unaffected, and an explicit per-task flag always takes
+    /// precedence.
+    #[clap(long, env = "RUNTIME_V2_NEW_CAPTURES", default_value = "false")]
+    runtime_v2_new_captures: bool,
 
     #[command(flatten)]
     controller_config: agent::controllers::ControllerConfig,
@@ -197,12 +205,6 @@ fn main() -> Result<(), anyhow::Error> {
 }
 
 async fn async_main(args: Args) -> Result<(), anyhow::Error> {
-    // Bind early in the application lifecycle, to not fail requests which may dispatch
-    // as soon as the process is up (for example, Tilt on local stacks).
-    let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
-        .await
-        .context("failed to bind server port")?;
-
     let flowctl_go = locate_bin::locate("flowctl-go")?;
 
     // The HOSTNAME variable will be set to the name of the pod in k8s
@@ -229,24 +231,22 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     };
 
     let pg_pool = sqlx::postgres::PgPoolOptions::new()
-            .acquire_timeout(std::time::Duration::from_secs(5))
-            .after_release(|conn, meta| {
-                let fut = async move {
-                    let r =tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                                        conn.ping()
-                                    });
-                    if let Err(err) = r.await {
-                        tracing::warn!(error = ?err, conn_meta = ?meta, "connection was put back in a bad state, removing from the pool");
-                        Ok(false)
-                    } else {
-                        Ok(true) // connection is good
-                    }
-                };
-                fut.boxed()
-            })
-            .connect_with(pg_options)
-        .await
-        .context("connecting to database")?;
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .after_release(|conn, meta| {
+            let fut = async move {
+                let r = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    conn.ping()
+                });
+                if let Err(err) = r.await {
+                    tracing::warn!(error = ?err, conn_meta = ?meta, "connection was put back in a bad state, removing from the pool");
+                    Ok(false)
+                } else {
+                    Ok(true) // connection is good
+                }
+            };
+            fut.boxed()
+        })
+        .connect_lazy_with(pg_options);
 
     // Periodically log information about the connection pool to aid in debugging.
     let pool_copy = pg_pool.clone();
@@ -264,9 +264,27 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         }
     });
 
-    let system_user_id = control_plane_api::get_user_id_for_email(&args.accounts_email, &pg_pool)
-        .await
-        .context("querying for agent user id")?;
+    // A fresh Cloud Run instance with direct VPC egress can take tens of seconds
+    // before its network interface passes outbound traffic. Retry transient
+    // failures of this first query against a generous deadline, rather than
+    // raising the pool's acquire_timeout, which also bounds request-path
+    // acquires at runtime. Non-transient errors (bad credentials, TLS or query
+    // failures) exit immediately so that misconfiguration surfaces fast.
+    let startup_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+    let system_user_id = loop {
+        match control_plane_api::get_user_id_for_email(&args.accounts_email, &pg_pool).await {
+            Ok(user_id) => break user_id,
+            Err(err @ (sqlx::Error::PoolTimedOut | sqlx::Error::Io(_)))
+                if tokio::time::Instant::now() < startup_deadline =>
+            {
+                tracing::warn!(error = ?err, "initial database query failed; retrying");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            Err(err) => {
+                return Err(anyhow::Error::new(err).context("querying for agent user id"));
+            }
+        }
+    };
     let jwt_secret: String =
         std::env::var("CONTROL_PLANE_JWT_SECRET").context("missing CONTROL_PLANE_JWT_SECRET")?;
 
@@ -297,11 +315,31 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     }
 
     // Share-able future which completes when the agent should exit.
-    let shutdown = tokio::signal::ctrl_c().map(|_| ()).shared();
+    // Cloud Run and Kubernetes signal shutdown with SIGTERM; SIGINT covers
+    // interactive use.
+    let shutdown = async {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+    .shared();
 
     // Create the snapshot source and start the refresh loop.
+    // Snapshot fetches retry internally forever, so a persistent failure (a
+    // broken query, sops / KMS breakage) would otherwise hang here with the
+    // port unbound and nothing logged at error level. Bound the wait so that
+    // startup fails visibly, and fits within Cloud Run's 240s startup probe
+    // window even after the database retry budget above.
     let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pg_pool.clone());
-    let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
+    let snapshot_watch = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        tokens::watch(snapshot_source).ready_owned(),
+    )
+    .await
+    .context("timed out fetching the initial authorization snapshot")?;
 
     let controller_publication_cooldown =
         chrono::Duration::from_std(args.controller_publication_cooldown)?;
@@ -324,6 +362,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                 api_key,
             )) as Arc<dyn control_plane_api::billing::BillingProvider>
         });
+    let tenant_controller_billing_provider = billing_provider.clone();
     let api_app = Arc::new(App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
@@ -337,6 +376,12 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         &args.allow_origin,
         alert_config_defaults,
     )?;
+    // Bind only now that the database is connected and we're able to serve.
+    // Cloud Run's TCP startup probe gates traffic on this port being open:
+    // binding earlier routes requests to an instance that cannot yet serve them.
+    let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
+        .await
+        .context("failed to bind server port")?;
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
@@ -350,6 +395,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(agent::publications::PublicationsExecutor {
                 publisher,
                 pg_pool: pg_pool.clone(),
+                runtime_v2_new_captures: args.runtime_v2_new_captures,
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,
@@ -359,6 +405,9 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .register(migrate::automation::MigrationExecutor)
             .register(agent::alerts::new_tenant_alerts_executor(
                 args.tenant_alert_interval,
+            ))
+            .register(agent::tenant_controller::TenantController::new(
+                tenant_controller_billing_provider,
             ));
 
         if args.serve_alert_notifications {
@@ -404,7 +453,23 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     };
 
     std::mem::drop(logs_tx);
-    let ((), (), ()) = tokio::try_join!(api_server, logs_sink, automations_fut)?;
+
+    // Don't join on the logs sink: it completes only once every sender clone
+    // has dropped, and several are owned by locals of this function (App,
+    // Publisher, and friends), so joining deadlocks the graceful-shutdown
+    // path and the process must be SIGKILLed. Instead serve until shutdown,
+    // surfacing an early sink failure as fatal, then give the sink a bounded
+    // window to drain logs buffered in the channel before exiting.
+    tokio::pin!(logs_sink);
+    tokio::select! {
+        result = async { tokio::try_join!(api_server, automations_fut) } => {
+            let ((), ()) = result?;
+        }
+        result = &mut logs_sink => {
+            return result.and(Err(anyhow::anyhow!("logs sink stopped while serving")));
+        }
+    }
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), logs_sink).await;
 
     Ok(())
 }

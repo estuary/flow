@@ -20,5 +20,6 @@ expression: json_test(msg)
   "flags": {
     "buffer-size": "1024",
     "enable-new-thing": "true"
-  }
+  },
+  "shuffleDiskLimitBytes": "134217728"
 }

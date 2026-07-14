@@ -1,6 +1,6 @@
 ---
 sidebar_position: 1
-description: Get to know Estuary and learn how to get started.
+description: Learn what Estuary is and how to use it to build real-time and batch data pipelines with CDC, connectors, and transformations. Tutorials and deployment guides cover all aspects of the platform.
 pagination_next: getting-started/who-should-use-flow
 slug: /
 ---

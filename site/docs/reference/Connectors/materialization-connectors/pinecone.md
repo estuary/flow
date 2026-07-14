@@ -1,3 +1,7 @@
+---
+description: Use the Pinecone connector to materialize Estuary data collections into index namespaces via OpenAI vector embeddings.
+---
+
 # Pinecone
 
 This connector materializes Estuary collections into namespaces in a Pinecone index.

@@ -43,11 +43,43 @@ impl BillingProvider for StripeBillingProvider {
         .await
     }
 
+    /// Stripe's customer-search index is eventually consistent and can even be
+    /// non-monotonic: a customer that matched a moment ago may transiently drop
+    /// out of a later search. Every caller of `require_customer` (setting or
+    /// deleting a payment method) only reaches it after a SetupIntent has
+    /// already created the customer, so a search miss is virtually always index
+    /// lag rather than a true absence. Retry a bounded number of times with
+    /// exponential backoff before surfacing the error, overriding the trait's
+    /// single-shot default.
+    async fn require_customer(&self, tenant: &str) -> anyhow::Result<stripe::Customer> {
+        const MAX_ATTEMPTS: u32 = 6;
+        const MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+
+        let mut delay = std::time::Duration::from_millis(500);
+        for attempt in 1..=MAX_ATTEMPTS {
+            if let Some(customer) = self.find_customer(tenant).await? {
+                return Ok(customer);
+            }
+            if attempt < MAX_ATTEMPTS {
+                tracing::debug!(
+                    tenant,
+                    attempt,
+                    "Stripe customer search missed; retrying after index lag"
+                );
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(MAX_DELAY);
+            }
+        }
+        anyhow::bail!("no Stripe customer exists for tenant '{tenant}'")
+    }
+
     async fn create_customer(
         &self,
         tenant: &str,
         user_email: &str,
         user_name: Option<&str>,
+        billing_name: Option<&str>,
+        address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut metadata = HashMap::from([
             (TENANT_METADATA_KEY.to_string(), tenant.to_string()),
@@ -55,6 +87,16 @@ impl BillingProvider for StripeBillingProvider {
         ]);
         if let Some(name) = user_name {
             metadata.insert("created_by_user_name".to_string(), name.to_string());
+        }
+        // The billing-contact name is stored in metadata, not `Customer.name`; see
+        // `update_customer_billing_profile`. Set it at creation alongside email and
+        // address so a contact captured before the customer existed is reflected,
+        // rather than waiting for the tenant controller to observe a later edit.
+        if let Some(billing_name) = billing_name {
+            metadata.insert(
+                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                billing_name.to_string(),
+            );
         }
 
         let description = format!("Represents the billing entity for Flow tenant '{tenant}'");
@@ -73,6 +115,7 @@ impl BillingProvider for StripeBillingProvider {
             stripe::CreateCustomer {
                 email: Some(user_email),
                 name: Some(tenant),
+                address,
                 description: Some(&description),
                 metadata: Some(metadata),
                 ..Default::default()
@@ -169,5 +212,40 @@ impl BillingProvider for StripeBillingProvider {
     ) -> anyhow::Result<stripe::PaymentIntent> {
         let pi = stripe::PaymentIntent::retrieve(&self.client, id, &["latest_charge"]).await?;
         Ok(pi)
+    }
+
+    async fn update_customer_billing_profile(
+        &self,
+        customer_id: &stripe::CustomerId,
+        email: Option<&str>,
+        name: Option<&str>,
+        address: Option<stripe::Address>,
+    ) -> anyhow::Result<stripe::Customer> {
+        // The human billing name is written to customer metadata, not Stripe's
+        // `Customer.name`. `Customer.name` is the tenant slug that the
+        // `internal.tenant_alerts` and `internal.free_trial_alerts` views join
+        // `stripe.customers` on, so overwriting it would drop the tenant out of
+        // those views once the change syncs back through the customer CDC mirror.
+        // TODO(billing): migrate those views to join on the
+        // `estuary.dev/tenant_name` metadata key, then move the name back onto
+        // `Customer.name` and retire this metadata field.
+        let metadata = name.map(|name| {
+            std::collections::HashMap::from([(
+                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                name.to_string(),
+            )])
+        });
+        let customer = stripe::Customer::update(
+            &self.client,
+            customer_id,
+            stripe::UpdateCustomer {
+                email,
+                address,
+                metadata,
+                ..Default::default()
+            },
+        )
+        .await?;
+        Ok(customer)
     }
 }

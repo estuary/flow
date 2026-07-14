@@ -72,7 +72,18 @@ END
 $$;
 
 -- Required for postgres to give ownership of catalog_stats to stats_loader.
-grant stats_loader to postgres;
+-- Guarded to the primary `postgres` database: role membership is cluster-global
+-- (shared pg_auth_members). Re-applying it concurrently across the isolated
+-- `#[sqlx::test]` databases risks colliding on the same shared tuple. The
+-- membership is established once by the `postgres` run and inherited cluster-wide
+-- by the test databases, so they don't need to re-grant it.
+do $$
+begin
+    if current_database() = 'postgres' then
+        grant stats_loader to postgres;
+    end if;
+end
+$$;
 
 -- Required for stats materialization to create flow_checkpoints_v1 and flow_materializations_v2.
 grant create on schema public to stats_loader;

@@ -1,5 +1,6 @@
 ---
 sidebar_position: 2
+description: Learn about Estuary's compliance with SOC 2 Type II standards and HIPAA, GDPR, CCPA, and CPRA regulations, backed by regular audit cycles.
 ---
 
 # Compliance

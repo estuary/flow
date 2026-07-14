@@ -1,0 +1,24 @@
+[Unit]
+Description=Flow Supabase Local Development (%i)
+Documentation=https://github.com/estuary/flow
+
+[Service]
+Type=simple
+TimeoutStartSec=300
+
+# One consolidated env file per stack. Its FLOW_* vars are what config.toml's
+# env() references resolve against (project id, ports, site url), and PATH lets
+# the sh wrappers find the supabase CLI.
+EnvironmentFile=%h/flow-local/env/supabase-%i.env
+
+# Always start supabase containers first (idempotent).
+ExecStartPre=sh -c 'cd ${FLOW_ROOT} && supabase start --exclude edge-runtime'
+# If this isn't the very first start, reset the database.
+ExecStartPre=sh -c 'if [ -f ${FLOW_STACK_DIR}/.supabase-started ]; then cd ${FLOW_ROOT} && supabase db reset; fi'
+# Mark as started for next time.
+ExecStartPre=sh -c 'mkdir -p ${FLOW_STACK_DIR} && touch ${FLOW_STACK_DIR}/.supabase-started'
+# Run edge functions separately to thread in environment. This blocks.
+ExecStart=sh -c 'cd ${FLOW_ROOT} && supabase functions serve --env-file %h/flow-local/env/supabase-functions-%i.env'
+
+# Stop containers on service stop.
+ExecStopPost=sh -c 'cd ${FLOW_ROOT} && supabase stop'

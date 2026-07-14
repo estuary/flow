@@ -340,6 +340,30 @@ input AzurePrivateLinkInput {
 	resourceType: String
 }
 
+type BillingAddress {
+	line1: String
+	line2: String
+	city: String
+	state: String
+	postalCode: String
+	country: String
+}
+
+input BillingAddressInput {
+	line1: String
+	line2: String
+	city: String
+	state: String
+	postalCode: String
+	country: String
+}
+
+type BillingContact {
+	email: String
+	name: String
+	address: BillingAddress
+}
+
 type BillingPaymentMethodPayload {
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
@@ -372,6 +396,8 @@ enum CapabilityBit {
 	CreateInviteLink
 	ViewDataPlanePrivateNetworking
 	ModifyDataPlanePrivateNetworking
+	ViewBilling
+	EditBilling
 	Delegate
 	Assume
 }
@@ -1175,6 +1201,7 @@ type LockFailure {
 type MutationRoot {
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
+	setBillingContact(tenant: String!, email: String!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
 	deleteBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	"""
 	Create a storage mapping for the given catalog prefix.
@@ -1438,6 +1465,50 @@ input ProtocolFilter {
 }
 
 """
+A public data plane, as visible to unauthenticated callers.
+"""
+type PublicDataPlane {
+	"""
+	Name of this data-plane under the catalog namespace.
+	"""
+	name: String!
+	"""
+	Cloud provider where this data-plane is hosted.
+	"""
+	cloudProvider: DataPlaneCloudProvider!
+	"""
+	Cloud region where this data-plane is hosted.
+	For example: "us-east-1" (AWS), "us-central1" (GCP), "eastus" (Azure).
+	"""
+	region: String!
+}
+
+type PublicDataPlaneConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [PublicDataPlaneEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type PublicDataPlaneEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: PublicDataPlane!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
+"""
 Summary of a publication that was attempted by a controller.
 """
 type PublicationInfo {
@@ -1559,6 +1630,16 @@ type QueryRoot {
 	"""
 	dataPlanes(after: String, before: String, first: Int, last: Int): DataPlaneConnection!
 	"""
+	Returns all public data planes.
+	
+	This query requires no authentication. It exposes only the name, cloud
+	provider, and region of public data planes, so that account-creation
+	flows can offer a data-plane selection before the user has signed up.
+	
+	Results are paginated and sorted by name.
+	"""
+	publicDataPlanes(after: String, before: String, first: Int, last: Int): PublicDataPlaneConnection!
+	"""
 	List invite links the caller has admin access to.
 	
 	Returns invite links under all prefixes where the caller has admin
@@ -1677,6 +1758,10 @@ type RepublishRequested {
 	and complete.
 	"""
 	lastBuildId: Id!
+}
+
+type SetBillingContactPayload {
+	contact: BillingContact!
 }
 
 """
@@ -2027,6 +2112,7 @@ type Tenant {
 }
 
 type TenantBilling {
+	contact: BillingContact!
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
 	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!

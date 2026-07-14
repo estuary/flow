@@ -1,3 +1,7 @@
+---
+description: Bring Twilio communications data into Estuary, from calls and messages to conversations, recordings, and usage records. Configure with an account SID and auth token.
+---
+
 # Twilio
 
 This connector captures data from Twilio into Estuary collections.

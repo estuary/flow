@@ -463,3 +463,136 @@ async fn assert_publication_excluded(
         }
     }
 }
+
+/// The runtime-v2 capture rollout (`RuntimeV2Rollout` initializer) stamps
+/// `enable-runtime-v2: true` into the model of a *newly-created* capture when
+/// enabled. Covers: a capture created while it's off is untouched; a new capture
+/// created while it's on is enabled in both the committed model and the
+/// built-spec shard label; an explicit flag is preserved; and an existing
+/// capture is never retroactively enabled on republish.
+#[tokio::test]
+async fn test_runtime_v2_new_captures() {
+    let mut harness = TestHarness::init("test_runtime_v2_new_captures").await;
+    let user = harness.setup_tenant("cats").await;
+
+    let collection = || {
+        serde_json::json!({
+            "schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+            "key": ["/id"]
+        })
+    };
+    let capture = |target: &str, prefix: &str| {
+        serde_json::json!({
+            "endpoint": { "connector": {
+                "image": "ghcr.io/estuary/source-hello-world:dev",
+                "config": {}
+            }},
+            "bindings": [ {
+                "resource": { "name": "greetings", "prefix": prefix },
+                "target": target
+            } ]
+        })
+    };
+    // The `enable-runtime-v2` value in a capture's committed model, if any.
+    async fn model_flag(harness: &mut TestHarness, name: &str) -> Option<String> {
+        let state = harness.get_controller_state(name).await;
+        let models::AnySpec::Capture(model) = state.live_spec.as_ref().unwrap() else {
+            panic!("expected a capture model");
+        };
+        model
+            .shards
+            .flags
+            .get(&models::Token::new(models::ENABLE_RUNTIME_V2))
+            .map(|v| v.as_str().to_string())
+    }
+    // The `enable-runtime-v2` value on a built capture's shard template, if any.
+    fn built_capture_v2_label(spec: &proto_flow::AnyBuiltSpec) -> Option<String> {
+        let proto_flow::AnyBuiltSpec::Capture(capture) = spec else {
+            return None;
+        };
+        let set = capture.shard_template.as_ref()?.labels.as_ref()?;
+        labels::values(set, labels::RUNTIME_V2_FLAG)
+            .first()
+            .map(|l| l.value.clone())
+    }
+
+    // Rollout disabled: a capture created now is left on v1.
+    harness.runtime_v2_new_captures = false;
+    let draft = draft_catalog(serde_json::json!({
+        "collections": { "cats/early-out": collection() },
+        "captures": { "cats/early": capture("cats/early-out", "Hello {}!") },
+    }));
+    let result = harness
+        .user_publication(user, "rollout disabled", draft)
+        .await;
+    assert!(
+        result.status.is_success(),
+        "publication failed: {:?}",
+        result.errors
+    );
+    assert_eq!(
+        model_flag(&mut harness, "cats/early").await,
+        None,
+        "a capture created while the rollout is off must be unflagged"
+    );
+
+    // Rollout enabled from here on.
+    harness.runtime_v2_new_captures = true;
+
+    // A newly-created capture is enabled onto v2; one that pins itself to v1 is
+    // left alone.
+    let mut pinned = capture("cats/pinned-out", "Hello {}!");
+    pinned["shards"] = serde_json::json!({ "flags": { "enable-runtime-v2": "false" } });
+    let draft = draft_catalog(serde_json::json!({
+        "collections": { "cats/auto-out": collection(), "cats/pinned-out": collection() },
+        "captures": { "cats/auto": capture("cats/auto-out", "Hello {}!"), "cats/pinned": pinned },
+    }));
+    let result = harness
+        .user_publication(user, "rollout enabled", draft)
+        .await;
+    assert!(
+        result.status.is_success(),
+        "publication failed: {:?}",
+        result.errors
+    );
+
+    // cats/auto: enabled in the committed model AND emitted as the built-spec label.
+    assert_eq!(
+        model_flag(&mut harness, "cats/auto").await.as_deref(),
+        Some("true"),
+        "a new capture is enabled in the model"
+    );
+    let state = harness.get_controller_state("cats/auto").await;
+    assert_eq!(
+        built_capture_v2_label(state.built_spec.as_ref().unwrap()).as_deref(),
+        Some("true"),
+        "the flag is emitted as the built-spec shard label"
+    );
+
+    // cats/pinned: an explicit flag is never changed.
+    assert_eq!(
+        model_flag(&mut harness, "cats/pinned").await.as_deref(),
+        Some("false"),
+        "an explicit `false` is preserved"
+    );
+
+    // Republishing `cats/early` (created while the rollout was off) with a real
+    // edit does NOT retroactively enable it: only new captures are stamped.
+    let draft = draft_catalog(serde_json::json!({
+        "collections": { "cats/early-out": collection() },
+        "captures": { "cats/early": capture("cats/early-out", "Hola {}!") },
+    }));
+    let result = harness
+        .user_publication(user, "republish existing", draft)
+        .await;
+    assert!(
+        result.status.is_success(),
+        "publication failed: {:?}",
+        result.errors
+    );
+    assert_eq!(
+        model_flag(&mut harness, "cats/early").await,
+        None,
+        "an existing capture must stay unflagged on republish"
+    );
+}

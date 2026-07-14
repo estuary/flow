@@ -1,3 +1,7 @@
+---
+description: Stream MongoDB collections with Estuary using change streams or fall back to a batch capture mode. Configure cursor fields, batch polling schedules, and SSH tunneling.
+---
+
 # MongoDB
 
 This connector captures data from your MongoDB collections into Estuary collections.

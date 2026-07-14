@@ -1,5 +1,6 @@
 ---
 sidebar_position: 3
+description: Capture Amazon RDS SQL Server changes with Estuary’s CDC connector. Setup guide includes database/table CDC setup, permissions, SSH tunneling, and DDL handling.
 ---
 
 # Amazon RDS for SQL Server

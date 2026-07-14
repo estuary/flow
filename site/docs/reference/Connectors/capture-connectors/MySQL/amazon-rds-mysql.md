@@ -1,5 +1,6 @@
 ---
 sidebar_position: 5
+description: Capture Amazon RDS MySQL changes with Estuary’s CDC connector. Guide includes binlog setup, capturing from read replicas, and backfill considerations.
 ---
 
 # Amazon RDS for MySQL

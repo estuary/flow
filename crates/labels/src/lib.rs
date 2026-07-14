@@ -34,6 +34,7 @@ pub const SPLIT_SOURCE: &str = "estuary.dev/split-source";
 pub const LOG_LEVEL: &str = "estuary.dev/log-level";
 pub const LOGS_JOURNAL: &str = "estuary.dev/logs-journal";
 pub const STATS_JOURNAL: &str = "estuary.dev/stats-journal";
+pub const SHUFFLE_DISK_LIMIT: &str = "estuary.dev/shuffle-disk-limit";
 // Shard labels related to network connectivity to shards.
 pub const HOSTNAME: &str = "estuary.dev/hostname";
 pub const EXPOSE_PORT: &str = "estuary.dev/expose-port";

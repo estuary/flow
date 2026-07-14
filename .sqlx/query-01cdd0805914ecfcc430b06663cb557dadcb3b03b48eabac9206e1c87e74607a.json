@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT internal.wake_tenant_controller($1::TEXT)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "wake_tenant_controller",
+        "type_info": "Void"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "01cdd0805914ecfcc430b06663cb557dadcb3b03b48eabac9206e1c87e74607a"
+}

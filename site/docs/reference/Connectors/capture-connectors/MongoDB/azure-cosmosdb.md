@@ -1,3 +1,7 @@
+---
+description: Capture Azure Cosmos DB's MongoDB-compatible collections with Estuary's connector, using either change feeds or batch capture mode.
+---
+
 # Azure CosmosDB
 
 This connector captures data from your Azure Cosmos DB collections into Estuary collections.

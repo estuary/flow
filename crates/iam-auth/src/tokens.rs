@@ -13,16 +13,22 @@ pub struct AWSTokens {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub session_token: String,
+    #[zeroize(skip)]
+    pub expires_at: std::time::SystemTime,
 }
 
 #[derive(Debug, Clone, Zeroize)]
 pub struct GCPTokens {
     pub access_token: String,
+    #[zeroize(skip)]
+    pub expires_at: std::time::SystemTime,
 }
 
 #[derive(Debug, Clone, Zeroize)]
 pub struct AzureTokens {
     pub access_token: String,
+    #[zeroize(skip)]
+    pub expires_at: std::time::SystemTime,
 }
 
 impl IAMTokens {
@@ -42,6 +48,7 @@ impl IAMTokens {
                 access_key_id,
                 secret_access_key,
                 session_token,
+                ..
             }) => {
                 credentials.insert(
                     "aws_access_key_id".to_string(),
@@ -56,13 +63,13 @@ impl IAMTokens {
                     serde_json::Value::String(session_token.clone()),
                 );
             }
-            IAMTokens::GCP(GCPTokens { access_token }) => {
+            IAMTokens::GCP(GCPTokens { access_token, .. }) => {
                 credentials.insert(
                     "gcp_access_token".to_string(),
                     serde_json::Value::String(access_token.clone()),
                 );
             }
-            IAMTokens::Azure(AzureTokens { access_token }) => {
+            IAMTokens::Azure(AzureTokens { access_token, .. }) => {
                 credentials.insert(
                     "azure_access_token".to_string(),
                     serde_json::Value::String(access_token.clone()),
@@ -71,6 +78,16 @@ impl IAMTokens {
         }
 
         Ok(parsed)
+    }
+
+    /// When the minted credentials expire and stop being honored by the
+    /// provider. Sessions using these tokens must be restarted before then.
+    pub fn expires_at(&self) -> std::time::SystemTime {
+        match self {
+            IAMTokens::AWS(tokens) => tokens.expires_at,
+            IAMTokens::GCP(tokens) => tokens.expires_at,
+            IAMTokens::Azure(tokens) => tokens.expires_at,
+        }
     }
 }
 
@@ -94,6 +111,7 @@ mod tests {
             access_key_id: "test_access_key_id".to_string(),
             secret_access_key: "test_secret_access_key".to_string(),
             session_token: "test_session_token".to_string(),
+            expires_at: std::time::UNIX_EPOCH,
         });
 
         assert_eq!(
@@ -123,6 +141,7 @@ mod tests {
 
         let tokens = IAMTokens::GCP(GCPTokens {
             access_token: "test_access_token".to_string(),
+            expires_at: std::time::UNIX_EPOCH,
         });
 
         assert_eq!(
@@ -150,6 +169,7 @@ mod tests {
 
         let tokens = IAMTokens::Azure(AzureTokens {
             access_token: "test_azure_access_token".to_string(),
+            expires_at: std::time::UNIX_EPOCH,
         });
 
         assert_eq!(

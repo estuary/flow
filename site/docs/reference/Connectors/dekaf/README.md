@@ -1,3 +1,6 @@
+---
+description: Explore Dekaf integrations that emit Estuary collections as Kafka topics. Find out whether a Dekaf integration or Apache Kafka connector fits your use case.
+---
 
 import Mermaid from '@theme/Mermaid';
 
@@ -33,6 +36,7 @@ Dekaf is compatible with many Kafka consumers. For instructions on integrating w
 - [ClickHouse](../materialization-connectors/Dekaf/clickhouse.md)
 - [Imply Polaris](../materialization-connectors/Dekaf/imply-polaris.md)
 - [Materialize](../materialization-connectors/Dekaf/materialize.md)
+- [RisingWave](../materialization-connectors/Dekaf/risingwave.md)
 - [SingleStore](../materialization-connectors/Dekaf/singlestore.md)
 - [Startree](../materialization-connectors/Dekaf/startree.md)
 - [Tinybird](../materialization-connectors/Dekaf/tinybird.md)

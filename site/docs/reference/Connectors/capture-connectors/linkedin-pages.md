@@ -1,4 +1,6 @@
-
+---
+description: Measure LinkedIn Page performance in Estuary with follower stats, share stats, organization lookup, and follower counts using OAuth or an access token.
+---
 
 # LinkedIn Pages
 

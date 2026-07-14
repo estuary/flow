@@ -147,7 +147,7 @@ impl Collection {
                 if let Some(binding) = task_auth.get_binding_for_topic(topic_name).await? {
                     binding
                 } else {
-                    tracing::warn!("{topic_name} is not a binding of {}", task_auth.task_name);
+                    tracing::debug!("{topic_name} is not a binding of {}", task_auth.task_name);
                     return Ok(CollectionStatus::not_found());
                 }
             }
@@ -155,7 +155,7 @@ impl Collection {
                 let Some(binding) = utils::get_binding_for_topic(spec, topic_name)
                     .context("failed to get binding for topic in redirected session")?
                 else {
-                    tracing::warn!("{topic_name} is not a binding of {}", spec.name);
+                    tracing::debug!("{topic_name} is not a binding of {}", spec.name);
                     return Ok(CollectionStatus::not_found());
                 };
                 binding
@@ -280,7 +280,7 @@ impl Collection {
         // This happens when a collection was reset and journals haven't been created yet,
         // or when a collection exists but no data has ever been written.
         if partitions.is_empty() {
-            tracing::warn!(
+            tracing::debug!(
                 collection_name,
                 "Collection binding exists but has no journals available"
             );

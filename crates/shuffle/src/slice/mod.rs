@@ -6,7 +6,7 @@ mod heap;
 mod listing;
 mod producer;
 pub mod read;
-mod routing;
+pub mod routing;
 mod state;
 
 use actor::SliceActor;

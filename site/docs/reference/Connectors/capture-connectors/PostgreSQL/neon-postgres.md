@@ -1,3 +1,7 @@
+---
+description: Capture Neon PostgreSQL data with Estuary's CDC connector. Setup guide includes logical replication, WAL handling, replication slots, publications, watermarks tables, and backfills.
+---
+
 # Neon PostgreSQL
 
 Neon's logical replication feature allows you to replicate data from your Neon Postgres database to external destinations.

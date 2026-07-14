@@ -1,7 +1,7 @@
 ---
 sidebar_position: 4
 title: Agent Skills
-description: Set up and manage Estuary pipelines through your AI assistant using Estuary Agent Skills.
+description: Set up Estuary Agent Skills for AI assistants to create captures and materializations, troubleshoot tasks, and manage pipelines with flowctl.
 ---
 
 # Estuary Agent Skills

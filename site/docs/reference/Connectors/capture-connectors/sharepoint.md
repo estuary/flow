@@ -1,3 +1,7 @@
+---
+description: Read SharePoint document library files into Estuary, with configuration settings for regex path filters, file types, and compression formats.
+---
+
 # SharePoint
 
 This connector captures data from SharePoint document libraries in team sites and communication sites into Estuary collections.

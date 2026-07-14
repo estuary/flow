@@ -10,8 +10,7 @@ use dekaf::{
 };
 use flow_client::{
     DEFAULT_AGENT_URL, DEFAULT_DATA_PLANE_FQDN, DEFAULT_PG_PUBLIC_TOKEN, DEFAULT_PG_URL,
-    LOCAL_AGENT_URL, LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
-    LOCAL_PG_URL,
+    LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
 };
 use futures::TryStreamExt;
 use rustls::pki_types::CertificateDer;
@@ -30,10 +29,14 @@ use url::Url;
 #[command(about, version)]
 pub struct Cli {
     /// Endpoint of the Estuary API to use.
+    ///
+    /// With `--local`, set this (via the flag or `API_ENDPOINT`) to the target
+    /// stack's PostgREST URL; local ports are dynamic, so there is no compiled
+    /// local default. `mise run local:data-plane` supplies it in the generated
+    /// dekaf env file.
     #[arg(
         long,
         default_value = DEFAULT_PG_URL.as_str(),
-        default_value_if("local", "true", Some(LOCAL_PG_URL.as_str())),
         env = "API_ENDPOINT"
     )]
     api_endpoint: Url,
@@ -46,10 +49,14 @@ pub struct Cli {
     )]
     api_key: String,
     /// Endpoint of the Estuary agent API to use.
+    ///
+    /// With `--local`, set this (via the flag or `AGENT_ENDPOINT`) to the target
+    /// stack's agent URL; local ports are dynamic, so there is no compiled local
+    /// default. `mise run local:data-plane` supplies it in the generated dekaf
+    /// env file.
     #[arg(
             long,
             default_value = DEFAULT_AGENT_URL.as_str(),
-            default_value_if("local", "true", Some(LOCAL_AGENT_URL.as_str())),
             env = "AGENT_ENDPOINT"
         )]
     agent_endpoint: Url,
@@ -250,11 +257,35 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
 
     let upstream_kafka_urls = cli.default_broker_urls.clone();
 
-    let (api_endpoint, api_key) = if cli.local {
-        (LOCAL_PG_URL.to_owned(), LOCAL_PG_PUBLIC_TOKEN.to_string())
-    } else {
-        (cli.api_endpoint, cli.api_key)
-    };
+    // Endpoints are resolved by clap from flags/env (with `--local` selecting the
+    // local anon api_key default). Local-stack ports are dynamic, so a local
+    // deployment must pass API_ENDPOINT/AGENT_ENDPOINT explicitly — the
+    // local:data-plane task does this in the generated dekaf env file.
+    //
+    // Guard the surprising case of `--local` with no endpoint: clap would
+    // otherwise fall through to the *production* defaults, pointing a local anon
+    // token at prod. A real local stack's endpoint is never the prod URL, so an
+    // unchanged prod default under `--local` is always a mistake — fail loud.
+    if cli.local {
+        if cli.api_endpoint == *DEFAULT_PG_URL {
+            bail!(
+                "--local requires an explicit API_ENDPOINT (or --api-endpoint): \
+                 local-stack ports are dynamic, so there is no local default. Run \
+                 dekaf via `mise run local:data-plane`, or set API_ENDPOINT to your \
+                 stack's PostgREST URL (see `mise run local:stack-info`)."
+            );
+        }
+        if cli.agent_endpoint == *DEFAULT_AGENT_URL {
+            bail!(
+                "--local requires an explicit AGENT_ENDPOINT (or --agent-endpoint): \
+                 local-stack ports are dynamic, so there is no local default. Run \
+                 dekaf via `mise run local:data-plane`, or set AGENT_ENDPOINT to your \
+                 stack's agent URL (see `mise run local:stack-info`)."
+            );
+        }
+    }
+
+    let (api_endpoint, api_key) = (cli.api_endpoint, cli.api_key);
 
     let user_agent = format!("dekaf-{}", env!("CARGO_PKG_VERSION"));
     let client_base = flow_client::Client::new(
@@ -457,11 +488,18 @@ async fn serve(
     // Optionally drive TLS handshake if needed
     let socket: Box<dyn Connection> = match tls_acceptor {
         Some(acceptor) => {
-            let tls_stream = tokio::time::timeout(tls_handshake_timeout, acceptor.accept(socket))
+            match tokio::time::timeout(tls_handshake_timeout, acceptor.accept(socket))
                 .await
                 .context("TLS handshake timed out")?
-                .context("TLS handshake failed")?;
-            Box::new(tls_stream)
+            {
+                Ok(tls_stream) => Box::new(tls_stream),
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    // A TLS connection that immediately closes is probably an health probe.
+                    tracing::debug!(reason = %e, "client disconnected");
+                    return Ok(());
+                }
+                Err(e) => return Err(e).context("TLS handshake failed"),
+            }
         }
         None => Box::new(socket),
     };

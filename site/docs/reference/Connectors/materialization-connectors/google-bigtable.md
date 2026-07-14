@@ -1,3 +1,7 @@
+---
+description: Use Estuary's Bigtable connector to materialize collections into tables using a Google Cloud service account. Supports IAM auth and hard deletes.
+---
+
 # Google Cloud Bigtable
 
 This connector materializes Estuary collections into tables in a Google Cloud Bigtable instance.

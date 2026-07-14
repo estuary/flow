@@ -304,6 +304,61 @@ impl Publisher {
         Ok(())
     }
 
+    /// Take accumulated per-journal append-throttle samples since the last call.
+    pub fn take_throttle_samples(&mut self) -> Vec<super::ThrottleSample<'_>> {
+        self.appenders.take_throttle_samples()
+    }
+
+    /// Build a detached future which attempts to split partition `journal` at
+    /// its key-range midpoint (see [`super::mapping::split_partition`]).
+    ///
+    /// Returns None when `journal` is not a partition of any Mapped binding
+    /// (e.g. the fixed ops-stats journal) — such journals can never be split.
+    ///
+    /// The future owns cloned journal-client and partitions-watch handles, so
+    /// the caller may park and poll it while this Publisher continues to
+    /// publish. A stale watch read is benign: the split's CAS fails as a
+    /// `Lost` outcome rather than acting on a layout that was never evaluated.
+    pub fn split_partition(
+        &self,
+        journal: &str,
+    ) -> Option<futures::future::BoxFuture<'static, tonic::Result<super::SplitOutcome>>> {
+        use futures::FutureExt;
+
+        let index = self.bindings.iter().position(|b| match b {
+            super::Binding::Mapped(m) => journal.starts_with(&m.partitions_prefix),
+            super::Binding::Fixed(_) => false,
+        })?;
+        let super::Binding::Mapped(binding) = &self.bindings[index] else {
+            unreachable!("position matched a Mapped binding");
+        };
+        let super::LazyBindingClient::Mapped(lazy) = &self.binding_clients[index] else {
+            unreachable!("Mapped binding has a Mapped lazy client");
+        };
+
+        // Force the lazy client + watch (warm in practice — `journal` was
+        // appended to through this binding) and clone owned handles into the
+        // detached future, along with the only part of the binding a split
+        // reads: its partition template.
+        let partitions_template = binding.partitions_template.clone();
+        let (client, partitions) = &**lazy;
+        let (client, partitions) = (client.clone(), partitions.clone());
+        let journal = journal.to_string();
+
+        Some(
+            async move {
+                super::mapping::split_partition(
+                    &partitions_template,
+                    &client,
+                    &partitions,
+                    &journal,
+                )
+                .await
+            }
+            .boxed(),
+        )
+    }
+
     /// Access the lazy Client and partitions watch for the Mapped binding at
     /// `index`. Panics if the binding is Fixed. Primarily used by tests.
     pub fn mapped_binding_client(

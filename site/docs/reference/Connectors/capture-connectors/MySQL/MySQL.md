@@ -1,5 +1,6 @@
 ---
 sidebar_position: 5
+description: Set up Estuary's MySQL capture connector with CDC, binlog configuration, and time zone settings using self-hosted and cloud platform guides.
 ---
 
 # MySQL
@@ -54,8 +55,10 @@ To meet these requirements, follow the steps for your hosting type.
 
 1. Create the `flow_capture` user with replication permission, and the ability to read all tables.
 
-The `SELECT` permission can be restricted to just the tables that need to be
-captured, but automatic discovery requires `information_schema` access as well.
+Grant `SELECT` on all tables or restrict it to the tables to be captured. `SELECT`
+permissions must be at the table level, not the column level. Automatic discovery also
+requires `information_schema` access. To keep specific columns, such as sensitive fields,
+out of the capture, use [redaction](/features/redaction.md) rather than column-level grants.
 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
@@ -149,8 +152,10 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 3. Using [MySQL workbench](https://docs.microsoft.com/en-us/azure/mysql/single-server/connect-workbench) or your preferred client,
    create the `flow_capture` user with replication permission, and the ability to read all tables.
 
-The `SELECT` permission can be restricted to just the tables that need to be
-captured, but automatic discovery requires `information_schema` access as well.
+Grant `SELECT` on all tables or restrict it to the tables to be captured. `SELECT`
+permissions must be at the table level, not the column level. Automatic discovery also
+requires `information_schema` access. To keep specific columns, such as sensitive fields,
+out of the capture, use [redaction](/features/redaction.md) rather than column-level grants.
 
 :::tip
 Your username must be specified in the format `username@servername`.
@@ -319,6 +324,12 @@ If your capture fails with a `"binlog retention period is too short"` error, it 
 The concern is that if a capture is disabled or the server becomes unreachable for longer than the binlog retention period, the database might delete a binlog segment which the capture isn't yet done with. If this happens then change events have been permanently lost, and the only way to get the capture running again is to skip ahead to a portion of the binlog which still exists. For correctness this requires backfilling the current contents of all tables from the source, and so we prefer to avoid it as much as possible. It's much easier to just set up your binlog retention with enough wiggle room to recover from temporary failures.
 
 The `"binlog retention period is too short"` error should normally be fixed by setting a longer retention period as described in these setup instructions. However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
+
+### Failover and Host Changes
+
+MySQL binlog coordinates are specific to each server, so they do not carry over when you fail over to a new writer, for example by promoting a standby. After a failover, the capture's stored position is invalid on the new writer and replication fails with `ERROR 1236`. Always capture from the **writer** endpoint; reader endpoints report `log_bin = OFF` and fail the prerequisite check.
+
+If the failover is planned and you can pause writes, you can re-establish the capture on the new writer without a full backfill. See [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers).
 
 ### Empty Collection Key
 

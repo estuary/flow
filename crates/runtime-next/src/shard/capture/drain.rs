@@ -24,28 +24,29 @@ use std::collections::{BTreeMap, BTreeSet};
 const SOURCED_SCHEMA_COMPLEXITY_LIMIT: usize = 10_000;
 
 /// Resources and results handed back to the actor when a drain completes.
-pub(super) struct Output {
+pub(super) struct Output<P: crate::Publisher> {
     /// The drained combiner, recycled as the next transaction's `idle_accumulator`.
     pub(super) accumulator: crate::Accumulator,
     /// Per-transaction connector patches and stats, staged for the TailFSM.
     pub(super) drained: fsm::DrainedCapture,
     /// The publisher, borrowed for the drain's journal appends.
-    pub(super) publisher: crate::Publisher,
+    pub(super) publisher: P,
     /// Per-binding inferred write-shapes, carried across sessions of the shard.
     pub(super) shapes: Vec<doc::Shape>,
 }
 
 /// Drain a rotated combiner: apply sourced schemas to inference, publish each
 /// captured document, and accumulate the connector-state patch stream.
-pub(super) async fn drain_and_publish(
+pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
     mut drainer: doc::combine::Drainer,
     parser: simd_doc::Parser,
-    mut publisher: crate::Publisher,
+    mut publisher: P,
     task: std::sync::Arc<Task>,
     sourced_schemas: BTreeMap<u32, doc::Shape>,
     mut shapes: Vec<doc::Shape>,
     metrics: super::Metrics,
-) -> anyhow::Result<Output> {
+    logger: L,
+) -> anyhow::Result<Output<P>> {
     // Resync the publisher clock to wall-clock time at the start of this
     // transaction's stream of published documents. Each `publish_doc` and the
     // closing `commit_intents` then tick it up by a single microsecond, so
@@ -125,13 +126,12 @@ pub(super) async fn drain_and_publish(
         // `to_schema` emits the shape's annotations, including the
         // `x-complexity-limit` set by `apply_sourced_schemas` or the
         // per-session default seeded by `Task::binding_shapes_by_index`.
-        let serialized = doc::shape::schema::to_schema(shapes[*binding].clone());
-        tracing::info!(
-            schema = ?ops::DebugJson(serialized),
-            collection_name = %task.bindings[*binding].collection_name,
-            binding,
-            "inferred schema updated"
-        );
+        let schema = doc::shape::schema::to_schema(shapes[*binding].clone());
+        logger.event(crate::LogEvent::InferredSchema {
+            collection_name: &task.bindings[*binding].collection_name,
+            binding: Some(*binding),
+            schema: &schema,
+        });
         metrics.inferred_schema_updates.increment(1);
     }
 

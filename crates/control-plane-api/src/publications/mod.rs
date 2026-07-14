@@ -21,7 +21,7 @@ pub mod specs;
 pub use self::commit::{ClearDraftErrors, NoopWithCommit, UpdatePublicationsRow, WithCommit};
 pub use self::db::{Row, create, delete_draft, fetch_publication, resolve};
 pub use self::finalize::{FinalizeBuild, NoopFinalize, PruneUnboundCollections};
-pub use self::initialize::{ExpandDraft, Initialize, NoopInitialize};
+pub use self::initialize::{ExpandDraft, Initialize, NoopInitialize, RuntimeV2Rollout};
 pub use self::retry::{DefaultRetryPolicy, DoNotRetry, RetryPolicy};
 pub use models::publications::{JobStatus, LockFailure, StatusType};
 

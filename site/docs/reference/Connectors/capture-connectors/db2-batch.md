@@ -1,3 +1,7 @@
+---
+description: Run IBM Db2 batch captures with Estuary's connector using periodic queries. Configure polling schedules, SSH tunneling, and query templates.
+---
+
 # IBM Db2 Batch Query Connector
 
 This connector captures data from IBM Db2 databases into Estuary collections by

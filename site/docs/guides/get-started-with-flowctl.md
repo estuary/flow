@@ -1,5 +1,6 @@
 ---
 sidebar_position: 5
+description: Install flowctl for Linux or Mac, authenticate with an Estuary access token, review requirements, and start command-line Data Flow workflows.
 ---
 
 # Getting Started With flowctl

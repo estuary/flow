@@ -1,3 +1,6 @@
+---
+description: Materialize data collections directly into SingleStore tables. Estuary's connector supports SSL configuration, custom create SQL, and delta updates.
+---
 
 # SingleStore
 

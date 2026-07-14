@@ -1,3 +1,7 @@
+---
+description: Materialize Estuary collections into Kafka topics as Avro or JSON messages. Supports schema registries, different SASL mechanisms, and TLS encryption.
+---
+
 # Apache Kafka
 
 This connector materializes Estuary collections into Apache Kafka topics.

@@ -10,6 +10,7 @@ impl Task {
             capture: spec,
             range,
             state_json: _,
+            sealed_config_json: _,
             version,
         } = open.clone().open.context("expected Open")?;
 

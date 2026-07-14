@@ -1,3 +1,7 @@
+---
+description: Sync Front customer communication data with Estuary, including channels, contacts, conversations, events, inboxes, tags, and teams.
+---
+
 # Front
 
 This connector captures data from Front into Estuary collections.

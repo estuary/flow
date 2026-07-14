@@ -1,5 +1,6 @@
 ---
 sidebar_position: 10
+description: Learn how Estuary storage mappings route collection data and recovery logs to cloud buckets, with retention policy options and the ability to configure by prefix.
 ---
 
 # Storage Mappings

@@ -1,3 +1,7 @@
+---
+description: Deliver Estuary collection data into Slack channels with this connector, and customize sender settings like display name and icon logo.
+---
+
 # Slack
 
 This connector lets you materialize data from Estuary directly into Slack channels.

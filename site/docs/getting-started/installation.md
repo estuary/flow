@@ -1,6 +1,6 @@
 ---
 title: Configure Cloud Storage
-description: Learn how to configure Estuary to use your cloud storage
+description: Configure Estuary to use your own cloud storage with storage mappings for GCS, Amazon S3, or Azure Blob storage. Manage data planes, set access policies, and run connection tests.
 slug: installation
 sidebar_position: 5
 ---

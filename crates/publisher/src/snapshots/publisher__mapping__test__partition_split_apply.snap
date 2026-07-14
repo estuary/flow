@@ -1,0 +1,49 @@
+---
+source: crates/publisher/src/mapping.rs
+expression: json!(request.changes)
+---
+[
+  {
+    "expectModRevision": "42",
+    "upsert": {
+      "labels": {
+        "labels": [
+          {
+            "name": "estuary.dev/field/a_bool",
+            "value": "%_true"
+          },
+          {
+            "name": "estuary.dev/key-begin",
+            "value": "40000000"
+          },
+          {
+            "name": "estuary.dev/key-end",
+            "value": "5fffffff"
+          }
+        ]
+      },
+      "name": "example/collection/v1/a_bool=%_true/pivot=40000000"
+    }
+  },
+  {
+    "upsert": {
+      "labels": {
+        "labels": [
+          {
+            "name": "estuary.dev/field/a_bool",
+            "value": "%_true"
+          },
+          {
+            "name": "estuary.dev/key-begin",
+            "value": "60000000"
+          },
+          {
+            "name": "estuary.dev/key-end",
+            "value": "7fffffff"
+          }
+        ]
+      },
+      "name": "example/collection/v1/a_bool=%_true/pivot=60000000"
+    }
+  }
+]

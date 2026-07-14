@@ -1,3 +1,7 @@
+---
+description: Use the Dekaf connector to expose Estuary data collections as Kafka-compatible topics with Estuary acting as the broker and schema registry.
+---
+
 import ReactPlayer from "react-player";
 
 # Dekaf

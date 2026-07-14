@@ -1,3 +1,7 @@
+---
+description: Understand Estuary schema evolutions and how Data Flow specs are updated after collection changes, backfills, incompatible schema changes, and new bindings.
+---
+
 # Schema Evolution
 
 **Schema evolutions** are a feature you can use to update your whole Data Flow to reflect edits to a collection, preventing your Data Flow from failing due to mismatched components.

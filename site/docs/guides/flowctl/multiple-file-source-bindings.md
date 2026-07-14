@@ -1,5 +1,6 @@
 ---
 sidebar_position: 4
+description: Capture multiple paths with Estuary file source connectors like S3, GCS, SFTP, Google Drive, Azure Blob, Dropbox, and HTTP File by configuring the spec file.
 ---
 
 # Capture Multiple Paths with File Source Connectors
