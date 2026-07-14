@@ -18,8 +18,10 @@ To do so, you will first need to create a Virtual Private Cloud (VPC) endpoint s
 You can create or manage your endpoint services on the [AWS VPC dashboard](https://console.aws.amazon.com/vpc/). As you do so:
 
 * Specify the NLB you created.
-* Safelist your AWS VPC Account ID (such as `arn:aws:iam::12345:root`) to allow access to your VPC endpoint service.
-* By default, the endpoint service should be in the same region as your private deployment. To connect across regions, see [Cross-region setup](#cross-region) below.
+* Safelist the AWS principal that will create the connecting endpoint, so it's allowed to reach your VPC endpoint service. Which principal this is depends on your deployment type:
+  * **BYOC deployments**: safelist your own AWS account (`arn:aws:iam::<your-account-id>:root`). PrivateLink connections are provisioned through the IAM role you created for Estuary during BYOC setup, which lives in your own account.
+  * **Private deployments**: safelist Estuary's data-plane principal, `arn:aws:iam::770785070253:user/data-plane-ops`.
+* By default, the endpoint service should be in the same region as your Estuary data plane. To connect across regions, see [Cross-region setup](#cross-region) below.
 
 :::tip
 See the [AWS documentation](https://docs.aws.amazon.com/vpc/latest/privatelink/privatelink-share-your-services.html) for the most up-to-date, detailed instructions on working with PrivateLink or contact your AWS representative for assistance.
@@ -73,7 +75,7 @@ Cross-region PrivateLink requires additional configuration on your side beyond t
 3. **NLB constraints** (per [AWS cross-region considerations](https://docs.aws.amazon.com/vpc/latest/privatelink/privatelink-share-your-services.html#endpoint-service-cross-region)):
    * The NLB must use the IPv4 or dualstack IP address type. Pure-IPv6 NLBs are not supported for cross-region access.
    * The NLB must use the default TCP idle timeout (`tcp.idle_timeout.seconds = 350`). Custom idle timeouts are not supported for cross-region.
-4. **AllowedPrincipals**: add `arn:aws:iam::770785070253:user/data-plane-ops` to the endpoint service's **Allow principals** tab. This is the specific IAM user Estuary uses to create cross-region VPC endpoints on your service.
+4. **AllowedPrincipals**: for **private deployments**, add `arn:aws:iam::770785070253:user/data-plane-ops` to the endpoint service's **Allow principals** tab. This is the specific IAM user Estuary uses to create cross-region VPC endpoints on your service. For **BYOC deployments**, this step isn't needed: the account you already safelisted in the [AWS PrivateLink](#aws-privatelink) step above is what creates the cross-region endpoint too, since PrivateLink connections for BYOC are always provisioned through your own assumed role, regardless of region.
 5. **Region availability**: confirm that both regions are in the same AWS partition (e.g., both `aws`, not one `aws-cn` or `aws-us-gov`). AWS does not support cross-region PrivateLink in a small set of Availability Zones — see the [AWS list of unsupported AZs](https://docs.aws.amazon.com/vpc/latest/privatelink/privatelink-share-your-services.html#endpoint-service-cross-region).
 
 #### What to send Estuary
