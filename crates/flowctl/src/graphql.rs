@@ -47,11 +47,6 @@ pub use models::{
     Capability, Capture, CatalogType, Collection, Id, Materialization, Name, Prefix, Test,
 };
 
-/// The GraphQL `Capability` enum was renamed to `LegacyCapability`; both names
-/// resolve to `models::Capability` for `graphql_client`'s `extern_enums`.
-#[allow(unused)]
-pub use models::Capability as LegacyCapability;
-
 /// Used for all timestamps throughout the schema
 pub type DateTime = chrono::DateTime<chrono::Utc>;
 

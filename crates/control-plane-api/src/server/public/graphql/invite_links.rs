@@ -199,14 +199,12 @@ impl InviteLinksMutation {
         &self,
         ctx: &Context<'_>,
         catalog_prefix: models::Prefix,
-        capability: super::capability_compat::CapabilityCompat,
+        capability: models::Capability,
         #[graphql(default = true)] single_use: bool,
         detail: Option<String>,
     ) -> async_graphql::Result<InviteLink> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
-
-        let capability: models::Capability = capability.into();
 
         if capability == models::Capability::None {
             return Err(async_graphql::Error::new(

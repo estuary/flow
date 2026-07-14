@@ -23,7 +23,7 @@ pub struct Status {
     schema_path = "../flow-client/control-plane-api.graphql",
     query_path = "src/catalog/status.graphql",
     response_derives = "Debug,Serialize",
-    extern_enums("CatalogType", "LegacyCapability"),
+    extern_enums("CatalogType", "Capability"),
     // flowctl knowingly consumes the deprecated legacy-capability fields
     // until it migrates to fine-grained capabilities.
     deprecated = "allow",

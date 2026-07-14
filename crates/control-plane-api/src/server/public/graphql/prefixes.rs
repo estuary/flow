@@ -42,7 +42,7 @@ pub struct PrefixesBy {
     #[graphql(
         deprecation = "a minimum capability has no meaning in the orthogonal capability model; use withCapabilities instead."
     )]
-    pub min_capability: Option<super::capability_compat::CapabilityCompat>,
+    pub min_capability: Option<models::Capability>,
     /// Filter to prefixes where the user holds all of these capabilities.
     pub with_capabilities: Option<Vec<models::authz::CapabilityBundle>>,
 }
@@ -78,7 +78,7 @@ impl PrefixesQuery {
         // required set is empty, so every reachable prefix matches (no filter).
         let required_bits: models::authz::CapabilitySet =
             match (by.min_capability, by.with_capabilities) {
-                (Some(legacy), None) => models::Capability::from(legacy).into(),
+                (Some(legacy), None) => legacy.into(),
                 (None, Some(bundles)) => bundles
                     .into_iter()
                     .fold(models::authz::CapabilitySet::empty(), |set, bundle| {

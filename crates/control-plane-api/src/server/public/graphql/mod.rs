@@ -27,7 +27,6 @@ mod alert_types;
 mod alerts;
 mod authorized_prefixes;
 mod billing;
-mod capability_compat;
 mod data_planes;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;

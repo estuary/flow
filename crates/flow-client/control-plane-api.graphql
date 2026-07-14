@@ -374,10 +374,12 @@ input BoolFilter {
 }
 
 """
-Alias of `LegacyCapability`, preserved under the original `Capability`
-name while clients migrate off it. Do not use in new operations.
+Capability within the Estuary role-based access control (RBAC) authorization system.
 """
 enum Capability {
+	"""
+	Note that the discriminants here align with those in the database type.
+	"""
 	none
 	read
 	write
@@ -702,7 +704,7 @@ type DataPlane {
 	"""
 	The current user's capability to this data plane's name prefix.
 	"""
-	userCapability: LegacyCapability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
 	"""
 	Capability bundles the user effectively holds to this data plane's
 	name prefix: every bundle whose full capability set is covered by
@@ -925,7 +927,7 @@ type InviteLink {
 	"""
 	The capability level granted by this invite link.
 	"""
-	capability: LegacyCapability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	capability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
 	"""
 	Capability bundles explicitly granted by this invite link,
 	reflecting the selection made when the link was created.
@@ -1072,19 +1074,6 @@ type JobStatus {
 	lockFailures: [LockFailure!]!
 }
 
-"""
-Capability within the Estuary role-based access control (RBAC) authorization system.
-"""
-enum LegacyCapability {
-	"""
-	Note that the discriminants here align with those in the database type.
-	"""
-	none
-	read
-	write
-	admin
-}
-
 type LiveSpec {
 	liveSpecId: Id!
 	catalogName: String!
@@ -1135,7 +1124,7 @@ type LiveSpecRef {
 	the result would be `userCapability: null`, and all other fields on the
 	LiveSpecRef would also be null.
 	"""
-	userCapability: LegacyCapability @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	userCapability: Capability @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
 	"""
 	Capability bundles the user effectively holds to the referent:
 	every bundle whose full capability set is covered by
@@ -1457,7 +1446,7 @@ type PrefixRef {
 	directly. Once that migration lands, this field and its derivation
 	can be deleted.
 	"""
-	userCapability: LegacyCapability! @deprecated(reason: "Reports only the legacy read/write/admin grant level; use `capabilityBits` instead.")
+	userCapability: Capability! @deprecated(reason: "Reports only the legacy read/write/admin grant level; use `capabilityBits` instead.")
 	"""
 	Fine-grained capabilities the user has at this prefix.
 	Identical to `capabilityBits`, retained under this name until
@@ -1716,7 +1705,7 @@ type RedeemInviteLinkResult {
 	"""
 	The capability level that was granted.
 	"""
-	capability: LegacyCapability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	capability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
 	"""
 	Capability bundles explicitly granted by the invite link,
 	reflecting the selection made when the link was created.
@@ -2096,7 +2085,7 @@ type StorageMapping {
 	for gating admin UI features (the query requires only read, while
 	the create/update mutations require admin).
 	"""
-	userCapability: LegacyCapability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
+	userCapability: Capability! @deprecated(reason: "The legacy read/write/admin capability model is being replaced; use `capabilities` instead.")
 	"""
 	Capability bundles the user effectively holds to this storage
 	mapping's prefix: every bundle whose full capability set is covered
