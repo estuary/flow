@@ -1,0 +1,23 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 37,
+          "line": 7
+        }
+      ],
+      "message": "failed to fetch data plane private links: error occurred while decoding column 2: data did not match any variant of untagged enum PrivateLink",
+      "path": [
+        "dataPlanes",
+        "edges",
+        0
+      ]
+    }
+  ]
+}

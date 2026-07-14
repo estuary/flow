@@ -60,6 +60,61 @@ pub struct DataPlanePrivateLink {
     pub observed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// Keys the request-scoped loader by data plane so sibling `privateLinks`
+/// resolvers collapse into one batch query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct DataPlanePrivateLinksKey(models::Id);
+
+impl async_graphql::dataloader::Loader<DataPlanePrivateLinksKey> for super::PgDataLoader {
+    type Value = Vec<DataPlanePrivateLink>;
+    type Error = String;
+
+    async fn load(
+        &self,
+        keys: &[DataPlanePrivateLinksKey],
+    ) -> Result<HashMap<DataPlanePrivateLinksKey, Self::Value>, Self::Error> {
+        let data_plane_ids: Vec<models::Id> = keys.iter().map(|key| key.0).collect();
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                data_plane_id as "data_plane_id: models::Id",
+                id as "id: models::Id",
+                config as "config!: sqlx::types::Json<models::PrivateLink>",
+                status,
+                details as "details: sqlx::types::Json<serde_json::Value>",
+                error,
+                observed_at as "observed_at: chrono::DateTime<chrono::Utc>"
+            FROM internal.data_plane_private_links
+            WHERE data_plane_id = ANY($1::flowid[])
+            ORDER BY data_plane_id, created_at, id
+            "#,
+            &data_plane_ids as &[models::Id],
+        )
+        .fetch_all(&self.0)
+        .await
+        .map_err(|err| format!("failed to fetch data plane private links: {err}"))?;
+
+        let mut result: HashMap<DataPlanePrivateLinksKey, Vec<DataPlanePrivateLink>> =
+            HashMap::new();
+        for row in rows {
+            let status =
+                PrivateLinkProvisioningStatus::from_db(&row.status).map_err(|err| err.message)?;
+            result
+                .entry(DataPlanePrivateLinksKey(row.data_plane_id))
+                .or_default()
+                .push(DataPlanePrivateLink {
+                    id: row.id,
+                    config: row.config.0,
+                    status,
+                    details: row.details.map(|details| async_graphql::Json(details.0)),
+                    error: row.error,
+                    observed_at: row.observed_at,
+                });
+        }
+        Ok(result)
+    }
+}
+
 /// A data plane where tasks execute and collections are stored.
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
@@ -125,39 +180,11 @@ impl DataPlane {
         )? {
             return Ok(Vec::new());
         }
-        let env = ctx.data::<crate::Envelope>()?;
-
-        let rows = sqlx::query!(
-            r#"
-            SELECT
-                id as "id: models::Id",
-                config as "config!: sqlx::types::Json<models::PrivateLink>",
-                status,
-                details as "details: sqlx::types::Json<serde_json::Value>",
-                error,
-                observed_at as "observed_at: chrono::DateTime<chrono::Utc>"
-            FROM internal.data_plane_private_links
-            WHERE data_plane_id = $1
-            ORDER BY created_at, id
-            "#,
-            self.control_id as models::Id,
-        )
-        .fetch_all(&env.pg_pool)
-        .await?;
-
-        rows.into_iter()
-            .map(|row| {
-                let config = row.config.0;
-                Ok(DataPlanePrivateLink {
-                    id: row.id,
-                    config,
-                    status: PrivateLinkProvisioningStatus::from_db(&row.status)?,
-                    details: row.details.map(|d| async_graphql::Json(d.0)),
-                    error: row.error,
-                    observed_at: row.observed_at,
-                })
-            })
-            .collect()
+        let loader = ctx.data::<async_graphql::dataloader::DataLoader<super::PgDataLoader>>()?;
+        Ok(loader
+            .load_one(DataPlanePrivateLinksKey(self.control_id))
+            .await?
+            .unwrap_or_default())
     }
 
     /// AWS PrivateLink endpoint provisioning results, opaque JSON exported by
@@ -1001,6 +1028,63 @@ mod tests {
             .await;
 
         insta::assert_json_snapshot!("data_planes_with_private_links", response);
+    }
+
+    // A malformed config must cause the `privateLinks` resolver to return a
+    // GraphQL error, rather than silently omit a row the caller may view.
+    // The migration validates rows present at backfill time, but support
+    // and other internal writers can edit this unvalidated JSONB column later.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_graphql_data_planes_malformed_private_link(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // Retain the service identity while removing the other required AWS
+        // fields, producing a row that matches no `models::PrivateLink` variant.
+        sqlx::query(
+            r#"UPDATE internal.data_plane_private_links
+               SET config = '{"service_name":"com.amazonaws.vpce.us-east-1.vpce-svc-malformed"}'::jsonb
+               WHERE id = '00:00:00:00:00:00:0a:01'"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        dataPlanes {
+                            edges {
+                                node {
+                                    name
+                                    privateLinks { id }
+                                }
+                            }
+                        }
+                    }
+                    "#
+                }),
+                Some(&token),
+            )
+            .await;
+
+        assert!(
+            response["data"].is_null(),
+            "expected fail-closed data: {response}"
+        );
+        insta::assert_json_snapshot!("data_planes_malformed_private_link", response);
     }
 
     // Existing tenants can still view their private data plane's private links

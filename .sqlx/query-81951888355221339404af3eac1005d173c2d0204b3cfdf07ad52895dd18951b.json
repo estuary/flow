@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                data_plane_id as \"data_plane_id: models::Id\",\n                id as \"id: models::Id\",\n                config as \"config!: sqlx::types::Json<models::PrivateLink>\",\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            FROM internal.data_plane_private_links\n            WHERE data_plane_id = ANY($1::flowid[])\n            ORDER BY data_plane_id, created_at, id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "data_plane_id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "id: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "config!: sqlx::types::Json<models::PrivateLink>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "details: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "observed_at: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "81951888355221339404af3eac1005d173c2d0204b3cfdf07ad52895dd18951b"
+}
