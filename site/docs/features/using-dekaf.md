@@ -222,9 +222,9 @@ journals (non-breaking). Contact Estuary support before splitting a production c
 
 ## Reading from Apache Spark Structured Streaming
 
-Spark's `kafka` source reads a Dekaf topic directly. Read [Consumer behaviors to
-know](#consumer-behaviors-to-know) first; the items below are Spark-specific configuration
-on top of those behaviors.
+Spark's `kafka` source reads a Dekaf topic directly. Read [Consumer
+behaviors](#consumer-behaviors) first; the items below are Spark-specific configuration on
+top of those behaviors.
 
 ### Do not set `maxOffsetsPerTrigger`
 
@@ -254,13 +254,17 @@ If you hit the error, the records are almost always still present: verify with
 
 ### Set the Avro datetime rebase mode explicitly
 
-Spark's `PERMISSIVE` Avro mode silently nulls values it cannot parse, including dates before
-the Gregorian cutover (for example `1582-10-15`), so affected records look empty or missing.
-Use `FAILFAST` while debugging to surface the real error
-(`INCONSISTENT_BEHAVIOR_CROSS_VERSION.READ_ANCIENT_DATETIME`, SPARK-31404), then set
-`spark.sql.avro.datetimeRebaseModeInRead` deliberately — `CORRECTED` to read values as-is,
-or `LEGACY` to rebase across the calendar difference — instead of relying on permissive
-null-ing.
+Spark's `PERMISSIVE` Avro mode silently nulls values it cannot parse, so affected records
+look empty or missing. Use `FAILFAST` while debugging to surface the real error. You can
+then choose how you'd like to handle these values.
+
+For example, dates before the Gregorian cutover, like `1582-10-15`, cannot be parsed with
+permissive null-ing. With `FAILFAST`, the underlying
+`INCONSISTENT_BEHAVIOR_CROSS_VERSION.READ_ANCIENT_DATETIME` error is exposed (SPARK-31404),
+and you can set `spark.sql.avro.datetimeRebaseModeInRead` to handle old datetime values:
+
+- Use `CORRECTED` to read values as-is
+- Use `LEGACY` to rebase across the calendar difference
 
 ### Example reader options
 
