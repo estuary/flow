@@ -719,8 +719,8 @@ impl DataPlanesMutation {
 
         let row = sqlx::query!(
             r#"
-            INSERT INTO internal.data_plane_private_links (data_plane_id, provider, config)
-            SELECT dp.id, $2, $3
+            INSERT INTO internal.data_plane_private_links (data_plane_id, config)
+            SELECT dp.id, $2
             FROM data_planes dp WHERE dp.data_plane_name = $1
             RETURNING
                 id as "id: models::Id",
@@ -730,7 +730,6 @@ impl DataPlanesMutation {
                 observed_at as "observed_at: chrono::DateTime<chrono::Utc>"
             "#,
             data_plane_name,
-            config.provider_str(),
             sqlx::types::Json(&config) as sqlx::types::Json<&models::PrivateLink>,
         )
         .fetch_optional(&env.pg_pool)
@@ -755,12 +754,12 @@ impl DataPlanesMutation {
         })
     }
 
-    /// Replaces the configuration of an existing private link by id. Any edit
-    /// resets the observed status to `pending` and re-triggers convergence: the
-    /// desired-edit trigger clears the observation columns and bumps the link's
-    /// internal generation, so a converge already in flight against the previous
-    /// configuration cannot later stamp this link with a stale status. Requires
-    /// `ModifyDataPlanePrivateNetworking` on the owning data plane.
+    /// Replaces the configuration of an existing private link by id. A changed
+    /// config resets the observed status to `pending` and re-triggers convergence:
+    /// the desired-edit trigger clears the observation columns and bumps the
+    /// link's internal generation, so a converge already in flight against the
+    /// previous configuration cannot later stamp this link with a stale status.
+    /// Requires `ModifyDataPlanePrivateNetworking` on the owning data plane.
     pub async fn update_data_plane_private_link(
         &self,
         ctx: &Context<'_>,
@@ -770,14 +769,13 @@ impl DataPlanesMutation {
         let env = ctx.data::<crate::Envelope>()?;
         resolve_modifiable_link(ctx, id).await?;
 
-        // Only the desired columns are set here; the desired-edit trigger resets
-        // status/details/error/observed_at and bumps generation in the same
-        // write, and `RETURNING` reflects those trigger-applied values.
+        // Only the desired config is set here. When it differs, the desired-edit
+        // trigger resets the observation and bumps generation in the same write;
+        // `RETURNING` reflects either the reset or the unchanged observation.
         let row = sqlx::query!(
             r#"
             UPDATE internal.data_plane_private_links SET
-                provider = $2,
-                config = $3
+                config = $2
             WHERE id = $1
             RETURNING
                 status,
@@ -786,7 +784,6 @@ impl DataPlanesMutation {
                 observed_at as "observed_at: chrono::DateTime<chrono::Utc>"
             "#,
             id as models::Id,
-            config.provider_str(),
             sqlx::types::Json(&config) as sqlx::types::Json<&models::PrivateLink>,
         )
         .fetch_optional(&env.pg_pool)

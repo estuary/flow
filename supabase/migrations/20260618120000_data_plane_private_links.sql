@@ -4,7 +4,7 @@
 -- resolvers and the controller both read this table directly, and the controller
 -- writes each link's observed status back to it. There is no wake trigger: the
 -- controller re-reads desired links from this table on its poll loop and
--- detects changes by config diff.
+-- detects changes by config and generation diff.
 --
 -- The legacy `data_planes.private_links` and `*_link_endpoints` columns are left
 -- in place. A controller still running the pre-cutover binary during the rolling
@@ -21,15 +21,21 @@ create table internal.data_plane_private_links (
     id public.flowid primary key not null default internal.id_generator(),
     data_plane_id public.flowid not null
         references public.data_planes (id) on delete cascade,
-    -- Cloud provider of the link, stored so consumers need not parse `config`
-    -- to learn the variant. AWS and Azure links both key on `service_name`, so
-    -- the provider is what disambiguates them.
-    provider text not null check (provider in ('aws', 'azure', 'gcp')),
     -- The polymorphic link configuration: the same element shape as the legacy
     -- `data_planes.private_links` array; round-trips `models::PrivateLink`.
     config jsonb not null,
+    -- Cloud provider of the link, stored so consumers need not parse `config`
+    -- to learn the variant. It is generated so it cannot drift from the config
+    -- it describes. AWS and Azure links both key on `service_name`, so the
+    -- provider disambiguates them.
+    provider text generated always as
+        (case
+            when (config ->> 'service_attachment') is not null then 'gcp'
+            when (config ->> 'az_ids') is not null then 'aws'
+            else 'azure'
+        end) stored,
     -- Monotonic version of the desired configuration, bumped by the
-    -- desired-edit trigger below on every `config`/`provider` change. The
+    -- desired-edit trigger below whenever `config` changes. The
     -- controller pins each link's `(id, generation)` when it reads desired state
     -- for a converge and lands that converge's observed status only on rows whose
     -- generation still matches, so an edit racing a converge cannot be stamped
@@ -41,7 +47,7 @@ create table internal.data_plane_private_links (
     -- resource names in est-dry-dock, wedging the converge; uniqueness is
     -- therefore scoped to (data_plane_id, provider, service_identity).
     service_identity text generated always as
-        (coalesce(config ->> 'service_name', config ->> 'service_attachment')) stored,
+        (coalesce(config ->> 'service_name', config ->> 'service_attachment')) stored not null,
     -- Observed state, written by the data-plane controller from est-dry-dock's
     -- per-link `link_results` export, addressed by each row's id.
     status text not null default 'pending' check (status in ('pending', 'provisioned', 'failed')),
@@ -67,103 +73,22 @@ comment on table internal.data_plane_private_links is
 -- controller. A row-level policy would only bind a PostgREST caller, and none
 -- can reach an `internal` table. This mirrors `internal.invite_links`.
 
--- Pre-flight: abort the migration on legacy `private_links` data the new
--- table's invariants cannot represent, rather than silently dropping or
--- corrupting it. An element missing both `service_name` and
--- `service_attachment` would produce a NULL generated `service_identity` that
--- bypasses uniqueness; an element missing another required field of its
--- `models::PrivateLink` variant (possible via hand-edits to the column, which
--- were never validated) would backfill fine but fail the resolver's non-null
--- decode at read time, nulling the whole `dataPlanes` query; a duplicate
--- (data_plane_id, provider, service_identity) would collide on the unique
--- constraint. All indicate data needing hand-correction before this migration.
-do $$
-declare
-    v_missing bigint;
-    v_undecodable bigint;
-    v_dupes bigint;
-begin
-    select count(*) into v_missing
-    from public.data_planes dp,
-         lateral unnest(dp.private_links) as elem
-    where coalesce(elem ->> 'service_name', elem ->> 'service_attachment') is null;
-
-    if v_missing > 0 then
-        raise exception
-            'cannot backfill data_plane_private_links: % private_links element(s) lack a service_name/service_attachment',
-            v_missing;
-    end if;
-
-    -- Mirrors the required fields of each `models::PrivateLink` untagged
-    -- variant (AWS: region + az_ids + service_name; Azure: service_name +
-    -- location; GCP: service_attachment + region + dns_zone_name +
-    -- dns_record_names) so an element that would fail decode aborts here
-    -- instead of at read time.
-    select count(*) into v_undecodable
-    from public.data_planes dp,
-         lateral unnest(dp.private_links) as elem
-    where not (
-        ((elem ->> 'service_name') is not null
-            and (elem ->> 'region') is not null
-            and (elem ->> 'az_ids') is not null)
-        or ((elem ->> 'service_name') is not null
-            and (elem ->> 'location') is not null)
-        or ((elem ->> 'service_attachment') is not null
-            and (elem ->> 'region') is not null
-            and (elem ->> 'dns_zone_name') is not null
-            and (elem ->> 'dns_record_names') is not null)
-    );
-
-    if v_undecodable > 0 then
-        raise exception
-            'cannot backfill data_plane_private_links: % private_links element(s) do not match any models::PrivateLink variant shape',
-            v_undecodable;
-    end if;
-
-    select count(*) into v_dupes from (
-        select 1
-        from public.data_planes dp,
-             lateral unnest(dp.private_links) as elem
-        group by
-            dp.id,
-            case
-                when (elem ->> 'service_attachment') is not null then 'gcp'
-                when (elem ->> 'az_ids') is not null then 'aws'
-                else 'azure'
-            end,
-            coalesce(elem ->> 'service_name', elem ->> 'service_attachment')
-        having count(*) > 1
-    ) d;
-
-    if v_dupes > 0 then
-        raise exception
-            'cannot backfill data_plane_private_links: % data plane(s) have duplicate private_links service identities',
-            v_dupes;
-    end if;
-end $$;
-
 -- Backfill one row per element of every existing `private_links` array. The
 -- column already holds the source data, so column and table start consistent.
--- No `on conflict` clause:
--- the pre-flight above has proven there are no collisions, so any conflict here
--- is an unexpected invariant break that should abort.
-insert into internal.data_plane_private_links (data_plane_id, provider, config)
+-- The generated identity's NOT NULL constraint and the unique constraint abort
+-- the migration if the legacy data cannot satisfy the table's invariants.
+insert into internal.data_plane_private_links (data_plane_id, config)
 select
     dp.id,
-    case
-        when (elem ->> 'service_attachment') is not null then 'gcp'
-        when (elem ->> 'az_ids') is not null then 'aws'
-        else 'azure'
-    end,
     elem::jsonb
 from public.data_planes dp,
      lateral unnest(dp.private_links) as elem;
 
--- Any edit of the user-owned desired columns invalidates the observed status:
+-- Any change to the user-owned desired config invalidates the observed status:
 -- bump the generation and clear the observation columns in the same write. The
 -- invariant then holds for every writer, not just the API mutations but also
 -- the hand edits support performs directly against this table. Scoped to
--- `update of config, provider` so the controller's post-converge status write
+-- `update of config` so the controller's post-converge status write
 -- (which sets only status/details/observed_at/updated_at) does not fire it and
 -- does not bump the generation it just pinned.
 -- Runs as invoker (not `security definer`): it only rewrites fields of the row
@@ -184,7 +109,8 @@ end;
 $$;
 
 create trigger data_plane_private_links_desired_edit
-    before update of config, provider on internal.data_plane_private_links
-    for each row execute function internal.on_data_plane_private_links_desired_edit();
+    before update of config on internal.data_plane_private_links
+    for each row when (old.config is distinct from new.config)
+    execute function internal.on_data_plane_private_links_desired_edit();
 
 commit;
