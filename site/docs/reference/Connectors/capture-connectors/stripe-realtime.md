@@ -27,6 +27,10 @@ The connector handles several known limitations of the Stripe API:
 - **Connected account child streams**: Resources like Persons, ExternalAccountCards, and ExternalBankAccount must be queried through parent account endpoints (e.g., `/v1/accounts/{id}/persons`), requiring per-account queries when capturing connected accounts.
 - **Events API retention**: Stripe retains events for 30 days. While other resources can backfill beyond this window using their own list endpoints, the Events stream is limited to the most recent 30 days regardless of the configured `start_date`. The connector gracefully handles this by treating Stripe's retention expiry as a completed backfill.
 
+:::warning
+The **API Version** advanced configuration field does not apply to the Events stream. Because Stripe fixes an event's `api_version` at creation time and does not re-render events at a requested version, events are always captured in the version under which they were originally generated. Refer to the [official Stripe API documentation](https://docs.stripe.com/api/events/object#event_object-api_version) for more information.
+:::
+
 ### Streams removed by API version
 
 Some streams require a minimum [Stripe API version](https://docs.stripe.com/api/versioning) and behave differently depending on the API version in effect for your capture. By default, the connector uses your Stripe account's default API version. You can override this with the **API Version** advanced configuration field (see [Properties](#properties)).
