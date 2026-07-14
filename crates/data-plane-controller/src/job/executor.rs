@@ -192,29 +192,24 @@ impl Executor {
         let sleep = match state_ref.status {
             Status::Idle => self.on_idle(state_ref, inbox, releases, row_state).await?,
             status => {
-                // Refresh private_links from the current data_plane_private_links
-                // rows on every poll, so that retries pick up edits to the
-                // table. A change observed here also queues a follow-up
-                // converge: the refresh
-                // folds the edit into the config the idle diff compares
-                // against, and the edit's generation bump makes this converge's
-                // status write skip its row, so without a follow-up it would
-                // sit `pending` until the periodic forced converge.
-                if state_ref.stack.config.model.private_links
+                // Refresh desired links on every poll. Generation comparison is
+                // required in addition to config comparison: A -> B -> A between
+                // polls has the same final config but still invalidates the
+                // observation and requires another converge.
+                let links_changed = state_ref.stack.config.model.private_links
                     != row_state.stack.config.model.private_links
-                {
-                    state_ref.stack.config.model.private_links =
-                        row_state.stack.config.model.private_links;
-                    state_ref.pending_converge = true;
-                }
+                    || state_ref.pinned_links != row_state.pinned_links;
+                state_ref.stack.config.model.private_links =
+                    row_state.stack.config.model.private_links;
 
-                // Pin the (id, generation) of the links this converge applies at
-                // the poll that dispatches `pulumi up`, and deliberately do not
-                // refresh it on later polls: the exported link results reflect
-                // what `PulumiUp1` provisioned, so the status write must attribute
-                // them to the exact link versions read here.
                 if matches!(status, Status::PulumiUp1) {
-                    state_ref.pinned_links = row_state.pinned_links.clone();
+                    // PulumiUp1 applies the row state read by this poll, so pin
+                    // that exact version without queuing a redundant follow-up.
+                    state_ref.pinned_links = row_state.pinned_links;
+                } else if links_changed {
+                    // Later polls must retain the PulumiUp1 pins for attributing
+                    // its exports, while remembering to converge the newer rows.
+                    state_ref.pending_converge = true;
                 }
 
                 // For all non-Idle statuses, dispatch to service worker.
@@ -313,13 +308,16 @@ impl Executor {
         if state.last_pulumi_up + CONVERGE_INTERVAL < chrono::Utc::now() {
             state.pending_converge = true;
         }
-        // Changes to branch or stack configuration require a convergence pass.
+        // Changes to branch, stack configuration, or private-link generations
+        // require a convergence pass. Generation comparison catches edits that
+        // return to the same final config between polls.
         if state.deploy_branch != next.deploy_branch {
             state.deploy_branch = next.deploy_branch;
             state.pending_converge = true;
         }
-        if state.stack.config != next.stack.config {
+        if state.stack.config != next.stack.config || state.pinned_links != next.pinned_links {
             state.stack.config = next.stack.config;
+            state.pinned_links = next.pinned_links;
             state.pending_converge = true;
         }
 

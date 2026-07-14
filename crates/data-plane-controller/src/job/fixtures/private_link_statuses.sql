@@ -55,24 +55,24 @@ insert into public.data_planes (
 );
 
 insert into internal.data_plane_private_links
-    (id, data_plane_id, provider, config, status, details, generation) values
+    (id, data_plane_id, config, status, details, generation) values
     (
-        '00:00:00:00:00:00:0b:01', '555555555555', 'aws',
+        '00:00:00:00:00:00:0b:01', '555555555555',
         '{"region":"us-east-1","az_ids":["a"],"service_name":"svc-a"}'::jsonb,
         'pending', null, 1
     ),
     (
-        '00:00:00:00:00:00:0b:02', '555555555555', 'aws',
+        '00:00:00:00:00:00:0b:02', '555555555555',
         '{"region":"us-east-1","az_ids":["a"],"service_name":"svc-edited"}'::jsonb,
         'provisioned', '{"service_name":"svc-edited","stale":true}'::jsonb, 2
     ),
     (
-        '00:00:00:00:00:00:0b:04', '555555555555', 'gcp',
+        '00:00:00:00:00:00:0b:04', '555555555555',
         '{"service_attachment":"svc-g","region":"r","dns_zone_name":"z","dns_record_names":["n"]}'::jsonb,
         'pending', null, 1
     ),
     (
-        '00:00:00:00:00:00:0b:05', '555555555555', 'aws',
+        '00:00:00:00:00:00:0b:05', '555555555555',
         '{"region":"us-east-1","az_ids":["a"],"service_name":"svc-orphan"}'::jsonb,
         'provisioned', '{"service_name":"svc-orphan"}'::jsonb, 1
     );

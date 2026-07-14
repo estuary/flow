@@ -75,11 +75,10 @@ pub struct State {
     #[serde(default, skip_serializing_if = "is_false")]
     pub pending_converge: bool,
 
-    // Private links pinned by (id, generation) at the `PulumiUp1` poll of the
-    // current converge. The post-converge status write only lands on rows whose
-    // generation still matches, so a link edited mid-converge is skipped and
-    // settled by the follow-up converge queued when the per-poll refresh
-    // observes the edit. Empty outside an active converge.
+    // Last-observed private-link (id, generation) pairs. At PulumiUp1 these are
+    // pinned for the current converge and retained through its status write, so
+    // a link edited mid-converge is skipped and settled by a follow-up. While
+    // idle they are the generation baseline for detecting A -> B -> A edits.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pinned_links: Vec<PinnedLink>,
 

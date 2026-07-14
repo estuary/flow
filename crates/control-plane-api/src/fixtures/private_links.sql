@@ -69,11 +69,10 @@ begin
     ]
   );
 
-  insert into internal.data_plane_private_links (id, data_plane_id, provider, config, status, details) values
+  insert into internal.data_plane_private_links (id, data_plane_id, config, status, details) values
     (
       '00:00:00:00:00:00:0a:01',
       alice_private_dp_id,
-      'aws',
       '{"region":"us-east-1","az_ids":["use1-az1","use1-az2"],"service_name":"com.amazonaws.vpce.us-east-1.vpce-svc-abc123"}'::jsonb,
       'provisioned',
       '{"service_name":"com.amazonaws.vpce.us-east-1.vpce-svc-abc123","dns_entries":[{"dns_name":"vpce-0123abc.vpce-svc-abc123.us-east-1.vpce.amazonaws.com","hosted_zone_id":"Z7HUB22EVRPK5"}]}'::jsonb
@@ -81,7 +80,6 @@ begin
     (
       '00:00:00:00:00:00:0a:02',
       alice_private_dp_id,
-      'azure',
       '{"service_name":"/subscriptions/x/resourceGroups/rg/providers/Microsoft.Network/privateLinkServices/svc","location":"eastus","dns_name":"privatelink.database.windows.net"}'::jsonb,
       'pending',
       null
@@ -89,7 +87,6 @@ begin
     (
       '00:00:00:00:00:00:0a:03',
       alice_private_dp_id,
-      'gcp',
       '{"service_attachment":"projects/p/regions/us-central1/serviceAttachments/sa","region":"us-central1","dns_zone_name":"z","dns_record_names":["r1","r2"],"all_ports":true}'::jsonb,
       'pending',
       null
