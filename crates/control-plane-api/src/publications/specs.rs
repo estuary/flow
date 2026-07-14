@@ -795,10 +795,18 @@ pub fn authorize_draft_specs(
                     target.as_str(),
                     Capability::Write,
                 ) {
+                    // As with the read check above, the relevant grants are those
+                    // whose subject_role is a prefix of the spec's own catalog name.
+                    let spec_capabilities = snapshot
+                        .role_grants
+                        .iter()
+                        .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+                        .collect::<Vec<_>>();
                     live_catalog.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
-                            "Specification is not write-authorized to '{target}'."
+                            "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
+                            serde_json::to_string_pretty(&spec_capabilities).unwrap()
                         ),
                     });
                 }
