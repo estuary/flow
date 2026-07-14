@@ -571,6 +571,16 @@ async fn verify_unchanged_revisions(
                 .map(|r| (r.catalog_name().as_str(), r.expect_pub_id())),
         )
         .collect();
+
+    // Never lock or revision-check the injected ops collections. `resolve_live_specs`
+    // injects ops.us-central1.v1/{logs,stats} into *every* build so the runtime knows
+    // where to write telemetry; the publication does not modify them and has no
+    // correctness dependency on their `last_pub_id`. Locking them made every publication
+    // in the fleet take `FOR UPDATE` on the same two rows, serializing all publishes
+    // globally (estuary/sre#54). They stay in the build; we only skip locking them.
+    let injected_ops = get_ops_collection_names();
+    expected.retain(|name, _| !injected_ops.contains(*name));
+
     let catalog_names = expected.keys().map(|k| *k).collect::<Vec<_>>();
     let live_revisions = db::lock_live_specs(&catalog_names, txn).await?;
 
