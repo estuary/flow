@@ -1,5 +1,6 @@
 ---
 source: crates/notifications/src/lib.rs
+assertion_line: 581
 expression: email.body
 ---
 <!DOCTYPE html>
@@ -40,7 +41,7 @@ expression: email.body
         </div>
         <div class="divider"></div>
         <div class="email-content">
-            <p class="body-text">We hope you're enjoying Estuary Flow. Our free tier includes 10 GB/month and 2 connectors. Your account <span class="identifier">acmeCo/</span> has now exceeded that, so it has been transitioned to a 30 day free trial ending on <strong>2024-02-14</strong>.</p>
+            <p class="body-text">We hope you're enjoying Estuary. Our free tier includes 10 GB/month and 2 connectors. Your account <span class="identifier">acmeCo/</span> has now exceeded that, so it has been transitioned to a 30 day free trial ending on <strong>2024-02-14</strong>.</p>
             <p class="body-text">Please add payment information in the next 30 days to continue using the platform. If you have any questions, feel free to reach out to <a href="mailto:support@estuary.dev">support@estuary.dev</a></p>
             <a href="http://dashboard.estuary.test/admin/billing" class="button">Add payment information</a>
             <div class="signature">
