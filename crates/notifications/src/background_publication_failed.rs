@@ -9,7 +9,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &fired_subject,
-            r#"Estuary Flow: Automated background publication failed for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Automated background publication failed for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering background_publication_failed-fired-subject template")?;
 
@@ -34,7 +34,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &resolved_subject,
-            r#"Estuary Flow: Automated background publication alert resolved for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Automated background publication alert resolved for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering background_publication_failed-resolved-subject template")?;
 

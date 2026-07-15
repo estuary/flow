@@ -6,7 +6,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &fired_subject,
-            r#"Estuary Flow: Task failure detected for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Task failure detected for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering shard_failed-fired-subject template")?;
 
@@ -32,7 +32,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &resolved_subject,
-            r#"Estuary Flow: Task failure resolved for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Task failure resolved for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering shard_failed-resolved-subject template")?;
 

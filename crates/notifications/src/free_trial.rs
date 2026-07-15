@@ -26,7 +26,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &resolved_subject,
-            r#"{{#if arguments.has_credit_card}}Estuary Flow: Paid Tier{{else}}Estuary Paid Tier: Enter Payment Info to Continue Access{{/if}}"#,
+            r#"{{#if arguments.has_credit_card}}Estuary: Paid Tier{{else}}Estuary Paid Tier: Enter Payment Info to Continue Access{{/if}}"#,
         )
         .context("registering free_trial-resolved-subject template")?;
 

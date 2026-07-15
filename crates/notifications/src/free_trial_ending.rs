@@ -6,7 +6,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     let (fired_subject, fired_body) =
         template_names(models::status::AlertType::FreeTrialEnding, false);
     registry
-        .register_template_string(&fired_subject, r#"Estuary Flow: Paid Tier"#)
+        .register_template_string(&fired_subject, r#"Estuary: Paid Tier"#)
         .context("registering free_trial_ending-fired-subject template")?;
 
     registry

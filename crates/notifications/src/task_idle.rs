@@ -6,7 +6,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &fired_subject,
-            r#"Estuary Flow: {{arguments.spec_type}} {{catalog_name}} has not moved data"#,
+            r#"Estuary: {{arguments.spec_type}} {{catalog_name}} has not moved data"#,
         )
         .context("registering task_idle-fired-subject template")?;
 

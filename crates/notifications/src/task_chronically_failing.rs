@@ -7,7 +7,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &fired_subject,
-            r#"Estuary Flow: {{arguments.spec_type}} {{catalog_name}} is chronically failing"#,
+            r#"Estuary: {{arguments.spec_type}} {{catalog_name}} is chronically failing"#,
         )
         .context("registering task_chronically_failing-fired-subject template")?;
 

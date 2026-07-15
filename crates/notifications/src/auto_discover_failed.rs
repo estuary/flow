@@ -7,7 +7,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &fired_subject,
-            r#"Estuary Flow: Auto-discover failed for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Auto-discover failed for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering auto_discover_failed-fired-subject template")?;
 
@@ -32,7 +32,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &resolved_subject,
-            r#"Estuary Flow: Auto-discover resolved for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Auto-discover resolved for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering auto_discover_failed-resolved-subject template")?;
 
