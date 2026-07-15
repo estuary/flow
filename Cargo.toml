@@ -32,10 +32,21 @@ async-compression = { version = "0", features = [
     "tokio",
     "zstd",
 ] }
+# `webhook-events` pulls in the (un-feature-gated) `EventObject` enum, whose
+# variants reference resource types from other features. Most disabled variants
+# fall back to placeholder stubs, but a handful of referenced types have no stub
+# and so force their feature on: `connect` (AccountCapabilities), `products`
+# (Price/Product/PromotionCode), plus `billing`/`checkout` (which we already
+# need). `fraud`/`issuing`/`orders`/`sigma`/`terminal`/`tax-calculation`/
+# `webhook-endpoints` are NOT required — their EventObject variants use stubs —
+# so we avoid the `full` bundle and the compile cost it adds.
 async-stripe = { version = "0", default-features = false, features = [
     "billing",
     "checkout",
+    "connect",
+    "products",
     "runtime-tokio-hyper",
+    "webhook-events",
 ] }
 async-trait = "0"
 atty = "0"
@@ -80,6 +91,7 @@ graphql_client = "*"
 handlebars = "6"
 hex = "0"
 hexdump = "0"
+hmac = "0"
 humantime = "2"
 humantime-serde = "1"
 itertools = "0"

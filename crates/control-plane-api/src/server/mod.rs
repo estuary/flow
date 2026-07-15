@@ -40,6 +40,10 @@ pub struct App {
     pub pg_pool: sqlx::PgPool,
     pub publisher: crate::publications::Publisher,
     pub snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+    /// Signing secret for verifying inbound Stripe webhook deliveries. `None`
+    /// when unconfigured, in which case the webhook endpoint fails closed rather
+    /// than trusting any request. See `server::public::stripe_webhooks`.
+    pub stripe_webhook_secret: Option<String>,
 }
 
 impl App {
@@ -50,6 +54,7 @@ impl App {
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        stripe_webhook_secret: Option<String>,
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
@@ -59,6 +64,7 @@ impl App {
             pg_pool,
             publisher,
             snapshot,
+            stripe_webhook_secret,
         }
     }
 }

@@ -75,7 +75,7 @@ impl BillingMutation {
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
 
         let setup_intent = provider
-            .create_setup_intent(&customer.id)
+            .create_setup_intent(&customer.id, tenant.as_str())
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
         let client_secret = setup_intent

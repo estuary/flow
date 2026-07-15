@@ -161,12 +161,20 @@ impl BillingProvider for StripeBillingProvider {
     async fn create_setup_intent(
         &self,
         customer_id: &stripe::CustomerId,
+        tenant: &str,
     ) -> anyhow::Result<stripe::SetupIntent> {
         let si = stripe::SetupIntent::create(
             &self.client,
             stripe::CreateSetupIntent {
                 customer: Some(customer_id.clone()),
                 description: Some("Store your payment details"),
+                // The tenant travels on the SetupIntent so the
+                // `setup_intent.succeeded` webhook can resolve it from the event
+                // payload alone, without a follow-up customer lookup.
+                metadata: Some(HashMap::from([(
+                    TENANT_METADATA_KEY.to_string(),
+                    tenant.to_string(),
+                )])),
                 automatic_payment_methods: Some(stripe::CreateSetupIntentAutomaticPaymentMethods {
                     enabled: true,
                     ..Default::default()

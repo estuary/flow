@@ -176,6 +176,7 @@ impl BillingProvider for InMemoryBillingProvider {
     async fn create_setup_intent(
         &self,
         _customer_id: &stripe::CustomerId,
+        tenant: &str,
     ) -> anyhow::Result<stripe::SetupIntent> {
         let mut state = self.state.lock().unwrap();
         state.setup_intent_counter += 1;
@@ -184,6 +185,11 @@ impl BillingProvider for InMemoryBillingProvider {
                 "seti_mock_{}_secret_test",
                 state.setup_intent_counter
             )),
+            // Mirror the Stripe impl: the tenant is stamped into metadata.
+            metadata: Some(HashMap::from([(
+                TENANT_METADATA_KEY.to_string(),
+                tenant.to_string(),
+            )])),
             ..Default::default()
         })
     }
