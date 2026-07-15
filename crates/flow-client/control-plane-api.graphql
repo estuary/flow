@@ -1308,12 +1308,12 @@ type MutationRoot {
 	"""
 	addDataPlanePrivateLink(dataPlaneName: String!, config: PrivateLinkConfigInput!): PrivateLink!
 	"""
-	Replaces the configuration of an existing private link by id. Any edit
-	resets the observed status to `pending` and re-triggers convergence: the
-	desired-edit trigger clears the observation columns and bumps the link's
-	internal generation, so a converge already in flight against the previous
-	configuration cannot later stamp this link with a stale status. Requires
-	`ModifyDataPlanePrivateNetworking` on the owning data plane.
+	Replaces the configuration of an existing private link by id. A changed
+	config resets the observed status to `pending` and re-triggers convergence:
+	the desired-edit trigger clears the observation columns and bumps the
+	link's internal generation, so a converge already in flight against the
+	previous configuration cannot later stamp this link with a stale status.
+	Requires `ModifyDataPlanePrivateNetworking` on the owning data plane.
 	"""
 	updateDataPlanePrivateLink(id: Id!, config: PrivateLinkConfigInput!): PrivateLink!
 	"""
