@@ -300,6 +300,10 @@ pub enum Error {
 }
 
 impl Frontier {
+    /// Maximum number of unresolved-hint lines rendered by
+    /// [`Self::describe_unresolved`] before the remainder is elided.
+    const DESCRIBE_UNRESOLVED_MAX_LINES: usize = 20;
+
     /// Construct a `Frontier` from journal entries and per-shard flushed LSNs,
     /// validating that entries are sorted and unique on `(journal, binding)` and
     /// that producers within each entry are sorted and unique on `producer`.
@@ -577,6 +581,48 @@ impl Frontier {
             bytes_read_delta,
             bytes_behind_delta,
         )
+    }
+
+    /// Render a bounded, human-readable description of producers with an
+    /// unresolved causal hint (`hinted_commit > last_commit`), one indented
+    /// line each. At most [`Self::DESCRIBE_UNRESOLVED_MAX_LINES`] lines are
+    /// emitted; any remainder is elided as `… and N more unresolved hint(s)`.
+    pub fn describe_unresolved(&self) -> String {
+        use std::fmt::Write;
+
+        let mut out = String::new();
+        let mut rendered = 0;
+
+        'journals: for jf in &self.journals {
+            for p in &jf.producers {
+                if p.hinted_commit <= p.last_commit {
+                    continue;
+                }
+                if rendered == Self::DESCRIBE_UNRESOLVED_MAX_LINES {
+                    break 'journals;
+                }
+                write!(
+                    &mut out,
+                    "\n  journal {:?} binding={} producer={:?} \
+                         last_commit={:?} hinted_commit={:?}",
+                    jf.journal.as_ref(),
+                    jf.binding,
+                    p.producer,
+                    p.last_commit,
+                    p.hinted_commit,
+                )
+                .unwrap();
+                rendered += 1;
+            }
+        }
+
+        // `unresolved_hints` is maintained as the exact count of unresolved
+        // producers, so the remainder needs no second walk.
+        let remaining = self.unresolved_hints.saturating_sub(rendered);
+        if remaining != 0 {
+            write!(&mut out, "\n  … and {remaining} more unresolved hint(s)").unwrap();
+        }
+        out
     }
 }
 
@@ -1123,5 +1169,49 @@ mod test {
         ]);
         let err = Frontier::decode(proto).unwrap_err();
         assert!(format!("{err}").contains("not ordered"));
+    }
+
+    #[test]
+    fn test_describe_unresolved_caps_and_elides() {
+        // More unresolved journals than the render cap: the first
+        // DESCRIBE_UNRESOLVED_MAX_LINES render and the remainder is elided.
+        let extra = 5;
+        let count = Frontier::DESCRIBE_UNRESOLVED_MAX_LINES + extra;
+        let journals: Vec<_> = (0..count)
+            .map(|i| jf(&format!("journal/{i:02}"), 0, vec![pf(0x01, 10, 20, -100)]))
+            .collect();
+        let f = Frontier {
+            journals,
+            flushed_lsn: vec![],
+            unresolved_hints: count,
+        };
+
+        let desc = f.describe_unresolved();
+        let rendered = desc.matches("journal \"").count();
+
+        assert_eq!(rendered, Frontier::DESCRIBE_UNRESOLVED_MAX_LINES);
+        assert!(
+            desc.ends_with(&format!("… and {extra} more unresolved hint(s)")),
+            "{desc}",
+        );
+    }
+
+    #[test]
+    fn test_describe_unresolved_skips_resolved_and_omits_elision() {
+        // Under the cap and with a resolved producer mixed in: only unresolved
+        // producers render, and there is no elision line.
+        let f = Frontier {
+            journals: vec![
+                jf("journal/A", 0, vec![pf(0x01, 10, 20, -100)]), // unresolved
+                jf("journal/B", 1, vec![pf(0x03, 30, 0, -200)]),  // no hint → skipped
+            ],
+            flushed_lsn: vec![],
+            unresolved_hints: 1,
+        };
+
+        let desc = f.describe_unresolved();
+        assert!(desc.contains("journal \"journal/A\""), "{desc}");
+        assert!(!desc.contains("journal/B"), "{desc}");
+        assert!(!desc.contains("more unresolved"), "{desc}");
     }
 }
