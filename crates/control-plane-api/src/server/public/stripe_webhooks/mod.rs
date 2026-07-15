@@ -41,7 +41,7 @@ pub async fn handle_post_stripe_webhook(
         // request, and we refuse to trust the source-tree dev fixture in an
         // environment that hasn't opted into it. A 500 makes the
         // misconfiguration loud rather than silently dropping deliveries.
-        tracing::error!(
+        tracing::warn!(
             "received a Stripe webhook but STRIPE_WEBHOOK_SECRET is not configured; rejecting"
         );
         return Err(tonic::Status::internal("stripe webhook secret is not configured").into());
@@ -70,7 +70,6 @@ pub async fn handle_post_stripe_webhook(
 /// metadata triggers work; every other event is acknowledged and ignored.
 async fn handle_event(app: &crate::App, event: stripe::Event) -> Result<(), crate::ApiError> {
     if event.type_ != stripe::EventType::SetupIntentSucceeded {
-        tracing::debug!(event_type = %event.type_, "ignoring unsubscribed Stripe event");
         return Ok(());
     }
 
