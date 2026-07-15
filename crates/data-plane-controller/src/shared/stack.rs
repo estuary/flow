@@ -612,6 +612,7 @@ mod test {
                 service_name: "service".to_string(),
                 resource_type: Some("managedInstance".to_string()),
                 dns_name: Some("privatelink.database.windows.net".to_string()),
+                dns_names: vec![],
             }),
         );
         assert_eq!(
