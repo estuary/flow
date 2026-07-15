@@ -36,6 +36,11 @@ comment on column public.user_grants.expires_at is
 grant select (expires_at) on public.role_grants to authenticated, marketplace_integration, reporting_user;
 grant select (expires_at) on public.user_grants to authenticated, reporting_user;
 
+-- The expiry sweep runs every minute and matches almost no rows (nearly every
+-- grant is permanent). Partial indexes keep it from scanning the full tables.
+create index idx_role_grants_expires_at on public.role_grants (expires_at) where expires_at is not null;
+create index idx_user_grants_expires_at on public.user_grants (expires_at) where expires_at is not null;
+
 -- Append-only audit log and access-review evidence for temporary support
 -- grants: who granted or revoked what, when, and why. The grant rows
 -- themselves (via expires_at) drive enforcement.
@@ -100,7 +105,16 @@ begin
           now() + p_duration)
   on conflict (subject_role, object_role) do update
     set expires_at = greatest(public.role_grants.expires_at, excluded.expires_at),
-        detail = excluded.detail,
+        -- Re-assert admin: PostgREST RLS lets the tenant's own admins update
+        -- capability, so an extension must not silently preserve a downgrade
+        -- while the audit row implies admin.
+        capability = excluded.capability,
+        -- detail stays with the request whose window is actually in force.
+        detail = case
+          when excluded.expires_at > public.role_grants.expires_at
+          then excluded.detail
+          else public.role_grants.detail
+        end,
         updated_at = now()
     where public.role_grants.expires_at is not null
   returning expires_at into v_expires;
@@ -111,8 +125,8 @@ begin
 
   -- The audit row records the effective expiry (which may exceed the request,
   -- when a longer prior window is still open).
-  insert into internal.support_access (id, object_role, granted_by, reason, expires_at)
-  values (internal.id_generator(), p_tenant, session_user, p_reason, v_expires)
+  insert into internal.support_access (object_role, granted_by, reason, expires_at)
+  values (p_tenant, session_user, p_reason, v_expires)
   returning * into v_row;
 
   raise log 'support_access granted: tenant=% by=% reason=% expires=%',
@@ -147,9 +161,11 @@ begin
     raise exception 'tenant % has no temporary support access to revoke', p_tenant;
   end if;
 
+  -- Stamp only windows that were still open: rows of long-lapsed windows keep
+  -- revoked_at NULL (they expired on schedule and this revoke is not theirs).
   update internal.support_access
   set revoked_at = now(), revoked_by = session_user
-  where object_role = p_tenant and revoked_at is null;
+  where object_role = p_tenant and revoked_at is null and expires_at > now();
 
   raise log 'support_access revoked: tenant=% by=%', p_tenant, session_user;
 end;

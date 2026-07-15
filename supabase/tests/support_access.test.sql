@@ -132,6 +132,72 @@ begin
   return query select is(
     (select count(*)::int from internal.support_access where object_role = 'supportExtend/'),
     3, 'every request is logged, including no-op extensions');
+
+  return query select ok(
+    (select detail like '%: longer' from role_grants
+       where subject_role = 'estuary_support/' and object_role = 'supportExtend/'),
+    'detail attributes the window to the request actually in force');
+end;
+$$ language plpgsql;
+
+
+-- The tenant's own admins can update role_grants.capability via PostgREST RLS,
+-- so an extension must re-assert admin rather than silently preserving a
+-- downgrade while writing an admin-implying audit row.
+create function tests.test_grant_support_access_restores_capability()
+returns setof text as $$
+begin
+  set role postgres;
+  insert into tenants (tenant) values ('supportCapability/') on conflict (tenant) do nothing;
+  delete from role_grants where subject_role = 'estuary_support/' and object_role = 'supportCapability/';
+
+  perform internal.grant_support_access('supportCapability/', 'ticket', interval '2 hours');
+  update role_grants set capability = 'read'
+    where subject_role = 'estuary_support/' and object_role = 'supportCapability/';
+
+  perform internal.grant_support_access('supportCapability/', 'extend', interval '4 hours');
+
+  return query select is(
+    (select capability::text from role_grants
+       where subject_role = 'estuary_support/' and object_role = 'supportCapability/'),
+    'admin', 'an extension re-asserts admin over an out-of-band downgrade');
+end;
+$$ language plpgsql;
+
+
+-- Revoke stamps only windows that were still open. Audit rows of long-lapsed
+-- windows keep revoked_at NULL forever: they expired on schedule, and a later
+-- revocation of a NEW window is not theirs.
+create function tests.test_revoke_support_access_spares_lapsed_history()
+returns setof text as $$
+begin
+  set role postgres;
+  insert into tenants (tenant) values ('supportHistory/') on conflict (tenant) do nothing;
+  delete from role_grants where subject_role = 'estuary_support/' and object_role = 'supportHistory/';
+
+  -- An old window that lapsed on schedule and was swept.
+  perform internal.grant_support_access('supportHistory/', 'old window', interval '2 hours');
+  update role_grants set expires_at = now() - interval '1 hour'
+    where subject_role = 'estuary_support/' and object_role = 'supportHistory/';
+  update internal.support_access set expires_at = now() - interval '1 hour'
+    where object_role = 'supportHistory/';
+  perform internal.expire_support_access();
+
+  -- A fresh window, revoked early.
+  perform internal.grant_support_access('supportHistory/', 'new window', interval '2 hours');
+  perform internal.revoke_support_access('supportHistory/');
+
+  return query select ok(
+    exists(select 1 from internal.support_access
+             where object_role = 'supportHistory/' and reason = 'old window'
+               and revoked_at is null),
+    'the lapsed historical window stays unstamped by a later revoke');
+
+  return query select ok(
+    exists(select 1 from internal.support_access
+             where object_role = 'supportHistory/' and reason = 'new window'
+               and revoked_at is not null and revoked_by is not null),
+    'only the open window is stamped as explicitly revoked');
 end;
 $$ language plpgsql;
 
