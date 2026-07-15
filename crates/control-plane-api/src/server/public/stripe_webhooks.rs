@@ -198,6 +198,26 @@ mod tests {
         .await
     }
 
+    /// Count the `{"type":"wake"}` messages sitting in the tenant controller's
+    /// task inbox. `send_to_task` appends `[from_id, message]` to
+    /// `internal.tasks.inbox`, so we unnest the inbox and match the message's
+    /// `type`. Returns 0 when the tenant has no controller task yet.
+    async fn controller_wake_count(pool: &sqlx::PgPool, tenant: &str) -> i64 {
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*) FILTER (WHERE elem -> 1 ->> 'type' = 'wake')
+            FROM tenants te
+            LEFT JOIN internal.tasks t ON t.task_id = te.controller_task_id
+            LEFT JOIN LATERAL unnest(t.inbox) AS elem ON true
+            WHERE te.tenant = $1
+            "#,
+        )
+        .bind(tenant)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
@@ -215,9 +235,16 @@ mod tests {
         let server = start(&pool).await;
         let tenant_key = format!("{tenant}/");
 
+        // Capture the wake count before the webhook so the assertion measures the
+        // wake this webhook enqueues, independent of any wake that provisioning
+        // (or its DB triggers) may already have delivered.
+        let wakes_before = controller_wake_count(&pool, &tenant_key).await;
+
         let response = post_signed(&server, &setup_intent_succeeded(Some(&tenant_key))).await;
         assert_eq!(response.status(), 200);
 
+        // The controller task exists and the webhook appended exactly one
+        // `{"type":"wake"}` message to its inbox.
         let has_controller: bool = sqlx::query_scalar(
             "SELECT controller_task_id IS NOT NULL FROM tenants WHERE tenant = $1",
         )
@@ -227,7 +254,15 @@ mod tests {
         .unwrap();
         assert!(
             has_controller,
-            "setup_intent.succeeded should have woken (and created) the tenant controller task"
+            "controller task should exist after the wake"
+        );
+
+        let wakes_after = controller_wake_count(&pool, &tenant_key).await;
+        assert_eq!(
+            wakes_after,
+            wakes_before + 1,
+            "setup_intent.succeeded should enqueue exactly one wake message \
+             (before={wakes_before}, after={wakes_after})"
         );
     }
 
