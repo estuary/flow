@@ -21,7 +21,9 @@ use stripe::WebhookError;
 /// Handle a Stripe webhook delivery: verify the signature, then wake the tenant
 /// controller on `setup_intent.succeeded`. Returns `200` for both handled and
 /// intentionally-ignored events (so Stripe stops retrying), and `400` when the
-/// signature does not verify.
+/// signature does not verify, with the exception of if the event doesn't parse
+/// it could mean that they updated an event so in that case we also return a
+/// 200 and ignore the event.
 pub async fn handle_post_stripe_webhook(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
     headers: axum::http::HeaderMap,
@@ -50,7 +52,8 @@ pub async fn handle_post_stripe_webhook(
             tracing::debug!(?err, "rejected Stripe webhook with an invalid signature");
             match err {
                 WebhookError::BadParse(inner) => {
-                    tracing::error!(?inner, "Failed to parse stripe event")
+                    tracing::error!(?inner, "Failed to parse stripe event");
+                    return Ok(axum::http::StatusCode::OK);
                 }
                 _ => (),
             }
@@ -120,7 +123,6 @@ async fn handle_event(app: &crate::App, event: stripe::Event) -> Result<(), crat
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::test_server::{self, TestServer};
-    use std::collections::HashMap;
 
     /// Webhook signing secret used by the test suite. `test_server` configures
     /// the app with this value so tests can sign payloads against a stable,
@@ -149,12 +151,7 @@ pub(crate) mod tests {
     /// A SetupIntent event object, optionally stamping `tenant` into its metadata
     /// (as `create_setup_intent` does in production).
     fn setup_intent(tenant: Option<&str>) -> stripe::EventObject {
-        let metadata = tenant.map(|tenant| {
-            HashMap::from([(
-                billing_types::TENANT_METADATA_KEY.to_string(),
-                tenant.to_string(),
-            )])
-        });
+        let metadata = tenant.map(billing_types::tenant_metadata);
         stripe::EventObject::SetupIntent(stripe::SetupIntent {
             id: "seti_test".parse().unwrap(),
             metadata,

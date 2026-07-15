@@ -1,8 +1,7 @@
 use super::BillingProvider;
 use billing_types::{
-    SearchParams, TENANT_METADATA_KEY, customer_create_idempotency_key, stripe_search,
+    SearchParams, customer_create_idempotency_key, stripe_search, tenant_metadata,
 };
-use std::collections::HashMap;
 
 /// Production `BillingProvider` backed by the Stripe API.
 #[derive(Clone)]
@@ -81,10 +80,8 @@ impl BillingProvider for StripeBillingProvider {
         billing_name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
-        let mut metadata = HashMap::from([
-            (TENANT_METADATA_KEY.to_string(), tenant.to_string()),
-            ("created_by_user_email".to_string(), user_email.to_string()),
-        ]);
+        let mut metadata = tenant_metadata(tenant);
+        metadata.insert("created_by_user_email".to_string(), user_email.to_string());
         if let Some(name) = user_name {
             metadata.insert("created_by_user_name".to_string(), name.to_string());
         }
@@ -171,10 +168,7 @@ impl BillingProvider for StripeBillingProvider {
                 // The tenant travels on the SetupIntent so the
                 // `setup_intent.succeeded` webhook can resolve it from the event
                 // payload alone, without a follow-up customer lookup.
-                metadata: Some(HashMap::from([(
-                    TENANT_METADATA_KEY.to_string(),
-                    tenant.to_string(),
-                )])),
+                metadata: Some(tenant_metadata(tenant)),
                 automatic_payment_methods: Some(stripe::CreateSetupIntentAutomaticPaymentMethods {
                     enabled: true,
                     ..Default::default()

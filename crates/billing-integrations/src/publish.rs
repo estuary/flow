@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use billing_types::{
     InvoiceMetadata, InvoiceSearch, InvoiceType, PaymentProvider, SearchParams,
-    TENANT_METADATA_KEY, customer_create_idempotency_key, customer_search_query, stripe_search,
+    customer_create_idempotency_key, customer_search_query, stripe_search, tenant_metadata,
 };
 use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
@@ -811,13 +811,14 @@ async fn get_or_create_customer_for_tenant(
                 description: Some(
                     format!("Represents the billing entity for Flow tenant '{tenant}'").as_str(),
                 ),
-                metadata: Some(HashMap::from([
-                    (TENANT_METADATA_KEY.to_string(), tenant.to_string()),
-                    (
+                metadata: Some({
+                    let mut metadata = tenant_metadata(tenant.as_str());
+                    metadata.insert(
                         CREATED_BY_BILLING_AUTOMATION.to_string(),
                         "true".to_string(),
-                    ),
-                ])),
+                    );
+                    metadata
+                }),
                 ..Default::default()
             },
         )

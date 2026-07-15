@@ -1,6 +1,5 @@
 use super::BillingProvider;
 use billing_types::TENANT_METADATA_KEY;
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[derive(Debug, Default)]
@@ -39,10 +38,7 @@ impl InMemoryBillingProvider {
                     .map(|pm| stripe::Expandable::Id(pm.parse().unwrap())),
                 ..Default::default()
             }),
-            metadata: Some(HashMap::from([(
-                TENANT_METADATA_KEY.to_string(),
-                tenant.to_string(),
-            )])),
+            metadata: Some(billing_types::tenant_metadata(tenant)),
             ..Default::default()
         });
     }
@@ -124,7 +120,7 @@ impl BillingProvider for InMemoryBillingProvider {
         let mut state = self.state.lock().unwrap();
         let id = format!("cus_mock_{}", tenant.replace('/', ""));
         // Mirror the Stripe impl: the billing name lives in customer metadata.
-        let mut metadata = HashMap::from([(TENANT_METADATA_KEY.to_string(), tenant.to_string())]);
+        let mut metadata = billing_types::tenant_metadata(tenant);
         if let Some(billing_name) = billing_name {
             metadata.insert(
                 billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
@@ -186,10 +182,7 @@ impl BillingProvider for InMemoryBillingProvider {
                 state.setup_intent_counter
             )),
             // Mirror the Stripe impl: the tenant is stamped into metadata.
-            metadata: Some(HashMap::from([(
-                TENANT_METADATA_KEY.to_string(),
-                tenant.to_string(),
-            )])),
+            metadata: Some(billing_types::tenant_metadata(tenant)),
             ..Default::default()
         })
     }
