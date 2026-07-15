@@ -19,7 +19,7 @@ You can create or manage your endpoint services on the [AWS VPC dashboard](https
 
 * Specify the NLB you created.
 * Safelist the AWS principal that will create the connecting endpoint, so it's allowed to reach your VPC endpoint service. Which principal this is depends on your deployment type:
-  * **BYOC deployments**: safelist your own AWS account (`arn:aws:iam::<your-account-id>:root`). PrivateLink connections are provisioned through the IAM role you created for Estuary during BYOC setup, which lives in your own account.
+  * **BYOC deployments**: safelist your own AWS account (`arn:aws:iam::<your-account-id>:root`), or - to be more restrictive - the specific IAM role you created for Estuary during BYOC setup (`arn:aws:iam::<your-account-id>:role/<estuary-role>`). PrivateLink connections are provisioned by assuming that role, which lives in your own account.
   * **Private deployments**: safelist Estuary's data-plane principal, `arn:aws:iam::770785070253:user/data-plane-ops`.
 * By default, the endpoint service should be in the same region as your Estuary data plane. To connect across regions, see [Cross-region setup](#cross-region) below.
 
