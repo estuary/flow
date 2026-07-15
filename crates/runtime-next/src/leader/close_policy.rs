@@ -66,6 +66,11 @@ impl Policy {
     ///
     /// Overrides:
     /// - `close_requested`, or `idempotent_replay && !unresolved_hints`: force close.
+    /// - `combiner_bytes >= combiner_usage_bytes.end`: force close, bypassing the
+    ///   min-duration floor. A combiner at its max byte budget must flush promptly
+    ///   to bound its memory/disk footprint, much like an idempotent replay forces
+    ///   a close. Reads are already halted (this also drives `policy_extend` false),
+    ///   so the combiner cannot grow further while awaiting Tail to finish.
     /// - `unresolved_hints`: forces extend; suppresses close until hints resolve.
     /// - `idempotent_replay`: suppresses extend (replay is one-shot).
     /// - `close_requested` or `stopping` with `may_close=true`: suppresses extend so
@@ -99,6 +104,9 @@ impl Policy {
             && (!policy_extend || read_docs >= self.read_docs.start);
         policy_close |= idempotent_replay && !unresolved_hints;
         policy_close |= close_requested;
+        // A combiner at its max byte budget must flush promptly to bound its
+        // memory/disk footprint, even if the min-duration floor hasn't elapsed.
+        policy_close |= combiner_bytes >= self.combiner_usage_bytes.end;
 
         let may_close = policy_close && !unresolved_hints && tail_done;
 
@@ -194,10 +202,20 @@ mod tests {
                 want: (false, true),
             },
             Case {
-                name: "saturated combiner but open_age below min: hold",
+                name: "saturated combiner below min duration: force close, bypass min floor",
                 inputs: Inputs {
                     open_age: Duration::ZERO,
                     combiner_bytes: 10,
+                    ..mid.clone()
+                },
+                want: (false, true),
+            },
+            Case {
+                name: "saturated combiner but tail still busy: hold (cannot close yet)",
+                inputs: Inputs {
+                    open_age: Duration::ZERO,
+                    combiner_bytes: 10,
+                    tail_done: false,
                     ..mid.clone()
                 },
                 want: (false, false),
