@@ -20,7 +20,7 @@ fn billing_provider(ctx: &Context<'_>) -> async_graphql::Result<Arc<dyn BillingP
 }
 
 #[cfg(test)]
-pub(super) mod test_util {
+pub(crate) mod test_util {
     use crate::{billing, test_server};
     use serde_json::json;
     use std::sync::Arc;

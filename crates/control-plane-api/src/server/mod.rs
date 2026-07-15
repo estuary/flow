@@ -82,15 +82,15 @@ impl App {
 pub(crate) async fn wake_tenant_controller(
     pool: &sqlx::PgPool,
     tenant: &str,
-) -> anyhow::Result<()> {
-    sqlx::query!(
+) -> anyhow::Result<bool> {
+    let res = sqlx::query!(
         "SELECT internal.wake_tenant_controller($1::TEXT) \
          WHERE EXISTS (SELECT 1 FROM tenants WHERE tenant = $1::TEXT)",
         tenant,
     )
     .execute(pool)
     .await?;
-    Ok(())
+    Ok(res.rows_affected() > 0u64)
 }
 
 /// Evaluate whether the user identified by `claims` is authorized to access all
