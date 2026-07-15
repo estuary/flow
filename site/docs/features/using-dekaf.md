@@ -226,17 +226,6 @@ Spark's `kafka` source reads a Dekaf topic directly. Read [Consumer
 behaviors](#consumer-behaviors) first; the items below are Spark-specific configuration on
 top of those behaviors.
 
-### Do not set `maxOffsetsPerTrigger`
-
-Because offsets are journal byte positions, Spark treats `maxOffsetsPerTrigger` as a
-per-micro-batch byte budget, not a record count. A capped batch can end in the middle of a
-document; the next batch resumes at that mid-document offset, which is not a clean record
-boundary, so Dekaf skips the partial record. The result is one silently dropped record per
-capped batch boundary.
-
-For backfill pressure, give the executors more cores and memory and/or split the collection
-into more journals for parallel reads, rather than capping the batch.
-
 ### Handle `failOnDataLoss`
 
 Spark's default `failOnDataLoss=true` aborts the query whenever a partition's latest offset
