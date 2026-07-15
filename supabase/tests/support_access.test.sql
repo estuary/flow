@@ -55,6 +55,16 @@ begin
     $q$ select internal.grant_support_access('no-such-tenant/', 'valid reason') $q$,
     null, 'unknown tenant: no-such-tenant/',
     'an unknown tenant is rejected');
+
+  return query select throws_ok(
+    $q$ select internal.grant_support_access('supportValid/', 'valid reason', interval '-1 hours') $q$,
+    null, 'support access duration must be positive',
+    'a negative duration is rejected');
+
+  return query select throws_ok(
+    $q$ select internal.grant_support_access('supportValid/', 'valid reason', null) $q$,
+    null, 'support access duration must be positive',
+    'a null duration is rejected rather than creating a permanent-looking grant');
 end;
 $$ language plpgsql;
 
@@ -227,9 +237,9 @@ begin
 
   return query select ok(
     exists(select 1 from internal.support_access
-             where object_role = 'supportExpired/' and revoked_at is not null
-               and revoked_by = 'internal.expire_support_access'),
-    'the lapsed audit row is marked revoked by the sweeper');
+             where object_role = 'supportExpired/' and revoked_at is null
+               and expires_at <= now()),
+    'the lapsed audit row stays unstamped: revoked_at means explicit revocation only');
 
   return query select is(
     (select count(*)::int from role_grants

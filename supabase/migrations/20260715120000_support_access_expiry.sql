@@ -52,7 +52,9 @@ create table internal.support_access (
 
 comment on table internal.support_access is
   'Append-only audit log for temporary estuary_support/ grants created via '
-  'internal.grant_support_access(). Doubles as access-review evidence.';
+  'internal.grant_support_access(). Doubles as access-review evidence. '
+  'revoked_at/revoked_by strictly record explicit revocation; a row with '
+  'revoked_at NULL and a past expires_at lapsed on schedule.';
 
 -- Attach support to a tenant for a bounded window, and log it. session_user
 -- (the caller''s own login role, preserved through SECURITY DEFINER) records
@@ -74,6 +76,12 @@ declare
 begin
   if p_reason is null or btrim(p_reason) = '' then
     raise exception 'a reason is required for temporary support access';
+  end if;
+
+  -- A NULL duration would compute a NULL expires_at: a permanent-looking grant.
+  -- (The audit insert's NOT NULL would abort it anyway, but fail clearly here.)
+  if p_duration is null or p_duration <= interval '0' then
+    raise exception 'support access duration must be positive';
   end if;
 
   if not exists (select 1 from public.tenants t where t.tenant = p_tenant) then
@@ -177,9 +185,11 @@ begin
   select (select count(*) from role_swept) + (select count(*) from user_swept)
   into v_count;
 
-  update internal.support_access
-  set revoked_at = now(), revoked_by = 'internal.expire_support_access'
-  where revoked_at is null and expires_at <= now();
+  -- The sweep does not touch internal.support_access: revoked_at/revoked_by
+  -- strictly record explicit revocation by a named person. A lapsed window is
+  -- already self-describing (revoked_at IS NULL and expires_at <= now()), and
+  -- audit rows carry per-request expiries that an extension deliberately does
+  -- not move, so stamping them here would mislabel subsumed windows as revoked.
 
   return v_count;
 end;
