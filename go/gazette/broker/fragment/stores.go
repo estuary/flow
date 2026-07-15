@@ -111,6 +111,16 @@ func Remove(ctx context.Context, fragment pb.Fragment) error {
 	return store.Remove(ctx, fragment.ContentPath())
 }
 
+// IsAuthError reports whether `err`, as returned by an operation such as Remove
+// or Open against `fragment`, stems from an authorization failure of the
+// fragment's BackingStore (for example, a missing delete permission on a
+// customer-owned bucket). Callers use this to distinguish "we're not allowed to
+// touch this object" from transient or otherwise unexpected failures.
+func IsAuthError(fragment pb.Fragment, err error) bool {
+	var store = stores.Get(fragment.BackingStore)
+	return store.Store != nil && store.Store.IsAuthError(err)
+}
+
 func evalPathPostfix(spool Spool, spec *pb.JournalSpec) (string, error) {
 	var tpl, err = template.New("").Parse(spec.Fragment.PathPostfixTemplate)
 	if err != nil {

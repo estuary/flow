@@ -104,3 +104,50 @@ func TestPersistAuthErrorFallback(t *testing.T) {
 		require.False(t, exists)
 	}
 }
+
+func TestIsAuthError(t *testing.T) {
+	var authError = errors.New("access denied")
+	var otherError = errors.New("network timeout")
+
+	stores.RegisterProviders(map[string]stores.Constructor{
+		// A store which denies deletes with an authorization error.
+		"s3": func(u *url.URL) (stores.Store, error) {
+			return &stores.CallbackStore{
+				Fallback: stores.NewMemoryStore(u),
+				RemoveFunc: func(stores.Store, context.Context, string) error {
+					return authError
+				},
+				IsAuthErrorFunc: func(_ stores.Store, err error) bool {
+					return err == authError
+				},
+			}, nil
+		},
+		// A store which fails to initialize, so its ActiveStore has a nil Store.
+		"gs": func(u *url.URL) (stores.Store, error) {
+			return nil, errors.New("cannot initialize store")
+		},
+	})
+
+	var frag = pb.Fragment{
+		Journal:          "test/journal",
+		Begin:            0,
+		End:              12,
+		CompressionCodec: pb.CompressionCodec_NONE,
+		BackingStore:     "s3://bucket/",
+	}
+
+	// The auth error surfaced by Remove is classified as an auth error...
+	require.Equal(t, authError, Remove(context.Background(), frag))
+	require.True(t, IsAuthError(frag, authError))
+
+	// ...while an unrelated error against the same store is not.
+	require.False(t, IsAuthError(frag, otherError))
+
+	// A store which failed to initialize never reports an auth error (and does not panic).
+	var uninitFrag = pb.Fragment{
+		Journal:          "test/journal",
+		CompressionCodec: pb.CompressionCodec_NONE,
+		BackingStore:     "gs://bucket/",
+	}
+	require.False(t, IsAuthError(uninitFrag, authError))
+}

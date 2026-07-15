@@ -164,6 +164,14 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 				defer mu.Unlock()
 
 				if err != nil {
+					if fragment.IsAuthError(spec, err) {
+						log.WithFields(log.Fields{
+							"fragment": spec,
+							"error":    err,
+						}).Warn("skipping fragment removal: no permission to delete")
+						metrics.permissionDenied++
+						return nil
+					}
 					log.WithFields(log.Fields{
 						"fragment": spec,
 						"error":    err,
@@ -275,26 +283,28 @@ func foldHintsIntoSegments(hints recoverylog.FSMHints, sets map[pb.Journal][]rec
 }
 
 type shardsPruneMetrics struct {
-	shardsTotal     int64
-	fragmentsTotal  int64
-	fragmentsPruned int64
-	bytesTotal      int64
-	bytesPruned     int64
-	skippedJournals int64
-	failedToRemove  int64
+	shardsTotal      int64
+	fragmentsTotal   int64
+	fragmentsPruned  int64
+	bytesTotal       int64
+	bytesPruned      int64
+	skippedJournals  int64
+	failedToRemove   int64
+	permissionDenied int64
 }
 
 func logShardsPruneMetrics(m shardsPruneMetrics, journal, message string) {
 	var fields = log.Fields{
-		"shardsTotal":     m.shardsTotal,
-		"fragmentsTotal":  m.fragmentsTotal,
-		"fragmentsPruned": m.fragmentsPruned,
-		"fragmentsKept":   m.fragmentsTotal - m.fragmentsPruned,
-		"bytesTotal":      m.bytesTotal,
-		"bytesPruned":     m.bytesPruned,
-		"bytesKept":       m.bytesTotal - m.bytesPruned,
-		"skippedJournals": m.skippedJournals,
-		"failedToRemove":  m.failedToRemove,
+		"shardsTotal":      m.shardsTotal,
+		"fragmentsTotal":   m.fragmentsTotal,
+		"fragmentsPruned":  m.fragmentsPruned,
+		"fragmentsKept":    m.fragmentsTotal - m.fragmentsPruned,
+		"bytesTotal":       m.bytesTotal,
+		"bytesPruned":      m.bytesPruned,
+		"bytesKept":        m.bytesTotal - m.bytesPruned,
+		"skippedJournals":  m.skippedJournals,
+		"failedToRemove":   m.failedToRemove,
+		"permissionDenied": m.permissionDenied,
 	}
 	if journal != "" {
 		fields["journal"] = journal
