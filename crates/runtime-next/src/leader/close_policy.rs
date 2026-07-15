@@ -66,11 +66,13 @@ impl Policy {
     ///
     /// Overrides:
     /// - `close_requested`, or `idempotent_replay && !unresolved_hints`: force close.
-    /// - `combiner_bytes >= combiner_usage_bytes.end`: force close, bypassing the
-    ///   min-duration floor. A combiner at its max byte budget must flush promptly
-    ///   to bound its memory/disk footprint, much like an idempotent replay forces
-    ///   a close. Reads are already halted (this also drives `policy_extend` false),
-    ///   so the combiner cannot grow further while awaiting Tail to finish.
+    /// - any usage measure at its max (`combiner_bytes`, `read_bytes`, or
+    ///   `read_docs` >= its `range.end`): force close, bypassing the min-duration
+    ///   floor, much like an idempotent replay. A maxed combiner must flush to
+    ///   bound its memory/disk footprint; maxed read bytes/docs mean the batch is
+    ///   already as large as desired. Reads are already halted (a maxed measure
+    ///   also drives `policy_extend` false), so measures cannot grow further while
+    ///   awaiting Tail to finish.
     /// - `unresolved_hints`: forces extend; suppresses close until hints resolve.
     /// - `idempotent_replay`: suppresses extend (replay is one-shot).
     /// - `close_requested` or `stopping` with `may_close=true`: suppresses extend so
@@ -91,22 +93,29 @@ impl Policy {
             tail_done,
         } = inputs;
 
-        let policy_extend = open_age < self.open_duration.end
-            && last_age < self.last_close_age.end
-            && combiner_bytes < self.combiner_usage_bytes.end
-            && read_bytes < self.read_bytes.end
-            && read_docs < self.read_docs.end;
+        // Usage measures share a desired band [start, end). Reaching any max
+        // (`end`) both halts reads and forces a prompt close that bypasses the
+        // min-duration floor: a maxed combiner must flush to bound its
+        // memory/disk footprint, and maxed read bytes/docs mean the batch is
+        // already as large as desired.
+        let usage_maxed = combiner_bytes >= self.combiner_usage_bytes.end
+            || read_bytes >= self.read_bytes.end
+            || read_docs >= self.read_docs.end;
+        let usage_above_min = combiner_bytes >= self.combiner_usage_bytes.start
+            && read_bytes >= self.read_bytes.start
+            && read_docs >= self.read_docs.start;
 
+        let policy_extend =
+            !usage_maxed && open_age < self.open_duration.end && last_age < self.last_close_age.end;
+
+        // Usage measures saturate below `start` once `policy_extend` is false,
+        // otherwise we'd live-lock waiting on a threshold that cannot be reached.
         let mut policy_close = open_age >= self.open_duration.start
             && last_age >= self.last_close_age.start
-            && (!policy_extend || combiner_bytes >= self.combiner_usage_bytes.start)
-            && (!policy_extend || read_bytes >= self.read_bytes.start)
-            && (!policy_extend || read_docs >= self.read_docs.start);
+            && (!policy_extend || usage_above_min);
         policy_close |= idempotent_replay && !unresolved_hints;
         policy_close |= close_requested;
-        // A combiner at its max byte budget must flush promptly to bound its
-        // memory/disk footprint, even if the min-duration floor hasn't elapsed.
-        policy_close |= combiner_bytes >= self.combiner_usage_bytes.end;
+        policy_close |= usage_maxed;
 
         let may_close = policy_close && !unresolved_hints && tail_done;
 
@@ -219,6 +228,24 @@ mod tests {
                     ..mid.clone()
                 },
                 want: (false, false),
+            },
+            Case {
+                name: "maxed read_bytes below min duration: force close, bypass min floor",
+                inputs: Inputs {
+                    open_age: Duration::ZERO,
+                    read_bytes: 10,
+                    ..mid.clone()
+                },
+                want: (false, true),
+            },
+            Case {
+                name: "maxed read_docs below min duration: force close, bypass min floor",
+                inputs: Inputs {
+                    open_age: Duration::ZERO,
+                    read_docs: 10,
+                    ..mid.clone()
+                },
+                want: (false, true),
             },
             Case {
                 name: "close_requested with may_close: extend suppressed, close",
