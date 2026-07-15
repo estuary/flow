@@ -4986,7 +4986,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.53.4",
 ]
 
 [[package]]
@@ -5901,10 +5901,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "parquet-variant"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a56bf96fdaf5f9392b447cf1e60bfe4b72149ab3309aa3855c02813cc89ad93f"
+dependencies = [
+ "arrow-schema",
+ "chrono",
+ "half",
+ "indexmap 2.11.4",
+ "simdutf8",
+ "uuid",
+]
+
+[[package]]
+name = "parquet-variant-json"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af8bde078e883e197efe49d315bfa0ecf8f68879d32a2abf34eb09f40ea88f21"
+dependencies = [
+ "arrow-schema",
+ "base64 0.22.1",
+ "chrono",
+ "parquet-variant",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "parser"
 version = "0.0.0"
 dependencies = [
  "apache-avro",
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-schema",
  "assert_cmd",
  "base64 0.22.1",
  "bytes",
@@ -5917,6 +5948,7 @@ dependencies = [
  "doc",
  "encoding_rs",
  "flate2",
+ "half",
  "insta",
  "itertools 0.14.0",
  "json",
@@ -5924,6 +5956,8 @@ dependencies = [
  "mime",
  "num-bigint",
  "parquet",
+ "parquet-variant",
+ "parquet-variant-json",
  "protobuf",
  "protobuf-json-mapping",
  "protobuf-parse",
