@@ -1023,6 +1023,71 @@ mod tests {
     }
 
     #[test]
+    fn test_task_idle_fired() {
+        let email = test_single_email(
+            AlertType::TaskIdle,
+            "acmeCo/test/capture",
+            json!({
+                "recipients": [user_a()],
+                "spec_type": "capture",
+                "disable_at": "2024-02-14",
+            }),
+            State::Fired,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_FIRED,
+            "Estuary: capture acmeCo/test/capture has not moved data",
+        );
+        insta::assert_snapshot!("task_idle_fired_body", email.body);
+    }
+
+    #[test]
+    fn test_task_auto_disabled_failing_fired() {
+        let email = test_single_email(
+            AlertType::TaskAutoDisabledFailing,
+            "acmeCo/test/capture",
+            json!({
+                "recipients": [user_a()],
+                "spec_type": "capture",
+                "failing_since": "2024-01-01",
+            }),
+            State::Fired,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_FIRED,
+            "Estuary: capture acmeCo/test/capture has been automatically disabled",
+        );
+        insta::assert_snapshot!("task_auto_disabled_failing_fired_body", email.body);
+    }
+
+    #[test]
+    fn test_task_auto_disabled_idle_fired() {
+        let email = test_single_email(
+            AlertType::TaskAutoDisabledIdle,
+            "acmeCo/test/capture",
+            json!({
+                "recipients": [user_a()],
+                "spec_type": "capture",
+            }),
+            State::Fired,
+        );
+
+        assert_email(
+            &email,
+            user_a(),
+            EXPECT_IDEMPOTENCY_KEY_FIRED,
+            "Estuary: capture acmeCo/test/capture has been automatically disabled",
+        );
+        insta::assert_snapshot!("task_auto_disabled_idle_fired_body", email.body);
+    }
+
+    #[test]
     fn test_no_recipients() {
         expect_no_email(
             AlertType::AutoDiscoverFailed,
