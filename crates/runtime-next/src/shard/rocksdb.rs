@@ -4,6 +4,10 @@ use anyhow::Context;
 use proto_flow::runtime::RocksDbDescriptor;
 use tokio::runtime;
 
+/// Re-exported so [`RocksDB::scan`]'s error type is nameable by out-of-crate
+/// callers (e.g. `flowctl preview`) now that this module is public.
+pub use super::recovery::DecodeError;
+
 /// RocksDB database used for task state.
 pub struct RocksDB {
     db: rocksdb::DB,
@@ -111,6 +115,28 @@ impl RocksDB {
             .context("RocksDB Persist write")
     }
 
+    /// Durably (`set_sync`) `Put` `base` as the connector-state document at
+    /// [`recovery::KEY_CONNECTOR_STATE`], replacing any prior value. A `Put`
+    /// (not `Merge`) establishes the exact base document, so a connector's later
+    /// state patches merge atop it, and it's read back verbatim as
+    /// `Recover.connector_state_json`.
+    ///
+    /// Shared by [`Self::seed_connector_state`], which seeds `{}` during the
+    /// runtime's own recovery scan, and by the `flowctl preview
+    /// --initial-state` harness, which seeds an arbitrary base by opening shard
+    /// zero's RocksDB by path before any Recover scan observes it.
+    pub async fn put_connector_state_base(self, base: &[u8]) -> anyhow::Result<Self> {
+        let mut wb = rocksdb::WriteBatch::default();
+        wb.put(recovery::KEY_CONNECTOR_STATE, base);
+
+        let mut wo = rocksdb::WriteOptions::new();
+        wo.set_sync(true);
+
+        self.write_opt(wb, wo)
+            .await
+            .context("RocksDB connector-state base write")
+    }
+
     /// Scan the entire DB into a [`proto::Recover`] using a blocking
     /// background thread. Returns `(self, Recover)`.
     ///
@@ -199,6 +225,29 @@ impl RocksDB {
             })
             .await
             .unwrap()
+    }
+
+    /// Durably seed `{}` as the connector-state base when none was recovered,
+    /// reflecting it in `recover`. A no-op if state is already present.
+    ///
+    /// Connector state is only ever updated via Merge, and the merge operator
+    /// treats the first operand on an absent key as the base document — where a
+    /// JSON `null` is a literal value, not a deletion. Without a base, a
+    /// connector's first checkpoint of e.g. `{"k": null}` is retained verbatim
+    /// instead of reducing to `{}`; a `{}` base makes it a genuine merge patch.
+    ///
+    /// Call only on the connector-state-bearing shard: the capture shard, or
+    /// shard zero of a derivation/materialization, whose recovered state the
+    /// leader broadcasts to its peers. Other shards must recover empty so their
+    /// `Recover` stays `default()`.
+    pub async fn seed_connector_state(self, recover: &mut proto::Recover) -> anyhow::Result<Self> {
+        if !recover.connector_state_json.is_empty() {
+            return Ok(self);
+        }
+
+        let db = self.put_connector_state_base(b"{}").await?;
+        recover.connector_state_json = bytes::Bytes::from_static(b"{}");
+        Ok(db)
     }
 }
 
@@ -568,6 +617,35 @@ mod test {
         assert_eq!(
             state.connector_state_json,
             bytes::Bytes::from_static(br#"{"a":"c","ans":42,"d":"e","n":null}"#)
+        );
+    }
+
+    #[tokio::test]
+    async fn fresh_task_seeds_connector_state_base() {
+        let db = RocksDB::open(None).await.unwrap();
+
+        let (db, mut recover) = db.scan(Vec::new()).await.unwrap();
+        let db = db.seed_connector_state(&mut recover).await.unwrap();
+        assert_eq!(
+            recover.connector_state_json,
+            bytes::Bytes::from_static(b"{}")
+        );
+
+        let db = db
+            .persist::<&str>(
+                &proto::Persist {
+                    connector_patches_json: bytes::Bytes::from_static(b"[{\"stateKey\":null}\t]"),
+                    ..Default::default()
+                },
+                &[],
+            )
+            .await
+            .unwrap();
+
+        let (_db, recover) = db.scan(Vec::new()).await.unwrap();
+        assert_eq!(
+            recover.connector_state_json,
+            bytes::Bytes::from_static(b"{}")
         );
     }
 

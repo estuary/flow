@@ -312,6 +312,146 @@ fn build_partition_apply<D: PartitionDoc>(
     ))
 }
 
+/// `W`: the minimum slice of the 32-bit key-hash space that any partition
+/// journal must cover. A journal may be split if both new sides would
+/// cover at least this much space.  This caps automatic splitting
+/// at 8 evenly-sized journals (split depth 3) per logical partition.
+pub const MIN_PARTITION_WIDTH: u64 = 1 << 29;
+
+/// Outcome of a [`split_partition`] attempt, for the caller to act on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitOutcome {
+    /// The split was applied: the parent journal is narrowed to its lower
+    /// key half, and a new journal now covers the upper half.
+    Split,
+    /// Split not done, because the journal's width is too small to split.
+    AtFloor,
+    /// Another process concurrently modified the parent journal and won the
+    /// CAS race. The caller should treat this as a completed split attempt.
+    Lost,
+    /// The journal is absent from the partition listing (e.g. deleted
+    /// mid-flight).
+    Transient,
+}
+
+/// Attempt to split partition `journal` at its key-range midpoint.
+///
+/// `partitions_template` is the owning collection's partition template (the
+/// only thing about the binding a split needs); `client` and `partitions` are
+/// the binding's journal client and live partition watch.
+///
+/// The journal's width is first checked against the in-memory partition watch
+/// (no RPC): if it's below `2 * MIN_PARTITION_WIDTH` the outcome is `AtFloor`
+/// and no change is attempted. Otherwise a two-change Apply is issued: the
+/// parent narrowed to its lower key half — a CAS on the mod_revision observed
+/// by the watch — plus a created journal covering the upper half. The CAS
+/// serializes contending splitters: exactly one wins, and losers observe a
+/// benign `Lost`.
+pub async fn split_partition(
+    partitions_template: &broker::JournalSpec,
+    client: &gazette::journal::Client,
+    partitions: &tokens::PendingWatch<Vec<watch::PartitionSplit>>,
+    journal: &str,
+) -> tonic::Result<SplitOutcome> {
+    let partitions = partitions.ready().await;
+    let refresh = partitions.token();
+    let listing = refresh.result()?;
+
+    let Some(split) = listing.iter().find(|p| &*p.name == journal) else {
+        return Ok(SplitOutcome::Transient);
+    };
+    if key_range_width(split.key_begin, split.key_end) < 2 * MIN_PARTITION_WIDTH {
+        return Ok(SplitOutcome::AtFloor);
+    }
+
+    // Read the parent's current spec: the watch tracks only its name, key
+    // range, and revision, while the split derives the LHS / RHS specs from
+    // the parent's full label set.
+    let response = client
+        .list(broker::ListRequest {
+            selector: Some(broker::LabelSelector {
+                include: Some(labels::build_set([("name", journal)])),
+                exclude: None,
+            }),
+            ..Default::default()
+        })
+        .await
+        .map_err(|err| match err {
+            gazette::Error::Grpc(status) => status,
+            other => tonic::Status::internal(other.to_string()),
+        })?;
+
+    let Some(mut parent) = activate::unpack_journal_listing(response)
+        .map_err(|err| tonic::Status::internal(format!("unpacking parent listing: {err:#}")))?
+        .pop()
+    else {
+        return Ok(SplitOutcome::Transient); // Deleted mid-flight.
+    };
+
+    // CAS on the revision observed by the *watch* — the same snapshot as the
+    // width check above — rather than the fresher listing. If the journal
+    // changed in between (e.g. a contending split already won), the Apply
+    // fails benignly rather than splitting a layout we never evaluated.
+    parent.mod_revision = split.mod_revision;
+
+    let (rhs, request) = build_partition_split_apply(partitions_template, &parent)?;
+    apply_split_outcome(journal, &rhs, client.apply(request).await)
+}
+
+/// Inclusive width of a journal's key range. Computed in u64 because the
+/// width of the full key range (2^32) overflows u32.
+fn key_range_width(key_begin: u32, key_end: u32) -> u64 {
+    key_end as u64 - key_begin as u64 + 1
+}
+
+// Build the two-change ApplyRequest which splits `parent` at its key-range
+// midpoint: the LHS retains the parent's name and is CAS'd on its
+// mod_revision, while the RHS is created (expect_mod_revision of zero).
+// Returns the RHS journal name alongside the request.
+fn build_partition_split_apply(
+    partitions_template: &broker::JournalSpec,
+    parent: &activate::JournalSplit,
+) -> tonic::Result<(String, broker::ApplyRequest)> {
+    let (lhs, rhs) = activate::map_partition_to_split(parent)
+        .map_err(|err| tonic::Status::internal(format!("mapping partition to split: {err:#}")))?;
+    let rhs_name = rhs.name.clone();
+
+    let changes = activate::partition_changes(Some(partitions_template), vec![lhs, rhs])
+        .map_err(|err| tonic::Status::internal(format!("building split changes: {err:#}")))?
+        .into_iter()
+        .map(|change| match change {
+            activate::Change::Journal(change) => change,
+            activate::Change::Shard(_) => {
+                unreachable!("partition_changes emits only journal changes")
+            }
+        })
+        .collect();
+
+    Ok((rhs_name, broker::ApplyRequest { changes }))
+}
+
+// Map the result of a split Apply into its SplitOutcome. A failed Etcd
+// transaction means our CAS lost to a concurrent change of the parent.
+// `rhs` is the new journal the split created (or attempted to).
+fn apply_split_outcome(
+    journal: &str,
+    rhs: &str,
+    result: gazette::Result<broker::ApplyResponse>,
+) -> tonic::Result<SplitOutcome> {
+    match result {
+        Ok(_response) => {
+            tracing::info!(journal, rhs, "split partition");
+            Ok(SplitOutcome::Split)
+        }
+        Err(gazette::Error::BrokerStatus(broker::Status::EtcdTransactionFailed)) => {
+            tracing::info!(journal, rhs, "lost race to split partition");
+            Ok(SplitOutcome::Lost)
+        }
+        Err(gazette::Error::Grpc(status)) => Err(status),
+        Err(other) => Err(tonic::Status::internal(other.to_string())),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -491,5 +631,180 @@ mod test {
                 "change": request.changes.into_iter().next().unwrap(),
             })
         );
+    }
+
+    /// Bare partition template for the split tests. `split_partition` and
+    /// `build_partition_split_apply` consult only the template, so its name is
+    /// all that's needed.
+    fn split_test_template() -> broker::JournalSpec {
+        broker::JournalSpec {
+            name: "example/collection/v1".to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// Build a journal client + partitions watch over a fixed listing. The
+    /// client targets an unreachable endpoint, so any RPC it attempts fails:
+    /// an Ok outcome proves the path issued no RPC at all.
+    fn split_test_client(
+        listing: Vec<PartitionSplit>,
+    ) -> (
+        gazette::journal::Client,
+        tokens::PendingWatch<Vec<PartitionSplit>>,
+    ) {
+        let client = gazette::journal::Client::new(
+            "http://localhost:0".to_string(),
+            gazette::journal::Client::new_fragment_client(),
+            proto_grpc::Metadata::new(),
+            gazette::Router::new("local"),
+        );
+        (client, tokens::fixed(Ok(listing)))
+    }
+
+    /// Build a parent JournalSplit of `split_test_binding`'s template, having
+    /// the given key range and one logical-partition field label.
+    fn split_test_parent(
+        key_begin: u32,
+        key_end: u32,
+        mod_revision: i64,
+    ) -> activate::JournalSplit {
+        let labels =
+            labels::partition::encode_key_range_labels(Default::default(), key_begin, key_end);
+        let labels = labels::partition::encode_field_label(labels, "a_bool", &json!(true)).unwrap();
+        let name = labels::partition::full_name("example/collection/v1", &labels).unwrap();
+
+        activate::JournalSplit {
+            name,
+            labels,
+            mod_revision,
+            suspend: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_split_partition_floor_and_absent() {
+        let template = split_test_template();
+        const W2: u64 = 2 * MIN_PARTITION_WIDTH;
+
+        let (client, partitions) = split_test_client(splits(&[
+            // Width 2W - 1: below the floor.
+            ("example/collection/v1/pivot=00", 0, (W2 - 2) as u32),
+        ]));
+
+        // Below the floor: terminal AtFloor, and no RPC was issued (the test
+        // client panics on any RPC attempt, which would fail this test).
+        assert_eq!(
+            split_partition(
+                &template,
+                &client,
+                &partitions,
+                "example/collection/v1/pivot=00"
+            )
+            .await
+            .unwrap(),
+            SplitOutcome::AtFloor
+        );
+
+        // Absent from the watched listing: transient skip, again without RPC.
+        assert_eq!(
+            split_partition(
+                &template,
+                &client,
+                &partitions,
+                "example/collection/v1/pivot=99999999"
+            )
+            .await
+            .unwrap(),
+            SplitOutcome::Transient
+        );
+    }
+
+    #[test]
+    fn test_build_partition_split_apply_at_threshold() {
+        let template = split_test_template();
+
+        // Parent at exactly width 2W: [0x40000000, 0x7fffffff].
+        let parent = split_test_parent(0x40000000, 0x7fffffff, 42);
+        let (rhs_name, request) = build_partition_split_apply(&template, &parent).unwrap();
+
+        let [lhs, rhs] = request.changes.as_slice() else {
+            panic!("expected exactly two changes: {request:?}");
+        };
+
+        // LHS retains the parent's name and CAS'es on its revision; RHS is
+        // created. Each half has width W.
+        assert_eq!(lhs.expect_mod_revision, 42);
+        assert_eq!(rhs.expect_mod_revision, 0);
+        assert_eq!(rhs_name, rhs.upsert.as_ref().unwrap().name);
+
+        insta::assert_json_snapshot!("partition_split_apply", json!(request.changes));
+    }
+
+    #[test]
+    fn test_build_partition_split_apply_full_range() {
+        let template = split_test_template();
+
+        // A full 2^32-range parent splits at 0x80000000 without overflow.
+        let parent = split_test_parent(u32::MIN, u32::MAX, 7);
+        let (_rhs_name, request) = build_partition_split_apply(&template, &parent).unwrap();
+
+        let ranges: Vec<_> = request
+            .changes
+            .iter()
+            .map(|change| {
+                let spec = change.upsert.as_ref().unwrap();
+                labels::partition::decode_key_range_labels(spec.labels.as_ref().unwrap()).unwrap()
+            })
+            .collect();
+
+        assert_eq!(ranges, vec![(0, 0x7fffffff), (0x80000000, u32::MAX)]);
+    }
+
+    #[test]
+    fn test_key_range_width() {
+        assert_eq!(key_range_width(0, u32::MAX), 1 << 32); // Full range doesn't overflow.
+        assert_eq!(key_range_width(0, 0), 1);
+        assert_eq!(
+            key_range_width(0x40000000, 0x7fffffff),
+            2 * MIN_PARTITION_WIDTH
+        );
+    }
+
+    #[test]
+    fn test_apply_split_outcome() {
+        // Applied OK.
+        assert_eq!(
+            apply_split_outcome("a/journal", "a/rhs", Ok(broker::ApplyResponse::default()))
+                .unwrap(),
+            SplitOutcome::Split
+        );
+        // A failed CAS is a benign lost race.
+        assert_eq!(
+            apply_split_outcome(
+                "a/journal",
+                "a/rhs",
+                Err(gazette::Error::BrokerStatus(
+                    broker::Status::EtcdTransactionFailed
+                )),
+            )
+            .unwrap(),
+            SplitOutcome::Lost
+        );
+        // gRPC errors propagate their status.
+        let err = apply_split_outcome(
+            "a/journal",
+            "a/rhs",
+            Err(gazette::Error::Grpc(tonic::Status::unavailable("nope"))),
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), tonic::Code::Unavailable);
+        // Other gazette errors propagate as internal.
+        let err = apply_split_outcome(
+            "a/journal",
+            "a/rhs",
+            Err(gazette::Error::Protocol("listing response is missing spec")),
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), tonic::Code::Internal);
     }
 }

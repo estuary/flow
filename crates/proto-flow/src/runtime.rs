@@ -490,10 +490,8 @@ pub struct Task {
     /// Task specification (protobuf-encoded bytes).
     #[prost(bytes = "bytes", tag = "1")]
     pub spec: ::prost::bytes::Bytes,
-    /// When true, documents and stats are written to output and not directed to collections.
-    #[prost(bool, tag = "2")]
-    pub preview: bool,
-    /// Preview / harness control. Zero means unlimited.
+    /// Maximum number of transactions to run before exiting. Zero means unlimited.
+    /// Used by "preview" workflows.
     #[prost(uint32, tag = "3")]
     pub max_transactions: u32,
     /// URL of a SQLite VFS the shard threads to a SQLite derive connector via

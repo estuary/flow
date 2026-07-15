@@ -1,5 +1,6 @@
 ---
 sidebar_position: 1
+description: Fix Estuary schema inference issues from bad or unexpected source data using dataflow resets, castToString, or custom DDL overrides.
 ---
 
 # Fixing Schema Inference Issues

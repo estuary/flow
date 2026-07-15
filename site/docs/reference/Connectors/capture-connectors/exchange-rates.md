@@ -1,3 +1,6 @@
+---
+description: Capture daily currency rates with the Exchange Rates API connector. Configure a base currency, weekend handling, and start date.
+---
 
 # Exchange Rates API
 

@@ -51,6 +51,12 @@ pub mod request {
         /// Connector configuration, as an encoded JSON object.
         #[prost(bytes = "bytes", tag = "2")]
         pub config_json: ::prost::bytes::Bytes,
+        /// Date on which the capture task was created, as a UTC date in RFC 3339
+        /// "full-date" format (YYYY-MM-DD). Empty if the task doesn't exist yet:
+        /// a connector discovering on behalf of a to-be-created task should
+        /// assume a current date.
+        #[prost(string, tag = "4")]
+        pub created_at: ::prost::alloc::string::String,
     }
     /// Validate a capture configuration and proposed bindings.
     /// Validate is run out-of-band with ongoing capture invocations.
@@ -147,6 +153,13 @@ pub mod request {
         /// Last-persisted connector checkpoint state from a previous invocation.
         #[prost(bytes = "bytes", tag = "4")]
         pub state_json: ::prost::bytes::Bytes,
+        /// Sealed (encrypted) endpoint configuration of this capture.
+        /// This is the SOPS-encrypted document from which the runtime derived the
+        /// decrypted `capture.config_json`, including any `sops` metadata stanza.
+        /// Connectors may reuse it to emit `configUpdate`s that modify nonsensitive
+        /// overlay fields without re-encrypting the configuration.
+        #[prost(bytes = "bytes", tag = "5")]
+        pub sealed_config_json: ::prost::bytes::Bytes,
     }
     /// Tell the connector that some number of its preceding Checkpoints have
     /// committed to the Flow recovery log.

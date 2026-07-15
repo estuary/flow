@@ -1,3 +1,7 @@
+---
+description: Stream Stripe events and payment data into Estuary with real-time sync and backfills for data consistency. Configure connected accounts and sync start date.
+---
+
 # Stripe Real-time
 
 This connector captures data from [Stripe's API](https://docs.stripe.com/api) into Estuary collections.

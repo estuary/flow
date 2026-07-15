@@ -17,8 +17,10 @@ const USAGE_RATE_LABEL: &str = "dev.estuary.usage-rate";
 const PORT_PUBLIC_LABEL_PREFIX: &str = "dev.estuary.port-public.";
 const PORT_PROTO_LABEL_PREFIX: &str = "dev.estuary.port-proto.";
 
+// `flow-connector-init` is extracted from this image when a locally-built copy
+// isn't found by `locate_bin` (dev/CI builds place one alongside the executable).
 // TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
-const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.5.24-30-ga3eba41f95";
+const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/reactor:v0.6.10-62-g8b6aeec1cd3";
 const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 /// Determines the protocol of an image. If the image has a `FLOW_RUNTIME_PROTOCOL` label,
@@ -142,19 +144,15 @@ pub async fn start(
     // When running locally, we publish ports so that connectors are accessible
     // on the host from Windows and MacOS (e.x. Docker Desktop).
     if matches!(plane, crate::Plane::Local) {
-        // Bind a random port, and then check what port was given to us.
-        let l = tokio::net::TcpListener::bind("0.0.0.0:0")
-            .await
-            .context("failed to bind random port")?;
-        let port = l.local_addr()?.port();
-        std::mem::drop(l); // Release so it can be re-bound.
-
         docker_args.append(&mut vec![
             // Support Docker Desktop in non-production contexts (for example, `flowctl`)
             // where the container IP is not directly addressable. As an alternative,
             // we ask Docker to provide mapped host ports that are then advertised
             // in the attached runtime::Container description.
-            format!("--publish=0.0.0.0:{port}:{CONNECTOR_INIT_PORT}"),
+            // An empty host port asks Docker to assign a free ephemeral port as
+            // the container starts. Unlike probing for a free port ourselves,
+            // this cannot race host-port allocations of other starting containers.
+            format!("--publish=0.0.0.0::{CONNECTOR_INIT_PORT}"),
             "--publish-all".to_string(),
         ]);
     }

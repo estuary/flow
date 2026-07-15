@@ -1,3 +1,6 @@
+---
+description: Pull Asana workspace and project data into Estuary, including tasks, portfolios, teams, and users. Authenticate using OAuth or a personal access token.
+---
 
 # Asana
 

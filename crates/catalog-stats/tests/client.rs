@@ -3,10 +3,14 @@ use chrono::TimeZone;
 use futures::TryStreamExt;
 
 async fn connect() -> catalog_stats::Client {
+    // The emulator's host port is dynamic per stack; FLOW_PORT_BIGTABLE is set
+    // by mise/tasks/local/stack-env. Run via mise so the ambient env is present.
+    let port = std::env::var("FLOW_PORT_BIGTABLE")
+        .expect("FLOW_PORT_BIGTABLE must be set — run via 'mise run' (see local:bigtable)");
     catalog_stats::Client::connect(&catalog_stats::BigtableConfig {
         project: "estuary-local".to_string(),
         instance: "estuary-local".to_string(),
-        emulator_host: Some("localhost:8086".to_string()),
+        emulator_host: Some(format!("localhost:{port}")),
     })
     .await
     .expect("BigTable emulator must be running: `mise run local:bigtable`")

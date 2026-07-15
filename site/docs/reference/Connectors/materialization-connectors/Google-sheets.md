@@ -1,4 +1,6 @@
-
+---
+description: Use Estuary's Google Sheets connector to materialize data collections into spreadsheets. Connect with OAuth or service account credentials.
+---
 
 # Google Sheets
 

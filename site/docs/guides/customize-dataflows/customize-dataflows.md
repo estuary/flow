@@ -1,3 +1,6 @@
+---
+description: Customize Estuary Data Flow behavior with CDC history mode, source tags, materialization delta updates, field selection, and sync schedules.
+---
 
 # Customizing Data Flows
 

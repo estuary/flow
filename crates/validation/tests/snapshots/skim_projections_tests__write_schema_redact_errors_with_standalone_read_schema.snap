@@ -1,0 +1,7 @@
+---
+source: crates/validation/tests/skim_projections_tests.rs
+expression: errors
+---
+[
+    "`block` redact strategy cannot be applied at '/message' because it must exist",
+]

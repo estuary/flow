@@ -67,7 +67,7 @@ pub const FLAGS_SCHEMA_VALID: u16 = 0x8000;
 pub use binding::Binding;
 pub use client::SessionClient;
 pub use frontier::{Frontier, JournalFrontier, ProducerFrontier};
-pub use service::{DEFAULT_DISK_BACKLOG_THRESHOLD, Service};
+pub use service::{DEFAULT_SHUFFLE_DISK_LIMIT_BYTES, Service};
 
 /// Return the current wall-clock time as a `uuid::Clock`.
 ///
@@ -219,5 +219,12 @@ impl<'p> Verify<'p> {
 /// Interval at which all actor event loops tick, ensuring per-loop tracing
 /// instrumentation fires periodically even when no other events arrive.
 /// The Session actor additionally uses ticks for mark-and-sweep detection
-/// of stalled causal hint resolution.
+/// of stalled causal hint resolution, accumulating stalled ticks against
+/// [`CAUSAL_HINT_RESOLUTION_TIMEOUT`].
 const ACTOR_TICKER_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Duration that causal hint resolution may stall — no progress against any
+/// unresolved hint — before the Session actor tears down the session. It's
+/// decoupled from [`ACTOR_TICKER_INTERVAL`] (the tracing cadence) and enforced
+/// via mark-and-sweep over that many ticks. See `session::state::CheckpointPipeline`.
+const CAUSAL_HINT_RESOLUTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);

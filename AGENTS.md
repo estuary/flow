@@ -41,17 +41,27 @@ mise run ci:catalog-test
 mise run local:supabase
 # Reset with current migrations as needed
 supabase db reset
-# Interact directly with dev DB
-psql postgresql://postgres:postgres@localhost:5432/postgres -c 'SELECT 1;'
+# Interact directly with dev DB ($FLOW_PG_URL is ambient inside the checkout)
+psql "$FLOW_PG_URL" -c 'SELECT 1;'
 
 # Start a complete local stack (see local/README.md)
 mise run local:stack
-# CLI for interacting with the platform.
-cargo run -p flowctl -- --profile local --help
+# CLI for interacting with the platform (FLOWCTL_PROFILE is ambient; no flag).
+cargo run -p flowctl -- --help
+# ...or the built binary once the stack is up:
+flowctl catalog list
 
 # Run after changing Rust files to ensure consistent formatting
 cargo fmt
 ```
+
+Local-stack commands are **per-stack** and mise is mandatory: each checkout
+(primary clone or linked git worktree) runs its own isolated stack, and
+`mise/tasks/local/stack-env` makes that stack's variables ambient for everything run
+through mise. There is no special/canonical stack and no fixed ports — the
+primary clone is just stack `flow`; ports are `base(i) = 10000 + 1000·index`.
+Run `mise run local:stack-info` to see this checkout's ports, units, and
+ready-to-paste commands. See `local/README.md`.
 
 ## Architecture Overview
 
@@ -109,6 +119,16 @@ orienting them where to look next.
 Keep READMEs current - update with code changes.
 
 ## Development Guidelines
+
+### Customer data
+- NEVER write customer data into any git-checked file (source, tests, comments,
+  fixtures, snapshots, docs, commit messages). This is absolute.
+- This explicitly includes customer task/catalog names (e.g. tenant prefixes and
+  collection paths), endpoint configs, credentials, hostnames, and any data
+  values sampled from a customer's system.
+- When a real-world example is needed — such as reproducing a bug report — use a
+  fictitious tenant like `acmeCo/` and invented names that preserve the relevant
+  shape (length, nesting depth) without the original identifiers.
 
 ### Implementation
 - Use `var myVar = ...` in Go. Do NOT use `myVar := ...` (unless required due to shadowing)

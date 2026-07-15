@@ -1,3 +1,6 @@
+---
+description: Set up AWS BYOC deployments for Estuary with a valid license. Complete setup by creating an IAM role for Estuary and sharing role details.
+---
 
 # AWS BYOC Setup
 

@@ -1,3 +1,7 @@
+---
+description: Capture RingCentral communications data with Estuary's connector, including extensions, contacts, call logs, and messages.
+---
+
 # RingCentral Source Connector
 
 This connector captures data from RingCentral into Estuary collections.

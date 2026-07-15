@@ -9,7 +9,7 @@ go = { version = "1.25" }
 "github:wasm-bindgen/wasm-pack" = { version = "0.13.1" }
 "github:etcd-io/etcd" = { version = "3.5.24" }
 "github:getsops/sops" = { version = "3.11.0", bin = "sops" }
-"github:jdx/usage" = { version = "2.11.0" }
+"github:jdx/usage" = { version = "3.5.4" }
 "github:mozilla/sccache" = { version = "0.12.0", platforms = { linux-arm64 = { asset_pattern = "sccache-v*-aarch64-unknown-linux-musl.tar.gz" }, linux-x64 = { asset_pattern = "sccache-v*-x86_64-unknown-linux-musl.tar.gz" }, macos-arm64 = { asset_pattern = "sccache-v*-aarch64-apple-darwin.tar.gz" } } }
 "github:nextest-rs/nextest" = { version = "cargo-nextest-0.9.114" }
 "github:rui314/mold" = { version = "2.40.4" }
@@ -19,14 +19,10 @@ go = { version = "1.25" }
 [settings]
 auto_install = false
 
-# Environment variables
-[env]
-
-# Place cargo targets outside of the repo in a shared directory under $HOME.
-# This allows for limited re-use across projects, but more importantly:
-# it provides a stable home for built targets outside of the workspace root
-# that's typically shared with VMs and incuring virtiofs overhead.
-CARGO_TARGET_DIR = "{{ env.HOME }}/cargo-target"
+# Environment variables. Two [[env]] tables, resolved serially: the second
+# table's templates can reference variables produced by the first — including
+# those exported by `_.source` — which a single [env] table cannot do.
+[[env]]
 
 # Treat all warnings as errors, and link using the `mold` linker (faster).
 RUSTFLAGS = "-D warnings -C link-arg=-fuse-ld=mold"
@@ -70,10 +66,33 @@ CGO_CPPFLAGS = """
 -I {{ env.ROCKSDB_INCLUDE_DIR }} \
 """
 
-CGO_LDFLAGS = """
--fuse-ld=mold \
--L {{ env.CARGO_TARGET_DIR }}/debug \
--L {{ env.ROCKSDB_LIB_DIR }} \
-"""
-
 RUSTC_WRAPPER = "sccache"
+
+# Place the Go build cache under ~/cargo-target so that inside VMs it lands on
+# the compressed, deduplicated btrfs filesystem (see
+# mise/tasks/bootstrap/cargo-target-fs). Go stores this cache uncompressed, so
+# btrfs's single compression pass does real work on it.
+#
+# SCCACHE_DIR is deliberately NOT moved here. sccache already zstd-compresses
+# every cache entry itself.
+GOCACHE = "{{ env.HOME }}/cargo-target/.go-build"
+
+# Resolve this checkout's local-stack identity (index, name, ports, paths) and
+# make its FLOW_* / CARGO_TARGET_DIR / GOBIN / CGO_LDFLAGS variables ambient for
+# everything run inside the checkout: mise tasks, CI, and bare `cargo build`,
+# `supabase db reset`, and `psql` one-liners. CARGO_TARGET_DIR and CGO_LDFLAGS
+# are deliberately NOT set as static [env] above — stack-env owns them so each
+# worktree gets its own per-stack build target directory.
+#
+# `_.source` is placed last in this table so the sourced script observes the
+# static values set above (ROCKSDB_LIB_DIR, etc.), and its exports take
+# precedence. See mise/tasks/local/stack-env for the full contract.
+_.source = "./mise/tasks/local/stack-env"
+
+# Put this stack's built binaries (flowctl, gazette, flowctl-go, ...) on PATH,
+# as the docs and stack card advertise. mise does not propagate PATH changes
+# made by a sourced script, so this must be a `_.path` directive — and it must
+# live in a second [[env]] table, where CARGO_TARGET_DIR / GOBIN (exported by
+# `_.source` above) are visible to its templates.
+[[env]]
+_.path = ["{{ env.CARGO_TARGET_DIR }}/debug", "{{ env.GOBIN }}"]

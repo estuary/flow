@@ -10,6 +10,7 @@ struct State {
     invoices: Vec<(stripe::CustomerId, stripe::Invoice)>,
     payment_intents: Vec<stripe::PaymentIntent>,
     setup_intent_counter: u64,
+    update_billing_profile_calls: usize,
 }
 
 /// In-memory `BillingProvider` used by tests and local development.
@@ -21,6 +22,12 @@ pub struct InMemoryBillingProvider {
 impl InMemoryBillingProvider {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Number of `update_customer_billing_profile` calls, letting tests assert
+    /// that an already-synced customer is not needlessly rewritten.
+    pub fn update_billing_profile_call_count(&self) -> usize {
+        self.state.lock().unwrap().update_billing_profile_calls
     }
 
     pub fn add_customer(&self, tenant: &str, id: &str, default_pm: Option<&str>) {
@@ -111,15 +118,23 @@ impl BillingProvider for InMemoryBillingProvider {
         tenant: &str,
         _user_email: &str,
         _user_name: Option<&str>,
+        billing_name: Option<&str>,
+        address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
         let mut state = self.state.lock().unwrap();
         let id = format!("cus_mock_{}", tenant.replace('/', ""));
+        // Mirror the Stripe impl: the billing name lives in customer metadata.
+        let mut metadata = HashMap::from([(TENANT_METADATA_KEY.to_string(), tenant.to_string())]);
+        if let Some(billing_name) = billing_name {
+            metadata.insert(
+                billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                billing_name.to_string(),
+            );
+        }
         let customer = stripe::Customer {
             id: id.parse().unwrap(),
-            metadata: Some(HashMap::from([(
-                TENANT_METADATA_KEY.to_string(),
-                tenant.to_string(),
-            )])),
+            address,
+            metadata: Some(metadata),
             ..Default::default()
         };
         state.customers.push(customer.clone());
@@ -221,5 +236,39 @@ impl BillingProvider for InMemoryBillingProvider {
             .find(|pi| &pi.id == id)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("payment intent not found: {id}"))
+    }
+
+    async fn update_customer_billing_profile(
+        &self,
+        customer_id: &stripe::CustomerId,
+        email: Option<&str>,
+        name: Option<&str>,
+        address: Option<stripe::Address>,
+    ) -> anyhow::Result<stripe::Customer> {
+        let mut state = self.state.lock().unwrap();
+        state.update_billing_profile_calls += 1;
+        let customer = state
+            .customers
+            .iter_mut()
+            .find(|c| &c.id == customer_id)
+            .ok_or_else(|| anyhow::anyhow!("customer not found: {customer_id}"))?;
+        // Mirror Stripe's update semantics: a `None` argument leaves the field
+        // unchanged, and the name lives in metadata rather than `Customer.name`.
+        if let Some(email) = email {
+            customer.email = Some(email.to_string());
+        }
+        if let Some(address) = address {
+            customer.address = Some(address);
+        }
+        if let Some(name) = name {
+            customer
+                .metadata
+                .get_or_insert_with(Default::default)
+                .insert(
+                    billing_types::CUSTOMER_NAME_METADATA_KEY.to_string(),
+                    name.to_string(),
+                );
+        }
+        Ok(customer.clone())
     }
 }

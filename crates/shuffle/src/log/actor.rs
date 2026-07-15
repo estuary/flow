@@ -25,7 +25,7 @@ type SliceRx = BoxStream<'static, tonic::Result<shuffle::LogRequest>>;
 /// The overall rate of progress is bounded by the write throughput of the slowest Log.
 ///
 /// Additionally, the total on-disk backlog of sealed segments is tracked. When it
-/// exceeds `disk_backlog_threshold`, heap draining is paused, propagating back-pressure
+/// exceeds `shuffle_disk_limit_bytes`, heap draining is paused, propagating back-pressure
 /// all the way to Slice journal reads.
 pub struct LogActor {
     /// Immutable session topology: identity and shard configuration.
@@ -84,10 +84,10 @@ impl LogActor {
         let mut sealed_segments = futures::stream::SelectAll::new();
 
         // Threshold at which we'll stop draining Append requests.
-        let disk_backlog_threshold = self.topology.disk_backlog_threshold;
+        let shuffle_disk_limit_bytes = self.topology.shuffle_disk_limit_bytes;
         // Aggregate on-disk bytes across all living sealed segments.
         let mut disk_backlog_bytes: u64 = 0;
-        // Hysteresis flag: engaged at disk_backlog_threshold, released at 50%.
+        // Hysteresis flag: engaged at shuffle_disk_limit_bytes, released at 50%.
         let mut disk_back_pressure = false;
 
         let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
@@ -167,7 +167,7 @@ impl LogActor {
                         flushed_lsn,
                         sealed.as_ref(),
                         &mut disk_backlog_bytes,
-                        disk_backlog_threshold,
+                        shuffle_disk_limit_bytes,
                         &mut disk_back_pressure,
                     );
                     if let Some(sealed) = sealed {
@@ -182,7 +182,7 @@ impl LogActor {
                     self.on_reclaimed(
                         reclaimed?,
                         &mut disk_backlog_bytes,
-                        disk_backlog_threshold,
+                        shuffle_disk_limit_bytes,
                         &mut disk_back_pressure,
                     );
                 }
@@ -422,7 +422,7 @@ impl LogActor {
         flushed_lsn: Lsn,
         sealed: Option<&SealedSegment>,
         disk_backlog_bytes: &mut u64,
-        disk_backlog_threshold: u64,
+        shuffle_disk_limit_bytes: u64,
         disk_back_pressure: &mut bool,
     ) {
         self.writer = Some(writer);
@@ -443,7 +443,7 @@ impl LogActor {
 
         *disk_backlog_bytes += sealed.size;
 
-        if *disk_backlog_bytes >= disk_backlog_threshold {
+        if *disk_backlog_bytes >= shuffle_disk_limit_bytes {
             *disk_back_pressure = true;
         };
 
@@ -465,19 +465,19 @@ impl LogActor {
 
     /// Handle a disk-space reclaim from a sealed segment's compress / unlink
     /// stream: subtract from the backlog measure and release back-pressure
-    /// at the hysteresis threshold (half of `disk_backlog_threshold`).
+    /// at the hysteresis threshold (half of `shuffle_disk_limit_bytes`).
     fn on_reclaimed(
         &mut self,
         reclaimed: u64,
         disk_backlog_bytes: &mut u64,
-        disk_backlog_threshold: u64,
+        shuffle_disk_limit_bytes: u64,
         disk_back_pressure: &mut bool,
     ) {
         *disk_backlog_bytes = disk_backlog_bytes
             .checked_sub(reclaimed)
             .expect("disk_backlog_bytes underflow");
 
-        if *disk_back_pressure && *disk_backlog_bytes < disk_backlog_threshold / 2 {
+        if *disk_back_pressure && *disk_backlog_bytes < shuffle_disk_limit_bytes / 2 {
             *disk_back_pressure = false;
         }
 

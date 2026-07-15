@@ -1,6 +1,8 @@
 ---
 sidebar_position: 3
+description: Troubleshoot Estuary tasks, such as a capture or materialization, with flowctl logs. Learn about command options and log levels to filter log output.
 ---
+
 # Troubleshoot a Task with flowctl
 
 flowctl offers the most advanced views of [task logs](../../concepts/advanced/logs-stats.md).

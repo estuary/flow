@@ -76,9 +76,10 @@ pub(super) struct Startup {
     pub leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     pub max_keys: Vec<(bytes::Bytes, bytes::Bytes)>,
     pub shuffle_reader: shuffle::log::Reader,
+    pub token_restart_at: Option<std::time::SystemTime>,
 }
 
-pub(super) async fn run<R, L: crate::LogHandler>(
+pub(super) async fn run<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
@@ -87,7 +88,8 @@ pub(super) async fn run<R, L: crate::LogHandler>(
     mut leader_rx: tonic::Streaming<proto::Materialize>,
     leader_tx: mpsc::UnboundedSender<proto::Materialize>,
     log_level: ops::LogLevel,
-    service: &crate::shard::Service<L>,
+    logger: &L::Logger,
+    service: &crate::shard::Service<P, L>,
     shard_index: u32,
     shuffle_directory: String,
 ) -> anyhow::Result<Startup>
@@ -116,7 +118,6 @@ where
 
     let proto::Task {
         max_transactions: _,
-        preview: _,
         spec: spec_bytes,
         sqlite_vfs_uri: _,
         publisher_id: _,
@@ -139,10 +140,13 @@ where
         .collect();
     sorted_state_keys.sort();
 
-    let (mut db, recover) = db
+    let (mut db, mut recover) = db
         .scan(sorted_state_keys)
         .await
         .context("scanning RocksDB")?;
+    if shard_index == 0 {
+        db = db.seed_connector_state(&mut recover).await?;
+    }
 
     _ = leader_tx.send(proto::Materialize {
         recover: Some(recover),
@@ -238,11 +242,14 @@ where
             version,
             state_json: connector_state_json,
             range,
+            // Populated by `connector::start` with the matched endpoint's inner
+            // sealed configuration, which is not yet extracted from `spec` here.
+            sealed_config_json: Default::default(),
         }),
         ..Default::default()
     };
-    let (connector_tx, mut connector_rx, container, codec) =
-        super::connector::start(service, log_level, initial).await?;
+    let (connector_tx, mut connector_rx, container, codec, token_restart_at) =
+        super::connector::start(service, logger, log_level, initial).await?;
 
     // Read C:Opened from the connector.
     let verify = crate::verify("Materialize", "Opened", "connector");
@@ -303,5 +310,6 @@ where
         leader_tx,
         max_keys,
         shuffle_reader,
+        token_restart_at,
     })
 }

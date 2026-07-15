@@ -1,3 +1,7 @@
+---
+description: Capture Azure Cosmos DB's MongoDB-compatible collections with Estuary's connector, using either change feeds or batch capture mode.
+---
+
 # Azure CosmosDB
 
 This connector captures data from your Azure Cosmos DB collections into Estuary collections.
@@ -87,7 +91,7 @@ Azure Cosmos DB source connector.
 | `/pollSchedule`         | Default Batch Collection Polling Schedule                          | When and how often to poll batch collections. Accepts a Go duration string like '5m' or '6h' for frequency-based polling or a string like 'daily at 12:34Z' to poll at a specific time (specified in UTC) every day. Defaults to '24h' if unset                                                                 | string  |                  |
 | `/advanced/maxAwaitTime` | Max Await Time | Maximum time to wait for new change stream events before returning an empty batch. Defaults to 1 second. Accepts a Go duration string like '10s'. | string |  |
 | `/advanced/disablePreImages` | Disable Pre-Images | Disable requesting pre-images even if the MongoDB deployment supports them and they are enabled for collections. | boolean |  |
-| `/advanced/exclusiveCollectionFilter` | Change Stream Exclusive Collection Filter | Add a MongoDB pipeline filter to database change streams to exclusively match events having enabled capture bindings. Should only be used if a small number of bindings are enabled. | boolean |  |
+| `/advanced/exclusiveCollectionFilter` | Change Stream Exclusive Collection Filter | Add a MongoDB pipeline filter to database change streams to exclusively match events having enabled capture bindings. Should only be used if a small number of bindings are enabled: the filter is evaluated against every oplog event with one clause per enabled binding, so with many bindings it can slow reads enough for change stream lag to grow; prefer `excludeCollections` in that case. | boolean |  |
 | `/advanced/excludeCollections` | Exclude Collections | Comma-separated list of collections to exclude from database change streams. Each one should be formatted as `database_name:collection`. Cannot be set if `exclusiveCollectionFilter` is enabled. | string |  |
 
 #### Bindings

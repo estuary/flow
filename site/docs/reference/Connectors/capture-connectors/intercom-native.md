@@ -1,3 +1,6 @@
+---
+description: Keep Intercom support and customer data flowing through Estuary, including contacts, companies, conversations, tickets, teams, and tags, using OAuth2 or access token authentication.
+---
 
 # Intercom
 

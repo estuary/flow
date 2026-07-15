@@ -470,11 +470,12 @@ message Joined {
 // Sent from Controller to Shard, and from Shard zero (only) to Leader
 // after Joined. Other shards do not forward Task.
 message Task {
+  reserved 2;
+
   // Task specification (protobuf-encoded bytes).
   bytes spec = 1;
-  // When true, documents and stats are written to output and not directed to collections.
-  bool preview = 2;
-  // Preview / harness control. Zero means unlimited.
+  // Maximum number of transactions to run before exiting. Zero means unlimited.
+  // Used by "preview" workflows.
   uint32 max_transactions = 3;
   // URL of a SQLite VFS the shard threads to a SQLite derive connector via
   // `DeriveRequestExt.open.sqlite_vfs_uri` on C:Open. Set by the controller

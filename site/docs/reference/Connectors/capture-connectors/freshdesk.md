@@ -1,3 +1,6 @@
+---
+description: Use the Freshdesk connector to capture support data, like tickets, contacts, agents, companies, SLA policies, and solution articles.
+---
 
 # Freshdesk
 

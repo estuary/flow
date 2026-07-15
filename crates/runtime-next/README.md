@@ -6,6 +6,9 @@ multi-shard transactions; the Go runtime becomes a thin shim for shard
 lifecycle and ops logs. Captures use a simpler model with independent
 per-shard transaction loops.
 
+Shards also auto-split collection partition journals that stay append-rate
+throttled, adding write throughput without operator action.
+
 This crate hosts both sides of the runtime-v2 protocol:
 
 - **`Shard`** — per-shard, controller-facing gRPC service. One instance per
@@ -55,14 +58,25 @@ communicate solely by gRPC; no shared memory.
 
 ```
 src/
-├── lib.rs             # crate root, shared helpers (Verify, LogHandler, Accumulator)
+├── lib.rs             # crate root, shared helpers (Verify, Accumulator)
 ├── task_service.rs    # CGO entry point: binds UDS, serves Shard service
-├── publish.rs         # Rust journal publishing (used by both leader and shard)
+├── publish.rs         # Publisher / PublisherFactory traits + JournalPublisher
+│                       #   (journal-IO) impls; leader & shard are monomorphized over
+│                       #   the factory (preview installs its own from flowctl, so this
+│                       #   crate is preview-agnostic)
+├── logger.rs          # Logger / LoggerFactory traits: the task's log + event stream
+│                       #   (connector log sink + structured Events — persist / applied /
+│                       #   inferred-schema / container lifecycle — which flatten to logs
+│                       #   via LogEvent::to_log). Production shards install FnLoggerFactory
+│                       #   (→ task-log file); leaders & tests install TracingLogger
 ├── patches.rs         # wire format for connector-state patch streams
 │
 ├── leader/            # sidecar Leader service
 │   ├── service.rs       # gRPC entry, per-task Join rendezvous
 │   ├── join.rs          # protocol primitives for joining shards into a session
+│   ├── shuffle.rs       # ShuffleSession / ShuffleSessionFactory traits + ShuffleServiceFactory
+│   │                     #   (journal-reading Session) impl; leader is monomorphized over the
+│   │                     #   factory (preview installs its own fixture replay from flowctl)
 │   └── materialize/
 │       ├── handler.rs       # gRPC stream handler, dispatches to startup/actor
 │       ├── startup.rs       # Recover / Open / Apply / Recovered phase

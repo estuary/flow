@@ -1,3 +1,7 @@
+---
+description: Use the SingleStore Batch Query connector to capture tables, views, and custom SQL queries with configurable polling schedules, cursors, and SSH tunneling.
+---
+
 # SingleStore Batch Query Connector
 
 This connector captures data from SingleStore into Estuary collections by periodically executing queries and translating

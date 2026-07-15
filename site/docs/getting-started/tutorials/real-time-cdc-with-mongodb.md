@@ -2,6 +2,7 @@
 id: real_time_cdc_with_mongodb
 title: Real-Time CDC with MongoDB
 sidebar_position: 2
+description: Set up your first Estuary capture to read data from MongoDB in real-time. Guide covers CDC using change streams, MongoDB setup, and Estuary capture configuration.
 ---
 
 import ReactPlayer from "react-player"

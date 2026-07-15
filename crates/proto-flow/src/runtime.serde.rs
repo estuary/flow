@@ -10116,9 +10116,6 @@ impl serde::Serialize for Task {
         if !self.spec.is_empty() {
             len += 1;
         }
-        if self.preview {
-            len += 1;
-        }
         if self.max_transactions != 0 {
             len += 1;
         }
@@ -10133,9 +10130,6 @@ impl serde::Serialize for Task {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("spec", pbjson::private::base64::encode(&self.spec).as_str())?;
-        }
-        if self.preview {
-            struct_ser.serialize_field("preview", &self.preview)?;
         }
         if self.max_transactions != 0 {
             struct_ser.serialize_field("maxTransactions", &self.max_transactions)?;
@@ -10159,7 +10153,6 @@ impl<'de> serde::Deserialize<'de> for Task {
     {
         const FIELDS: &[&str] = &[
             "spec",
-            "preview",
             "max_transactions",
             "maxTransactions",
             "sqlite_vfs_uri",
@@ -10171,7 +10164,6 @@ impl<'de> serde::Deserialize<'de> for Task {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Spec,
-            Preview,
             MaxTransactions,
             SqliteVfsUri,
             PublisherId,
@@ -10198,7 +10190,6 @@ impl<'de> serde::Deserialize<'de> for Task {
                     {
                         match value {
                             "spec" => Ok(GeneratedField::Spec),
-                            "preview" => Ok(GeneratedField::Preview),
                             "maxTransactions" | "max_transactions" => Ok(GeneratedField::MaxTransactions),
                             "sqliteVfsUri" | "sqlite_vfs_uri" => Ok(GeneratedField::SqliteVfsUri),
                             "publisherId" | "publisher_id" => Ok(GeneratedField::PublisherId),
@@ -10222,7 +10213,6 @@ impl<'de> serde::Deserialize<'de> for Task {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut spec__ = None;
-                let mut preview__ = None;
                 let mut max_transactions__ = None;
                 let mut sqlite_vfs_uri__ = None;
                 let mut publisher_id__ = None;
@@ -10235,12 +10225,6 @@ impl<'de> serde::Deserialize<'de> for Task {
                             spec__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
-                        }
-                        GeneratedField::Preview => {
-                            if preview__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("preview"));
-                            }
-                            preview__ = Some(map_.next_value()?);
                         }
                         GeneratedField::MaxTransactions => {
                             if max_transactions__.is_some() {
@@ -10271,7 +10255,6 @@ impl<'de> serde::Deserialize<'de> for Task {
                 }
                 Ok(Task {
                     spec: spec__.unwrap_or_default(),
-                    preview: preview__.unwrap_or_default(),
                     max_transactions: max_transactions__.unwrap_or_default(),
                     sqlite_vfs_uri: sqlite_vfs_uri__.unwrap_or_default(),
                     publisher_id: publisher_id__.unwrap_or_default(),

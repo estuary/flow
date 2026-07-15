@@ -67,7 +67,7 @@ pub use references::{
     tenant_from,
 };
 pub use schemas::Schema;
-pub use shards::ShardTemplate;
+pub use shards::{ENABLE_RUNTIME_V2, ShardTemplate};
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
 pub use source_capture::{SourceDef, SourceType, TargetNaming};
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};

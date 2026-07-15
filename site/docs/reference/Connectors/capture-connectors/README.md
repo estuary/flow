@@ -1,3 +1,7 @@
+---
+description: Browse Estuary's list of capture connectors for databases, SaaS apps, files, streams, and APIs, with complete configuration details.
+---
+
 # Capture Connectors
 
 Estuary's available capture connectors are listed in this section. Each connector has a unique set of requirements for configuration; these are linked below the connector name.

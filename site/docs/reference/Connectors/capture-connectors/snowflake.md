@@ -1,3 +1,7 @@
+---
+description: Capture Snowflake table changes with Estuary's CDC connector. Supports JWT authentication, capturing from shared tables, and polling schedule configuration.
+---
+
 # Snowflake CDC Connector
 
 This connector captures change events from source tables in a Snowflake database.

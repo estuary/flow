@@ -484,6 +484,9 @@ impl serde::Serialize for request::Discover {
         if !self.config_json.is_empty() {
             len += 1;
         }
+        if !self.created_at.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Request.Discover", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -497,6 +500,9 @@ impl serde::Serialize for request::Discover {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("config", &crate::as_raw_json(&self.config_json)?)?;
+        }
+        if !self.created_at.is_empty() {
+            struct_ser.serialize_field("createdAt", &self.created_at)?;
         }
         struct_ser.end()
     }
@@ -513,6 +519,8 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
             "connectorType",
             "config_json",
             "config",
+            "created_at",
+            "createdAt",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -520,6 +528,7 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
             Name,
             ConnectorType,
             ConfigJson,
+            CreatedAt,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -545,6 +554,7 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
                             "name" => Ok(GeneratedField::Name),
                             "connectorType" | "connector_type" => Ok(GeneratedField::ConnectorType),
                             "config" | "config_json" => Ok(GeneratedField::ConfigJson),
+                            "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -567,6 +577,7 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
                 let mut name__ = None;
                 let mut connector_type__ = None;
                 let mut config_json__ = None;
+                let mut created_at__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -589,6 +600,12 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
                                 Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
                             ;
                         }
+                        GeneratedField::CreatedAt => {
+                            if created_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createdAt"));
+                            }
+                            created_at__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -598,6 +615,7 @@ impl<'de> serde::Deserialize<'de> for request::Discover {
                     name: name__.unwrap_or_default(),
                     connector_type: connector_type__.unwrap_or_default(),
                     config_json: config_json__.unwrap_or_default(),
+                    created_at: created_at__.unwrap_or_default(),
                 })
             }
         }
@@ -624,6 +642,9 @@ impl serde::Serialize for request::Open {
         if !self.state_json.is_empty() {
             len += 1;
         }
+        if !self.sealed_config_json.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Request.Open", len)?;
         if let Some(v) = self.capture.as_ref() {
             struct_ser.serialize_field("capture", v)?;
@@ -638,6 +659,11 @@ impl serde::Serialize for request::Open {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("state", &crate::as_raw_json(&self.state_json)?)?;
+        }
+        if !self.sealed_config_json.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sealedConfig", &crate::as_raw_json(&self.sealed_config_json)?)?;
         }
         struct_ser.end()
     }
@@ -654,6 +680,8 @@ impl<'de> serde::Deserialize<'de> for request::Open {
             "range",
             "state_json",
             "state",
+            "sealed_config_json",
+            "sealedConfig",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -662,6 +690,7 @@ impl<'de> serde::Deserialize<'de> for request::Open {
             Version,
             Range,
             StateJson,
+            SealedConfigJson,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -688,6 +717,7 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                             "version" => Ok(GeneratedField::Version),
                             "range" => Ok(GeneratedField::Range),
                             "state" | "state_json" => Ok(GeneratedField::StateJson),
+                            "sealedConfig" | "sealed_config_json" => Ok(GeneratedField::SealedConfigJson),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -711,6 +741,7 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                 let mut version__ = None;
                 let mut range__ = None;
                 let mut state_json__ = None;
+                let mut sealed_config_json__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Capture => {
@@ -739,6 +770,14 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                                 Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
                             ;
                         }
+                        GeneratedField::SealedConfigJson => {
+                            if sealed_config_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sealedConfig"));
+                            }
+                            sealed_config_json__ = 
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -749,6 +788,7 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                     version: version__.unwrap_or_default(),
                     range: range__,
                     state_json: state_json__.unwrap_or_default(),
+                    sealed_config_json: sealed_config_json__.unwrap_or_default(),
                 })
             }
         }

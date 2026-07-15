@@ -1,7 +1,8 @@
 [Unit]
 Description=Flow Data Plane Link (%i)
 Documentation=https://github.com/estuary/flow
-After=flow-control-agent.service
+# After=flow-control-agent@<stack>.service is added as a drop-in by the
+# data-plane task, which knows this data plane's stack.
 
 [Service]
 Type=oneshot
@@ -30,7 +31,7 @@ ExecStart=/bin/bash -c ' \
         -H "authorization: bearer ${SYSTEM_USER_TOKEN}" \
         --fail-with-body \
         --data-binary @- \
-        http://agent.flow.localhost:8675/admin/create-data-plane \
+        ${AGENT_API}/admin/create-data-plane \
     '
 
 # Trigger L2 reporting update after successful data plane registration
@@ -43,15 +44,15 @@ ExecStart=/bin/bash -c ' \
         -H "authorization: bearer ${SYSTEM_USER_TOKEN}" \
         --fail-with-body \
         --data-binary @- \
-        http://agent.flow.localhost:8675/admin/update-l2-reporting \
+        ${AGENT_API}/admin/update-l2-reporting \
     '
 
 # On service stop, remove live_specs assigned to this data plane, then remove the data plane itself
 ExecStop=/bin/bash -c ' \
-    psql "postgresql://postgres:postgres@localhost:5432/postgres" \
+    psql "${PG_URL}" \
         -c "DELETE FROM public.live_specs WHERE data_plane_id = (SELECT id FROM public.data_planes WHERE data_plane_name = '\''ops/dp/public/${DATA_PLANE_NAME}'\'');" \
         || true; \
-    psql "postgresql://postgres:postgres@localhost:5432/postgres" \
+    psql "${PG_URL}" \
         -c "DELETE FROM public.data_planes WHERE data_plane_name = '\''ops/dp/public/${DATA_PLANE_NAME}'\'';" \
         || true \
     '
@@ -66,7 +67,7 @@ ExecStop=/bin/bash -c ' \
         -H "authorization: bearer ${SYSTEM_USER_TOKEN}" \
         --fail-with-body \
         --data-binary @- \
-        http://agent.flow.localhost:8675/admin/update-l2-reporting \
+        ${AGENT_API}/admin/update-l2-reporting \
         || true \
     '
 

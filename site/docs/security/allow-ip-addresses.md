@@ -1,4 +1,5 @@
 ---
+description: Find Estuary data plane IP addresses to allowlist to connect with source and destination systems. Provides dashboard lookup steps and common public data plane IPs.
 slug: /reference/allow-ip-addresses/
 ---
 
@@ -31,38 +32,3 @@ You can find the IP addresses relevant to your use case in the **Admin** section
 Click the clipboard to copy the addresses.
 
    Ensure that these IP addresses are allowlisted on both the source and destination systems that interact with Estuary.
-
-## IP Addresses to Allowlist
-
-While your dashboard is the best location to find accurate, up-to-date IP addresses to allowlist, you may also find the current public data plane IP addresses below.
-
-### US
-
-**AWS `us-east-1 c1`:**
-
-- `107.20.68.5/32`
-- `98.89.112.85/32`
-
-**GCP `us-central1 c2`:**
-
-- `34.121.207.128/32`
-- `35.226.75.135/32`
-
-**AWS `us-west-2 c1`:**
-
-- `34.213.10.188/32`
-- `52.34.175.198/32`
-
-### Europe
-
-**AWS `eu-west-1 c1`:**
-
-- `18.200.127.124/32`
-- `34.247.94.19/32`
-
-### APAC
-
-**AWS `ap-southeast-2 c1`:**
-
-- `15.134.198.216/32`
-- `3.24.170.247/32`

@@ -10,17 +10,19 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Actor leads transactions of an established materialization task session.
-pub struct Actor {
+pub struct Actor<P: crate::Publisher, L: crate::Logger> {
     // Client used for trigger dispatch.
     http_client: reqwest::Client,
     // Future for an in-flight ACK intents write, if any.
-    intents_write_fut: Option<BoxFuture<'static, tonic::Result<crate::Publisher>>>,
+    intents_write_fut: Option<BoxFuture<'static, tonic::Result<P>>>,
     // Optional full Frontier and Checkpoint, used for V1 rollback support.
     legacy_checkpoint: Option<(shuffle::Frontier, consumer::Checkpoint)>,
     // Per-task metrics counters and gauges.
     metrics: super::Metrics,
+    // Logger of task-centric state changes and events.
+    logger: L,
     // Publisher for stats and ACK intents, parked while no async operation is in-flight.
-    parked_publisher: Option<crate::Publisher>,
+    parked_publisher: Option<P>,
     // ACK intents to persist and append at later transaction stages.
     pending_ack_intents: BTreeMap<String, Bytes>,
     // One channel to each shard for synchronously sending it messages.
@@ -28,20 +30,22 @@ pub struct Actor {
     // it follows a strict request/response pattern.
     shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
     // Future for an in-flight stats flush, if any, yielding ACK intents.
-    stats_write_fut:
-        Option<BoxFuture<'static, tonic::Result<(crate::Publisher, BTreeMap<String, Bytes>)>>>,
+    stats_write_fut: Option<BoxFuture<'static, tonic::Result<(P, BTreeMap<String, Bytes>)>>>,
     // Task being executed by this actor.
     task: Task,
+    // Leader-lifetime trigger debounce accumulator and last-fire times.
+    trigger_debounce: fsm::TriggerDebounce,
     // Future for an in-flight trigger dispatch, if any.
     trigger_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
 }
 
-impl Actor {
+impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         http_client: reqwest::Client,
         legacy_checkpoint: Option<shuffle::Frontier>,
         metrics: super::Metrics,
-        publisher: crate::Publisher,
+        logger: L,
+        publisher: P,
         shard_tx: Vec<mpsc::UnboundedSender<tonic::Result<proto::Materialize>>>,
         task: Task,
     ) -> Self {
@@ -50,21 +54,23 @@ impl Actor {
             intents_write_fut: None,
             legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
             metrics,
+            logger,
             parked_publisher: Some(publisher),
             pending_ack_intents: BTreeMap::new(),
             shard_tx,
             stats_write_fut: None,
             task,
+            trigger_debounce: fsm::TriggerDebounce::default(),
             trigger_fut: None,
         }
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve(
+    pub async fn serve<S: crate::leader::ShuffleSession>(
         &mut self,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
-        mut session: shuffle::SessionClient,
+        mut session: S,
         shard_rx: Vec<BoxStream<'static, tonic::Result<proto::Materialize>>>,
     ) -> anyhow::Result<()> {
         service_kit::event!(
@@ -124,6 +130,7 @@ impl Actor {
             let action: fsm::Action;
             let prev_kind = tail.kind();
             (action, tail) = tail.step(
+                &self.trigger_debounce,
                 self.intents_write_fut.is_none(),
                 now,
                 &mut ready_shard_rx,
@@ -148,6 +155,7 @@ impl Actor {
             (action, head) = head.step(
                 &mut binding_bytes_behind,
                 &mut close_requested,
+                &mut self.trigger_debounce,
                 &mut self.legacy_checkpoint,
                 now,
                 &mut ready_frontier,
@@ -389,6 +397,9 @@ impl Actor {
             }
 
             fsm::Action::Persist { persist } => {
+                self.logger
+                    .event(crate::LogEvent::Persist { persist: &persist });
+
                 service_kit::event!(tracing::Level::DEBUG, "shard", "sending L:Persist");
                 let _ = self.shard_tx[0].send(Ok(proto::Materialize {
                     persist: Some(persist),
@@ -575,7 +586,7 @@ mod tests {
     fn mk_actor(
         n_shards: usize,
     ) -> (
-        Actor,
+        Actor<crate::publish::NoopPublisher, crate::TracingLogger>,
         Vec<mpsc::UnboundedReceiver<tonic::Result<proto::Materialize>>>,
     ) {
         let mut shard_tx = Vec::with_capacity(n_shards);
@@ -600,7 +611,8 @@ mod tests {
             reqwest::Client::new(),
             None,
             super::super::Metrics::new("test/task/shard"),
-            crate::Publisher::new_preview([]),
+            crate::TracingLogger,
+            crate::publish::NoopPublisher,
             shard_tx,
             task,
         );

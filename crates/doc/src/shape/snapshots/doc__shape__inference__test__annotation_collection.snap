@@ -12,6 +12,7 @@ Shape {
     provenance: Inline,
     default: None,
     secret: None,
+    nonsensitive: None,
     content_media_type: None,
     annotations: {
         "x-test-top-level": Bool(true),
@@ -44,6 +45,7 @@ Shape {
                     provenance: Inline,
                     default: None,
                     secret: None,
+                    nonsensitive: None,
                     content_media_type: None,
                     annotations: {
                         "X-bar-top-level": Bool(true),
@@ -90,6 +92,7 @@ Shape {
                     provenance: Inline,
                     default: None,
                     secret: None,
+                    nonsensitive: None,
                     content_media_type: None,
                     annotations: {
                         "x-conflicting-ann": String("yes please"),
@@ -133,6 +136,7 @@ Shape {
                     provenance: Inline,
                     default: None,
                     secret: None,
+                    nonsensitive: None,
                     content_media_type: None,
                     annotations: {
                         "X-foo-top-level": Bool(false),

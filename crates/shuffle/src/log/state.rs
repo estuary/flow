@@ -14,8 +14,9 @@ pub struct Topology {
     pub shards: Vec<shuffle::Shard>,
     /// Index of this Log RPC within `shards`.
     pub log_shard_index: u32,
-    /// Disk backlog threshold in bytes before engaging back-pressure.
-    pub disk_backlog_threshold: u64,
+    /// Shuffle disk limit in bytes before engaging back-pressure.
+    /// Sourced per-task from the shard's labeling, or the Service default.
+    pub shuffle_disk_limit_bytes: u64,
 }
 
 /// Target ceiling for accumulated doc bytes before forcing a block flush.

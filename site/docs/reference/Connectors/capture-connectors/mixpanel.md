@@ -1,3 +1,6 @@
+---
+description: Use the Mixpanel connector to capture product analytics data in Estuary, including cohorts, funnels, and annotations.
+---
 
 # MixPanel
 

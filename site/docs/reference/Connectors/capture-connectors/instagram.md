@@ -1,3 +1,6 @@
+---
+description: Capture Instagram business data in Estuary from the Graph and Insights APIs, including users, media, stories, and insights. Connect via OAuth.
+---
 
 # Instagram
 

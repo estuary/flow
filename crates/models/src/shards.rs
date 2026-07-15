@@ -71,6 +71,16 @@ pub struct ShardTemplate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "u32")]
     pub read_channel_size: Option<u32>,
+    /// # Maximum shuffle disk usage before back-pressure, in bytes.
+    /// Bounds the aggregate size of buffered, sealed shuffle segment files on a
+    /// shard's disk. When exceeded, the shuffle reader back-pressures upstream
+    /// journal reads (released once the backlog falls below half).
+    /// If not set, the data-plane default (currently 2 GiB) is used.
+    /// EXPERIMENTAL: this field MAY be removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "u64")]
+    #[validate(range(min = 67108864))]
+    pub shuffle_disk_limit: Option<u64>,
     /// # Log level of this tasks's shards.
     /// Log levels may currently be "error", "warn", "info", "debug", or "trace".
     /// If not set, the effective log level is "info".
@@ -86,6 +96,11 @@ pub struct ShardTemplate {
     #[validate(nested)]
     pub flags: BTreeMap<super::Token, super::Token>,
 }
+
+/// The `enable-runtime-v2` [`ShardTemplate::flags`] key, which selects the V2
+/// task runtime. It's emitted as the `estuary.dev/flag/enable-runtime-v2` shard
+/// label (`labels::RUNTIME_V2_FLAG`) at build time.
+pub const ENABLE_RUNTIME_V2: &str = "enable-runtime-v2";
 
 impl ShardTemplate {
     pub fn example() -> Self {
@@ -103,7 +118,8 @@ impl ShardTemplate {
             hot_standbys: o3,
             ring_buffer_size: o4,
             read_channel_size: o5,
-            log_level: o6,
+            shuffle_disk_limit: o6,
+            log_level: o7,
             flags,
         } = self;
 
@@ -114,6 +130,7 @@ impl ShardTemplate {
             && o4.is_none()
             && o5.is_none()
             && o6.is_none()
+            && o7.is_none()
             && flags.is_empty()
     }
 }

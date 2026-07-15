@@ -139,6 +139,7 @@ async fn run_session(
                 r_clock_end: u32::MAX,
             }),
             state_json: std::mem::take(state).into(),
+            sealed_config_json: Default::default(),
         }),
         ..Default::default()
     }

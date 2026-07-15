@@ -23,31 +23,38 @@ use tokio::sync::mpsc;
 /// resource (`db`, `publisher`, ...) is `None` exactly while its future runs,
 /// and is restored when that future completes — the "parking" pattern shared
 /// with the materialize leader actor.
-pub(super) struct Actor {
+pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // --- Task and IO endpoints, fixed for the session. ---
     // `task` is shared (Arc) so the drain future can hold its own handle.
     task: std::sync::Arc<Task>,
     connector_tx: mpsc::Sender<Request>,
     // Per-session metrics counters.
     metrics: super::Metrics,
+    // When Some, a deadline at which we begin a graceful session stop.
+    token_restart_at: Option<tokio::time::Instant>,
+    // Logger of task-centric state changes and events.
+    logger: L,
 
     // --- Parked resources: `Some` unless borrowed by an in-flight future. ---
     // RocksDB is parked with its per-binding state keys.
     db: Option<(crate::shard::RocksDB, Vec<String>)>,
-    publisher: Option<crate::Publisher>,
+    publisher: Option<P>,
     // Inferred per-binding write-shapes. Seeded from prior sessions at
     // construction, parked into the drain future, handed back at session end.
     shapes: Option<Vec<doc::Shape>>,
+    // Long-lived per-journal throttle policy, fed once per transaction once the
+    // collection appends have flushed.
+    split_policy: crate::shard::split_policy::SplitPolicy,
     // Drain inputs staged by a Rotate, consumed by the Drain dispatch.
     drain_input: Option<DrainInput>,
 
     // --- In-flight IO futures; `None` when idle. ---
     acknowledge_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
-    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output>>>,
-    intents_write_fut: Option<BoxFuture<'static, tonic::Result<crate::Publisher>>>,
+    drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
+    intents_write_fut: Option<BoxFuture<'static, tonic::Result<P>>>,
     persist_fut: Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, Vec<String>)>>>,
-    stats_write_fut:
-        Option<BoxFuture<'static, tonic::Result<(crate::Publisher, BTreeMap<String, Bytes>)>>>,
+    split_fut: Option<crate::shard::SplitFuture>,
+    stats_write_fut: Option<BoxFuture<'static, tonic::Result<(P, BTreeMap<String, Bytes>)>>>,
 
     // --- Hand-offs staged between FSM steps. ---
     // Drain output, staged for `TailDrain`.
@@ -63,28 +70,42 @@ struct DrainInput {
     parser: simd_doc::Parser,
 }
 
-impl Actor {
+impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         binding_state_keys: Vec<String>,
         connector_tx: mpsc::Sender<Request>,
         db: crate::shard::RocksDB,
         metrics: super::Metrics,
-        publisher: crate::Publisher,
+        logger: L,
+        publisher: P,
         shapes: Vec<doc::Shape>,
         task: std::sync::Arc<Task>,
+        token_restart_at: Option<std::time::SystemTime>,
     ) -> Self {
+        // Map the wall-clock deadline onto the monotonic clock driving `serve`.
+        let token_restart_at = token_restart_at.map(|at| {
+            let delay = at
+                .duration_since(std::time::SystemTime::now())
+                .unwrap_or_default();
+            tokio::time::Instant::now() + delay
+        });
+
         Self {
             task,
             connector_tx,
             metrics,
+            token_restart_at,
+            logger,
             db: Some((db, binding_state_keys)),
             publisher: Some(publisher),
             shapes: Some(shapes),
+            split_policy: crate::shard::split_policy::SplitPolicy::new(),
             drain_input: None,
             acknowledge_fut: None,
             drain_fut: None,
             intents_write_fut: None,
             persist_fut: None,
+            split_fut: None,
             stats_write_fut: None,
             drain_finished: None,
             pending_ack_intents: BTreeMap::new(),
@@ -92,16 +113,16 @@ impl Actor {
     }
 
     #[tracing::instrument(level = "debug", err(Debug, level = "warn"), skip_all)]
-    pub async fn serve<R, C>(
+    pub async fn serve<Ctrl, Conn>(
         mut self,
-        connector_rx: C,
-        controller_rx: &mut R,
+        connector_rx: Conn,
+        controller_rx: &mut Ctrl,
         mut head: fsm::Head,
         mut tail: fsm::Tail,
     ) -> anyhow::Result<(crate::shard::RocksDB, Vec<doc::Shape>)>
     where
-        R: futures::Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
-        C: futures::Stream<Item = tonic::Result<Response>> + Send + Unpin + 'static,
+        Ctrl: futures::Stream<Item = tonic::Result<proto::Capture>> + Send + Unpin + 'static,
+        Conn: futures::Stream<Item = tonic::Result<Response>> + Send + Unpin + 'static,
     {
         let mut connector_rx = std::pin::pin!(connector_rx);
 
@@ -134,6 +155,7 @@ impl Actor {
                 head = ?head,
                 persist_in_flight = self.persist_fut.is_some(),
                 ready_connector_rx = ready_connector_rx.kind(),
+                split_in_flight = self.split_fut.is_some(),
                 stats_in_flight = self.stats_write_fut.is_some(),
                 stopping,
                 tail = ?tail,
@@ -224,7 +246,7 @@ impl Actor {
 
                 // Prioritize completions of Tail IO first.
                 Some(result) = maybe_fut(&mut self.drain_fut) => {
-                    let output : drain::Output = result?;
+                    let output: drain::Output<P> = result?;
                     accumulator_idle = Some(output.accumulator);
                     self.publisher = Some(output.publisher);
                     self.shapes = Some(output.shapes);
@@ -237,6 +259,10 @@ impl Actor {
                     self.publisher = Some(publisher);
                     self.pending_ack_intents = ack_intents;
                     self.stats_write_fut = None;
+
+                    // WriteStats flushed this transaction's collection appends, so
+                    // the publisher's per-journal throttle samples are now complete
+                    self.observe_throttle();
                 }
                 Some(result) = maybe_fut(&mut self.persist_fut) => {
                     self.db = Some(result?);
@@ -252,6 +278,15 @@ impl Actor {
                     self.publisher = Some(publisher);
                     self.intents_write_fut = None;
                 }
+                Some((journal, outcome)) = maybe_fut(&mut self.split_fut) => {
+                    crate::shard::finish_split(
+                        &mut self.split_policy,
+                        &journal,
+                        outcome,
+                        std::time::Instant::now(),
+                    );
+                    self.split_fut = None;
+                }
                 // Process controller messages next.
                 msg = controller_rx.next() => {
                     Self::on_controller_rx(msg, &mut close_requested, &mut stopping)?;
@@ -259,6 +294,16 @@ impl Actor {
                 // Process new connector messages last.
                 msg = connector_rx.next(), if matches!(ready_connector_rx, fsm::ConnectorRx::Pending) => {
                     self.on_connector_rx(&mut ready_connector_rx, msg)?;
+                }
+                // Next, a graceful session restart ahead of IAM token expiry
+                _ = maybe_deadline(self.token_restart_at) => {
+                    service_kit::event!(
+                        tracing::Level::INFO,
+                        "shard",
+                        "injected IAM credentials expire soon; stopping session gracefully",
+                    );
+                    stopping = true;
+                    self.token_restart_at = None;
                 }
 
                 // Lowest priority.
@@ -276,6 +321,27 @@ impl Actor {
         let shapes = self.shapes.take().context("missing capture shapes")?;
 
         Ok((db, shapes))
+    }
+
+    /// Drain this transaction's per-journal throttle samples from the publisher
+    /// and feed them into the long-lived split policy, then start a split of
+    /// at most one persistently-throttled journal — off the hot path, parked
+    /// as `split_fut`.
+    fn observe_throttle(&mut self) {
+        // Callers ensure the publisher is Some whenever this is called, so unwrap here.
+        let publisher = self
+            .publisher
+            .as_mut()
+            .expect("publisher is Some whenever observe_throttle is called");
+        let now = std::time::Instant::now();
+        crate::shard::observe_throttle_samples(
+            &mut self.split_policy,
+            publisher.take_throttle_samples(),
+            now,
+        );
+        if self.split_fut.is_none() {
+            self.split_fut = crate::shard::start_due_split(&mut self.split_policy, publisher, now);
+        }
     }
 
     /// Execute the outgoing-IO primitive for an Action.
@@ -358,6 +424,7 @@ impl Actor {
                 let shapes = self.shapes.take().context("missing capture shape state")?;
                 let task = std::sync::Arc::clone(&self.task);
                 let metrics = self.metrics.clone();
+                let logger = self.logger.clone();
                 self.drain_fut = Some(
                     async move {
                         drain::drain_and_publish(
@@ -368,6 +435,7 @@ impl Actor {
                             sourced_schemas,
                             shapes,
                             metrics,
+                            logger,
                         )
                         .await
                     }
@@ -400,6 +468,9 @@ impl Actor {
             }
 
             fsm::Action::Persist { persist } => {
+                self.logger
+                    .event(crate::LogEvent::Persist { persist: &persist });
+
                 let (db, binding_state_keys) =
                     self.db.take().context("Persist while RocksDB is busy")?;
                 self.persist_fut = Some(
@@ -573,6 +644,14 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> Option<T> {
     }
 }
 
+/// Sleep until the deadline, or park forever when there isn't one.
+async fn maybe_deadline(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -636,7 +715,7 @@ mod tests {
     }
 
     /// Drive `Actor::serve` end-to-end over mpsc channels standing in for the
-    /// connector and controller, with a real RocksDB and a preview Publisher.
+    /// connector and controller, with a real RocksDB.
     ///
     /// The connector emits two Captured documents (into distinct bindings) and a
     /// Checkpoint carrying connector state. The actor accumulates them, closes
@@ -658,16 +737,6 @@ mod tests {
             mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
 
         let task = std::sync::Arc::new(mk_task(true));
-        // Preview only reads each spec's `name`; a minimal spec per binding suffices.
-        let collection_specs: Vec<flow::CollectionSpec> = task
-            .bindings
-            .iter()
-            .map(|b| flow::CollectionSpec {
-                name: b.collection_name.clone(),
-                ..Default::default()
-            })
-            .collect();
-        let publisher = crate::Publisher::new_preview(collection_specs.iter());
         let shapes = task.binding_shapes_by_index(Default::default());
 
         let actor = Actor::new(
@@ -675,9 +744,11 @@ mod tests {
             connector_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
             super::super::Metrics::new("test/shard"),
-            publisher,
+            crate::TracingLogger,
+            crate::publish::NoopPublisher,
             shapes,
             task,
+            None,
         );
 
         let serve = tokio::spawn(async move {
@@ -733,6 +804,88 @@ mod tests {
             recover.connector_state_json.as_ref(),
             br#"{"cursor":"lsn-9"}"#
         );
+    }
+
+    /// `observe_throttle` parks at most one split for a due journal, never
+    /// replaces an in-flight split, and is suppressed by cooldown and by the
+    /// terminal `ignore` set.
+    #[tokio::test]
+    async fn observe_throttle_split_dispatch() {
+        let (connector_tx, _actor_to_conn_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+        let task = std::sync::Arc::new(mk_task(true));
+
+        let spec = flow::CollectionSpec {
+            name: "test/collectionA".to_string(),
+            partition_template: Some(proto_gazette::broker::JournalSpec {
+                name: "test/collectionA/v1".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let publisher = crate::JournalPublisher::new_test_real([&spec]);
+        let shapes = task.binding_shapes_by_index(Default::default());
+
+        let mut actor = Actor::new(
+            vec!["stateA".to_string()],
+            connector_tx,
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            super::super::Metrics::new("test/shard"),
+            crate::TracingLogger,
+            publisher,
+            shapes,
+            task,
+            None,
+        );
+
+        // Seed a policy under which the observed journal is immediately due.
+        const J: &str = "test/collectionA/v1/pivot=00";
+        actor.split_policy = crate::shard::split_policy::SplitPolicy::with_config(
+            crate::shard::split_policy::Config {
+                threshold: -1.0,
+                min_observation_span: Duration::ZERO,
+                ..Default::default()
+            },
+        );
+        actor
+            .split_policy
+            .observe(J, true, std::time::Instant::now());
+
+        // Exactly one split is dispatched and parked for the due journal.
+        actor.observe_throttle();
+        assert!(actor.split_fut.is_some());
+
+        // An in-flight split is never replaced: park a sentinel, re-evaluate
+        // (J is still due), and observe the sentinel itself resolve.
+        actor.split_fut = Some(
+            async {
+                (
+                    "sentinel".to_string(),
+                    Ok(publisher::SplitOutcome::Transient),
+                )
+            }
+            .boxed(),
+        );
+        actor.observe_throttle();
+        let (journal, _outcome) = actor.split_fut.take().unwrap().await;
+        assert_eq!(journal, "sentinel");
+
+        // A completed split puts J in cooldown: nothing re-dispatches.
+        crate::shard::finish_split(
+            &mut actor.split_policy,
+            J,
+            Ok(publisher::SplitOutcome::Split),
+            std::time::Instant::now(),
+        );
+        actor.observe_throttle();
+        assert!(actor.split_fut.is_none());
+
+        // An ignored journal never re-triggers, even under fresh pressure.
+        actor.split_policy.ignore(J);
+        actor
+            .split_policy
+            .observe(J, true, std::time::Instant::now());
+        actor.observe_throttle();
+        assert!(actor.split_fut.is_none());
     }
 
     /// `parse_sourced_schema` resolves a valid closed schema to its binding and

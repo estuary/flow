@@ -1,3 +1,7 @@
+---
+description: Sync Ada bot data into Estuary, including articles, conversations, messages, sources, tags, and platform integrations.
+---
+
 # Ada
 
 This connector captures data from [Ada](https://www.ada.cx/) into Estuary collections.

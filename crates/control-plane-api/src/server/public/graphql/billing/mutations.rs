@@ -1,6 +1,7 @@
 use super::super::tenant::validate_tenant_name;
 use super::super::verify_authorization;
 use super::billing_provider;
+use super::contact::{self, BillingAddress, BillingAddressInput, BillingContact};
 use super::payment_methods::PaymentMethod;
 use crate::billing::{self, BillingProvider};
 use anyhow::Context as _;
@@ -38,10 +39,10 @@ impl BillingMutation {
     ) -> Result<CreateBillingSetupIntentPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::Capability::Admin).await?;
+        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
         let claims = env.claims()?;
-        let email = claims
+        let user_email = claims
             .email
             .as_deref()
             .context("authenticated user is missing an email claim")?;
@@ -53,12 +54,26 @@ impl BillingMutation {
         .await?
         .flatten();
 
+        let billing_contact = contact::fetch_billing_contact(&env.pg_pool, tenant.as_str())
+            .await
+            .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+
+        let customer_email = billing_contact.email.as_deref().unwrap_or(user_email);
+        let stripe_address = billing_contact.address.map(stripe::Address::from);
+
         let provider = billing_provider(ctx)?;
         let customer = provider
             .as_ref()
-            .find_or_create_customer(tenant.as_str(), email, full_name.as_deref())
+            .find_or_create_customer(
+                tenant.as_str(),
+                customer_email,
+                full_name.as_deref(),
+                billing_contact.name.as_deref(),
+                stripe_address,
+            )
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+
         let setup_intent = provider
             .create_setup_intent(&customer.id)
             .await
@@ -78,7 +93,7 @@ impl BillingMutation {
     ) -> Result<BillingPaymentMethodPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::Capability::Admin).await?;
+        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
         let provider = billing_provider(ctx)?;
         let customer = provider
@@ -94,12 +109,51 @@ impl BillingMutation {
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
 
+        wake_tenant_controller(&env.pg_pool, tenant.as_str()).await?;
         let primary_payment_method = billing::default_payment_method_id(&updated_customer)
             .and_then(|id| methods.iter().find(|m| m.id.as_str() == id))
             .map(PaymentMethod::from);
         Ok(BillingPaymentMethodPayload {
             payment_methods: methods.iter().map(PaymentMethod::from).collect(),
             primary_payment_method,
+        })
+    }
+
+    async fn set_billing_contact(
+        &self,
+        ctx: &Context<'_>,
+        tenant: String,
+        email: String,
+        name: String,
+        address: BillingAddressInput,
+    ) -> Result<SetBillingContactPayload> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let tenant = validate_tenant_name(&tenant)?;
+        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+
+        if !email.contains('@') || email.len() > 512 {
+            return Err(async_graphql::Error::new(
+                "email must contain '@' and be at most 512 characters",
+            ));
+        }
+        if name.trim().is_empty() || name.len() > 256 {
+            return Err(async_graphql::Error::new(
+                "name must be non-empty and at most 256 characters",
+            ));
+        }
+
+        let address = BillingAddress::from(address);
+        let updated =
+            contact::update_billing_contact(&env.pg_pool, tenant.as_str(), &email, &name, &address)
+                .await
+                .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+
+        Ok(SetBillingContactPayload {
+            contact: BillingContact {
+                email: updated.email,
+                name: updated.name,
+                address: updated.address,
+            },
         })
     }
 
@@ -111,7 +165,7 @@ impl BillingMutation {
     ) -> Result<BillingPaymentMethodPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::Capability::Admin).await?;
+        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
 
         let provider = billing_provider(ctx)?;
         let customer = provider
@@ -161,6 +215,16 @@ impl BillingMutation {
     }
 }
 
+async fn wake_tenant_controller(pool: &sqlx::PgPool, tenant_name: &str) -> anyhow::Result<()> {
+    sqlx::query!(
+        "SELECT internal.wake_tenant_controller($1::TEXT)",
+        tenant_name
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, SimpleObject)]
 pub struct CreateBillingSetupIntentPayload {
     client_secret: String,
@@ -170,6 +234,11 @@ pub struct CreateBillingSetupIntentPayload {
 pub struct BillingPaymentMethodPayload {
     payment_methods: Vec<PaymentMethod>,
     primary_payment_method: Option<PaymentMethod>,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct SetBillingContactPayload {
+    contact: BillingContact,
 }
 
 #[cfg(test)]
@@ -353,5 +422,99 @@ mod tests {
             )
             .await;
         insta::assert_json_snapshot!("victim_tenant_query", victim_query_response);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn graphql_billing_contact(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let tenant = "contacttest";
+        let user_id = provision_test_tenant(&pool, tenant).await;
+        let victim_tenant = "contactvictim";
+        let _victim_user_id = provision_test_tenant(&pool, victim_tenant).await;
+
+        let mock = billing::InMemoryBillingProvider::new();
+        mock.add_customer("contacttest/", "cus_ct", None);
+
+        let (server, token) = start_server_and_token(&pool, user_id, tenant, Arc::new(mock)).await;
+
+        let set_response: serde_json::Value = server
+            .graphql(
+                &json!({
+                    "query": r#"
+                        mutation {
+                          setBillingContact(
+                            tenant: "contacttest/"
+                            email: "billing@example.com"
+                            name: "Acme Corp"
+                            address: {
+                              line1: "123 Main St"
+                              city: "Springfield"
+                              state: "IL"
+                              postalCode: "62704"
+                              country: "US"
+                            }
+                          ) {
+                            contact {
+                              email
+                              name
+                              address { line1 line2 city state postalCode country }
+                            }
+                          }
+                        }
+                    "#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!("set_billing_contact", set_response);
+
+        let query_response: serde_json::Value = server
+            .graphql(
+                &json!({
+                    "query": r#"
+                        query {
+                          tenant(name: "contacttest/") {
+                            billing {
+                              contact {
+                                email
+                                name
+                                address { line1 line2 city state postalCode country }
+                              }
+                            }
+                          }
+                        }
+                    "#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!("query_billing_contact", query_response);
+
+        let cross_tenant_response: serde_json::Value = server
+            .graphql(
+                &json!({
+                    "query": r#"
+                        mutation {
+                          setBillingContact(
+                            tenant: "contactvictim/"
+                            email: "hacker@evil.com"
+                            name: "Hacker"
+                            address: { line1: "1 Evil St" country: "US" }
+                          ) {
+                            contact { email }
+                          }
+                        }
+                    "#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!(
+            "cross_tenant_set_billing_contact_denied",
+            cross_tenant_response
+        );
     }
 }

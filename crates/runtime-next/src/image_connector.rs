@@ -8,9 +8,9 @@ pub type StartRpcFuture<Response> =
 
 /// Serve an image-based connector by starting a container, dialing connector-init,
 /// and then starting a gRPC request.
-pub async fn serve<Request, Response, StartRpc, L: crate::LogHandler>(
+pub async fn serve<Request, Response, StartRpc, L: crate::Logger>(
     image: String,                       // Container image to run.
-    log_handler: L,                      // Handler for connector logs.
+    logger: L,                           // Logger for connector logs and lifecycle.
     log_level: ops::LogLevel,            // Log-level of the connector, if known.
     network: &str,                       // Container network to use.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
@@ -31,13 +31,7 @@ where
         + 'static,
 {
     let (container, channel, guard, codec) = container::start(
-        &image,
-        log_handler.clone(),
-        log_level,
-        &network,
-        &task_name,
-        task_type,
-        plane,
+        &image, logger, log_level, &network, &task_name, task_type, plane,
     )
     .await?;
 

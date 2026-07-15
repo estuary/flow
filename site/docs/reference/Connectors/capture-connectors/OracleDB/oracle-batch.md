@@ -1,3 +1,7 @@
+---
+description: Use the Oracle Batch Query connector to capture tables, views, and custom SQL queries with configurable polling schedules, cursors, and SSH tunneling.
+---
+
 # Oracle Batch Query Connector
 
 This connector captures data from Oracle databases into Estuary collections by

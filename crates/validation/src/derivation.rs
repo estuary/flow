@@ -98,7 +98,7 @@ fn builtin_derive_connector<C: serde::Serialize>(
     flags: &BTreeMap<models::Token, models::Token>,
 ) -> models::ConnectorConfig {
     let tag = flag_value(flags, "derive-image-tag").unwrap_or(
-        if flag_value(flags, "enable-runtime-v2") == Some("true") {
+        if flag_value(flags, models::ENABLE_RUNTIME_V2) == Some("true") {
             "stable"
         } else {
             "dev"
@@ -962,7 +962,12 @@ mod test {
         );
         // V2 tasks default to `:stable`.
         assert_eq!(
-            builtin_derive_connector(repo, &config, &flags(&[("enable-runtime-v2", "true")])).image,
+            builtin_derive_connector(
+                repo,
+                &config,
+                &flags(&[(models::ENABLE_RUNTIME_V2, "true")])
+            )
+            .image,
             "ghcr.io/estuary/derive-typescript:stable"
         );
         // An explicit `derive-image-tag` overrides either default.
@@ -970,7 +975,10 @@ mod test {
             builtin_derive_connector(
                 repo,
                 &config,
-                &flags(&[("enable-runtime-v2", "true"), ("derive-image-tag", "local")]),
+                &flags(&[
+                    (models::ENABLE_RUNTIME_V2, "true"),
+                    ("derive-image-tag", "local")
+                ]),
             )
             .image,
             "ghcr.io/estuary/derive-typescript:local"

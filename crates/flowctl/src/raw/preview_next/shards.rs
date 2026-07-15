@@ -9,7 +9,7 @@ use runtime_next::proto;
 
 /// Compute `[key_begin, key_end]` for shard `i` of `count` over the full
 /// `u32` key space.
-fn key_range(i: u32, count: u32) -> (u32, u32) {
+pub(super) fn key_range(i: u32, count: u32) -> (u32, u32) {
     let begin = if i == 0 {
         0
     } else {

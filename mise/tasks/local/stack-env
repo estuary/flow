@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+#MISE description="Resolve and print this checkout's local-stack env (index, name, ports, paths)"
+#
+# This file has a dual role:
+#
+#   1. Sourced by mise via `[env] _.source` (mise.toml) on *every* mise
+#      invocation inside the checkout. It exports the per-stack FLOW_* /
+#      CARGO_TARGET_DIR / GOBIN / CGO_LDFLAGS variables so they are ambient for
+#      mise tasks, CI, and bare `cargo build` / `supabase db reset` / `psql`.
+#
+#   2. Run directly (`mise run local:stack-env`, or `./mise/tasks/local/stack-env`)
+#      to print `export` lines for `eval "$(...)"` in an arbitrary shell.
+#
+# A "stack" is one instance of the whole local platform, keyed 1:1 to a checkout
+# (the primary clone or a linked git worktree). Every checkout follows identical
+# rules — there is no canonical/special stack. Each stack has a name (sanitized
+# checkout basename) and an index in 0..15 (lowest free), recorded in a
+# machine-global registry.
+#
+# Port rule: base(i) = 10000 + 1000*i; the last three digits identify the
+# service uniformly across all stacks (x0011 is always a Postgres, x0299 is
+# always plane-0's reactor) and the thousands digit is the stack index.
+#
+# FAIL-FAST: this script is the single source of stack identity. Any failure
+# (registry unwritable, no free index) is a non-zero exit with a one-line
+# actionable message on stderr. mise propagates that: `_.source` failing makes
+# the offending mise command fail loudly rather than silently defaulting the
+# env. The happy path is silent and exits 0; the first allocation for a checkout
+# prints one stderr line.
+
+set -uo pipefail
+
+# Detect execution (print export lines) vs sourcing (export into the caller).
+_se_executed=false
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    _se_executed=true
+fi
+
+# Emit a fatal error and exit non-zero. When sourced by mise the message lands
+# on stderr and mise aborts the command; when executed for `eval` the caller's
+# `eval` receives no exports and sees the failure.
+_se_die() {
+    echo "stack-env: $1" >&2
+    exit 1
+}
+
+# Resolve the checkout root from this script's own location (robust regardless
+# of the caller's cwd). This file lives at <root>/mise/tasks/local/stack-env.
+_se_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd)"
+[ -n "${_se_root}" ] || _se_die "cannot resolve checkout root from ${BASH_SOURCE[0]}"
+
+_se_flow_local="${HOME}/flow-local"
+_se_registry="${_se_flow_local}/stacks.tsv"
+_se_lock="${_se_flow_local}/stacks.lock"
+mkdir -p "${_se_flow_local}" 2>/dev/null \
+    || _se_die "cannot create ${_se_flow_local} — check permissions"
+
+# The stack garbage collector. Sourced (defines functions only, no side effects)
+# so the allocation path below can reclaim slots of deleted checkouts.
+source "$(dirname "${BASH_SOURCE[0]}")/reap-lib.sh"
+
+# Sanitize the checkout basename into a stack name: lowercase, non [a-z0-9-]
+# -> '-', collapse repeats, trim leading/trailing '-', clip to 40 chars. A data
+# plane is named `local-<name>-cluster` (see FLOW_CLUSTER below), so
+# `broker-local-<name>-cluster[-N]` must fit inside a 63-char DNS label:
+# 7 (broker-) + 6 (local-) + name + 8 (-cluster) + up to 2 for a numeric suffix
+# on extra planes => name <= 40.
+_se_sanitize_name() {
+    local b
+    b="$(basename "${_se_root}")"
+    b="$(printf '%s' "${b}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')"
+    b="$(printf '%s' "${b}" | sed -E 's/-+/-/g; s/^-+//; s/-+$//')"
+    b="${b:0:40}"
+    printf '%s' "${b}" | sed -E 's/-+$//'
+}
+
+# Look up this checkout in the registry, or allocate a new (index, name) slot.
+# Prints "<index><TAB><name><TAB><new>" where <new> is 1 on first allocation and
+# 0 otherwise. Guarded by flock so concurrent first-uses in separate checkouts
+# allocate distinct indexes. On any hard failure prints nothing and exits 1.
+_se_lookup_or_allocate() {
+    (
+        flock 9 || exit 2
+
+        if [ -f "${_se_registry}" ]; then
+            local found
+            found="$(awk -F'\t' -v r="${_se_root}" '$3==r {print $1"\t"$2"\t0"; exit}' "${_se_registry}")"
+            if [ -n "${found}" ]; then
+                printf '%s\n' "${found}"
+                exit 0
+            fi
+        fi
+
+        # This checkout is new. Before claiming a slot, reclaim any belonging to
+        # checkouts that have since been deleted — the sole release signal is a
+        # gone directory. This is what makes "delete a worktree, switch to the
+        # next" self-clean, and lets a registry full of removed checkouts heal
+        # itself instead of dead-ending on "no free index". Runs only on this
+        # (rare) new-checkout path; an already-registered checkout returned above
+        # and never pays for the scan. We already hold the lock, so call the
+        # un-locked variant.
+        reap_gone_entries "${_se_registry}"
+
+        # Allocate the lowest free index in 0..15.
+        local idx="" i
+        for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            if [ ! -f "${_se_registry}" ] || \
+               ! awk -F'\t' -v n="${i}" '$1==n {found=1} END {exit !found}' "${_se_registry}"; then
+                idx="${i}"
+                break
+            fi
+        done
+        [ -n "${idx}" ] || exit 3  # exhausted 0..15
+
+        local name
+        name="$(_se_sanitize_name)"
+        # An empty name, or one containing the reserved token `cluster` anywhere
+        # (which would make this stack's plane family `local-<name>-cluster`
+        # glob-collide with another stack's `local-<name>-cluster-*` instances
+        # during scoped local:stop) is remapped to a positional name.
+        case "${name}" in
+            ""|*cluster*) name="stack-${idx}" ;;
+        esac
+
+        # Ensure the name is unique across checkouts; disambiguate on clash.
+        if [ -f "${_se_registry}" ] && \
+           awk -F'\t' -v n="${name}" -v r="${_se_root}" '$2==n && $3!=r {found=1} END {exit !found}' "${_se_registry}"; then
+            echo "stack-env: WARNING: stack name '${name}' is registered to another checkout;" >&2
+            echo "stack-env:          using '${name}-${idx}'. Consider renaming this worktree." >&2
+            name="${name}-${idx}"
+            # Re-clip to 40 chars, then re-trim any trailing '-' the clip left.
+            name="${name:0:40}"
+            name="$(printf '%s' "${name}" | sed -E 's/-+$//')"
+        fi
+
+        printf '%s\t%s\t%s\n' "${idx}" "${name}" "${_se_root}" >> "${_se_registry}" \
+            || exit 4
+        printf '%s\t%s\t1\n' "${idx}" "${name}"
+    ) 9>"${_se_lock}"
+}
+
+_se_index=""
+_se_name=""
+_se_new=""
+_se_alloc="$(_se_lookup_or_allocate)"
+_se_alloc_rc=$?
+case "${_se_alloc_rc}" in
+    0) IFS=$'\t' read -r _se_index _se_name _se_new <<<"${_se_alloc}" ;;
+    2) _se_die "cannot lock ${_se_lock} — check permissions" ;;
+    3) _se_die "no free stack index: all 16 (0..15) are live checkouts. Remove a git worktree you're done with — its slot is reclaimed automatically the next time any checkout starts or stops a stack." ;;
+    4) _se_die "cannot write registry ${_se_registry} — check permissions" ;;
+    *) _se_die "stack allocation failed (code ${_se_alloc_rc})" ;;
+esac
+[ -n "${_se_index}" ] || _se_die "stack allocation returned an empty index"
+
+_se_base=$(( 10000 + 1000 * _se_index ))
+
+# The default data-plane "family" base name. The control plane only recognizes
+# data-plane names whose last path segment starts with a known provider token
+# (local-, aws-, gcp-, ...); see parse_data_plane_name in control-plane-api. So
+# every local data plane must start with `local-`. Uniform across all stacks:
+# `local-<name>-cluster` (unique per stack, valid `local-` name). Additional
+# data planes for a stack are suffixed (e.g. `${FLOW_CLUSTER}-2`), so
+# `${FLOW_CLUSTER}` is the prefix used to scope this stack's data-plane units.
+_se_cluster="local-${_se_name}-cluster"
+
+# ROCKSDB_LIB_DIR is a static [env] value visible when sourced by mise; provide
+# a sane fallback for bare execution outside a mise context.
+_se_rocksdb_lib="${ROCKSDB_LIB_DIR:-${HOME}/rocksdb-${ROCKSDB_VERSION:-9.10.0}/lib}"
+
+# Build the block of `export` statements once, then apply and/or print it.
+#
+# Offsets within a stack's 1000-wide block (last three digits identify the
+# service uniformly across stacks):
+#   +00/+01 etcd client/peer      +05 dashboard
+#   +10/+11/+12/+13 supabase api/db/studio/mailpit
+#   +20/+21 agent/config-encryption   +25 bigtable   +30/+31 kafka/kafka-ctrl
+#   +40 data-plane-controller (dev-facing)
+#   +200 + 100*p  data plane p in 0..7 (FLOW_PLANE_BASE = base+200)
+_se_out="$(cat <<EOF
+export FLOW_STACK_NAME="${_se_name}"
+export FLOW_STACK_INDEX="${_se_index}"
+export FLOW_STACK_BASE="${_se_base}"
+export FLOW_STACK_DIR="${_se_flow_local}/${_se_name}"
+export FLOW_CLUSTER="${_se_cluster}"
+export FLOW_PORT_ETCD="$(( _se_base + 0 ))"
+export FLOW_PORT_ETCD_PEER="$(( _se_base + 1 ))"
+export FLOW_PORT_DASHBOARD="$(( _se_base + 5 ))"
+export FLOW_PORT_SUPABASE_API="$(( _se_base + 10 ))"
+export FLOW_PORT_SUPABASE_DB="$(( _se_base + 11 ))"
+export FLOW_PORT_SUPABASE_STUDIO="$(( _se_base + 12 ))"
+export FLOW_PORT_SUPABASE_MAILPIT="$(( _se_base + 13 ))"
+export FLOW_PORT_AGENT="$(( _se_base + 20 ))"
+export FLOW_PORT_CONFIG_ENC="$(( _se_base + 21 ))"
+export FLOW_PORT_BIGTABLE="$(( _se_base + 25 ))"
+export FLOW_PORT_KAFKA="$(( _se_base + 30 ))"
+export FLOW_PORT_KAFKA_CTRL="$(( _se_base + 31 ))"
+export FLOW_PLANE_BASE="$(( _se_base + 200 ))"
+export FLOW_SITE_URL="http://localhost:$(( _se_base + 5 ))"
+export FLOW_PG_URL="postgresql://postgres:postgres@localhost:$(( _se_base + 11 ))/postgres"
+# sqlx's compile-time query macros connect to DATABASE_URL to verify queries;
+# point it at this checkout's Postgres. Without this the build falls back to the
+# static port in .cargo/config.toml (a fixed default that no longer matches any
+# stack), so cargo build / cargo sqlx prepare fail with "Connection refused".
+# (Backticks are deliberately avoided: this heredoc is expanded, not quoted.)
+export DATABASE_URL="postgresql://postgres:postgres@localhost:$(( _se_base + 11 ))/postgres"
+export FLOW_AGENT_URL="http://agent.flow.localhost:$(( _se_base + 20 ))"
+export FLOWCTL_PROFILE="${_se_name}"
+export FLOW_SUPABASE_PROJECT_ID="${_se_name}"
+export FLOW_NETWORK="supabase_network_${_se_name}"
+export CARGO_TARGET_DIR="${HOME}/cargo-target/${_se_name}"
+export GOBIN="${HOME}/cargo-target/${_se_name}/go-bin"
+export CGO_LDFLAGS="-fuse-ld=mold -L ${HOME}/cargo-target/${_se_name}/debug -L ${_se_rocksdb_lib}"
+# Docs and the stack card advertise bare \`flowctl\` / \`flowctl-go\` — make this
+# stack's built binaries resolvable. This line serves direct-eval shells only:
+# mise does NOT propagate PATH changes from a sourced script, so mise.toml has
+# a matching \`_.path\` directive covering everything run through mise. Appended
+# (\${PATH} expands at eval time, preserving the caller's PATH), so system
+# tools still win.
+export PATH="\${PATH}:${HOME}/cargo-target/${_se_name}/debug:${HOME}/cargo-target/${_se_name}/go-bin"
+EOF
+)"
+
+# Apply into the current shell. When sourced by mise, this is what mise captures
+# as the ambient environment. When executed, it harmlessly sets the subshell.
+eval "${_se_out}"
+
+# Announce the first allocation for this checkout (one stderr line; the happy
+# path — an already-registered checkout — stays silent).
+if [ "${_se_new}" = "1" ]; then
+    echo "stack-env: allocated stack '${_se_name}' (index ${_se_index}, ports ${_se_base}-$((_se_base + 999))) for ${_se_root}" >&2
+fi
+
+# When executed directly, also print the exports for `eval "$(...)"`.
+if ${_se_executed}; then
+    printf '%s\n' "${_se_out}"
+fi

@@ -4,20 +4,38 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Service is the implementation of the Leader gRPC service trait.
-#[derive(Clone)]
-pub struct Service(Arc<ServiceImpl>);
+pub struct Service<
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    L: crate::LoggerFactory,
+>(Arc<ServiceImpl<S, P, L>>);
+
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::LoggerFactory> Clone
+    for Service<S, P, L>
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 /// ServiceImpl holds shared implementation state for the Leader gRPC service.
-pub struct ServiceImpl {
+pub struct ServiceImpl<
+    S: crate::ShuffleSessionFactory,
+    P: crate::PublisherFactory,
+    L: crate::LoggerFactory,
+> {
     /// In-progress Derive session Joins, keyed by task name.
     pub(crate) derive_joins: std::sync::Mutex<HashMap<String, super::PendingJoin<proto::Derive>>>,
     /// In-progress Materialize session Joins, keyed by task name.
     pub(crate) materialize_joins:
         std::sync::Mutex<HashMap<String, super::PendingJoin<proto::Materialize>>>,
-    /// Service used by leader sessions to open shuffle Sessions.
-    pub(crate) shuffle_service: shuffle::Service,
-    /// Factory for building Gazette clients for publish operations.
-    pub(crate) publisher_factory: gazette::journal::ClientFactory,
+    /// Factory used by leader sessions to open a [`ShuffleSession`](crate::ShuffleSession).
+    pub(crate) shuffle_factory: S,
+    /// Factory used by leader sessions to open a [`Publisher`](crate::Publisher) of stats and ACK intents.
+    pub(crate) publisher_factory: P,
+    /// Factory used by leader sessions to open a [`Logger`](crate::Logger)
+    /// of task-centric state changes and events.
+    pub(crate) logger_factory: L,
     /// Process-wide HTTP client used by the actor to deliver trigger webhooks.
     pub(crate) http_client: reqwest::Client,
     /// Registry of in-flight Leader session handlers, for the admin surface.
@@ -26,18 +44,22 @@ pub struct ServiceImpl {
     pub(crate) disarm_auth: bool,
 }
 
-impl Service {
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::LoggerFactory>
+    Service<S, P, L>
+{
     pub fn new(
-        shuffle_service: shuffle::Service,
-        publisher_factory: gazette::journal::ClientFactory,
+        shuffle_factory: S,
+        publisher_factory: P,
+        logger_factory: L,
         registry: service_kit::Registry,
         disarm_auth: bool,
     ) -> Self {
         Self(Arc::new(ServiceImpl {
             derive_joins: std::sync::Mutex::new(HashMap::new()),
             materialize_joins: std::sync::Mutex::new(HashMap::new()),
-            shuffle_service,
+            shuffle_factory,
             publisher_factory,
+            logger_factory,
             http_client: reqwest::Client::new(),
             registry,
             disarm_auth,
@@ -95,8 +117,10 @@ impl Service {
     }
 }
 
-impl std::ops::Deref for Service {
-    type Target = ServiceImpl;
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::LoggerFactory>
+    std::ops::Deref for Service<S, P, L>
+{
+    type Target = ServiceImpl<S, P, L>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -104,7 +128,9 @@ impl std::ops::Deref for Service {
 }
 
 #[tonic::async_trait]
-impl proto_grpc::runtime::leader_server::Leader for Service {
+impl<S: crate::ShuffleSessionFactory, P: crate::PublisherFactory, L: crate::LoggerFactory>
+    proto_grpc::runtime::leader_server::Leader for Service<S, P, L>
+{
     type DeriveStream =
         tokio_stream::wrappers::UnboundedReceiverStream<tonic::Result<proto::Derive>>;
     type MaterializeStream =

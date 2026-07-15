@@ -1,4 +1,5 @@
 ---
+description: Modify fields to materialize with Estuary using alternate naming, derivations, and field selection with customizable group-by keys.
 slug: /guides/customize-materialization-fields/
 ---
 

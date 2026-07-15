@@ -1,3 +1,7 @@
+---
+description: Browse Estuary's list of materialization connectors for warehouses, databases, data lakes, and streaming destinations with complete configuration details.
+---
+
 # Materialization Connectors
 
 Estuary's available materialization connectors are listed in this section. Each connector has a unique set of requirements for configuration; these are linked below the connector name.

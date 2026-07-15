@@ -1,3 +1,6 @@
+---
+description: Send Estuary data collections to Materialize via Kafka-compatible topics. Configure auth details and topic names while Estuary acts as the broker and schema registry.
+---
 
 # Materialize
 

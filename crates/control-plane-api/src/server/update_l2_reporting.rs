@@ -280,7 +280,7 @@ export class Derivation extends Types.IDerivation {"#
         models::RawValue::from_value(&serde_json::json!(l2_stats_new_module));
 
     l2_stats_new_shards.flags.insert(
-        models::Token::new("enable-runtime-v2"),
+        models::Token::new(models::ENABLE_RUNTIME_V2),
         models::Token::new("true"),
     );
 

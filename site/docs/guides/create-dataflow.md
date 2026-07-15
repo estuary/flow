@@ -1,6 +1,8 @@
 ---
 sidebar_position: 1
+description: Build an end-to-end Estuary Data Flow by creating a capture, mapping collections, configuring a materialization, and publishing the pipeline.
 ---
+
 # Create a Basic Data Flow
 
 This guide walks you through the process of creating an end-to-end Data Flow.

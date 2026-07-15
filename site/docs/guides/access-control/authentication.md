@@ -1,5 +1,6 @@
 ---
 sidebar_position: 1
+description: Learn how to grant Estuary read, write, and admin access using capabilities, prefixes, and inherited permissions, in the dashboard or with flowctl.
 slug: /reference/authentication/
 ---
 

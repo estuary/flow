@@ -16,7 +16,10 @@ use std::{
     marker::PhantomData,
     mem,
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::SystemTime,
 };
 use tokio::sync::mpsc::error::TrySendError;
@@ -268,6 +271,7 @@ impl GazetteAppender {
 pub struct TaskForwarder<W: TaskWriter> {
     tx: tokio::sync::mpsc::Sender<TaskWriterMessage>,
     _handle: Arc<tokio::task::JoinHandle<()>>,
+    task_name_recorded: Arc<AtomicBool>,
     _ph: PhantomData<W>,
 }
 
@@ -309,6 +313,7 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
         Self {
             tx: logs_tx,
             _handle: Arc::new(handle),
+            task_name_recorded: Arc::new(AtomicBool::new(false)),
             _ph: Default::default(),
         }
     }
@@ -554,7 +559,11 @@ impl<W: TaskWriter + Clone + 'static> TaskForwarder<W> {
 
         // Also set the task name on the parent span so it's included in the logs. This also adds it
         // to the logs that Dekaf writes to stdout, which makes debugging issues much easier.
-        tracing::Span::current().record_hierarchical(SESSION_TASK_NAME_FIELD_MARKER, name);
+        // Record only once per session: the fmt field formatter appends rather than replaces, so a
+        // repeatedly-reauthenticating client would otherwise duplicate `task_name` per log line.
+        if !self.task_name_recorded.swap(true, Ordering::Relaxed) {
+            tracing::Span::current().record_hierarchical(SESSION_TASK_NAME_FIELD_MARKER, name);
+        }
     }
 
     pub fn send_log_message(&self, log: ops::Log) {

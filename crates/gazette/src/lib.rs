@@ -94,6 +94,21 @@ impl Error {
                     true
                 }
 
+                // A broker aborts an Append RPC when its client fails to sustain
+                // the minimum data rate (gazette's MinAppendRate flow-control
+                // policing). This sheds a slow or contended client so others may
+                // proceed; the append rolled back cleanly and is safe to retry.
+                // Gazette surfaces it as an Unknown status wrapping
+                // ErrFlowControlUnderflow, so match on the stable core phrase
+                // rather than the wrapped-context prefix.
+                tonic::Code::Unknown
+                    if status
+                        .message()
+                        .contains("didn't sustain the minimum append data rate") =>
+                {
+                    true
+                }
+
                 _ => false, // Others are not.
             },
 
@@ -196,5 +211,25 @@ fn backoff(attempt: usize) -> std::time::Duration {
         2 | 3 => std::time::Duration::from_millis(100),
         4 | 5 => std::time::Duration::from_secs(1),
         _ => std::time::Duration::from_secs(5),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Error;
+
+    #[test]
+    fn test_flow_control_underflow_is_transient() {
+        // A broker aborts a too-slow Append RPC by returning ErrFlowControlUnderflow
+        // wrapped with "append stream" context, delivered as an Unknown-coded gRPC
+        // status. It must be retried, not treated as a hard failure.
+        let err = Error::Grpc(tonic::Status::unknown(
+            "append stream: client stream didn't sustain the minimum append data rate",
+        ));
+        assert!(err.is_transient());
+
+        // Other Unknown-coded statuses remain fatal, so we don't retry genuine
+        // server-side errors indefinitely.
+        assert!(!Error::Grpc(tonic::Status::unknown("some other failure")).is_transient());
     }
 }

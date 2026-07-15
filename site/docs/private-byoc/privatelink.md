@@ -1,3 +1,6 @@
+---
+description: Configure AWS PrivateLink, Azure Private Link, or GCP Private Service Connect for private and BYOC Estuary deployments without public internet exposure.
+---
 
 # Configure Connections with PrivateLink
 
@@ -96,6 +99,10 @@ When accessing services cross-region, you must use the **regional** DNS name (e.
 * **Connection request never appears in your console**: check that Estuary's principal is on **Allow principals** *and* that the data plane region is in your endpoint service's Supported Regions list.
 * **Connection accepted but the connector still fails to resolve the host**: verify the connector is using the *regional* DNS name returned by Estuary, not a zonal variant.
 
+#### Pre-registering an endpoint ahead of time
+
+You can register an additional endpoint service with Estuary before you need it, such as a standby or backup database kept ready for upgrades, failover, or disaster recovery. It sits idle without affecting your live connection, and the DNS name Estuary returns is stable, so cutting over is just a matter of repointing the capture's `address`. See [Preventing backfills during database upgrades and failovers](/reference/backfilling-data/#preventing-backfills-during-database-upgrades-and-failovers).
+
 ### Variations
 
 Certain services may use AWS PrivateLink in unique ways. More detailed instructions for these services are provided below.
@@ -132,14 +139,35 @@ You can find this URL as you would any other Atlas hostname:
 
 For Azure private or BYOC deployments, we can establish connections to your endpoints using Azure Private Link.
 
-You will need to create an [Azure Private Link Service](https://learn.microsoft.com/en-us/azure/private-link/private-link-service-overview) which also requires having an [Azure Load Balancer](https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-overview) in front of the services you intend to expose. After creating these resources, make sure your LoadBalancer is able to route traffic correctly to your instances. You can check this by looking at the Monitoring -> Metrics page of your LoadBalancer and checking for its Health Probe Status.
+You will need to follow different steps depending on your resource type:
 
-Once you have your Private Link Service set up, we need these details from you to establish the connection. Send them to your Estuary point of contact:
+* [The resource requires an explicit Azure Private Link Service](#connecting-with-azure-private-link-service)
+* [The resource already supports Private Link directly](#connecting-to-a-native-azure-resource)
 
-* The service URI, like `/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service`; this can be found by navigating to the private link service's details page in your Azure Portal and copying the URL
+Once that's set up, send these details to your Estuary point of contact:
+
+* The service URI, like `/subscriptions/abcdefg-12345-12cc-1234-1234abcd1234abc/resourceGroups/foo/providers/Microsoft.Network/privateLinkServices/bar-service`; found on the private link service's (or resource's) details page in your Azure Portal
 * Location for the private endpoint, like `westus`
+* If connecting to a native Azure resource, its sub-resource type (see below)
+* Optionally, a DNS name you'd like to use to reach the endpoint, like `mydb.database.windows.net`. If provided, we'll create a private DNS zone with this name in your data plane's network and point it at the private endpoint, so the hostname resolves automatically
 
-After establishing the connection we will give you a private IP address which you can use to connect to your endpoint when setting up your task on the Estuary web app.
+After establishing the connection, we will give you a private IP address (and a resolvable hostname, if you gave us a DNS name) which you can use to connect to your endpoint when setting up your connector task.
+
+### Connecting with Azure Private Link Service
+
+You will need to create an [Azure Private Link Service](https://learn.microsoft.com/en-us/azure/private-link/private-link-service-overview) fronted by an [Azure Load Balancer](https://learn.microsoft.com/en-us/azure/load-balancer/load-balancer-overview) that routes traffic to your instances. Confirm routing is correct via the LoadBalancer's Monitoring -> Metrics page and its Health Probe Status.
+
+### Connecting to a native Azure resource
+
+If the resource you want to connect to already supports Private Link directly (for example Azure SQL Database, Azure SQL Managed Instance, or a Storage Account), use the resource ID of the PaaS resource itself as the service URI.
+
+You'll also need to send us the resource's **sub-resource type** (Azure's term for this is "group ID"), so the private endpoint targets the right capability of the resource. Common values:
+
+* `sqlServer` for Azure SQL Database
+* `managedInstance` for Azure SQL Managed Instance
+* `blob` for Blob Storage (other Storage sub-resources include `file`, `queue`, and `table`)
+
+See the [Private Link resource types documentation](https://learn.microsoft.com/en-us/azure/private-link/private-endpoint-overview#private-link-resource) for the full list of sub-resource types by service.
 
 ## GCP Private Service Connect
 

@@ -1,5 +1,6 @@
 ---
 sidebar_position: 1
+description: Manage Estuary captures in the dashboard. Create new captures, edit existing ones, and view capture status, usage stats, specification, alerts, history, and logs.
 ---
 
 # Sources

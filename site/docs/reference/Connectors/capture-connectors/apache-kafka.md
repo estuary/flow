@@ -1,3 +1,7 @@
+---
+description: Capture Kafka topic data formatted as Avro, Protobuf, or JSON messages in Estuary. Supports schema registry configuration, multiple SASL mechanisms, and AWS MSK IAM authentication.
+---
+
 # Apache Kafka
 
 This connector captures streaming data from Apache Kafka topics.

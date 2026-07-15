@@ -11,10 +11,13 @@ license.workspace = true
 [dependencies]
 async-process = { path = "../async-process" }
 bytes = { workspace = true }
+doc = { path = "../doc" }
+json = { path = "../json" }
 models = { path = "../models" }
 locate-bin = { path = "../locate-bin" }
 
 anyhow = { workspace = true }
+json-patch = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 zeroize = { workspace = true }

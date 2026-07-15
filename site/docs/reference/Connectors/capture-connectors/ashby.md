@@ -1,3 +1,7 @@
+---
+description: Use Estuary's Ashby connector with an Ashby API key to sync recruiting data like candidates, applications, interviews, jobs, offers, openings, and users.
+---
+
 # Ashby
 
 This connector captures data from Ashby into Estuary collections.

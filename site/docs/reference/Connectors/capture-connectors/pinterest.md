@@ -1,3 +1,6 @@
+---
+description: Use the Pinterest connector to capture boards, pins, ads, campaigns, and analytics, using OAuth2.0 or access token authentication.
+---
 
 # Pinterest
 This connector captures data from Pinterest into Estuary collections.

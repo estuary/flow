@@ -1,5 +1,6 @@
 ---
 sidebar_position: 5
+description: Install flowctl for Linux or Mac, authenticate with an Estuary access token, review requirements, and start command-line Data Flow workflows.
 ---
 
 # Getting Started With flowctl
@@ -64,7 +65,17 @@ Once you've installed flowctl and are ready to begin working, authenticate your 
 
 The token will expire after a predetermined duration. Repeat this process to re-authenticate.
 
+## Run flowctl from an AI coding agent
+
+You can also run flowctl commands via AI coding assistants like Claude Code, Cursor, and GitHub Copilot to build and maintain pipelines:
+
+- **[Agent skills](./agent-skills.md)** provide steps to run common workflows, like creating connectors or troubleshooting pipelines.
+- **[MCP integration](../features/mcp-integration.md)** provides your assistant additional context on using flowctl by connecting to Estuary's documentation.
+
+See [Using coding agents with Estuary](../features/using-coding-agents.md) for the full setup.
+
 # Next steps
 
 1. [flowctl concepts](../concepts/flowctl.md): Learn more about using flowctl.
 2. [User guides](../guides/flowctl/README.md): Check out some of the detailed user guides to see flowctl in action.
+3. [Using coding agents with Estuary](../features/using-coding-agents.md): Let an AI assistant build and operate your pipelines.

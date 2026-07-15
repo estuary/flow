@@ -48,6 +48,10 @@ message ShardLabeling {
       [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
   // Flags are arbitrary string-valued feature flags set on the task's shard template.
   map<string, string> flags = 12;
+  // Maximum aggregate size in bytes of buffered, sealed on-disk shuffle segment
+  // files before the shuffle reader engages back-pressure. Zero means unset, in
+  // which case the data-plane default is used.
+  uint64 shuffle_disk_limit_bytes = 13;
 }
 
 // Common `shard` sub-document logged by Stats and Log.

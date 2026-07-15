@@ -1,6 +1,8 @@
 ---
 sidebar_position: 3
+description: Learn how Estuary collections store real-time data lakes of JSON documents. See a specification example to define keys, schemas, projections, and derivations.
 ---
+
 # Collections
 
 The documents of your Data Flows are stored in **collections**:

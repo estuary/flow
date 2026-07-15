@@ -1,10 +1,14 @@
+---
+description: Configure AWS IAM authentication for supported connectors in Estuary using your data plane's OIDC value and an AWS trust relationship policy.
+---
+
 # AWS IAM Authentication
 
 Estuary supports IAM authentication with Amazon Web Services such as RDS and S3 using a role created by you which has access to the resources, and has trusted identity tokens signed by us as the OIDC (OpenID Connect) provider. Note however that not all connectors currently support using IAM authentication.
 
 ## Role with Resource Access
 
-In order to authenticate using AWS IAM, you need a IAM role which has access to the resource you are trying to authenticate with.  Before we can setup the Identity Provider and the Role's Trust Relationship we need to know the Role ARN, so initially we will just create a placeholder role and later update it with the final Trust Relationship.
+In order to authenticate using AWS IAM, you need a IAM role which has access to the resource you are trying to authenticate with. Before we can setup the Identity Provider and the Role's Trust Relationship we need to know the Role ARN, so initially we will just create a placeholder role and later update it with the final Trust Relationship.
 
 To create the role, select "AWS Account" and click next, select the required permissions for your resource, set the role name, and create the role.
 

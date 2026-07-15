@@ -26,6 +26,11 @@ pub enum Capability {
     // `ModifyDataPlanePrivateNetworking` permits mutating that same
     // configuration; the data-plane controller converges to it.
     ModifyDataPlanePrivateNetworking,
+    // `ViewBilling` permits reading a tenant's billing surface (contact,
+    // payment methods, invoices).
+    ViewBilling,
+    // `EditBilling` permits mutating a tenant's billing contact
+    EditBilling,
     Delegate,
     Assume,
 }
@@ -107,7 +112,7 @@ impl CapabilityBundle {
                     | Self::Billing.capabilities()
                     | Self::ManageDataPlane.capabilities()
             }
-            Self::Billing => EnumSet::empty(),
+            Self::Billing => ViewBilling | EditBilling,
             Self::TeamAdmin => CreateGrant | DeleteGrant | CreateInviteLink,
             Self::ManageDataPlane => {
                 ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking

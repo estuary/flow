@@ -277,6 +277,18 @@ pub(crate) fn parse_data_plane_name(
     }
 }
 
+/// A public data plane, as visible to unauthenticated callers.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct PublicDataPlane {
+    /// Name of this data-plane under the catalog namespace.
+    pub name: String,
+    /// Cloud provider where this data-plane is hosted.
+    pub cloud_provider: DataPlaneCloudProvider,
+    /// Cloud region where this data-plane is hosted.
+    /// For example: "us-east-1" (AWS), "us-central1" (GCP), "eastus" (Azure).
+    pub region: String,
+}
+
 pub type PaginatedDataPlanes = Connection<
     String,
     DataPlane,
@@ -286,6 +298,61 @@ pub type PaginatedDataPlanes = Connection<
     connection::DefaultEdgeName,
     connection::DisableNodesField,
 >;
+
+pub type PaginatedPublicDataPlanes = Connection<
+    String,
+    PublicDataPlane,
+    connection::EmptyFields,
+    connection::EmptyFields,
+    connection::DefaultConnectionName,
+    connection::DefaultEdgeName,
+    connection::DisableNodesField,
+>;
+
+/// Applies cursor pagination over `sorted`, which must already be ordered by
+/// the unique `name` key that also serves as the cursor. Returns the page of
+/// rows plus has-previous-page / has-next-page indicators.
+fn paginate_by_name<T>(
+    sorted: Vec<T>,
+    name: impl Fn(&T) -> &str,
+    after: Option<String>,
+    before: Option<String>,
+    first: Option<usize>,
+    last: Option<usize>,
+) -> (Vec<T>, bool, bool) {
+    let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
+    if limit == 0 {
+        return (Vec::new(), false, false);
+    }
+
+    if before.is_some() || last.is_some() {
+        // Backward pagination
+        let filtered: Vec<T> = sorted
+            .into_iter()
+            .filter(|t| {
+                before
+                    .as_ref()
+                    .map(|b| name(t) < b.as_str())
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        let total = filtered.len();
+        let skip = total.saturating_sub(limit);
+        let rows: Vec<T> = filtered.into_iter().skip(skip).collect();
+        (rows, skip > 0, before.is_some())
+    } else {
+        // Forward pagination
+        let rows: Vec<T> = sorted
+            .into_iter()
+            .filter(|t| after.as_ref().map(|a| name(t) > a.as_str()).unwrap_or(true))
+            .take(limit)
+            .collect();
+
+        let has_next = rows.len() == limit;
+        (rows, after.is_some(), has_next)
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct DataPlanesQuery;
@@ -308,8 +375,9 @@ impl DataPlanesQuery {
         let claims = env.claims()?;
         let snapshot = env.snapshot();
 
-        // Filter to only data planes the user can read and that have valid names.
-        let accessible_data_planes: Vec<&tables::DataPlane> = snapshot
+        // Filter to only data planes the user can read and that have valid
+        // names, sorted by data_plane_name for consistent pagination.
+        let mut accessible_data_planes: Vec<&tables::DataPlane> = snapshot
             .data_planes
             .iter()
             .filter(|dp| {
@@ -326,6 +394,7 @@ impl DataPlanesQuery {
                     )
             })
             .collect();
+        accessible_data_planes.sort_by(|a, b| a.data_plane_name.cmp(&b.data_plane_name));
 
         // Apply cursor-based pagination.
         let (rows, has_prev, has_next) =
@@ -335,50 +404,14 @@ impl DataPlanesQuery {
                 first,
                 last,
                 |after, before, first, last| async move {
-                    let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
-                    if limit == 0 {
-                        return Ok((Vec::new(), false, false));
-                    }
-
-                    // Sort by data_plane_name for consistent pagination.
-                    let mut sorted: Vec<&tables::DataPlane> = accessible_data_planes.clone();
-                    sorted.sort_by(|a, b| a.data_plane_name.cmp(&b.data_plane_name));
-
-                    let result = if before.is_some() || last.is_some() {
-                        // Backward pagination
-                        let filtered: Vec<_> = sorted
-                            .into_iter()
-                            .filter(|dp| {
-                                before
-                                    .as_ref()
-                                    .map(|b| dp.data_plane_name.as_str() < b.as_str())
-                                    .unwrap_or(true)
-                            })
-                            .collect();
-
-                        let total = filtered.len();
-                        let skip = total.saturating_sub(limit);
-                        let rows: Vec<_> = filtered.into_iter().skip(skip).collect();
-                        let has_prev = skip > 0;
-                        (rows, has_prev, before.is_some())
-                    } else {
-                        // Forward pagination
-                        let rows: Vec<_> = sorted
-                            .into_iter()
-                            .filter(|dp| {
-                                after
-                                    .as_ref()
-                                    .map(|a| dp.data_plane_name.as_str() > a.as_str())
-                                    .unwrap_or(true)
-                            })
-                            .take(limit)
-                            .collect();
-
-                        let has_next = rows.len() == limit;
-                        (rows, after.is_some(), has_next)
-                    };
-
-                    async_graphql::Result::Ok(result)
+                    Ok(paginate_by_name(
+                        accessible_data_planes,
+                        |dp| dp.data_plane_name.as_str(),
+                        after,
+                        before,
+                        first,
+                        last,
+                    ))
                 },
             )
             .await?;
@@ -437,6 +470,66 @@ impl DataPlanesQuery {
 
         let mut conn = PaginatedDataPlanes::new(has_prev, has_next);
         conn.edges = edges;
+        Ok(conn)
+    }
+
+    /// Returns all public data planes.
+    ///
+    /// This query requires no authentication. It exposes only the name, cloud
+    /// provider, and region of public data planes, so that account-creation
+    /// flows can offer a data-plane selection before the user has signed up.
+    ///
+    /// Results are paginated and sorted by name.
+    pub async fn public_data_planes(
+        &self,
+        ctx: &Context<'_>,
+        after: Option<String>,
+        before: Option<String>,
+        first: Option<i32>,
+        last: Option<i32>,
+    ) -> async_graphql::Result<PaginatedPublicDataPlanes> {
+        let env = ctx.data::<crate::Envelope>()?;
+
+        let mut planes: Vec<PublicDataPlane> = env
+            .snapshot()
+            .data_planes
+            .iter()
+            .filter_map(|dp| {
+                let (cloud_provider, region, _tag, is_public) =
+                    parse_data_plane_name(&dp.data_plane_name)?;
+                is_public.then(|| PublicDataPlane {
+                    name: dp.data_plane_name.clone(),
+                    cloud_provider,
+                    region,
+                })
+            })
+            .collect();
+        planes.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let (rows, has_prev, has_next) =
+            connection::query_with::<String, _, _, _, async_graphql::Error>(
+                after,
+                before,
+                first,
+                last,
+                |after, before, first, last| async move {
+                    Ok(paginate_by_name(
+                        planes,
+                        |p| p.name.as_str(),
+                        after,
+                        before,
+                        first,
+                        last,
+                    ))
+                },
+            )
+            .await?;
+
+        let mut conn = PaginatedPublicDataPlanes::new(has_prev, has_next);
+        conn.edges = rows
+            .into_iter()
+            .map(|p| connection::Edge::new(p.name.clone(), p))
+            .collect();
         Ok(conn)
     }
 }
@@ -575,6 +668,98 @@ mod tests {
             .await;
 
         insta::assert_json_snapshot!(response);
+    }
+
+    // `publicDataPlanes` serves the pre-signup account-creation flow, so it
+    // must answer unauthenticated requests with public data planes only, and
+    // must not loosen authentication of the full `dataPlanes` query.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
+    )]
+    async fn test_graphql_public_data_planes_unauthenticated(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        publicDataPlanes {
+                            pageInfo { hasPreviousPage hasNextPage }
+                            edges {
+                                cursor
+                                node {
+                                    name
+                                    cloudProvider
+                                    region
+                                }
+                            }
+                        }
+                    }
+                    "#
+                }),
+                None,
+            )
+            .await;
+
+        insta::assert_json_snapshot!("public_data_planes_unauthenticated", response);
+
+        // Paginate through the two fixture planes one at a time.
+        let paged_query = r#"
+            query($after: String) {
+                publicDataPlanes(first: 1, after: $after) {
+                    pageInfo { hasNextPage endCursor }
+                    edges { node { name } }
+                }
+            }
+        "#;
+        let page_one: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({"query": paged_query, "variables": {"after": null}}),
+                None,
+            )
+            .await;
+        insta::assert_json_snapshot!("public_data_planes_page_one", page_one);
+
+        let end_cursor = page_one["data"]["publicDataPlanes"]["pageInfo"]["endCursor"]
+            .as_str()
+            .expect("page one must have an end cursor");
+        let page_two: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({"query": paged_query, "variables": {"after": end_cursor}}),
+                None,
+            )
+            .await;
+        insta::assert_json_snapshot!("public_data_planes_page_two", page_two);
+
+        // The full `dataPlanes` query remains authenticated.
+        let denied: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        dataPlanes {
+                            edges { node { name } }
+                        }
+                    }
+                    "#
+                }),
+                None,
+            )
+            .await;
+        assert!(
+            first_error_message(&denied)
+                .contains("the request is missing a required Authorization: Bearer token"),
+            "expected an unauthenticated error, got: {denied}",
+        );
     }
 
     #[sqlx::test(
@@ -1102,6 +1287,64 @@ mod tests {
         assert_eq!(
             first_error_message(&response),
             "data plane 'ops/dp/private/aliceCo/aws-us-east-2-c9' not found",
+        );
+    }
+
+    // Covers both directions of the shared cursor helper, including the
+    // forward over-report of has-next when a page ends exactly at the last
+    // row (no +1 lookahead; the follow-up fetch comes back empty).
+    #[test]
+    fn paginates_by_name() {
+        fn page(
+            after: Option<&str>,
+            before: Option<&str>,
+            first: Option<usize>,
+            last: Option<usize>,
+        ) -> (Vec<&'static str>, bool, bool) {
+            paginate_by_name(
+                vec!["a", "b", "c", "d"],
+                |n| *n,
+                after.map(String::from),
+                before.map(String::from),
+                first,
+                last,
+            )
+        }
+
+        // Forward pagination: (rows, has_previous, has_next).
+        assert_eq!(
+            page(None, None, Some(2), None),
+            (vec!["a", "b"], false, true)
+        );
+        assert_eq!(
+            page(Some("b"), None, Some(2), None),
+            (vec!["c", "d"], true, true)
+        );
+        assert_eq!(
+            page(Some("b"), None, Some(10), None),
+            (vec!["c", "d"], true, false)
+        );
+        assert_eq!(page(Some("d"), None, Some(2), None), (vec![], true, false));
+
+        // Backward pagination.
+        assert_eq!(
+            page(None, None, None, Some(2)),
+            (vec!["c", "d"], true, false)
+        );
+        assert_eq!(
+            page(None, Some("d"), None, Some(2)),
+            (vec!["b", "c"], true, true)
+        );
+        assert_eq!(
+            page(None, Some("c"), None, Some(10)),
+            (vec!["a", "b"], false, true)
+        );
+
+        // Zero and default limits.
+        assert_eq!(page(None, None, Some(0), None), (vec![], false, false));
+        assert_eq!(
+            page(None, None, None, None),
+            (vec!["a", "b", "c", "d"], false, false)
         );
     }
 

@@ -1,3 +1,7 @@
+---
+description: Materialize data collections into PostgreSQL with Estuary's connector. Supports self-hosted or cloud database instances, IAM auth, SSH tunneling, custom create SQL, and delta updates.
+---
+
 # PostgreSQL
 
 This connector materializes Estuary collections into tables in a PostgreSQL database.

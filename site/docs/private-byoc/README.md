@@ -1,5 +1,6 @@
 ---
 sidebar_position: 0
+description: Learn how Estuary private and BYOC deployments let you run Estuary in more isolated environments, including your own cloud environment, for regulated or security-sensitive use cases.
 pagination_next: private-byoc/byoc-deployments/byoc-deployments
 ---
 

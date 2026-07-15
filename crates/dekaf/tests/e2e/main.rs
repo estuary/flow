@@ -7,11 +7,13 @@ mod basic;
 mod collection_reset;
 mod consumer_group;
 mod empty_fetch;
+mod fetch_offsets;
 mod list_offsets;
 mod migration;
 mod not_ready;
+mod partition_eofs;
 
 pub use harness::{
-    ConnectionInfo, DekafTestEnv, connection_info_for_dataplane, db_pool, init_tracing,
-    trigger_migration, wait_for_dekaf_redirect, wait_for_migration_complete,
+    ConnectionInfo, DekafTestEnv, cluster_name, cluster_name_2, connection_info_for_dataplane,
+    db_pool, init_tracing, trigger_migration, wait_for_dekaf_redirect, wait_for_migration_complete,
 };

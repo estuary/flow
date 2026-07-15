@@ -1,6 +1,8 @@
 ---
 sidebar_position: 6
+description: Capture Supabase updates with Estuary's CDC connector. Setup guide includes logical replication, WAL handling, replication slots, publications, watermarks tables, and backfills.
 ---
+
 # Supabase
 
 This connector uses change data capture (CDC) to continuously capture updates in a Supabase PostgreSQL database into one or more Estuary collections.
@@ -160,7 +162,7 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/capture_as_partitions` | Capture Partitioned Tables As Partitions | When set, the capture will discover and capture partitioned tables as individual partitions rather than as a single root table. This requires the publication to be created without `publish_via_partition_root`. | boolean | `false` |
 | `/advanced/discover_unpublished_tables` | Discover Unpublished Tables | If `true`, the capture discovers all tables, even ones not currently in the publication. | boolean |  |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
-| `/advanced/statement_timeout` | Statement Timeout | Overrides the default statement timeout used by the connector. The default of zero disables statement timeouts entirely. Options include `""`, `30s`, `1m`, `5m`, and `30m`. | string | `""` |
+| `/advanced/statement_timeout` | Statement Timeout | Overrides the statement timeout used by the connector. Leave blank to use the default of 2 minutes. Set to `0` to disable statement timeouts entirely. Options include `""`, `0`, `30s`, `1m`, `2m`, `5m`, and `30m`. | string | `""` |
 
 #### Bindings
 

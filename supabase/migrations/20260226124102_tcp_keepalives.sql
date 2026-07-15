@@ -3,6 +3,15 @@
 -- after a client unexpectedly disconnects. That's far too long, especially for our
 -- materialization connectors. This migration tunes the tcp keepalive settings to
 -- allow detecting dead connections much faster.
-alter database postgres set tcp_keepalives_idle = 60;
-alter database postgres set tcp_keepalives_interval = 10;
-alter database postgres set tcp_keepalives_count = 5;
+do $$
+begin
+    -- ALTER DATABASE mutates the shared pg_database row for `postgres`; guard
+    -- so parallel sqlx::test migration runs (each in its own database) don't
+    -- concurrently update that shared tuple ("tuple concurrently updated").
+    if current_database() = 'postgres' then
+        alter database postgres set tcp_keepalives_idle = 60;
+        alter database postgres set tcp_keepalives_interval = 10;
+        alter database postgres set tcp_keepalives_count = 5;
+    end if;
+end
+$$;

@@ -40,7 +40,13 @@ use tokio::sync::Semaphore;
 
 use self::connectors::MockDiscoverConnectors;
 
-const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+// The local stack's Postgres port is dynamic (one stack per checkout), so the
+// URL comes from FLOW_PG_URL (set by mise/tasks/local/stack-env). Run these
+// integration tests via mise (e.g. `mise run ...`) so the ambient env is set.
+fn fixed_database_url() -> String {
+    std::env::var("FLOW_PG_URL")
+        .expect("FLOW_PG_URL must be set — run integration tests via 'mise run'")
+}
 
 pub fn set_of(names: &[&str]) -> BTreeSet<String> {
     names.into_iter().map(|n| n.to_string()).collect()
@@ -177,6 +183,7 @@ pub struct TestHarness {
     pub controller_exec: crate::controllers::executor::LiveSpecControllerExecutor<TestControlPlane>,
     pub directive_exec: crate::directives::DirectiveHandler,
     pub alert_sender: self::alerts::TestSender,
+    pub runtime_v2_new_captures: bool,
     // Control plane API app instance for GraphQL queries
     control_plane_app: Option<Arc<control_plane_api::App>>,
 }
@@ -211,7 +218,7 @@ impl HarnessBuilder {
             .finish();
         let _ = tracing::subscriber::set_global_default(subscriber);
 
-        let pool = sqlx::PgPool::connect(FIXED_DATABASE_URL)
+        let pool = sqlx::PgPool::connect(&fixed_database_url())
             .await
             .expect("Failed to connect to database");
 
@@ -278,6 +285,7 @@ impl HarnessBuilder {
             directive_exec,
             control_plane_app: None,
             alert_sender: alerts::TestSender::new(),
+            runtime_v2_new_captures: false,
         };
         harness.truncate_tables().await;
         harness.setup_test_connectors().await;
@@ -1118,6 +1126,7 @@ impl TestHarness {
             task_types::PUBLICATIONS => Server::new().register(PublicationsExecutor {
                 publisher: self.publisher.clone(),
                 pg_pool: self.pool.clone(),
+                runtime_v2_new_captures: self.runtime_v2_new_captures,
             }),
             task_types::DISCOVERS => Server::new().register(DiscoverExecutor {
                 handler: self.discover_handler.clone(),
@@ -2097,6 +2106,7 @@ impl ControlPlane for TestControlPlane {
         reset_on_key_change: bool,
         logs_token: Uuid,
         data_plane_id: models::Id,
+        created_at: String,
     ) -> anyhow::Result<DiscoverOutput> {
         self.inner
             .discover(
@@ -2106,6 +2116,7 @@ impl ControlPlane for TestControlPlane {
                 reset_on_key_change,
                 logs_token,
                 data_plane_id,
+                created_at,
             )
             .await
     }

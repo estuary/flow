@@ -3,13 +3,21 @@ use models::TriggerVariables;
 
 /// Pre-compiled trigger templates and their associated configs.
 pub struct CompiledTriggers {
+    /// Minimum interval between deliveries, shared by all configured triggers.
+    pub interval: Option<std::time::Duration>,
     pub configs: Vec<models::TriggerConfig>,
     registry: handlebars::Handlebars<'static>,
 }
 
 impl CompiledTriggers {
     /// Compile all trigger payload templates into a shared Handlebars registry.
-    pub fn compile(configs: Vec<models::TriggerConfig>) -> anyhow::Result<Self> {
+    pub fn compile(triggers: models::Triggers) -> anyhow::Result<Self> {
+        let models::Triggers {
+            interval,
+            config: configs,
+            sops: _,
+        } = triggers;
+
         let mut registry = handlebars::Handlebars::new();
         registry.set_strict_mode(true);
         registry.register_escape_fn(handlebars::no_escape);
@@ -20,7 +28,11 @@ impl CompiledTriggers {
                 .with_context(|| format!("compiling trigger {index} template"))?;
         }
 
-        Ok(Self { configs, registry })
+        Ok(Self {
+            interval,
+            configs,
+            registry,
+        })
     }
 
     /// Render the template for trigger `index` with the given context.
@@ -262,7 +274,12 @@ mod test {
         trigger
             .headers
             .insert("Authorization".to_string(), "Bearer my-secret".to_string());
-        let compiled = CompiledTriggers::compile(vec![trigger.clone()]).unwrap();
+        let compiled = CompiledTriggers::compile(models::Triggers {
+            interval: None,
+            config: vec![trigger.clone()],
+            sops: None,
+        })
+        .unwrap();
         let context =
             models::build_template_context(&TriggerVariables::placeholder(), &trigger.headers);
         let rendered = compiled.render(0, &context).unwrap();
@@ -347,7 +364,12 @@ mod test {
                 make_trigger_with_url(&format!("http://{addr}/webhook"), r#"{"event": "test"}"#);
             trigger.max_attempts = case.max_attempts;
 
-            let compiled = CompiledTriggers::compile(vec![trigger]).unwrap();
+            let compiled = CompiledTriggers::compile(models::Triggers {
+                interval: None,
+                config: vec![trigger],
+                sops: None,
+            })
+            .unwrap();
             let result = send_webhooks(
                 &compiled,
                 &TriggerVariables::placeholder(),

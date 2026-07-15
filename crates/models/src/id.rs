@@ -67,6 +67,15 @@ impl Id {
         let shard = (int_val & SHARD_MASK) as u16;
         (timestamp, seq, shard)
     }
+
+    /// Returns the wall-clock time at which this Id was generated.
+    /// Ids embed their generation time, so the Id of a long-lived resource
+    /// (such as a `live_specs` row) is also its creation time.
+    pub fn timestamp(&self) -> chrono::DateTime<chrono::Utc> {
+        let (millis, _seq, _shard) = self.into_parts();
+        chrono::DateTime::from_timestamp_millis((ESTUARY_EPOCH_MILLIS + millis) as i64)
+            .expect("id timestamps are always in range")
+    }
 }
 
 impl std::str::FromStr for Id {
@@ -213,6 +222,15 @@ impl IdGenerator {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_id_timestamp() {
+        let expect = chrono::DateTime::parse_from_rfc3339("2024-05-06T07:08:09.010Z")
+            .unwrap()
+            .to_utc();
+        let millis = expect.timestamp_millis() as u64 - ESTUARY_EPOCH_MILLIS;
+        assert_eq!(expect, Id::from_parts(millis, 5, 3).timestamp());
+    }
 
     #[test]
     fn test_id_generation() {

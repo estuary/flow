@@ -29,7 +29,8 @@ pub async fn start<L: LogHandler>(
     OpenExtras,
 )> {
     let log_level = initial.get_internal()?.log_level();
-    let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
+    let (endpoint, config_json, connector_type, catalog_name, sealed_config_json) =
+        extract_endpoint(&mut initial)?;
     let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
     fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
@@ -52,12 +53,13 @@ pub async fn start<L: LogHandler>(
         .boxed()
     }
 
+    // Sealed endpoint configuration, extracted from the matched endpoint and
+    // decrypted later, once the connector's spec response is available. `None`
+    // for Dekaf, which decrypts its own config outside this path.
+    let sealed_config;
     let (mut connector_rx, connector_image) = match endpoint {
-        models::MaterializationEndpoint::Connector(models::ConnectorConfig {
-            image,
-            config: sealed_config,
-        }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+        models::MaterializationEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+            sealed_config = Some(config);
 
             let rx = crate::image_connector::serve(
                 attach_container,
@@ -87,11 +89,11 @@ pub async fn start<L: LogHandler>(
         }
         models::MaterializationEndpoint::Local(models::LocalConfig {
             command,
-            config: sealed_config,
+            config,
             env,
             protobuf,
         }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+            sealed_config = Some(config);
 
             let rx = crate::local_connector::serve(
                 command,
@@ -105,10 +107,17 @@ pub async fn start<L: LogHandler>(
 
             (rx, String::new())
         }
-        models::MaterializationEndpoint::Dekaf(_) => (
-            dekaf_connector::connector(connector_rx).boxed(),
-            String::new(),
-        ),
+        models::MaterializationEndpoint::Dekaf(_) => {
+            // Dekaf is in-process Rust and consumes prost requests directly. It
+            // decrypts its own (nested) endpoint config, so there's nothing to
+            // decrypt or overlay here.
+            sealed_config = None;
+
+            (
+                dekaf_connector::connector(connector_rx).boxed(),
+                String::new(),
+            )
+        }
     };
 
     // Send an initial Spec request which may direct us to perform an IAM token exchange.
@@ -128,6 +137,15 @@ pub async fn start<L: LogHandler>(
         response => return verify.fail(response),
     };
 
+    // Decrypt the sealed endpoint configuration into the connector request, applying
+    // any nonsensitive `sops.overlay` properties subject to schema validation.
+    if let Some(sealed_config) = &sealed_config {
+        *config_json =
+            unseal::overlay::decrypt_with_overlay(sealed_config, &spec_response.config_schema_json)
+                .await?
+                .into();
+    }
+
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
         config_json,
         &spec_response.config_schema_json,
@@ -142,6 +160,13 @@ pub async fn start<L: LogHandler>(
             *config_json = tokens.inject_into(config_json)?.to_string().into();
             tokens.zeroize();
         }
+    }
+
+    // Provide the connector with the sealed endpoint configuration alongside the
+    // decrypted `config_json`, so it may emit `configUpdate`s which adjust its own
+    // `sops.overlay` without re-encrypting the configuration. Only present on Open.
+    if let (Some(sealed_config_json), Some(sealed_config)) = (sealed_config_json, sealed_config) {
+        *sealed_config_json = sealed_config.into();
     }
 
     // Decrypt trigger configs and pre-compile their Handlebars templates.
@@ -199,11 +224,12 @@ fn extract_endpoint<'r>(
     &'r mut bytes::Bytes,
     i32,
     Option<String>,
+    Option<&'r mut bytes::Bytes>,
 )> {
-    let (connector_type, config_json, catalog_name) = match request {
+    let (connector_type, config_json, catalog_name, sealed_config_json) = match request {
         Request {
             spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json, None),
+        } => (spec.connector_type, &mut spec.config_json, None, None),
         Request {
             validate: Some(validate),
             ..
@@ -211,6 +237,7 @@ fn extract_endpoint<'r>(
             validate.connector_type,
             &mut validate.config_json,
             Some(validate.name.clone()),
+            None,
         ),
         Request {
             apply: Some(apply), ..
@@ -221,18 +248,29 @@ fn extract_endpoint<'r>(
                 .as_mut()
                 .context("`apply` missing required `materialization`")?;
 
-            (inner.connector_type, &mut inner.config_json, catalog_name)
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                catalog_name,
+                None,
+            )
         }
         Request {
             open: Some(open), ..
         } => {
             let catalog_name = open.materialization.as_ref().map(|m| m.name.clone());
+            let sealed_config_json = &mut open.sealed_config_json;
             let inner = open
                 .materialization
                 .as_mut()
                 .context("`open` missing required `materialization`")?;
 
-            (inner.connector_type, &mut inner.config_json, catalog_name)
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                catalog_name,
+                Some(sealed_config_json),
+            )
         }
         request => return crate::verify("client", "valid first request").fail(request),
     };
@@ -245,6 +283,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else if connector_type == ConnectorType::Local as i32 {
         Ok((
@@ -254,6 +293,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else if connector_type == ConnectorType::Dekaf as i32 {
         Ok((
@@ -263,6 +303,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");

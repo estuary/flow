@@ -1,3 +1,7 @@
+---
+description: Materialize data into Iceberg tables. Setup guide includes AWS Glue and other REST catalogs, EMR Serverless Spark jobs, S3 staging, IAM roles, and table maintenance.
+---
+
 # Apache Iceberg
 
 This connector materializes Estuary collections into Iceberg tables. It

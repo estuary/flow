@@ -1,17 +1,17 @@
 [Unit]
 Description=Flow Dekaf (%i)
 Documentation=https://github.com/estuary/flow
-After=flow-dekaf-kafka.service
-Requires=flow-dekaf-kafka.service
+# After=/Requires=flow-dekaf-kafka@<stack>.service is added as a drop-in by the
+# data-plane task, which knows this data plane's stack (dekaf-kafka is keyed by
+# stack name, not by the data-plane instance name here).
 
 [Service]
 Type=simple
 TimeoutStartSec=600
 
-EnvironmentFile=%h/flow-local/env/common.env
 EnvironmentFile=%h/flow-local/env/dekaf-%i.env
 
-ExecStart=%h/cargo-target/debug/dekaf \
+ExecStart=sh -c 'exec ${CARGO_TARGET_DIR}/debug/dekaf \
     --local \
     --advertise-host 127.0.0.1 \
     --kafka-port ${DEKAF_KAFKA_PORT} \
@@ -24,7 +24,7 @@ ExecStart=%h/cargo-target/debug/dekaf \
     --data-plane-access-key ${DATA_PLANE_ACCESS_KEY} \
     --task-refresh-interval 10s \
     --spec-ttl 10s \
-    --idle-session-timeout 60s
+    --idle-session-timeout 60s'
 
 Restart=on-failure
 RestartSec=5s

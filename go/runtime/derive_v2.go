@@ -258,7 +258,6 @@ func (m *deriveAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.Env
 	_ = m.client.Send(&pr.Derive{
 		Task: &pr.Task{
 			Spec:            specBytes,
-			Preview:         false,
 			MaxTransactions: 0,
 			SqliteVfsUri:    sqliteVfsUri,
 		},

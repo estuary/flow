@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-go build -o ${HOME}/go/bin/gazette go.gazette.dev/core/cmd/gazette
+# GOBIN is per-stack (from stack-env). mise is mandatory: fail rather than
+# silently writing to a shared ~/go/bin that this stack's units can't see and
+# that other worktrees would clobber.
+GOBIN="${GOBIN:?GOBIN is unset — run via 'mise run'; direct execution is unsupported}"
+mkdir -p "${GOBIN}"
+
+go build -o "${GOBIN}/gazette" go.gazette.dev/core/cmd/gazette

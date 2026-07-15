@@ -1,3 +1,7 @@
+---
+description: Capture Sage Intacct finance data with Estuary's connector and a Web Services developer license. Supported data resources include customers, vendors, projects, tax details, and items.
+---
+
 # Sage Intacct
 
 This connector captures data from Sage Intacct into Estuary collections.

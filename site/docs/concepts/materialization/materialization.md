@@ -1,4 +1,5 @@
 ---
+description: Learn how Estuary's materializations push data collections to destinations using merge or delta updates, projected fields, and schema naming rules. See an example connector specification to define the endpoint and bindings.
 slug: /concepts/materialization/
 ---
 
@@ -100,7 +101,7 @@ materializations:
         # before *any* documents of other bindings are processed.
         #
         # Optional. Default: 0, integer >= 0
-        priority: 0
+        priority: 40
 
     # A sourceCapture allows bindings to be managed automatically based on the
     # bindings of the given capture. As new bindings are added to the capture,
@@ -108,6 +109,22 @@ materializations:
     # is optional.
     sourceCapture: acmeCo/example/a-capture
 ```
+
+## Processing order
+
+By default, a materialization processes ready documents from all of its bindings
+in the order they were published to their source collections, regardless of
+which binding they came from.
+
+Sometimes it's necessary for _all_ documents of one binding to be processed
+before _any_ documents of another, regardless of their relative publishing time.
+For example, a newly added binding with a large historical backlog can otherwise
+starve the other bindings of current data.
+
+Set a binding's `priority` (see [Specification](#specification) above) to express
+its relative processing order. When priorities are unequal, _all_ available
+documents of the higher-priority binding are processed before _any_ documents of
+a lower-priority binding.
 
 ## How continuous materialization works
 

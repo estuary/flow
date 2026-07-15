@@ -2,12 +2,15 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 
 const outputDir = './build';
-const connectorsDir = `${outputDir}/reference/Connectors`
+const capConnectorsDir = `${outputDir}/reference/Connectors/capture-connectors`;
+const matConnectorsDir = `${outputDir}/reference/Connectors/materialization-connectors`;
+const conceptsDir = `${outputDir}/concepts`;
 const connector = 'Connector';
+const concept = 'Concept';
 const divider = ' | ';
 
-const updateAllConnectorPages = (params, titleAddition) => {
-    console.log('Customizing BEGIN')
+const updatePageTitles = (params, titleAddition) => {
+    console.log(`Customizing ${params} BEGIN`);
 
     let updateCount = 0;
     fs.readdirSync(params, {
@@ -15,24 +18,25 @@ const updateAllConnectorPages = (params, titleAddition) => {
     }).forEach(file => {
 
         if (file.includes('.html')) {
-            const fileFullPath = `${connectorsDir}/${file}`;
+            const fileFullPath = `${params}/${file}`;
             const $cheer = cheerio.load(fs.readFileSync(fileFullPath));
             const $title = $cheer("title")
             const titleText = $title.text();
 
             if (
-                // Skip if we are on a specific "root" page
-                !titleText.toLowerCase().startsWith(connector.toLowerCase()) &&
-                !titleText.toLowerCase().startsWith('dekaf integrations'.toLowerCase()) && 
-                !titleText.toLowerCase().startsWith('materialization protocol'.toLowerCase()) && 
-
-                // Skip if it is already there
-                !titleText.toLowerCase().includes(titleAddition) && 
-
-                // Skip if plural version is there (ex: Capture Connectors)
-                !titleText.toLowerCase().includes(`${connector}s |`.toLowerCase())
+                // Skip if it is already there (whether at the beginning, in plural, etc)
+                !titleText.toLowerCase().includes(titleAddition.toLowerCase())
             ) {
-                const newTitle = titleText.replace(divider, titleAddition);
+                // Add 'Capture' or 'Materialization' to the title for connector ref pages
+                if (params.includes('capture-connectors')) {
+                    titleUpdate = `Capture ${titleAddition}`;
+                } else if (params.includes('materialization-connectors')) {
+                    titleUpdate = `Materialization ${titleAddition}`;
+                } else {
+                    titleUpdate = titleAddition;
+                }
+
+                const newTitle = titleText.replace(divider, ` ${titleUpdate}${divider}`);
                 console.debug(`  - updating    : ${fileFullPath}`)
                 console.debug(`    - new title : ${newTitle}`)
 
@@ -47,4 +51,6 @@ const updateAllConnectorPages = (params, titleAddition) => {
 
 }
 
-updateAllConnectorPages(connectorsDir, ` ${connector}${divider}`);
+updatePageTitles(capConnectorsDir, connector);
+updatePageTitles(matConnectorsDir, connector)
+updatePageTitles(conceptsDir, concept);

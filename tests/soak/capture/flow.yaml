@@ -40,14 +40,31 @@ collections:
   # their producer, and imported by the downstream `accounts` derivation that reads
   # them. Keyed [/id, /seq] so every (account, sequence) is unique: no reduction
   # happens here — these are a direct exactly-once probe, and the reduce annotations
-  # live on the derivation (README). The schema is shared with the connector, which
-  # loads it as its discovered document schema.
+  # live on the derivation (README).
+  #
+  # events.schema.json is the WRITE contract; the read schema intersects it with
+  # `flow://inferred-schema` so the whole downstream chain is gated on schema
+  # inference (README "Schema inference"). On a fresh publish this ref is a
+  # placeholder that fails every read until inference propagates (~1–3 min), so
+  # expect `accounts` to crash-loop, then recover.
   test/soak/events/alpha:
-    schema: events.schema.json
+    writeSchema: events.schema.json
+    readSchema:
+      allOf:
+        - $ref: flow://write-schema
+        - $ref: flow://inferred-schema
     key: [/id, /seq]
   test/soak/events/beta:
-    schema: events.schema.json
+    writeSchema: events.schema.json
+    readSchema:
+      allOf:
+        - $ref: flow://write-schema
+        - $ref: flow://inferred-schema
     key: [/id, /seq]
   test/soak/events/gamma:
-    schema: events.schema.json
+    writeSchema: events.schema.json
+    readSchema:
+      allOf:
+        - $ref: flow://write-schema
+        - $ref: flow://inferred-schema
     key: [/id, /seq]
