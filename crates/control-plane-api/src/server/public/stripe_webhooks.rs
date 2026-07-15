@@ -220,7 +220,7 @@ mod tests {
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",
-        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+        fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
     )]
     async fn setup_intent_succeeded_wakes_tenant_controller(pool: sqlx::PgPool) {
         let _guard = test_server::init();
