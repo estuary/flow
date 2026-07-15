@@ -49,7 +49,7 @@ expression: email.body
             </p>
             <ul>
                 <li><a href="http://dashboard.estuary.test/captures/details/overview?catalogName=acmeCo/test/capture" target="_blank" rel="noopener">View the task status and logs</a></li>
-                <li>If you need help, reach out to our team via Slack (#support) or reply to this email.</li>
+                <li>If you need help, reach out to our team via <a href="https://go.estuary.dev/slack">Slack</a> (#support) or reply to this email</li>
             </ul>            <div class="signature">
                 Thanks,<br>
                 Estuary Team

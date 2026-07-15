@@ -40,7 +40,7 @@ expression: email.body
         </div>
         <div class="divider"></div>
         <div class="email-content">
-            <p class="body-text">Just so you know, your free trial for <span class="identifier">acmeCo/</span> will be ending on <strong>2024-02-14</strong>. Since you have already added a payment method, no action is required.</p>
+            <p class="body-text">As a reminder, your free trial for <span class="identifier">acmeCo/</span> will be ending on <strong>2024-02-14</strong>. Since you have already added a payment method, no action is required.</p>
             <a href="http://dashboard.estuary.test/admin/billing" class="button">📈 View your stats</a>
             <div class="signature">
                 Thanks,<br>

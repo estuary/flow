@@ -419,7 +419,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: Auto-discover failed for capture acmeCo/test/capture",
+            "Estuary: Auto-discover failed for capture acmeCo/test/capture",
         );
         insta::assert_snapshot!("auto_discover_failed_fired_body", email.body);
     }
@@ -440,7 +440,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_RESOLVED,
-            "Estuary Flow: Auto-discover resolved for capture acmeCo/test/capture",
+            "Estuary: Auto-discover resolved for capture acmeCo/test/capture",
         );
         insta::assert_snapshot!("auto_discover_failed_resolved_body", email.body);
     }
@@ -461,7 +461,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: Automated background publication failed for capture acmeCo/test/capture",
+            "Estuary: Automated background publication failed for capture acmeCo/test/capture",
         );
         insta::assert_snapshot!("background_publication_failed_fired_body", email.body);
     }
@@ -482,7 +482,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_RESOLVED,
-            "Estuary Flow: Automated background publication alert resolved for capture acmeCo/test/capture",
+            "Estuary: Automated background publication alert resolved for capture acmeCo/test/capture",
         );
         insta::assert_snapshot!("background_publication_failed_resolved_body", email.body);
     }
@@ -505,7 +505,7 @@ mod tests {
             &email,
             user_b(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: Alert for materialization acmeCo/test/materialization",
+            "Estuary: Alert for materialization acmeCo/test/materialization",
         );
         insta::assert_snapshot!("data_movement_stalled_fired_body", email.body);
     }
@@ -528,7 +528,7 @@ mod tests {
             &email,
             user_b(),
             EXPECT_IDEMPOTENCY_KEY_RESOLVED,
-            "Estuary Flow: Alert resolved for materialization acmeCo/test/materialization",
+            "Estuary: Alert resolved for materialization acmeCo/test/materialization",
         );
         insta::assert_snapshot!("data_movement_stalled_resolved_body", email.body);
     }
@@ -606,7 +606,7 @@ mod tests {
             &email,
             user_b(),
             EXPECT_IDEMPOTENCY_KEY_RESOLVED,
-            "Estuary Flow: Paid Tier",
+            "Estuary: Paid Tier",
         );
         insta::assert_snapshot!("free_trial_resolved_with_cc_body", email.body);
     }
@@ -660,7 +660,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: Paid Tier",
+            "Next Up: Estuary Paid Tier",
         );
         insta::assert_snapshot!("free_trial_ending_fired_with_cc_body", email.body);
     }
@@ -684,7 +684,7 @@ mod tests {
             &email,
             user_b(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: Paid Tier",
+            "Next Up: Estuary Paid Tier",
         );
         insta::assert_snapshot!("free_trial_ending_fired_without_cc_body", email.body);
     }
@@ -798,7 +798,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_RESOLVED,
-            "Estuary: Thanks for Adding a Payment Method🎉",
+            "Estuary: Thanks for Adding a Payment Method 🎉",
         );
         insta::assert_snapshot!(
             "missing_payment_method_resolved_free_trial_body",
@@ -831,7 +831,7 @@ mod tests {
             &email,
             user_b(),
             EXPECT_IDEMPOTENCY_KEY_RESOLVED,
-            "Estuary: Thanks for Adding a Payment Method🎉",
+            "Estuary: Thanks for Adding a Payment Method 🎉",
         );
         insta::assert_snapshot!("missing_payment_method_resolved_paid_body", email.body);
     }
@@ -856,7 +856,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: Task failure detected for capture acmeCo/test/capture",
+            "Estuary: Task failure detected for capture acmeCo/test/capture",
         );
         insta::assert_snapshot!("shard_failed_fired_body", email.body);
     }
@@ -881,7 +881,7 @@ mod tests {
             &email,
             user_b(),
             EXPECT_IDEMPOTENCY_KEY_RESOLVED,
-            "Estuary Flow: Task failure resolved for capture acmeCo/test/capture",
+            "Estuary: Task failure resolved for capture acmeCo/test/capture",
         );
         insta::assert_snapshot!("shard_failed_resolved_body", email.body);
     }
@@ -970,7 +970,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: capture acmeCo/test/capture is chronically failing",
+            "Estuary: capture acmeCo/test/capture is chronically failing",
         );
         insta::assert_snapshot!("task_chronically_failing_fired_body", email.body);
     }
@@ -995,7 +995,7 @@ mod tests {
             &email,
             user_a(),
             EXPECT_IDEMPOTENCY_KEY_FIRED,
-            "Estuary Flow: capture acmeCo/test/capture is chronically failing",
+            "Estuary: capture acmeCo/test/capture is chronically failing",
         );
         assert!(
             email.body.contains("failing since 2025-05-01"),
