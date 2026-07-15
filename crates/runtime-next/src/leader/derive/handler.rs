@@ -246,8 +246,8 @@ where
 
     // Best-effort broadcast of terminal error to all shards.
     let status = match err.downcast_ref::<tonic::Status>() {
-        Some(status) => status.clone(),
-        None => tonic::Status::unknown(format!("{err:?}")),
+        Some(status) => crate::bound_status(status.clone()),
+        None => crate::bounded_unknown_status(format!("{err:?}")),
     };
     for tx in error_tx {
         let _ = tx.send(Err(status.clone()));
