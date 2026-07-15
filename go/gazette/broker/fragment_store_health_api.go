@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"net"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -55,6 +56,14 @@ func (svc *Service) FragmentStoreHealth(ctx context.Context, claims pb.Claims, r
 	if healthErr != nil {
 		resp.Status = pb.Status_FRAGMENT_STORE_UNHEALTHY
 		resp.StoreHealthError = healthErr.Error()
+	} else if req.CheckDelete {
+		var probeCtx, cancel = context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+
+		if deleteErr := activeStore.CheckDelete(probeCtx, req.CheckDeletePrefix); deleteErr != nil {
+			resp.Status = pb.Status_FRAGMENT_STORE_UNHEALTHY
+			resp.StoreHealthError = deleteErr.Error()
+		}
 	}
 	return resp, nil
 }

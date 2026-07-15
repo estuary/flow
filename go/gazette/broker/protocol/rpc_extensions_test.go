@@ -462,6 +462,46 @@ func (s *RPCSuite) TestFragmentsResponseValidationCases(c *gc.C) {
 	c.Check(resp.Validate(), gc.IsNil)
 }
 
+func (s *RPCSuite) TestFragmentStoreHealthRequestValidationCases(c *gc.C) {
+	var req = FragmentStoreHealthRequest{FragmentStore: "s3://bad"}
+
+	c.Check(req.Validate(), gc.ErrorMatches, `FragmentStore: .*doesn't end in '/'.*`)
+	req.FragmentStore = "s3://bucket/"
+	c.Check(req.Validate(), gc.IsNil) // No delete probe.
+
+	// A prefix without CheckDelete is rejected rather than silently ignored.
+	req.CheckDeletePrefix = "recovery/"
+	c.Check(req.Validate(), gc.ErrorMatches, `CheckDeletePrefix: cannot be set when CheckDelete is false`)
+
+	// With CheckDelete, a non-empty prefix must end in '/'; empty probes the root.
+	req.CheckDelete = true
+	c.Check(req.Validate(), gc.IsNil) // "recovery/"
+	req.CheckDeletePrefix = "recovery/sub/"
+	c.Check(req.Validate(), gc.IsNil)
+	req.CheckDeletePrefix = ""
+	c.Check(req.Validate(), gc.IsNil) // CheckDelete with no prefix probes the root.
+
+	// A missing trailing slash is strictly rejected.
+	req.CheckDeletePrefix = "recovery"
+	c.Check(req.Validate(), gc.ErrorMatches, `CheckDeletePrefix: must end in '/' \(recovery\)`)
+	req.CheckDeletePrefix = "recovery/sub"
+	c.Check(req.Validate(), gc.ErrorMatches, `CheckDeletePrefix: must end in '/' \(recovery/sub\)`)
+
+	// Parent traversal is rejected, as it can escape the store root on file:// stores.
+	req.CheckDeletePrefix = "../../etc/"
+	c.Check(req.Validate(), gc.ErrorMatches, `CheckDeletePrefix: cannot traverse outside the store \(\.\./\.\./etc/\)`)
+	req.CheckDeletePrefix = "../"
+	c.Check(req.Validate(), gc.ErrorMatches, `CheckDeletePrefix: cannot traverse outside the store \(\.\./\)`)
+
+	// Non-clean, rooted, and invalid-character paths are rejected.
+	req.CheckDeletePrefix = "recovery/../../etc/"
+	c.Check(req.Validate(), gc.ErrorMatches, `CheckDeletePrefix: must be a clean path .*`)
+	req.CheckDeletePrefix = "/rooted/"
+	c.Check(req.Validate(), gc.ErrorMatches, `CheckDeletePrefix: cannot begin with '/' \(/rooted\)`)
+	req.CheckDeletePrefix = "in valid/"
+	c.Check(req.Validate(), gc.ErrorMatches, `CheckDeletePrefix: not a valid token \(in valid\)`)
+}
+
 func badHeaderFixture() *Header {
 	return &Header{
 		ProcessId: ProcessSpec_ID{Zone: "zone", Suffix: "name"},

@@ -81,6 +81,26 @@ func checkLoop(stores map[pb.FragmentStore]*ActiveStore, fs pb.FragmentStore, at
 	storesMu.RUnlock()
 }
 
+// CheckDelete verifies delete permission by writing a throwaway probe object
+// under prefix and removing it. It runs on-demand, not from the periodic health
+// check, which never exercises delete.
+func (s *ActiveStore) CheckDelete(ctx context.Context, prefix string) error {
+	if s.initErr != nil {
+		return s.initErr
+	}
+
+	const probeContent = "gazette-delete-probe\n"
+	var probePath = prefix + ".gazette-delete-probe"
+
+	if err := s.Store.Put(ctx, probePath, strings.NewReader(probeContent), int64(len(probeContent)), ""); err != nil {
+		return fmt.Errorf("delete-probe PUT failed: %w", err)
+	} else if err := s.Store.Remove(ctx, probePath); err != nil {
+		return fmt.Errorf("delete-probe DELETE failed: %w", err)
+	}
+
+	return nil
+}
+
 // runCheck performs a health check of the store by verifying all critical operations.
 // It's designed to be tolerant of concurrent execution by multiple Gazette brokers
 // checking the same store simultaneously.

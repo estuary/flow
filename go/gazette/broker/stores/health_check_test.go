@@ -228,3 +228,64 @@ func TestHealthChecks(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckDelete(t *testing.T) {
+	const prefix = "recovery/"
+
+	t.Run("Success", func(t *testing.T) {
+		// The probe removes exactly the fixed-name object it wrote under the prefix.
+		var putPath string
+		var store = &CallbackStore{
+			PutFunc: func(_ Store, _ context.Context, path string, _ io.ReaderAt, _ int64, _ string) error {
+				require.Equal(t, prefix+".gazette-delete-probe", path)
+				putPath = path
+				return nil
+			},
+			RemoveFunc: func(_ Store, _ context.Context, path string) error {
+				require.Equal(t, putPath, path)
+				return nil
+			},
+		}
+		require.NoError(t, NewActiveStore("s3://bucket/", store, nil).CheckDelete(context.Background(), prefix))
+	})
+
+	t.Run("Root Prefix", func(t *testing.T) {
+		// An empty prefix probes the store root, so the probe object has no prefix.
+		var store = &CallbackStore{
+			PutFunc: func(_ Store, _ context.Context, path string, _ io.ReaderAt, _ int64, _ string) error {
+				require.Equal(t, ".gazette-delete-probe", path)
+				return nil
+			},
+			RemoveFunc: func(_ Store, _ context.Context, _ string) error { return nil },
+		}
+		require.NoError(t, NewActiveStore("s3://bucket/", store, nil).CheckDelete(context.Background(), ""))
+	})
+
+	t.Run("Delete Denied", func(t *testing.T) {
+		var store = &CallbackStore{
+			PutFunc:    func(_ Store, _ context.Context, _ string, _ io.ReaderAt, _ int64, _ string) error { return nil },
+			RemoveFunc: func(_ Store, _ context.Context, _ string) error { return errors.New("access denied") },
+		}
+		var err = NewActiveStore("s3://bucket/", store, nil).CheckDelete(context.Background(), prefix)
+		require.ErrorContains(t, err, "delete-probe DELETE failed")
+		require.ErrorContains(t, err, "access denied")
+	})
+
+	t.Run("Put Failed", func(t *testing.T) {
+		var store = &CallbackStore{
+			PutFunc: func(_ Store, _ context.Context, _ string, _ io.ReaderAt, _ int64, _ string) error {
+				return errors.New("no write")
+			},
+			RemoveFunc: func(_ Store, _ context.Context, _ string) error {
+				require.Fail(t, "Remove should not be called when Put fails")
+				return nil
+			},
+		}
+		require.ErrorContains(t, NewActiveStore("s3://bucket/", store, nil).CheckDelete(context.Background(), prefix), "delete-probe PUT failed")
+	})
+
+	t.Run("Uninitialized Store", func(t *testing.T) {
+		var initErr = errors.New("bad store")
+		require.Equal(t, initErr, NewActiveStore("s3://bucket/", nil, initErr).CheckDelete(context.Background(), prefix))
+	})
+}

@@ -9,7 +9,8 @@ import (
 )
 
 type cmdJournalStoreHealth struct {
-	Store struct {
+	CheckDeletePrefix *string `long:"check-delete-prefix" description:"If set, also verify delete permission by writing and removing a throwaway probe object under this path prefix, which must end in '/' (e.g. \"recovery/\"); pass an empty value to probe the store root"`
+	Store             struct {
 		URL pb.FragmentStore `positional-arg-name:"STORE_URL" required:"true" description:"Fragment store URL to check health, e.g. s3://bucket/prefix/"`
 	} `positional-args:"yes"`
 }
@@ -31,6 +32,9 @@ Check a Google Cloud Storage store:
 
 Check a local filesystem store:
 >  gazctl journals store-health file:///var/local/data/
+
+Additionally verify delete permission under the recovery/ prefix:
+>  gazctl journals store-health --check-delete-prefix=recovery/ s3://my-bucket/and/prefix/
 `, &cmdJournalStoreHealth{})
 }
 
@@ -40,7 +44,7 @@ func (cmd *cmdJournalStoreHealth) Execute([]string) error {
 	var ctx = context.Background()
 	var jc = JournalsCfg.Broker.MustJournalClient(ctx)
 
-	var resp, err = client.FragmentStoreHealth(ctx, jc, cmd.Store.URL)
+	var resp, err = client.FragmentStoreHealth(ctx, jc, cmd.Store.URL, cmd.CheckDeletePrefix)
 	if err != nil {
 		return err
 	}

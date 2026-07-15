@@ -440,6 +440,20 @@ func (m *FragmentStoreHealthRequest) Validate() error {
 	if err := m.FragmentStore.Validate(); err != nil {
 		return ExtendContext(err, "FragmentStore")
 	}
+	if m.CheckDeletePrefix != "" && !m.CheckDelete {
+		return ExtendContext(NewValidationError("cannot be set when CheckDelete is false"), "CheckDeletePrefix")
+	}
+	if prefix := m.CheckDeletePrefix; prefix != "" {
+		if !strings.HasSuffix(prefix, "/") {
+			return ExtendContext(NewValidationError("must end in '/' (%s)", prefix), "CheckDeletePrefix")
+		}
+		var trimmed = strings.TrimSuffix(prefix, "/")
+		if trimmed == ".." || strings.HasPrefix(trimmed, "../") {
+			return ExtendContext(NewValidationError("cannot traverse outside the store (%s)", prefix), "CheckDeletePrefix")
+		} else if err := ValidatePathComponent(trimmed, 1, maxJournalNameLen); err != nil {
+			return ExtendContext(err, "CheckDeletePrefix")
+		}
+	}
 	return nil
 }
 

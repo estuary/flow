@@ -224,7 +224,10 @@ func checkRecoveryLogStoresHealth(ctx context.Context, jc pb.JournalClient, reco
 	}
 
 	for _, store := range journalSpec.Fragment.Stores {
-		var resp, err = client.FragmentStoreHealth(ctx, jc, store)
+		// Prunes may run regularly and autonomously, so the delete probe is
+		// skipped here. A failure to delete recovery fragments due to
+		// permissions issues is logged separately.
+		var resp, err = client.FragmentStoreHealth(ctx, jc, store, nil)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"journal": recoveryLog,

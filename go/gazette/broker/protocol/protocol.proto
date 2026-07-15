@@ -831,6 +831,12 @@ message Header {
 message FragmentStoreHealthRequest {
   // Fragment store to check the health of.
   string fragment_store = 1 [ (gogoproto.casttype) = "FragmentStore" ];
+  // If true, also verify delete permission with a throwaway probe object under
+  // check_delete_prefix. Defaults to false (delete is not exercised).
+  bool check_delete = 2;
+  // Prefix under which the delete probe is written (e.g. "recovery/"); empty
+  // probes the store root. Only used when check_delete is true.
+  string check_delete_prefix = 3;
 }
 
 // FragmentStoreHealthResponse is the unary response message of the broker FragmentStoreHealth RPC.
