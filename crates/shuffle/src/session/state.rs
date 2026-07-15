@@ -509,32 +509,13 @@ impl CheckpointPipeline {
         }
 
         // Stall horizon exceeded and still unresolved: build a detailed error.
-        let mut details = String::new();
-        for jf in &self.unresolved.journals {
-            for p in &jf.producers {
-                if p.hinted_commit <= p.last_commit {
-                    continue;
-                }
-
-                use std::fmt::Write;
-                write!(
-                    &mut details,
-                    "\n  journal {:?} binding={} producer={:?} \
-                         last_commit={:?} hinted_commit={:?}",
-                    jf.journal.as_ref(),
-                    jf.binding,
-                    p.producer,
-                    p.last_commit,
-                    p.hinted_commit,
-                )
-                .unwrap();
-            }
-        }
-
+        // The detail is bounded (see `Frontier::describe_unresolved`) so the
+        // error survives gRPC status propagation and the log pipeline.
         anyhow::bail!(
-            "causal hint resolution timed out: {} hint(s) unresolved across {} journal(s){details}",
+            "causal hint resolution timed out: {} hint(s) unresolved across {} journal(s){}",
             self.unresolved.unresolved_hints,
             self.unresolved.journals.len(),
+            self.unresolved.describe_unresolved(),
         );
     }
 
