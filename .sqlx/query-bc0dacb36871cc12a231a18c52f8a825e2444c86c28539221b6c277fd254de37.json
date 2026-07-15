@@ -24,7 +24,7 @@
                       "delegate",
                       "assume",
                       "manage_data_plane",
-                      "manage_service_account"
+                      "manage_service_accounts"
                     ]
                   }
                 }
@@ -50,7 +50,7 @@
                       "delegate",
                       "assume",
                       "manage_data_plane",
-                      "manage_service_account"
+                      "manage_service_accounts"
                     ]
                   }
                 }

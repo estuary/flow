@@ -59,7 +59,7 @@ pub enum CapabilityBundle {
     Admin,
     Billing,
     TeamAdmin,
-    ManageServiceAccount,
+    ManageServiceAccounts,
     ManageDataPlane,
     Delegate,
     Assume,
@@ -118,14 +118,14 @@ impl CapabilityBundle {
                     | Self::ManageDataPlane.capabilities()
             }
             Self::Billing => ViewBilling | EditBilling,
-            Self::ManageServiceAccount => {
+            Self::ManageServiceAccounts => {
                 QueryServiceAccounts | CreateServiceAccount | CreateApiKey | RevokeApiKey
             }
             Self::TeamAdmin => {
                 CreateGrant
                     | DeleteGrant
                     | CreateInviteLink
-                    | Self::ManageServiceAccount.capabilities()
+                    | Self::ManageServiceAccounts.capabilities()
             }
             Self::ManageDataPlane => {
                 ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking

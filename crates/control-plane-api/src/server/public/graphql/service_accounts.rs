@@ -655,12 +655,20 @@ impl ServiceAccountsMutation {
             }
         };
 
+        // The owner (and thus its catalog name) is resolved from the token id
+        // before authorizing — unavoidable, since the account to authorize
+        // against comes from the token. A raw denial would surface the owning
+        // catalog name, letting a caller who holds a token id they aren't
+        // authorized for learn which account owns it. Collapse denial into the
+        // same "not found" error the unknown-id branch returns, so existence
+        // and denial are indistinguishable.
         super::verify_authorization(
             env,
             &owner.catalog_name,
             models::authz::Capability::RevokeApiKey,
         )
-        .await?;
+        .await
+        .map_err(hide_denial_as_not_found)?;
 
         sqlx::query!(
             "UPDATE public.refresh_tokens SET valid_for = interval '0' \
@@ -755,6 +763,34 @@ pub(super) async fn verify_not_service_account(
         ));
     }
     Ok(())
+}
+
+/// Rewrite a terminal permission-denied authorization error into the generic
+/// "service account API key not found" error, so a denial is indistinguishable
+/// from a missing token id.
+///
+/// Only terminal denials (`tonic::Code::PermissionDenied`) are rewritten. A
+/// provisional [`crate::ApiError::AuthZRetry`] — which drives the snapshot
+/// refresh-and-retry redirect — is passed through untouched, as is any other
+/// error, so this never swallows a retry or an internal fault.
+fn hide_denial_as_not_found(err: async_graphql::Error) -> async_graphql::Error {
+    let is_permission_denied = err
+        .source
+        .as_ref()
+        .and_then(|source| source.downcast_ref::<crate::ApiError>())
+        .is_some_and(|api_error| {
+            matches!(
+                api_error,
+                crate::ApiError::Status(status)
+                    if status.code() == tonic::Code::PermissionDenied
+            )
+        });
+
+    if is_permission_denied {
+        async_graphql::Error::new("service account API key not found")
+    } else {
+        err
+    }
 }
 
 /// Resolve a service account's backing `user_id` from its `catalog_name` handle.
@@ -1384,6 +1420,35 @@ mod test {
             .expect("should have edges");
         assert_eq!(bob_edges.len(), 0);
 
+        // Bob can't revoke a key he isn't authorized for. The owning account is
+        // resolved from the token id before authorizing, so a raw denial would
+        // embed the owner's catalog name. The response must instead be the same
+        // generic "not found" an unknown id returns — indistinguishable, and
+        // leaking no catalog name — even though the id names a real token.
+        let bob_revoke: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($id: Id!) {
+                        revokeApiKey(id: $id) { catalogName }
+                    }"#,
+                    "variables": { "id": api_key_id }
+                }),
+                Some(&bob_token),
+            )
+            .await;
+        let bob_revoke_msg = bob_revoke["errors"][0]["message"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            bob_revoke_msg.contains("service account API key not found"),
+            "an unauthorized revoke should report not found: {bob_revoke}"
+        );
+        assert!(
+            !bob_revoke_msg.contains("aliceCo/ci-deploy-bot"),
+            "an unauthorized revoke must not leak the owning catalog name: {bob_revoke}"
+        );
+
         // === A bad secret is rejected statefully ===
         // generate_access_token checks the secret before signing, so this 401s
         // deterministically even without the signing setup. Build a bearer form
@@ -1916,7 +1981,7 @@ mod test {
 
     /// The management gates accept the fine-grained capabilities the feature
     /// defines, not only the full `Admin` bundle: a caller holding `TeamAdmin`
-    /// (which confers `ManageServiceAccount` + `CreateGrant`) but NOT `Admin`
+    /// (which confers `ManageServiceAccounts` + `CreateGrant`) but NOT `Admin`
     /// can manage service accounts, while the per-grant `CreateGrant` check
     /// still bounds how far they can extend an account's reach.
     #[sqlx::test(
@@ -1928,7 +1993,7 @@ mod test {
 
         // Carol holds the TeamAdmin bundle on aliceCo/ and nothing else: her
         // grant carries no legacy capability ('none'), so her bits come solely
-        // from the bundle — ManageServiceAccount and CreateGrant, but none of
+        // from the bundle — ManageServiceAccounts and CreateGrant, but none of
         // the wider Admin-bundle bits. This is the caller class the gates were
         // narrowed to admit. Seeded before the snapshot so authorization
         // observes it.
@@ -1955,7 +2020,7 @@ mod test {
 
         let carol_token = server.make_access_token(carol_uid, Some("carol@example.test"));
 
-        // Create succeeds: the anchor gate accepts ManageServiceAccount, and
+        // Create succeeds: the anchor gate accepts ManageServiceAccounts, and
         // the per-grant gate accepts CreateGrant on aliceCo/data/ (covered by
         // Carol's aliceCo/ bundle) — all without her holding full Admin.
         let create: serde_json::Value = server
