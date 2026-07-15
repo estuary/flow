@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT internal.wake_tenant_controller($1::TEXT) WHERE EXISTS (SELECT 1 FROM tenants WHERE tenant = $1::TEXT)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "wake_tenant_controller",
+        "type_info": "Void"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e71b87a0bf525b6f5c26165ccdee37a7808c7b0532a955fe25636dcb105c2d4f"
+}
