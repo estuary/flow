@@ -20,48 +20,31 @@ Before installing the skills, make sure you have:
 
 ## What's included
 
-The skills are grouped into three plugins: captures, materializations, and operations.
+Skills are grouped into plugins by workflow area, including operations, captures, derivations, materializations, and schema.
 
-### Captures (sources)
-
-Capture data from databases, APIs, and webhooks into Estuary collections. The generic skill can configure any connector in the [Estuary connector catalog](https://estuary.dev/integrations/).
-
-| Skill | Description |
-|-------|-------------|
-| `capture-postgres-create` | PostgreSQL CDC (vanilla, RDS, Aurora, Cloud SQL, Supabase, Neon) |
-| `capture-mysql-create` | MySQL CDC via binlog replication (RDS, Aurora, Cloud SQL, Azure) |
-| `capture-mongodb-create` | MongoDB CDC (Atlas, DocumentDB, self-hosted) |
-| `capture-sqlserver-create` | SQL Server CDC (RDS, Azure SQL, Cloud SQL) |
-| `capture-http-ingest-create` | HTTP webhook capture (GitHub, Shopify, Stripe, or any JSON source) |
-| `capture-generic-create` | Any of 150+ source connectors via dynamic schema discovery |
-
-### Materializations (destinations)
-
-Stream Estuary collections into downstream databases and warehouses.
-
-| Skill | Description |
-|-------|-------------|
-| `materialize-postgres-create` | PostgreSQL destination |
-| `materialize-snowflake-create` | Snowflake destination (JWT auth) |
-| `materialize-bigquery-create` | BigQuery destination (GCS staging) |
-| `materialize-redshift-create` | Amazon Redshift destination (S3 staging) |
-| `materialize-databricks-create` | Databricks destination (Unity Catalog) |
-| `materialize-generic-create` | Any destination connector via dynamic schema discovery |
+:::info
+New skills are added to `agent-skills` over time, so the summaries below may not be exhaustive. For the current list, browse the [`estuary/agent-skills`](https://github.com/estuary/agent-skills) repository, or run `/plugin` in Claude Code and open the **Discover** tab.
+:::
 
 ### Operations
 
-Manage and troubleshoot running pipelines.
+Manage and troubleshoot running pipelines: check task health, review logs, inspect data volume and throughput, look at publication history, restart connectors, and diagnose SSH tunnel issues. Install this one first — it's useful on every task, regardless of source or destination.
 
-| Skill | Description |
-|-------|-------------|
-| `estuary-flowctl-setup` | Install, authenticate, and update the `flowctl` CLI |
-| `estuary-task-health` | End-to-end health check for a task: status, data flow, errors, and history |
-| `estuary-catalog-status` | Check the control-plane status of a task with `flowctl catalog status` |
-| `estuary-task-stats` | Inspect data volume, document counts, and hourly throughput for a task |
-| `estuary-catalog-history` | Review publication history and recent spec changes |
-| `estuary-logs` | Search and analyze task logs with `jq` filtering |
-| `estuary-connector-restart` | Pause and restart connectors via shard management |
-| `estuary-ssh-tunnels` | Diagnose and fix SSH tunnel connection issues |
+### Captures (sources)
+
+Capture data from databases, APIs, and webhooks into Estuary collections. Dedicated skills cover Postgres, MySQL, MongoDB, and SQL Server CDC, plus HTTP webhook ingestion. A generic skill configures any of the 150+ [source connectors](https://estuary.dev/integrations/) via dynamic schema discovery.
+
+### Derivations (transformations)
+
+Transform, aggregate, and reshape collections in streaming SQL, TypeScript, or Python: filtering and field selection, aggregations like running totals and min/max, joins across collections, array flattening, stateful logic such as balances or approval workflows, and time-based windowing.
+
+### Materializations (destinations)
+
+Stream Estuary collections into downstream databases and warehouses. Dedicated skills cover Postgres, Snowflake, BigQuery, Redshift, and Databricks. A generic skill handles any other destination connector.
+
+### Schema
+
+Shape collection and materialization schemas after the fact: rename or remap fields, control which fields materialize, override column types, redact or hash sensitive fields, set defaults for missing values, and add fields pruned by the schema complexity limit.
 
 ## Installation
 
@@ -83,9 +66,11 @@ Claude Code includes a plugin marketplace. Add the Estuary marketplace:
 Then install the plugins you want:
 
 ```bash
-/plugin install estuary-captures@estuary
-/plugin install estuary-materializations@estuary
 /plugin install estuary-operations@estuary
+/plugin install estuary-captures@estuary
+/plugin install estuary-derivations@estuary
+/plugin install estuary-materializations@estuary
+/plugin install estuary-schema@estuary
 ```
 
 You can also run `/plugin` and browse skills from the **Discover** tab. Installed skills update automatically when the marketplace refreshes.
