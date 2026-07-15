@@ -90,7 +90,7 @@ pub struct Get {
     #[clap(long)]
     table: String,
     /// Optional query parameters.
-    #[clap(long, value_parser = parse_key_val::<String, String>, number_of_values = 1)]
+    #[clap(short = 'q', long, value_parser = parse_key_val::<String, String>, number_of_values = 1)]
     query: Vec<(String, String)>,
 }
 
