@@ -16,17 +16,6 @@
 
 use std::sync::Arc;
 
-/// Webhook signing secret for local development and tests only. Generated once
-/// and committed so the value is stable and reusable across the test suite and
-/// the local stack.
-///
-/// This is NOT a production secret — it is world-readable in the source tree.
-/// Production must set `STRIPE_WEBHOOK_SECRET` explicitly; when it is unset the
-/// handler fails closed rather than fall back to this value (see
-/// `crate::App::stripe_webhook_secret`).
-pub const DEV_WEBHOOK_SECRET: &str =
-    "whsec_0c1ef79638919be66761253b6f15896fa30ddd38fcff54c85b66de122ae36933";
-
 /// Handle a Stripe webhook delivery: verify the signature, then wake the tenant
 /// controller on `setup_intent.succeeded`. Returns `200` for both handled and
 /// intentionally-ignored events (so Stripe stops retrying), and `400` when the
@@ -92,7 +81,9 @@ async fn handle_event(app: &crate::App, event: stripe::Event) -> Result<(), crat
         return Ok(());
     };
 
-    wake_tenant_controller(&app.pg_pool, tenant).await?;
+    // `wake_tenant_controller` no-ops for an unknown tenant, so a `setup_intent`
+    // whose metadata names a tenant that no longer exists is harmless here.
+    crate::server::wake_tenant_controller(&app.pg_pool, tenant).await?;
     tracing::info!(
         %tenant,
         setup_intent = %setup_intent.id,
@@ -101,21 +92,19 @@ async fn handle_event(app: &crate::App, event: stripe::Event) -> Result<(), crat
     Ok(())
 }
 
-/// Wake the tenant's controller so it reconciles the billing change. Mirrors the
-/// wake performed by the `setBillingPaymentMethod` mutation; the SQL function
-/// lazily creates the controller task on first use.
-async fn wake_tenant_controller(pool: &sqlx::PgPool, tenant: &str) -> Result<(), crate::ApiError> {
-    sqlx::query!("SELECT internal.wake_tenant_controller($1::TEXT)", tenant)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) mod tests {
     use crate::test_server::{self, TestServer};
     use std::collections::HashMap;
+
+    /// Webhook signing secret used by the test suite. `test_server` configures
+    /// the app with this value so tests can sign payloads against a stable,
+    /// committed secret. It is test-only: nothing wires it into the running
+    /// `agent` binary (which requires `STRIPE_WEBHOOK_SECRET` and otherwise fails
+    /// closed — see `crate::App::stripe_webhook_secret`), and it is world-readable
+    /// here, so it must never be treated as a production secret.
+    pub(crate) const DEV_WEBHOOK_SECRET: &str =
+        "whsec_0c1ef79638919be66761253b6f15896fa30ddd38fcff54c85b66de122ae36933";
 
     /// Wrap `object` in an `Event` of the given `type_`, with valid IDs. Stripe's
     /// `EventId`/resource-id types reject the empty-string defaults on
@@ -287,9 +276,13 @@ mod tests {
         let server = start(&pool).await;
 
         // A validly-signed event of a type we don't subscribe to is acked (200)
-        // and does no work. The handler short-circuits on the event type before
-        // inspecting the object, so any valid object suffices here.
-        let unsubscribed = event(stripe::EventType::CustomerUpdated, setup_intent(None));
+        // and does no work. Use a realistic customer.updated payload (a Customer
+        // object), which is what Stripe would actually deliver for this type.
+        let customer = stripe::EventObject::Customer(stripe::Customer {
+            id: "cus_test".parse().unwrap(),
+            ..Default::default()
+        });
+        let unsubscribed = event(stripe::EventType::CustomerUpdated, customer);
         let response = post_signed(&server, &unsubscribed).await;
         assert_eq!(response.status(), 200);
     }
@@ -303,5 +296,28 @@ mod tests {
         // reconcile, so it is acked (200) without touching the database.
         let response = post_signed(&server, &setup_intent_succeeded(None)).await;
         assert_eq!(response.status(), 200);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn unknown_tenant_does_not_create_controller(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let server = start(&pool).await;
+
+        // A validly-signed event naming a well-formed tenant that does not exist
+        // is acked (200) but must NOT create an orphan controller task: the wake
+        // is gated on the tenant existing. TENANT_CONTROLLER is task_type 12.
+        let response = post_signed(&server, &setup_intent_succeeded(Some("ghosttenant/"))).await;
+        assert_eq!(response.status(), 200);
+
+        let controller_tasks: i64 = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM internal.tasks WHERE task_type = 12",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            controller_tasks, 0,
+            "no controller task should be created for an unknown tenant"
+        );
     }
 }

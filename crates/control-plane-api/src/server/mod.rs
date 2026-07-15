@@ -69,6 +69,30 @@ impl App {
     }
 }
 
+/// Wake a tenant's controller so it reconciles billing / tenant changes. The
+/// underlying SQL function lazily creates the controller task on first use.
+///
+/// Shared by the billing GraphQL mutations and the Stripe webhook handler. The
+/// wake is gated on the tenant actually existing: the `WHERE EXISTS` keeps the
+/// volatile `wake_tenant_controller` function from being evaluated for an
+/// unknown tenant, which would otherwise create an orphan controller task (and
+/// would fault on the `catalog_tenant` cast for a malformed name). Callers that
+/// receive the tenant from an untrusted source (e.g. Stripe-provided metadata)
+/// rely on this guard, so a no-op for an unknown tenant is expected and fine.
+pub(crate) async fn wake_tenant_controller(
+    pool: &sqlx::PgPool,
+    tenant: &str,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "SELECT internal.wake_tenant_controller($1::TEXT) \
+         WHERE EXISTS (SELECT 1 FROM tenants WHERE tenant = $1::TEXT)",
+        tenant,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Evaluate whether the user identified by `claims` is authorized to access all
 /// of the enumerated `prefixes_or_names` with at least `min_capability`.
 /// Return a policy_result shape which fits Envelope::authorization_outcome.

@@ -121,7 +121,7 @@ impl TestServer {
             pg_pool.clone(),
             publisher,
             snapshot,
-            Some(crate::server::public::stripe_webhooks::DEV_WEBHOOK_SECRET.to_string()),
+            Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();
 
