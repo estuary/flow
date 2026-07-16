@@ -76,7 +76,7 @@ Available threshold configurations include:
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `dataMovementStalled.condition.stalledFor` | Timeframe where no new data has been received |  |
+| `dataMovementStalled.condition.stalledFor` | Timeframe where no new data has been received | `12h` |
 | `shardFailed.condition.failures` | Failures in the last configured length of time | `3` |
 | `shardFailed.condition.per` | Timeframe for task failures | `8h` |
 | `taskChronicallyFailing.condition.failingFor` | Timeframe a task has been repeatedly failing | `30d` |
