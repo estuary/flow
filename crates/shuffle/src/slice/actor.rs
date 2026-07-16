@@ -481,7 +481,7 @@ impl SliceActor {
     ) -> anyhow::Result<()> {
         let read_state = &mut self.reads[read.id() as usize];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
-        let journal = read.fragment().journal.clone();
+        let journal = read_state.journal.to_string();
 
         let Some(result) = result else {
             service_kit::event!(
