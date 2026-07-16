@@ -1,5 +1,6 @@
 use super::logs;
 use crate::Snapshot;
+use crate::server::public::graphql::authorized_prefixes::authorized_prefixes;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use rand::Rng;
@@ -404,6 +405,20 @@ impl Publisher {
                 retry_count,
             });
         }
+        let snapshot = self.snapshot.token();
+        let snapshot = snapshot.result().unwrap();
+
+        let prefixes_and_capabilities: std::collections::BTreeMap<
+            &str,
+            (
+                enumset::EnumSet<models::authz::Capability>,
+                models::Capability,
+            ),
+        > = tables::UserGrant::reachable_prefixes(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            user_id,
+        );
 
         let live_catalog = specs::resolve_live_specs(
             user_id,

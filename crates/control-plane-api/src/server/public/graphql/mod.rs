@@ -25,7 +25,7 @@ mod alert_configs;
 mod alert_subscriptions;
 mod alert_types;
 mod alerts;
-mod authorized_prefixes;
+pub(crate) mod authorized_prefixes;
 mod billing;
 mod data_planes;
 mod filters;

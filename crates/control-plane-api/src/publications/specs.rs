@@ -663,12 +663,21 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
     names
 }
 
+pub type PrefixesAndCapabilities<'a> = BTreeMap<
+    &'a str,
+    (
+        enumset::EnumSet<models::authz::Capability>,
+        models::Capability,
+    ),
+>;
+
 pub async fn resolve_live_specs(
     user_id: Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
+    user_grants: PrefixesAndCapabilities<'_>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
@@ -695,7 +704,7 @@ pub async fn resolve_live_specs(
         }
     }
 
-    let rows = crate::live_specs::fetch_live_specs(
+    let rows: Vec<crate::live_specs::LiveSpec> = crate::live_specs::fetch_live_specs(
         user_id,
         &all_spec_names,
         verify_user_authz,
