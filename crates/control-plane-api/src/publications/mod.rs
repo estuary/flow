@@ -1,14 +1,12 @@
-use std::sync::Arc;
-use std::u32;
-
-use crate::Snapshot;
-
 use super::logs;
+use crate::Snapshot;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use rand::Rng;
 use sqlx::Executor;
 use sqlx::types::Uuid;
+use std::sync::Arc;
+use std::u32;
 use tables::BuiltRow;
 
 pub mod builds;
@@ -144,8 +142,8 @@ impl PublicationResult {
 }
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
-
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct Publisher {
     flowctl_go: std::path::PathBuf,
     builds_root: url::Url,
@@ -407,31 +405,12 @@ impl Publisher {
             });
         }
 
-        // Authorize the draft's live-spec dependencies against the in-memory grant
-        // snapshot, then resolve the remaining catalog state (live specs, storage
-        // mappings, data-planes, and inferred schemas) needed for the build.
-        let snapshot = self.snapshot.token();
-        let snapshot = snapshot
-            .result()
-            .map_err(|status| anyhow::anyhow!("authorization snapshot is unavailable: {status}"))?;
-
-        let rows = specs::fetch_live_specs_for_draft(user_id, &draft, &self.db).await?;
-
-        // Authorization is a pure function of the fetched rows and the grant
-        // snapshot. The DB IO (the fetch above and `populate_live_catalog` below)
-        // is kept here so that `authorize_draft_specs` stays unit-testable against
-        // a `Snapshot` fixture.
-        let (mut live_catalog, unauthorized) =
-            specs::authorize_draft_specs(user_id, &draft, &rows, verify_user_authz, snapshot);
-
-        specs::populate_live_catalog(
+        let live_catalog = specs::resolve_live_specs(
             user_id,
             &draft,
-            rows,
-            &unauthorized,
-            explicit_plane_name,
-            &mut live_catalog,
             &self.db,
+            verify_user_authz,
+            explicit_plane_name,
         )
         .await?;
 
