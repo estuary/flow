@@ -39,10 +39,38 @@ flowctl binaries for MacOS and Linux are available. For Windows, [install Window
 
    You can also find the source files on GitHub [here](https://go.estuary.dev/flowctl).
 
-2. Some flowctl commands, such as `flowctl generate`, require a Docker daemon to be running.
-   Make sure you have [Docker](https://www.docker.com/) installed to use these commands.
+2. Some flowctl commands run connectors on your machine and require a container runtime such as [Docker](https://www.docker.com/) to be running.
+   See [Docker requirements](#docker-requirements) below for which commands need it.
 
 3. To connect to your Estuary account and start a session, [use an authentication token](/reference/authentication/#authenticating-estuary-using-the-cli) from the web app.
+
+## Docker requirements
+
+flowctl needs a running Docker daemon whenever a command must run a connector image on your machine.
+Whether that happens depends on both the command and the type of entity you're working with:
+
+* **SQLite derivations** run in-process within flowctl itself, so they never require Docker.
+* **TypeScript and Python derivations** run as connector images, so any command that executes or validates them locally requires Docker.
+* **Captures and materializations** are connector images as well, but most commands validate them on the control plane rather than locally.
+
+| Command | SQLite derivation | TypeScript / Python derivation | Capture / Materialization |
+| --- | --- | --- | --- |
+| `flowctl preview` | No | Yes | Yes |
+| `flowctl catalog test` | No | Yes | No¹ |
+| `flowctl catalog publish` | No | Yes² | No¹ |
+| `flowctl generate` | No | Yes | Only to generate a missing endpoint configuration stub |
+
+¹ Capture and materialization connectors are not validated locally; the control plane validates them as part of the (dry-run) publication.
+
+² Publishing validates derivation connectors locally before submitting to the control plane, so a TypeScript or Python derivation requires Docker even though execution happens in the data plane.
+
+:::info
+If a `flowctl preview` or `flowctl catalog test` of a TypeScript or Python derivation hangs or times out,
+check that your Docker daemon is running — a stopped daemon is the most common cause.
+:::
+
+Podman is also supported: set the `DOCKER_CLI` environment variable to `podman`.
+There is no CLI flag for this; only the environment variable is read.
 
 ## User guides
 
@@ -345,6 +373,8 @@ If you're developing locally with `flowctl`, watch out for these errors:
 * `Failed to locate sops`: sops may not be installed correctly. See these [installation instructions](https://github.com/getsops/sops/releases) and ensure sops is on your PATH. For details on working with sops, see [Protecting secrets](#protecting-secrets) above.
 
 * `Decrypting sops document failed`: ensure you have correctly applied a KMS key using sops to your configuration file. See above for [examples](#example-protect-a-configuration). Note that you will not be able to decrypt credentials entered via Estuary's web app.
+
+* `flowctl preview` or `flowctl catalog test` hangs or times out on a TypeScript or Python derivation: check that your Docker daemon is running. These derivations execute as connector images, unlike SQLite derivations. See [Docker requirements](#docker-requirements) above.
 
 Since updates are released regularly, make sure you're using the latest version of `flowctl`. You can see the latest versions and changelogs on the [Flow releases](https://github.com/estuary/flow/releases) page.
 
