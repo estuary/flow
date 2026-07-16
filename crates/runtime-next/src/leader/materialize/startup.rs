@@ -307,6 +307,16 @@ fn reconcile_recovered(
     // checkpoint is a complete `committed_frontier`, so there's nothing to replay.
     let mut committed_frontier_rebuilt = false;
 
+    // Set when a remote-authoritative connector confirms the recovered
+    // `hinted_close` transaction did in fact commit, so we advance `committed_close`
+    // and fold the hinted Frontier into committed. Unlike a rebuild this ALSO
+    // changes `committed_close`, so the cleanup Persist must write
+    // `committed_close_clock` (not just the Frontier). Otherwise the promotion stays
+    // in memory only and RocksDB keeps its stale `committed_close`; a later crash
+    // then strands persisted state matching neither the connector's authoritative
+    // checkpoint nor the recovered hint, and the next startup `bail!`s — see #3176.
+    let mut committed_close_promoted = false;
+
     // Handle migration from `legacy_checkpoint`.
     let legacy_checkpoint_present = legacy_checkpoint.is_some();
     if let Some(legacy_checkpoint) = legacy_checkpoint {
@@ -374,6 +384,7 @@ fn reconcile_recovered(
             );
             committed_close = hinted_close;
             committed_frontier = committed_frontier.reduce(std::mem::take(&mut hinted_frontier));
+            committed_close_promoted = true;
 
             pending_ack_intents = connector_checkpoint.ack_intents;
         } else if let Some(clock) = clock {
@@ -410,24 +421,39 @@ fn reconcile_recovered(
     }
 
     // Reconcile RocksDB now that the final status of the recovered V1 and
-    // connector checkpoints is known. If `committed_frontier_rebuilt`, then
-    // `committed_frontier` is not natively represented in RocksDB and must be
-    // persisted (clearing stale state). This establishes a baseline for future
-    // recoveries. Go-forward commits are deltas that apply atop this base.
+    // connector checkpoints is known. `committed_frontier` must be re-persisted
+    // whenever it's no longer the value natively in RocksDB: either a rebuild from
+    // an authoritative checkpoint (`committed_frontier_rebuilt`) or a hinted-txn
+    // promotion that folded the hinted Frontier into committed
+    // (`committed_close_promoted`). Both also clear the recovered hinted Frontier —
+    // a rebuild discards it (see `committed_frontier_rebuilt`), a promotion consumed
+    // it into committed. This establishes a baseline for future recoveries;
+    // go-forward commits are deltas that apply atop this base.
+    //
+    // A promotion additionally advances `committed_close`, so its Persist must carry
+    // `committed_close_clock`. A bare rebuild leaves `committed_close` as recovered
+    // and writes 0 (encode_persist's "unchanged" sentinel).
+    let rewrite_committed_frontier = committed_frontier_rebuilt || committed_close_promoted;
     let delete_legacy_checkpoint = drop_v1_rollback && legacy_checkpoint_present;
-    let cleanup_persist = (committed_frontier_rebuilt || delete_legacy_checkpoint).then(|| {
+    let cleanup_persist = (rewrite_committed_frontier || delete_legacy_checkpoint).then(|| {
         service_kit::event!(
             tracing::Level::INFO,
             "leader",
             committed_frontier_rebuilt,
+            committed_close_promoted,
             delete_legacy_checkpoint,
             "reconciling recovered checkpoint state",
         );
         proto::Persist {
             seq_no: 0,
-            delete_committed_frontier: committed_frontier_rebuilt,
-            delete_hinted_frontier: committed_frontier_rebuilt,
-            committed_frontier: committed_frontier_rebuilt
+            committed_close_clock: if committed_close_promoted {
+                committed_close.as_u64()
+            } else {
+                0
+            },
+            delete_committed_frontier: rewrite_committed_frontier,
+            delete_hinted_frontier: rewrite_committed_frontier,
+            committed_frontier: rewrite_committed_frontier
                 .then(|| shuffle::JournalFrontier::encode(&committed_frontier.journals)),
             delete_legacy_checkpoint,
             ..Default::default()
@@ -1180,6 +1206,8 @@ mod tests {
         assert!(p.delete_hinted_frontier);
         assert!(p.committed_frontier.is_some());
         assert!(p.delete_legacy_checkpoint);
+        // A rebuild leaves committed_close as recovered (0 == unchanged sentinel).
+        assert_eq!(p.committed_close_clock, 0);
         // ACK intents adopted from the authoritative checkpoint.
         assert!(r.pending_ack_intents.contains_key("ack/j"));
     }
@@ -1224,8 +1252,10 @@ mod tests {
     }
 
     /// A remote-authoritative connector confirming the hinted txn committed folds
-    /// the hinted frontier into committed and advances committed_close — no rebuild,
-    /// no cleanup.
+    /// the hinted frontier into committed, advances committed_close, and durably
+    /// reconciles that promotion to RocksDB (regression for the two-crash wedge in
+    /// issue #3176): the cleanup Persist carries the promoted committed_close_clock
+    /// and the folded committed Frontier, and clears the consumed hinted Frontier.
     #[test]
     fn reconcile_connector_hinted_close_folds_delta() {
         let index = [("s-a", 0usize)];
@@ -1255,7 +1285,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(r.committed_close, clk(200));
-        assert!(r.cleanup_persist.is_none());
         // Hinted folded into committed: 0xbb at the further offset, last_commit=200.
         let p0 = &r.committed_frontier.journals[0].producers[0];
         assert_eq!(p0.offset, -800);
@@ -1263,6 +1292,21 @@ mod tests {
         assert_eq!(r.resume_frontier.unresolved_hints, 0);
         assert!(!r.idempotent_replay);
         assert!(r.pending_ack_intents.contains_key("ack/c"));
+
+        // The in-memory promotion MUST be durably reconciled: the cleanup Persist
+        // advances RocksDB `committed_close` to the promoted clock and rewrites the
+        // folded committed Frontier while clearing the consumed hinted Frontier.
+        // Without this, a hint-Persist + crash before the connector's next commit
+        // strands RocksDB at a `committed_close` (the stale one) matching neither
+        // the connector's checkpoint nor the new hint, wedging startup.
+        let p = r
+            .cleanup_persist
+            .expect("promotion must persist committed_close");
+        assert_eq!(p.committed_close_clock, clk(200).as_u64());
+        assert!(p.delete_committed_frontier);
+        assert!(p.delete_hinted_frontier);
+        assert!(p.committed_frontier.is_some());
+        assert!(!p.delete_legacy_checkpoint);
     }
 
     /// Dropping V1 rollback capability when the legacy checkpoint is in sync (not
@@ -1308,6 +1352,8 @@ mod tests {
         assert!(!p.delete_committed_frontier);
         assert!(!p.delete_hinted_frontier);
         assert!(p.committed_frontier.is_none());
+        // committed_close is untouched: only the legacy checkpoint is dropped.
+        assert_eq!(p.committed_close_clock, 0);
     }
 
     /// The same fix on the connector-authoritative rebuild branch (no legacy
@@ -1356,6 +1402,8 @@ mod tests {
         assert!(p.delete_hinted_frontier);
         assert!(p.committed_frontier.is_some());
         assert!(!p.delete_legacy_checkpoint);
+        // A rebuild leaves committed_close as recovered (0 == unchanged sentinel).
+        assert_eq!(p.committed_close_clock, 0);
         assert!(r.pending_ack_intents.contains_key("ack/j"));
     }
 }
