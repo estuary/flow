@@ -19,9 +19,7 @@ use std::sync::Arc;
 /// Handle a Stripe webhook delivery: verify the signature, then wake the tenant
 /// controller on `setup_intent.succeeded`. Returns `200` for both handled and
 /// intentionally-ignored events (so Stripe stops retrying), and `400` when the
-/// signature does not verify, with the exception of if the event doesn't parse
-/// it could mean that they updated an event so in that case we also return a
-/// 200 and ignore the event.
+/// signature does not verify, we return 503 for DB related errors so stripe does retry.
 pub async fn handle_post_stripe_webhook(
     axum::extract::State(app): axum::extract::State<Arc<crate::App>>,
     headers: axum::http::HeaderMap,
