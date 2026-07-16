@@ -4,6 +4,7 @@ use std::sync::Arc;
 pub mod graphql;
 mod open_metrics;
 pub mod status;
+pub mod stripe_webhooks;
 pub mod token_exchange;
 
 /// Creates a router for the public API that can be merged into an existing router.
@@ -67,6 +68,13 @@ pub(crate) fn api_v1_router(
             axum::routing::post(graphql::graphql_handler),
         )
         .route("/graphiql", axum::routing::get(graphql::graphql_graphiql))
+        // Stripe webhook receiver. Registered as a plain route (not `.api_route`)
+        // because it isn't part of our documented public API and authenticates
+        // via a signed raw body rather than the usual JWT/JSON convention.
+        .route(
+            "/api/v1/stripe/webhook",
+            axum::routing::post(stripe_webhooks::handle_post_stripe_webhook),
+        )
         // The openapi json is itself documented as an API route
         .api_route("/api/v1/openapi.json", aide::axum::routing::get(serve_docs))
         // The docs UI is not documented as an API route

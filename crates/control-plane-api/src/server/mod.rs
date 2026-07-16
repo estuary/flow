@@ -40,6 +40,10 @@ pub struct App {
     pub pg_pool: sqlx::PgPool,
     pub publisher: crate::publications::Publisher,
     pub snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+    /// Signing secret for verifying inbound Stripe webhook deliveries. `None`
+    /// when unconfigured, in which case the webhook endpoint fails closed rather
+    /// than trusting any request. See `server::public::stripe_webhooks`.
+    pub stripe_webhook_secret: Option<String>,
 }
 
 impl App {
@@ -50,6 +54,7 @@ impl App {
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        stripe_webhook_secret: Option<String>,
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
@@ -59,8 +64,33 @@ impl App {
             pg_pool,
             publisher,
             snapshot,
+            stripe_webhook_secret,
         }
     }
+}
+
+/// Wake a tenant's controller so it reconciles billing / tenant changes. The
+/// underlying SQL function lazily creates the controller task on first use.
+///
+/// Shared by the billing GraphQL mutations and the Stripe webhook handler. The
+/// wake is gated on the tenant actually existing: the `WHERE EXISTS` keeps the
+/// volatile `wake_tenant_controller` function from being evaluated for an
+/// unknown tenant, which would otherwise create an orphan controller task (and
+/// would fault on the `catalog_tenant` cast for a malformed name). Callers that
+/// receive the tenant from an untrusted source (e.g. Stripe-provided metadata)
+/// rely on this guard, so a no-op for an unknown tenant is expected and fine.
+pub(crate) async fn wake_tenant_controller(
+    pool: &sqlx::PgPool,
+    tenant: &str,
+) -> anyhow::Result<bool> {
+    let res = sqlx::query!(
+        "SELECT internal.wake_tenant_controller($1::TEXT) \
+         WHERE EXISTS (SELECT 1 FROM tenants WHERE tenant = $1::TEXT)",
+        tenant,
+    )
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected() > 0u64)
 }
 
 /// Evaluate whether the user identified by `claims` is authorized to access all

@@ -81,8 +81,11 @@ zeroize = { workspace = true }
 assemble = { path = "../assemble" }
 flow-client-next = { path = "../flow-client-next" }
 
+hex = { workspace = true }
+hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }
+sha2 = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
 

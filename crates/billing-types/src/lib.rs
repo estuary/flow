@@ -71,6 +71,17 @@ pub fn customer_search_query(tenant: &str) -> String {
     format!(r#"metadata["{TENANT_METADATA_KEY}"]:"{tenant}""#)
 }
 
+/// Build the Stripe metadata map that stamps a tenant onto a tenant-scoped
+/// object — the SetupIntent created for `setBillingPaymentMethod`, and the base
+/// map for a tenant's Customer. The `setup_intent.succeeded` webhook recovers
+/// the tenant from exactly this map. Centralizing construction here keeps
+/// `TENANT_METADATA_KEY` in one place and gives us a single spot to add further
+/// tenant-scoped metadata fields later; callers needing extra keys start from
+/// this map and `insert` onto it.
+pub fn tenant_metadata(tenant: &str) -> HashMap<String, String> {
+    HashMap::from([(TENANT_METADATA_KEY.to_string(), tenant.to_string())])
+}
+
 /// Deterministic Stripe Idempotency-Key for `Customer::create` calls. Using the
 /// tenant name collapses concurrent or retried creations across processes within
 /// Stripe's 24-hour idempotency window, so a search-index lag race can't produce
@@ -182,6 +193,17 @@ pub enum PaymentProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tenant_metadata_carries_tenant() {
+        assert_eq!(
+            tenant_metadata("acme/widgets"),
+            HashMap::from([(
+                "estuary.dev/tenant_name".to_string(),
+                "acme/widgets".to_string()
+            )])
+        );
+    }
 
     #[test]
     fn customer_query_format() {
