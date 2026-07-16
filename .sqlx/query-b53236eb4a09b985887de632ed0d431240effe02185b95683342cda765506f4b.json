@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH new_token AS (\n                SELECT gen_random_uuid()::text AS secret\n            )\n            INSERT INTO public.refresh_tokens\n                (user_id, multi_use, valid_for, hash, detail, created_by)\n            SELECT\n                $1,\n                true,\n                v.valid_for,\n                crypt(nt.secret, gen_salt('bf')),\n                $3,\n                $4\n            FROM new_token nt, (SELECT $2::text::interval AS valid_for) v\n            WHERE v.valid_for > interval '0' AND v.valid_for <= interval '366 days'\n            RETURNING\n                id AS \"id!: models::Id\",\n                (SELECT secret FROM new_token) AS \"secret!: String\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "secret!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "b53236eb4a09b985887de632ed0d431240effe02185b95683342cda765506f4b"
+}

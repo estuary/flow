@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    select users.email as email\n                    from user_grants\n                    join auth.users as users on user_grants.user_id = users.id\n                    where users.email is not null and user_grants.object_role = $1\n                    and user_grants.capability = 'admin'\n                    -- Exclude service accounts: their synthetic addresses must\n                    -- never be chosen as a tenant's Stripe billing contact.\n                    and not exists (\n                      select 1 from internal.service_accounts sa where sa.user_id = users.id\n                    )\n                    order by users.created_at asc\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "a050d16b44c646e4f3aeea6e11345b702e3cdd8438c28c362b65a75e0adf6d0e"
+}

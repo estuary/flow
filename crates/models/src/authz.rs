@@ -31,6 +31,10 @@ pub enum Capability {
     ViewBilling,
     // `EditBilling` permits mutating a tenant's billing contact
     EditBilling,
+    QueryServiceAccounts,
+    CreateServiceAccount,
+    CreateApiKey,
+    RevokeApiKey,
     Delegate,
     Assume,
 }
@@ -55,6 +59,7 @@ pub enum CapabilityBundle {
     Admin,
     Billing,
     TeamAdmin,
+    ManageServiceAccounts,
     ManageDataPlane,
     Delegate,
     Assume,
@@ -113,7 +118,15 @@ impl CapabilityBundle {
                     | Self::ManageDataPlane.capabilities()
             }
             Self::Billing => ViewBilling | EditBilling,
-            Self::TeamAdmin => CreateGrant | DeleteGrant | CreateInviteLink,
+            Self::ManageServiceAccounts => {
+                QueryServiceAccounts | CreateServiceAccount | CreateApiKey | RevokeApiKey
+            }
+            Self::TeamAdmin => {
+                CreateGrant
+                    | DeleteGrant
+                    | CreateInviteLink
+                    | Self::ManageServiceAccounts.capabilities()
+            }
             Self::ManageDataPlane => {
                 ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking
             }

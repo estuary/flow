@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO internal.service_accounts (user_id, catalog_name, created_by)\n            VALUES ($1, $2::text::catalog_name, $3)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "98b945899f3acebf8253f917c9b3ca6c93f9b01e44608bb0bc6b72379e04152b"
+}

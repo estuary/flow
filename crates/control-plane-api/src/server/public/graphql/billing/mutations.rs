@@ -82,7 +82,9 @@ impl BillingMutation {
             .client_secret
             .context("stripe setup intent response was missing client_secret")?;
 
-        Ok(CreateBillingSetupIntentPayload { client_secret })
+        Ok(CreateBillingSetupIntentPayload {
+            client_secret: super::super::Sensitive::new(client_secret),
+        })
     }
 
     async fn set_billing_payment_method(
@@ -227,7 +229,7 @@ async fn wake_tenant_controller(pool: &sqlx::PgPool, tenant_name: &str) -> anyho
 
 #[derive(Debug, Clone, SimpleObject)]
 pub struct CreateBillingSetupIntentPayload {
-    client_secret: String,
+    client_secret: super::super::Sensitive,
 }
 
 #[derive(Debug, Clone, SimpleObject)]
