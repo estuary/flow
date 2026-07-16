@@ -48,18 +48,19 @@ pub async fn handle_post_stripe_webhook(
         .map_err(|_| tonic::Status::invalid_argument("webhook body was not valid UTF-8"))?;
 
     let event = match stripe::Webhook::construct_event(payload, signature, secret) {
+        Ok(event) => event,
+        Err(stripe::WebhookError::BadParse(err)) => {
+            // The signature verified; the payload doesn't fit async-stripe's schema.
+            tracing::error!(?err, "failed to parse a validly-signed Stripe event");
+            return Ok(axum::http::StatusCode::OK);
+        }
         Err(err) => {
-            tracing::debug!(?err, "rejected Stripe webhook with an invalid signature");
-            match err {
-                WebhookError::BadParse(inner) => {
-                    tracing::error!(?inner, "Failed to parse stripe event");
-                    return Ok(axum::http::StatusCode::OK);
-                }
-                _ => (),
-            }
+            tracing::warn!(
+                ?err,
+                "rejected Stripe webhook that failed signature verification"
+            );
             return Err(tonic::Status::invalid_argument("invalid webhook signature").into());
         }
-        Ok(value) => value,
     };
 
     handle_event(&app, event).await?;
@@ -95,11 +96,11 @@ async fn handle_event(app: &crate::App, event: stripe::Event) -> Result<(), crat
     // `wake_tenant_controller` no-ops for an unknown tenant, so a `setup_intent`
     // whose metadata names a tenant that no longer exists is harmless here.
     match crate::server::wake_tenant_controller(&app.pg_pool, tenant).await {
-        Ok(made_wait_for_controller) => {
-            if !made_wait_for_controller {
+        Ok(woke_a_tenant) => {
+            if !woke_a_tenant {
                 tracing::warn!(
-                    ?tenant,
-                    "Failed to wake tenant controller, tenant not found"
+                    %tenant,
+                    "ignoring setup_intent.succeeded for unknown tenant"
                 );
                 return Ok(());
             }
@@ -111,7 +112,7 @@ async fn handle_event(app: &crate::App, event: stripe::Event) -> Result<(), crat
         Err(err) => {
             tracing::warn!(
                 ?err,
-                "Received an error message while trying to wait tenant controller"
+                "failed to wake tenant controller; returning 503 so Stripe retries"
             );
             return Err(tonic::Status::unavailable("unavailable, please retry").into());
         }
