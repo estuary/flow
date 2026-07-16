@@ -16,8 +16,6 @@
 
 use std::sync::Arc;
 
-use stripe::WebhookError;
-
 /// Handle a Stripe webhook delivery: verify the signature, then wake the tenant
 /// controller on `setup_intent.succeeded`. Returns `200` for both handled and
 /// intentionally-ignored events (so Stripe stops retrying), and `400` when the
