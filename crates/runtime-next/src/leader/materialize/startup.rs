@@ -317,6 +317,20 @@ fn reconcile_recovered(
     // checkpoint nor the recovered hint, and the next startup `bail!`s — see #3176.
     let mut committed_close_promoted = false;
 
+    // Set when an authoritative checkpoint (legacy V1, connector rebuild, or
+    // connector promotion) replaces `pending_ack_intents`. The cleanup Persist must
+    // then durably swap RocksDB's ACK intents to match (`delete_ack_intents` + the
+    // new set); otherwise a crash before the first go-forward commit re-recovers the
+    // stale ACK intents and the checkpoint's transaction is never acknowledged.
+    let mut ack_intents_replaced = false;
+
+    // A promotion that advances `committed_close` past a maintained V1-rollback
+    // legacy checkpoint leaves that checkpoint embedding the old close, which the
+    // next recovery would `bail!` on (legacy-close mismatch). Set to the connector's
+    // authoritative checkpoint — which, in legacy mode, IS the full checkpoint at the
+    // promoted close — so the cleanup Persist re-persists a consistent legacy image.
+    let mut reconciled_legacy_checkpoint: Option<consumer::Checkpoint> = None;
+
     // Handle migration from `legacy_checkpoint`.
     let legacy_checkpoint_present = legacy_checkpoint.is_some();
     if let Some(legacy_checkpoint) = legacy_checkpoint {
@@ -351,6 +365,7 @@ fn reconcile_recovered(
             committed_frontier_rebuilt = true;
 
             pending_ack_intents = legacy_checkpoint.ack_intents;
+            ack_intents_replaced = true;
         }
     } else {
         service_kit::event!(
@@ -385,7 +400,15 @@ fn reconcile_recovered(
             committed_close = hinted_close;
             committed_frontier = committed_frontier.reduce(std::mem::take(&mut hinted_frontier));
             committed_close_promoted = true;
+            ack_intents_replaced = true;
 
+            // In legacy-rollback mode the connector stores the *full* checkpoint
+            // (frontier + committed-close key + ACK intents), so its checkpoint at
+            // the promoted close IS the legacy checkpoint we must re-persist. Clone
+            // before moving `ack_intents` out below.
+            if legacy_checkpoint_present && !drop_v1_rollback {
+                reconciled_legacy_checkpoint = Some(connector_checkpoint.clone());
+            }
             pending_ack_intents = connector_checkpoint.ack_intents;
         } else if let Some(clock) = clock {
             // Implementation error: these update together and should always sync.
@@ -411,6 +434,7 @@ fn reconcile_recovered(
             committed_frontier_rebuilt = true;
 
             pending_ack_intents = connector_checkpoint.ack_intents;
+            ack_intents_replaced = true;
         }
     } else {
         service_kit::event!(
@@ -420,28 +444,48 @@ fn reconcile_recovered(
         );
     }
 
-    // Reconcile RocksDB now that the final status of the recovered V1 and
-    // connector checkpoints is known. `committed_frontier` must be re-persisted
-    // whenever it's no longer the value natively in RocksDB: either a rebuild from
-    // an authoritative checkpoint (`committed_frontier_rebuilt`) or a hinted-txn
-    // promotion that folded the hinted Frontier into committed
-    // (`committed_close_promoted`). Both also clear the recovered hinted Frontier —
-    // a rebuild discards it (see `committed_frontier_rebuilt`), a promotion consumed
-    // it into committed. This establishes a baseline for future recoveries;
-    // go-forward commits are deltas that apply atop this base.
+    // Reconcile RocksDB now that the final status of the recovered V1 and connector
+    // checkpoints is known. When an authoritative checkpoint (legacy V1, connector
+    // rebuild, or connector promotion) supersedes the recovered state, the cleanup
+    // Persist must write a COMPLETE and self-consistent image of it — mirroring the
+    // key set a normal commit Persist writes. Writing only part of it (e.g. advancing
+    // `committed_close` without the matching ACK intents or legacy checkpoint) leaves
+    // a baseline that, on a crash before the first go-forward commit, either strands
+    // the shard on a `bail!` or silently replays the wrong ACK intents.
     //
-    // A promotion additionally advances `committed_close`, so its Persist must carry
-    // `committed_close_clock`. A bare rebuild leaves `committed_close` as recovered
-    // and writes 0 (encode_persist's "unchanged" sentinel).
+    // - `committed_frontier` is re-persisted whenever it's no longer the value
+    //   natively in RocksDB: a rebuild from an authoritative checkpoint
+    //   (`committed_frontier_rebuilt`) or a promotion that folded the hinted Frontier
+    //   into committed (`committed_close_promoted`). Both also clear the recovered
+    //   hinted Frontier — a rebuild discards it (see `committed_frontier_rebuilt`), a
+    //   promotion consumed it into committed.
+    // - `committed_close_clock` is written only by a promotion (a rebuild leaves
+    //   `committed_close` as recovered, writing 0 — encode_persist's "unchanged"
+    //   sentinel).
+    // - ACK intents are swapped (`delete_ack_intents` + the new set) whenever an
+    //   authoritative checkpoint replaced them.
+    // - the legacy checkpoint is either dropped (`drop_v1_rollback`) or, on a
+    //   promotion that advanced past a maintained legacy checkpoint, re-persisted at
+    //   the promoted close (`reconciled_legacy_checkpoint`).
+    //
+    // This establishes a baseline for future recoveries; go-forward commits are
+    // deltas that apply atop this base.
     let rewrite_committed_frontier = committed_frontier_rebuilt || committed_close_promoted;
     let delete_legacy_checkpoint = drop_v1_rollback && legacy_checkpoint_present;
-    let cleanup_persist = (rewrite_committed_frontier || delete_legacy_checkpoint).then(|| {
+    let write_legacy_checkpoint = reconciled_legacy_checkpoint.is_some();
+    let needs_cleanup = rewrite_committed_frontier
+        || delete_legacy_checkpoint
+        || ack_intents_replaced
+        || write_legacy_checkpoint;
+    let cleanup_persist = needs_cleanup.then(|| {
         service_kit::event!(
             tracing::Level::INFO,
             "leader",
             committed_frontier_rebuilt,
             committed_close_promoted,
+            ack_intents_replaced,
             delete_legacy_checkpoint,
+            write_legacy_checkpoint,
             "reconciling recovered checkpoint state",
         );
         proto::Persist {
@@ -455,7 +499,14 @@ fn reconcile_recovered(
             delete_hinted_frontier: rewrite_committed_frontier,
             committed_frontier: rewrite_committed_frontier
                 .then(|| shuffle::JournalFrontier::encode(&committed_frontier.journals)),
+            delete_ack_intents: ack_intents_replaced,
+            ack_intents: if ack_intents_replaced {
+                pending_ack_intents.clone()
+            } else {
+                Default::default()
+            },
             delete_legacy_checkpoint,
+            legacy_checkpoint: reconciled_legacy_checkpoint,
             ..Default::default()
         }
     });
@@ -1208,8 +1259,10 @@ mod tests {
         assert!(p.delete_legacy_checkpoint);
         // A rebuild leaves committed_close as recovered (0 == unchanged sentinel).
         assert_eq!(p.committed_close_clock, 0);
-        // ACK intents adopted from the authoritative checkpoint.
+        // ACK intents adopted from the authoritative checkpoint, in memory AND on disk.
         assert!(r.pending_ack_intents.contains_key("ack/j"));
+        assert!(p.delete_ack_intents);
+        assert!(p.ack_intents.contains_key("ack/j"));
     }
 
     /// Contrast: with no rebuild, a hinted producer that HAS a committed baseline
@@ -1306,7 +1359,12 @@ mod tests {
         assert!(p.delete_committed_frontier);
         assert!(p.delete_hinted_frontier);
         assert!(p.committed_frontier.is_some());
+        // ACK intents swapped to the connector's authoritative set.
+        assert!(p.delete_ack_intents);
+        assert!(p.ack_intents.contains_key("ack/c"));
+        // No legacy checkpoint was maintained, so none is re-persisted or dropped.
         assert!(!p.delete_legacy_checkpoint);
+        assert!(p.legacy_checkpoint.is_none());
     }
 
     /// Dropping V1 rollback capability when the legacy checkpoint is in sync (not
@@ -1354,6 +1412,10 @@ mod tests {
         assert!(p.committed_frontier.is_none());
         // committed_close is untouched: only the legacy checkpoint is dropped.
         assert_eq!(p.committed_close_clock, 0);
+        // The in-sync legacy checkpoint didn't replace ACK intents, so they're
+        // left exactly as recovered (no delete, no rewrite).
+        assert!(!p.delete_ack_intents);
+        assert!(p.ack_intents.is_empty());
     }
 
     /// The same fix on the connector-authoritative rebuild branch (no legacy
@@ -1405,5 +1467,190 @@ mod tests {
         // A rebuild leaves committed_close as recovered (0 == unchanged sentinel).
         assert_eq!(p.committed_close_clock, 0);
         assert!(r.pending_ack_intents.contains_key("ack/j"));
+        // ACK intents swapped on disk to the authoritative checkpoint's set.
+        assert!(p.delete_ack_intents);
+        assert!(p.ack_intents.contains_key("ack/j"));
+    }
+
+    // ---- follow-up: promotion must persist a COMPLETE H1 image (#3176 review) ----
+
+    fn empty_frontier() -> shuffle::Frontier {
+        shuffle::Frontier::new(vec![], vec![]).unwrap()
+    }
+
+    // Fold a `Persist`'s write effects into an in-memory ordered KV store, exactly
+    // as RocksDB would. (A copy of shard::recovery's private test helper.)
+    fn apply_op(store: &mut Vec<(Bytes, Bytes)>, op: crate::shard::recovery::KeyOp) {
+        use crate::shard::recovery::KeyOp;
+        match op {
+            KeyOp::Put { key, value } => {
+                store.retain(|(k, _)| k != &key);
+                store.push((key, value));
+            }
+            KeyOp::Merge { key, value } => {
+                if let Some(existing) = store.iter_mut().find(|(k, _)| k == &key) {
+                    let mut merged = Vec::with_capacity(existing.1.len() + 1 + value.len());
+                    merged.extend_from_slice(&existing.1);
+                    merged.push(b'\n');
+                    merged.extend_from_slice(&value);
+                    existing.1 = Bytes::from(merged);
+                } else {
+                    store.push((key, value));
+                }
+            }
+            KeyOp::Delete { key } => store.retain(|(k, _)| k != &key),
+            KeyOp::DeleteRange { from, to } => {
+                store.retain(|(k, _)| !(k.as_ref() >= from.as_ref() && k.as_ref() < to.as_ref()))
+            }
+        }
+    }
+
+    fn persist_into_store(store: &mut Vec<(Bytes, Bytes)>, persist: &proto::Persist) {
+        // No frontier bindings are exercised by these tests.
+        let binding_state_keys: &[&str] = &[];
+        crate::shard::recovery::encode_persist(persist, binding_state_keys, |op| {
+            apply_op(store, op)
+        })
+        .unwrap();
+    }
+
+    // Decode a store back into the `proto::Recover` a subsequent startup observes.
+    fn decode_store(store: Vec<(Bytes, Bytes)>) -> proto::Recover {
+        let mut recover = proto::Recover::default();
+        let (mut committed, mut hinted) = (Vec::new(), Vec::new());
+        for (k, v) in store {
+            crate::shard::recovery::decode_recover_key_value(
+                &mut recover,
+                &mut committed,
+                &mut hinted,
+                &k,
+                &v,
+                &[],
+            )
+            .unwrap();
+        }
+        recover
+    }
+
+    /// End-to-end guard against a legacy-checkpoint flavor of #3176: an
+    /// ahead-remote-authoritative promotion advances committed_close to H1. If the
+    /// promotion Persist left the recovered legacy checkpoint embedding the old C0
+    /// close, a crash before the first go-forward commit would re-recover
+    /// `{committed_close: H1, legacy_checkpoint@C0}` and the next startup would bail
+    /// on the legacy-close mismatch — the ticket's wedge relocated to the legacy arm.
+    /// Because the promotion re-persists the legacy checkpoint at H1, the round trip
+    /// through the real encode/decode codecs recovers cleanly.
+    #[test]
+    fn reconcile_promotion_then_recovery_wedges_on_legacy_checkpoint() {
+        let index: [(&str, usize); 0] = [];
+        let (c0, h1) = (clk(50), clk(200));
+
+        // Recovery #1: RocksDB holds {committed_close: C0, hinted_close: H1} with an
+        // in-sync legacy checkpoint at C0. A remote-authoritative connector reports
+        // H1, confirming the hinted txn committed -> promotion.
+        let r1 = reconcile_recovered(
+            false, // rollback still enabled: the legacy checkpoint is maintained
+            c0,
+            h1,
+            empty_frontier(),
+            empty_frontier(),
+            Some(close_only_checkpoint(c0, "ack/legacy")),
+            close_only_checkpoint(h1, "ack/c"),
+            BTreeMap::new(),
+            &index,
+        )
+        .unwrap();
+        let cleanup = r1.cleanup_persist.expect("promotion must persist");
+
+        // Model RocksDB: seed the pre-existing baseline, then fold in the promotion
+        // cleanup Persist exactly as the shard would.
+        let mut store: Vec<(Bytes, Bytes)> = Vec::new();
+        persist_into_store(
+            &mut store,
+            &proto::Persist {
+                committed_close_clock: c0.as_u64(),
+                hinted_close_clock: h1.as_u64(),
+                legacy_checkpoint: Some(close_only_checkpoint(c0, "ack/legacy")),
+                ..Default::default()
+            },
+        );
+        persist_into_store(&mut store, &cleanup);
+        let recovered = decode_store(store);
+
+        // Sanity: the promotion durably advanced committed_close to H1...
+        assert_eq!(recovered.committed_close_clock, h1.as_u64());
+        // ...but the legacy checkpoint still embeds C0 — this is the gap.
+        assert!(recovered.legacy_checkpoint.is_some());
+
+        // Recovery #2: crash before the first commit; the connector still reports H1.
+        let r2 = reconcile_recovered(
+            false,
+            uuid::Clock::from_u64(recovered.committed_close_clock),
+            uuid::Clock::from_u64(recovered.hinted_close_clock),
+            empty_frontier(),
+            empty_frontier(),
+            recovered.legacy_checkpoint,
+            close_only_checkpoint(h1, "ack/c"),
+            recovered.ack_intents,
+            &index,
+        );
+
+        // The follow-up fix must keep the shard recoverable here.
+        assert!(r2.is_ok(), "second recovery wedged: {:?}", r2.err());
+    }
+
+    /// Companion to the legacy-checkpoint wedge: the promotion adopts the
+    /// connector's ACK intents in memory, and the promotion Persist must also make
+    /// them durable (delete_ack_intents + the new set). Otherwise the stored ACK
+    /// intents would still belong to the old C0 transaction, and a crash before the
+    /// first commit would replay C0's ACKs and drop H1's — silent data loss rather
+    /// than a crash loop, same root cause. Round-trips through the real codecs to
+    /// confirm the durable ACK intents are H1's, not the stale C0 set.
+    #[test]
+    fn reconcile_promotion_leaves_stale_ack_intents() {
+        let index: [(&str, usize); 0] = [];
+        let (c0, h1) = (clk(50), clk(200));
+
+        let r1 = reconcile_recovered(
+            true, // drop rollback: isolate the ACK gap from the legacy-checkpoint one
+            c0,
+            h1,
+            empty_frontier(),
+            empty_frontier(),
+            None,
+            close_only_checkpoint(h1, "ack/H1"),
+            BTreeMap::new(),
+            &index,
+        )
+        .unwrap();
+        // In memory the promotion adopted the connector's H1 ACKs.
+        assert!(r1.pending_ack_intents.contains_key("ack/H1"));
+        let cleanup = r1.cleanup_persist.expect("promotion must persist");
+
+        // Model RocksDB: the pre-existing baseline carries the old C0 ACK intents.
+        let mut store: Vec<(Bytes, Bytes)> = Vec::new();
+        persist_into_store(
+            &mut store,
+            &proto::Persist {
+                committed_close_clock: c0.as_u64(),
+                hinted_close_clock: h1.as_u64(),
+                ack_intents: [("ack/C0".to_string(), Bytes::from_static(b"C0"))].into(),
+                ..Default::default()
+            },
+        );
+        persist_into_store(&mut store, &cleanup);
+        let recovered = decode_store(store);
+
+        // The durable ACK intents must be H1's (what a real H1 commit would leave),
+        // not the stale C0 set.
+        assert!(
+            recovered.ack_intents.contains_key("ack/H1"),
+            "durable ACK intents lost H1's: {:?}",
+            recovered.ack_intents.keys().collect::<Vec<_>>(),
+        );
+        assert!(
+            !recovered.ack_intents.contains_key("ack/C0"),
+            "durable ACK intents still carry the stale C0 set",
+        );
     }
 }
