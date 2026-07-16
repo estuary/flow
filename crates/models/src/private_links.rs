@@ -66,6 +66,12 @@ pub struct AzurePrivateLink {
         skip_serializing_if = "is_none_or_empty"
     )]
     pub resource_type: Option<String>,
+    // Additional DNS zone names backed by this single endpoint, mirroring GCP
+    // PSC's `dns_record_names`. Empty by default and omitted on serialize, so
+    // historical rows round-trip byte-for-byte.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "async-graphql", graphql(default))]
+    pub dns_names: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +141,44 @@ mod tests {
         assert_eq!(azure.dns_name.as_deref(), Some("d"));
         assert_eq!(azure.resource_type.as_deref(), Some("t"));
         assert_eq!(serde_json::to_string(&link).unwrap(), some);
+    }
+
+    #[test]
+    fn azure_dns_names_round_trip() {
+        // `dns_names` defaults to empty and is omitted on serialize, so the
+        // absent and legacy `dns_name`-only shapes round-trip unchanged; a
+        // populated list round-trips as a JSON array.
+        let absent = r#"{"service_name":"svc","location":"eastus"}"#;
+        let list =
+            r#"{"service_name":"svc","location":"eastus","dns_names":["dev.example","prd.example"]}"#;
+        let legacy =
+            r#"{"service_name":"svc","location":"eastus","dns_name":"privatelink.database.windows.net"}"#;
+
+        let link: PrivateLink = serde_json::from_str(absent).unwrap();
+        let PrivateLink::Azure(azure) = &link else {
+            panic!("expected Azure variant");
+        };
+        assert!(azure.dns_names.is_empty());
+        assert_eq!(serde_json::to_string(&link).unwrap(), absent);
+
+        let link: PrivateLink = serde_json::from_str(list).unwrap();
+        let PrivateLink::Azure(azure) = &link else {
+            panic!("expected Azure variant");
+        };
+        assert_eq!(azure.dns_name, None);
+        assert_eq!(azure.dns_names, vec!["dev.example", "prd.example"]);
+        assert_eq!(serde_json::to_string(&link).unwrap(), list);
+
+        let link: PrivateLink = serde_json::from_str(legacy).unwrap();
+        let PrivateLink::Azure(azure) = &link else {
+            panic!("expected Azure variant");
+        };
+        assert_eq!(
+            azure.dns_name.as_deref(),
+            Some("privatelink.database.windows.net")
+        );
+        assert!(azure.dns_names.is_empty());
+        assert_eq!(serde_json::to_string(&link).unwrap(), legacy);
     }
 
     #[test]

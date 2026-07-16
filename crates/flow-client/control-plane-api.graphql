@@ -331,6 +331,7 @@ type AzurePrivateLink {
 	location: String!
 	dnsName: String
 	resourceType: String
+	dnsNames: [String!]!
 }
 
 input AzurePrivateLinkInput {
@@ -338,6 +339,7 @@ input AzurePrivateLinkInput {
 	location: String!
 	dnsName: String
 	resourceType: String
+	dnsNames: [String!]! = []
 }
 
 type BillingAddress {
