@@ -100,10 +100,11 @@ impl LiveSpec {
             env.snapshot(),
             env.claims()?,
             [source_capture_name.clone()],
-            |name, user_capability| {
+            |name, user_capability, bits| {
                 Some(LiveSpecRef {
                     catalog_name: models::Name::new(name),
                     user_capability,
+                    capability_bits: (!bits.is_empty()).then(|| bits.iter().collect()),
                 })
             },
         );

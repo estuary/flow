@@ -26,7 +26,12 @@ pub struct DataPlane {
     /// Address of reactors within the data-plane.
     pub reactor_address: String,
     /// The current user's capability to this data plane's name prefix.
+    #[graphql(
+        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilityBits` instead."
+    )]
     pub user_capability: models::Capability,
+    /// Fine-grained capabilities the user has to this data plane's name prefix.
+    pub capability_bits: Vec<models::authz::Capability>,
     /// Cloud provider where this data-plane is hosted.
     pub cloud_provider: DataPlaneCloudProvider,
     /// Cloud region where this data-plane is hosted.
@@ -432,7 +437,7 @@ impl DataPlanesQuery {
             env.snapshot(),
             env.claims()?,
             names.into_iter(),
-            |data_plane_name, user_capability| {
+            |data_plane_name, user_capability, user_capabilities| {
                 let dp = row_data.get(&data_plane_name)?;
                 let details = details_map.get(&data_plane_name);
                 let (cloud_provider, region, tag, is_public) =
@@ -442,6 +447,7 @@ impl DataPlanesQuery {
                     fqdn: dp.data_plane_fqdn.clone(),
                     reactor_address: dp.reactor_address.clone(),
                     user_capability: user_capability.expect("capability guaranteed by pre-filter"),
+                    capability_bits: user_capabilities.iter().collect(),
                     cloud_provider,
                     region,
                     tag,
@@ -652,6 +658,7 @@ mod tests {
                                     tag
                                     isPublic
                                     userCapability
+                                    capabilityBits
                                     cidrBlocks
                                     gcpServiceAccountEmail
                                     awsIamUserArn
@@ -828,11 +835,11 @@ mod tests {
     }
 
     // A caller with only legacy `read` on the DP prefix can view the
-    // private-networking fields (the `Viewer` bundle carries
+    // private-networking fields (the `View` bundle carries
     // `ViewDataPlanePrivateNetworking`, because `read` on a data-plane
     // prefix already conveys deploy-level trust) but cannot mutate them:
     // `ModifyDataPlanePrivateNetworking` only comes via the separately
-    // granted `ManageDataPlane` bundle.
+    // granted `ManageDataPlanes` bundle.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(
@@ -926,7 +933,7 @@ mod tests {
     }
 
     // Existing tenants can still view their private data plane's private links
-    // even before the `manage_data_plane` backfill runs, which is what later
+    // even before the `manage_data_planes` backfill runs, which is what later
     // adds the ability to modify them. Clearing the bundle reproduces that
     // pre-backfill state: the links stay readable, the update mutation is denied.
     #[sqlx::test(
@@ -936,10 +943,10 @@ mod tests {
             scripts("data_planes", "alice", "private_links")
         )
     )]
-    async fn test_modify_denied_when_role_grant_lacks_manage_data_plane(pool: sqlx::PgPool) {
+    async fn test_modify_denied_when_role_grant_lacks_manage_data_planes(pool: sqlx::PgPool) {
         let _guard = test_server::init();
 
-        // Strip the `manage_data_plane` bundle from the only edge carrying
+        // Strip the `manage_data_planes` bundle from the only edge carrying
         // Alice to the private dp, leaving its legacy `read` untouched.
         sqlx::query(
             r#"UPDATE role_grants
@@ -961,7 +968,7 @@ mod tests {
 
         let dp = "ops/dp/private/aliceCo/aws-us-east-1-c1";
 
-        // View still resolves: `read` -> Viewer -> ViewDataPlanePrivateNetworking
+        // View still resolves: `read` -> View -> ViewDataPlanePrivateNetworking
         // does not depend on the cleared bundle.
         let view: serde_json::Value = server
             .graphql(
@@ -987,11 +994,11 @@ mod tests {
         assert_eq!(
             private_dp["node"]["privateLinks"].as_array().unwrap().len(),
             3,
-            "read must still grant view after the manage_data_plane bundle is cleared: {private_dp}",
+            "read must still grant view after the manage_data_planes bundle is cleared: {private_dp}",
         );
 
         // Modify is denied: ModifyDataPlanePrivateNetworking flowed only
-        // through the now-cleared `manage_data_plane` bundle on the edge.
+        // through the now-cleared `manage_data_planes` bundle on the edge.
         let denied: serde_json::Value = server
             .graphql(&update_mutation(dp, VALID_AWS_INPUT), Some(&alice_token))
             .await;

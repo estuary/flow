@@ -282,6 +282,10 @@ pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
                   fetcher,
                   plugins,
                   defaultEditorToolsVisibility: true,
+                  // Ask for deprecated input fields/arguments in the
+                  // introspection query, so they show (struck through) in the
+                  // docs instead of being silently hidden.
+                  inputValueDeprecation: true,
                   // ---------- auth header customization ----------
                   defaultHeaders : (()=>{
                     const access_token = new URLSearchParams(window.location.search).get('access_token');

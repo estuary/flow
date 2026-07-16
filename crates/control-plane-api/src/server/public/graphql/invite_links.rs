@@ -9,7 +9,18 @@ pub struct InviteLink {
     /// The catalog prefix this invite link grants access to.
     pub catalog_prefix: models::Prefix,
     /// The capability level granted by this invite link.
+    #[graphql(
+        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead."
+    )]
     pub capability: models::Capability,
+    /// Capability bundles explicitly granted by this invite link,
+    /// reflecting the selection made when the link was created.
+    /// Bundles implied by the selection are not listed; `capabilityBits`
+    /// carries the full effective set.
+    pub capability_bundles: Vec<models::authz::CapabilityBundle>,
+    /// Fine-grained capabilities granted by this invite link, derived
+    /// from its legacy capability level.
+    pub capability_bits: Vec<models::authz::Capability>,
     /// Whether this invite link can only be used once.
     pub single_use: bool,
     /// Optional description of this invite link.
@@ -28,7 +39,18 @@ pub struct RedeemInviteLinkResult {
     /// The catalog prefix that was granted.
     pub catalog_prefix: models::Prefix,
     /// The capability level that was granted.
+    #[graphql(
+        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilityBundles` instead."
+    )]
     pub capability: models::Capability,
+    /// Capability bundles explicitly granted by the invite link,
+    /// reflecting the selection made when the link was created.
+    /// Bundles implied by the selection are not listed; `capabilityBits`
+    /// carries the full effective set.
+    pub capability_bundles: Vec<models::authz::CapabilityBundle>,
+    /// Fine-grained capabilities that were granted, derived from the
+    /// invite link's legacy capability level.
+    pub capability_bits: Vec<models::authz::Capability>,
 }
 
 pub type PaginatedInviteLinks = connection::Connection<
@@ -142,6 +164,10 @@ impl InviteLinksQuery {
                                 token: r.token,
                                 catalog_prefix: models::Prefix::new(&r.catalog_prefix),
                                 capability: r.capability,
+                                capability_bundles: models::authz::bundles_for_legacy(r.capability),
+                                capability_bits: models::authz::bits_for_legacy(r.capability)
+                                    .iter()
+                                    .collect(),
                                 single_use: r.single_use,
                                 detail: r.detail,
                                 created_at: r.created_at,
@@ -235,6 +261,8 @@ impl InviteLinksMutation {
             token: row.token,
             catalog_prefix,
             capability,
+            capability_bundles: models::authz::bundles_for_legacy(capability),
+            capability_bits: models::authz::bits_for_legacy(capability).iter().collect(),
             single_use,
             detail,
             created_at: row.created_at,
@@ -347,6 +375,10 @@ impl InviteLinksMutation {
         Ok(RedeemInviteLinkResult {
             catalog_prefix: models::Prefix::new(&invite.catalog_prefix),
             capability: invite.capability,
+            capability_bundles: models::authz::bundles_for_legacy(invite.capability),
+            capability_bits: models::authz::bits_for_legacy(invite.capability)
+                .iter()
+                .collect(),
         })
     }
 
@@ -513,6 +545,8 @@ mod test {
                             token
                             catalogPrefix
                             capability
+                            capabilityBundles
+                            capabilityBits
                         }
                     }"#,
                     "variables": {
@@ -542,6 +576,8 @@ mod test {
                         redeemInviteLink(token: $token) {
                             catalogPrefix
                             capability
+                            capabilityBundles
+                            capabilityBits
                         }
                     }"#,
                     "variables": {

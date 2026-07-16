@@ -6,6 +6,15 @@ expression: create_response
   "data": {
     "createInviteLink": {
       "capability": "write",
+      "capabilityBits": [
+        "CatalogRead",
+        "JournalRead",
+        "JournalAppend",
+        "ViewDataPlanePrivateNetworking"
+      ],
+      "capabilityBundles": [
+        "Write"
+      ],
       "catalogPrefix": "aliceCo/",
       "token": "[token]"
     }

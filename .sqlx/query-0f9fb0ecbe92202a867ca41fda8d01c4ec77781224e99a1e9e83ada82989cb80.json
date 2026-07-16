@@ -69,15 +69,15 @@
                   "name": "capability_bundle",
                   "kind": {
                     "Enum": [
-                      "viewer",
-                      "writer",
-                      "editor",
+                      "view",
+                      "write",
+                      "edit",
                       "admin",
-                      "billing",
-                      "team_admin",
+                      "manage_billing",
+                      "manage_users",
                       "delegate",
                       "assume",
-                      "manage_data_plane"
+                      "manage_data_planes"
                     ]
                   }
                 }

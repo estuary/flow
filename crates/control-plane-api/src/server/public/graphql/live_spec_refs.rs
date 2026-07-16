@@ -36,7 +36,13 @@ pub struct LiveSpecRef {
     /// name, and passing a name that the user cannot access. In either case,
     /// the result would be `userCapability: null`, and all other fields on the
     /// LiveSpecRef would also be null.
+    #[graphql(
+        deprecation = "The legacy read/write/admin capability model is being replaced; use `capabilityBits` instead."
+    )]
     pub user_capability: Option<models::Capability>,
+    /// Fine-grained capabilities the user has to the referent.
+    /// Null when the user has no access, mirroring `userCapability`.
+    pub capability_bits: Option<Vec<models::authz::Capability>>,
 }
 
 #[ComplexObject]
@@ -187,13 +193,14 @@ pub async fn paginate_live_specs_refs(
         env.snapshot(),
         env.claims()?,
         all_names,
-        |name, maybe_capability| {
+        |name, maybe_capability, bits| {
             if require_min_capability.is_some_and(|min_cap| maybe_capability < Some(min_cap)) {
                 return None;
             }
             Some(LiveSpecRef {
                 catalog_name: models::Name::new(name),
                 user_capability: maybe_capability,
+                capability_bits: (!bits.is_empty()).then(|| bits.iter().collect()),
             })
         },
     );
@@ -362,12 +369,13 @@ impl LiveSpecsQuery {
             env.snapshot(),
             env.claims()?,
             names,
-            |name, user_capability| {
+            |name, user_capability, bits| {
                 Some(connection::Edge::new(
                     name.clone(),
                     LiveSpecRef {
                         catalog_name: models::Name::new(name),
                         user_capability,
+                        capability_bits: (!bits.is_empty()).then(|| bits.iter().collect()),
                     },
                 ))
             },

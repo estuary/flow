@@ -73,10 +73,10 @@ begin
   );
 
   -- Mirrors what `create_data_plane.rs` installs at provisioning time:
-  -- legacy `read` for RLS/`user_roles()`, and the `ManageDataPlane` bundle
+  -- legacy `read` for RLS/`user_roles()`, and the `ManageDataPlanes` bundle
   -- for the capability bits.
   insert into public.role_grants (subject_role, object_role, capability, bundles) values
-    ('aliceCo/', 'ops/dp/private/aliceCo/', 'read', '{manage_data_plane}');
+    ('aliceCo/', 'ops/dp/private/aliceCo/', 'read', '{manage_data_planes}');
 
 end
 $$;

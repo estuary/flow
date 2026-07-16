@@ -184,6 +184,20 @@ impl super::UserGrant {
             .max()
     }
 
+    /// Returns the union of capability bits the user holds at prefixes
+    /// covering `object_role_or_name`, across every path through the
+    /// grant graph. An empty set means the user has no access.
+    pub fn get_user_capabilities<'a>(
+        role_grants: &'a [super::RoleGrant],
+        user_grants: &'a [super::UserGrant],
+        user_id: uuid::Uuid,
+        object_role_or_name: &str,
+    ) -> authz::CapabilitySet {
+        Self::reachable_nodes(role_grants, user_grants, user_id)
+            .filter(|n| object_role_or_name.starts_with(n.object_role))
+            .fold(authz::CapabilitySet::empty(), |set, n| set | n.capabilities)
+    }
+
     pub fn is_authorized<'a>(
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
@@ -731,8 +745,8 @@ mod test {
             vec![(
                 "acmeCo/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
                     CapabilityBundle::Delegate,
                 ],
             )],
@@ -741,20 +755,20 @@ mod test {
                     "acmeCo/",
                     "bobCo/shared/",
                     vec![
-                        CapabilityBundle::Viewer,
-                        CapabilityBundle::Billing,
+                        CapabilityBundle::View,
+                        CapabilityBundle::ManageBilling,
                         CapabilityBundle::Delegate,
                     ],
                 ),
                 (
                     "bobCo/shared/",
                     "carolCo/data/",
-                    vec![CapabilityBundle::Viewer, CapabilityBundle::Delegate],
+                    vec![CapabilityBundle::View, CapabilityBundle::Delegate],
                 ),
                 (
                     "carolCo/data/",
                     "daveCo/sink/",
-                    vec![CapabilityBundle::Viewer, CapabilityBundle::Billing],
+                    vec![CapabilityBundle::View, CapabilityBundle::ManageBilling],
                 ),
             ],
         );
@@ -766,21 +780,21 @@ mod test {
             vec![
                 (
                     "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities()
                         | Delegate,
                 ),
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities()
                         | Delegate,
                 ),
                 (
                     "carolCo/data/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
+                    CapabilityBundle::View.capabilities() | Delegate,
                 ),
-                ("daveCo/sink/", CapabilityBundle::Viewer.capabilities()),
+                ("daveCo/sink/", CapabilityBundle::View.capabilities()),
             ],
         );
     }
@@ -792,11 +806,11 @@ mod test {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Delegate],
+                vec![CapabilityBundle::View, CapabilityBundle::Delegate],
             )],
             vec![
-                ("acmeCo/", "bobCo/shared/", vec![CapabilityBundle::Viewer]),
-                ("bobCo/shared/", "carolCo/", vec![CapabilityBundle::Viewer]),
+                ("acmeCo/", "bobCo/shared/", vec![CapabilityBundle::View]),
+                ("bobCo/shared/", "carolCo/", vec![CapabilityBundle::View]),
             ],
         );
 
@@ -805,23 +819,20 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                (
-                    "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                ("bobCo/shared/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::View.capabilities() | Delegate),
+                ("bobCo/shared/", CapabilityBundle::View.capabilities()),
             ],
         );
 
         let (role_grants, user_grants, user_id) = build_scenario(
-            vec![("acmeCo/", vec![CapabilityBundle::Viewer])],
+            vec![("acmeCo/", vec![CapabilityBundle::View])],
             vec![
                 (
                     "acmeCo/",
                     "bobCo/shared/",
-                    vec![CapabilityBundle::Viewer, CapabilityBundle::Delegate],
+                    vec![CapabilityBundle::View, CapabilityBundle::Delegate],
                 ),
-                ("bobCo/shared/", "carolCo/", vec![CapabilityBundle::Viewer]),
+                ("bobCo/shared/", "carolCo/", vec![CapabilityBundle::View]),
             ],
         );
 
@@ -829,21 +840,21 @@ mod test {
             &role_grants,
             &user_grants,
             user_id,
-            vec![("acmeCo/", CapabilityBundle::Viewer.capabilities())],
+            vec![("acmeCo/", CapabilityBundle::View.capabilities())],
         );
         assert_not_authorized(
             &role_grants,
             &user_grants,
             user_id,
             "bobCo/shared/",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
         assert_not_authorized(
             &role_grants,
             &user_grants,
             user_id,
             "carolCo/",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
     }
 
@@ -857,9 +868,9 @@ mod test {
                 "acmeCo/",
                 "bobCo/shared/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
-                    CapabilityBundle::TeamAdmin,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
+                    CapabilityBundle::ManageUsers,
                 ],
             )],
         );
@@ -872,9 +883,9 @@ mod test {
                 ("acmeCo/", EnumSet::from(Assume)),
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | CapabilityBundle::TeamAdmin.capabilities(),
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities()
+                        | CapabilityBundle::ManageUsers.capabilities(),
                 ),
             ],
         );
@@ -884,28 +895,28 @@ mod test {
             &user_grants,
             user_id,
             "bobCo/shared/nested/",
-            CapabilityBundle::Viewer.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
+            CapabilityBundle::View.capabilities() | CapabilityBundle::ManageUsers.capabilities(),
         );
         assert_not_authorized(
             &role_grants,
             &user_grants,
             user_id,
             "acmeCo/",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Writer, CapabilityBundle::Assume],
+                vec![CapabilityBundle::Write, CapabilityBundle::Assume],
             )],
             vec![(
                 "acmeCo/",
                 "bobCo/shared/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
-                    CapabilityBundle::TeamAdmin,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
+                    CapabilityBundle::ManageUsers,
                 ],
             )],
         );
@@ -914,14 +925,14 @@ mod test {
             &user_grants,
             user_id,
             "acmeCo/",
-            CapabilityBundle::Writer.capabilities(),
+            CapabilityBundle::Write.capabilities(),
         );
         assert_not_authorized(
             &role_grants,
             &user_grants,
             user_id,
             "bobCo/shared/",
-            CapabilityBundle::Writer.capabilities(),
+            CapabilityBundle::Write.capabilities(),
         );
     }
 
@@ -933,7 +944,7 @@ mod test {
             vec![(
                 "acmeCo/",
                 vec![
-                    CapabilityBundle::Viewer,
+                    CapabilityBundle::View,
                     CapabilityBundle::Delegate,
                     CapabilityBundle::Assume,
                 ],
@@ -942,9 +953,9 @@ mod test {
                 "acmeCo/",
                 "bobCo/shared/",
                 vec![
-                    CapabilityBundle::Billing,
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::TeamAdmin,
+                    CapabilityBundle::ManageBilling,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageUsers,
                 ],
             )],
         );
@@ -956,13 +967,13 @@ mod test {
             vec![
                 (
                     "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Assume | Delegate,
+                    CapabilityBundle::View.capabilities() | Assume | Delegate,
                 ),
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | CapabilityBundle::TeamAdmin.capabilities(),
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities()
+                        | CapabilityBundle::ManageUsers.capabilities(),
                 ),
             ],
         );
@@ -971,15 +982,15 @@ mod test {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Delegate],
+                vec![CapabilityBundle::View, CapabilityBundle::Delegate],
             )],
             vec![(
                 "acmeCo/",
                 "bobCo/shared/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
-                    CapabilityBundle::TeamAdmin,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
+                    CapabilityBundle::ManageUsers,
                 ],
             )],
         );
@@ -989,11 +1000,8 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                (
-                    "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                ("bobCo/shared/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::View.capabilities() | Delegate),
+                ("bobCo/shared/", CapabilityBundle::View.capabilities()),
             ],
         );
 
@@ -1001,15 +1009,15 @@ mod test {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Writer, CapabilityBundle::Assume],
+                vec![CapabilityBundle::Write, CapabilityBundle::Assume],
             )],
             vec![(
                 "acmeCo/",
                 "bobCo/shared/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
-                    CapabilityBundle::TeamAdmin,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
+                    CapabilityBundle::ManageUsers,
                 ],
             )],
         );
@@ -1019,12 +1027,12 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                ("acmeCo/", CapabilityBundle::Writer.capabilities() | Assume),
+                ("acmeCo/", CapabilityBundle::Write.capabilities() | Assume),
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | CapabilityBundle::TeamAdmin.capabilities(),
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities()
+                        | CapabilityBundle::ManageUsers.capabilities(),
                 ),
             ],
         );
@@ -1036,16 +1044,16 @@ mod test {
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![
-                ("acmeCo/", vec![CapabilityBundle::Viewer]),
+                ("acmeCo/", vec![CapabilityBundle::View]),
                 (
                     "acmeCo/interns/",
-                    vec![CapabilityBundle::Writer, CapabilityBundle::Delegate],
+                    vec![CapabilityBundle::Write, CapabilityBundle::Delegate],
                 ),
             ],
             vec![(
                 "acmeCo/",
                 "betaCo/shareable/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Writer],
+                vec![CapabilityBundle::View, CapabilityBundle::Write],
             )],
         );
 
@@ -1054,12 +1062,12 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::View.capabilities()),
                 (
                     "acmeCo/interns/",
-                    CapabilityBundle::Writer.capabilities() | Delegate,
+                    CapabilityBundle::Write.capabilities() | Delegate,
                 ),
-                ("betaCo/shareable/", CapabilityBundle::Writer.capabilities()),
+                ("betaCo/shareable/", CapabilityBundle::Write.capabilities()),
             ],
         );
     }
@@ -1070,16 +1078,16 @@ mod test {
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![
-                ("acmeCo/", vec![CapabilityBundle::Viewer]),
+                ("acmeCo/", vec![CapabilityBundle::View]),
                 (
                     "acmeCo/interns/",
-                    vec![CapabilityBundle::Writer, CapabilityBundle::Delegate],
+                    vec![CapabilityBundle::Write, CapabilityBundle::Delegate],
                 ),
             ],
             vec![(
                 "acmeCo/interns/betaCo/",
                 "betaCo/shareable/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Writer],
+                vec![CapabilityBundle::View, CapabilityBundle::Write],
             )],
         );
 
@@ -1088,12 +1096,12 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::View.capabilities()),
                 (
                     "acmeCo/interns/",
-                    CapabilityBundle::Writer.capabilities() | Delegate,
+                    CapabilityBundle::Write.capabilities() | Delegate,
                 ),
-                ("betaCo/shareable/", CapabilityBundle::Writer.capabilities()),
+                ("betaCo/shareable/", CapabilityBundle::Write.capabilities()),
             ],
         );
     }
@@ -1106,21 +1114,17 @@ mod test {
             vec![(
                 "acmeCo/interns/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Writer,
+                    CapabilityBundle::View,
+                    CapabilityBundle::Write,
                     CapabilityBundle::Delegate,
                 ],
             )],
             vec![
-                (
-                    "acmeCo/",
-                    "betaCo/shareable/",
-                    vec![CapabilityBundle::Viewer],
-                ),
+                ("acmeCo/", "betaCo/shareable/", vec![CapabilityBundle::View]),
                 (
                     "acmeCo/interns/betaCo/",
                     "betaCo/shareable/",
-                    vec![CapabilityBundle::Writer],
+                    vec![CapabilityBundle::Write],
                 ),
             ],
         );
@@ -1132,10 +1136,10 @@ mod test {
             vec![
                 (
                     "acmeCo/interns/",
-                    CapabilityBundle::Writer.capabilities() | Delegate,
+                    CapabilityBundle::Write.capabilities() | Delegate,
                 ),
-                ("betaCo/shareable/", CapabilityBundle::Viewer.capabilities()),
-                ("betaCo/shareable/", CapabilityBundle::Writer.capabilities()),
+                ("betaCo/shareable/", CapabilityBundle::View.capabilities()),
+                ("betaCo/shareable/", CapabilityBundle::Write.capabilities()),
             ],
         );
 
@@ -1144,7 +1148,7 @@ mod test {
             &user_grants,
             user_id,
             "betaCo/shareable/",
-            CapabilityBundle::Writer.capabilities(),
+            CapabilityBundle::Write.capabilities(),
         );
         assert_not_authorized(
             &role_grants,
@@ -1163,20 +1167,20 @@ mod test {
             vec![
                 (
                     "acmeCo/",
-                    vec![CapabilityBundle::Viewer, CapabilityBundle::Delegate],
+                    vec![CapabilityBundle::View, CapabilityBundle::Delegate],
                 ),
                 (
                     "betaCo/",
-                    vec![CapabilityBundle::Writer, CapabilityBundle::Delegate],
+                    vec![CapabilityBundle::Write, CapabilityBundle::Delegate],
                 ),
             ],
             vec![
                 (
                     "acmeCo/",
                     "charlieCo/shareable/",
-                    vec![CapabilityBundle::Viewer],
+                    vec![CapabilityBundle::View],
                 ),
-                ("betaCo/", "charlieCo/", vec![CapabilityBundle::Writer]),
+                ("betaCo/", "charlieCo/", vec![CapabilityBundle::Write]),
             ],
         );
 
@@ -1185,18 +1189,12 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                (
-                    "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                (
-                    "betaCo/",
-                    CapabilityBundle::Writer.capabilities() | Delegate,
-                ),
-                ("charlieCo/", CapabilityBundle::Writer.capabilities()),
+                ("acmeCo/", CapabilityBundle::View.capabilities() | Delegate),
+                ("betaCo/", CapabilityBundle::Write.capabilities() | Delegate),
+                ("charlieCo/", CapabilityBundle::Write.capabilities()),
                 (
                     "charlieCo/shareable/",
-                    CapabilityBundle::Viewer.capabilities(),
+                    CapabilityBundle::View.capabilities(),
                 ),
             ],
         );
@@ -1206,7 +1204,7 @@ mod test {
             &user_grants,
             user_id,
             "charlieCo/shareable/",
-            CapabilityBundle::Writer.capabilities(),
+            CapabilityBundle::Write.capabilities(),
         );
         assert_not_authorized(
             &role_grants,
@@ -1224,22 +1222,22 @@ mod test {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Delegate],
+                vec![CapabilityBundle::View, CapabilityBundle::Delegate],
             )],
             vec![
                 (
                     "acmeCo/",
                     "bobCo/shared/",
                     vec![
-                        CapabilityBundle::Viewer,
-                        CapabilityBundle::Billing,
+                        CapabilityBundle::View,
+                        CapabilityBundle::ManageBilling,
                         CapabilityBundle::Delegate,
                     ],
                 ),
                 (
                     "bobCo/shared/",
                     "carolCo/data/",
-                    vec![CapabilityBundle::Viewer],
+                    vec![CapabilityBundle::View],
                 ),
             ],
         );
@@ -1249,7 +1247,7 @@ mod test {
             &user_grants,
             user_id,
             "acmeCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
         assert_not_authorized(
             &role_grants,
@@ -1264,7 +1262,7 @@ mod test {
             &user_grants,
             user_id,
             "bobCo/shared/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
         assert_not_authorized(
             &role_grants,
@@ -1279,7 +1277,7 @@ mod test {
             &user_grants,
             user_id,
             "carolCo/data/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
 
         let unknown = uuid::Uuid::from_bytes([9; 16]);
@@ -1288,7 +1286,7 @@ mod test {
             &user_grants,
             unknown,
             "acmeCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
     }
 
@@ -1301,7 +1299,7 @@ mod test {
             user_id,
             object_role: models::Prefix::new("acmeCo/"),
             capability: models::Capability::Write,
-            bundles: vec![CapabilityBundle::TeamAdmin],
+            bundles: vec![CapabilityBundle::ManageUsers],
         }]);
         let role_grants = RoleGrants::new();
 
@@ -1313,7 +1311,7 @@ mod test {
         assert_eq!(node.object_role, "acmeCo/");
 
         let expected =
-            CapabilityBundle::Writer.capabilities() | CapabilityBundle::TeamAdmin.capabilities();
+            CapabilityBundle::Write.capabilities() | CapabilityBundle::ManageUsers.capabilities();
         assert_eq!(node.capabilities, expected);
 
         assert!(node.capabilities.contains(CatalogRead));
@@ -1330,14 +1328,14 @@ mod test {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Assume],
+                vec![CapabilityBundle::View, CapabilityBundle::Assume],
             )],
             vec![(
                 "acmeCo/",
                 "bobCo/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
                     CapabilityBundle::Delegate,
                 ],
             )],
@@ -1348,11 +1346,11 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
+                ("acmeCo/", CapabilityBundle::View.capabilities() | Assume),
                 (
                     "bobCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities()
                         | Delegate,
                 ),
             ],
@@ -1363,7 +1361,7 @@ mod test {
             &user_grants,
             user_id,
             "bobCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
     }
 
@@ -1374,14 +1372,14 @@ mod test {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Delegate],
+                vec![CapabilityBundle::View, CapabilityBundle::Delegate],
             )],
             vec![(
                 "acmeCo/",
                 "bobCo/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
                     CapabilityBundle::Delegate,
                 ],
             )],
@@ -1392,25 +1390,22 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                (
-                    "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                ("bobCo/", CapabilityBundle::Viewer.capabilities() | Delegate),
+                ("acmeCo/", CapabilityBundle::View.capabilities() | Delegate),
+                ("bobCo/", CapabilityBundle::View.capabilities() | Delegate),
             ],
         );
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Assume],
+                vec![CapabilityBundle::View, CapabilityBundle::Assume],
             )],
             vec![(
                 "acmeCo/",
                 "bobCo/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
                     CapabilityBundle::Delegate,
                 ],
             )],
@@ -1421,7 +1416,7 @@ mod test {
             &user_grants,
             user_id,
             "bobCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
     }
 
@@ -1432,22 +1427,22 @@ mod test {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Assume],
+                vec![CapabilityBundle::View, CapabilityBundle::Assume],
             )],
             vec![
                 (
                     "acmeCo/",
                     "bobCo/",
                     vec![
-                        CapabilityBundle::Viewer,
-                        CapabilityBundle::Billing,
+                        CapabilityBundle::View,
+                        CapabilityBundle::ManageBilling,
                         CapabilityBundle::Assume,
                     ],
                 ),
                 (
                     "bobCo/",
                     "carolCo/",
-                    vec![CapabilityBundle::Viewer, CapabilityBundle::Billing],
+                    vec![CapabilityBundle::View, CapabilityBundle::ManageBilling],
                 ),
             ],
         );
@@ -1457,17 +1452,17 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
+                ("acmeCo/", CapabilityBundle::View.capabilities() | Assume),
                 (
                     "bobCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities()
                         | Assume,
                 ),
                 (
                     "carolCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities(),
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities(),
                 ),
             ],
         );
@@ -1480,18 +1475,18 @@ mod test {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Assume],
+                vec![CapabilityBundle::View, CapabilityBundle::Assume],
             )],
             vec![
                 (
                     "acmeCo/",
                     "bobCo/",
-                    vec![CapabilityBundle::Viewer, CapabilityBundle::Delegate],
+                    vec![CapabilityBundle::View, CapabilityBundle::Delegate],
                 ),
                 (
                     "bobCo/",
                     "carolCo/",
-                    vec![CapabilityBundle::Viewer, CapabilityBundle::Billing],
+                    vec![CapabilityBundle::View, CapabilityBundle::ManageBilling],
                 ),
             ],
         );
@@ -1501,9 +1496,9 @@ mod test {
             &user_grants,
             user_id,
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
-                ("bobCo/", CapabilityBundle::Viewer.capabilities() | Delegate),
-                ("carolCo/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::View.capabilities() | Assume),
+                ("bobCo/", CapabilityBundle::View.capabilities() | Delegate),
+                ("carolCo/", CapabilityBundle::View.capabilities()),
             ],
         );
     }
@@ -1569,20 +1564,20 @@ mod test {
                 "acmeCo/",
                 "bobCo/shared/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
                     CapabilityBundle::Delegate,
                 ],
             ),
             (
                 "bobCo/shared/",
                 "carolCo/data/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Delegate],
+                vec![CapabilityBundle::View, CapabilityBundle::Delegate],
             ),
             (
                 "carolCo/data/",
                 "daveCo/sink/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Billing],
+                vec![CapabilityBundle::View, CapabilityBundle::ManageBilling],
             ),
         ]);
 
@@ -1592,15 +1587,15 @@ mod test {
             vec![
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities()
                         | Delegate,
                 ),
                 (
                     "carolCo/data/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
+                    CapabilityBundle::View.capabilities() | Delegate,
                 ),
-                ("daveCo/sink/", CapabilityBundle::Viewer.capabilities()),
+                ("daveCo/sink/", CapabilityBundle::View.capabilities()),
             ],
         );
     }
@@ -1608,14 +1603,14 @@ mod test {
     #[test]
     fn test_role_reachable_nodes_no_delegate_is_terminal() {
         let role_grants = build_role_scenario(vec![
-            ("acmeCo/", "bobCo/shared/", vec![CapabilityBundle::Viewer]),
-            ("bobCo/shared/", "carolCo/", vec![CapabilityBundle::Viewer]),
+            ("acmeCo/", "bobCo/shared/", vec![CapabilityBundle::View]),
+            ("bobCo/shared/", "carolCo/", vec![CapabilityBundle::View]),
         ]);
 
         assert_role_reachable(
             &role_grants,
             "acmeCo/",
-            vec![("bobCo/shared/", CapabilityBundle::Viewer.capabilities())],
+            vec![("bobCo/shared/", CapabilityBundle::View.capabilities())],
         );
     }
 
@@ -1627,14 +1622,14 @@ mod test {
             (
                 "acmeCo/",
                 "bobCo/",
-                vec![CapabilityBundle::Viewer, CapabilityBundle::Assume],
+                vec![CapabilityBundle::View, CapabilityBundle::Assume],
             ),
             (
                 "bobCo/",
                 "carolCo/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
                     CapabilityBundle::Delegate,
                 ],
             ),
@@ -1644,11 +1639,11 @@ mod test {
             &role_grants,
             "acmeCo/",
             vec![
-                ("bobCo/", CapabilityBundle::Viewer.capabilities() | Assume),
+                ("bobCo/", CapabilityBundle::View.capabilities() | Assume),
                 (
                     "carolCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
+                    CapabilityBundle::View.capabilities()
+                        | CapabilityBundle::ManageBilling.capabilities()
                         | Delegate,
                 ),
             ],
@@ -1658,7 +1653,7 @@ mod test {
             &role_grants,
             "acmeCo/",
             "carolCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
     }
 
@@ -1669,15 +1664,15 @@ mod test {
                 "acmeCo/",
                 "bobCo/shared/",
                 vec![
-                    CapabilityBundle::Viewer,
-                    CapabilityBundle::Billing,
+                    CapabilityBundle::View,
+                    CapabilityBundle::ManageBilling,
                     CapabilityBundle::Delegate,
                 ],
             ),
             (
                 "bobCo/shared/",
                 "carolCo/data/",
-                vec![CapabilityBundle::Viewer],
+                vec![CapabilityBundle::View],
             ),
         ]);
 
@@ -1685,19 +1680,19 @@ mod test {
             &role_grants,
             "acmeCo/",
             "bobCo/shared/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
         assert_role_authorized(
             &role_grants,
             "acmeCo/",
             "carolCo/data/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
         assert_role_not_authorized(
             &role_grants,
             "acmeCo/",
             "unknown/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::View.capabilities(),
         );
     }
 }
