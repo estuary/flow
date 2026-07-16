@@ -49,7 +49,7 @@ pub async fn handle_post_stripe_webhook(
         Err(stripe::WebhookError::BadParse(err)) => {
             // The signature verified; the payload doesn't fit async-stripe's schema.
             tracing::error!(?err, "failed to parse a validly-signed Stripe event");
-            return Ok(axum::http::StatusCode::OK);
+            return Err(tonic::Status::invalid_argument("unable to parse event").into());
         }
         Err(err) => {
             tracing::warn!(
