@@ -104,12 +104,16 @@ async fn handle_event(app: &crate::App, event: stripe::Event) -> Result<(), crat
                 return Ok(());
             }
         }
+        // The only errors that can come through here are sqlx related errors.
+        // When we get one of those we want to return 503, and have stripe try
+        // again later, without leaking any information other than an internal
+        // connection error.
         Err(err) => {
             tracing::warn!(
                 ?err,
                 "Received an error message while trying to wait tenant controller"
             );
-            return Ok(());
+            return Err(tonic::Status::unavailable("unavailable, please retry").into());
         }
     };
     tracing::info!(
