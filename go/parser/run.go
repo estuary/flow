@@ -15,6 +15,9 @@ import (
 const ProgramName = "flow-parser"
 
 // ParseStream invokes the parser using the given config file and Reader of data to parse.
+// The data is piped to the parser via stdin. This is the right choice for streaming formats
+// (CSV/JSON/NDJSON), where parsing can overlap with an in-flight download.
+//
 // The callback is called as JSON documents are emitted by the parser, and receives
 // batches of documents in JSON format. Each record includes a single trailing newline.
 // The data provided to the callback is from a shared buffer, and must not be retained after the
@@ -31,17 +34,50 @@ func ParseStream(
 	input io.Reader,
 	callback func(lines []json.RawMessage) error,
 ) error {
+	return runParser(ctx, configPath, input, "", callback)
+}
+
+// ParseFile invokes the parser against an already-local, seekable file at inputPath, passed
+// via the parser's `--file` flag rather than piped through stdin. This lets seek-oriented
+// formats (parquet, Excel) read footers and row groups by random access instead of buffering
+// the whole input to a temporary file. Prefer it whenever the input is already on local disk.
+//
+// The callback contract matches ParseStream.
+func ParseFile(
+	ctx context.Context,
+	configPath string,
+	inputPath string,
+	callback func(lines []json.RawMessage) error,
+) error {
+	return runParser(ctx, configPath, nil, inputPath, callback)
+}
+
+// runParser executes flow-parser and dispatches its stdout to callback. Exactly one of input
+// (piped to stdin) or inputPath (passed via --file) supplies the data; inputPath takes
+// precedence when non-empty.
+func runParser(
+	ctx context.Context,
+	configPath string,
+	input io.Reader,
+	inputPath string,
+	callback func(lines []json.RawMessage) error,
+) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var cmd = exec.CommandContext(ctx, ProgramName, "parse", "--config-file", configPath)
 	var stdoutErr error
 
+	if inputPath != "" {
+		cmd.Args = append(cmd.Args, "--file", inputPath)
+	} else {
+		cmd.Stdin = input
+	}
+
 	if log.IsLevelEnabled(log.DebugLevel) {
 		cmd.Args = append(cmd.Args, "--log", "debug")
 	}
 
-	cmd.Stdin = input
 	cmd.Stdout = &parserStdout{
 		onLines: callback,
 		onError: func(err error) {
