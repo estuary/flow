@@ -39,7 +39,7 @@ pub struct App {
     pub control_plane_jwt_encode_key: tokens::jwt::EncodingKey,
     pub pg_pool: sqlx::PgPool,
     pub publisher: crate::publications::Publisher,
-    pub snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+    pub snapshot_watch: Arc<dyn tokens::Watch<Snapshot>>,
 }
 
 impl App {
@@ -49,7 +49,7 @@ impl App {
         jwt_secret: &[u8],
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
-        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        snapshot_watch: Arc<dyn tokens::Watch<Snapshot>>,
     ) -> Self {
         Self {
             _id_generator: std::sync::Mutex::new(id_generator),
@@ -58,7 +58,7 @@ impl App {
             control_plane_jwt_encode_key: tokens::jwt::EncodingKey::from_secret(jwt_secret),
             pg_pool,
             publisher,
-            snapshot,
+            snapshot_watch,
         }
     }
 }

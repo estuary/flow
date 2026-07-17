@@ -3,10 +3,12 @@ mod db;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 pub use db::{Row, fetch_evolution, fetch_resource_spec_schema, resolve, resolve_specs};
 pub use models::{Capability, evolutions::EvolvedCollection};
+
+use crate::Snapshot;
 
 #[derive(Debug)]
 pub struct Evolution {
@@ -123,7 +125,11 @@ impl EvolveRequest {
 }
 
 #[tracing::instrument(skip_all, fields(user_id = %evolution.user_id))]
-pub async fn evolve(evolution: Evolution, db: &PgPool) -> anyhow::Result<EvolutionOutput> {
+pub async fn evolve(
+    evolution: Evolution,
+    db: &PgPool,
+    snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+) -> anyhow::Result<EvolutionOutput> {
     let Evolution {
         mut draft,
         requests,
@@ -162,9 +168,16 @@ pub async fn evolve(evolution: Evolution, db: &PgPool) -> anyhow::Result<Evoluti
     } else {
         None
     };
-    let live_collections =
-        crate::live_specs::get_live_specs(user_id, &fetch_collections, capability_filter, db)
-            .await?;
+    let snapshot = snapshot.token();
+    let snapshot = snapshot.result().unwrap();
+    let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
+    let live_collections = crate::live_specs::get_live_specs(
+        &fetch_collections,
+        capability_filter,
+        db,
+        &prefixes_and_capabilities,
+    )
+    .await?;
 
     draft.add_live(live_collections);
 

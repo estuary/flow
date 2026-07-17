@@ -1,5 +1,5 @@
 use anyhow::Context;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 // SnapshotData encapsulates all data required to construct a Snapshot.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -87,6 +87,16 @@ pub struct SnapshotMigration {
     // Data-plane being migrated to.
     pub tgt_plane_id: models::Id,
 }
+
+/// This is used to return a collections of all prefixes and the
+/// associated permissions.
+pub type PrefixesAndCapabilities<'a> = BTreeMap<
+    &'a str,
+    (
+        enumset::EnumSet<models::authz::Capability>,
+        models::Capability,
+    ),
+>;
 
 impl Snapshot {
     /// Construct a new, empty Snapshot.
@@ -339,6 +349,14 @@ impl Snapshot {
                     None
                 }
             })
+    }
+
+    /// Returns all prefix and permissions associated with the a given user.
+    pub fn prefix_and_capabilities_per_user<'a>(
+        &'a self,
+        user_id: uuid::Uuid,
+    ) -> PrefixesAndCapabilities<'a> {
+        tables::UserGrant::reachable_prefixes(&self.role_grants, &self.user_grants, user_id)
     }
 
     // Minimal interval between Snapshot refreshes.

@@ -1,6 +1,7 @@
 use super::{LockFailure, UncommittedBuild};
 use crate::draft;
 use crate::publications::db::{self, LiveRevision, LiveSpecUpdate};
+use crate::snapshot::PrefixesAndCapabilities;
 use anyhow::Context;
 use itertools::Itertools;
 use models::Capability;
@@ -663,21 +664,12 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
     names
 }
 
-pub type PrefixesAndCapabilities<'a> = BTreeMap<
-    &'a str,
-    (
-        enumset::EnumSet<models::authz::Capability>,
-        models::Capability,
-    ),
->;
-
 pub async fn resolve_live_specs(
-    user_id: Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
-    user_grants: PrefixesAndCapabilities<'_>,
+    permissions_set: &PrefixesAndCapabilities<'_>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
@@ -705,11 +697,11 @@ pub async fn resolve_live_specs(
     }
 
     let rows: Vec<crate::live_specs::LiveSpec> = crate::live_specs::fetch_live_specs(
-        user_id,
         &all_spec_names,
         verify_user_authz,
         true, // always fetch spec capabilities
         db,
+        permissions_set,
     )
     .await
     .context("fetching live specs")?;
@@ -868,6 +860,11 @@ pub async fn resolve_live_specs(
     data_plane_ids.sort();
     data_plane_ids.dedup();
 
+    let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = permissions_set
+        .iter()
+        .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
+        .unzip();
+
     live.data_planes = sqlx::query_as!(
         tables::DataPlane,
         r#"
@@ -876,13 +873,16 @@ pub async fn resolve_live_specs(
             SELECT id
             FROM UNNEST($1::flowid[]) AS t(id)
         ),
+        user_roles AS materialized (
+            select role_prefix, capability from UNNEST($3::text[], $4::grant_capability[]) as t(role_prefix, capability)
+        ),
         data_plane_names AS (
             SELECT name
             FROM UNNEST($2::text[]) AS t(name)
             -- User must be read-authorized to data-plane.
             WHERE EXISTS (
                 SELECT 1
-                FROM internal.user_roles($3, 'read') AS r
+                FROM user_roles AS r
                 WHERE starts_with(t.name, r.role_prefix)
             )
         )
@@ -905,7 +905,8 @@ pub async fn resolve_live_specs(
         "#,
         &data_plane_ids as &[Id],
         &data_plane_names as &[&str],
-        user_id as Uuid,
+        &prefixes,
+        &capabilities as &[Capability],
     )
     .fetch_all(db)
     .await?

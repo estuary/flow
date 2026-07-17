@@ -10,14 +10,16 @@ pub use db::{
     fetch_live_spec_names_by_prefix, fetch_live_specs, hard_delete_live_spec,
 };
 
+use crate::snapshot::PrefixesAndCapabilities;
+
 /// Fetches live specs, returning them as a `tables::LiveCatalog`. Optionally
 /// filters the specs based on user capability. If `filter_capability` is
 /// `None`, then no filtering will be done.
 pub async fn get_live_specs(
-    user_id: Uuid,
     names: &[String],
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
+    permissions_set: &PrefixesAndCapabilities<'_>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let mut live = tables::LiveCatalog::default();
 
@@ -27,11 +29,11 @@ pub async fn get_live_specs(
     // fetching a large number of specs when `filter_capability` is `Some`.
     for names_chunk in names.chunks(512) {
         let rows = db::fetch_live_specs(
-            user_id,
             names_chunk,
             filter_capability.is_some(), // fetch user capabilities only if needed
             false,                       // we never need spec_capabilities here
             db,
+            permissions_set,
         )
         .await?;
         for row in rows {

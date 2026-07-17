@@ -1,11 +1,14 @@
+use std::sync::Arc;
+
 use anyhow::Context;
 use control_plane_api::{
-    connector_tags,
+    Snapshot, connector_tags,
     discovers::{Discover, DiscoverHandler, Row, fetch_discover},
     draft, live_specs,
     proxy_connectors::DiscoverConnectors,
+    snapshot::PrefixesAndCapabilities,
 };
-use models::Id;
+use models::{Capability, Id};
 use serde::{Deserialize, Serialize};
 
 /// JobStatus is the possible outcomes of a handled discover operation.
@@ -84,6 +87,7 @@ fn precheck_failed(status: JobStatus) -> (JobStatus, ProcessResult) {
 
 pub struct DiscoverExecutor<C: DiscoverConnectors> {
     pub handler: DiscoverHandler<C>,
+    pub snapshot_watch: Arc<dyn tokens::Watch<Snapshot>>,
 }
 
 impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
@@ -151,9 +155,22 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         } else if !connector_tags::does_connector_exist(&row.image_name, pool).await? {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
+
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+        let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(row.user_id);
+
+        let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = prefixes_and_capabilities
+            .iter()
+            .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
+            .unzip();
+
         let maybe_data_plane = sqlx::query_as!(
             tables::DataPlane,
             r#"
+            with user_roles as materialized (
+                select role_prefix, capability from UNNEST($2::text[], $3::grant_capability[]) as t(role_prefix, capability)
+            )
             SELECT
                 d.id AS "control_id: Id",
                 d.data_plane_name,
@@ -169,12 +186,13 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             FROM data_planes d
             WHERE data_plane_name = $1
             AND EXISTS (
-                SELECT 1 FROM internal.user_roles($2, 'read') r
+                SELECT 1 FROM user_roles r
                 WHERE starts_with($1, r.role_prefix)
             )
             "#,
             row.data_plane_name,
-            row.user_id,
+            &prefixes,
+            &capabilities as &[Capability],
         )
         .fetch_optional(pool)
         .await
@@ -196,6 +214,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             image_composed,
             data_plane,
             pool,
+            &prefixes_and_capabilities,
         )
         .await;
 
@@ -253,6 +272,7 @@ async fn prepare_discover(
     image_composed: String,
     data_plane: tables::DataPlane,
     pool: &sqlx::PgPool,
+    prefixes_and_capabilities: &PrefixesAndCapabilities<'_>,
 ) -> anyhow::Result<Discover> {
     let mut draft = draft::load_draft(draft_id, pool)
         .await
@@ -270,8 +290,13 @@ async fn prepare_discover(
         let name = &[capture_name.to_string()];
         // Filter to only specs that the user can read. If they can't admin, then wait until they
         // try to publish to surface that error.
-        let live =
-            live_specs::get_live_specs(user_id, name, Some(models::Capability::Read), pool).await?;
+        let live = live_specs::get_live_specs(
+            name,
+            Some(models::Capability::Read),
+            pool,
+            prefixes_and_capabilities,
+        )
+        .await?;
 
         // See if there's an existing live capture with this name
         if let Some(tables::LiveCapture {
@@ -408,7 +433,9 @@ mod test {
             dekaf_address: None,
             dekaf_registry_address: None,
         };
-
+        let snapshot = harness.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+        let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
         let result = super::prepare_discover(
             user_id,
             draft_id,
@@ -419,6 +446,7 @@ mod test {
             image_composed.clone(),
             data_plane.clone(),
             &harness.pool,
+            &prefixes_and_capabilities,
         )
         .await
         .unwrap();

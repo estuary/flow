@@ -272,7 +272,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
             Ok(Envelope {
                 maybe_claims,
                 retry_after: retry_after.unwrap_or(tokens::DateTime::UNIX_EPOCH),
-                refresh: state.snapshot.token(),
+                refresh: state.snapshot_watch.token(),
                 started: started.unwrap_or_else(|| tokens::now()),
                 pg_pool: state.pg_pool.clone(),
                 original_uri,

@@ -293,13 +293,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .context("failed to create builds-root directory")?;
     }
 
-    // Start a logs sink into which agent loops may stream logs.
-    let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
-    let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
-    let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
-    let connectors = DataPlaneConnectors::new(logs_tx.clone());
-    let discover_handler = DiscoverHandler::new(connectors.clone());
-
     // Create the snapshot source and start the refresh loop.
     // Snapshot fetches retry internally forever, so a persistent failure (a
     // broken query, sops / KMS breakage) would otherwise hang here with the
@@ -313,6 +306,13 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     )
     .await
     .context("timed out fetching the initial authorization snapshot")?;
+
+    // Start a logs sink into which agent loops may stream logs.
+    let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
+    let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
+    let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
+    let connectors = DataPlaneConnectors::new(logs_tx.clone());
+    let discover_handler = DiscoverHandler::new(connectors.clone(), snapshot_watch.clone());
 
     let builder = control_plane_api::publications::builds::new_builder(connectors);
     let mut publisher = Publisher::new(
@@ -370,7 +370,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),
-        snapshot_watch,
+        snapshot_watch.clone(),
     ));
     let api_router = control_plane_api::build_router(
         api_app.clone(),
@@ -400,6 +400,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,
+                snapshot_watch,
             })
             .register(directive_executor)
             .register(connector_tags_executor)

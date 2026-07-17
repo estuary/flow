@@ -242,11 +242,12 @@ impl HarnessBuilder {
             eprintln!("end of PUB-LOG");
         });
 
-        let mock_connectors = connectors::MockDiscoverConnectors::default();
-        let discover_handler = DiscoverHandler::new(mock_connectors.clone());
-
         let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pool.clone());
         let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
+
+        let mock_connectors = connectors::MockDiscoverConnectors::default();
+        let discover_handler =
+            DiscoverHandler::new(mock_connectors.clone(), snapshot_watch.clone());
 
         let builder = control_plane_api::publications::builds::new_builder(mock_connectors);
         let publisher = Publisher::new(
@@ -630,12 +631,15 @@ impl TestHarness {
             .all_spec_names()
             .map(|n| (*n).to_owned())
             .collect();
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+        let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
         let specs = control_plane_api::live_specs::fetch_live_specs(
-            user_id,
             &owned_names,
             false, /* don't fetch user capabilities */
             false, /* don't fetch spec capabilities */
             &self.pool,
+            &prefixes_and_capabilities,
         )
         .await
         .expect("failed to query live specs");
@@ -1164,6 +1168,7 @@ impl TestHarness {
             }),
             task_types::DISCOVERS => Server::new().register(DiscoverExecutor {
                 handler: self.discover_handler.clone(),
+                snapshot_watch: self.snapshot_watch.clone(),
             }),
             task_types::APPLIED_DIRECTIVES => Server::new().register(self.directive_exec.clone()),
             task_types::TENANT_ALERT_EVALS => Server::new().register(
@@ -1617,7 +1622,7 @@ impl TestHarness {
             maybe_claims: control_plane_api::MaybeControlClaims::with_verified(verified),
             original_uri: axum::http::Uri::from_static("/graphql"),
             pg_pool: self.pool.clone(),
-            refresh: app.snapshot.token(),
+            refresh: app.snapshot_watch.token(),
             retry_after: tokens::DateTime::UNIX_EPOCH,
             started: tokens::now(),
             locale: control_plane_api::Locale::EnUS,

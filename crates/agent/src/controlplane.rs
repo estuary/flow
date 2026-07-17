@@ -576,12 +576,16 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
     }
 
     async fn get_live_specs(&self, names: BTreeSet<String>) -> anyhow::Result<tables::LiveCatalog> {
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+        let prefixes_and_capabilities =
+            snapshot.prefix_and_capabilities_per_user(self.system_user_id);
         let names = names.into_iter().collect::<Vec<_>>();
         let mut live = live_specs::get_live_specs(
-            self.system_user_id,
             &names,
             None, // don't filter based on user capability
             &self.pool,
+            &prefixes_and_capabilities,
         )
         .await?;
 
