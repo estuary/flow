@@ -448,6 +448,7 @@ mod test {
             dekaf_address: None,
             dekaf_registry_address: None,
         };
+        harness.refresh_snapshot().await;
         let snapshot = harness.snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
         let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
