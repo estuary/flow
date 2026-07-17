@@ -66,6 +66,7 @@ Estuary collections to your tables.
 | **`/region`**                     | Region                | AWS Region.                                                                                                                                         | string | Required         |
 | **`/namespace`**                  | Namespace             | Namespace for bound collection tables (unless overridden within the binding resource configuration).                                                | string | Required         |
 | `/upload_interval`                | Upload Interval       | Frequency at which files will be uploaded. Must be a valid ISO8601 duration string no greater than 4 hours.                                         | string | PT5M             |
+| `/advanced/nanosecond_timestamps` | Nanosecond Timestamps | Use nanosecond precision (Iceberg format v3) for date-time columns instead of microsecond precision (format v2).                                    | bool   | false            |
 | **`/catalog/catalog_type`**       | Catalog Type          | Either "Iceberg REST Server" or "AWS Glue".                                                                                                         | string | Required         |
 | `/catalog/glue_id`                | Glue Catalog ID       | Glue Catalog ID to use. If not specified, defaults to the account ID of the configured credentials. This enables cross-account Glue catalog access. | string |                  |
 | **`/catalog/uri`**                | URI                   | URI identifying the REST catalog, in the format of 'https://yourserver.com/catalog'.                                                                | string | Required         |
@@ -129,6 +130,13 @@ Estuary collection fields with `{type: string, format: time}` and `{type: string
 materialized as **string** columns rather than **time** and **uuid** columns for compatibility with
 Apache Spark. **[Nested types](https://iceberg.apache.org/spec/#nested-types)** are not currently
 supported.
+
+With the advanced option `nanosecond_timestamps` enabled, fields with `{format: date-time}` are
+instead materialized as **timestamptz_ns** columns with nanosecond precision, and tables are created
+using [Iceberg format v3](https://iceberg.apache.org/spec/#version-3-extended-types-and-capabilities).
+Make sure your query engine supports format v3 tables before enabling this option. Toggling it on an
+existing materialization requires a backfill of its bindings, because Iceberg has no in-place
+promotion between the two timestamp encodings.
 
 ## Table Maintenance
 
