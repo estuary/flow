@@ -9,6 +9,7 @@ use tracing_subscriber::prelude::*;
 pub struct TokioContext {
     runtime: Option<tokio::runtime::Runtime>,
     set_log_level_fn: Arc<dyn Fn(ops::log::Level) + Send + Sync>,
+    log_level: Arc<AtomicI32>,
 }
 
 impl TokioContext {
@@ -44,6 +45,7 @@ impl TokioContext {
         });
 
         // Build a tracing_subscriber::Filter which uses our dynamic log level.
+        let log_level_filter = log_level.clone();
         let log_filter = tracing_subscriber::filter::DynFilterFn::new(move |metadata, _cx| {
             let cur_level = match metadata.level().as_str() {
                 "TRACE" => ops::log::Level::Trace as i32,
@@ -61,7 +63,7 @@ impl TokioContext {
                 }
             }
 
-            cur_level <= log_level.load(Ordering::Relaxed)
+            cur_level <= log_level_filter.load(Ordering::Relaxed)
         });
 
         // Configure a tracing::Dispatch, which is a type-erased form of a tracing::Subscriber,
@@ -90,12 +92,20 @@ impl TokioContext {
         Self {
             runtime: Some(runtime),
             set_log_level_fn: set_log_level,
+            log_level,
         }
     }
 
     /// Return a function closure which dynamically updates the configured log level for tracing events.
     pub fn set_log_level_fn(&self) -> Arc<dyn Fn(ops::log::Level) + Send + Sync> {
         self.set_log_level_fn.clone()
+    }
+
+    /// The same atomic [`set_log_level_fn`](Self::set_log_level_fn) updates and
+    /// the tracing filter reads, exposed so task-log seams that bypass `tracing`
+    /// (the shard's [`FnLoggerFactory`](crate::FnLoggerFactory)) gate identically.
+    pub fn log_level_handle(&self) -> Arc<AtomicI32> {
+        self.log_level.clone()
     }
 
     thread_local!(static DISPATCH_GUARD: std::cell::Cell<Option<tracing::dispatcher::DefaultGuard>> = std::cell::Cell::new(None));

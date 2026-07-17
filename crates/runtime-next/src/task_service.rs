@@ -68,7 +68,7 @@ impl TaskService {
             // logs and flattened runtime Events alike — to the task-log file
             // (the same encoded-JSON handler the runtime's own tracing uses),
             // which the Go runtime forwards to the task's ops-log journal.
-            crate::FnLoggerFactory::new(log_handler),
+            crate::FnLoggerFactory::new(log_handler, tokio_context.log_level_handle()),
             // Inert registry: TaskService is the CGO entry point and does not
             // serve an admin surface; event! tracks still capture per-handler.
             service_kit::Registry::default(),
