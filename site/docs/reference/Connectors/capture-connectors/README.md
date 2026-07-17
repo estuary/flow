@@ -309,6 +309,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Zoho CRM
   - [Configuration](./zoho-crm.md)
   - Package - ghcr.io/estuary/source-zoho:v1
+- Zuora
+  - [Configuration](./zuora.md)
+  - Package - ghcr.io/estuary/source-zuora:v1
 
 ### Third party connectors
 
