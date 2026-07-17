@@ -170,3 +170,100 @@ If a record shows up here but not in your application, the problem is client-sid
 your consumer-group offsets and your deserializer. Permissive Avro/JSON decoders can
 silently drop records that fail to decode — switch to a strict or fail-fast mode to surface
 the error rather than discarding the record.
+
+## Consumer behaviors
+
+Dekaf maps Estuary collections (backed by Gazette journals) onto the Kafka protocol, so a
+few behaviors differ from a native Kafka broker. These apply to every consumer (kcat,
+librdkafka, Flink, Spark, or a custom client).
+
+### Offsets are journal byte positions
+
+Each journal in a collection is exposed as one Kafka partition, so a collection with N
+journals has N partitions. The Kafka offset is the underlying journal byte position, not a
+record counter: offsets advance by the size of each document, not by 1. Do not assume
+contiguous or record-counting offsets, and do not compute a record count from an offset
+range.
+
+### The latest offset can briefly move backward
+
+The high-water-mark (latest offset) that Dekaf advertises for a partition can momentarily
+move backward during a routine broker hand-off, then recover within minutes. Recent data
+you have already read may still be in the broker's memory before it is flushed to object
+storage, and during a hand-off the advertised latest can briefly fall back to the last
+flushed position.
+
+This is a transient offset-reporting effect, not data loss: the records remain in the
+collection and the latest offset catches back up on its own.
+
+:::caution
+Some clients treat any backward move of the latest offset as data loss. Apache Spark's
+`failOnDataLoss=true` (its default) will abort the query, and librdkafka-based clients may
+log `OFFSET_OUT_OF_RANGE` and reset per `auto.offset.reset`. Before concluding data was
+lost, confirm the records are present with `flowctl collections read --collection <name>`
+(narrow by time on a large collection), then resume from your committed offset. See the
+Spark section below for handling.
+:::
+
+### Avro decoding honors logicalTypes
+
+Decoded values follow their Avro `logicalType`. For example, a `string` with
+`logicalType: uuid` deserializes to a UUID object in many clients (a `uuid.UUID` in
+confluent-kafka Python), not a plain string. Comparing such a value against string IDs can
+silently never match and look like missing records — normalize the type (for example,
+`str(value)`) before comparing. This is a client-side decoding concern, not an Estuary one.
+
+### Read partitions in parallel by splitting the collection
+
+Because each journal is one Kafka partition, you parallelize reads by splitting the
+collection into more journals. A split only distributes data written after it; to spread an
+existing backlog across the new journals you also need to re-backfill from the source. A
+split is a collection-level change, so every materialization on the collection sees the new
+journals (non-breaking). Contact Estuary support before splitting a production collection.
+
+## Reading from Apache Spark Structured Streaming
+
+Spark's `kafka` source reads a Dekaf topic directly. Read [Consumer
+behaviors](#consumer-behaviors) first; the items below are Spark-specific configuration on
+top of those behaviors.
+
+### Handle `failOnDataLoss`
+
+Spark's default `failOnDataLoss=true` aborts the query whenever a partition's latest offset
+moves backward, including the transient case described above, with no real loss. Choose one
+of:
+
+- Set `failOnDataLoss=false` and make your sink idempotent (deduplicate on the document
+  key). With a checkpoint, Spark keeps your committed offset and continues once the latest
+  offset recovers, so the transient case does not skip data.
+- Keep `failOnDataLoss=true` and wrap the streaming query in an auto-restart that retries on
+  this specific exception.
+
+If you hit the error, the records are almost always still present: verify with
+`flowctl collections read`, then restart (Spark resumes from its checkpoint).
+
+### Set the Avro datetime rebase mode explicitly
+
+Spark's `PERMISSIVE` Avro mode silently nulls values it cannot parse, so affected records
+look empty or missing. Use `FAILFAST` while debugging to surface the real error. You can
+then choose how you'd like to handle these values.
+
+For example, dates before the Gregorian cutover, like `1582-10-15`, cannot be parsed with
+permissive null-ing. With `FAILFAST`, the underlying
+`INCONSISTENT_BEHAVIOR_CROSS_VERSION.READ_ANCIENT_DATETIME` error is exposed (SPARK-31404),
+and you can set `spark.sql.avro.datetimeRebaseModeInRead` to handle old datetime values:
+
+- Use `CORRECTED` to read values as-is
+- Use `LEGACY` to rebase across the calendar difference
+
+### Example reader options
+
+```
+.option("kafka.bootstrap.servers", "dekaf.estuary-data.com:9092")
+.option("kafka.security.protocol", "SASL_SSL")
+.option("kafka.sasl.mechanism", "PLAIN")
+.option("kafka.sasl.jaas.config", "<JAAS config: username = Dekaf materialization name, password = auth token>")
+.option("startingOffsets", "earliest")
+.option("failOnDataLoss", "false")
+.option("subscribe", "Your_Topic_Name")
+```
