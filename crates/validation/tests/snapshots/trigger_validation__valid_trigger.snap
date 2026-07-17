@@ -3,8 +3,8 @@ source: crates/validation/tests/trigger_validation.rs
 expression: triggers
 ---
 {
-  "config": [
-    {
+  "config": {
+    "dbViewsHook": {
       "headers": {
         "Authorization": "Bearer my-secret-token",
         "X-Tenant-Id": "tenant-abc"
@@ -15,5 +15,5 @@ expression: triggers
       "timeout": "1m",
       "url": "https://example.com/webhook"
     }
-  ]
+  }
 }

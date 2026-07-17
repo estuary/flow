@@ -84,34 +84,26 @@ pub async fn encrypt_configs(
     Ok(())
 }
 
-/// Encrypt trigger configs, substituting placeholder values for fields that
-/// should not be HMAC-protected by SOPS. This allows users to modify these
-/// fields without causing HMAC mismatches that would require re-entering secret
-/// header values.
+/// Encrypt trigger configs. The triggers schema marks header values as
+/// `secret` (encrypted) and tunables as `nonsensitive` (modifiable after
+/// encryption via a `sops.overlay`, without re-entering secret headers).
 async fn encrypt_triggers(
     ctx: &crate::CliContext,
     task_name: &str,
     triggers: &models::Triggers,
     schema: &RawValue,
 ) -> anyhow::Result<models::Triggers> {
-    let mut to_encrypt = triggers.clone();
-    let originals = models::triggers::strip_hmac_excluded_fields(&mut to_encrypt);
-
-    let stripped_json = serde_json::to_string(&to_encrypt).context("serializing triggers")?;
+    let plaintext = serde_json::to_string(triggers).context("serializing triggers")?;
     let encrypted_raw = encrypt_config(
         ctx,
         task_name,
         models::CatalogType::Materialization,
-        &RawValue::from_string(stripped_json).context("triggers JSON is invalid")?,
+        &RawValue::from_string(plaintext).context("triggers JSON is invalid")?,
         schema,
     )
     .await?;
 
-    let mut encrypted: models::Triggers =
-        serde_json::from_str(encrypted_raw.get()).context("deserializing encrypted triggers")?;
-    models::triggers::restore_hmac_excluded_fields(&mut encrypted, originals);
-
-    Ok(encrypted)
+    serde_json::from_str(encrypted_raw.get()).context("deserializing encrypted triggers")
 }
 
 async fn encrypt_config(

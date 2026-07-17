@@ -11,7 +11,10 @@ pub struct Triggers {
     /// # Minimum interval between trigger deliveries.
     /// A burst of transactions within the interval collapses into a single
     /// delivery covering the full span.
-    #[schemars(schema_with = "super::duration_schema")]
+    #[schemars(
+        schema_with = "super::duration_schema",
+        extend("nonsensitive" = true)
+    )]
     #[serde(
         default,
         with = "humantime_serde",
@@ -19,8 +22,9 @@ pub struct Triggers {
     )]
     pub interval: Option<Duration>,
     /// # Trigger Configurations
-    /// List of webhook triggers to fire when new data is materialized.
-    pub config: Vec<TriggerConfig>,
+    /// Webhook triggers to fire when new data is materialized,
+    /// keyed on a user-assigned trigger name.
+    pub config: BTreeMap<super::Token, TriggerConfig>,
     // SOPS encryption metadata (internal, not user-facing).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
@@ -43,16 +47,20 @@ pub struct TriggerConfig {
     #[schemars(schema_with = "secret_string_map_schema")]
     pub headers: BTreeMap<String, String>,
     /// # Handlebars template for the JSON payload body.
+    #[schemars(extend("nonsensitive" = true))]
     pub payload_template: String,
     /// # Request timeout for each delivery attempt.
     /// The task is failed if all attempts are exhausted without a successful delivery.
     #[serde(default = "default_timeout", with = "humantime_serde")]
-    #[schemars(schema_with = "super::duration_schema", extend("default" = "30s"))]
+    #[schemars(
+        schema_with = "super::duration_schema",
+        extend("default" = "30s", "nonsensitive" = true)
+    )]
     pub timeout: Duration,
     /// # Maximum number of delivery attempts (including the initial attempt).
     /// The task is failed if all attempts are exhausted without a successful delivery.
     #[serde(default = "default_max_attempts")]
-    #[schemars(extend("default" = 3_u32))]
+    #[schemars(extend("default" = 3_u32, "nonsensitive" = true))]
     pub max_attempts: u32,
 }
 
@@ -150,50 +158,6 @@ pub fn build_template_context(
     context
 }
 
-/// Original values of HMAC-excluded fields for a single trigger config,
-/// captured by `strip_hmac_excluded_fields` and restored by
-/// `restore_hmac_excluded_fields`. `interval` is the shared top-level
-/// `Triggers.interval`, duplicated into every record so the token remains a
-/// flat per-config Vec for external consumers (flow-web).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HmacExcludedOriginals {
-    pub payload_template: String,
-    pub timeout: Duration,
-    pub max_attempts: u32,
-    pub interval: Option<Duration>,
-}
-
-/// Replace HMAC-excluded fields with placeholder values, returning the
-/// original values. Call `restore_hmac_excluded_fields` after the SOPS
-/// operation to put the originals back.
-pub fn strip_hmac_excluded_fields(triggers: &mut Triggers) -> Vec<HmacExcludedOriginals> {
-    let interval = std::mem::take(&mut triggers.interval);
-    triggers
-        .config
-        .iter_mut()
-        .map(|config| HmacExcludedOriginals {
-            payload_template: std::mem::take(&mut config.payload_template),
-            timeout: std::mem::replace(&mut config.timeout, Duration::ZERO),
-            max_attempts: std::mem::replace(&mut config.max_attempts, 0),
-            interval,
-        })
-        .collect()
-}
-
-/// Restore original values for HMAC-excluded fields after a SOPS operation.
-pub fn restore_hmac_excluded_fields(
-    triggers: &mut Triggers,
-    originals: Vec<HmacExcludedOriginals>,
-) {
-    triggers.interval = originals.first().and_then(|orig| orig.interval);
-    for (config, orig) in triggers.config.iter_mut().zip(originals) {
-        config.payload_template = orig.payload_template;
-        config.timeout = orig.timeout;
-        config.max_attempts = orig.max_attempts;
-    }
-}
-
 fn secret_string_map_schema(_gen: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
     schemars::json_schema!({
         "type": "object",
@@ -205,8 +169,10 @@ fn secret_string_map_schema(_gen: &mut schemars::generate::SchemaGenerator) -> s
 }
 
 /// Returns the JSON Schema for `Triggers` as a `serde_json::Value`.
-/// Used by the encryption layer; carries `"secret": true` annotations
-/// on header values so that SOPS encrypts only those values.
+/// Used by the encryption layer, which encrypts values annotated
+/// `"secret": true` (header values), and by `sops.overlay` validation,
+/// which permits post-encryption modification only of locations
+/// annotated `"nonsensitive": true`.
 pub fn triggers_schema() -> serde_json::Value {
     let settings = schemars::generate::SchemaSettings::draft2019_09();
     let schema = schemars::SchemaGenerator::new(settings).root_schema_for::<Triggers>();
@@ -225,26 +191,21 @@ mod test {
     }
 
     #[test]
-    fn strip_and_restore_hmac_excluded_fields() {
-        let mut triggers = Triggers {
-            interval: Some(Duration::from_secs(1800)),
-            config: vec![TriggerConfig {
-                url: "https://example.com/webhook".to_string(),
-                method: HttpMethod::POST,
-                headers: [("Authorization".to_string(), "Bearer secret".to_string())]
-                    .into_iter()
-                    .collect(),
-                payload_template: "my template".to_string(),
-                timeout: Duration::from_secs(45),
-                max_attempts: 5,
-            }],
-            sops: None,
-        };
-        let original = triggers.clone();
+    fn trigger_config_round_trip() {
+        let triggers: Triggers = serde_json::from_value(serde_json::json!({
+            "interval": "30m",
+            "config": {
+                "onCommit": {
+                    "url": "https://example.com/webhook",
+                    "headers": {"Authorization": "Bearer secret"},
+                    "payloadTemplate": "{}",
+                    "timeout": "45s",
+                    "maxAttempts": 5,
+                },
+            },
+        }))
+        .unwrap();
 
-        let originals = strip_hmac_excluded_fields(&mut triggers);
-        insta::assert_json_snapshot!("stripped", serde_json::to_value(&triggers).unwrap());
-        restore_hmac_excluded_fields(&mut triggers, originals);
-        assert_eq!(triggers, original);
+        insta::assert_json_snapshot!("round-trip", serde_json::to_value(&triggers).unwrap());
     }
 }

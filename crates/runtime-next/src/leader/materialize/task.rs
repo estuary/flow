@@ -97,30 +97,18 @@ impl Task {
 async fn decrypt_and_compile_triggers(
     triggers: &[u8],
 ) -> anyhow::Result<triggers::CompiledTriggers> {
-    let mut triggers: models::Triggers =
+    let sealed: Box<models::RawValue> =
         serde_json::from_slice(triggers).context("parsing triggers JSON")?;
+    let schema =
+        serde_json::to_vec(&models::triggers_schema()).expect("triggers schema must serialize");
 
-    // Strip HMAC-excluded fields before decryption (they were stripped
-    // during encryption so SOPS HMAC doesn't cover them), then restore.
-    let originals = models::triggers::strip_hmac_excluded_fields(&mut triggers);
-
-    let stripped = models::RawValue::from_string(
-        serde_json::to_string(&triggers).expect("triggers always serialize"),
-    )
-    .expect("trigger serialization is JSON");
-
-    let mut decrypted: models::Triggers = serde_json::from_str(
-        unseal::decrypt_sops(&stripped)
+    let decrypted: models::Triggers = serde_json::from_str(
+        unseal::overlay::decrypt_with_overlay(&sealed, &schema)
             .await
             .context("decrypting triggers_json")?
             .get(),
     )
     .context("parsing decrypted triggers JSON")?;
 
-    models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
-
-    let compiled =
-        triggers::CompiledTriggers::compile(decrypted).context("compiling trigger templates")?;
-
-    Ok(compiled)
+    triggers::CompiledTriggers::compile(decrypted).context("compiling trigger templates")
 }

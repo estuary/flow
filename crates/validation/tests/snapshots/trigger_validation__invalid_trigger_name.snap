@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/trigger_validation.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/db-views#/materializations/testing~1db-views/triggers/config/not%20a%20token!,
+        error: not a token! cannot be used as name for trigger (" a token!" is invalid),
+    },
+]

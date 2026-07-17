@@ -227,6 +227,42 @@ mod test {
     }
 
     #[test]
+    fn triggers_schema_overlay_locations() {
+        // Lock in that the production materialization-triggers schema works with
+        // overlays: its `config` map is traversed via `additionalProperties`, its
+        // `nonsensitive` annotations authorize tunables, and everything else —
+        // notably the request destination and secret headers — is rejected.
+        let schema = serde_json::to_vec(&models::triggers_schema()).unwrap();
+
+        validate_overlay_nonsensitive(
+            &json!({
+                "interval": "15m",
+                "config": {
+                    "onCommit": {
+                        "timeout": "45s",
+                        "maxAttempts": 5,
+                        "payloadTemplate": "{\"run\": \"{{run_id}}\"}",
+                    },
+                },
+            }),
+            &schema,
+        )
+        .unwrap();
+
+        for overlay in [
+            json!({"config": {"onCommit": {"url": "https://evil.example.com"}}}),
+            json!({"config": {"onCommit": {"method": "PUT"}}}),
+            json!({"config": {"onCommit": {"headers": {"Authorization": "pwn"}}}}),
+            json!({"config": {"onCommit": null}}),
+        ] {
+            assert!(
+                validate_overlay_nonsensitive(&overlay, &schema).is_err(),
+                "expected rejection of {overlay}"
+            );
+        }
+    }
+
+    #[test]
     fn extract_overlay_variants() {
         let absent: Box<models::RawValue> =
             serde_json::from_value(json!({"address": "db:5432"})).unwrap();

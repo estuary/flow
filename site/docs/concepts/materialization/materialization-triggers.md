@@ -67,8 +67,10 @@ materializations:
       # one delivery per interval.
       # Optional. Default: unset (fire on every transaction).
       interval: 30m
+      # Triggers are keyed on a name of your choosing.
       config:
-        - # URL of the webhook endpoint.
+        myWebhook:
+          # URL of the webhook endpoint.
           # Required, type: string
           url: "https://example.com/webhook"
           # HTTP method for the request.
@@ -105,7 +107,7 @@ materializations:
 | Property | Title | Description | Type | Default |
 |---|---|---|---|---|
 | **`/triggers/interval`** | Interval | Minimum interval between deliveries, shared by all configured triggers. A burst of transactions collapses into at most one delivery per interval, covering the full span. Unset: fire on every transaction. | string (duration) | unset |
-| **`/triggers/config`** | Trigger Configurations | List of webhook triggers to fire when new data is materialized. | array | |
+| **`/triggers/config`** | Trigger Configurations | Webhook triggers to fire when new data is materialized, keyed on a user-assigned trigger name. | object | |
 | **`/triggers/config/*/url`** | URL | URL of the webhook endpoint. Must be a valid URL. | string | |
 | **`/triggers/config/*/method`** | HTTP Method | HTTP method for the request. One of `POST`, `PUT`, or `PATCH`. | string | `POST` |
 | **`/triggers/config/*/headers`** | Headers | HTTP headers to include in the request. Values are encrypted at rest. | object | |
@@ -141,7 +143,8 @@ simple JSON body with a `text` field:
 ```yaml
 triggers:
   config:
-    - url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+    notifySlack:
+      url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
       payloadTemplate: |
         {
           "text": "Materialization {{materialization_name}} committed new data from {{#each collection_names}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}"
@@ -153,7 +156,8 @@ triggers:
 ```yaml
 triggers:
   config:
-    - url: "https://cloud.getdbt.com/api/v2/accounts/12345/jobs/67890/run/"
+    runDbt:
+      url: "https://cloud.getdbt.com/api/v2/accounts/12345/jobs/67890/run/"
       headers:
         Authorization: "Token my-dbt-api-token"
       payloadTemplate: |
@@ -195,7 +199,8 @@ The `ref` field specifies which branch to run against:
 ```yaml
 triggers:
   config:
-    - url: "https://api.github.com/repos/YOUR_ORG/YOUR_DBT_REPO/actions/workflows/dbt-run.yml/dispatches"
+    dispatchDbtRun:
+      url: "https://api.github.com/repos/YOUR_ORG/YOUR_DBT_REPO/actions/workflows/dbt-run.yml/dispatches"
       headers:
         Authorization: "Bearer ghp_your_personal_access_token"
       payloadTemplate: |
@@ -219,7 +224,8 @@ without storing them in plaintext in the template:
 ```yaml
 triggers:
   config:
-    - url: "https://api.example.com/notify"
+    notifyApi:
+      url: "https://api.example.com/notify"
       headers:
         X-Api-Key: "sk-secret-key-value"
       payloadTemplate: |
@@ -238,10 +244,12 @@ transaction:
 ```yaml
 triggers:
   config:
-    - url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+    notifySlack:
+      url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
       payloadTemplate: |
         {"text": "New data from {{materialization_name}}"}
-    - url: "https://cloud.getdbt.com/api/v2/accounts/123/jobs/456/run/"
+    runDbt:
+      url: "https://cloud.getdbt.com/api/v2/accounts/123/jobs/456/run/"
       headers:
         Authorization: "Token dbt-token"
       payloadTemplate: |
@@ -287,14 +295,13 @@ Header values are automatically encrypted at rest using
 with triggers, header values are encrypted by the config-encryption service
 before being stored.
 
-SOPS protects the integrity of encrypted configurations with an HMAC. The
-following fields are covered by this integrity check and **cannot be modified**
-after initial publication without re-entering all secret header values:
-
-- `url`
-- `method`
-- `headers` (keys and encrypted values)
+SOPS protects the integrity of encrypted configurations with a MAC:
+after initial publication, `url`, `method`, and `headers` (names and
+encrypted values) cannot be modified without re-entering all secret
+header values.
 
 The remaining fields (`payloadTemplate`, `timeout`, `maxAttempts`, and the
-top-level `interval`) are excluded from the SOPS integrity check, so you can
-modify them freely without needing to re-enter your secret header values.
+top-level `interval`) may still be changed after encryption: edits to them
+are stored as a plaintext `sops.overlay` stanza that is merged over the
+encrypted configuration when your materialization runs, so you never need
+to re-enter secret header values to adjust them.

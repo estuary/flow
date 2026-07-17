@@ -10,10 +10,13 @@ expression: schema
   "properties": {
     "config": {
       "title": "Trigger Configurations",
-      "description": "List of webhook triggers to fire when new data is materialized.",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/TriggerConfig"
+      "description": "Webhook triggers to fire when new data is materialized,\nkeyed on a user-assigned trigger name.",
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[\\p{Letter}\\p{Number}\\-_\\.]+$": {
+          "$ref": "#/$defs/TriggerConfig"
+        }
       }
     },
     "interval": {
@@ -23,6 +26,7 @@ expression: schema
         "string",
         "null"
       ],
+      "nonsensitive": true,
       "pattern": "^\\d+(s|m|h|d)$"
     }
   },
@@ -58,7 +62,8 @@ expression: schema
           "type": "integer",
           "format": "uint32",
           "default": 3,
-          "minimum": 0
+          "minimum": 0,
+          "nonsensitive": true
         },
         "method": {
           "title": "HTTP method to use for the webhook request.",
@@ -67,7 +72,8 @@ expression: schema
         },
         "payloadTemplate": {
           "title": "Handlebars template for the JSON payload body.",
-          "type": "string"
+          "type": "string",
+          "nonsensitive": true
         },
         "timeout": {
           "title": "Request timeout for each delivery attempt.",
@@ -77,6 +83,7 @@ expression: schema
             "null"
           ],
           "default": "30s",
+          "nonsensitive": true,
           "pattern": "^\\d+(s|m|h|d)$"
         },
         "url": {

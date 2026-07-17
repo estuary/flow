@@ -5,12 +5,13 @@ use models::TriggerVariables;
 pub struct CompiledTriggers {
     /// Minimum interval between deliveries, shared by all configured triggers.
     pub interval: Option<std::time::Duration>,
-    pub configs: Vec<models::TriggerConfig>,
+    pub configs: std::collections::BTreeMap<models::Token, models::TriggerConfig>,
     registry: handlebars::Handlebars<'static>,
 }
 
 impl CompiledTriggers {
-    /// Compile all trigger payload templates into a shared Handlebars registry.
+    /// Compile all trigger payload templates into a shared Handlebars registry,
+    /// keyed on each trigger's user-assigned name.
     pub fn compile(triggers: models::Triggers) -> anyhow::Result<Self> {
         let models::Triggers {
             interval,
@@ -22,10 +23,10 @@ impl CompiledTriggers {
         registry.set_strict_mode(true);
         registry.register_escape_fn(handlebars::no_escape);
 
-        for (index, config) in configs.iter().enumerate() {
+        for (name, config) in configs.iter() {
             registry
-                .register_template_string(&Self::template_name(index), &config.payload_template)
-                .with_context(|| format!("compiling trigger {index} template"))?;
+                .register_template_string(name, &config.payload_template)
+                .with_context(|| format!("compiling trigger '{name}' template"))?;
         }
 
         Ok(Self {
@@ -35,15 +36,11 @@ impl CompiledTriggers {
         })
     }
 
-    /// Render the template for trigger `index` with the given context.
-    pub fn render(&self, index: usize, context: &serde_json::Value) -> anyhow::Result<String> {
+    /// Render the template of the named trigger with the given context.
+    pub fn render(&self, name: &str, context: &serde_json::Value) -> anyhow::Result<String> {
         self.registry
-            .render(&Self::template_name(index), context)
-            .with_context(|| format!("rendering trigger {index} template"))
-    }
-
-    fn template_name(index: usize) -> String {
-        format!("trigger_{index}")
+            .render(name, context)
+            .with_context(|| format!("rendering trigger '{name}' template"))
     }
 }
 
@@ -95,10 +92,9 @@ pub async fn send_webhooks(
     let rendered: Vec<String> = compiled
         .configs
         .iter()
-        .enumerate()
-        .map(|(index, trigger)| {
+        .map(|(name, trigger)| {
             let context = models::build_template_context(variables, &trigger.headers);
-            compiled.render(index, &context)
+            compiled.render(name, &context)
         })
         .collect::<anyhow::Result<_>>()?;
 
@@ -106,9 +102,8 @@ pub async fn send_webhooks(
         .configs
         .iter()
         .zip(rendered)
-        .enumerate()
-        .map(|(index, (trigger, body))| {
-            send_single_webhook(index, trigger, body, client, base_backoff)
+        .map(|((name, trigger), body)| {
+            send_single_webhook(name, trigger, body, client, base_backoff)
         })
         .collect();
 
@@ -127,7 +122,7 @@ pub async fn send_webhooks(
 }
 
 async fn send_single_webhook(
-    index: usize,
+    name: &str,
     trigger: &models::TriggerConfig,
     body: String,
     client: &reqwest::Client,
@@ -189,7 +184,7 @@ async fn send_single_webhook(
                     && status != reqwest::StatusCode::TOO_MANY_REQUESTS
                 {
                     anyhow::bail!(
-                        "trigger {index} ({}) received non-retryable {status}: {response_body}",
+                        "trigger '{name}' ({}) received non-retryable {status}: {response_body}",
                         trigger.url,
                     );
                 }
@@ -197,7 +192,7 @@ async fn send_single_webhook(
                 service_kit::event!(
                     tracing::Level::WARN,
                     "trigger",
-                    trigger_index = index,
+                    trigger_name = name.to_string(),
                     url = trigger.url.clone(),
                     status = status.as_u16(),
                     attempt,
@@ -210,7 +205,7 @@ async fn send_single_webhook(
                 service_kit::event!(
                     tracing::Level::WARN,
                     "trigger",
-                    trigger_index = index,
+                    trigger_name = name.to_string(),
                     url = trigger.url.clone(),
                     error = service_kit::event::lazy(move || err.to_string()),
                     attempt,
@@ -222,7 +217,7 @@ async fn send_single_webhook(
     }
 
     anyhow::bail!(
-        "trigger {index} ({}) exhausted {total_attempts} attempts: {last_err}",
+        "trigger '{name}' ({}) exhausted {total_attempts} attempts: {last_err}",
         trigger.url,
     )
 }
@@ -276,13 +271,15 @@ mod test {
             .insert("Authorization".to_string(), "Bearer my-secret".to_string());
         let compiled = CompiledTriggers::compile(models::Triggers {
             interval: None,
-            config: vec![trigger.clone()],
+            config: [(models::Token::new("myHook"), trigger.clone())]
+                .into_iter()
+                .collect(),
             sops: None,
         })
         .unwrap();
         let context =
             models::build_template_context(&TriggerVariables::placeholder(), &trigger.headers);
-        let rendered = compiled.render(0, &context).unwrap();
+        let rendered = compiled.render("myHook", &context).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&rendered).unwrap();
         insta::assert_json_snapshot!("rendered-template", parsed);
     }
@@ -366,7 +363,9 @@ mod test {
 
             let compiled = CompiledTriggers::compile(models::Triggers {
                 interval: None,
-                config: vec![trigger],
+                config: [(models::Token::new("myHook"), trigger)]
+                    .into_iter()
+                    .collect(),
                 sops: None,
             })
             .unwrap();

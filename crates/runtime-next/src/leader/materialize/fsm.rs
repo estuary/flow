@@ -1371,14 +1371,19 @@ mod tests {
                 super::super::triggers::CompiledTriggers::compile(models::Triggers {
                     // No interval: fire every transaction that materializes data
                     interval: None,
-                    config: vec![models::TriggerConfig {
-                        url: "https://example.com/hook".to_string(),
-                        method: models::HttpMethod::POST,
-                        headers: Default::default(),
-                        payload_template: "{}".to_string(),
-                        timeout: Duration::from_secs(30),
-                        max_attempts: 3,
-                    }],
+                    config: [(
+                        models::Token::new("myHook"),
+                        models::TriggerConfig {
+                            url: "https://example.com/hook".to_string(),
+                            method: models::HttpMethod::POST,
+                            headers: Default::default(),
+                            payload_template: "{}".to_string(),
+                            timeout: Duration::from_secs(30),
+                            max_attempts: 3,
+                        },
+                    )]
+                    .into_iter()
+                    .collect(),
                     sops: None,
                 })
                 .unwrap(),
@@ -1949,14 +1954,19 @@ mod tests {
         task.triggers = Some(std::sync::Arc::new(
             super::super::triggers::CompiledTriggers::compile(models::Triggers {
                 interval: Some(Duration::from_secs(600)),
-                config: vec![models::TriggerConfig {
-                    url: "https://example.com/hook".to_string(),
-                    method: models::HttpMethod::POST,
-                    headers: Default::default(),
-                    payload_template: "{}".to_string(),
-                    timeout: Duration::from_secs(30),
-                    max_attempts: 3,
-                }],
+                config: [(
+                    models::Token::new("myHook"),
+                    models::TriggerConfig {
+                        url: "https://example.com/hook".to_string(),
+                        method: models::HttpMethod::POST,
+                        headers: Default::default(),
+                        payload_template: "{}".to_string(),
+                        timeout: Duration::from_secs(30),
+                        max_attempts: 3,
+                    },
+                )]
+                .into_iter()
+                .collect(),
                 sops: None,
             })
             .unwrap(),

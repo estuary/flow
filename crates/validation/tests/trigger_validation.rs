@@ -12,7 +12,8 @@ test://example/db-views:
     testing/db-views:
       triggers:
         config:
-          - url: "https://example.com/webhook"
+          dbViewsHook:
+            url: "https://example.com/webhook"
             method: POST
             headers:
               Authorization: "Bearer my-secret-token"
@@ -56,7 +57,8 @@ test://example/db-views:
     testing/db-views:
       triggers:
         config:
-          - url: "not a url"
+          badHook:
+            url: "not a url"
             payloadTemplate: '{"bogus": "{{bogus}}"}'
             timeout: 0s
 "#,
@@ -74,8 +76,27 @@ test://example/db-views:
     testing/db-views:
       triggers:
         config:
-          - url: "https://example.com/webhook"
+          badJson:
+            url: "https://example.com/webhook"
             payloadTemplate: 'not valid json {{materialization_name}}'
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_invalid_trigger_name() {
+    let errors = common::run_errors(
+        MODEL_YAML,
+        r#"
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      triggers:
+        config:
+          "not a token!":
+            url: "https://example.com/webhook"
+            payloadTemplate: '{}'
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -91,7 +112,8 @@ test://example/db-views:
     testing/db-views:
       triggers:
         config:
-          - url: "https://example.com/webhook"
+          badSyntax:
+            url: "https://example.com/webhook"
             payloadTemplate: '{"unclosed": "{{#each collection_names}}"}'
 "#,
     );

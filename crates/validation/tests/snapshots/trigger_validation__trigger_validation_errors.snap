@@ -4,15 +4,15 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,
-        error: trigger 0: invalid URL: relative URL without a base,
+        scope: test://example/db-views#/materializations/testing~1db-views/triggers/config/badHook,
+        error: trigger badHook: invalid URL: relative URL without a base,
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,
-        error: trigger 0: timeout must be greater than 0,
+        scope: test://example/db-views#/materializations/testing~1db-views/triggers/config/badHook,
+        error: trigger badHook: timeout must be greater than 0,
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/triggers/0,
-        error: trigger 0: payload template is invalid: Error rendering "t" line 1, col 12: Failed to access variable in strict mode Some("bogus"),
+        scope: test://example/db-views#/materializations/testing~1db-views/triggers/config/badHook,
+        error: trigger badHook: payload template is invalid: Error rendering "t" line 1, col 12: Failed to access variable in strict mode Some("bogus"),
     },
 ]

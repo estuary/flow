@@ -852,11 +852,24 @@ mod test {
         let (addr, _handle) = start_mock_server(app).await;
         let url = format!("http://{addr}/webhook");
         let compiled_triggers = Some(Arc::new(
-            CompiledTriggers::compile(vec![
-                make_trigger_with_url(&url, r#"{"mat": "{{materialization_name}}"}"#),
-                make_trigger_with_url(&url, r#"{"img": "{{connector_image}}"}"#),
-                make_trigger_with_url(&url, r#"{"run": "{{run_id}}"}"#),
-            ])
+            CompiledTriggers::compile(
+                [
+                    (
+                        models::Token::new("mat"),
+                        make_trigger_with_url(&url, r#"{"mat": "{{materialization_name}}"}"#),
+                    ),
+                    (
+                        models::Token::new("img"),
+                        make_trigger_with_url(&url, r#"{"img": "{{connector_image}}"}"#),
+                    ),
+                    (
+                        models::Token::new("run"),
+                        make_trigger_with_url(&url, r#"{"run": "{{run_id}}"}"#),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            )
             .unwrap(),
         ));
         let http_client = reqwest::Client::new();

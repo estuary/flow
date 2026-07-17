@@ -307,7 +307,7 @@ expression: json_test(msg)
           "number": 9000
         }
       ],
-      "triggers": [{"method":"POST","payloadTemplate":"{}","url":"https://example.com/webhook"}],
+      "triggers": {"config":{"onCommit":{"method":"POST","payloadTemplate":"{}","url":"https://example.com/webhook"}}},
       "createdAt": "2025-07-09"
     },
     "version": "11:22:33:44",
@@ -507,7 +507,7 @@ expression: json_test(msg)
           "number": 9000
         }
       ],
-      "triggers": [{"method":"POST","payloadTemplate":"{}","url":"https://example.com/webhook"}],
+      "triggers": {"config":{"onCommit":{"method":"POST","payloadTemplate":"{}","url":"https://example.com/webhook"}}},
       "createdAt": "2025-07-09"
     },
     "version": "11:22:33:44",
