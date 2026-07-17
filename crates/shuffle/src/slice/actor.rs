@@ -124,6 +124,12 @@ impl SliceActor {
         let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        // Warning mechanism which is armed on tick and disarmed on read.
+        // This is a coarse mechanism as it's disarmed by any read, including
+        // completions of tailing bindings that don't unblock the heap,
+        // but it's cheap and gives us noisy optics into truly wedged tasks.
+        let mut stall_armed = false;
+
         let mut loop_count: u64 = 0;
         loop {
             loop_count += 1;
@@ -177,10 +183,16 @@ impl SliceActor {
                 }
                 Some((result, read)) = self.pending_reads.next() => {
                     self.on_pending_read_resolved(result, read)?;
+                    stall_armed = false;
                 }
 
                 // Periodic tick ensures tracing fires even when idle.
-                _ = ticker.tick() => {}
+                _ = ticker.tick() => {
+                    if stall_armed {
+                        self.emit_stall_warnings();
+                    }
+                    stall_armed = true;
+                }
             }
         }
 
@@ -470,6 +482,39 @@ impl SliceActor {
             "{}",
             message,
         );
+    }
+
+    fn emit_stall_warnings(&self) {
+        for read in &self.pending_reads {
+            let Some(read) = read.get_ref() else {
+                continue; // Read has already resolved.
+            };
+            if read.tailing() {
+                continue; // Tailing reads don't stall heap drain.
+            }
+
+            let read_state = &self.reads[read.id() as usize];
+            let fragment = read.fragment();
+            let mod_time = if fragment.mod_time != 0 {
+                tokens::DateTime::from_timestamp_secs(fragment.mod_time)
+            } else {
+                None
+            };
+
+            service_kit::event!(
+                tracing::Level::WARN,
+                "stall",
+                read_id = read.id(),
+                binding = read_state.binding_index,
+                journal = read_state.journal.to_string(),
+                read_offset = read_state.read_offset,
+                write_head = read.write_head(),
+                fragment_mod_time = service_kit::event::debug(mod_time),
+                fragment_begin = fragment.begin,
+                fragment_end = fragment.end,
+                "read is stalled awaiting broker I/O",
+            );
+        }
     }
 
     /// Parse a LinesBatch into documents and push a ReadyRead onto the heap, or

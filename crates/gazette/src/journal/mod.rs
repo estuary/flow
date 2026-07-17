@@ -42,10 +42,23 @@ impl Client {
     /// Build a reqwest Client suited for fetching journal fragments.
     /// This client should be built once and cloned across many Clients.
     pub fn new_fragment_client() -> reqwest::Client {
-        // Use HTTP/1 for fetching fragments, as storage backends may have
-        // restricted HTTP/2 flow control and we may have concurrent streams
-        // with high throughput / stuffed flow control windows.
-        reqwest::Client::builder().http1_only().build().unwrap()
+        reqwest::Client::builder()
+            // Use HTTP/1 for fetching fragments, as storage backends may have
+            // restricted HTTP/2 flow control and we may have concurrent streams
+            // with high throughput / stuffed flow control windows that we expect
+            // to read in specific orders (leading to live-lock).
+            .http1_only()
+            // Bound connection establishment (TCP + TLS). Without this a storage
+            // endpoint that accepts the socket but never completes the handshake
+            // wedges a fragment fetch forever — TCP keepalive can't help while the
+            // peer is still ACKing. reqwest sets no connect timeout by default.
+            .connect_timeout(std::time::Duration::from_secs(30))
+            // We don't use `read_timeout` because it's a little heavy (a boxed
+            // future with every read), and because we may poll infrequently,
+            // but reqwest biases toward `read_timeout` rather than completion
+            // of a ready read.
+            .build()
+            .unwrap()
     }
 
     /// Build a Client which dispatches request to the given default endpoint with the given Metadata.
