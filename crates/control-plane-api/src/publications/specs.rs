@@ -884,6 +884,7 @@ pub async fn resolve_live_specs(
                 SELECT 1
                 FROM user_roles AS r
                 WHERE starts_with(t.name, r.role_prefix)
+                  AND r.capability >= 'read'::grant_capability
             )
         )
         SELECT

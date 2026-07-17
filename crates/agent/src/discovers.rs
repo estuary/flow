@@ -187,7 +187,9 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             WHERE data_plane_name = $1
             AND EXISTS (
                 SELECT 1 FROM user_roles r
+                -- User must be read-authorized to the data-plane.
                 WHERE starts_with($1, r.role_prefix)
+                  AND r.capability >= 'read'::grant_capability
             )
             "#,
             row.data_plane_name,
