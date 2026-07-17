@@ -46,6 +46,8 @@
 //! [`ShuffleSession`]: crate::ShuffleSession
 
 use crate::proto;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 /// Per-session logger: the sink for the task's log and event stream. The
 /// leader and shards obtain one from a [`LoggerFactory`] at the start of
@@ -243,12 +245,21 @@ pub trait LoggerFactory: Clone + Send + Sync + 'static {
 /// `Fn`. The production shard install: the `Fn` is the task's encoded-JSON
 /// log writer, so connector logs and runtime events both reach the task-log
 /// file.
+///
+/// Records more verbose than the shared `log_level` are dropped: this seam
+/// bypasses `tracing`, so it re-applies the same threshold (from the same
+/// atomic) as [`TokioContext`](crate::TokioContext)'s tracing filter.
 #[derive(Clone)]
-pub struct FnLogger<F>(F);
+pub struct FnLogger<F> {
+    log_handler: F,
+    log_level: Arc<AtomicI32>,
+}
 
 impl<F: Fn(&ops::Log) + Clone + Send + Sync + 'static> Logger for FnLogger<F> {
     fn log(&self, log: &ops::Log) {
-        (self.0)(log)
+        if log.level <= self.log_level.load(Ordering::Relaxed) {
+            (self.log_handler)(log)
+        }
     }
 }
 
@@ -256,11 +267,17 @@ impl<F: Fn(&ops::Log) + Clone + Send + Sync + 'static> Logger for FnLogger<F> {
 /// clone of the wrapped log handler; the handler is shared, the per-session
 /// logger is a cheap clone.
 #[derive(Clone)]
-pub struct FnLoggerFactory<F>(F);
+pub struct FnLoggerFactory<F> {
+    log_handler: F,
+    log_level: Arc<AtomicI32>,
+}
 
 impl<F: Fn(&ops::Log) + Clone + Send + Sync + 'static> FnLoggerFactory<F> {
-    pub fn new(log_handler: F) -> Self {
-        Self(log_handler)
+    pub fn new(log_handler: F, log_level: Arc<AtomicI32>) -> Self {
+        Self {
+            log_handler,
+            log_level,
+        }
     }
 }
 
@@ -268,7 +285,10 @@ impl<F: Fn(&ops::Log) + Clone + Send + Sync + 'static> LoggerFactory for FnLogge
     type Logger = FnLogger<F>;
 
     fn open(&self, _task_name: &str) -> FnLogger<F> {
-        FnLogger(self.0.clone())
+        FnLogger {
+            log_handler: self.log_handler.clone(),
+            log_level: self.log_level.clone(),
+        }
     }
 }
 
@@ -433,5 +453,60 @@ mod test {
           }
         ]
         "#);
+    }
+
+    #[test]
+    fn fn_logger_filters_by_level() {
+        let sink = Arc::new(std::sync::Mutex::new(Vec::<(i32, String)>::new()));
+        let level = Arc::new(AtomicI32::new(ops::LogLevel::Info as i32));
+
+        let factory = {
+            let sink = sink.clone();
+            FnLoggerFactory::new(
+                move |log: &ops::Log| sink.lock().unwrap().push((log.level, log.message.clone())),
+                level.clone(),
+            )
+        };
+        let logger = factory.open("acmeCo/task");
+
+        let record = |lvl: ops::LogLevel, msg: &str| ops::Log {
+            meta: None,
+            shard: None,
+            timestamp: None,
+            level: lvl as i32,
+            message: msg.to_string(),
+            fields_json_map: Default::default(),
+            spans: Vec::new(),
+        };
+
+        // At Info: Warn and Info surface; Debug and Trace are dropped.
+        logger.log(&record(ops::LogLevel::Warn, "warn"));
+        logger.log(&record(ops::LogLevel::Info, "info"));
+        logger.log(&record(ops::LogLevel::Debug, "debug"));
+        logger.log(&record(ops::LogLevel::Trace, "trace"));
+
+        // A Debug Persist event flows through `event()`, likewise dropped at Info.
+        let persist = proto::Persist {
+            connector_patches_json: b"[{\"cursor\":\"abc\"}\t]".as_slice().into(),
+            ..Default::default()
+        };
+        logger.event(LogEvent::Persist { persist: &persist });
+
+        // Lowering the level to Debug surfaces the same Persist event.
+        level.store(ops::LogLevel::Debug as i32, Ordering::Relaxed);
+        logger.event(LogEvent::Persist { persist: &persist });
+
+        let got = sink.lock().unwrap().clone();
+        assert_eq!(
+            got,
+            vec![
+                (ops::LogLevel::Warn as i32, "warn".to_string()),
+                (ops::LogLevel::Info as i32, "info".to_string()),
+                (
+                    ops::LogLevel::Debug as i32,
+                    "persisted connector-state delta".to_string()
+                ),
+            ]
+        );
     }
 }
