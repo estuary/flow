@@ -56,6 +56,12 @@ pub struct Preview {
     /// of transactions, or upon a timeout, or if the connector exits.
     ///
     /// The default is a single session with an unbounded number of transactions.
+    ///
+    /// Materialization previews always append one final empty drain session:
+    /// a session halts after its final commit without running the post-commit
+    /// Acknowledge, so the drain session's startup recovery acknowledges the
+    /// last committed transaction before the preview exits. A run aborted by
+    /// timeout skips it.
     #[clap(long, value_parser, value_delimiter = ',')]
     sessions: Option<Vec<isize>>,
     /// Path to a transactions fixture to feed in place of live collection data.
