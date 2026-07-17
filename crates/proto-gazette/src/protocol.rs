@@ -875,6 +875,14 @@ pub struct FragmentStoreHealthRequest {
     /// Fragment store to check the health of.
     #[prost(string, tag = "1")]
     pub fragment_store: ::prost::alloc::string::String,
+    /// If true, also verify delete permission with a throwaway probe object under
+    /// check_delete_prefix. Defaults to false (delete is not exercised).
+    #[prost(bool, tag = "2")]
+    pub check_delete: bool,
+    /// Prefix under which the delete probe is written (e.g. "recovery/"); empty
+    /// probes the store root. Only used when check_delete is true.
+    #[prost(string, tag = "3")]
+    pub check_delete_prefix: ::prost::alloc::string::String,
 }
 /// FragmentStoreHealthResponse is the unary response message of the broker FragmentStoreHealth RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]

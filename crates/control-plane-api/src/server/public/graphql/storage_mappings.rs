@@ -89,6 +89,8 @@ async fn check_store_health(
 ) -> Option<String> {
     let fut = client.fragment_store_health(broker::FragmentStoreHealthRequest {
         fragment_store: fragment_store.to_string(),
+        check_delete: true,
+        check_delete_prefix: "recovery/".to_string(),
     });
 
     match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, fut).await {

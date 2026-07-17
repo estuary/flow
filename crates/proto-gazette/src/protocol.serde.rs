@@ -1357,9 +1357,21 @@ impl serde::Serialize for FragmentStoreHealthRequest {
         if !self.fragment_store.is_empty() {
             len += 1;
         }
+        if self.check_delete {
+            len += 1;
+        }
+        if !self.check_delete_prefix.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("protocol.FragmentStoreHealthRequest", len)?;
         if !self.fragment_store.is_empty() {
             struct_ser.serialize_field("fragmentStore", &self.fragment_store)?;
+        }
+        if self.check_delete {
+            struct_ser.serialize_field("checkDelete", &self.check_delete)?;
+        }
+        if !self.check_delete_prefix.is_empty() {
+            struct_ser.serialize_field("checkDeletePrefix", &self.check_delete_prefix)?;
         }
         struct_ser.end()
     }
@@ -1373,11 +1385,17 @@ impl<'de> serde::Deserialize<'de> for FragmentStoreHealthRequest {
         const FIELDS: &[&str] = &[
             "fragment_store",
             "fragmentStore",
+            "check_delete",
+            "checkDelete",
+            "check_delete_prefix",
+            "checkDeletePrefix",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             FragmentStore,
+            CheckDelete,
+            CheckDeletePrefix,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1401,6 +1419,8 @@ impl<'de> serde::Deserialize<'de> for FragmentStoreHealthRequest {
                     {
                         match value {
                             "fragmentStore" | "fragment_store" => Ok(GeneratedField::FragmentStore),
+                            "checkDelete" | "check_delete" => Ok(GeneratedField::CheckDelete),
+                            "checkDeletePrefix" | "check_delete_prefix" => Ok(GeneratedField::CheckDeletePrefix),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1421,6 +1441,8 @@ impl<'de> serde::Deserialize<'de> for FragmentStoreHealthRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut fragment_store__ = None;
+                let mut check_delete__ = None;
+                let mut check_delete_prefix__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::FragmentStore => {
@@ -1429,6 +1451,18 @@ impl<'de> serde::Deserialize<'de> for FragmentStoreHealthRequest {
                             }
                             fragment_store__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::CheckDelete => {
+                            if check_delete__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("checkDelete"));
+                            }
+                            check_delete__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::CheckDeletePrefix => {
+                            if check_delete_prefix__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("checkDeletePrefix"));
+                            }
+                            check_delete_prefix__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1436,6 +1470,8 @@ impl<'de> serde::Deserialize<'de> for FragmentStoreHealthRequest {
                 }
                 Ok(FragmentStoreHealthRequest {
                     fragment_store: fragment_store__.unwrap_or_default(),
+                    check_delete: check_delete__.unwrap_or_default(),
+                    check_delete_prefix: check_delete_prefix__.unwrap_or_default(),
                 })
             }
         }
