@@ -166,21 +166,57 @@ pub async fn recv_connector_opened(
         .filter_map(|(journal, _source)| journal.split(';').skip(1).next())
         .collect();
 
-    // Fetch a persisted max-key value for each active binding.
-    let max_keys: Vec<String> = task.bindings.iter().map(max_key_key).collect();
-    let max_keys = db.multi_get_opt(max_keys, Default::default()).await;
+    let max_keys = recover_max_keys(db, &task, &active_read_suffixes).await?;
+
+    Ok((
+        task,
+        accumulator,
+        checkpoint,
+        opened,
+        max_keys,
+        disable_load_optimization,
+    ))
+}
+
+// Recover the persisted max-key of each binding into a (prev_max, next_max)
+// pair, adopting and durably persisting a fail-safe sentinel (see
+// MAX_KEY_SENTINEL) for any binding that has checkpoint progress but no
+// persisted max-key. Splitting this IO out of `recv_connector_opened` keeps
+// the recovery path independently testable against a real RocksDB.
+async fn recover_max_keys(
+    db: &RocksDB,
+    task: &Task,
+    active_read_suffixes: &HashSet<&str>,
+) -> anyhow::Result<Vec<(bytes::Bytes, bytes::Bytes)>> {
+    let prev_maxes = {
+        let keys: Vec<String> = task.bindings.iter().map(max_key_key).collect();
+        db.multi_get_opt(keys, Default::default()).await
+    };
+
+    // Keys of bindings which adopted the sentinel and must have it persisted
+    // before any Load or Store of this session observes the load-skip state.
+    let mut adopted: Vec<String> = Vec::new();
+
     let max_keys: Vec<(bytes::Bytes, bytes::Bytes)> = task
         .bindings
         .iter()
-        .zip(max_keys.into_iter())
+        .zip(prev_maxes.into_iter())
         .map(|(binding, prev_max)| match prev_max {
             Ok(None) if active_read_suffixes.get(binding.journal_read_suffix.as_str()).is_some() => {
-                tracing::debug!(state_key=%binding.state_key, "binding has no persisted max-key but is in the runtime checkpoint");
-                Ok((vec![0xff].into(), bytes::Bytes::new())) // 0xff is tuple::ESCAPE, larger than any tuple opcode.
+                tracing::debug!(state_key=%binding.state_key, "binding has checkpoint progress but no persisted max-key; adopting and persisting fail-safe sentinel");
+                adopted.push(max_key_key(binding));
+                Ok((bytes::Bytes::from_static(MAX_KEY_SENTINEL), bytes::Bytes::new()))
             }
             Ok(None) => {
                 tracing::debug!(state_key=%binding.state_key, "binding has no persisted max-key and is not in runtime checkpoint");
                 Ok((bytes::Bytes::new(), bytes::Bytes::new()))
+            }
+            // The persisted sentinel is intentionally not a valid packed tuple
+            // (0xff is `tuple::ESCAPE`), so accept it verbatim rather than
+            // unpacking, while still catching genuine corruption below.
+            Ok(Some(prev_max)) if prev_max.as_slice() == MAX_KEY_SENTINEL => {
+                tracing::debug!(state_key=%binding.state_key, "recovered persisted fail-safe max-key sentinel");
+                Ok((prev_max.into(), bytes::Bytes::new()))
             }
             Ok(Some(prev_max)) => {
                 let unpacked: Vec<tuple::Element> = tuple::unpack(&prev_max).context("corrupted binding max-key")?;
@@ -191,14 +227,26 @@ pub async fn recv_connector_opened(
         })
         .collect::<anyhow::Result<_>>()?;
 
-    Ok((
-        task,
-        accumulator,
-        checkpoint,
-        opened,
-        max_keys,
-        disable_load_optimization,
-    ))
+    if adopted.is_empty() {
+        return Ok(max_keys);
+    }
+
+    let mut wb = rocksdb::WriteBatch::default();
+    for key in adopted {
+        wb.put(key, MAX_KEY_SENTINEL);
+    }
+
+    let mut wo = rocksdb::WriteOptions::default();
+    // Mirror `persist_max_keys`: the write must be synchronized to the recovery
+    // log before it returns, so the sentinel is durable prior to any Load/Store.
+    wo.set_sync(true);
+
+    () = db
+        .write_opt(wb, wo)
+        .await
+        .context("persisting fail-safe max-key sentinels")?;
+
+    Ok(max_keys)
 }
 
 pub fn recv_client_load_or_flush(
@@ -663,6 +711,19 @@ fn max_key_key(binding: &Binding) -> String {
     format!("MK-v2:{}", &binding.state_key)
 }
 
+// Fail-safe max-key adopted when a binding has checkpoint progress but no
+// persisted max-key -- for example, when progress was committed via ACK-only
+// journal reads before any key of the binding was ever observed. `0xff` is
+// `tuple::ESCAPE`, larger than every tuple type code, so it sorts above any
+// real packed key: no key ever compares greater, which durably disables the
+// load-skip optimization for the binding (it can never ratchet past this).
+// Crucially it is *persisted* rather than held only in memory, so that recovery
+// -- and V1->V2 migration -- can distinguish "unknown max-key, keys may have
+// been stored" (this sentinel present) from "no keys ever stored" (no MK-v2
+// key at all). It is intentionally not a valid packed tuple, so recovery must
+// accept it without attempting to `tuple::unpack` it.
+const MAX_KEY_SENTINEL: &[u8] = &[0xff];
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -691,6 +752,74 @@ mod test {
             timeout: std::time::Duration::from_secs(5),
             max_attempts: 3,
         }
+    }
+
+    // Build a minimal Binding carrying only the identity fields that the
+    // max-key recovery path reads; everything else is defaulted/empty.
+    fn dummy_binding(state_key: &str, journal_read_suffix: &str) -> Binding {
+        Binding {
+            collection_name: format!("acmeCo/{state_key}"),
+            delta_updates: false,
+            journal_read_suffix: journal_read_suffix.to_string(),
+            key_extractors: Vec::new(),
+            read_schema_json: bytes::Bytes::new(),
+            ser_policy: doc::SerPolicy::noop(),
+            state_key: state_key.to_string(),
+            store_document: false,
+            value_plan: doc::ExtractorPlan::new(&[]),
+            uuid_ptr: json::Pointer::empty(),
+        }
+    }
+
+    // A binding with checkpoint progress but no persisted max-key must adopt the
+    // fail-safe sentinel AND durably persist it, and a subsequent recovery must
+    // accept that persisted sentinel verbatim (without a tuple::unpack error).
+    #[tokio::test]
+    async fn max_key_sentinel_is_persisted_and_recovered() {
+        let db = RocksDB::open(None).await.unwrap();
+
+        // "active" is in the checkpoint with no MK-v2 key; "idle" is not.
+        let task = super::super::Task {
+            bindings: vec![
+                dummy_binding("active", "read-active"),
+                dummy_binding("idle", "read-idle"),
+            ],
+            shard_ref: Default::default(),
+        };
+        let active_read_suffixes: HashSet<&str> = ["read-active"].into_iter().collect();
+
+        let max_keys = recover_max_keys(&db, &task, &active_read_suffixes)
+            .await
+            .unwrap();
+
+        assert_eq!(max_keys[0].0.as_ref(), MAX_KEY_SENTINEL);
+        assert!(
+            max_keys[1].0.is_empty(),
+            "idle binding neither adopts nor persists a sentinel"
+        );
+
+        // The sentinel is durable for the active binding, and nothing was
+        // written for the idle binding.
+        assert_eq!(
+            db.get_opt(max_key_key(&task.bindings[0]), Default::default())
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(MAX_KEY_SENTINEL),
+        );
+        assert_eq!(
+            db.get_opt(max_key_key(&task.bindings[1]), Default::default())
+                .await
+                .unwrap(),
+            None,
+        );
+
+        // Re-running recovery accepts the persisted sentinel via the relaxed
+        // parse: no "corrupted binding max-key" error from tuple::unpack.
+        let max_keys = recover_max_keys(&db, &task, &active_read_suffixes)
+            .await
+            .expect("persisted [0xff] sentinel must not be treated as corruption");
+        assert_eq!(max_keys[0].0.as_ref(), MAX_KEY_SENTINEL);
     }
 
     fn dummy_accumulator() -> crate::Accumulator {
