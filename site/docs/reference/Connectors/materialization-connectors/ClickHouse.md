@@ -1,4 +1,6 @@
-
+---
+description: Materialize data collections directly into ClickHouse using the native protocol. Handles hard and soft deletes, merge and delta updates, and sync schedules.
+---
 
 # ClickHouse
 
@@ -103,6 +105,11 @@ materializations:
           table: my_table
         source: ${PREFIX}/${source_collection}
 ```
+
+## Sync Schedule
+
+This connector supports configuring a schedule for sync frequency. You can read
+about how to configure this [here](/reference/materialization-sync-schedule).
 
 ## ReplacingMergeTree and FINAL
 

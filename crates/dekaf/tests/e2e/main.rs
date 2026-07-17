@@ -7,9 +7,11 @@ mod basic;
 mod collection_reset;
 mod consumer_group;
 mod empty_fetch;
+mod fetch_offsets;
 mod list_offsets;
 mod migration;
 mod not_ready;
+mod partition_eofs;
 
 pub use harness::{
     ConnectionInfo, DekafTestEnv, cluster_name, cluster_name_2, connection_info_for_dataplane,

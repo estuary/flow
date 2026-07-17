@@ -9,6 +9,7 @@ impl Task {
             materialization: spec,
             range,
             state_json: _,
+            sealed_config_json: _,
             version,
         } = open.clone().open.context("expected Open")?;
 
@@ -22,6 +23,7 @@ impl Task {
             shard_template: _,
             inactive_bindings: _,
             triggers_json: _,
+            created_at: _,
         } = spec.as_ref().context("missing materialization")?;
         let range = range.context("missing range")?;
 

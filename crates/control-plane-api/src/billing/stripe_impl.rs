@@ -1,8 +1,7 @@
 use super::BillingProvider;
 use billing_types::{
-    SearchParams, TENANT_METADATA_KEY, customer_create_idempotency_key, stripe_search,
+    SearchParams, customer_create_idempotency_key, stripe_search, tenant_metadata,
 };
-use std::collections::HashMap;
 
 /// Production `BillingProvider` backed by the Stripe API.
 #[derive(Clone)]
@@ -43,6 +42,36 @@ impl BillingProvider for StripeBillingProvider {
         .await
     }
 
+    /// Stripe's customer-search index is eventually consistent and can even be
+    /// non-monotonic: a customer that matched a moment ago may transiently drop
+    /// out of a later search. Every caller of `require_customer` (setting or
+    /// deleting a payment method) only reaches it after a SetupIntent has
+    /// already created the customer, so a search miss is virtually always index
+    /// lag rather than a true absence. Retry a bounded number of times with
+    /// exponential backoff before surfacing the error, overriding the trait's
+    /// single-shot default.
+    async fn require_customer(&self, tenant: &str) -> anyhow::Result<stripe::Customer> {
+        const MAX_ATTEMPTS: u32 = 6;
+        const MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+
+        let mut delay = std::time::Duration::from_millis(500);
+        for attempt in 1..=MAX_ATTEMPTS {
+            if let Some(customer) = self.find_customer(tenant).await? {
+                return Ok(customer);
+            }
+            if attempt < MAX_ATTEMPTS {
+                tracing::debug!(
+                    tenant,
+                    attempt,
+                    "Stripe customer search missed; retrying after index lag"
+                );
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(MAX_DELAY);
+            }
+        }
+        anyhow::bail!("no Stripe customer exists for tenant '{tenant}'")
+    }
+
     async fn create_customer(
         &self,
         tenant: &str,
@@ -51,10 +80,8 @@ impl BillingProvider for StripeBillingProvider {
         billing_name: Option<&str>,
         address: Option<stripe::Address>,
     ) -> anyhow::Result<stripe::Customer> {
-        let mut metadata = HashMap::from([
-            (TENANT_METADATA_KEY.to_string(), tenant.to_string()),
-            ("created_by_user_email".to_string(), user_email.to_string()),
-        ]);
+        let mut metadata = tenant_metadata(tenant);
+        metadata.insert("created_by_user_email".to_string(), user_email.to_string());
         if let Some(name) = user_name {
             metadata.insert("created_by_user_name".to_string(), name.to_string());
         }
@@ -131,12 +158,17 @@ impl BillingProvider for StripeBillingProvider {
     async fn create_setup_intent(
         &self,
         customer_id: &stripe::CustomerId,
+        tenant: &str,
     ) -> anyhow::Result<stripe::SetupIntent> {
         let si = stripe::SetupIntent::create(
             &self.client,
             stripe::CreateSetupIntent {
                 customer: Some(customer_id.clone()),
                 description: Some("Store your payment details"),
+                // The tenant travels on the SetupIntent so the
+                // `setup_intent.succeeded` webhook can resolve it from the event
+                // payload alone, without a follow-up customer lookup.
+                metadata: Some(tenant_metadata(tenant)),
                 automatic_payment_methods: Some(stripe::CreateSetupIntentAutomaticPaymentMethods {
                     enabled: true,
                     ..Default::default()

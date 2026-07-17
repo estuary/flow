@@ -1,3 +1,6 @@
+---
+description: Connect Harvest to Estuary for time entries, projects, clients, invoices, expenses, tasks, and reports, using an API key for authentication.
+---
 
 # Harvest
 

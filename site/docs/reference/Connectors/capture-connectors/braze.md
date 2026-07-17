@@ -1,3 +1,6 @@
+---
+description: Capture Braze engagement data with the connector, including campaigns, canvases, events, cards, segments, and analytics, using a Braze API key and endpoint URL.
+---
 
 # Braze
 

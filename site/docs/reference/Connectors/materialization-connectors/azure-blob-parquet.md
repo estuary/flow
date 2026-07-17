@@ -1,5 +1,5 @@
 ---
-description: This connector materializes delta updates of Estuary collections into an Azure Blob Storage container in the Apache Parquet format.
+description: Write delta updates of Estuary collections into an Azure Blob Storage container as Apache Parquet files. Configure the upload interval, maximum file size, and file path.
 ---
 
 # Apache Parquet Files in Azure Blob Storage

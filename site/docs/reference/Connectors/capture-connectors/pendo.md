@@ -1,3 +1,7 @@
+---
+description: Use the Pendo connector to capture accounts, features, guides, pages, reports, visitors, and events, using API key authentication.
+---
+
 # Pendo
 
 This connector captures data from Pendo into Estuary collections.

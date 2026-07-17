@@ -119,3 +119,34 @@ begin
 
 end;
 $$ language plpgsql;
+
+-- The GraphQL createRefreshToken/revokeRefreshToken mutations already reject a
+-- service-account caller (verify_not_service_account), but the same table is
+-- reachable through the SECURITY DEFINER create_refresh_token RPC over
+-- PostgREST. Without this guard a service account could mint itself a fresh
+-- refresh token there, escaping the admin-only createApiKey flow and the
+-- admin-chosen expiry. Guard fires before the function's insert, so the test
+-- stays within pgTAP's rolled-back transaction.
+create function tests.test_service_account_cannot_self_mint_refresh_token()
+returns setof text as $$
+declare
+  sa_user_id uuid := 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+begin
+  -- Seed a service-account identity: an auth.users row and its
+  -- internal.service_accounts anchor, minted by Alice.
+  set role postgres;
+  insert into auth.users (id, email) values (sa_user_id, 'sa-bot@example.test');
+  insert into internal.service_accounts (user_id, catalog_name, created_by)
+    values (sa_user_id, 'aliceCo/ci-bot', '11111111-1111-1111-1111-111111111111');
+
+  -- Authorize as the service account and attempt to self-mint.
+  perform set_authenticated_context(sa_user_id);
+  prepare sa_self_mint as select create_refresh_token(true, '1 day', 'self mint');
+  return query select throws_like(
+    'sa_self_mint',
+    '%service accounts cannot mint their own refresh tokens%',
+    'a service account cannot self-mint a refresh token via create_refresh_token'
+  );
+  deallocate sa_self_mint;
+end;
+$$ language plpgsql;

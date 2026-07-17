@@ -1,6 +1,8 @@
 ---
 sidebar_position: 3
+description: Create Estuary derivations by developing a draft from the dashboard or starting locally with flowctl. Work with flow.yaml spec files and transform data with SQL or TypeScript logic.
 ---
+
 # Create a Derivation
 
 Once you're familiar with creating a basic [Data Flow](../../concepts/README.md#essential-concepts), you can take things a step further

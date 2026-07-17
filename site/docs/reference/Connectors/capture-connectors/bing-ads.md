@@ -1,3 +1,6 @@
+---
+description: Centralize Bing Ads reporting in Estuary with accounts, campaigns, ad groups, ads, and performance reports. Configure OAuth2, start date, and lookback windows.
+---
 
 # Bing Ads
 

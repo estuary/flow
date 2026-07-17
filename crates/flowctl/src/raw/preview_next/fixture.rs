@@ -199,6 +199,7 @@ pub fn build(
     path: &std::path::Path,
     base_dir: &std::path::Path,
     requested_targets: &[u32],
+    n_shards: u32,
 ) -> anyhow::Result<FixturePlan> {
     let (bindings, mut validators, collection_bindings) = task_bindings(task)?;
 
@@ -222,7 +223,8 @@ pub fn build(
     // globally across sessions; segment LSNs restart per session. Offsets are
     // tracked per binding to mirror live reads, where each binding of a shared
     // journal independently observes that journal's (single) offset space.
-    let mut clock = uuid::Clock::from_unix(1, 0);
+    let shards = fixture_shards(n_shards);
+    let mut txn_ordinal = 0u64;
     let mut journal_offsets: HashMap<(String, u16), i64> = HashMap::new();
     let mut packed_key = bytes::BytesMut::new();
     let mut transactions = transactions.into_iter();
@@ -233,9 +235,8 @@ pub fn build(
             .with_context(|| format!("creating fixture session directory {dir:?}"))?;
         let dir = dir.to_string_lossy().into_owned();
 
-        let mut writer = shuffle::log::Writer::new(std::path::Path::new(&dir), 0)
-            .context("opening fixture shuffle-log writer")?;
-        let mut last_lsn = shuffle::log::Lsn::ZERO;
+        let mut writers = open_shard_writers(std::path::Path::new(&dir), n_shards)?;
+        let mut last_lsns = vec![shuffle::log::Lsn::ZERO; n_shards as usize];
         let mut frontiers = Vec::with_capacity(budget as usize);
 
         for _ in 0..budget {
@@ -248,16 +249,17 @@ pub fn build(
                 &bindings,
                 &mut validators,
                 &collection_bindings,
-                &mut writer,
+                &shards,
+                &mut writers,
                 &mut keepalive._sealed,
-                &mut clock,
+                &mut txn_ordinal,
                 &mut journal_offsets,
                 &mut packed_key,
-                &mut last_lsn,
+                &mut last_lsns,
             )?);
         }
 
-        keepalive._writers.push(writer);
+        keepalive._writers.extend(writers);
         session_dirs.push(dir);
         session_frontiers.push(frontiers);
     }
@@ -268,6 +270,41 @@ pub fn build(
         session_frontiers,
         _keepalive: keepalive,
     })
+}
+
+/// The preview's synthetic shard topology: `n_shards` shards evenly splitting
+/// the key space with full r-clock ranges, matching the driver's join shards.
+/// Only `range` is consulted when routing (see `shuffle::slice::routing`).
+fn fixture_shards(n_shards: u32) -> Vec<shuffle::proto::Shard> {
+    (0..n_shards)
+        .map(|i| {
+            let (key_begin, key_end) = super::shards::key_range(i, n_shards);
+            shuffle::proto::Shard {
+                range: Some(proto_flow::flow::RangeSpec {
+                    key_begin,
+                    key_end,
+                    r_clock_begin: 0,
+                    r_clock_end: u32::MAX,
+                }),
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+/// Open one shuffle-log writer per shard, all within the shared session
+/// directory: a shard's stream is distinguished by its segment file names,
+/// and each shard's consumer reads only its own stream.
+fn open_shard_writers(
+    dir: &std::path::Path,
+    n_shards: u32,
+) -> anyhow::Result<Vec<shuffle::log::Writer>> {
+    (0..n_shards)
+        .map(|shard_index| {
+            shuffle::log::Writer::new(dir, shard_index)
+                .context("opening fixture shuffle-log writer")
+        })
+        .collect()
 }
 
 /// Start a streaming fixture: spawn a feeder task that incrementally reads
@@ -289,6 +326,7 @@ pub fn start_streaming(
     task: &shuffle::proto::Task,
     path: Option<std::path::PathBuf>,
     base_dir: &std::path::Path,
+    n_shards: u32,
     frontier_tx: tokio::sync::mpsc::UnboundedSender<FixtureItem>,
     eof_stop: tokio_util::sync::CancellationToken,
     hold: tokio_util::sync::CancellationToken,
@@ -302,15 +340,15 @@ pub fn start_streaming(
         .with_context(|| format!("creating fixture session directory {dir:?}"))?;
     let dir = dir.to_string_lossy().into_owned();
 
-    let writer = shuffle::log::Writer::new(std::path::Path::new(&dir), 0)
-        .context("opening fixture shuffle-log writer")?;
+    let writers = open_shard_writers(std::path::Path::new(&dir), n_shards)?;
 
     let handle = tokio::spawn(feed_stream(
         bindings,
         validators,
         collection_bindings,
         path,
-        writer,
+        fixture_shards(n_shards),
+        writers,
         frontier_tx,
         eof_stop,
         hold,
@@ -323,7 +361,8 @@ async fn feed_stream(
     mut validators: Vec<doc::Validator>,
     collection_bindings: HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
-    mut writer: shuffle::log::Writer,
+    shards: Vec<shuffle::proto::Shard>,
+    mut writers: Vec<shuffle::log::Writer>,
     frontier_tx: tokio::sync::mpsc::UnboundedSender<FixtureItem>,
     eof_stop: tokio_util::sync::CancellationToken,
     hold: tokio_util::sync::CancellationToken,
@@ -334,7 +373,8 @@ async fn feed_stream(
         &mut validators,
         &collection_bindings,
         path,
-        &mut writer,
+        &shards,
+        &mut writers,
         &mut sealed,
         &frontier_tx,
         &hold,
@@ -373,7 +413,8 @@ async fn feed_lines(
     validators: &mut [doc::Validator],
     collection_bindings: &HashMap<String, Vec<usize>>,
     path: Option<std::path::PathBuf>,
-    writer: &mut shuffle::log::Writer,
+    shards: &[shuffle::proto::Shard],
+    writers: &mut [shuffle::log::Writer],
     sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
     frontier_tx: &tokio::sync::mpsc::UnboundedSender<FixtureItem>,
     hold: &tokio_util::sync::CancellationToken,
@@ -394,10 +435,10 @@ async fn feed_lines(
     };
     let mut lines = tokio::io::BufReader::new(reader).lines();
 
-    let mut clock = uuid::Clock::from_unix(1, 0);
+    let mut txn_ordinal = 0u64;
     let mut journal_offsets: HashMap<(String, u16), i64> = HashMap::new();
     let mut packed_key = bytes::BytesMut::new();
-    let mut last_lsn = shuffle::log::Lsn::ZERO;
+    let mut last_lsns = vec![shuffle::log::Lsn::ZERO; writers.len()];
 
     let mut current: Transaction = Vec::new();
     let mut committed = 0usize;
@@ -425,12 +466,13 @@ async fn feed_lines(
                     bindings,
                     validators,
                     collection_bindings,
-                    writer,
+                    shards,
+                    writers,
                     sealed,
-                    &mut clock,
+                    &mut txn_ordinal,
                     &mut journal_offsets,
                     &mut packed_key,
-                    &mut last_lsn,
+                    &mut last_lsns,
                 )?;
                 committed += 1;
                 if frontier_tx.send(FixtureItem::Frontier(frontier)).is_err() {
@@ -450,12 +492,13 @@ async fn feed_lines(
             bindings,
             validators,
             collection_bindings,
-            writer,
+            shards,
+            writers,
             sealed,
-            &mut clock,
+            &mut txn_ordinal,
             &mut journal_offsets,
             &mut packed_key,
-            &mut last_lsn,
+            &mut last_lsns,
         )?;
         let _ = frontier_tx.send(FixtureItem::Frontier(frontier));
     }
@@ -485,28 +528,49 @@ fn task_bindings(
     Ok((bindings, validators, collection_bindings))
 }
 
-/// Write one transaction as a single log block and return its checkpoint
-/// frontier. The block's `flushed_lsn` is the session-local LSN; the producer's
+/// Write one transaction as a log block per shard receiving documents, and
+/// return its checkpoint frontier. Documents route to shards by their packed
+/// shuffle-key hash, exactly as the live slice routes them. The frontier's
+/// `flushed_lsn` carries every shard's session-local read barrier; a shard
+/// receiving no documents carries its prior barrier forward. The producer's
 /// `last_commit` is the transaction's max clock so all of its documents are
 /// visible at the checkpoint.
+///
+/// Document clocks mirror the legacy preview fixture harness: the `ordinal`-th
+/// transaction's documents are stamped `3600 * ordinal + <index>` seconds, so
+/// fixture-driven outputs (e.g. `flow_published_at`) are identical between the
+/// legacy and runtime-v2 preview stacks. Clocks must increase globally, which
+/// holds for transactions of fewer than 3600 documents.
 fn write_transaction(
     transaction: &Transaction,
     bindings: &[shuffle::Binding],
     validators: &mut [doc::Validator],
     collection_bindings: &HashMap<String, Vec<usize>>,
-    writer: &mut shuffle::log::Writer,
+    shards: &[shuffle::proto::Shard],
+    writers: &mut [shuffle::log::Writer],
     sealed: &mut Vec<shuffle::log::writer::SealedSegment>,
-    clock: &mut uuid::Clock,
+    txn_ordinal: &mut u64,
     journal_offsets: &mut HashMap<(String, u16), i64>,
     packed_key: &mut bytes::BytesMut,
-    last_lsn: &mut shuffle::log::Lsn,
+    last_lsns: &mut [shuffle::log::Lsn],
 ) -> anyhow::Result<shuffle::Frontier> {
-    let mut entries: Vec<(shuffle::log::BlockMeta, u32, bytes::Bytes, bytes::Bytes)> = Vec::new();
+    let mut entries: Vec<Vec<(shuffle::log::BlockMeta, u32, bytes::Bytes, bytes::Bytes)>> =
+        vec![Vec::new(); writers.len()];
     let mut block_journals: HashMap<String, u16> = HashMap::new();
     // (journal, binding) => (max committed clock, source bytes this txn).
     let mut frontier_acc: BTreeMap<(String, u16), (uuid::Clock, i64)> = BTreeMap::new();
 
+    let mut doc_seconds = 3600 * *txn_ordinal;
+    *txn_ordinal += 1;
+
     for (collection, doc) in transaction {
+        // One clock per fixture line, shared by every binding it feeds — as a
+        // single published document is. Lines whose collection isn't sourced
+        // still consume a clock, so a fixture yields identical document clocks
+        // for every task it drives — matching the legacy harness.
+        let doc_clock = uuid::Clock::from_unix(doc_seconds, 0);
+        doc_seconds += 1;
+
         let Some(binding_indices) = collection_bindings.get(collection.as_str()) else {
             continue; // Collection isn't a source of this task.
         };
@@ -514,7 +578,6 @@ fn write_transaction(
         for &bi in binding_indices {
             let binding = &bindings[bi];
             let journal = fixture_journal(&binding.collection);
-            let doc_clock = clock.tick();
 
             // Inject a synthetic UUID at the collection's UUID pointer.
             let mut doc = doc.clone();
@@ -553,18 +616,27 @@ fn write_transaction(
                 *block_journals.entry(journal.clone()).or_insert(next)
             };
 
-            entries.push((
-                shuffle::log::BlockMeta {
-                    binding: binding.index,
-                    journal_bid,
-                    producer_bid: 0,
-                    flags,
-                    clock: doc_clock.as_u64(),
-                },
-                source_len,
-                packed_key.split().freeze(),
-                doc_bytes,
-            ));
+            // Mirror the slice's routing: hash the packed key and write the
+            // document to each shard whose range admits it.
+            let key_hash = doc::Extractor::packed_hash(packed_key);
+            let r_clock = shuffle::slice::routing::rotate_clock(doc_clock);
+            let key = packed_key.split().freeze();
+
+            let meta = shuffle::log::BlockMeta {
+                binding: binding.index,
+                journal_bid,
+                producer_bid: 0,
+                flags,
+                clock: doc_clock.as_u64(),
+            };
+            for shard_index in shuffle::slice::routing::route_to_shards(
+                key_hash,
+                r_clock,
+                binding.filter_r_clocks,
+                shards,
+            ) {
+                entries[shard_index].push((meta, source_len, key.clone(), doc_bytes.clone()));
+            }
 
             let acc = frontier_acc
                 .entry((journal.clone(), binding.index))
@@ -575,17 +647,20 @@ fn write_transaction(
         }
     }
 
-    // Write this transaction's documents as a single block (if any), advancing
-    // the session-local read barrier to its LSN.
-    if !entries.is_empty() {
-        let producers: HashMap<uuid::Producer, u16> = [(FIXTURE_PRODUCER, 0)].into();
-        let (lsn, rolled) = writer
-            .append_block(block_journals, producers, entries)
+    // Write each shard's documents as a single block (if any), advancing that
+    // shard's session-local read barrier to its LSN.
+    let producers: HashMap<uuid::Producer, u16> = [(FIXTURE_PRODUCER, 0)].into();
+    for (shard_index, shard_entries) in entries.into_iter().enumerate() {
+        if shard_entries.is_empty() {
+            continue;
+        }
+        let (lsn, rolled) = writers[shard_index]
+            .append_block(block_journals.clone(), producers.clone(), shard_entries)
             .context("writing fixture log block")?;
         if let Some(rolled) = rolled {
             sealed.push(rolled);
         }
-        *last_lsn = lsn;
+        last_lsns[shard_index] = lsn;
     }
 
     // `frontier_acc` iterates sorted by (journal, binding), satisfying Frontier
@@ -612,7 +687,7 @@ fn write_transaction(
         })
         .collect();
 
-    shuffle::Frontier::new(journals, vec![last_lsn.as_u64()])
+    shuffle::Frontier::new(journals, last_lsns.iter().map(|lsn| lsn.as_u64()).collect())
         .context("building fixture checkpoint frontier")
 }
 
@@ -864,6 +939,7 @@ mod test {
             &empty_task(),
             Some(path),
             tmp.path(),
+            1,
             frontier_tx,
             eof_stop.clone(),
             hold.clone(),
@@ -963,6 +1039,7 @@ mod test {
             &empty_task(),
             Some(path.clone()),
             tmp.path(),
+            1,
             frontier_tx,
             eof_stop.clone(),
             hold.clone(),

@@ -1,3 +1,7 @@
+---
+description: Send Estuary collection data to HTTP endpoints with the webhook connector. Configure target URLs, custom headers, and relative paths.
+---
+
 # HTTP Webhook
 
 This connector lets you materialize data from Estuary directly to specified HTTP endpoints via webhooks.

@@ -1,3 +1,6 @@
+---
+description: Use the Amplitude connector to capture analytics data in Estuary, including active users, annotations, cohorts, and events, using API key authentication.
+---
 
 # Amplitude
 

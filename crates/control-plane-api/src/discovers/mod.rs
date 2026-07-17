@@ -37,6 +37,10 @@ pub struct Discover {
     /// returned. All pre-existing changes in the draft will be preserved, as
     /// long as they don't conflict with the discover results.
     pub draft: tables::DraftCatalog,
+    /// Date on which the capture task was created (UTC, YYYY-MM-DD), derived
+    /// from the live task's control-plane Id. Empty if the task doesn't exist
+    /// yet: the connector assumes a current date for a new task's discover.
+    pub created_at: String,
 }
 
 #[derive(Debug)]
@@ -171,6 +175,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             update_only,
             reset_on_key_change,
             mut draft,
+            created_at,
         } = req;
 
         let Some(capture_def) = draft.captures.get_mut_by_key(&capture_name) else {
@@ -202,6 +207,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
                 name: capture_name.to_string(),
                 connector_type: capture_spec::ConnectorType::Image as i32,
                 config_json: serde_json::to_string(connector_cfg).unwrap().into(),
+                created_at,
             }),
             ..Default::default()
         }

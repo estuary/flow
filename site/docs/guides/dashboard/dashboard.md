@@ -1,3 +1,6 @@
+---
+description: Tour the Estuary dashboard to manage data pipelines, including sources, collections, destinations, and admin settings.
+---
 
 # Web Dashboard
 

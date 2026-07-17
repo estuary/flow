@@ -47,6 +47,13 @@ struct Args {
     #[derivative(Debug = "ignore")]
     #[clap(long = "stripe-api-key", env = "STRIPE_API_KEY")]
     stripe_api_key: Option<String>,
+    /// Signing secret for verifying inbound Stripe webhook deliveries. When
+    /// unset, the Stripe webhook endpoint fails closed. Intentionally has no
+    /// default: production must set it explicitly, and never silently falls back
+    /// to the source-tree dev fixture.
+    #[derivative(Debug = "ignore")]
+    #[clap(long = "stripe-webhook-secret", env = "STRIPE_WEBHOOK_SECRET")]
+    stripe_webhook_secret: Option<String>,
     /// Whether to serve job handlers within this agent instance.
     #[clap(long = "serve-handlers", env = "SERVE_HANDLERS")]
     serve_handlers: bool,
@@ -371,6 +378,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         pg_pool.clone(),
         publisher.clone(),
         snapshot_watch.clone(),
+        args.stripe_webhook_secret,
     ));
     let api_router = control_plane_api::build_router(
         api_app.clone(),

@@ -52,8 +52,13 @@ pub async fn snapshot(pg_pool: sqlx::PgPool, gate: bool) -> Arc<dyn tokens::Watc
         .unwrap()
         .unwrap();
 
-    // Shift forward artificially so it's definitively "after" any following requests.
-    snapshot.taken += chrono::TimeDelta::seconds(2);
+    // Shift `taken` well past the test's wall-clock runtime. A denial is only
+    // terminal while the snapshot is `taken_after` the request's start; a request
+    // that begins after `taken` instead takes the provisional path, cancels the
+    // snapshot, and awaits a refresh this single-shot gated source can't serve
+    // (it panics rather than re-serve). An hour comfortably exceeds any test, so
+    // every request stays inside the window and denials remain terminal.
+    snapshot.taken += chrono::TimeDelta::hours(1);
 
     let source = GatedSnapshot {
         gate,
@@ -122,6 +127,7 @@ impl TestServer {
             pg_pool.clone(),
             publisher,
             snapshot,
+            Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();
 

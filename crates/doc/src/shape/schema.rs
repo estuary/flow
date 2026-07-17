@@ -18,6 +18,7 @@ fn to_sub_schema(shape: Shape) -> Schema {
         provenance: _, // Not mapped to a schema.
         default,
         secret,
+        nonsensitive,
         content_media_type,
         annotations,
         array,
@@ -201,6 +202,9 @@ fn to_sub_schema(shape: Shape) -> Schema {
     {
         if let Some(true) = secret {
             out.insert("secret".to_string(), serde_json::json!(true));
+        }
+        if let Some(true) = nonsensitive {
+            out.insert("nonsensitive".to_string(), serde_json::json!(true));
         }
 
         match reduce {

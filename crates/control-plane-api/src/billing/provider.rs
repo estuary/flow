@@ -30,9 +30,14 @@ pub trait BillingProvider: Send + Sync + std::fmt::Debug {
         customer_id: &stripe::CustomerId,
     ) -> anyhow::Result<Vec<stripe::PaymentMethod>>;
 
+    /// Create a SetupIntent for `customer_id`, stamping `tenant` into the
+    /// SetupIntent's metadata. The `setup_intent.succeeded` webhook echoes that
+    /// metadata back, which is how the webhook handler recovers the tenant
+    /// without a second Stripe lookup (see `server::public::stripe_webhooks`).
     async fn create_setup_intent(
         &self,
         customer_id: &stripe::CustomerId,
+        tenant: &str,
     ) -> anyhow::Result<stripe::SetupIntent>;
 
     async fn get_payment_method(

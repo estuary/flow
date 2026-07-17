@@ -1,3 +1,7 @@
+---
+description: Organize SendGrid email marketing data in Estuary, including campaigns, contacts, lists, segments, templates, suppressions, and bounces.
+---
+
 # SendGrid
 
 This connector captures data from SendGrid into Estuary collections.

@@ -1,3 +1,6 @@
+---
+description: Publish Estuary documents as events on an Amazon EventBridge event bus, authenticated with an AWS access key or IAM role. Review payload details and size limits.
+---
 
 # Amazon EventBridge
 

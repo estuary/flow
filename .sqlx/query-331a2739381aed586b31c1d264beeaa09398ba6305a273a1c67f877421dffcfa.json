@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            rt.id AS \"id!: models::Id\",\n            rt.user_id,\n            rt.detail,\n            creator.email AS \"created_by_email: String\",\n            rt.created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n            (rt.updated_at + rt.valid_for) AS \"expires_at!: chrono::DateTime<chrono::Utc>\",\n            CASE WHEN rt.uses > 0 THEN rt.updated_at END AS \"last_used_at: chrono::DateTime<chrono::Utc>\"\n        FROM public.refresh_tokens rt\n        LEFT JOIN auth.users creator ON creator.id = rt.created_by\n        WHERE rt.user_id = ANY($1)\n          AND rt.valid_for <> interval '0'\n        ORDER BY rt.created_at DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: models::Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "detail",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by_email: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_used_at: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "331a2739381aed586b31c1d264beeaa09398ba6305a273a1c67f877421dffcfa"
+}

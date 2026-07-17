@@ -1,4 +1,5 @@
 ---
+description: Find Estuary data plane IP addresses to allowlist to connect with source and destination systems. Provides dashboard lookup steps and common public data plane IPs.
 slug: /reference/allow-ip-addresses/
 ---
 

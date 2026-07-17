@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        sa.user_id,\n                        sa.catalog_name AS \"catalog_name!: String\",\n                        creator.email AS \"created_by_email: String\",\n                        sa.created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n                        -- The account's \"last used\" is the max updated_at across\n                        -- its tokens that have actually been exchanged (uses > 0;\n                        -- revoked included). Each exchange bumps the token's\n                        -- updated_at, so the tokens are the single source of truth.\n                        (\n                            SELECT max(rt.updated_at)\n                            FROM public.refresh_tokens rt\n                            WHERE rt.user_id = sa.user_id\n                              AND rt.uses > 0\n                        ) AS \"last_used_at: chrono::DateTime<chrono::Utc>\"\n                    FROM internal.service_accounts sa\n                    LEFT JOIN auth.users creator ON creator.id = sa.created_by\n                    WHERE sa.catalog_name::text ^@ ANY($1)\n                      AND ($2::timestamptz IS NULL OR sa.created_at < $2)\n                    ORDER BY sa.created_at DESC\n                    LIMIT $3 + 1\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_by_email: String",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_used_at: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "269cd224bb9da510f66407999355f46aaaab423409dac7f6039e84fe948297f1"
+}

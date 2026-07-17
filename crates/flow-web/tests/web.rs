@@ -91,6 +91,50 @@ fn test_skim_projections() {
 }
 
 #[wasm_bindgen_test]
+fn test_skim_projections_write_schema_redaction() {
+    // A redact annotation on the write schema of a collection with a
+    // standalone read schema (no $ref to flow://write-schema). Redaction runs
+    // at write time against the write schema, so the annotation must surface
+    // on the projection's inference.
+    let input: JsValue = to_js_value(&json!({
+        "collection": "acmeCo/test",
+        "model": {
+            "key": ["/id"],
+            "writeSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "secret": {"type": "string", "redact": {"strategy": "block"}}
+                },
+                "required": ["id"]
+            },
+            "readSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "secret": {"type": "string"}
+                },
+                "required": ["id"]
+            }
+        }
+    }));
+    let result = flow_web::skim_collection_projections(input).unwrap();
+    let result: flow_web::collection::CollectionProjectionsResult =
+        serde_wasm_bindgen::from_value(result).unwrap();
+
+    let secret = result
+        .projections
+        .iter()
+        .find(|p| p.ptr == "/secret")
+        .expect("a /secret projection is skimmed");
+    assert_eq!(
+        secret.inference.as_ref().unwrap().redact(),
+        flow::inference::Redact::Block,
+    );
+    assert!(result.errors.is_empty());
+}
+
+#[wasm_bindgen_test]
 fn test_field_selection() {
     let input: JsValue = to_js_value(&json!({
         "collection": {

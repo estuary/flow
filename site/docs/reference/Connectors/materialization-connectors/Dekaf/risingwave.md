@@ -1,3 +1,7 @@
+---
+description: Materialize Estuary data collections to RisingWave via Kafka-compatible topics. Configure auth details and topic names while Estuary acts as the broker and schema registry.
+---
+
 # RisingWave
 
 This connector materializes Estuary collections as Kafka-compatible messages that a RisingWave Kafka consumer can read. [RisingWave](https://www.risingwave.com/) is a cloud-native SQL streaming database that enables real-time data processing and analytics.

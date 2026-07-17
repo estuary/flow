@@ -10,7 +10,8 @@ expression: json_test(msg)
   "discover": {
     "name": "discover/capture",
     "connectorType": "IMAGE",
-    "config": {"discover":"config"}
+    "config": {"discover":"config"},
+    "createdAt": "2025-07-09"
   },
   "validate": {
     "name": "validate/capture",
@@ -261,7 +262,8 @@ expression: json_test(msg)
           "number": 9000
         }
       ],
-      "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ="
+      "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ=",
+      "createdAt": "2025-07-09"
     },
     "version": "11:22:33:44",
     "lastVersion": "00:11:22:33",
@@ -416,7 +418,8 @@ expression: json_test(msg)
           "number": 9000
         }
       ],
-      "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ="
+      "redactSalt": "dGVzdC1jYXB0dXJlLXNhbHQ=",
+      "createdAt": "2025-07-09"
     },
     "version": "11:22:33:44",
     "range": {
@@ -425,7 +428,8 @@ expression: json_test(msg)
       "rClockBegin": 2291772091,
       "rClockEnd": 3437096703
     },
-    "state": {"connector":{"state":42}}
+    "state": {"connector":{"state":42}},
+    "sealedConfig": {"encrypted":"c2VjcmV0","sops":{"mac":"abc"}}
   },
   "acknowledge": {
     "checkpoints": 32

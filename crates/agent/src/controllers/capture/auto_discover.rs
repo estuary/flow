@@ -270,6 +270,8 @@ async fn try_auto_discover<C: ControlPlane>(
             reset_on_key_change,
             state.logs_token,
             state.data_plane_id,
+            // The task's creation date, as embedded in its control-plane Id.
+            state.live_spec_id.timestamp().date_naive().to_string(),
         )
         .await
         .context("failed to discover")?;

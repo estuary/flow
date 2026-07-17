@@ -1,3 +1,6 @@
+---
+description: Centralize Amazon Ads reporting in Estuary with profiles, sponsored campaigns, ad groups, keywords, and report streams, using OAuth2.
+---
 
 # Amazon Ads
 
@@ -19,7 +22,7 @@ The following data resources are supported:
 * [Sponsored display ad groups](https://advertising.amazon.com/API/docs/en-us/sponsored-display/3-0/openapi#/Ad%20groups)
 * [Sponsored display ad campaigns](https://advertising.amazon.com/API/docs/en-us/sponsored-display/3-0/openapi#/Campaigns)
 * [Sponsored display product ads](https://advertising.amazon.com/API/docs/en-us/sponsored-display/3-0/openapi#/Product%20ads)
-* [ Sponsored display report stream](https://advertising.amazon.com/API/docs/en-us/sponsored-display/3-0/openapi#/Reports)
+* [Sponsored display report stream](https://advertising.amazon.com/API/docs/en-us/sponsored-display/3-0/openapi#/Reports)
 * [Sponsored display targetings](https://advertising.amazon.com/API/docs/en-us/sponsored-display/3-0/openapi#/Targeting)
 * [Sponsored product ad groups](https://advertising.amazon.com/API/docs/en-us/sponsored-products/2-0/openapi#/Ad%20groups)
 * [Sponsored product ads](https://advertising.amazon.com/API/docs/en-us/sponsored-products/2-0/openapi#/Product%20ads)

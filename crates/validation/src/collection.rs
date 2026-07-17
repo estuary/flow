@@ -701,6 +701,25 @@ fn walk_collection_projections(
     // Now de-duplicate on field, taking the first entry. Recall that user projections are first.
     specs.dedup_by(|l, r| l.field.cmp(&r.field).is_eq());
 
+    // Redaction runs at write time against the write schema, so a `redact`
+    // annotation reachable only through the write schema is in force even when
+    // the read schema doesn't carry it. Surface it on the built inference of
+    // every projection whose read-schema inference has no strategy of its own.
+    if let Some(write_spec) = write_spec {
+        for spec in specs.iter_mut() {
+            let Some(inference) = spec.inference.as_mut() else {
+                continue;
+            };
+            if inference.redact != flow::inference::Redact::Unset as i32 {
+                continue;
+            }
+            let (w_shape, _) = write_spec
+                .shape
+                .locate(&json::Pointer::from(spec.ptr.as_str()));
+            inference.redact = assemble::inference_redact(&w_shape.redact) as i32;
+        }
+    }
+
     (models, specs)
 }
 

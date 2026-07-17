@@ -72,6 +72,7 @@ pub async fn do_materialize_fixture(
             }),
             state_json: checkpoint.to_string().into(),
             version: "test".to_string(),
+            sealed_config_json: Default::default(),
         }),
         ..Default::default()
     });

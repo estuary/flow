@@ -118,11 +118,18 @@ impl Client {
         let mut resp = result?.into_inner();
 
         if resp.status() == broker::Status::Ok {
-            Ok(resp)
-        } else {
-            req.header = resp.header.take();
-            Err(Error::BrokerStatus(resp.status()))
+            return Ok(resp);
         }
+        req.header = resp.header.take();
+
+        // A refused append carries the failing store's diagnostic in
+        // `store_health_error`; surface it rather than the bare status.
+        if resp.status() == broker::Status::FragmentStoreUnhealthy {
+            return Err(Error::FragmentStoreUnhealthy(std::mem::take(
+                &mut resp.store_health_error,
+            )));
+        }
+        Err(Error::BrokerStatus(resp.status()))
     }
 }
 

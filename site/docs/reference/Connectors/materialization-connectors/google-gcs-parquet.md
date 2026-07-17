@@ -1,5 +1,5 @@
 ---
-description: This connector materializes delta updates of Estuary collections into a GCS bucket in the Apache Parquet format.
+description: Write delta updates of Estuary collections into a GCS bucket as Apache Parquet files. Configure the upload interval, maximum file size, and file path.
 ---
 
 # Apache Parquet Files in Google GCS

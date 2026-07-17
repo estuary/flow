@@ -32,7 +32,7 @@ cat > ${VSCODE_SETTINGS} << EOF
     // runnables.extraEnv is the env for tests RUN from the gutter, so it must
     // carry the per-stack runtime vars the tests read (FLOW_PG_URL, FLOW_CLUSTER,
     // FLOW_PORT_BIGTABLE, FLOW_STACK_NAME) and GOBIN/PATH for binaries the tests
-    // shell out to (flowctl-go, gazette), matching what `mise run` provides.
+    // shell out to (flowctl-go, gazette), matching the mise task environment.
     "rust-analyzer.runnables.extraEnv": {
         "CARGO_TARGET_DIR": "${CARGO_TARGET_DIR}",
         "GOBIN": "${GOBIN}",

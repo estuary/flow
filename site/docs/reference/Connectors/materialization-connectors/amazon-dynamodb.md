@@ -1,4 +1,6 @@
-
+---
+description: Use Estuary's connector to materialize collections into Amazon DynamoDB tables with AWS access key or IAM authentication, and review collection requirements.
+---
 
 # Amazon DynamoDB
 
@@ -20,12 +22,12 @@ To use this connector, you'll need:
   DynamoDB](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/using-identity-based-policies.html)
   in the Amazon docs.
 
-- AWS Credentials.  One of the following types:
+- AWS Credentials. One of the following types:
   - The AWS **access key** and **secret access key** for the user. See the [AWS
     blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/)
     for help finding these credentials.
   - To authenticate using an AWS Role, you'll need the **region** and the
-    **role arn**.  Follow the steps in the [AWS IAM
+    **role arn**. Follow the steps in the [AWS IAM
     guide](/guides/iam-auth/aws.md) to setup the role.
 
 ## Collection Requirements

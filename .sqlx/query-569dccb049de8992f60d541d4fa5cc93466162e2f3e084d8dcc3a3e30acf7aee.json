@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM internal.data_plane_private_links WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "569dccb049de8992f60d541d4fa5cc93466162e2f3e084d8dcc3a3e30acf7aee"
+}

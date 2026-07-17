@@ -1,3 +1,6 @@
+---
+description: Set up Estuary's Google Sheets connector to capture spreadsheet data using OAuth2 authentication and polling.
+---
 
 # Google Sheets
 

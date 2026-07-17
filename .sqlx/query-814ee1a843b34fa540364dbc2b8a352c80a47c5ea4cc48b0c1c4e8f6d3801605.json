@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            g.user_id,\n            g.object_role AS \"prefix!: models::Prefix\",\n            g.capability AS \"capability!: models::Capability\",\n            g.detail,\n            g.created_at AS \"created_at!: chrono::DateTime<chrono::Utc>\",\n            g.updated_at AS \"updated_at!: chrono::DateTime<chrono::Utc>\"\n        FROM public.user_grants g\n        WHERE g.user_id = ANY($1)\n        ORDER BY g.object_role\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "prefix!: models::Prefix",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "capability!: models::Capability",
+        "type_info": {
+          "Custom": {
+            "name": "grant_capability",
+            "kind": {
+              "Enum": [
+                "none",
+                "x_01",
+                "x_02",
+                "x_03",
+                "x_04",
+                "x_05",
+                "x_06",
+                "x_07",
+                "x_08",
+                "x_09",
+                "read",
+                "x_11",
+                "x_12",
+                "x_13",
+                "x_14",
+                "x_15",
+                "x_16",
+                "x_17",
+                "x_18",
+                "x_19",
+                "write",
+                "x_21",
+                "x_22",
+                "x_23",
+                "x_24",
+                "x_25",
+                "x_26",
+                "x_27",
+                "x_28",
+                "x_29",
+                "admin"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "detail",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "814ee1a843b34fa540364dbc2b8a352c80a47c5ea4cc48b0c1c4e8f6d3801605"
+}

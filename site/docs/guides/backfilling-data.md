@@ -1,5 +1,6 @@
 ---
 sidebar_position: 3
+description: Learn how Estuary backfills refresh source, destination, or full Data Flows and choose between these incremental or full reset options based on use case.
 slug: /reference/backfilling-data/
 ---
 

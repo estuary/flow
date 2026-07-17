@@ -1,3 +1,7 @@
+---
+description: Generate an Estuary refresh token from the Admin CLI-API section of the dashboard for use with services or flowctl.
+---
+
 # How to Generate an Estuary Refresh Token
 
 To generate a Refresh Token, navigate to the Admin page, then head over to the CLI-API section.

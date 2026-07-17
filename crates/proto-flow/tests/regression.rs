@@ -218,6 +218,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         network_ports: ex_network_ports(),
         inactive_bindings: Vec::new(),
         redact_salt: b"test-capture-salt".to_vec().into(),
+        created_at: "2025-07-09".to_string(),
     }
 }
 
@@ -315,6 +316,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         network_ports: ex_network_ports(),
         inactive_bindings: Vec::new(),
         triggers_json: json!([{"url": "https://example.com/webhook", "method": "POST", "payloadTemplate": "{}"}]).to_string().into(),
+        created_at: "2025-07-09".to_string(),
     }
 }
 
@@ -415,6 +417,7 @@ fn ex_capture_request() -> capture::Request {
             name: "discover/capture".to_string(),
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: json!({"discover":"config"}).to_string().into(),
+            created_at: "2025-07-09".to_string(),
         }),
         validate: Some(capture::request::Validate {
             name: "validate/capture".to_string(),
@@ -440,6 +443,9 @@ fn ex_capture_request() -> capture::Request {
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
             state_json: json!({"connector": {"state": 42}}).to_string().into(),
+            sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
+                .to_string()
+                .into(),
         }),
         acknowledge: Some(capture::request::Acknowledge { checkpoints: 32 }),
         internal: ex_internal(),
@@ -625,6 +631,9 @@ fn ex_materialize_request() -> materialize::Request {
             version: "11:22:33:44".to_string(),
             range: Some(ex_range()),
             state_json: json!({"connector": {"state": 42}}).to_string().into(),
+            sealed_config_json: json!({"encrypted": "c2VjcmV0", "sops": {"mac": "abc"}})
+                .to_string()
+                .into(),
         }),
         acknowledge: Some(materialize::request::Acknowledge {
             state_patches_json: json!([{"acked": true}]).to_string().into(),
@@ -1119,4 +1128,25 @@ fn test_materialize_response_json() {
 fn test_materialize_response_proto() {
     let msg = ex_materialize_response();
     insta::assert_snapshot!(proto_test(msg));
+}
+
+// Spec JSON must tolerate unknown fields: released binaries routinely parse
+// specs produced by newer code which has added fields (as `createdAt` was).
+// A strict parser here means every deployed flowctl breaks the moment the
+// control plane starts emitting a new spec field.
+#[test]
+fn test_unknown_json_fields_are_ignored() {
+    let capture: flow::CaptureSpec = serde_json::from_value(json!({
+        "name": "acmeCo/capture",
+        "someFutureField": {"nested": ["values", 42]},
+    }))
+    .unwrap();
+    assert_eq!("acmeCo/capture", capture.name);
+
+    let materialization: flow::MaterializationSpec = serde_json::from_value(json!({
+        "name": "acmeCo/materialization",
+        "someFutureField": true,
+    }))
+    .unwrap();
+    assert_eq!("acmeCo/materialization", materialization.name);
 }

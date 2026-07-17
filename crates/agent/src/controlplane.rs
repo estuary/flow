@@ -164,6 +164,7 @@ pub trait ControlPlane: Send + Sync {
         reset_on_key_change: bool,
         logs_token: Uuid,
         data_plane_id: models::Id,
+        created_at: String,
     ) -> anyhow::Result<DiscoverOutput>;
 
     /// Attempts to publish the given draft, returning a result that indicates
@@ -630,6 +631,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         reset_on_key_change: bool,
         logs_token: Uuid,
         data_plane_id: models::Id,
+        created_at: String,
     ) -> anyhow::Result<DiscoverOutput> {
         let PGControlPlane {
             pool,
@@ -656,6 +658,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             reset_on_key_change,
             logs_token,
             data_plane: data_plane.clone(),
+            created_at,
         };
         discovers_handler.discover(pool, req).await
     }

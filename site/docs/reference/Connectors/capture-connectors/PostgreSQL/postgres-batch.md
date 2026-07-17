@@ -1,3 +1,7 @@
+---
+description: Use the PostgreSQL Batch Query connector to capture tables, views, and custom SQL queries with configurable polling schedules, cursors, and SSH tunneling.
+---
+
 # PostgreSQL Batch Query Connector
 
 This connector captures data from PostgreSQL databases into Estuary collections by

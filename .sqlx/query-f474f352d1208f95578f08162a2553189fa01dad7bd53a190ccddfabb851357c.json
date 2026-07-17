@@ -77,7 +77,8 @@
                       "team_admin",
                       "delegate",
                       "assume",
-                      "manage_data_plane"
+                      "manage_data_plane",
+                      "manage_service_accounts"
                     ]
                   }
                 }

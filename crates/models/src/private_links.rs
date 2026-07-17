@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(
     feature = "async-graphql",
     derive(async_graphql::Union, async_graphql::OneofObject),
-    graphql(name = "PrivateLink", input_name = "PrivateLinkInput")
+    graphql(name = "PrivateLinkConfig", input_name = "PrivateLinkConfigInput")
 )]
 #[serde(untagged)]
 pub enum PrivateLink {

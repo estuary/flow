@@ -1,4 +1,5 @@
 ---
+description: Build a stateless SQL transformation in Estuary using flowctl and demo Wikipedia data. Covers spec files, transformation code, and publishing steps.
 slug: /guides/derivation_tutorial_sql/
 ---
 

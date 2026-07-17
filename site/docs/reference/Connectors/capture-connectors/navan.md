@@ -1,3 +1,7 @@
+---
+description: Capture Navan booking data through Estuary's connector using a Navan OAuth application. Supports configurable sync interval settings.
+---
+
 # Navan
 
 This connector captures data from Navan into Estuary collections.

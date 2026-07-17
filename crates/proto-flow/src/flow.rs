@@ -585,6 +585,12 @@ pub struct CaptureSpec {
     /// Salt used for redacting sensitive fields in captured documents.
     #[prost(bytes = "bytes", tag = "10")]
     pub redact_salt: ::prost::bytes::Bytes,
+    /// Date on which this task was created, as a UTC date in RFC 3339
+    /// "full-date" format (YYYY-MM-DD). Empty during a task's first build,
+    /// before its creation is committed: the task is brand new, and a
+    /// connector should assume a current date.
+    #[prost(string, tag = "11")]
+    pub created_at: ::prost::alloc::string::String,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -674,6 +680,12 @@ pub struct MaterializationSpec {
     /// JSON-encoded trigger configurations for this materialization.
     #[prost(bytes = "bytes", tag = "10")]
     pub triggers_json: ::prost::bytes::Bytes,
+    /// Date on which this task was created, as a UTC date in RFC 3339
+    /// "full-date" format (YYYY-MM-DD). Empty during a task's first build,
+    /// before its creation is committed: the task is brand new, and a
+    /// connector should assume a current date.
+    #[prost(string, tag = "11")]
+    pub created_at: ::prost::alloc::string::String,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {

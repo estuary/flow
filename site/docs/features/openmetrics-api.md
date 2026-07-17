@@ -1,4 +1,5 @@
 ---
+description: Use Estuary’s OpenMetrics API to track capture, derivation, and materialization metrics. Integrate with observability platforms like Prometheus and Datadog.
 slug: /reference/openmetrics-api/
 ---
 

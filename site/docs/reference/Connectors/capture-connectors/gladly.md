@@ -1,3 +1,7 @@
+---
+description: Sync Gladly agent data with Estuary's connector, including agent availability, agent status, contacts, conversations, customers, and tasks, using API token authentication.
+---
+
 # Gladly
 
 This connector captures data from Gladly into Estuary collections.

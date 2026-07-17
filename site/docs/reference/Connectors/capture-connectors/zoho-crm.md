@@ -1,3 +1,7 @@
+---
+description: Use the Zoho CRM connector to capture modules with Zoho's Bulk and COQL APIs for efficient backfills with incremental updates. Supports formula field handling with refresh schedules.
+---
+
 # Zoho CRM
 
 This connector captures data from Zoho CRM modules into Estuary collections.

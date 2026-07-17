@@ -1,3 +1,6 @@
+---
+description: Set up Azure BYOC deployments for Estuary with a valid license. Complete setup by granting subscription access, configuring IAM, and sharing Azure subscription information.
+---
 
 # Azure BYOC Setup
 

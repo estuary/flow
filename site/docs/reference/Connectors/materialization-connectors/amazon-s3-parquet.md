@@ -1,5 +1,5 @@
 ---
-description: This connector materializes delta updates of Estuary collections into an S3 bucket in the Apache Parquet format.
+description: Write delta updates of Estuary collections into an S3 bucket as Apache Parquet files. Configure the upload interval, maximum file size, and file path.
 ---
 
 # Apache Parquet Files in Amazon S3
@@ -24,8 +24,8 @@ To use this connector, you'll need:
 
   When authenticating as user, you'll need the **access key** and **secret access key**. See the
   [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding
-  these credentials.  When authenticating using a role, you'll need the **region** and the **role
-  arn**.  Follow the steps in the [AWS IAM guide](/guides/iam-auth/aws.md) to setup the role.
+  these credentials. When authenticating using a role, you'll need the **region** and the **role
+  arn**. Follow the steps in the [AWS IAM guide](/guides/iam-auth/aws.md) to setup the role.
 
 
 ## Configuration

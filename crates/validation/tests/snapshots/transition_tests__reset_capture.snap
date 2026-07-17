@@ -521,6 +521,7 @@ expression: outcome.built_captures
             network_ports: [],
             inactive_bindings: [],
             redact_salt: b"pass-through-capture-salt",
+            created_at: "2025-05-07",
         },
         previous_spec: CaptureSpec {
             name: "the/capture",
@@ -593,6 +594,7 @@ expression: outcome.built_captures
             network_ports: [],
             inactive_bindings: [],
             redact_salt: b"pass-through-capture-salt",
+            created_at: "",
         },
         is_touch: 0,
         dependency_hash: 5b38dc32c776e2b2,

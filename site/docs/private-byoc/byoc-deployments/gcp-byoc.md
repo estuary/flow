@@ -1,3 +1,6 @@
+---
+description: Set up GCP BYOC deployments for Estuary with a valid license. Complete setup by granting project access, sharing your project ID, and enabling the Compute Engine API.
+---
 
 # GCP BYOC Setup
 

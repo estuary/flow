@@ -1,3 +1,7 @@
+---
+description: Use Estuary's Sentry connector to sync environments, teams, projects, issues, releases, and custom Explore queries, using a Sentry access token.
+---
+
 # Sentry
 
 This connector captures data from Sentry into Estuary collections.

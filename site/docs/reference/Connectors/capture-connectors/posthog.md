@@ -1,3 +1,7 @@
+---
+description: Use the PostHog connector to capture organizations, projects, persons, cohorts, annotations, events, and feature flags, using API key authentication.
+---
+
 # PostHog
 
 This connector captures data from PostHog into Estuary collections.

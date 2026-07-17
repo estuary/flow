@@ -53,6 +53,7 @@ impl Task {
             capture: spec,
             range,
             state_json: _,
+            sealed_config_json: _,
             version,
         } = open.clone().open.context("expected Open")?;
 
@@ -71,6 +72,7 @@ impl Task {
             shard_template,
             inactive_bindings: _,
             redact_salt,
+            created_at: _,
         } = spec.as_ref().context("missing capture")?;
         let range = range.context("missing range")?;
 

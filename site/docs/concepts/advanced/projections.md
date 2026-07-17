@@ -1,3 +1,7 @@
+---
+description: Learn how to use Estuary projections to map field locations in JSON documents and logically partition collections.
+---
+
 # Projections
 
 :::tip

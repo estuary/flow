@@ -1,6 +1,8 @@
 ---
 sidebar_position: 1
+description: Learn how Estuary captures ingest source data into collections using discovery, auto-updates, and schema evolution. See an example connector specification to define the endpoint and bindings.
 ---
+
 # Captures
 
 A **capture** is how Estuary ingests data from an external source.

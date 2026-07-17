@@ -1,5 +1,6 @@
 ---
 sidebar_position: 2
+description: Build your first Estuary streaming CDC pipeline from PostgreSQL to Snowflake with guided setup steps for your capture and materialization.
 ---
 
 # Quickstart for Estuary

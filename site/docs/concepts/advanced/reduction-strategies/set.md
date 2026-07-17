@@ -1,5 +1,5 @@
 ---
-description: Using the set reduction strategy
+description: Learn about Estuary's set reduction strategy to interpret document locations as set updates. Covers set reduction behavior, reduction keys, and test examples.
 slug: /reference/reduction-strategies/set/
 sidebar_position: 5
 ---

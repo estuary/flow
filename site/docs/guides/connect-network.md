@@ -1,5 +1,6 @@
 ---
 sidebar_position: 2
+description: Securely connect Estuary to endpoints using SSH tunneling, expose ports with reverse SSH, allowlist IP addresses, or configure PrivateLink.
 ---
 
 # Secure Connections

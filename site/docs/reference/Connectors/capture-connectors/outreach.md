@@ -1,3 +1,6 @@
+---
+description: Build Outreach sales engagement data flows with Estuary for accounts, calls, mailings, opportunities, prospects, tasks, and users.
+---
 
 # Outreach
 

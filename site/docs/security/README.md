@@ -1,5 +1,6 @@
 ---
 sidebar_position: 0
+description: Learn about Estuary security and compliance, including encryption, RBAC, zero-trust networking, private deployments, SOC 2, HIPAA, GDPR, and CCPA.
 pagination_next: security/security-features
 ---
 

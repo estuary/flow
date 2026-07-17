@@ -1,6 +1,8 @@
 ---
 sidebar_position: 9
+description: Learn how Estuary schemas define document structure and provide validation. Automatically infer schemas and customize behavior with reductions and other annotations.
 ---
+
 # Schemas
 
 Estuary's documents and [collections](collections.md) always have an associated schema

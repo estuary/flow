@@ -709,6 +709,7 @@ expression: outcome.built_materializations
             network_ports: [],
             inactive_bindings: [],
             triggers_json: b"",
+            created_at: "2025-05-07",
         },
         previous_spec: MaterializationSpec {
             name: "testing/materialize",
@@ -829,6 +830,7 @@ expression: outcome.built_materializations
             network_ports: [],
             inactive_bindings: [],
             triggers_json: b"",
+            created_at: "",
         },
         is_touch: 0,
         dependency_hash: eea0c2493934ba84,

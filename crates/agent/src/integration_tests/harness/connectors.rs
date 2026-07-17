@@ -10,12 +10,14 @@ pub type MockDiscover = Result<(capture::response::Spec, capture::response::Disc
 #[derive(Debug, Clone)]
 pub struct MockDiscoverConnectors {
     discover_mocks: Arc<Mutex<HashMap<models::Capture, MockDiscover>>>,
+    discover_requests: Arc<Mutex<HashMap<models::Capture, capture::request::Discover>>>,
 }
 
 impl Default for MockDiscoverConnectors {
     fn default() -> Self {
         MockDiscoverConnectors {
             discover_mocks: Arc::new(Mutex::new(HashMap::new())),
+            discover_requests: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -24,6 +26,13 @@ impl MockDiscoverConnectors {
     pub fn mock_discover(&mut self, capture_name: &str, respond: MockDiscover) {
         let mut lock = self.discover_mocks.lock().unwrap();
         lock.insert(models::Capture::new(capture_name), respond);
+    }
+
+    /// Returns the most recent Discover request received for the given
+    /// capture, so that tests can assert on request fields.
+    pub fn last_discover_request(&self, capture_name: &str) -> Option<capture::request::Discover> {
+        let lock = self.discover_requests.lock().unwrap();
+        lock.get(&models::Capture::new(capture_name)).cloned()
     }
 }
 
@@ -38,6 +47,10 @@ impl DiscoverConnectors for MockDiscoverConnectors {
         let Some(discover) = request.discover.take() else {
             anyhow::bail!("unexpected capture request type: {request:?}")
         };
+        self.discover_requests
+            .lock()
+            .unwrap()
+            .insert(task.clone(), discover.clone());
 
         let locked = self.discover_mocks.lock().unwrap();
         let Some(mock) = locked.get(task) else {

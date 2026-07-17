@@ -20,7 +20,8 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
     Option<crate::proto::Container>,
     Option<std::time::SystemTime>,
 )> {
-    let (endpoint, config_json, connector_type, catalog_name) = extract_endpoint(&mut initial)?;
+    let (endpoint, config_json, connector_type, catalog_name, sealed_config_json) =
+        extract_endpoint(&mut initial)?;
     let (connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
     fn start_rpc(
@@ -37,12 +38,12 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         .boxed()
     }
 
+    // Sealed endpoint configuration, extracted from the matched endpoint and
+    // decrypted later, once the connector's spec response is available.
+    let sealed_config;
     let (mut connector_rx, container) = match endpoint {
-        models::CaptureEndpoint::Connector(models::ConnectorConfig {
-            image,
-            config: sealed_config,
-        }) => {
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
+        models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+            sealed_config = config;
             // Captures don't have conditional JSON fields, so _codec is unused.
             let (rx, container, _codec) = crate::image_connector::serve(
                 image,
@@ -66,16 +67,16 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         }
         models::CaptureEndpoint::Local(models::LocalConfig {
             command,
-            config: sealed_config,
+            config,
             env,
             protobuf,
         }) => {
+            sealed_config = config;
             let codec = if protobuf {
                 connector_init::Codec::Proto
             } else {
                 connector_init::Codec::Json
             };
-            *config_json = unseal::decrypt_sops(&sealed_config).await?.into();
 
             let rx = crate::local_connector::serve(
                 command,
@@ -104,6 +105,13 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
         response => return Err(verify.fail_msg(response)),
     };
 
+    // Decrypt the sealed endpoint configuration into the connector request, applying
+    // any nonsensitive `sops.overlay` properties subject to schema validation.
+    *config_json =
+        unseal::overlay::decrypt_with_overlay(&sealed_config, &spec_response.config_schema_json)
+            .await?
+            .into();
+
     let mut token_restart_at = None;
     if let Ok(Some(iam_config)) = iam_auth::extract_iam_auth_from_connector_config(
         config_json,
@@ -123,6 +131,14 @@ pub async fn start<P: crate::PublisherFactory, L: crate::LoggerFactory>(
             tokens.zeroize();
         }
     }
+
+    // Provide the connector with the sealed endpoint configuration alongside the
+    // decrypted `config_json`, so it may emit `configUpdate`s which adjust its own
+    // `sops.overlay` without re-encrypting the configuration. Only present on Open.
+    if let Some(sealed_config_json) = sealed_config_json {
+        *sealed_config_json = sealed_config.into();
+    }
+
     _ = connector_tx.try_send(initial);
 
     Ok((connector_tx, connector_rx, container, token_restart_at))
@@ -135,11 +151,12 @@ fn extract_endpoint<'r>(
     &'r mut bytes::Bytes,
     i32,
     Option<String>,
+    Option<&'r mut bytes::Bytes>,
 )> {
-    let (connector_type, config_json, catalog_name) = match request {
+    let (connector_type, config_json, catalog_name, sealed_config_json) = match request {
         Request {
             spec: Some(spec), ..
-        } => (spec.connector_type, &mut spec.config_json, None),
+        } => (spec.connector_type, &mut spec.config_json, None, None),
         Request {
             discover: Some(discover),
             ..
@@ -147,6 +164,7 @@ fn extract_endpoint<'r>(
             discover.connector_type,
             &mut discover.config_json,
             Some(discover.name.clone()),
+            None,
         ),
         Request {
             validate: Some(validate),
@@ -155,6 +173,7 @@ fn extract_endpoint<'r>(
             validate.connector_type,
             &mut validate.config_json,
             Some(validate.name.clone()),
+            None,
         ),
         Request {
             apply: Some(apply), ..
@@ -164,17 +183,28 @@ fn extract_endpoint<'r>(
                 .capture
                 .as_mut()
                 .context("`apply` missing required `capture`")?;
-            (inner.connector_type, &mut inner.config_json, catalog_name)
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                catalog_name,
+                None,
+            )
         }
         Request {
             open: Some(open), ..
         } => {
             let catalog_name = open.capture.as_ref().map(|c| c.name.clone());
+            let sealed_config_json = &mut open.sealed_config_json;
             let inner = open
                 .capture
                 .as_mut()
                 .context("`open` missing required `capture`")?;
-            (inner.connector_type, &mut inner.config_json, catalog_name)
+            (
+                inner.connector_type,
+                &mut inner.config_json,
+                catalog_name,
+                Some(sealed_config_json),
+            )
         }
         request => {
             return Err(
@@ -191,6 +221,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else if connector_type == flow::capture_spec::ConnectorType::Local as i32 {
         Ok((
@@ -200,6 +231,7 @@ fn extract_endpoint<'r>(
             config_json,
             connector_type,
             catalog_name,
+            sealed_config_json,
         ))
     } else {
         anyhow::bail!("invalid connector type: {connector_type}");

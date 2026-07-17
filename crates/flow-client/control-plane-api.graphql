@@ -398,6 +398,10 @@ enum CapabilityBit {
 	ModifyDataPlanePrivateNetworking
 	ViewBilling
 	EditBilling
+	QueryServiceAccounts
+	CreateServiceAccount
+	CreateApiKey
+	RevokeApiKey
 	Delegate
 	Assume
 }
@@ -659,8 +663,22 @@ type Controller {
 	updatedAt: DateTime!
 }
 
+type CreateApiKeyResult {
+	id: Id!
+	"""
+	The bearer credential, returned exactly once. Present it as an
+	`Authorization: Bearer` token or exchange it at `POST /api/v1/auth/token`.
+	"""
+	secret: Sensitive!
+	"""
+	The owning account in its post-mint state, so the new token merges into
+	client caches without a follow-up query.
+	"""
+	serviceAccount: ServiceAccount!
+}
+
 type CreateBillingSetupIntentPayload {
-	clientSecret: String!
+	clientSecret: Sensitive!
 }
 
 """
@@ -731,11 +749,11 @@ type DataPlane {
 	"""
 	azureApplicationClientId: String
 	"""
-	Configured private link endpoints for this data-plane. Replacing this
-	list (via `updateDataPlanePrivateLinks`) triggers reconvergence by the
-	data-plane controller on its next poll. Returns an empty list to
-	callers that lack the `ViewDataPlanePrivateNetworking` capability on
-	this data plane.
+	Configured private links for this data-plane, each with its
+	controller-observed provisioning status. Mutating links (via
+	`addDataPlanePrivateLink` and friends) triggers reconvergence by the
+	data-plane controller. Returns an empty list to callers that lack the
+	`ViewDataPlanePrivateNetworking` capability on this data plane.
 	"""
 	privateLinks: [PrivateLink!]!
 	"""
@@ -1284,20 +1302,31 @@ type MutationRoot {
 	"""
 	deleteInviteLink(token: UUID!): Boolean!
 	"""
-	Replaces the configured private link endpoints on a private data plane.
-	
-	The provided list overwrites the entire `private_links` column; partial
-	updates are intentionally not supported. The data-plane controller
-	converges to the new configuration on its next poll. Returns the desired
-	private links state. The `*LinkEndpoints` provisioning results are not echoed here:
-	they lag this write until the controller converges, so callers needing them re-query `dataPlanes`.
-	
-	Requires the `ModifyDataPlanePrivateNetworking` capability on the
-	private data-plane name.
+	Adds a private link to a private data plane. The data-plane controller
+	converges to provision it on its next poll; the returned link starts
+	`pending`. Requires `ModifyDataPlanePrivateNetworking` on the data plane.
 	"""
-	updateDataPlanePrivateLinks(dataPlaneName: String!, privateLinks: [PrivateLinkInput!]!): [PrivateLink!]!
+	addDataPlanePrivateLink(dataPlaneName: String!, config: PrivateLinkConfigInput!): PrivateLink!
+	"""
+	Replaces the configuration of an existing private link by id. A changed
+	config resets the observed status to `pending` and re-triggers convergence:
+	the desired-edit trigger clears the observation columns and bumps the
+	link's internal generation, so a converge already in flight against the
+	previous configuration cannot later stamp this link with a stale status.
+	Requires `ModifyDataPlanePrivateNetworking` on the owning data plane.
+	"""
+	updateDataPlanePrivateLink(id: Id!, config: PrivateLinkConfigInput!): PrivateLink!
+	"""
+	Removes a private link by id. The controller tears down its endpoint on
+	the next converge. Requires `ModifyDataPlanePrivateNetworking` on the
+	owning data plane. Returns the removed link id.
+	"""
+	removeDataPlanePrivateLink(id: Id!): Id!
 	"""
 	Create a refresh token for the authenticated user.
+	
+	Service-account callers are rejected: their API keys are administered
+	via createApiKey and revokeApiKey.
 	"""
 	createRefreshToken(
 		"""
@@ -1311,8 +1340,106 @@ type MutationRoot {
 	Rather than deleting the row, we zero its `valid_for` interval, which
 	marks the token as expired/invalid while preserving the audit trail.
 	Already-zeroed (revoked) tokens are treated as not found.
+	
+	Service-account callers are rejected: their API keys are administered
+	via createApiKey and revokeApiKey.
 	"""
 	revokeRefreshToken(id: Id!): Boolean!
+	"""
+	Create a service account homed at the specified catalog name, seeded
+	with the given user_grants.
+	
+	`catalogName` is a management anchor: admins of a prefix covering it
+	may manage the account. It determines who may manage the account, not
+	what the account may access. Access is determined solely by the
+	account's user_grants, which may span multiple prefixes.
+	
+	The caller must have CreateServiceAccount on the catalog name AND
+	CreateGrant on each granted prefix. Creates an auth.users row, an
+	internal.service_accounts row, and a user_grants row per requested
+	grant.
+	"""
+	createServiceAccount(catalogName: Name!, grants: [UserGrantInput!]!): ServiceAccount!
+	"""
+	Add a user_grant to a service account.
+	
+	The caller must have CreateGrant on BOTH the account's catalog name and
+	the granted prefix. Adding a grant is grant creation, so the account
+	anchor gates on that same capability, while the per-prefix check
+	prevents a caller from extending an account's access beyond what they
+	could grant anyone. (Human-user grant creation still lives in
+	PostgREST; when it migrates to GraphQL it should gate on this same
+	CreateGrant capability.)
+	"""
+	addServiceAccountGrant(catalogName: Name!, prefix: Prefix!, capability: Capability!): ServiceAccount!
+	"""
+	Remove a user_grant from a service account, returning the account in its
+	post-removal state.
+	
+	The caller must have CreateServiceAccount on the catalog name. Unlike addServiceAccountGrant, no capability on the
+	grant's prefix is required: removal only ever narrows the account's
+	access, so managers may remove ANY grant — including grants to
+	prefixes they don't themselves administer.
+	
+	Removal is idempotent: removing a grant the account doesn't hold is a
+	no-op that returns the unchanged account rather than an error.
+	"""
+	removeServiceAccountGrant(catalogName: Name!, prefix: Prefix!): ServiceAccount!
+	"""
+	Remove ALL user_grants from a service account, stripping its access in
+	one call and returning the account with `grants: []`.
+	
+	The caller must manage the service account (CreateServiceAccount on its
+	catalog name). As with removeServiceAccountGrant, no capability on the
+	grants' prefixes is required: removal only narrows access, so a manager
+	may clear grants to prefixes they don't themselves administer. Clearing
+	an account that already has no grants is an idempotent no-op.
+	"""
+	removeAllServiceAccountGrants(catalogName: Name!): ServiceAccount!
+	"""
+	Mint a credential for a service account.
+	
+	The credential is a multi-use refresh token owned by the account: its
+	secret never rotates and its validity window of `valid_for` slides with
+	use, like any refresh token. Returns the token id and the bearer secret,
+	which is returned exactly once and cannot be retrieved again. Present it
+	as an `Authorization: Bearer` credential or exchange it for a 1-hour
+	access token via `POST /api/v1/auth/token`.
+	
+	The caller must have CreateApiKey on the account's catalog name.
+	"""
+	createApiKey(		catalogName: Name!,		detail: String!,
+		"""
+		ISO 8601 duration for token validity (e.g. P90D, P1Y)
+		"""
+		validFor: String!
+	): CreateApiKeyResult!
+	"""
+	Revoke a service-account token, returning the owning account in its
+	post-revocation state.
+	
+	The caller must have RevokeApiKey on the owning service account's
+	catalog name. The account is resolved from the token id.
+	
+	Rather than deleting the row, we zero its `valid_for` interval, which
+	makes the token inert (it fails the exchange's expiry check and is
+	excluded from listings) while preserving the audit trail. Revocation is
+	idempotent: revoking an already-inert token is a no-op that still returns
+	the account. Only an id that maps to no service-account token errors.
+	"""
+	revokeApiKey(id: Id!): ServiceAccount!
+	"""
+	Revoke ALL of a service account's API keys at once — the credential kill
+	switch — returning the account with no active keys.
+	
+	The caller must have RevokeApiKey on the account's catalog name.
+	Like revokeApiKey, each key is made inert by zeroing its
+	`valid_for` interval (preserving the audit trail) rather than deleted;
+	already-revoked keys are skipped. A service account's user_id only ever
+	owns its own minted credentials, so this targets exactly those. An
+	account with no active keys is an idempotent no-op.
+	"""
+	revokeAllApiKeys(catalogName: Name!): ServiceAccount!
 }
 
 """
@@ -1439,19 +1566,70 @@ input PrefixesBy {
 }
 
 """
-Private link configuration for a customer-owned data plane: AWS
-PrivateLink, Azure Private Link, or GCP Private Service Connect.
+A configured private link and its controller-observed provisioning status.
 """
-union PrivateLink = AWSPrivateLink | AzurePrivateLink | GCPPrivateServiceConnect
+type PrivateLink {
+	"""
+	Stable identifier of this private link.
+	"""
+	id: Id!
+	"""
+	The link configuration (AWS PrivateLink, Azure Private Link, or GCP PSC).
+	Its variant (`AWSPrivateLink`/`AzurePrivateLink`/`GCPPrivateServiceConnect`)
+	is the link's cloud provider.
+	"""
+	config: PrivateLinkConfig!
+	"""
+	Controller-observed provisioning status.
+	"""
+	status: PrivateLinkProvisioningStatus!
+	"""
+	Provider-specific provisioning details (DNS entries, IPs) once
+	provisioned; opaque JSON exported by the data-plane controller.
+	"""
+	details: JSON
+	"""
+	Failure detail when `status` is `failed`.
+	"""
+	error: String
+	"""
+	When the controller last observed this link's status.
+	"""
+	observedAt: DateTime
+}
 
 """
 Private link configuration for a customer-owned data plane: AWS
 PrivateLink, Azure Private Link, or GCP Private Service Connect.
 """
-input PrivateLinkInput @oneOf {
+union PrivateLinkConfig = AWSPrivateLink | AzurePrivateLink | GCPPrivateServiceConnect
+
+"""
+Private link configuration for a customer-owned data plane: AWS
+PrivateLink, Azure Private Link, or GCP Private Service Connect.
+"""
+input PrivateLinkConfigInput @oneOf {
 	aws: AWSPrivateLinkInput
 	azure: AzurePrivateLinkInput
 	gcp: GCPPrivateServiceConnectInput
+}
+
+"""
+Controller-observed provisioning status of a configured private link.
+"""
+enum PrivateLinkProvisioningStatus {
+	"""
+	Not yet provisioned for the current configuration.
+	"""
+	PENDING
+	"""
+	Provisioned; `details` describes the endpoint.
+	"""
+	PROVISIONED
+	"""
+	Provisioning failed; see `error`.
+	"""
+	FAILED
 }
 
 """
@@ -1682,6 +1860,7 @@ type QueryRoot {
 	List refresh tokens owned by the authenticated user.
 	"""
 	refreshTokens(after: String, first: Int): RefreshTokenInfoConnection!
+	serviceAccounts(after: String, first: Int): ServiceAccountConnection!
 }
 
 """
@@ -1739,7 +1918,7 @@ type RefreshTokenInfoEdge {
 
 type RefreshTokenResult {
 	id: Id!
-	secret: String!
+	secret: Sensitive!
 }
 
 type RepublishRequested {
@@ -1758,6 +1937,67 @@ type RepublishRequested {
 	and complete.
 	"""
 	lastBuildId: Id!
+}
+
+"""
+A secret returned by the API, such as a bearer credential. The value is serialized as a string, but clients must treat it as sensitive: redact it from logs and UIs, and never pass it to a language model.
+"""
+scalar Sensitive
+
+type ServiceAccount {
+	catalogName: Name!
+	"""
+	Email of the user who created the account. Null if that user has no
+	email on file.
+	"""
+	createdByEmail: String
+	createdAt: DateTime!
+	lastUsedAt: DateTime
+	grants: [UserGrant!]!
+	apiKeys: [ServiceAccountApiKey!]!
+}
+
+"""
+A service-account credential: a multi-use refresh token owned by the account
+and minted by an administrator. The secret itself is returned only once at
+creation (see [`CreateApiKeyResult`]).
+"""
+type ServiceAccountApiKey {
+	id: Id!
+	detail: String
+	"""
+	Email of the user who minted the token. Null if that user has no email
+	on file.
+	"""
+	createdByEmail: String
+	createdAt: DateTime!
+	expiresAt: DateTime!
+	lastUsedAt: DateTime
+}
+
+type ServiceAccountConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [ServiceAccountEdge!]!
+}
+
+"""
+An edge in a connection.
+"""
+type ServiceAccountEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: ServiceAccount!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
 }
 
 type SetBillingContactPayload {
@@ -2162,6 +2402,27 @@ type UsBankAccountPaymentMethodDetails {
 	bankName: String
 	last4: String
 	accountHolderType: String
+}
+
+"""
+A user_grant held by a service account: the prefix it may act on and the
+capability it holds there. An account's access is the union of its grants,
+which may span multiple prefixes independent of its catalog_name anchor.
+"""
+type UserGrant {
+	prefix: Prefix!
+	capability: Capability!
+	detail: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+"""
+A user_grant to seed a service account with at creation time.
+"""
+input UserGrantInput {
+	prefix: Prefix!
+	capability: Capability!
 }
 
 """

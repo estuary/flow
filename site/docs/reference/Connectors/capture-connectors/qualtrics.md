@@ -1,3 +1,7 @@
+---
+description: Capture Qualtrics survey data with Estuary's connector, including questions and responses, with sync interval configuration.
+---
+
 # Qualtrics
 
 This connector captures data from Qualtrics surveys into Estuary collections. It supports real-time data synchronization of surveys, survey questions, and survey responses from your Qualtrics account.

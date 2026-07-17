@@ -1,3 +1,7 @@
+---
+description: Browse flowctl guides for editing Data Flow specification files, creating derivations, troubleshooting tasks, and automating workflows.
+---
+
 # flowctl Guides
 
 The guides in this section cover common workflows using the Estuary CLI, flowctl.

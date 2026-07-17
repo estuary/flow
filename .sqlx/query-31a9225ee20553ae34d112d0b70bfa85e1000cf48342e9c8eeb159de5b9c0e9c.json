@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE internal.data_plane_private_links SET\n                config = $2\n            WHERE id = $1\n            RETURNING\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "details: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "observed_at: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "31a9225ee20553ae34d112d0b70bfa85e1000cf48342e9c8eeb159de5b9c0e9c"
+}

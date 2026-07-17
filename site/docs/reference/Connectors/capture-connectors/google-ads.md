@@ -1,3 +1,6 @@
+---
+description: Connect Google Ads accounts to Estuary for campaign, ad group, keyword, click, and customer data, with support for GAQL queries and OAuth2 authentication.
+---
 
 # Google Ads
 

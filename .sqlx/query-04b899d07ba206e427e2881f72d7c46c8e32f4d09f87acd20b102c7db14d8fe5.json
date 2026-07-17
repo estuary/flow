@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH pinned AS (\n            SELECT id, generation\n                FROM unnest($2::flowid[], $3::bigint[]) AS p(id, generation)\n        ),\n        results AS (\n            SELECT id, status, error, detail\n                FROM unnest($4::flowid[], $5::text[], $6::text[], $7::jsonb[])\n                    AS r(id, status, error, detail)\n        )\n        UPDATE internal.data_plane_private_links l SET\n            status = r.status,\n            details = r.detail,\n            error = r.error,\n            observed_at = now(),\n            updated_at = now()\n        FROM internal.data_plane_private_links l2\n        JOIN pinned p ON p.id = l2.id AND p.generation = l2.generation\n        JOIN results r ON r.id = l2.id\n        WHERE l.id = l2.id\n          AND l2.data_plane_id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "Int8Array",
+        {
+          "Custom": {
+            "name": "flowid[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "flowid",
+                  "kind": {
+                    "Domain": "Macaddr8"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "TextArray",
+        "TextArray",
+        "JsonbArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "04b899d07ba206e427e2881f72d7c46c8e32f4d09f87acd20b102c7db14d8fe5"
+}

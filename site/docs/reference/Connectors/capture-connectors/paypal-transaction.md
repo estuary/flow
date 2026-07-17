@@ -1,3 +1,6 @@
+---
+description: Use the PayPal Transaction connector to capture balances and transaction history with PayPal developer application credentials. Supports sandbox mode and configurable start date.
+---
 
 # Paypal Transaction
 

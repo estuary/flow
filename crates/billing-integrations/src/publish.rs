@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use billing_types::{
     InvoiceMetadata, InvoiceSearch, InvoiceType, PaymentProvider, SearchParams,
-    TENANT_METADATA_KEY, customer_create_idempotency_key, customer_search_query, stripe_search,
+    customer_create_idempotency_key, customer_search_query, stripe_search, tenant_metadata,
 };
 use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
@@ -811,13 +811,14 @@ async fn get_or_create_customer_for_tenant(
                 description: Some(
                     format!("Represents the billing entity for Flow tenant '{tenant}'").as_str(),
                 ),
-                metadata: Some(HashMap::from([
-                    (TENANT_METADATA_KEY.to_string(), tenant.to_string()),
-                    (
+                metadata: Some({
+                    let mut metadata = tenant_metadata(tenant.as_str());
+                    metadata.insert(
                         CREATED_BY_BILLING_AUTOMATION.to_string(),
                         "true".to_string(),
-                    ),
-                ])),
+                    );
+                    metadata
+                }),
                 ..Default::default()
             },
         )
@@ -855,6 +856,11 @@ async fn get_or_create_customer_for_tenant(
                     join auth.users as users on user_grants.user_id = users.id
                     where users.email is not null and user_grants.object_role = $1
                     and user_grants.capability = 'admin'
+                    -- Exclude service accounts: their synthetic addresses must
+                    -- never be chosen as a tenant's Stripe billing contact.
+                    and not exists (
+                      select 1 from internal.service_accounts sa where sa.user_id = users.id
+                    )
                     order by users.created_at asc
                 "#,
                 tenant

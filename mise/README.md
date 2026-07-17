@@ -52,11 +52,14 @@ source ~/.zshrc
 
 Choose based on your needs:
 
+Both VM types clone Flow using your forwarded SSH agent. Ensure a key is loaded
+before creating either VM (for example, `ssh-add ~/.ssh/id_ed25519`). Private
+keys remain on the host.
+
 **[Lima](https://lima-vm.io/) VM** (local, uses host resources):
 
 ```bash
-# Share a parent directory of your checkout (NOT your home directory)
-mise run vm:create-lima tiger ~/work
+mise run vm:create-lima tiger
 ```
 
 **GCP VM** (remote, more hardware available):
@@ -76,14 +79,15 @@ GCP VMs have an idle timer that automatically shuts down the instance when no SS
 **Lima:**
 
 ```bash
-cd ~/work/path/to/shared/repo
 limactl shell tiger
+cd ~/estuary/flow
 
 # Or use SSH directly. Note the lima- prefix when using `ssh`.
 ssh lima-tiger
 ```
 
-Note: Lima VMs use `/<vm-name>` as the home directory (e.g., `/tiger`) to avoid ambiguity with the host share, which is typically under `/home/<user>` or `/Users/<user>`.
+The repository is cloned onto the Lima VM's disk during creation. SSH agent
+forwarding allows the VM to authenticate to GitHub without copying private keys.
 
 **GCP:**
 
@@ -343,7 +347,7 @@ mise tasks
 
 | Task                                   | Description                                             |
 | -------------------------------------- | ------------------------------------------------------- |
-| `vm:create-lima <name> <share_dir>`    | Create a Lima VM                                        |
+| `vm:create-lima <name>`                | Create a Lima VM                                        |
 | `vm:create-gcp <project>`              | Create a GCP VM                                         |
 | `vm:port-forward <hostname>`           | Forward ports from VM to host                           |
 | `vm:claude <vm_name>`                  | Copy Claude Code token into VM                          |

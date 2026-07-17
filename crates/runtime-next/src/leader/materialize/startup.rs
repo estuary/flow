@@ -6,7 +6,7 @@ use bytes::Bytes;
 use futures::{StreamExt, stream::BoxStream};
 use prost::Message;
 use proto_flow::flow;
-use proto_gazette::uuid;
+use proto_gazette::{consumer, uuid};
 use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 
@@ -114,7 +114,7 @@ pub(super) async fn run<
 
     // Receive Recover fan-in.
     let proto::Recover {
-        ack_intents: mut pending_ack_intents,
+        ack_intents: pending_ack_intents,
         committed_close_clock: committed_close,
         committed_frontier,
         mut connector_state_json,
@@ -128,12 +128,12 @@ pub(super) async fn run<
         .await
         .context("receiving Recover fan-in")?;
 
-    let mut committed_close = uuid::Clock::from_u64(committed_close);
+    let committed_close = uuid::Clock::from_u64(committed_close);
     let hinted_close = uuid::Clock::from_u64(hinted_close);
 
-    let mut hinted_frontier = shuffle::Frontier::decode(hinted_frontier.unwrap_or_default())
+    let hinted_frontier = shuffle::Frontier::decode(hinted_frontier.unwrap_or_default())
         .context("validating hinted Frontier")?;
-    let mut committed_frontier = shuffle::Frontier::decode(committed_frontier.unwrap_or_default())
+    let committed_frontier = shuffle::Frontier::decode(committed_frontier.unwrap_or_default())
         .context("validating committed Frontier")?;
 
     tracing::debug!(
@@ -194,8 +194,117 @@ pub(super) async fn run<
         .collect();
     journal_read_suffix_index.sort();
 
+    // Reconcile recovered RocksDB state against any authoritative checkpoint,
+    // yielding the session resume Frontier and an optional RocksDB cleanup.
+    let Reconciled {
+        committed_close,
+        committed_frontier,
+        pending_ack_intents,
+        resume_frontier,
+        idempotent_replay,
+        cleanup_persist,
+    } = reconcile_recovered(
+        drop_v1_rollback,
+        committed_close,
+        hinted_close,
+        committed_frontier,
+        hinted_frontier,
+        legacy_checkpoint,
+        connector_checkpoint,
+        pending_ack_intents,
+        &journal_read_suffix_index,
+    )?;
+
+    // Durably apply the cleanup so future recoveries observe the reconciled
+    // baseline (this is the only IO the reconciliation implies).
+    if let Some(cleanup_persist) = cleanup_persist {
+        send_persist(
+            &mut shard_rx[0],
+            &shard_tx[0],
+            &task.peers[0],
+            cleanup_persist,
+        )
+        .await
+        .context("sending startup cleanup Persist")?;
+    }
+
+    // Open the shuffle Session with the recovered resume Frontier.
+    let shuffle_task = shuffle::proto::Task {
+        task: Some(shuffle::proto::task::Task::Materialization(spec)),
+    };
+    let session = service
+        .shuffle_factory
+        .open(shuffle_task, shard_shuffles, resume_frontier)
+        .await
+        .context("opening shuffle Session")?;
+
+    Ok(Startup {
+        committed_close,
+        committed_frontier,
+        idempotent_replay,
+        logger,
+        pending_ack_intents,
+        pending_trigger_params,
+        publisher,
+        session,
+        task,
+    })
+}
+
+/// Outcome of [`reconcile_recovered`]: the resume Frontier plus any RocksDB
+/// cleanup that `run` must durably apply before opening the shuffle Session.
+struct Reconciled {
+    /// Final committed close Clock. Advances to the recovered `hinted_close`
+    /// when a remote-authoritative connector confirms the hinted txn committed.
+    committed_close: uuid::Clock,
+    /// Final committed Frontier, possibly rebuilt from an authoritative checkpoint.
+    committed_frontier: shuffle::Frontier,
+    /// Final ACK intents; replaced by an authoritative checkpoint's when present.
+    pending_ack_intents: BTreeMap<String, Bytes>,
+    /// Session resume Frontier: `project_hinted(hinted).reduce(committed)`.
+    resume_frontier: shuffle::Frontier,
+    /// Whether the first transaction must idempotently replay a hinted commit.
+    idempotent_replay: bool,
+    /// Startup cleanup `Persist` to durably reconcile RocksDB, or `None` when
+    /// nothing needs reconciling.
+    cleanup_persist: Option<proto::Persist>,
+}
+
+/// Reconcile the RocksDB-recovered frontiers (`committed_frontier`,
+/// `hinted_frontier`, `committed_close`) against any authoritative checkpoint —
+/// a `legacy_checkpoint` (V1 rollback migration) or a remote-authoritative
+/// `connector_checkpoint` recovered from Open. Returns the composed session
+/// resume Frontier and the RocksDB cleanup its caller must persist.
+///
+/// Pure (no IO), so the reconciliation policy is unit-testable in isolation
+/// from the leader's shard-protocol plumbing. `journal_read_suffix_index` maps
+/// `journal_read_suffix` => binding index and must be sorted on the suffix.
+fn reconcile_recovered(
+    drop_v1_rollback: bool,
+    mut committed_close: uuid::Clock,
+    hinted_close: uuid::Clock,
+    mut committed_frontier: shuffle::Frontier,
+    mut hinted_frontier: shuffle::Frontier,
+    legacy_checkpoint: Option<consumer::Checkpoint>,
+    connector_checkpoint: consumer::Checkpoint,
+    mut pending_ack_intents: BTreeMap<String, Bytes>,
+    journal_read_suffix_index: &[(&str, usize)],
+) -> anyhow::Result<Reconciled> {
     // Set when a recovered checkpoint (legacy V1 or connector) is authoritative
     // and its mapped Frontier replaces `committed_frontier`.
+    //
+    // Rebuilding also forces us to discard the recovered `hinted_frontier`. The
+    // hinted frontier is a read-ahead of `committed_frontier` that's replayed at
+    // startup: `project_hinted` zeroes each hinted producer's read offset and
+    // relies on that producer's entry in `committed_frontier` to restore it.
+    // A rebuilt committed frontier is a fresh mapping of the authoritative
+    // checkpoint, and won't carry producers the checkpoint has dropped — e.g. the
+    // V1 runtime prunes a producer that's been silent for >24h. Any hinted
+    // producer without a committed counterpart then resolves to offset 0, forcing
+    // a full re-read of the journal (from the beginning) to replay a hint whose
+    // producer has long gone silent and whose data the checkpoint already
+    // reflects. Discarding the hinted frontier avoids this: the authoritative
+    // checkpoint is a complete `committed_frontier`, so there's nothing to replay.
     let mut committed_frontier_rebuilt = false;
 
     // Handle migration from `legacy_checkpoint`.
@@ -224,9 +333,11 @@ pub(super) async fn run<
             );
             committed_frontier = frontier_mapping::checkpoint_to_frontier(
                 &legacy_checkpoint.sources,
-                &journal_read_suffix_index,
+                journal_read_suffix_index,
             )
             .context("mapping recovered legacy checkpoint into Frontier")?;
+
+            hinted_frontier = Default::default(); // Discard; see `committed_frontier_rebuilt`.
             committed_frontier_rebuilt = true;
 
             pending_ack_intents = legacy_checkpoint.ack_intents;
@@ -240,7 +351,7 @@ pub(super) async fn run<
     }
 
     // Handle a `connector_checkpoint` from remote-authoritative connectors.
-    // It may be *ahead* of `committed_frontier`, which is detect as its embedded
+    // It may be *ahead* of `committed_frontier`, which is detected as its embedded
     // committed-close Clock matching our recovered `hinted_close`.
     if !connector_checkpoint.sources.is_empty() {
         let clock = frontier_mapping::extract_committed_close(&connector_checkpoint);
@@ -268,7 +379,7 @@ pub(super) async fn run<
         } else if let Some(clock) = clock {
             // Implementation error: these update together and should always sync.
             anyhow::bail!(
-                "connector_checkpoint has clock {clock:?} which doesn't match Recover's\
+                "connector_checkpoint has clock {clock:?} which doesn't match Recover's \
                  committed_close ({committed_close:?}) or hinted_close ({hinted_close:?})"
             );
         } else {
@@ -281,9 +392,11 @@ pub(super) async fn run<
 
             committed_frontier = frontier_mapping::checkpoint_to_frontier(
                 &connector_checkpoint.sources,
-                &journal_read_suffix_index,
+                journal_read_suffix_index,
             )
             .context("mapping recovered connector checkpoint into Frontier")?;
+
+            hinted_frontier = Default::default(); // Discard; see `committed_frontier_rebuilt`.
             committed_frontier_rebuilt = true;
 
             pending_ack_intents = connector_checkpoint.ack_intents;
@@ -302,7 +415,7 @@ pub(super) async fn run<
     // persisted (clearing stale state). This establishes a baseline for future
     // recoveries. Go-forward commits are deltas that apply atop this base.
     let delete_legacy_checkpoint = drop_v1_rollback && legacy_checkpoint_present;
-    if committed_frontier_rebuilt || delete_legacy_checkpoint {
+    let cleanup_persist = (committed_frontier_rebuilt || delete_legacy_checkpoint).then(|| {
         service_kit::event!(
             tracing::Level::INFO,
             "leader",
@@ -310,22 +423,16 @@ pub(super) async fn run<
             delete_legacy_checkpoint,
             "reconciling recovered checkpoint state",
         );
-        send_persist(
-            &mut shard_rx[0],
-            &shard_tx[0],
-            &task.peers[0],
-            proto::Persist {
-                seq_no: 0,
-                delete_committed_frontier: committed_frontier_rebuilt,
-                committed_frontier: committed_frontier_rebuilt
-                    .then(|| shuffle::JournalFrontier::encode(&committed_frontier.journals)),
-                delete_legacy_checkpoint,
-                ..Default::default()
-            },
-        )
-        .await
-        .context("sending startup cleanup Persist")?;
-    }
+        proto::Persist {
+            seq_no: 0,
+            delete_committed_frontier: committed_frontier_rebuilt,
+            delete_hinted_frontier: committed_frontier_rebuilt,
+            committed_frontier: committed_frontier_rebuilt
+                .then(|| shuffle::JournalFrontier::encode(&committed_frontier.journals)),
+            delete_legacy_checkpoint,
+            ..Default::default()
+        }
+    });
 
     // Compose the session resume Frontier: project the recovered hinted
     // Frontier into hinted form (last_commit -> hinted_commit, zero
@@ -337,26 +444,13 @@ pub(super) async fn run<
     // then the first transaction must be an idempotent replay of the hinted frontier.
     let idempotent_replay = resume_frontier.unresolved_hints != 0;
 
-    // Open the shuffle Session with the recovered resume Frontier.
-    let shuffle_task = shuffle::proto::Task {
-        task: Some(shuffle::proto::task::Task::Materialization(spec)),
-    };
-    let session = service
-        .shuffle_factory
-        .open(shuffle_task, shard_shuffles, resume_frontier)
-        .await
-        .context("opening shuffle Session")?;
-
-    Ok(Startup {
+    Ok(Reconciled {
         committed_close,
         committed_frontier,
-        idempotent_replay,
-        logger,
         pending_ack_intents,
-        pending_trigger_params,
-        publisher,
-        session,
-        task,
+        resume_frontier,
+        idempotent_replay,
+        cleanup_persist,
     })
 }
 
@@ -941,5 +1035,327 @@ mod tests {
         let s = format!("{err:?}");
         assert!(s.contains("expected Opened"));
         assert!(s.contains("from s1"));
+    }
+
+    // ---- reconcile_recovered ----
+
+    fn clk(secs: u64) -> uuid::Clock {
+        uuid::Clock::from_unix(secs, 0)
+    }
+
+    fn prod(tag: u8) -> uuid::Producer {
+        uuid::Producer::from_bytes([0x01, tag, 0, 0, 0, 0])
+    }
+
+    fn pf(
+        tag: u8,
+        last_commit: uuid::Clock,
+        hinted_commit: uuid::Clock,
+        offset: i64,
+    ) -> shuffle::ProducerFrontier {
+        shuffle::ProducerFrontier {
+            producer: prod(tag),
+            last_commit,
+            hinted_commit,
+            offset,
+        }
+    }
+
+    // A single-journal, single-binding crate `shuffle::Frontier`.
+    fn frontier(
+        journal: &str,
+        binding: u16,
+        producers: Vec<shuffle::ProducerFrontier>,
+    ) -> shuffle::Frontier {
+        shuffle::Frontier::new(
+            vec![shuffle::JournalFrontier {
+                journal: journal.into(),
+                binding,
+                producers,
+                bytes_read_delta: 0,
+                bytes_behind_delta: 0,
+            }],
+            vec![],
+        )
+        .unwrap()
+    }
+
+    // An authoritative checkpoint (no committed-close key) mapping
+    // "{journal};{suffix}" to a single producer at committed end offset
+    // `read_through` (begin=-1) and `last_ack`.
+    fn authoritative_checkpoint(
+        journal: &str,
+        suffix: &str,
+        tag: u8,
+        last_ack: uuid::Clock,
+        read_through: i64,
+    ) -> consumer::Checkpoint {
+        let mut sources = BTreeMap::new();
+        sources.insert(
+            format!("{journal};{suffix}"),
+            consumer::checkpoint::Source {
+                read_through,
+                producers: vec![consumer::checkpoint::source::ProducerEntry {
+                    id: Bytes::copy_from_slice(prod(tag).as_bytes()),
+                    state: Some(consumer::checkpoint::ProducerState {
+                        last_ack: last_ack.as_u64(),
+                        begin: -1,
+                    }),
+                }],
+            },
+        );
+        consumer::Checkpoint {
+            sources,
+            ack_intents: [("ack/j".to_string(), Bytes::from_static(b"ACK"))].into(),
+        }
+    }
+
+    // A checkpoint carrying only a committed-close Clock (no data sources), used
+    // for the in-sync and hinted-close-delta paths that never map it to a Frontier.
+    fn close_only_checkpoint(close: uuid::Clock, ack_key: &str) -> consumer::Checkpoint {
+        let (k, v) = frontier_mapping::encode_committed_close(close);
+        consumer::Checkpoint {
+            sources: [(k, v)].into(),
+            ack_intents: [(ack_key.to_string(), Bytes::from_static(b"C"))].into(),
+        }
+    }
+
+    fn producer_tags(f: &shuffle::Frontier) -> Vec<u8> {
+        f.journals
+            .iter()
+            .flat_map(|jf| jf.producers.iter().map(|p| p.producer.as_bytes()[1]))
+            .collect()
+    }
+
+    /// The fix: rebuilding the committed frontier from an authoritative legacy V1
+    /// checkpoint discards the stale hinted frontier, so an orphaned hint (its
+    /// producer absent from the rebuilt committed frontier — e.g. V1-pruned after
+    /// >24h idle) does NOT resume at offset 0.
+    #[test]
+    fn reconcile_rebuild_from_legacy_discards_orphan_hints() {
+        let index = [("s-a", 0usize)];
+        // Recovered RocksDB committed frontier — replaced by the rebuild.
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xaa, clk(50), uuid::Clock::zero(), -100)],
+        );
+        // Stale hinted frontier references old producer 0xaa (hint in last_commit).
+        // Its stored offset is irrelevant — project_hinted zeroes it; the offset-0
+        // re-read comes solely from 0xaa's absence in the rebuilt committed frontier.
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xaa, clk(80), uuid::Clock::zero(), -99_999)],
+        );
+        // Legacy V1 checkpoint (no committed-close key => authoritative), carrying
+        // the current producer 0xbb committed to end offset 5000.
+        let legacy = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 5000);
+
+        let r = reconcile_recovered(
+            true, // drop_v1_rollback
+            clk(50),
+            clk(80),
+            committed,
+            hinted,
+            Some(legacy),
+            consumer::Checkpoint::default(),
+            BTreeMap::new(),
+            &index,
+        )
+        .unwrap();
+
+        // Hinted frontier discarded: no unresolved hints, no idempotent replay.
+        assert!(!r.idempotent_replay);
+        assert_eq!(r.resume_frontier.unresolved_hints, 0);
+        // Resume == committed rebuilt from the checkpoint: only producer 0xbb, at
+        // the checkpoint's committed end offset (NOT the orphan at offset 0).
+        assert_eq!(producer_tags(&r.resume_frontier), vec![0xbb]);
+        assert_eq!(r.resume_frontier.journals[0].producers[0].offset, -5000);
+        // committed_close is unchanged by the legacy path.
+        assert_eq!(r.committed_close, clk(50));
+        // Cleanup clears BOTH frontiers on disk and drops the legacy checkpoint.
+        let p = r.cleanup_persist.expect("cleanup persist");
+        assert!(p.delete_committed_frontier);
+        assert!(p.delete_hinted_frontier);
+        assert!(p.committed_frontier.is_some());
+        assert!(p.delete_legacy_checkpoint);
+        // ACK intents adopted from the authoritative checkpoint.
+        assert!(r.pending_ack_intents.contains_key("ack/j"));
+    }
+
+    /// Contrast: with no rebuild, a hinted producer that HAS a committed baseline
+    /// is preserved and replayed from its committed offset — never offset 0.
+    #[test]
+    fn reconcile_no_rebuild_preserves_hints() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -500)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -500)],
+        );
+
+        let r = reconcile_recovered(
+            false,
+            clk(50),
+            clk(60),
+            committed,
+            hinted,
+            None,
+            consumer::Checkpoint::default(),
+            BTreeMap::new(),
+            &index,
+        )
+        .unwrap();
+
+        // Hint preserved -> unresolved -> replayed, but from the committed offset.
+        assert!(r.idempotent_replay);
+        assert_eq!(r.resume_frontier.unresolved_hints, 1);
+        let p0 = &r.resume_frontier.journals[0].producers[0];
+        assert_eq!(p0.offset, -500);
+        assert!(p0.hinted_commit > p0.last_commit);
+        // Nothing to reconcile on disk.
+        assert!(r.cleanup_persist.is_none());
+    }
+
+    /// A remote-authoritative connector confirming the hinted txn committed folds
+    /// the hinted frontier into committed and advances committed_close — no rebuild,
+    /// no cleanup.
+    #[test]
+    fn reconcile_connector_hinted_close_folds_delta() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -500)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -800)],
+        );
+        let connector = close_only_checkpoint(clk(200), "ack/c");
+
+        let r = reconcile_recovered(
+            false,
+            clk(50),
+            clk(200), // hinted_close matches the connector's close clock
+            committed,
+            hinted,
+            None,
+            connector,
+            BTreeMap::new(),
+            &index,
+        )
+        .unwrap();
+
+        assert_eq!(r.committed_close, clk(200));
+        assert!(r.cleanup_persist.is_none());
+        // Hinted folded into committed: 0xbb at the further offset, last_commit=200.
+        let p0 = &r.committed_frontier.journals[0].producers[0];
+        assert_eq!(p0.offset, -800);
+        assert_eq!(p0.last_commit, clk(200));
+        assert_eq!(r.resume_frontier.unresolved_hints, 0);
+        assert!(!r.idempotent_replay);
+        assert!(r.pending_ack_intents.contains_key("ack/c"));
+    }
+
+    /// Dropping V1 rollback capability when the legacy checkpoint is in sync (not
+    /// authoritative) deletes only the legacy checkpoint — the hinted and committed
+    /// frontiers are untouched, so hints are still honored.
+    #[test]
+    fn reconcile_drop_rollback_deletes_only_legacy_checkpoint() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -500)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -500)],
+        );
+        // In-sync legacy checkpoint: committed-close key matches committed_close.
+        let legacy = close_only_checkpoint(clk(50), "ack/legacy");
+
+        let r = reconcile_recovered(
+            true, // drop_v1_rollback
+            clk(50),
+            clk(60),
+            committed,
+            hinted,
+            Some(legacy),
+            consumer::Checkpoint::default(),
+            BTreeMap::new(),
+            &index,
+        )
+        .unwrap();
+
+        // Not rebuilt: the hint survives and is replayed from its committed offset.
+        assert!(r.idempotent_replay);
+        assert_eq!(r.resume_frontier.journals[0].producers[0].offset, -500);
+        // Cleanup drops only the legacy checkpoint; frontiers untouched on disk.
+        let p = r
+            .cleanup_persist
+            .expect("cleanup persist for drop-rollback");
+        assert!(p.delete_legacy_checkpoint);
+        assert!(!p.delete_committed_frontier);
+        assert!(!p.delete_hinted_frontier);
+        assert!(p.committed_frontier.is_none());
+    }
+
+    /// The same fix on the connector-authoritative rebuild branch (no legacy
+    /// checkpoint): a remote-authoritative connector checkpoint rebuilds the
+    /// committed frontier and discards the stale hinted frontier, so the orphan
+    /// hint does not resume at offset 0. Guards the connector branch's discard
+    /// independently of the legacy branch's.
+    #[test]
+    fn reconcile_rebuild_from_connector_discards_orphan_hints() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xaa, clk(50), uuid::Clock::zero(), -100)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xaa, clk(80), uuid::Clock::zero(), -99_999)],
+        );
+        // Remote-authoritative connector checkpoint (no committed-close key =>
+        // authoritative), carrying the current producer 0xbb at end offset 5000.
+        let connector = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 5000);
+
+        let r = reconcile_recovered(
+            false, // no V1 rollback in play
+            clk(50),
+            clk(80),
+            committed,
+            hinted,
+            None, // no legacy checkpoint
+            connector,
+            BTreeMap::new(),
+            &index,
+        )
+        .unwrap();
+
+        // Hinted frontier discarded: no orphan, no idempotent replay.
+        assert!(!r.idempotent_replay);
+        assert_eq!(r.resume_frontier.unresolved_hints, 0);
+        assert_eq!(producer_tags(&r.resume_frontier), vec![0xbb]);
+        assert_eq!(r.resume_frontier.journals[0].producers[0].offset, -5000);
+        // Cleanup clears both frontiers; no legacy checkpoint to drop.
+        let p = r.cleanup_persist.expect("cleanup persist");
+        assert!(p.delete_committed_frontier);
+        assert!(p.delete_hinted_frontier);
+        assert!(p.committed_frontier.is_some());
+        assert!(!p.delete_legacy_checkpoint);
+        assert!(r.pending_ack_intents.contains_key("ack/j"));
     }
 }

@@ -1,5 +1,6 @@
 ---
 sidebar_position: 1
+description: Browse Estuary's capture and materialization connectors. Reference configuration details to create customized data flows.
 ---
 
 # Connectors
