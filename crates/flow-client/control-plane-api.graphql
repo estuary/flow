@@ -688,7 +688,11 @@ type CreateStorageMappingResult {
 	"""
 	The catalog prefix for which the storage mapping was created.
 	"""
-	catalogPrefix: Prefix!
+	catalogPrefix: Prefix! @deprecated(reason: "Use storageMapping.catalogPrefix instead.")
+	"""
+	The newly created storage mapping.
+	"""
+	storageMapping: StorageMapping!
 }
 
 """
@@ -2386,7 +2390,11 @@ type UpdateStorageMappingResult {
 	"""
 	The catalog prefix for which the storage mapping was updated.
 	"""
-	catalogPrefix: Prefix!
+	catalogPrefix: Prefix! @deprecated(reason: "Use storageMapping.catalogPrefix instead.")
+	"""
+	The updated storage mapping.
+	"""
+	storageMapping: StorageMapping!
 	"""
 	Whether a republish is required because the primary storage bucket changed.
 	"""

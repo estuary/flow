@@ -41,14 +41,20 @@ impl ConnectionHealthTestResult {
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct CreateStorageMappingResult {
     /// The catalog prefix for which the storage mapping was created.
+    #[graphql(deprecation = "Use storageMapping.catalogPrefix instead.")]
     pub catalog_prefix: models::Prefix,
+    /// The newly created storage mapping.
+    pub storage_mapping: StorageMapping,
 }
 
 /// Result of updating a storage mapping.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct UpdateStorageMappingResult {
     /// The catalog prefix for which the storage mapping was updated.
+    #[graphql(deprecation = "Use storageMapping.catalogPrefix instead.")]
     pub catalog_prefix: models::Prefix,
+    /// The updated storage mapping.
+    pub storage_mapping: StorageMapping,
     /// Whether a republish is required because the primary storage bucket changed.
     pub republish: bool,
 }
@@ -270,7 +276,15 @@ impl StorageMappingsMutation {
             "created storage mapping"
         );
 
-        Ok(CreateStorageMappingResult { catalog_prefix })
+        Ok(CreateStorageMappingResult {
+            catalog_prefix: catalog_prefix.clone(),
+            storage_mapping: StorageMapping {
+                catalog_prefix,
+                detail,
+                spec: async_graphql::Json(strip_collection_data_suffix(collection_spec)),
+                user_capability: models::Capability::Admin,
+            },
+        })
     }
 
     /// Update an existing storage mapping for the given catalog prefix.
@@ -406,7 +420,13 @@ impl StorageMappingsMutation {
         );
 
         Ok(UpdateStorageMappingResult {
-            catalog_prefix,
+            catalog_prefix: catalog_prefix.clone(),
+            storage_mapping: StorageMapping {
+                catalog_prefix,
+                detail,
+                spec: async_graphql::Json(strip_collection_data_suffix(collection_spec)),
+                user_capability: models::Capability::Admin,
+            },
             republish,
         })
     }
