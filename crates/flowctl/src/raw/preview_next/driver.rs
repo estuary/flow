@@ -213,8 +213,14 @@ async fn drive_one_shard(
             }))
             .map_err(|_| anyhow::anyhow!("serve task closed before Task"))?;
 
-        drive_session_responses(&request_tx, &mut response_rx, session_index, &stop_token, drain)
-            .await?;
+        drive_session_responses(
+            &request_tx,
+            &mut response_rx,
+            session_index,
+            &stop_token,
+            drain,
+        )
+        .await?;
     }
 
     drop(request_tx);
