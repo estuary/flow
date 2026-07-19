@@ -4,6 +4,7 @@ use super::{
         Meta, ReadFailure, ReadState, ReadyRead, classify_read_failure, map_read_error,
         parse_lines_batch, probe_read_start,
     },
+    replay::Replay,
     routing,
     state::{self, FlushState, ProgressState, Topology},
 };
@@ -55,11 +56,28 @@ pub struct SliceActor {
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
     pub ready_read_heap: ReadyReadHeap,
+    /// A replay of a gapped producer's pending transaction, if any.
+    /// A Slice has at most one replay, which stalls all other reads.
+    pub replay: Option<Replay>,
     /// Per-task metrics counters and gauges.
     pub metrics: super::Metrics,
 }
 
-struct Buffers {
+impl Drop for SliceActor {
+    fn drop(&mut self) {
+        // Reads which were still active at drop (cancellation).
+        let live_reads =
+            self.pending_probes.len() + self.pending_reads.len() + self.ready_read_heap.len();
+
+        // Ensure that `*_started` / `*_stopped` counters are balanced.
+        self.metrics.reads_stopped.increment(live_reads as u64);
+        self.metrics
+            .replays_stopped
+            .increment(self.replay.is_some() as u64);
+    }
+}
+
+pub(super) struct Buffers {
     packed_key: bytes::BytesMut,
     targets: Vec<usize>,
     permits: Vec<mpsc::Permit<'static, shuffle::LogRequest>>,
@@ -174,7 +192,13 @@ impl SliceActor {
 
                 // Lowest priority is processing journal listings and reads.
                 Some(probe_result) = self.pending_probes.next() => {
-                    let (start_offset, read) = probe_result?;
+                    let (start_offset, read) = match probe_result {
+                        Ok(ok) => ok,
+                        Err(err) => {
+                            self.metrics.reads_stopped.increment(1);
+                            return Err(err);
+                        }
+                    };
                     // Seed the ReadState's offsets at the probe's resolved start
                     // before parking, so byte deltas exclude the filtered range
                     // the read skipped.
@@ -187,6 +211,9 @@ impl SliceActor {
                 Some((result, read)) = self.pending_reads.next() => {
                     self.on_pending_read_resolved(result, read)?;
                     stall_armed = false;
+                }
+                (replay, result) = Replay::next_batch(&mut self.replay) => {
+                    self.on_replay_read_resolved(replay, result)?;
                 }
 
                 // Periodic tick ensures tracing fires even when idle.
@@ -322,7 +349,7 @@ impl SliceActor {
         let read_id = self.reads.len() as u32;
 
         // Resolve the checkpoint into producer state and start offset.
-        let (offset, producers) = state::resolve_checkpoint(checkpoint);
+        let state::ResolvedCheckpoint { offset, producers } = state::resolve_checkpoint(checkpoint);
 
         let mut request = broker::ReadRequest {
             // Add `journal_read_suffix` as a metadata component to the journal name.
@@ -605,7 +632,7 @@ impl SliceActor {
             "received LinesBatch",
         );
 
-        let ready_read = parse_lines_batch(
+        let ready_read = match parse_lines_batch(
             &mut self.parser,
             &mut self.validators[read_state.binding_index as usize],
             binding,
@@ -613,7 +640,13 @@ impl SliceActor {
             read,
             lines_batch,
             "transcoding documents",
-        )?;
+        ) {
+            Ok(ready_read) => ready_read,
+            Err(err) => {
+                self.metrics.reads_stopped.increment(1);
+                return Err(err);
+            }
+        };
 
         self.ready_read_heap.push(ReadyReadEntry {
             priority: binding.priority,
@@ -674,6 +707,22 @@ impl SliceActor {
                 }
             }
 
+            // If there's an active replay, sequence and drain its historical
+            // documents. They append before all heap documents, including the
+            // replay trigger (still in the heap).
+            if let Some(replay) = self.replay.take() {
+                return match self.try_drain_replay(replay, buffers) {
+                    // We require a permit to send further Appends.
+                    Ok(Some(tx)) => Ok(future::Either::Left(tx.reserve_owned().map(ok))),
+                    // We're awaiting further replay I/O.
+                    Ok(None) => Ok(idle),
+                    Err(err) => {
+                        self.metrics.replays_stopped.increment(1);
+                        Err(err)
+                    }
+                };
+            }
+
             // Defer draining if any read could still resolve to content that
             // preempts the current heap top: a parked non-tailing (stalled) read,
             // or a newly-started read still probing its write head (parked in
@@ -708,7 +757,17 @@ impl SliceActor {
                 )));
             }
 
-            let sequenced = state::sequence_document(read_state, binding, meta)?;
+            let producer_state = read_state.producer_state(meta.producer);
+            let sequenced =
+                state::sequence_producer(producer_state, &read_state.journal, binding, meta)?;
+
+            // If this document awakens a gapped producer, then we must pause
+            // here (leaving this document in the heap) while we replay the
+            // gapped span. We'll re-sequence this document when it's done.
+            if sequenced.replay {
+                self.start_replay(read_id, producer_state, *meta)?;
+                continue;
+            }
 
             // If this is an Append, attempt to send it to the appropriate shard(s).
             if sequenced.is_append {
@@ -856,7 +915,7 @@ impl SliceActor {
 
     /// Try to send Append requests to target log channels (all-or-nothing).
     /// Returns `Err(tx)` with the sender that lacked capacity.
-    fn try_log_request_append_tx(
+    pub(super) fn try_log_request_append_tx(
         binding: &crate::Binding,
         buffers: &mut Buffers,
         journal: &str,

@@ -328,6 +328,56 @@ async fn shuffle_scenarios() {
         log_dir.path(),
     )
     .await;
+    data_plane.reset().await.expect("reset");
+
+    gapped_replay(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    gapped_continue_trigger(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    gapped_replay_blocks_other_journal(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    hint_elevated_offset_flip(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
+    data_plane.reset().await.expect("reset");
+
+    gapped_outside_violation(
+        &materialization_spec,
+        &capture_spec,
+        &data_plane.journal_client,
+        &service,
+        log_dir.path(),
+    )
+    .await;
 
     server_handle.abort();
     data_plane
@@ -628,15 +678,16 @@ async fn multiple_producers(
     // ---- Phase 3: resume from checkpoint 1, verify dedup and offset selection. ----
     //
     // Resuming from checkpoint 1 means P1 is committed (negative offset) and
-    // P2 is pending (positive offset). `resolve_checkpoint` must pick P2's
-    // begin offset (the minimum uncommitted) as the journal read start.
+    // P2 is pending (positive offset). `resolve_checkpoint` starts the journal
+    // read at M (P1's committed end) and gaps P2, whose span begins before M.
     //
-    // Re-reading from that offset, the sequencer sees:
-    //   P2's CONTINUE_TXN → ContinueBeginSpan (max_continue was zeroed on resume)
-    //   P1's OUTSIDE_TXN  → OutsideDuplicate  (clock ≤ P1's last_commit from checkpoint 1)
-    //   P2's ACK           → AckCommit
+    // The main read then sees only P2's ACK (P2's single CONTINUE is below M,
+    // so the ACK is its first newer document): the read parks at the ACK and
+    // replays P2's span [F, ack.begin), skipping P1's already-committed
+    // OUTSIDE and sequencing P2's CONTINUE. On completion the parked ACK is
+    // re-presented to the normal path, which commits it (AckCommit).
     //
-    // The reader must yield only P2's doc; P1's is silently dropped as a duplicate.
+    // The reader must yield only P2's doc, exactly once; P1's is never re-read.
     let resume_dir = log_dir.join("multiple_producers_resume");
     std::fs::create_dir_all(&resume_dir).unwrap();
 
@@ -1357,4 +1408,886 @@ async fn rollback(
     );
 
     session.close().await.expect("close");
+}
+
+/// Gapped-producer recovery, ACK-triggered. P2 opens an uncommitted CONTINUE
+/// span, then P1 commits an OUTSIDE document that advances the checkpoint
+/// maximum M past P2's begin F.
+///
+/// Resuming from that checkpoint skips ahead to M, so P2's span `[F, M)` is
+/// *gapped* and the main read never re-reads it. When P2 later commits, its ACK
+/// is the first newer document the main read reaches (P2's CONTINUE is below M):
+/// the Slice parks at the ACK, replays `[F, ack.begin)` — skipping P1's
+/// already-committed document — then re-presents the ACK to the normal path,
+/// which commits and delivers P2's span exactly once, atomically.
+async fn gapped_replay(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let phase1_dir = log_dir.join("gapped_replay_p1");
+    let resume_dir = log_dir.join("gapped_replay_resume");
+    std::fs::create_dir_all(&phase1_dir).unwrap();
+    std::fs::create_dir_all(&resume_dir).unwrap();
+
+    let p1 = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let p2 = uuid::Producer::from_bytes([0x03, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let mut pub1 = make_publisher(capture_spec, journal_client, p1);
+    let mut pub2 = make_publisher(capture_spec, journal_client, p2);
+
+    // P2 opens an uncommitted CONTINUE span (its begin F = 0, journal start).
+    // Writing it before P1's commit ensures the first flushed checkpoint
+    // observes P2 as pending, alongside P1 committed.
+    pub2.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "g-p2",
+                    "category": "alpha",
+                    "value": 20,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    pub2.flush().await.unwrap();
+
+    // P1 commits an OUTSIDE document, advancing M past F. The resume read
+    // then starts at M rather than P2's span begin — the acceptance
+    // criterion — and P2 (F = 0 < M) is gapped. F = 0 additionally
+    // exercises the last-commit floor: the flushed checkpoint persists P2's
+    // entry as `{last_commit: raw 1, offset: 0}` so recovery can distinguish
+    // this real span from a hint-only placeholder, and it must still be
+    // gapped on resume.
+    pub1.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "g-p1",
+                    "category": "alpha",
+                    "value": 10,
+                }),
+            ))
+        },
+        uuid::Flags::OUTSIDE_TXN,
+    )
+    .await
+    .unwrap();
+    pub1.flush().await.unwrap();
+
+    // Session 1: capture a checkpoint with P1 committed and P2 pending (F).
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &phase1_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open phase 1");
+
+    let frontier1 = next_resolved_checkpoint(&mut session, "gapped phase 1").await;
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read1 = collect_read_entries(&frontier1, &phase1_dir, &mut shard_state);
+    insta::assert_debug_snapshot!(
+        "gapped_replay_checkpoint1",
+        Checkpoint {
+            frontier: &frontier1,
+            read: read1,
+        }
+    );
+    session.close().await.expect("close phase 1");
+
+    // Resume: P2 (F < M) is gapped; its span is skipped.
+    let mut resumed = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &resume_dir),
+        frontier1.clone(),
+    )
+    .await
+    .expect("SessionClient::open resumed");
+
+    // P2 now commits its pending transaction. The main read reaches P2's ACK
+    // (its first newer document), triggers a replay of [F, ack.begin), and on
+    // completion re-presents the ACK to commit and deliver P2's span.
+    let (producer, commit_clock, journals) = pub2.commit_intents();
+    let acks = publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+    pub2.write_intents(acks).await.unwrap();
+
+    let frontier2 = next_resolved_checkpoint(&mut resumed, "gapped replay").await;
+    let mut resumed_shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read2 = collect_read_entries(&frontier2, &resume_dir, &mut resumed_shard_state);
+    // The reader must yield exactly P2's recovered document (g-p2) — once —
+    // and never re-yield P1's already-committed document.
+    insta::assert_debug_snapshot!(
+        "gapped_replay_resumed",
+        Checkpoint {
+            frontier: &frontier2,
+            read: read2,
+        }
+    );
+
+    resumed.close().await.expect("close resumed");
+}
+
+/// Gapped-producer recovery where the *trigger* is a CONTINUE, not an ACK.
+/// P2 opens a CONTINUE span at `F = 0`; P1 then commits an OUTSIDE document,
+/// advancing the checkpoint maximum `M` past `F`; finally P2 writes a *second*
+/// CONTINUE that lands at or after `M`.
+///
+/// On resume the main read starts at `M` and reaches P2's second CONTINUE — its
+/// first newer document — before any ACK. That CONTINUE is the trigger: the read
+/// parks and replays `[F, trigger.begin)`, recovering P2's first CONTINUE
+/// (skipping P1's committed OUTSIDE). Completion installs the reconstructed open
+/// span and re-presents the CONTINUE, which extends the span (`ContinueExtendSpan`)
+/// and appends — committing nothing yet. Only when P2's ACK is then read by the
+/// main read does the span commit, delivering both of P2's documents exactly
+/// once and never re-delivering P1's.
+async fn gapped_continue_trigger(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let phase1_dir = log_dir.join("gapped_continue_p1");
+    let resume_dir = log_dir.join("gapped_continue_resume");
+    std::fs::create_dir_all(&phase1_dir).unwrap();
+    std::fs::create_dir_all(&resume_dir).unwrap();
+
+    let p1 = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let p2 = uuid::Producer::from_bytes([0x03, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let mut pub1 = make_publisher(capture_spec, journal_client, p1);
+    let mut pub2 = make_publisher(capture_spec, journal_client, p2);
+
+    // P2's first CONTINUE opens its span at F = 0 (journal start).
+    pub2.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "gc-p2a",
+                    "category": "alpha",
+                    "value": 21,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    pub2.flush().await.unwrap();
+
+    // P1 commits an OUTSIDE document, advancing M past F = 0.
+    pub1.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "gc-p1",
+                    "category": "alpha",
+                    "value": 10,
+                }),
+            ))
+        },
+        uuid::Flags::OUTSIDE_TXN,
+    )
+    .await
+    .unwrap();
+    pub1.flush().await.unwrap();
+
+    // P2's second CONTINUE lands at or after M (it is written after P1's commit).
+    // P2's checkpoint entry still pins F = 0 (the span begin), so on resume this
+    // document sits at-or-above the M-derived start and becomes the trigger.
+    pub2.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "gc-p2b",
+                    "category": "alpha",
+                    "value": 22,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    pub2.flush().await.unwrap();
+
+    // Session 1: capture a checkpoint with P1 committed and P2 pending at F = 0.
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &phase1_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open phase 1");
+
+    let frontier1 = next_resolved_checkpoint(&mut session, "gapped continue phase 1").await;
+    session.close().await.expect("close phase 1");
+
+    // Resume: P2 (F = 0 < M) is gapped; its span is skipped. The main read starts
+    // at M and reaches P2's second CONTINUE first, triggering the replay.
+    let mut resumed = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &resume_dir),
+        frontier1.clone(),
+    )
+    .await
+    .expect("SessionClient::open resumed");
+
+    // P2 commits. Its ACK is read by the (now un-gapped) main read after the
+    // replay completes, committing both of P2's CONTINUE documents together.
+    let (producer, commit_clock, journals) = pub2.commit_intents();
+    let acks = publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+    pub2.write_intents(acks).await.unwrap();
+
+    let frontier2 = next_resolved_checkpoint(&mut resumed, "gapped continue replay").await;
+    let mut resumed_shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read2 = collect_read_entries(&frontier2, &resume_dir, &mut resumed_shard_state);
+    // The reader must yield exactly P2's two recovered documents (gc-p2a via the
+    // replay, gc-p2b via the re-presented trigger) — each once — and never
+    // re-yield P1's already-committed document.
+    insta::assert_debug_snapshot!(
+        "gapped_continue_trigger_resumed",
+        Checkpoint {
+            frontier: &frontier2,
+            read: read2,
+        }
+    );
+
+    resumed.close().await.expect("close resumed");
+}
+
+/// A replay blocks all main-read → Log draining for the whole Slice until it
+/// completes — an accepted head-of-line-blocking cost. This asserts the blocking
+/// gate does not drop or deadlock an unrelated journal's
+/// ready documents: while P2's gapped span in `apples` is being replayed, P3
+/// commits a fresh document to a *different* journal (`bananas`) read by the same
+/// single-shard Slice. P3's document is not appended while the replay is in
+/// flight; once the replay completes and the parked trigger is re-presented,
+/// normal draining resumes and P3 flows. Both P2's recovered span and P3's
+/// document must be delivered exactly once, and P1's already-committed document
+/// must never be re-read.
+async fn gapped_replay_blocks_other_journal(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let phase1_dir = log_dir.join("gapped_blocks_p1");
+    let resume_dir = log_dir.join("gapped_blocks_resume");
+    std::fs::create_dir_all(&phase1_dir).unwrap();
+    std::fs::create_dir_all(&resume_dir).unwrap();
+
+    let p1 = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let p2 = uuid::Producer::from_bytes([0x03, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let p3 = uuid::Producer::from_bytes([0x05, 0x00, 0x00, 0x00, 0x00, 0x03]);
+    let mut pub1 = make_publisher(capture_spec, journal_client, p1);
+    let mut pub2 = make_publisher(capture_spec, journal_client, p2);
+    let mut pub3 = make_publisher(capture_spec, journal_client, p3);
+
+    // P2 opens an uncommitted CONTINUE span in `apples` (begin F = 0).
+    pub2.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "gb-p2",
+                    "category": "alpha",
+                    "value": 20,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    pub2.flush().await.unwrap();
+
+    // P1 commits an OUTSIDE document in `apples`, advancing M past F. P2 is gapped.
+    pub1.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "gb-p1",
+                    "category": "alpha",
+                    "value": 10,
+                }),
+            ))
+        },
+        uuid::Flags::OUTSIDE_TXN,
+    )
+    .await
+    .unwrap();
+    pub1.flush().await.unwrap();
+
+    // Session 1: capture a checkpoint with P1 committed and P2 pending in apples.
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &phase1_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open phase 1");
+
+    let frontier1 = next_resolved_checkpoint(&mut session, "gapped blocks phase 1").await;
+    session.close().await.expect("close phase 1");
+
+    // Resume: P2 (F = 0 < M) is gapped in apples; its span is skipped.
+    let mut resumed = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &resume_dir),
+        frontier1.clone(),
+    )
+    .await
+    .expect("SessionClient::open resumed");
+
+    // P2 commits its apples span — its ACK triggers the replay on resume. P3
+    // commits a fresh OUTSIDE document to the *bananas* journal, read by the same
+    // Slice: it is ready while the apples replay is in flight, and the blocking
+    // gate must hold it until the replay completes, then let it flow.
+    let (producer, commit_clock, journals) = pub2.commit_intents();
+    let acks = publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+    pub2.write_intents(acks).await.unwrap();
+
+    pub3.enqueue(
+        |uuid| {
+            Ok((
+                1,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "gb-p3",
+                    "category": "alpha",
+                    "value": 30,
+                }),
+            ))
+        },
+        uuid::Flags::OUTSIDE_TXN,
+    )
+    .await
+    .unwrap();
+    pub3.flush().await.unwrap();
+
+    // Poll until both P2 (apples, recovered via replay) and P3 (bananas) are
+    // committed. They commit in separate flush cycles — P2's ACK after the
+    // replay completes, then P3 once draining resumes — so accumulate deltas.
+    let mut frontier2 = shuffle::Frontier::default();
+    let committed = |f: &shuffle::Frontier, p: uuid::Producer| {
+        f.journals.iter().any(|jf| {
+            jf.producers
+                .iter()
+                .any(|pf| pf.producer == p && pf.last_commit > uuid::Clock::zero())
+        })
+    };
+    loop {
+        let delta = next_resolved_checkpoint(&mut resumed, "gapped blocks replay").await;
+        frontier2 = frontier2.reduce(delta);
+        if committed(&frontier2, p2) && committed(&frontier2, p3) {
+            break;
+        }
+    }
+
+    let mut resumed_shard_state: ShardState = (0..1).map(|_| None).collect();
+    let mut read2 = collect_read_entries(&frontier2, &resume_dir, &mut resumed_shard_state);
+
+    // Exactly-once completeness/safety, order-independent: P2's recovered apples
+    // document and P3's bananas document, each once; P1's is never re-read.
+    let mut delivered: Vec<(u16, String)> = read2
+        .iter()
+        .map(|e| (e.binding, e.doc["id"].as_str().unwrap().to_string()))
+        .collect();
+    delivered.sort();
+    assert_eq!(
+        delivered,
+        vec![(0, "gb-p2".to_string()), (1, "gb-p3".to_string())],
+        "both the replayed apples span and the unrelated bananas commit must be delivered exactly once",
+    );
+
+    // Snapshot the read entries in log order. Journal creation/read races across
+    // the two bindings make the inter-journal order unstable, so sort for a
+    // deterministic snapshot; the exactly-once assertion above is the substantive
+    // check that the blocking gate neither drops nor duplicates B's document.
+    read2.sort_by(|a, b| (a.binding, &a.journal).cmp(&(b.binding, &b.journal)));
+    insta::assert_debug_snapshot!("gapped_replay_blocks_other_journal_resumed", read2);
+
+    resumed.close().await.expect("close resumed");
+}
+
+/// Find a producer's frontier entry within journals whose name contains
+/// `journal_substr` (one binding per collection makes this unambiguous).
+fn find_producer<'f>(
+    frontier: &'f shuffle::Frontier,
+    journal_substr: &str,
+    producer: uuid::Producer,
+) -> Option<&'f shuffle::ProducerFrontier> {
+    frontier
+        .journals
+        .iter()
+        .filter(|jf| jf.journal.contains(journal_substr))
+        .flat_map(|jf| jf.producers.iter())
+        .find(|pf| pf.producer == producer)
+}
+
+/// Zero measures that depend on flush-cycle granularity (byte deltas, flushed
+/// LSNs) so a snapshot captures only the producer state a scenario asserts on.
+/// Emission boundaries can race with flush cycles, splitting the same producer
+/// state across one or more checkpoint responses; the producer state itself is
+/// deterministic under the client's cumulative reduce, but which emission
+/// carries which byte deltas is not.
+fn scrub_measures(frontier: &shuffle::Frontier) -> shuffle::Frontier {
+    let mut scrubbed = frontier.clone();
+    scrubbed.flushed_lsn.clear();
+    for jf in &mut scrubbed.journals {
+        jf.bytes_read_delta = 0;
+        jf.bytes_behind_delta = 0;
+    }
+    scrubbed
+}
+
+/// Causal-hint elevation flips a producer's stale span-begin offset to the
+/// journal's cut floor `-M` (`JournalFrontier::resolve_hints`), and the flip
+/// surfaces in a persisted checkpoint exactly when the resolving progress is
+/// itself held back by a *fresh* unresolved hint — otherwise the read-derived
+/// commit offset (a larger magnitude) folds into the same emission and
+/// dominates the flip in reduction.
+///
+/// Phase 1 (held): P1 commits an OUTSIDE baseline in apples (so its later span
+/// begins at O > 0 — the shape that would re-gap on recovery), then opens
+/// transaction T1 spanning apples (span at O) and bananas. P2 commits later in
+/// apples, so its ACK end M > O is apples' maximum offset. T1 commits at H1,
+/// but only bananas' ACK is written — P1 "crashed" before writing apples' —
+/// so the apples read can never observe T1's commit directly and the pipeline
+/// holds P1's entry `{C0, H1, +O}` in `unresolved`, answering checkpoint
+/// requests with peeks.
+///
+/// Phase 2 (flip): P1 recovers — transaction T2 adds a bananas document and
+/// commits at H2, writing recovery ACKs for both session journals. Apples'
+/// ACK is written: it proves P1's apples commits through H2, elevating the
+/// held entry (capped at the H1 hint) and flipping its offset to the cut
+/// floor -M; and it carries a fresh causal hint (bananas @ H2) whose own ACK
+/// is withheld, holding the read-derived apples progress in `unresolved`. The
+/// emitted checkpoint therefore shows P1 at `{H1, H1, -M}` — matching P2's
+/// committed end — and the flip survives the client's cumulative
+/// max-magnitude reduce over the earlier `+O` peek.
+///
+/// Phase 3 (resumed): resuming from the cumulative checkpoint recovers P1
+/// committed (negative offset) — NOT gapped — so the apples read starts at M
+/// with no replay and never re-reads the settled span `[O, M)`. The
+/// withheld bananas ACK is written before the resume, so T2 resolves and
+/// delivers its bananas document exactly once; nothing of P1's settled apples
+/// span is re-delivered.
+async fn hint_elevated_offset_flip(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let phase1_dir = log_dir.join("hint_flip_p1");
+    let resume_dir = log_dir.join("hint_flip_resume");
+    std::fs::create_dir_all(&phase1_dir).unwrap();
+    std::fs::create_dir_all(&resume_dir).unwrap();
+
+    let p1 = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let p2 = uuid::Producer::from_bytes([0x03, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let mut pub1 = make_publisher(capture_spec, journal_client, p1);
+    let mut pub2 = make_publisher(capture_spec, journal_client, p2);
+
+    // P1's OUTSIDE baseline: gives P1 a committed last_commit C0 and pushes its
+    // later span begin O above zero. Being the lowest-clock commit, it also
+    // absorbs the Slice's first flush-cycle boundary, so all remaining stage-1
+    // state lands in one subsequent flush frontier and is promoted to
+    // `unresolved` whole — with P2's -M sibling present as the cut floor.
+    pub1.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "he-p1-base",
+                    "category": "alpha",
+                    "value": 10,
+                }),
+            ))
+        },
+        uuid::Flags::OUTSIDE_TXN,
+    )
+    .await
+    .unwrap();
+    pub1.flush().await.unwrap();
+
+    // P2 opens its span in apples ahead of P1's, so P1's span begin O sits
+    // strictly between the baseline and P2's eventual committed end M.
+    pub2.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "he-p2",
+                    "category": "alpha",
+                    "value": 20,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    pub2.flush().await.unwrap();
+
+    // T1: P1's transaction spans apples (span begins at O) and bananas.
+    pub1.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "he-p1-span",
+                    "category": "alpha",
+                    "value": 11,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    pub1.enqueue(
+        |uuid| {
+            Ok((
+                1,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "he-p1-b1",
+                    "category": "alpha",
+                    "value": 12,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    pub1.flush().await.unwrap();
+
+    // P2 commits: its ACK's end offset M becomes apples' maximum offset (M > O).
+    let (p2_id, p2_commit, p2_journals) = pub2.commit_intents();
+    let p2_acks = publisher::intents::build_transaction_intents(&[(p2_id, p2_commit, p2_journals)]);
+    pub2.write_intents(p2_acks).await.unwrap();
+
+    // T1 commits at H1 — but only bananas' ACK is written (P1 "crashed" before
+    // writing apples'). The apples read can never observe T1's commit directly;
+    // only the causal hint (apples, P1) @ H1 from bananas' ACK covers the span.
+    let (p1_id, t1_commit, t1_journals) = pub1.commit_intents();
+    let mut t1_acks =
+        publisher::intents::build_transaction_intents(&[(p1_id, t1_commit, t1_journals.clone())]);
+    t1_acks.retain(|journal, _| journal.contains("bananas"));
+    assert_eq!(t1_acks.len(), 1, "T1 spans apples and bananas");
+    pub1.write_intents(t1_acks).await.unwrap();
+
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &phase1_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open phase 1");
+
+    // Held phase: the H1 hint cannot resolve (apples' T1 ACK is unwritten), so
+    // the pipeline parks P1's entry in `unresolved` and answers with peeks.
+    // Emissions may split across flush cycles, so accumulate the client-side
+    // cumulative checkpoint until the held state is fully visible.
+    let mut base = shuffle::Frontier::default();
+    for attempt in 1..=8 {
+        let f = session
+            .next_checkpoint()
+            .await
+            .expect("next_checkpoint (held phase)");
+        base = base.reduce(f);
+
+        let held = matches!(
+            find_producer(&base, "apples", p1),
+            Some(pf) if pf.hinted_commit == t1_commit && pf.last_commit < t1_commit
+        ) && matches!(
+            find_producer(&base, "apples", p2),
+            Some(pf) if pf.offset < 0
+        ) && matches!(
+            find_producer(&base, "bananas", p1),
+            Some(pf) if pf.last_commit == t1_commit
+        );
+        if held {
+            break;
+        }
+        assert!(attempt < 8, "held state did not converge: {base:?}");
+    }
+    assert_eq!(base.unresolved_hints, 1, "the H1 hint is held");
+    let held = find_producer(&base, "apples", p1).unwrap();
+    assert!(held.offset > 0, "pre-flip: P1 is an open span begun at +O");
+
+    let mut shard_state: ShardState = (0..1).map(|_| None).collect();
+    let mut read1 = collect_read_entries(&base, &phase1_dir, &mut shard_state);
+    read1.sort_by_key(|e| (e.binding, e.doc["id"].as_str().map(str::to_owned)));
+    insta::assert_debug_snapshot!(
+        "hint_elevated_offset_checkpoint1",
+        Checkpoint {
+            frontier: &scrub_measures(&base),
+            read: read1,
+        }
+    );
+
+    // Phase 2: P1 recovers — T2 adds a bananas document and commits at H2,
+    // with recovery ACKs for both session journals. Only apples' ACK is
+    // written: it elevates the held entry (capped at H1, flipping the offset
+    // to -M) and carries the fresh bananas @ H2 hint that holds the
+    // read-derived apples progress in `unresolved`, letting the flip surface.
+    pub1.enqueue(
+        |uuid| {
+            Ok((
+                1,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "he-p1-b2",
+                    "category": "alpha",
+                    "value": 13,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    pub1.flush().await.unwrap();
+
+    let (_, t2_commit, _) = pub1.commit_intents();
+    let mut t2_acks =
+        publisher::intents::build_transaction_intents(&[(p1_id, t2_commit, t1_journals.clone())]);
+    let ack_b2: Vec<(String, bytes::Bytes)> = t2_acks
+        .iter()
+        .filter(|(journal, _)| journal.contains("bananas"))
+        .map(|(journal, ack)| (journal.clone(), ack.clone()))
+        .collect();
+    t2_acks.retain(|journal, _| journal.contains("apples"));
+    assert_eq!(t2_acks.len(), 1, "T2 recovery ACKs span apples and bananas");
+    pub1.write_intents(t2_acks).await.unwrap();
+
+    let cp2 = next_resolved_checkpoint(&mut session, "hint flip checkpoint 2").await;
+
+    // The core of this fixture: P1's held entry was elevated to (and capped
+    // at) the H1 hint, and its offset flipped from the stale +O span begin to
+    // -M — the journal's cut floor, which is exactly P2's committed end.
+    let flipped = find_producer(&cp2, "apples", p1).expect("P1 in checkpoint 2");
+    let sibling = find_producer(&cp2, "apples", p2).expect("P2 in checkpoint 2");
+    assert_eq!(flipped.last_commit, t1_commit, "elevated to the H1 cap");
+    assert_eq!(flipped.hinted_commit, t1_commit);
+    assert!(flipped.offset < 0, "offset flipped to a committed encoding");
+    assert_eq!(
+        flipped.offset, sibling.offset,
+        "the flip writes -M, the cut floor set by P2's committed end",
+    );
+
+    // Durability: |-M| beats the earlier +O span begin in the client's
+    // cumulative max-magnitude reduce, so the flip survives into the base
+    // checkpoint a coordinator would resume from.
+    base = base.reduce(cp2.clone());
+    assert_eq!(
+        find_producer(&base, "apples", p1).unwrap().offset,
+        flipped.offset,
+        "-M survives the cumulative reduce over the earlier +O",
+    );
+
+    // The resolved emission releases exactly the held span's document.
+    let read2 = collect_read_entries(&base, &phase1_dir, &mut shard_state);
+    insta::assert_debug_snapshot!(
+        "hint_elevated_offset_checkpoint2",
+        Checkpoint {
+            frontier: &scrub_measures(&cp2),
+            read: read2,
+        }
+    );
+    session.close().await.expect("close phase 1");
+
+    // The withheld bananas ACK is written before resuming, so the resumed
+    // session can resolve T2's fresh hint.
+    pub1.write_intents(ack_b2).await.unwrap();
+
+    // Resume from the cumulative checkpoint. P1's apples entry {H1, H1, -M}
+    // recovers committed — NOT gapped — so the read starts at M, skips the
+    // settled span [O, M) without a replay, and treats apples' recovery ACK
+    // as an empty commit. Only T2's bananas document is newly delivered.
+    let mut resumed = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &resume_dir),
+        base.clone(),
+    )
+    .await
+    .expect("SessionClient::open resumed");
+
+    let frontier3 = next_resolved_checkpoint(&mut resumed, "hint flip resumed").await;
+    let mut resumed_shard_state: ShardState = (0..1).map(|_| None).collect();
+    let read3 = collect_read_entries(&frontier3, &resume_dir, &mut resumed_shard_state);
+    assert_eq!(
+        read3
+            .iter()
+            .map(|e| e.doc["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["he-p1-b2"],
+        "only T2's bananas document is delivered; the settled apples span is never re-read",
+    );
+    insta::assert_debug_snapshot!(
+        "hint_elevated_offset_resumed",
+        Checkpoint {
+            frontier: &frontier3,
+            read: read3,
+        }
+    );
+
+    resumed.close().await.expect("close resumed");
+}
+
+/// A gapped producer's OUTSIDE is a protocol violation: the gapped sentinel is a
+/// real (if unread) open span, and an OUTSIDE_TXN with no intervening rollback
+/// ACK cannot sequence against it. The session must fail-fast with
+/// `OutsideWithPrecedingContinue` — identical to a non-gapped producer carrying a
+/// genuine pending span.
+///
+/// P2 opens a CONTINUE span at F = 0; P1 commits an OUTSIDE advancing M past F;
+/// session 1 captures the checkpoint. P2 then violates the producer protocol by
+/// writing an OUTSIDE without first rolling back its open span. On resume P2 is
+/// gapped, and the main read reaches P2's OUTSIDE: `uuid::sequence` rejects it
+/// against the pending sentinel and the session tears down with the sequencing
+/// error. No replay is attempted — an OUTSIDE never triggers one.
+async fn gapped_outside_violation(
+    materialization_spec: &flow::MaterializationSpec,
+    capture_spec: &flow::CaptureSpec,
+    journal_client: &gazette::journal::Client,
+    service: &shuffle::Service,
+    log_dir: &std::path::Path,
+) {
+    let phase1_dir = log_dir.join("gapped_outside_violation_p1");
+    let resume_dir = log_dir.join("gapped_outside_violation_resume");
+    std::fs::create_dir_all(&phase1_dir).unwrap();
+    std::fs::create_dir_all(&resume_dir).unwrap();
+
+    let p1 = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    let p2 = uuid::Producer::from_bytes([0x03, 0x00, 0x00, 0x00, 0x00, 0x02]);
+    let mut pub1 = make_publisher(capture_spec, journal_client, p1);
+    let mut pub2 = make_publisher(capture_spec, journal_client, p2);
+
+    // P2 opens an uncommitted CONTINUE span (begin F = 0).
+    pub2.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "gv-p2",
+                    "category": "alpha",
+                    "value": 20,
+                }),
+            ))
+        },
+        uuid::Flags::CONTINUE_TXN,
+    )
+    .await
+    .unwrap();
+    pub2.flush().await.unwrap();
+
+    // P1 commits an OUTSIDE document, advancing M past F. P2 is gapped on resume.
+    pub1.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "gv-p1",
+                    "category": "alpha",
+                    "value": 10,
+                }),
+            ))
+        },
+        uuid::Flags::OUTSIDE_TXN,
+    )
+    .await
+    .unwrap();
+    pub1.flush().await.unwrap();
+
+    // Session 1: capture a checkpoint with P1 committed and P2 pending at F = 0.
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &phase1_dir),
+        Default::default(),
+    )
+    .await
+    .expect("SessionClient::open phase 1");
+
+    let frontier1 = next_resolved_checkpoint(&mut session, "gapped violation phase 1").await;
+    session.close().await.expect("close phase 1");
+
+    // P2 violates the producer protocol: an OUTSIDE with no rollback ACK for its
+    // still-open span.
+    pub2.enqueue(
+        |uuid| {
+            Ok((
+                0,
+                serde_json::json!({
+                    "_meta": {"uuid": uuid.to_string()},
+                    "id": "gv-p2-outside",
+                    "category": "alpha",
+                    "value": 21,
+                }),
+            ))
+        },
+        uuid::Flags::OUTSIDE_TXN,
+    )
+    .await
+    .unwrap();
+    pub2.flush().await.unwrap();
+
+    // Resume: the main read reaches P2's OUTSIDE and fails to sequence it against
+    // the gapped sentinel. No checkpoint can become ready first — nothing has
+    // committed — so the first response is the teardown error.
+    let mut resumed = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &resume_dir),
+        frontier1.clone(),
+    )
+    .await
+    .expect("SessionClient::open resumed");
+
+    let err = match resumed.next_checkpoint().await {
+        Ok(frontier) => panic!("expected session teardown, got checkpoint: {frontier:?}"),
+        Err(err) => format!("{err:#}"),
+    };
+    assert!(
+        err.contains("OUTSIDE_TXN with a preceding unacknowledged CONTINUE_TXN"),
+        "expected OutsideWithPrecedingContinue teardown, got: {err}",
+    );
+    // The session tore down on error; there is no clean close to perform.
 }

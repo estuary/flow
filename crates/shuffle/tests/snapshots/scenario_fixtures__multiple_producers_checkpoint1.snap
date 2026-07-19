@@ -1,5 +1,6 @@
 ---
 source: crates/shuffle/tests/scenario_fixtures.rs
+assertion_line: 641
 expression: "Checkpoint { frontier: &frontier1, read: read1, }"
 ---
 Checkpoint {
@@ -17,7 +18,7 @@ Checkpoint {
                     },
                     ProducerFrontier {
                         producer: Producer(03:00:00:00:00:02),
-                        last_commit: Clock(0s 0ns),
+                        last_commit: Clock(0s 4ns),
                         hinted_commit: Clock(0s 0ns),
                         offset: 0,
                     },

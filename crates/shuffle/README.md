@@ -123,13 +123,17 @@ For example, a binding read with an explicit delay cannot gate a binding read in
 The legacy shuffle implementation has several limitations that motivated
 this crate:
 
-**Replay reads → conservative reads**: The legacy system reads optimistically
-from the latest journal offset. When an uncommitted transaction later commits,
-the system performs bounded "replay reads" to re-read that data, which is high
-latency and performs poorly. This implementation instead reads conservatively
-from the earliest `begin_offset` of any uncommitted producer in the checkpoint,
-eliminating replay reads entirely. The tradeoff is potentially re-reading already-
-committed data on startup if producers have long-running uncommitted transactions.
+**Optimistic replay → lazy gapped replay**: The legacy system reads
+optimistically from the latest journal offset, so when an uncommitted
+transaction later commits it must perform bounded "replay reads" to re-read
+that data — a routine, high-latency part of steady-state reading. This
+implementation reads forward and stages uncommitted spans into the log inline,
+so steady-state reading never replays. Replay is confined to restart recovery:
+a `(binding, journal)` read resumes from the furthest offset its checkpoint
+justifies (the maximum offset magnitude across producer entries), and a
+producer whose uncommitted span begins before that offset is *gapped* — its
+skipped range is recovered by a single bounded historical replay, triggered
+lazily by the producer's first newer document (see `slice/replay.rs`).
 
 **Per-shard RPCs → shared streams**: The legacy system starts an RPC per
 (shard, journal) pair, which doesn't scale: at M=10 shards with N=100k
@@ -201,9 +205,12 @@ target Slice.
 ### 4. Journal Reading
 
 The Slice receives `StartRead`, resolves the checkpoint into per-producer
-state and a start offset (minimum uncommitted begin, or maximum committed
-end), and initiates a Gazette streaming read. It first probes the journal
-write head to determine whether the read is already tailing (caught up).
+state and a start offset (the maximum offset magnitude across producer
+entries), and initiates a Gazette streaming read. A recovered producer whose
+uncommitted span begins before that start offset is marked *gapped* and its
+skipped range is recovered later by a bounded replay (see `slice/replay.rs`).
+It first probes the journal write head to determine whether the read is already
+tailing (caught up).
 
 Read data arrives as `LinesBatch` chunks from Gazette, which are
 transcoded via `simd_doc::SimdParser` into archived document nodes.
@@ -375,6 +382,8 @@ next one.
   - `producer.rs`: Per-producer state tracking and flush frontier
     construction.
   - `read.rs`: ReadState, document metadata extraction, journal probing.
+  - `replay.rs`: Bounded historical replay of a gapped producer's span on
+    restart recovery.
   - `routing.rs`: Clock rotation and shard routing.
   - `heap.rs`: Priority heap for ready reads.
 - `log/`: Log actor, append merge heap, flush IO.
