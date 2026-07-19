@@ -1,6 +1,9 @@
 use super::{
     heap::{ReadyReadEntry, ReadyReadHeap},
-    read::{Meta, ReadState, ReadyRead, map_read_error, probe_read_start},
+    read::{
+        Meta, ReadFailure, ReadState, ReadyRead, classify_read_failure, map_read_error,
+        parse_lines_batch, probe_read_start,
+    },
     routing,
     state::{self, FlushState, ProgressState, Topology},
 };
@@ -522,7 +525,7 @@ impl SliceActor {
     fn process_read_result(
         &mut self,
         result: Option<gazette::RetryResult<gazette::journal::read::LinesBatch>>,
-        mut read: super::ReadLines,
+        read: super::ReadLines,
     ) -> anyhow::Result<()> {
         let read_state = &mut self.reads[read.id() as usize];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
@@ -541,38 +544,29 @@ impl SliceActor {
             return Ok(());
         };
 
-        let mut lines_batch = match result {
-            Err(gazette::RetryError {
-                attempt,
-                inner: err,
-            }) => match err {
-                gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
+        let lines_batch = match result {
+            Err(err) => match classify_read_failure(err) {
+                ReadFailure::JournalRemoved(status) => {
                     service_kit::event!(
-                        tracing::Level::INFO,
+                        tracing::Level::DEBUG,
                         "read",
                         read_id = read.id(),
                         binding = binding.index,
                         journal,
-                        "stopped journal read (JOURNAL_NOT_FOUND)",
+                        status = status.as_str_name(),
+                        "stopped journal read due to removal",
                     );
                     self.metrics.reads_stopped.increment(1);
                     return Ok(());
                 }
-                gazette::Error::BrokerStatus(broker::Status::Suspended) => {
+                ReadFailure::Transient(err, attempt) => {
+                    let level = if attempt == 0 {
+                        tracing::Level::TRACE
+                    } else {
+                        tracing::Level::WARN
+                    };
                     service_kit::event!(
-                        tracing::Level::INFO,
-                        "read",
-                        read_id = read.id(),
-                        binding = binding.index,
-                        journal,
-                        "stopped journal read (SUSPENDED)",
-                    );
-                    self.metrics.reads_stopped.increment(1);
-                    return Ok(());
-                }
-                err if err.is_transient() => {
-                    service_kit::event!(
-                        tracing::Level::WARN,
+                        level,
                         "read",
                         read_id = read.id(),
                         binding = binding.index,
@@ -583,7 +577,8 @@ impl SliceActor {
                     );
                     return self.park_or_process(read);
                 }
-                err => {
+                ReadFailure::Terminal(err) => {
+                    self.metrics.reads_stopped.increment(1);
                     return Err(map_read_error(
                         err,
                         &read_state.journal,
@@ -610,50 +605,15 @@ impl SliceActor {
             "received LinesBatch",
         );
 
-        let transcoded = match simd_doc::transcode_many(
+        let ready_read = parse_lines_batch(
             &mut self.parser,
-            &mut lines_batch.content,
-            &mut lines_batch.offset,
-            Default::default(),
-        ) {
-            Err((err, location)) => {
-                return Err(map_read_error(
-                    gazette::Error::Parsing { err, location },
-                    &read_state.journal,
-                    binding.state_key(),
-                    "transcoding documents",
-                ));
-            }
-            Ok(transcoded) => transcoded,
-        };
-
-        // There may be a remainder if we failed to parse partway through.
-        // Put it back to handle it next time.
-        if !lines_batch.content.is_empty() {
-            read.as_mut().put_back(lines_batch.content.into());
-        }
-
-        let metas = super::read::extract_metas(
-            &transcoded,
-            &binding.source_uuid_ptr,
             &mut self.validators[read_state.binding_index as usize],
+            binding,
             &read_state.journal,
+            read,
+            lines_batch,
+            "transcoding documents",
         )?;
-
-        // Consume into owned documents and pair with pre-extracted metadata.
-        let mut doc_tail = transcoded.into_iter();
-        let mut meta_tail = metas.into_iter();
-
-        let (doc, _) = doc_tail.next().expect("non-empty transcoded");
-        let meta = meta_tail.next().expect("non-empty metas");
-
-        let ready_read = ReadyRead {
-            doc,
-            meta,
-            doc_tail,
-            meta_tail,
-            inner: read,
-        };
 
         self.ready_read_heap.push(ReadyReadEntry {
             priority: binding.priority,
