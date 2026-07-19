@@ -25,8 +25,10 @@ impl Client {
             let metrics = Metrics::new(&req.journal);
 
             loop {
-                // Have we read through requested `end_offset`?
-                if req.end_offset != 0 && req.offset == req.end_offset {
+                // Have we read through requested `end_offset`? Use `>=`, not
+                // `==`: a fragment hole spanning `end_offset` can fast-forward
+                // `req.offset` *past* `end_offset`.
+                if req.end_offset != 0 && req.offset >= req.end_offset {
                     return;
                 }
                 // Have we read through the `write_head` and our request is non-blocking?
@@ -136,6 +138,16 @@ impl Client {
                 req.offset = metadata.offset;
             }
             *write_head = metadata.write_head;
+
+            // A fragment hole may have fast-forwarded `req.offset` to or past a
+            // bounded read's `end_offset`. The requested range is then fully
+            // covered; yield the metadata (so the caller observes the resolved
+            // offset) and terminate.
+            if req.end_offset != 0 && req.offset >= req.end_offset {
+                () = co.yield_(Ok(metadata)).await;
+                metrics.tick(req.offset, *write_head);
+                return Ok(());
+            }
 
             let (fragment, fragment_url) = (fragment.clone(), metadata.fragment_url.clone());
             () = co.yield_(Ok(metadata)).await;
@@ -326,6 +338,12 @@ async fn read_fragment_url_body(
         req.offset += content_len;
         metrics.tick(req.offset, write_head);
         metrics.fragment.increment(content_len as u64);
+
+        // If a bounded read that has reached its `end_offset` is complete,
+        // return now rather than reading the fragment tail into empty batches.
+        if remaining == 0 {
+            return Ok(());
+        }
     }
 
     Ok(())
