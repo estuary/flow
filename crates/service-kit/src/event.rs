@@ -259,8 +259,13 @@ impl_into_captured_int!(i8, i16, i32, i64, isize ; u8, u16, u32, u64, usize);
 ///
 /// `track` must be a string literal — the track topology of a handler is a
 /// deliberate, greppable set of call sites, not a dynamically-derived thing.
-/// `level` must be a `tracing::Level` constant (`tracing::Level::DEBUG`, …), as
-/// for [`tracing::event!`]. Interpolation is positional `{}` only: a `{name}`,
+/// `level` is any `tracing::Level` *expression* — unlike [`tracing::event!`],
+/// which requires a constant because it bakes the level into a `static`
+/// callsite. A runtime level (e.g. quieter on the first attempt, louder on
+/// retry) is supported by fanning out to one constant-level `tracing::event!`
+/// per level and selecting at runtime; only the taken branch renders, so a
+/// literal level still collapses to a single callsite. Interpolation is
+/// positional `{}` only: a `{name}`,
 /// `{0}`, or `{:spec}` is **rejected at compile time** (via
 /// [`check_template`](crate::event::check_template)) — write `{}` and pass the
 /// value positionally. The `tracing` event renders the same text as the track,
@@ -304,18 +309,51 @@ macro_rules! event {
             "event!: format string {:?} has {} placeholder(s) but {} argument(s) were passed",
             $msg, __EVENT_PLACEHOLDERS, __event_args.len(),
         );
-        ::tracing::event!(
-            $level,
-            track = $track,
-            $( $name = %$crate::event::lookup_field(&__event_fields, ::std::stringify!($name)), )*
-            "{}", $crate::event::render_args($msg, &__event_args)
-        );
-        $crate::event::record($level, $track, $msg, __event_args, __event_fields);
+        // `tracing::event!` bakes its level into a `static` callsite, so a
+        // runtime `$level` can't be forwarded to it. Fan the level out to one
+        // constant-level callsite each and pick at runtime (`Level: PartialEq`);
+        // only the taken branch renders, and a literal `$level` folds away to a
+        // single callsite. `record` — the track side — takes the level directly.
+        // Bind `$level` once: it may be a side-effecting expression, and is
+        // otherwise re-evaluated by each comparison and again by `record`.
+        let __event_level = $level;
+        if __event_level == ::tracing::Level::ERROR {
+            $crate::__event_at_level!(::tracing::Level::ERROR, $track, __event_fields, __event_args, $msg $(, $name)*);
+        } else if __event_level == ::tracing::Level::WARN {
+            $crate::__event_at_level!(::tracing::Level::WARN, $track, __event_fields, __event_args, $msg $(, $name)*);
+        } else if __event_level == ::tracing::Level::INFO {
+            $crate::__event_at_level!(::tracing::Level::INFO, $track, __event_fields, __event_args, $msg $(, $name)*);
+        } else if __event_level == ::tracing::Level::DEBUG {
+            $crate::__event_at_level!(::tracing::Level::DEBUG, $track, __event_fields, __event_args, $msg $(, $name)*);
+        } else {
+            $crate::__event_at_level!(::tracing::Level::TRACE, $track, __event_fields, __event_args, $msg $(, $name)*);
+        }
+        $crate::event::record(__event_level, $track, $msg, __event_args, __event_fields);
     }};
     // Fields only, no message. (Defers to the form above with an empty message,
     // as `tracing`'s `info!(field = v)` produces an event with no message.)
     ($level:expr, $track:literal, $($name:ident $(= $val:expr)?),+ $(,)?) => {
         $crate::event!($level, $track, $($name $(= $val)?,)+ "")
+    };
+}
+
+/// Emit the [`event!`](crate::event!)-mirroring `tracing` event at a *constant*
+/// `$level`. Factored out so [`event!`](crate::event!) can fan a runtime level
+/// across one invocation per level — `tracing::event!` requires a constant level
+/// because it bakes it into a `static` callsite. `$fields`/`$args` are the field
+/// and interpolation-argument vectors already built by the caller; the trailing
+/// `$name`s re-attach each captured field to the `tracing` event by name. Macro
+/// plumbing — not part of the intended API.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __event_at_level {
+    ($level:expr, $track:literal, $fields:ident, $args:ident, $msg:literal $(, $name:ident)* $(,)?) => {
+        ::tracing::event!(
+            $level,
+            track = $track,
+            $( $name = %$crate::event::lookup_field(&$fields, ::std::stringify!($name)), )*
+            "{}", $crate::event::render_args($msg, &$args)
+        )
     };
 }
 
@@ -901,6 +939,72 @@ mod tests {
                 (io[1].message.as_str(), &io[1].fields[..]),
                 ("", &[("attempt", "4".to_string())][..]),
             );
+
+            handler.finish_ok();
+        });
+    }
+
+    #[test]
+    fn macro_accepts_runtime_level() {
+        let registry = Registry::new();
+        let subscriber = tracing_subscriber::registry().with(layer(registry.clone()));
+
+        tracing::subscriber::with_default(subscriber, || {
+            let mut handler = registry.register("test.kind");
+            let id = registry.snapshot().live[0].id;
+            let span = handler.span();
+            let _entered = span.enter();
+
+            // The level is a runtime value — quiet on the first attempt, loud on
+            // retry — which `tracing::event!` alone can't accept. Fields and
+            // message are captured the same regardless of which branch fires.
+            for attempt in 0..2u32 {
+                let level = if attempt == 0 {
+                    tracing::Level::TRACE
+                } else {
+                    tracing::Level::WARN
+                };
+                crate::event!(level, "io", attempt, "retrying {}", attempt);
+            }
+
+            let detail = registry.handler_detail(id).expect("live");
+            let io = &detail.tracks["io"];
+            assert_eq!(
+                (io[0].level, io[0].message.as_str(), &io[0].fields[..]),
+                ("TRACE", "retrying 0", &[("attempt", "0".to_string())][..]),
+            );
+            assert_eq!(
+                (io[1].level, io[1].message.as_str(), &io[1].fields[..]),
+                ("WARN", "retrying 1", &[("attempt", "1".to_string())][..]),
+            );
+
+            handler.finish_ok();
+        });
+    }
+
+    #[test]
+    fn macro_evaluates_level_expression_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let registry = Registry::new();
+        let subscriber = tracing_subscriber::registry().with(layer(registry.clone()));
+
+        tracing::subscriber::with_default(subscriber, || {
+            let mut handler = registry.register("test.kind");
+            let span = handler.span();
+            let _entered = span.enter();
+
+            // A side-effecting `$level` must be evaluated exactly once per
+            // `event!` — the macro binds it, rather than re-evaluating it in each
+            // per-level comparison and again in `record`.
+            let calls = AtomicUsize::new(0);
+            let level = || {
+                calls.fetch_add(1, Ordering::Relaxed);
+                tracing::Level::INFO
+            };
+            crate::event!(level(), "io", "message");
+
+            assert_eq!(calls.load(Ordering::Relaxed), 1);
 
             handler.finish_ok();
         });
