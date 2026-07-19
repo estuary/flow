@@ -18,23 +18,37 @@ use proto_gazette::uuid::{Clock, Producer};
 ///   - Non-negative: Begin offset of first pending CONTINUE_TXN
 ///   - Negative: Negation of end offset of last committing ACK_TXN / OUTSIDE_TXN
 /// Internal default state uses zero before any document has been observed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ProducerState {
     /// Clock of the last committing ACK_TXN or OUTSIDE_TXN.
     pub last_commit: Clock,
     /// Maximum Clock of an uncommitted CONTINUE_TXN, or zero if no pending span.
+    ///
+    /// A non-zero value `max_continue == last_commit` is special and marks the
+    /// producer as *gapped*: it has an open span beginning after `last_commit`
+    /// (with unknown first Clock). Its session read started at offset
+    /// `M > last_commit`, and re-constructing this producer's full state will
+    /// require re-reading range [offset, M).
+    ///
+    /// The sentinel can never arise organically: `uuid::sequence` sets
+    /// `max_continue` only to a CONTINUE's Clock, which is strictly greater than
+    /// `last_commit`, and advances `last_commit` only while `max_continue` is
+    /// zero — so a live `max_continue` is always either zero or strictly above
+    /// `last_commit`, never equal. A gapped producer always has a non-negative
+    /// offset (begin of first CONTINUE_TXN of its span).
+    ///
+    /// This field is in-memory only. It doesn't contribute to a
+    /// `ProducerFrontier` checkpoint and a recovered session rebuilds it.
     pub max_continue: Clock,
     /// Journal byte offset, sign-encoded (see struct docs).
     pub offset: i64,
 }
 
-impl Default for ProducerState {
-    fn default() -> Self {
-        Self {
-            last_commit: Clock::zero(),
-            max_continue: Clock::zero(),
-            offset: 0,
-        }
+impl ProducerState {
+    /// Whether this producer is *gapped* (see [`ProducerState::max_continue`]): its
+    /// uncommitted span begins at `offset` below the journal restart read position.
+    pub fn is_gapped(&self) -> bool {
+        self.max_continue.as_u64() != 0 && self.max_continue == self.last_commit
     }
 }
 const _: () = assert!(std::mem::size_of::<ProducerState>() == 24);
@@ -69,7 +83,12 @@ pub fn build_flush_frontier(
             .iter()
             .map(|(producer, ps)| crate::ProducerFrontier {
                 producer: *producer,
-                last_commit: ps.last_commit,
+                // Floor every read-derived entry at OBSERVED_COMMIT_FLOOR (raw 1),
+                // establishing the universal invariant that a persisted
+                // `last_commit == 0` means hint-only. This lets recovery
+                // distinguish a real span begun at journal offset zero (the floor,
+                // gapped when `M > 0`) from a hint-only placeholder `{0, 0}`.
+                last_commit: Clock::from_u64(ps.last_commit.as_u64().max(1)),
                 hinted_commit: Clock::zero(),
                 offset: ps.offset,
             })
@@ -323,6 +342,21 @@ mod test {
                 "duplicate_hints_merged_with_reads",
                 vec![read_state("journal/A", 0, &[(0x01, 50, -300)])],
                 vec![hint("journal/A", 0, &[(0x01, 100), (0x01, 200)])],
+            ),
+            // Last-commit floor: every read-derived entry is floored to raw 1,
+            // so a persisted `last_commit == 0` means hint-only. A never-committed
+            // span at offset zero (0x01) recovers as a real span at journal head;
+            // a never-committed span at `F > 0` (0x03) is likewise floored from 0
+            // to 1; a real commit (0x05) passes through unchanged; and hint-loop
+            // entries (0x07) keep `last_commit: 0`.
+            (
+                "last_commit_floor",
+                vec![read_state(
+                    "journal/A",
+                    0,
+                    &[(0x01, 0, 0), (0x03, 0, 700), (0x05, 90, 0)],
+                )],
+                vec![hint("journal/B", 0, &[(0x07, 150)])],
             ),
         ];
 

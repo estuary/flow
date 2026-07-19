@@ -67,10 +67,18 @@ impl ReadState {
         self.write_head = offset;
         self.prev_write_head = offset;
     }
+
+    /// Retrieve the latest state of a Producer.
+    pub fn producer_state(&self, producer: uuid::Producer) -> ProducerState {
+        (self.pending.get(&producer))
+            .or_else(|| self.settled.get(&producer))
+            .cloned()
+            .unwrap_or_default()
+    }
 }
 
 /// Metadata about a document in a ReadyRead batch.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Meta {
     /// Begin offset (inclusive) of `doc` within the journal.
     pub begin_offset: i64,

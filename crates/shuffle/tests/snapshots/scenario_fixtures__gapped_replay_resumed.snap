@@ -1,6 +1,6 @@
 ---
 source: crates/shuffle/tests/scenario_fixtures.rs
-expression: "Checkpoint { frontier: &frontier3, read: read3, }"
+expression: "Checkpoint { frontier: &frontier2, read: read2, }"
 ---
 Checkpoint {
     frontier: Frontier {
@@ -13,7 +13,7 @@ Checkpoint {
                         producer: Producer(03:00:00:00:00:02),
                         last_commit: Clock(0s 2000ns),
                         hinted_commit: Clock(0s 0ns),
-                        offset: -287,
+                        offset: -283,
                     },
                 ],
                 bytes_read_delta: 83,
@@ -34,7 +34,7 @@ Checkpoint {
                     "uuid": String("1381400a-1dd2-11b2-8001-030000000002"),
                 },
                 "category": String("alpha"),
-                "id": String("p2-doc"),
+                "id": String("g-p2"),
                 "value": Number(20),
             },
         },

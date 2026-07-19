@@ -2,11 +2,31 @@ use crate::log;
 use proto_flow::shuffle;
 use proto_gazette::uuid::{Clock, Producer};
 
+/// Lower-bound synthetic `last_commit` for a producer observed through journal
+/// reads, distinguishing it from a hint-only producer. All actual Clock values
+/// are required to be larger. The distinction matters when evaluating whether
+/// a producer hinted at Clock H is "gapped" on recovery:
+///
+/// Case 1 - {offset: 0, last_commit: 1, hinted_commit: H}
+/// This producer wrote a literal CONTINUE_TXN at offset zero which is still
+/// an open span (has not committed or rolled back). If we start reading from
+/// offset M > 0, this producer is considered gapped and must replay from zero.
+///
+/// Case 2 - {offset: 0, last_commit: 0, hinted_commit: H}
+/// This hint-only producer has never been observed via journal read. If we start
+/// reading from the maximum offset M of any journal producer, then by construction
+/// no span of this producer can live in [0, M), as `last_commit` would otherwise
+/// be this sentinel value.
+///
+pub(crate) const OBSERVED_COMMIT_FLOOR: u64 = 1;
+
 /// Frontier state of a single producer within a journal.
 #[derive(Debug, Clone)]
 pub struct ProducerFrontier {
     pub producer: Producer,
-    /// Clock of the last committing ACK_TXN or OUTSIDE_TXN.
+    /// Clock of the last committing ACK_TXN or OUTSIDE_TXN, or
+    /// [`OBSERVED_COMMIT_FLOOR`] if the producer has an open CONTINUE_TXN
+    /// span but has never committed.
     pub last_commit: Clock,
     /// Clock of a hinted (causal) commit, or zero if no hint.
     pub hinted_commit: Clock,
@@ -26,14 +46,26 @@ impl ProducerFrontier {
     pub fn reduce(self, other: Self) -> Self {
         // We cannot simply take the offset from whichever side has the larger
         // `last_commit`, because causal hint resolution (`resolve_hints`) elevates
-        // `last_commit` on hint-only entries that carry `offset: 0`. When such a
-        // resolved entry is reduced into `ready`, the elevated `last_commit` would
-        // win and its zero offset would overwrite the actual journal position from
-        // the read-derived side.
-        let offset = if self.offset.abs() >= other.offset.abs() {
-            self.offset
+        // `last_commit` on an entry without raising its offset to its true
+        // journal position (details: it raises the offset no further than the
+        // maximum progress of the original Frontier cut). We don't want to
+        // clobber an accurate (ahead) `offset` of a lesser `last_commit` by
+        // replacing it with a greater hinted-and-resolved `last_commit` having
+        // a lesser, conservative `offset`.
+        //
+        // On equal magnitude, prefer the non-negative (uncommitted begin) side.
+        // A producer's next span begins exactly at its previous transaction's
+        // committed end offset whenever no other producer appended in between,
+        // so a `+F` span begin routinely ties with the prior committed `-O`
+        // (F == O) — and the span begin is the strictly newer state.
+        let offset = if self.offset.abs() != other.offset.abs() {
+            if self.offset.abs() > other.offset.abs() {
+                self.offset
+            } else {
+                other.offset
+            }
         } else {
-            other.offset
+            self.offset.max(other.offset)
         };
         Self {
             producer: self.producer,
@@ -107,10 +139,19 @@ impl JournalFrontier {
     ///
     /// `self` and `other` must be for the same `(journal, binding)`.
     ///
-    /// `offset` is intentionally NOT updated here: when `last_commit` is
+    /// `offset` is conservatively updated on resolution: when `last_commit` is
     /// capped at `hinted_commit` but `other.last_commit` is past it,
     /// `other.offset` corresponds to a journal position that overshoots
-    /// where our claimed `last_commit` actually sits.
+    /// where our claimed `last_commit` actually sits. At the same time, hinted
+    /// resolution implies a producer's formerly-open span is now closed, and we
+    /// don't want it to recover as gapped (which would trigger a replay).
+    ///
+    /// Define `M` as the maximum offset of any producer of this journal. We bump
+    /// resolved producers to `-M`, marking them as having committed through this
+    /// progress. This behavior rests on the invariant that all of self's entries
+    /// are consistent with one continuous read through (at least) `M`, and a
+    /// hint advancement implies a committing ACK after `M`, so any span below
+    /// `M` is already settled and a re-read would suppress it.
     ///
     /// Returns `(advanced, resolved)`:
     /// - `advanced`: producers whose `last_commit` advanced by any amount.
@@ -119,6 +160,15 @@ impl JournalFrontier {
     fn resolve_hints(&mut self, other: &JournalFrontier) -> (usize, usize) {
         let mut advanced = 0usize;
         let mut resolved = 0usize;
+
+        // `M`: self's cut floor, the max offset across this journal's entries.
+        let m = self
+            .producers
+            .iter()
+            .map(|p| p.offset.abs())
+            .max()
+            .unwrap_or(0);
+
         let mut lhs = self.producers.iter_mut().peekable();
         let mut rhs = other.producers.iter().peekable();
 
@@ -144,6 +194,7 @@ impl JournalFrontier {
 
             if lhs.hinted_commit > lhs.last_commit && rhs.last_commit > lhs.last_commit {
                 lhs.last_commit = rhs.last_commit.min(lhs.hinted_commit);
+                lhs.offset = -m;
                 advanced += 1;
 
                 if rhs.last_commit >= lhs.hinted_commit {
@@ -652,12 +703,133 @@ mod test {
             ((100, 0, -300), (100, 0, 50), (100, 0, -300)),
             // Default offset=0 (e.g. from hint) does not override meaningful offset.
             ((200, 0, -800), (0, 500, 0), (200, 500, -800)),
+            // Equal magnitude: the uncommitted (non-negative) span begin wins,
+            // in either argument order. A producer's next span begins exactly
+            // at its previous committed end offset, so this tie is routine —
+            // and preferring the committed side would erase the open span from
+            // the durable checkpoint, silently skipping its documents on a
+            // checkpoint-derived restart.
+            ((100, 0, -500), (100, 0, 500), (100, 0, 500)),
+            ((100, 0, 500), (100, 0, -500), (100, 0, 500)),
         ];
 
         for (a, b, expect) in cases {
             let r = pf(0x01, a.0, a.1, a.2).reduce(pf(0x01, b.0, b.1, b.2));
             assert_eq!(pf_tuple(&r), expect, "reduce({a:?}, {b:?})");
         }
+    }
+
+    /// Build a ProducerFrontier with RAW clock values (not seconds), for
+    /// OBSERVED_COMMIT_FLOOR cases where the exact raw encoding matters.
+    fn pf_raw(id: u8, last_commit: u64, hinted_commit: u64, offset: i64) -> ProducerFrontier {
+        ProducerFrontier {
+            producer: crate::testing::producer(id),
+            last_commit: Clock::from_u64(last_commit),
+            hinted_commit: Clock::from_u64(hinted_commit),
+            offset,
+        }
+    }
+
+    #[test]
+    fn test_reduce_preserves_observed_commit_floor() {
+        let hint_clock = Clock::from_unix(200, 0).as_u64();
+        let commit_clock = Clock::from_unix(300, 0).as_u64();
+
+        // A floored entry `{1, 0, 0}` (real span at journal head) reduced with a
+        // hint-only entry `{0, H, 0}` keeps the floor in both argument orders:
+        // `max(1, 0) = 1`, and the equal-magnitude offset tie keeps 0. Regressing
+        // to 0 here would reclassify the span as hint-only on the next recovery,
+        // silently dropping it.
+        let floored = || pf_raw(0x01, OBSERVED_COMMIT_FLOOR, 0, 0);
+        let hint = || pf_raw(0x01, 0, hint_clock, 0);
+        for (a, b) in [(floored(), hint()), (hint(), floored())] {
+            let r = a.reduce(b);
+            assert_eq!(
+                r.last_commit.as_u64(),
+                OBSERVED_COMMIT_FLOOR,
+                "the floor survives a hint merge",
+            );
+            assert_eq!(r.hinted_commit.as_u64(), hint_clock);
+            assert_eq!(r.offset, 0);
+        }
+
+        // Read-derived progress supersedes the floor: a real `last_commit`
+        // wins by max, and the larger offset magnitude wins.
+        let read = || pf_raw(0x01, commit_clock, 0, -500);
+        for (a, b) in [(floored(), read()), (read(), floored())] {
+            let r = a.reduce(b);
+            assert_eq!(r.last_commit.as_u64(), commit_clock);
+            assert_eq!(r.offset, -500);
+        }
+    }
+
+    #[test]
+    fn test_resolve_hints_elevates_last_commit_floor() {
+        // A floored entry carrying an unresolved hint `{1, H, 0}` IS elevated by
+        // read-derived progress: progress with `last_commit >= H` proves the
+        // read committed (or rolled back) the offset-zero span, and the elevated
+        // `{H, 0}` then correctly recovers as NOT gapped.
+        let hint_clock = Clock::from_unix(200, 0);
+        let mut pending = Frontier {
+            journals: vec![jf(
+                "journal/A",
+                0,
+                vec![pf_raw(0x01, OBSERVED_COMMIT_FLOOR, hint_clock.as_u64(), 0)],
+            )],
+            flushed_lsn: vec![],
+            unresolved_hints: 1,
+        };
+        let progressed = Frontier {
+            journals: vec![jf("journal/A", 0, vec![pf(0x01, 250, 0, -800)])],
+            flushed_lsn: vec![],
+            unresolved_hints: 0,
+        };
+
+        let (advanced, resolved) = pending.resolve_hints(&progressed);
+        assert_eq!((advanced, resolved), (1, 1));
+        assert_eq!(
+            pending.journals[0].producers[0].last_commit, hint_clock,
+            "elevated to (and capped at) the hinted commit",
+        );
+        assert_eq!(
+            pending.journals[0].producers[0].offset, 0,
+            "offset stays 0: this journal's only entry is the floored span at \
+             offset 0, so its cut floor M == 0 and the flip writes -0",
+        );
+        assert_eq!(pending.unresolved_hints, 0);
+
+        // Companion: the floored entry shares its journal with a committed sibling
+        // at a larger offset magnitude, so M > 0 and the flip lands on -M. P3 (a
+        // committed -800) sets M = 800; P1's floored span, elevated to its hint,
+        // flips from 0 to -800 — recovering NOT gapped and never re-replaying.
+        let mut pending = Frontier {
+            journals: vec![jf(
+                "journal/A",
+                0,
+                vec![
+                    pf_raw(0x01, OBSERVED_COMMIT_FLOOR, hint_clock.as_u64(), 0),
+                    pf(0x03, 100, 0, -800),
+                ],
+            )],
+            flushed_lsn: vec![],
+            unresolved_hints: 1,
+        };
+        let progressed = Frontier {
+            journals: vec![jf("journal/A", 0, vec![pf(0x01, 250, 0, -900)])],
+            flushed_lsn: vec![],
+            unresolved_hints: 0,
+        };
+        let (advanced, resolved) = pending.resolve_hints(&progressed);
+        assert_eq!((advanced, resolved), (1, 1));
+        assert_eq!(
+            pending.journals[0].producers[0].last_commit, hint_clock,
+            "the floored entry is elevated to (and capped at) its hinted commit",
+        );
+        assert_eq!(
+            pending.journals[0].producers[0].offset, -800,
+            "the flip writes -M, the journal's max offset magnitude (P3's 800)",
+        );
+        assert_eq!(pending.unresolved_hints, 0);
     }
 
     #[test]
@@ -993,11 +1165,14 @@ mod test {
             250
         );
 
-        // Offsets are NOT updated by resolve_hints (overshoot risk on capped
-        // resolution). The original P1 offset (-100) is preserved — the
-        // eventual reduce() with progressed picks the max absolute offset.
+        // On advancement, `offset` flips to `-M` — self's own cut floor, the max
+        // offset magnitude of the journal's entries — never `progressed.offset`,
+        // which could overshoot a capped resolution. journal/A has only P1 at
+        // magnitude 100, so its flip lands back on -100 (value unchanged). journal/B's
+        // max magnitude is 500 (P5's -500), so P3's partial advancement flips its
+        // offset from 0 to -500.
         assert_eq!(pending.journals[0].producers[0].offset, -100);
-        assert_eq!(pending.journals[1].producers[0].offset, 0);
+        assert_eq!(pending.journals[1].producers[0].offset, -500);
 
         // Second round: P3 now has enough progress to fully resolve.
         let progressed2 = Frontier {
@@ -1011,12 +1186,65 @@ mod test {
             pending.journals[1].producers[0].last_commit.to_unix().0,
             300
         );
+        // M recomputed over journal/B is still 500, so P3 stays at -500.
+        assert_eq!(pending.journals[1].producers[0].offset, -500);
 
         // Empty progressed resolves nothing.
         assert_eq!(pending.resolve_hints(&Frontier::default()), (0, 0));
 
         // Empty pending resolves nothing.
         assert_eq!(Frontier::default().resolve_hints(&progressed), (0, 0));
+    }
+
+    #[test]
+    fn test_resolve_hints_flips_open_span_to_cut_floor() {
+        // An open-span entry `{L, H, +O}` sharing its journal with a committed
+        // sibling at a larger magnitude `M > O` flips its positive begin `+O` to the
+        // cut floor `-M` on advancement — whether the hint fully resolves or only
+        // partially advances. The negative offset un-gaps the producer on recovery.
+        let mut pending = Frontier {
+            journals: vec![
+                // journal/X: fully resolved (progressed 250s >= hint 200s).
+                jf(
+                    "journal/X",
+                    0,
+                    vec![pf(0x01, 50, 200, 300), pf(0x03, 100, 0, -900)],
+                ),
+                // journal/Y: partially advanced (progressed 250s < hint 300s).
+                jf(
+                    "journal/Y",
+                    0,
+                    vec![pf(0x01, 50, 300, 300), pf(0x03, 100, 0, -900)],
+                ),
+            ],
+            flushed_lsn: vec![],
+            unresolved_hints: 2,
+        };
+        let progressed = Frontier {
+            journals: vec![
+                jf("journal/X", 0, vec![pf(0x01, 250, 0, -700)]),
+                jf("journal/Y", 0, vec![pf(0x01, 250, 0, -700)]),
+            ],
+            flushed_lsn: vec![],
+            unresolved_hints: 0,
+        };
+
+        let (advanced, resolved) = pending.resolve_hints(&progressed);
+        assert_eq!((advanced, resolved), (2, 1));
+
+        // (a) journal/X fully resolved → {H, H, -M}: last_commit capped at the hint
+        // (200s), offset flipped from +300 to -900 (M = P3's 900).
+        assert_eq!(
+            pf_tuple(&pending.journals[0].producers[0]),
+            (200, 200, -900)
+        );
+        // (b) journal/Y partial → {C1, H, -M}: last_commit at progressed (250s), the
+        // hint (300s) still unresolved, offset flipped from +300 to -900.
+        assert_eq!(
+            pf_tuple(&pending.journals[1].producers[0]),
+            (250, 300, -900)
+        );
+        assert_eq!(pending.unresolved_hints, 1, "journal/Y hint still open");
     }
 
     #[test]

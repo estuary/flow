@@ -6,6 +6,7 @@ mod heap;
 mod listing;
 mod producer;
 pub mod read;
+mod replay;
 pub mod routing;
 mod state;
 
@@ -54,6 +55,11 @@ pub(crate) struct Metrics {
     /// Number of reads currently pending AND non-tailing: parked awaiting broker
     /// I/O while behind their write head, head-of-line-blocking the heap drain.
     stalled_reads: metrics::Gauge,
+    /// Replays triggered (a gapped producer's first newer CONTINUE or ACK).
+    /// `replays_started - replays_stopped` is the in-flight count.
+    replays_started: metrics::Counter,
+    /// Replays that have either completed or failed.
+    replays_stopped: metrics::Counter,
 }
 
 impl Metrics {
@@ -63,7 +69,7 @@ impl Metrics {
             metrics::describe_counter!(
                 "shuffle_slice_bytes_read",
                 metrics::Unit::Bytes,
-                "bytes read from journals, observed at each progress flush",
+                "bytes read from journals (forward progress plus historical replay reads)",
             );
             metrics::describe_counter!(
                 "shuffle_slice_flushes",
@@ -90,6 +96,16 @@ impl Metrics {
                 metrics::Unit::Count,
                 "active reads pending and non-tailing (awaiting I/O while behind), blocking the heap drain",
             );
+            metrics::describe_counter!(
+                "shuffle_slice_replays_started",
+                metrics::Unit::Count,
+                "replays triggered by a gapped producer's first newer CONTINUE or ACK",
+            );
+            metrics::describe_counter!(
+                "shuffle_slice_replays_stopped",
+                metrics::Unit::Count,
+                "replays that stopped running (historical read completed, benign journal removal, or session teardown)",
+            );
         });
 
         Self {
@@ -99,6 +115,8 @@ impl Metrics {
             reads_stopped: metrics::counter!("shuffle_slice_reads_stopped", "shard_id" => shard_id.to_string()),
             tailing_reads: metrics::gauge!("shuffle_slice_tailing_reads", "shard_id" => shard_id.to_string()),
             stalled_reads: metrics::gauge!("shuffle_slice_stalled_reads", "shard_id" => shard_id.to_string()),
+            replays_started: metrics::counter!("shuffle_slice_replays_started", "shard_id" => shard_id.to_string()),
+            replays_stopped: metrics::counter!("shuffle_slice_replays_stopped", "shard_id" => shard_id.to_string()),
         }
     }
 }

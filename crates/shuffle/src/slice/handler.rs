@@ -160,6 +160,7 @@ where
         pending_reads: stream::FuturesUnordered::new(),
         parser: simd_doc::SimdParser::new(1_000_000),
         ready_read_heap: ReadyReadHeap::new(),
+        replay: None,
         tailing_reads: 0,
         stalled_reads: Default::default(),
         metrics,
