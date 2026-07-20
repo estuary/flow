@@ -1,4 +1,4 @@
-use models::{CatalogType, Id};
+use models::{Capability, CatalogType, Id};
 use uuid::Uuid;
 
 use crate::{
@@ -343,6 +343,221 @@ async fn test_publication_optimistic_locking_failures() {
         .error_for_status()
         .unwrap();
     assert_eq!(2, result.retry_count);
+}
+
+// Regression test for estuary/sre#54: `resolve_live_specs` injects the ops collections
+// into every build, and they used to land in the passthrough set that
+// `verify_unchanged_revisions` locks with `FOR UPDATE`, serializing all publications in
+// the fleet on the same two `live_specs` rows. The injected ops collections must remain
+// in the build output, but must not be locked or revision-checked at commit time.
+#[tokio::test]
+async fn test_injected_ops_collections_are_not_locked() {
+    let mut harness = TestHarness::init("test_injected_ops_collections_are_not_locked").await;
+
+    // The test harness does not bootstrap the injected ops collections, so create them
+    // here in order to exercise the passthrough path at all.
+    let ops_user = harness.setup_tenant("ops.us-central1.v1").await;
+
+    // The migrations seed a storage mapping for `ops.us-central1.v1/` which does not
+    // permit any data planes, and `setup_tenant` leaves it in place (`on conflict do
+    // nothing`). Permit the test data plane so the ops collections can be published.
+    sqlx::query(
+        r#"update storage_mappings
+        set spec = '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}], "data_planes": ["ops/dp/public/test"]}'
+        where catalog_prefix = 'ops.us-central1.v1/'"#,
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to update ops storage mapping");
+
+    let ops_names = control_plane_api::publications::specs::get_ops_collection_names();
+    let ops_draft = |collection: serde_json::Value| {
+        let collections = ops_names
+            .iter()
+            .map(|name| (name.clone(), collection.clone()))
+            .collect::<serde_json::Map<_, _>>();
+        draft_catalog(serde_json::json!({ "collections": collections }))
+    };
+    let result = harness
+        .user_publication(
+            ops_user,
+            "create ops collections",
+            ops_draft(minimal_collection(None)),
+        )
+        .await;
+    assert!(
+        result.status.is_success(),
+        "creating ops collections failed: {:?}, errors: {:?}",
+        result.status,
+        result.errors
+    );
+    let initial_ops_pub = ops_last_pub_id(&mut harness, &ops_names).await;
+
+    let user_id = harness.setup_tenant("owls").await;
+    let draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "owls/hoots": minimal_collection(None),
+        },
+        "captures": {
+            "owls/capture": minimal_capture(None, &["owls/hoots"]),
+        }
+    }));
+    let build = harness
+        .publisher
+        .build(
+            user_id,
+            Id::new([21; 8]),
+            Some("owls pub".to_string()),
+            draft,
+            Uuid::new_v4(),
+            None,
+            true,
+            0,
+        )
+        .await
+        .expect("owls build failed");
+    assert!(!build.has_errors());
+
+    // The injected ops collections must still be present in the build output, since the
+    // runtime relies on them to know where to write logs and stats.
+    for ops_name in ops_names.iter() {
+        assert!(
+            build
+                .output
+                .built
+                .built_collections
+                .iter()
+                .any(|c| c.collection.as_str() == ops_name),
+            "expected {ops_name} to be included in the build output"
+        );
+    }
+
+    // Bump the ops collections' `last_pub_id` while the owls build is still uncommitted.
+    // The added property ensures this is a real model change and not a no-op publication.
+    let mut changed_collection = minimal_collection(None);
+    changed_collection["schema"]["properties"]["note"] = serde_json::json!({ "type": "string" });
+    let result = harness
+        .user_publication(
+            ops_user,
+            "republish ops collections",
+            ops_draft(changed_collection),
+        )
+        .await;
+    assert!(
+        result.status.is_success(),
+        "republishing ops collections failed: {:?}",
+        result.status
+    );
+    let republished_ops_pub = ops_last_pub_id(&mut harness, &ops_names).await;
+    assert!(
+        republished_ops_pub > initial_ops_pub,
+        "expected the ops republication to bump last_pub_id"
+    );
+
+    // The commit must succeed even though the ops collections' `last_pub_id` changed
+    // after the build, because the injected ops collections are neither locked nor
+    // revision-checked. Before the fix this failed with a lock failure on the ops rows.
+    let result = harness
+        .publisher
+        .commit(build, &NoopWithCommit)
+        .await
+        .expect("owls commit failed");
+    assert!(
+        result.status.is_success(),
+        "expected owls commit to succeed, got: {:?}",
+        result.status
+    );
+
+    // In contrast, an ops collection which is a genuine dependency of a drafted spec
+    // must still be revision-checked. Publish a derivation reading an ops collection,
+    // bump the ops collections again before it commits, and expect a lock failure for
+    // the read collection, and only that one: the other ops collection is merely
+    // injected and remains skipped.
+    harness
+        .add_role_grant("owls/", "ops.us-central1.v1/", Capability::Read)
+        .await;
+    let reader_draft = draft_catalog(serde_json::json!({
+        "collections": {
+            "owls/ops-report": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" }
+                    }
+                },
+                "key": ["/id"],
+                "derive": {
+                    "using": { "sqlite": { "migrations": [] } },
+                    "transforms": [{
+                        "name": "fromLogs",
+                        "source": "ops.us-central1.v1/logs",
+                        "lambda": "select $id;",
+                        "shuffle": "any"
+                    }]
+                }
+            }
+        }
+    }));
+    let reader_build = harness
+        .publisher
+        .build(
+            user_id,
+            Id::new([22; 8]),
+            Some("ops reader pub".to_string()),
+            reader_draft,
+            Uuid::new_v4(),
+            None,
+            true,
+            0,
+        )
+        .await
+        .expect("reader build failed");
+    assert!(!reader_build.has_errors());
+
+    let result = harness
+        .user_publication(
+            ops_user,
+            "revert ops collections",
+            ops_draft(minimal_collection(None)),
+        )
+        .await;
+    assert!(
+        result.status.is_success(),
+        "reverting ops collections failed: {:?}",
+        result.status
+    );
+    let reverted_ops_pub = ops_last_pub_id(&mut harness, &ops_names).await;
+
+    let result = harness
+        .publisher
+        .commit(reader_build, &NoopWithCommit)
+        .await
+        .expect("reader commit failed");
+    assert_lock_failures(
+        &[(
+            "ops.us-central1.v1/logs",
+            republished_ops_pub,
+            Some(reverted_ops_pub),
+        )],
+        &result.status,
+    );
+}
+
+async fn ops_last_pub_id(
+    harness: &mut TestHarness,
+    ops_names: &std::collections::BTreeSet<String>,
+) -> Id {
+    let live = harness
+        .control_plane()
+        .get_live_specs(ops_names.clone())
+        .await
+        .expect("failed to fetch ops live specs");
+    // The ops collections are always published together in this test, so any row's
+    // `last_pub_id` is representative.
+    live.collections
+        .first()
+        .expect("ops collections must exist")
+        .last_pub_id
 }
 
 async fn assert_last_pub_build(
