@@ -113,15 +113,15 @@ fn payload(i: usize) -> serde_json::Value {
     json!({"id": format!("doc-{i:02}"), "value": "x".repeat(64)})
 }
 
-/// Total `dekaf_readback_restarts` recorded for journals of this test's
+/// Total `dekaf_readback_reads` recorded for journals of this test's
 /// namespace. Namespaces are unique per test, so concurrent tests sharing the
 /// Dekaf instance cannot contaminate each other's counts.
-async fn readback_restarts_for(namespace: &str) -> anyhow::Result<u64> {
+async fn readback_reads_for(namespace: &str) -> anyhow::Result<u64> {
     let metrics = super::fetch_dekaf_metrics().await?;
 
     let mut total = 0;
     for line in metrics.lines() {
-        if !line.starts_with("dekaf_readback_restarts{") || !line.contains(namespace) {
+        if !line.starts_with("dekaf_readback_reads{") || !line.contains(namespace) {
             continue;
         }
         let value = line
@@ -177,22 +177,21 @@ async fn test_fetch_mid_document_returns_containing_document() -> anyhow::Result
 
     assert_eq!(records.first().map(|r| r.offset), Some(target_offset));
 
-    // The mid-document fetch is served by probing at the fetch offset and
-    // restarting the read with readback.
+    // The mid-document fetch is detected by inspecting the byte before the
+    // fetch offset, and served by a read which begins with readback.
     assert!(
-        readback_restarts_for(&env.namespace).await? >= 1,
-        "expected the mid-document fetch to record a readback restart"
+        readback_reads_for(&env.namespace).await? >= 1,
+        "expected the mid-document fetch to record a readback read"
     );
 
     Ok(())
 }
 
-/// A fetch at a document-boundary offset must be served without restarting
-/// the read with readback.
+/// A fetch at a document-boundary offset must be served without readback.
 ///
 /// Boundary offsets are the overwhelmingly common case: a sequential consumer
 /// always fetches at its last record's offset plus one, which is the next
-/// document's begin. Each readback restart re-reads up to OFFSET_READBACK
+/// document's begin. Each readback read re-reads up to OFFSET_READBACK
 /// (64MB) from the journal only to discard it, so paying it for boundary
 /// fetches regressed Dekaf's broker-side read volume by several orders of
 /// magnitude on read-heavy workloads.
@@ -237,9 +236,9 @@ async fn test_fetch_at_document_boundary_avoids_readback() -> anyhow::Result<()>
     // Every fetch in this test targeted a document boundary (ListOffsets
     // results and record offsets plus one), so none may pay a readback.
     assert_eq!(
-        readback_restarts_for(&env.namespace).await?,
+        readback_reads_for(&env.namespace).await?,
         0,
-        "boundary fetches must not record readback restarts"
+        "boundary fetches must not record readback reads"
     );
 
     Ok(())
