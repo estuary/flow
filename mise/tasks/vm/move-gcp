@@ -247,10 +247,12 @@ fi
 
 PHASE="verify"
 
-# Regenerate the SSH config (healing older, zone-pinned configs) and drop any
-# stale control socket from the pre-move instance.
+# Regenerate the SSH config (healing older, zone-pinned configs) and drop
+# leftovers from the pre-move instance: its control socket, and its recorded
+# host key, which cloud-init regenerates on first boot of the new instance.
 gcp_write_ssh_config "${PROJECT}" "${NAME}" "${USERNAME}"
 rm -f ~/.ssh/mux-"${NAME}".sock
+gcp_forget_host_key "${NAME}"
 
 gcp_wait_for_ssh "${NAME}"
 
@@ -268,7 +270,7 @@ PHASE="done"
 cat <<EOF
 
 ${NAME} now lives in ${NEW_ZONE}. Its disk contents (repo checkout,
-idle-shutdown units, host keys) moved with it; no re-bootstrap is needed.
+idle-shutdown units) moved with it; no re-bootstrap is needed.
 
 Connect:
     ssh ${NAME}

@@ -77,6 +77,18 @@ Host ${instance}
 EOF
 }
 
+# gcp_forget_host_key <instance>
+# Drops the instance's entry from the known-hosts file used by the generated
+# SSH configs. Cloud-init regenerates host keys whenever the instance-id
+# changes (zone moves, or recreating a VM under a reused name), and the
+# configs use strict checking, so the stale key must go before the first
+# connection. `accept-new` then records the fresh key.
+gcp_forget_host_key() {
+    if [ -f ~/.ssh/gcp-vms/hosts ]; then
+        ssh-keygen -R "$1" -f ~/.ssh/gcp-vms/hosts >/dev/null 2>&1 || true
+    fi
+}
+
 # gcp_wait_for_ssh <instance> [max_attempts]
 # Polls until an SSH connection to the instance succeeds. Attempts are 5s
 # apart; the default 36 gives the VM 3 minutes to boot.

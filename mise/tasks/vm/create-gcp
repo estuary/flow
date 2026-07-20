@@ -79,6 +79,10 @@ fi
 # valid if the VM is later moved with `mise run vm:move-gcp`.
 gcp_write_ssh_config "${usage_project}" "${INSTANCE_NAME}" "${USERNAME}"
 
+# A prior VM may have used this name; its recorded host key would fail
+# strict checking against the new VM's key.
+gcp_forget_host_key "${INSTANCE_NAME}"
+
 gcp_wait_for_ssh "${INSTANCE_NAME}"
 
 # Copy GCP-only idle shutdown files before the shared bootstrap runs create-post.
