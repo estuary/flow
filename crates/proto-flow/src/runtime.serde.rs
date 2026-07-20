@@ -8393,6 +8393,9 @@ impl serde::Serialize for Persist {
         if !self.trigger_params_json.is_empty() {
             len += 1;
         }
+        if self.rescan {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Persist", len)?;
         if self.seq_no != 0 {
             #[allow(clippy::needless_borrow)]
@@ -8458,6 +8461,9 @@ impl serde::Serialize for Persist {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("triggerParams", &crate::as_raw_json(&self.trigger_params_json)?)?;
         }
+        if self.rescan {
+            struct_ser.serialize_field("rescan", &self.rescan)?;
+        }
         struct_ser.end()
     }
 }
@@ -8500,6 +8506,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
             "deleteTriggerParams",
             "trigger_params_json",
             "triggerParams",
+            "rescan",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -8520,6 +8527,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
             MaxKeys,
             DeleteTriggerParams,
             TriggerParamsJson,
+            Rescan,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -8558,6 +8566,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
                             "maxKeys" | "max_keys" => Ok(GeneratedField::MaxKeys),
                             "deleteTriggerParams" | "delete_trigger_params" => Ok(GeneratedField::DeleteTriggerParams),
                             "triggerParams" | "trigger_params_json" => Ok(GeneratedField::TriggerParamsJson),
+                            "rescan" => Ok(GeneratedField::Rescan),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -8593,6 +8602,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
                 let mut max_keys__ = None;
                 let mut delete_trigger_params__ = None;
                 let mut trigger_params_json__ = None;
+                let mut rescan__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SeqNo => {
@@ -8709,6 +8719,12 @@ impl<'de> serde::Deserialize<'de> for Persist {
                                 Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
                             ;
                         }
+                        GeneratedField::Rescan => {
+                            if rescan__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("rescan"));
+                            }
+                            rescan__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -8731,6 +8747,7 @@ impl<'de> serde::Deserialize<'de> for Persist {
                     max_keys: max_keys__.unwrap_or_default(),
                     delete_trigger_params: delete_trigger_params__.unwrap_or_default(),
                     trigger_params_json: trigger_params_json__.unwrap_or_default(),
+                    rescan: rescan__.unwrap_or_default(),
                 })
             }
         }

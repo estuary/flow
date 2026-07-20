@@ -659,6 +659,15 @@ pub struct Persist {
     /// Effect: Put under "trigger-params" key.
     #[prost(bytes = "bytes", tag = "16")]
     pub trigger_params_json: ::prost::bytes::Bytes,
+    /// Re-scan RocksDB after applying this Persist's WriteBatch and respond with a
+    /// fresh `Recover` message (instead of `Persisted`), reflecting the reconciled
+    /// on-disk state. Used by the leader's startup reconciliation loop to converge
+    /// recovered state toward its authoritative checkpoints: each iteration
+    /// Persists the incremental step of a reconciliation trigger and re-scans,
+    /// stopping once no trigger fires against the freshly-scanned state.
+    /// Effect: after the WriteBatch commits, scan and reply `Recover` not `Persisted`.
+    #[prost(bool, tag = "17")]
+    pub rescan: bool,
 }
 /// Persisted is sent by shard zero to the leader after the state is durable
 /// in the recovery log.
