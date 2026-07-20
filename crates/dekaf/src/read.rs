@@ -18,9 +18,9 @@ use lz4_flex::frame::BlockMode;
 pub struct Read {
     /// Journal offset to be served by this Read.
     /// (Actual next offset may be larger if a fragment was removed).
-    /// The underlying journal read begins up to OFFSET_READBACK bytes
-    /// earlier, and documents which end at-or-before this offset are
-    /// suppressed rather than served.
+    /// If this offset lands inside a document, the underlying journal read
+    /// restarts up to OFFSET_READBACK bytes earlier, and documents which end
+    /// at-or-before this offset are suppressed rather than served.
     pub(crate) offset: i64,
     /// Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
@@ -52,6 +52,12 @@ pub struct Read {
 
     pub(crate) rewrite_offsets_from: Option<i64>,
 
+    // Whether the current stream's starting position is not yet verified to
+    // be a document boundary. While set, the stream's first parsed document
+    // (or parse failure) decides whether the read landed inside a document,
+    // in which case it restarts with readback. See OFFSET_READBACK.
+    probe_boundary: bool,
+
     // Leader epoch for this partition, used in RecordBatch headers.
     // Must match the epoch reported in OffsetFetch's committed_leader_epoch
     // so that librdkafka's epoch-aware commit filtering doesn't silently
@@ -78,14 +84,19 @@ pub enum ReadTarget {
     Docs(usize),
 }
 
-/// Journal reads begin this many bytes before the offset being served, and
-/// `next_batch` suppresses documents which end at-or-before that offset.
 /// Dekaf maps each document to the Kafka offset of its final byte, so a
 /// consumer may fetch at an offset which lands in the middle of a document,
 /// for example when it plans fetches by numerically partitioning the offset
-/// space. Reading backwards lets such a fetch serve its containing document,
-/// which a read started at the fetch offset would scan past and drop.
-/// It's sized to be larger than the maximum size of a single document (64MB).
+/// space. Serving such a fetch requires reading backwards to reach the
+/// containing document, which a read started at the fetch offset would scan
+/// past and drop. Reading backwards unconditionally is far too expensive,
+/// however: almost all fetches target document boundaries, and each readback
+/// re-reads and discards up to this many bytes from the journal. So reads
+/// begin exactly at the offset being served and probe whether it is a
+/// document boundary; only when the probe shows a mid-document landing does
+/// the read restart this many bytes earlier, with `next_batch` suppressing
+/// documents which end at-or-before the served offset. It's sized to be
+/// larger than the maximum size of a single document (64MB).
 const OFFSET_READBACK: i64 = 1 << 26; // 64MB
 
 /// Map an offset to be served into the journal offset at which its read
@@ -120,12 +131,8 @@ impl Read {
             .as_str();
 
         // Data-preview reads pass a fragment-start offset, which is always a
-        // document boundary, and don't require reading backwards.
-        let stream_offset = if rewrite_offsets_from.is_none() {
-            readback_offset(offset)
-        } else {
-            offset
-        };
+        // document boundary, and don't require boundary verification.
+        let probe_boundary = rewrite_offsets_from.is_none();
 
         let (stream, stream_exp) = Self::new_stream(
             collection.not_before,
@@ -133,7 +140,7 @@ impl Read {
             partition_template_name.to_owned(),
             partition.spec.name.clone(),
             buffer_size,
-            stream_offset,
+            offset,
         )
         .await?;
 
@@ -165,9 +172,39 @@ impl Read {
                 }
             },
             rewrite_offsets_from,
+            probe_boundary,
             deletes: auth.deletions(),
             partition_leader_epoch: collection.binding_backfill_counter as i32,
         })
+    }
+
+    /// Restart the journal stream up to OFFSET_READBACK bytes before the
+    /// offset being served, so that the document containing that offset is
+    /// reached (with its predecessors suppressed) rather than dropped.
+    async fn restart_with_readback(&mut self) -> anyhow::Result<()> {
+        metrics::counter!(
+            "dekaf_readback_restarts",
+            "task_name" => self.task_name.to_owned(),
+            "journal_name" => self.journal_name.to_owned(),
+        )
+        .increment(1);
+        tracing::debug!(
+            offset = self.offset,
+            journal_name = self.journal_name,
+            "offset is not a document boundary; restarting read with readback"
+        );
+
+        (self.stream, self.stream_exp) = Self::new_stream(
+            self.not_before,
+            self.listener.clone(),
+            self.partition_template_name.clone(),
+            self.journal_name.clone(),
+            self.buffer_size,
+            readback_offset(self.offset),
+        )
+        .await?;
+        self.probe_boundary = false;
+        Ok(())
     }
 
     async fn new_stream(
@@ -247,9 +284,12 @@ impl Read {
                 self.partition_template_name.clone(),
                 self.journal_name.clone(),
                 self.buffer_size,
-                readback_offset(self.offset),
+                self.offset,
             )
             .await?;
+            // Once this read has served a document, self.offset is that
+            // document's end and the probe verifies without a restart.
+            self.probe_boundary = self.rewrite_offsets_from.is_none();
         }
 
         let mut records: Vec<Record> = Vec::new();
@@ -300,19 +340,37 @@ impl Read {
                 None => bail!("blocking gazette client read never returns EOF"),
                 Some(resp) => match resp {
                     Ok(data @ ReadJsonLine::Meta(_)) => Ok(data),
-                    Ok(ReadJsonLine::Doc { root, next_offset }) => match root.get() {
-                        doc::heap::ArchivedNode::Object(_, _) => {
-                            Ok(ReadJsonLine::Doc { root, next_offset })
+                    Ok(ReadJsonLine::Doc { root, next_offset }) => {
+                        if self.probe_boundary {
+                            // A mid-document landing may still parse, when the
+                            // document's suffix happens to be valid JSON, but
+                            // it cannot carry a valid UUID at the collection's
+                            // UUID pointer.
+                            if matches!(
+                                self.uuid_ptr.query(root.get()),
+                                Some(doc::ArchivedNode::String(uuid))
+                                    if gazette::uuid::parse_str(uuid.as_str()).is_ok()
+                            ) {
+                                self.probe_boundary = false;
+                            } else {
+                                self.restart_with_readback().await?;
+                                continue;
+                            }
                         }
-                        non_object => {
-                            tracing::warn!(
-                                "skipping past non-object node at offset {}: {:?}",
-                                self.offset,
-                                doc::SerPolicy::debug_value(non_object)
-                            );
-                            continue;
+                        match root.get() {
+                            doc::heap::ArchivedNode::Object(_, _) => {
+                                Ok(ReadJsonLine::Doc { root, next_offset })
+                            }
+                            non_object => {
+                                tracing::warn!(
+                                    "skipping past non-object node at offset {}: {:?}",
+                                    self.offset,
+                                    doc::SerPolicy::debug_value(non_object)
+                                );
+                                continue;
+                            }
                         }
-                    },
+                    }
                     Err(gazette::RetryError { attempt, inner })
                         if inner.is_transient() && attempt < 5 =>
                     {
@@ -324,7 +382,11 @@ impl Read {
                         attempt,
                         inner: err @ gazette::Error::Parsing { .. },
                     }) => {
-                        if attempt == 0 {
+                        if self.probe_boundary {
+                            tracing::debug!(%err, "fetch offset landed inside a document");
+                            self.restart_with_readback().await?;
+                            continue;
+                        } else if attempt == 0 {
                             tracing::debug!(%err, "Ignoring first parse error to skip past partial document");
                             continue;
                         } else {

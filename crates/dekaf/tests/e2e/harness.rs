@@ -553,6 +553,26 @@ pub async fn db_pool() -> anyhow::Result<&'static sqlx::PgPool> {
     Ok(DB_POOL.get_or_init(|| pool))
 }
 
+/// Scrape the local Dekaf's Prometheus metrics in exposition text format.
+/// The metrics listener is allocated two ports above the Kafka listener
+/// (see mise/tasks/local/data-plane).
+pub async fn fetch_dekaf_metrics() -> anyhow::Result<String> {
+    let broker = std::env::var("DEKAF_BROKER").context("DEKAF_BROKER must be set")?;
+    let (host, port) = broker
+        .rsplit_once(':')
+        .with_context(|| format!("invalid DEKAF_BROKER address: {broker}"))?;
+    let port: u16 = port.parse().context("invalid DEKAF_BROKER port")?;
+
+    let url = format!("http://{host}:{}/metrics", port + 2);
+    let body = reqwest::get(&url)
+        .await
+        .and_then(|resp| resp.error_for_status())
+        .with_context(|| format!("fetching Dekaf metrics from {url}"))?
+        .text()
+        .await?;
+    Ok(body)
+}
+
 /// Get connection info for a specific dataplane by querying the database.
 ///
 /// Returns the Dekaf broker address and schema registry address for the given dataplane.
