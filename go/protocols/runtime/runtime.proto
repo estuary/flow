@@ -608,6 +608,14 @@ message Persist {
   // Materialization trigger parameters.
   // Effect: Put under "trigger-params" key.
   bytes trigger_params_json = 16 [ json_name = "triggerParams" ];
+  // Re-scan RocksDB after applying this Persist's WriteBatch and respond with a
+  // fresh `Recover` message (instead of `Persisted`), reflecting the reconciled
+  // on-disk state. Used by the leader's startup reconciliation loop to converge
+  // recovered state toward its authoritative checkpoints: each iteration
+  // Persists the incremental step of a reconciliation trigger and re-scans,
+  // stopping once no trigger fires against the freshly-scanned state.
+  // Effect: after the WriteBatch commits, scan and reply `Recover` not `Persisted`.
+  bool rescan = 17;
 }
 
 // Persisted is sent by shard zero to the leader after the state is durable
