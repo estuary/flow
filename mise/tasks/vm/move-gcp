@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Move a GCP development VM to a different zone, preserving its disk contents"
+#USAGE arg "<project_name>" help="Short name of the development project (matches vm:create-gcp)"
+#USAGE flag "--project <project>" help="GCP project ID" default="estuary-theatre"
+#USAGE flag "--zone <zone>" help="Target zone, or an ordered comma-separated list tried in turn when zones are out of capacity" default="us-central1-b,us-central1-c,us-east5-a,us-east4-a"
+#USAGE flag "--keep-snapshot" help="Keep the migration snapshot instead of deleting it on success"
+
+# Machine images would be simpler, but they don't support Hyperdisk volumes
+# and C4 machines attach nothing else. So this follows GCP's documented
+# zone-move procedure: snapshot the boot disk (snapshots are global), restore
+# it as a disk in the target zone, and recreate the instance around it.
+#
+# The original instance is RENAMED to <name>-old rather than deleted, and is
+# only destroyed after the replacement passes an SSH check. If every target
+# zone is also out of capacity, the rollback renames it back and nothing is
+# lost. Renaming (vs. keeping the name) matters because instance names may be
+# project-unique, and a duplicate name would break the zone discovery in the
+# generated SSH config.
+
+source "$(dirname "$0")/gcp-lib.sh"
+
+PROJECT="${usage_project:?}"
+
+ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)")
+USERNAME="${ACCOUNT%%@*}"
+
+# Same derivation as vm:create-gcp: dev-<user>-<project-name>
+NAME="dev-${USERNAME}-${usage_project_name:?}"
+OLD="${NAME}-old"
+
+# GCE resource names are capped at 63 characters (RFC1035); "-old" must fit.
+if [ "${#NAME}" -gt 59 ]; then
+    echo "ERROR: instance name '${NAME}' is too long to rename during a move." >&2
+    exit 1
+fi
+
+### Phase 0: resolve and validate. No mutations happen in this phase.
+
+if [ -n "$(gcp_instance_zone "${PROJECT}" "${OLD}")" ]; then
+    echo "ERROR: an instance named '${OLD}' already exists." >&2
+    echo "A previous move likely failed partway. Inspect it (and any '${NAME}'" >&2
+    echo "instance, disks named '${NAME}', and 'move-*-${NAME}' snapshots)," >&2
+    echo "then delete or rename it before moving again." >&2
+    exit 1
+fi
+
+SRC_ZONE="$(gcp_instance_zone "${PROJECT}" "${NAME}")"
+if [ -z "${SRC_ZONE}" ]; then
+    echo "ERROR: no instance named '${NAME}' in project ${PROJECT}." >&2
+    exit 1
+fi
+if [[ "${SRC_ZONE}" == *$'\n'* ]]; then
+    echo "ERROR: multiple instances named '${NAME}' exist (zones: ${SRC_ZONE//$'\n'/, })." >&2
+    echo "Delete the stale one(s) first; zone discovery cannot disambiguate them." >&2
+    exit 1
+fi
+
+DESC=$(gcloud compute instances describe "${NAME}" --project="${PROJECT}" --zone="${SRC_ZONE}" --format=json)
+STATUS=$(jq -r '.status' <<< "${DESC}")
+MACHINE_TYPE=$(jq -r '.machineType | split("/") | last' <<< "${DESC}")
+BOOT_DISK=$(jq -r '[.disks[] | select(.boot)][0].source | split("/") | last' <<< "${DESC}")
+NESTED=$(jq -r '.advancedMachineFeatures.enableNestedVirtualization // false' <<< "${DESC}")
+TAGS=$(jq -r '.tags.items // [] | join(",")' <<< "${DESC}")
+LABELS=$(jq -r '.labels // {} | to_entries | map("\(.key)=\(.value)") | join(",")' <<< "${DESC}")
+SSH_KEYS=$(jq -r '[.metadata.items // [] | .[] | select(.key == "ssh-keys")][0].value // ""' <<< "${DESC}")
+
+# Filter the target list: drop the source zone, then drop zones that don't
+# offer the machine type. This distinguishes typos and rollout gaps (fail or
+# warn now) from capacity exhaustion (discovered per-zone in the move loop).
+IFS=',' read -ra RAW_ZONES <<< "${usage_zone:?}"
+CANDIDATES=()
+for Z in "${RAW_ZONES[@]}"; do
+    if [ "${Z}" != "${SRC_ZONE}" ]; then
+        CANDIDATES+=("${Z}")
+    fi
+done
+if [ "${#CANDIDATES[@]}" -eq 0 ]; then
+    echo "${NAME} is already in ${SRC_ZONE}; nothing to do." >&2
+    exit 1
+fi
+
+OFFERED="$(gcloud compute machine-types list --project="${PROJECT}" \
+    --filter="name=${MACHINE_TYPE} AND zone:( ${CANDIDATES[*]} )" \
+    --format="value(zone)")"
+ZONES=()
+for Z in "${CANDIDATES[@]}"; do
+    if grep -qx "${Z}" <<< "${OFFERED}"; then
+        ZONES+=("${Z}")
+    else
+        echo "WARNING: ${MACHINE_TYPE} is not offered in ${Z}; skipping it." >&2
+    fi
+done
+if [ "${#ZONES[@]}" -eq 0 ]; then
+    echo "ERROR: none of the requested zones offer ${MACHINE_TYPE}. Find zones with:" >&2
+    echo "  gcloud compute machine-types list --project ${PROJECT} --filter=\"name=${MACHINE_TYPE}\" --format=\"value(zone)\"" >&2
+    exit 1
+fi
+
+echo "Moving ${NAME} (${MACHINE_TYPE}, boot disk ${BOOT_DISK}) from ${SRC_ZONE} to: ${ZONES[*]}"
+
+### Rollback: keyed on how far we got. Nothing is destroyed until the
+### replacement instance has passed an SSH check, so every failure path
+### either restores the original state or leaves both copies in place.
+
+SNAP="move-$(date +%Y%m%d%H%M%S)-${NAME:0:40}"
+PHASE="init"
+
+rollback() {
+    local code=$?
+    [ "${code}" -eq 0 ] && return 0
+
+    case "${PHASE}" in
+    init)
+        # Nothing mutated yet.
+        ;;
+    quiesced | backed-up)
+        echo "Rolling back: restoring ${NAME} in ${SRC_ZONE}..." >&2
+        gcloud compute instances set-disk-auto-delete "${NAME}" --project="${PROJECT}" \
+            --zone="${SRC_ZONE}" --disk="${BOOT_DISK}" --auto-delete || true
+        if [ "${PHASE}" = "backed-up" ]; then
+            gcloud compute snapshots delete "${SNAP}" --project="${PROJECT}" --quiet || true
+        fi
+        echo "Your VM is unchanged in ${SRC_ZONE} (stopped)." >&2
+        ;;
+    renamed)
+        echo "Rolling back: renaming ${OLD} back to ${NAME} in ${SRC_ZONE}..." >&2
+        if gcloud compute instances set-name "${OLD}" --project="${PROJECT}" \
+            --zone="${SRC_ZONE}" --new-name="${NAME}"; then
+            gcloud compute instances set-disk-auto-delete "${NAME}" --project="${PROJECT}" \
+                --zone="${SRC_ZONE}" --disk="${BOOT_DISK}" --auto-delete || true
+            echo "Your VM is unchanged in ${SRC_ZONE} (stopped)." >&2
+        else
+            echo "ERROR: rename-back failed. Your VM is intact but named '${OLD}'; rename it with:" >&2
+            echo "  gcloud compute instances set-name ${OLD} --project ${PROJECT} --zone ${SRC_ZONE} --new-name ${NAME}" >&2
+        fi
+        gcloud compute snapshots delete "${SNAP}" --project="${PROJECT}" --quiet || true
+        ;;
+    verify | cleanup)
+        # The replacement exists; destroying either copy automatically here
+        # could throw away the good one. Leave everything and explain.
+        echo "" >&2
+        echo "Move interrupted after the new instance was created. Current state:" >&2
+        echo "  - New instance '${NAME}' in ${NEW_ZONE:-unknown} (verify with: ssh ${NAME})" >&2
+        echo "  - Old instance '${OLD}' in ${SRC_ZONE}, stopped, with boot disk '${BOOT_DISK}'" >&2
+        echo "  - Snapshot '${SNAP}'" >&2
+        echo "If the new instance works, finish the move with:" >&2
+        echo "  gcloud compute instances delete ${OLD} --project ${PROJECT} --zone ${SRC_ZONE}" >&2
+        echo "  gcloud compute disks delete ${BOOT_DISK} --project ${PROJECT} --zone ${SRC_ZONE}" >&2
+        echo "  gcloud compute snapshots delete ${SNAP} --project ${PROJECT}" >&2
+        echo "(the old boot disk has auto-delete disabled: deleting ${OLD} does NOT delete it)" >&2
+        ;;
+    esac
+}
+trap rollback EXIT
+
+### Phase 1: quiesce and back up. Fully reversible.
+
+if [ "${STATUS}" != "TERMINATED" ]; then
+    echo "Stopping ${NAME}..."
+    ssh -O exit "${NAME}" 2>/dev/null || true
+    gcloud compute instances stop "${NAME}" --project="${PROJECT}" --zone="${SRC_ZONE}"
+fi
+
+# Keep the boot disk alive independently of the instance, so a later
+# `instances delete ${OLD}` cannot take the last copy of the data with it.
+gcloud compute instances set-disk-auto-delete "${NAME}" --project="${PROJECT}" \
+    --zone="${SRC_ZONE}" --disk="${BOOT_DISK}" --no-auto-delete
+PHASE="quiesced"
+
+echo "Snapshotting ${BOOT_DISK} as ${SNAP}..."
+gcloud compute disks snapshot "${BOOT_DISK}" --project="${PROJECT}" \
+    --zone="${SRC_ZONE}" --snapshot-names="${SNAP}"
+PHASE="backed-up"
+
+### Phase 2: free the name. Reversible by renaming back.
+
+# Everything from here on is discoverable by name; if this terminal dies
+# mid-move, this line is the recovery manifest.
+echo "Renaming ${NAME} to ${OLD} (artifacts: instance ${OLD} in ${SRC_ZONE}, snapshot ${SNAP}, new disks/instances named ${NAME})"
+gcloud compute instances set-name "${NAME}" --project="${PROJECT}" \
+    --zone="${SRC_ZONE}" --new-name="${OLD}"
+PHASE="renamed"
+
+### Phase 3: create the replacement, falling through zones on capacity errors.
+
+NEW_ZONE=""
+for Z in "${ZONES[@]}"; do
+    echo "Creating disk ${NAME} in ${Z} from ${SNAP}..."
+    # The type must be explicit: `disks create` defaults to a Persistent Disk
+    # type, which C4 machines cannot attach.
+    if ! OUT=$(gcloud compute disks create "${NAME}" --project="${PROJECT}" --zone="${Z}" \
+        --type=hyperdisk-balanced --source-snapshot="${SNAP}" 2>&1); then
+        echo "${OUT}" >&2
+        if grep -qiE "${GCP_CAPACITY_ERROR_RE}" <<< "${OUT}"; then
+            echo "Zone ${Z} is out of disk capacity; trying the next zone..."
+            continue
+        fi
+        exit 1
+    fi
+
+    # Mirror vm:create-gcp's instance shape. A snapshot carries only disk
+    # contents, so every instance property is re-applied from the describe.
+    CREATE_ARGS=(
+        --project="${PROJECT}"
+        --zone="${Z}"
+        --machine-type="${MACHINE_TYPE}"
+        --disk="name=${NAME},boot=yes,auto-delete=yes"
+        --network-interface subnet=default
+    )
+    if [ "${NESTED}" = "true" ]; then
+        CREATE_ARGS+=(--enable-nested-virtualization)
+    fi
+    if [ -n "${SSH_KEYS}" ]; then
+        CREATE_ARGS+=(--metadata "ssh-keys=${SSH_KEYS}")
+    fi
+    if [ -n "${TAGS}" ]; then
+        CREATE_ARGS+=(--tags="${TAGS}")
+    fi
+    if [ -n "${LABELS}" ]; then
+        CREATE_ARGS+=(--labels="${LABELS}")
+    fi
+
+    echo "Creating instance ${NAME} in ${Z}..."
+    if OUT=$(gcloud compute instances create "${NAME}" "${CREATE_ARGS[@]}" 2>&1); then
+        echo "${OUT}"
+        NEW_ZONE="${Z}"
+        break
+    fi
+
+    echo "${OUT}" >&2
+    gcloud compute disks delete "${NAME}" --project="${PROJECT}" --zone="${Z}" --quiet
+    if grep -qiE "${GCP_CAPACITY_ERROR_RE}" <<< "${OUT}"; then
+        echo "Zone ${Z} is out of capacity for ${MACHINE_TYPE}; trying the next zone..."
+        continue
+    fi
+    exit 1
+done
+
+if [ -z "${NEW_ZONE}" ]; then
+    echo "ERROR: no target zone had capacity for ${MACHINE_TYPE}. Rolling back." >&2
+    exit 1
+fi
+
+### Phase 4: verify over SSH, and only then destroy the old copy.
+
+PHASE="verify"
+
+# Regenerate the SSH config (healing older, zone-pinned configs) and drop any
+# stale control socket from the pre-move instance.
+gcp_write_ssh_config "${PROJECT}" "${NAME}" "${USERNAME}"
+rm -f ~/.ssh/mux-"${NAME}".sock
+
+gcp_wait_for_ssh "${NAME}"
+
+PHASE="cleanup"
+echo "Verified. Deleting the old instance, its boot disk, and the snapshot..."
+gcloud compute instances delete "${OLD}" --project="${PROJECT}" --zone="${SRC_ZONE}" --quiet
+gcloud compute disks delete "${BOOT_DISK}" --project="${PROJECT}" --zone="${SRC_ZONE}" --quiet
+if [ "${usage_keep_snapshot:-false}" = "true" ]; then
+    echo "Keeping snapshot ${SNAP} (--keep-snapshot)."
+else
+    gcloud compute snapshots delete "${SNAP}" --project="${PROJECT}" --quiet
+fi
+PHASE="done"
+
+cat <<EOF
+
+${NAME} now lives in ${NEW_ZONE}. Its disk contents (repo checkout,
+idle-shutdown units, host keys) moved with it; no re-bootstrap is needed.
+
+Connect:
+    ssh ${NAME}
+
+EOF

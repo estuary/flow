@@ -4,9 +4,11 @@ set -euo pipefail
 #MISE description="Create a development VM within GCP for a project"
 #USAGE arg "<project_name>" help="Short name of the development project (for example, 'one' or '$feature-name')"
 #USAGE flag "--project <project>" help="GCP project ID" default="estuary-theatre"
-#USAGE flag "--zone <zone>" help="Zone in which to create the VM" default="us-central1-a"
+#USAGE flag "--zone <zone>" help="Zone in which to create the VM, or an ordered comma-separated list tried in turn when zones are out of capacity" default="us-central1-b,us-central1-c,us-east5-a,us-east4-a"
 #USAGE flag "--machine-type <machine_type>" help="GCP machine type" default="c4-highcpu-8"
 #USAGE flag "--image-family <image_family>" help="GCP machine image" default="ubuntu-2404-lts-amd64"
+
+source "$(dirname "$0")/gcp-lib.sh"
 
 ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)")
 USERNAME="${ACCOUNT%%@*}"
@@ -31,69 +33,53 @@ echo "Using SSH keys from agent:"
 ssh-add -l | sed 's/^/  - /'
 echo ""
 
-gcloud compute instances create ${INSTANCE_NAME} \
-  --project ${usage_project:?} \
-  --zone ${usage_zone:?} \
-  --machine-type ${usage_machine_type:?} \
-  --enable-nested-virtualization \
-  --image-family ${usage_image_family:?} \
-  --image-project ubuntu-os-cloud \
-  --network-interface subnet=default \
-  --metadata ssh-keys="${SSH_KEYS}" \
-  --tags dev-vm \
-  --labels dev-vm=true,owner=${USERNAME},drataexclude=test-equipment \
-  --boot-disk-size 256GB \
-  --boot-disk-type hyperdisk-balanced \
+# Try each zone in order. GCP capacity varies by zone and hour, so a capacity
+# error just means "next zone"; any other error is real and fails immediately.
+# Capacity failures on `instances create` are atomic: nothing is left behind.
+IFS=',' read -ra ZONES <<< "${usage_zone:?}"
+CREATED_ZONE=""
+for ZONE in "${ZONES[@]}"; do
+  echo "Creating ${INSTANCE_NAME} in ${ZONE}..."
 
-# Add additional ssh configuration if not already present.
-if ! grep -q gcp-vms ~/.ssh/config; then
-    # Prepend to ssh config file, as it's sensitive to Host or Match directives.
-    # We use a temp file for portability across macOS and Linux.
-    TMP_SSH_CONFIG=$(mktemp)
-    cat > "${TMP_SSH_CONFIG}" <<EOF
-# Include GCP VM SSH configurations.
-Include ~/.ssh/gcp-vms/*.config
-
-EOF
-    cat ~/.ssh/config >> "${TMP_SSH_CONFIG}"
-    mv "${TMP_SSH_CONFIG}" ~/.ssh/config
-fi
-
-# Write an ssh config file to ~/.ssh/gcp-vms/${INSTANCE_NAME}.config
-mkdir -p ~/.ssh/gcp-vms/
-cat > ~/.ssh/gcp-vms/${INSTANCE_NAME}.config <<EOF
-Host ${INSTANCE_NAME}
-  ControlMaster auto
-  ControlPath ~/.ssh/mux-${INSTANCE_NAME}.sock
-  ControlPersist 20m
-  ForwardAgent true
-  HostName ${INSTANCE_NAME}
-  ServerAliveCountMax 3
-  ServerAliveInterval 30
-  User ${USERNAME}
-  UserKnownHostsFile ~/.ssh/gcp-vms/hosts
-  StrictHostKeyChecking accept-new
-  CheckHostIP no
-  ProxyCommand bash -c 'gcloud compute instances start ${INSTANCE_NAME} --project=${usage_project:?} --zone=${usage_zone:?} 2>/dev/null; gcloud compute start-iap-tunnel ${INSTANCE_NAME} %p --listen-on-stdin --project=${usage_project:?} --zone=${usage_zone:?}'
-EOF
-
-MAX_ATTEMPTS=36  # 36 * 5 seconds = 3 minutes
-ATTEMPT=0
-while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-  ATTEMPT=$((ATTEMPT + 1))
-  echo "Connecting to ${INSTANCE_NAME} (attempt $ATTEMPT/$MAX_ATTEMPTS)..."
-
-  if ssh -o BatchMode=yes ${INSTANCE_NAME} exit; then
+  # `if !` capture keeps set -e from exiting before we can classify the error.
+  if OUT=$(gcloud compute instances create ${INSTANCE_NAME} \
+    --project ${usage_project:?} \
+    --zone ${ZONE} \
+    --machine-type ${usage_machine_type:?} \
+    --enable-nested-virtualization \
+    --image-family ${usage_image_family:?} \
+    --image-project ubuntu-os-cloud \
+    --network-interface subnet=default \
+    --metadata ssh-keys="${SSH_KEYS}" \
+    --tags dev-vm \
+    --labels dev-vm=true,owner=${USERNAME},drataexclude=test-equipment \
+    --boot-disk-size 256GB \
+    --boot-disk-type hyperdisk-balanced 2>&1); then
+    echo "${OUT}"
+    CREATED_ZONE="${ZONE}"
     break
-  else
-    sleep 5
   fi
+
+  echo "${OUT}" >&2
+  if grep -qiE "${GCP_CAPACITY_ERROR_RE}" <<< "${OUT}"; then
+    echo "Zone ${ZONE} is out of capacity for ${usage_machine_type}; trying the next zone..."
+    continue
+  fi
+  exit 1
 done
 
-if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-  echo "ERROR: Failed to connect to ${INSTANCE_NAME} after $MAX_ATTEMPTS attempts" >&2
+if [ -z "${CREATED_ZONE}" ]; then
+  echo "ERROR: every zone in '${usage_zone}' is out of capacity for ${usage_machine_type}." >&2
+  echo "Try again later, or pass --zone with other zones that offer this machine type:" >&2
+  echo "  gcloud compute machine-types list --project ${usage_project} --filter=\"name=${usage_machine_type}\" --format=\"value(zone)\"" >&2
   exit 1
 fi
+
+# The generated config discovers the VM's zone at connect time, so it stays
+# valid if the VM is later moved with `mise run vm:move-gcp`.
+gcp_write_ssh_config "${usage_project}" "${INSTANCE_NAME}" "${USERNAME}"
+
+gcp_wait_for_ssh "${INSTANCE_NAME}"
 
 # Copy GCP-only idle shutdown files before the shared bootstrap runs create-post.
 ssh ${INSTANCE_NAME} mkdir -p /tmp/idle-shutdown
@@ -107,7 +93,7 @@ ssh ${INSTANCE_NAME} bash -s \
 ssh -O exit ${INSTANCE_NAME} 2>/dev/null || true
 
 cat <<EOF
-Your VM ${INSTANCE_NAME} is ready.
+Your VM ${INSTANCE_NAME} is ready in ${CREATED_ZONE}.
 
 Connect:
     ssh ${INSTANCE_NAME}
