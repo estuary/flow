@@ -124,7 +124,6 @@ pub async fn fetch_inferred_schemas(
     .await
 }
 
-// TODO(BMB): Fix this also
 /// Queries for all non-deleted `live_specs` that are connected to the given `collection_names` via
 /// `live_spec_flows`.
 pub async fn fetch_expanded_live_specs(
