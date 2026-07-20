@@ -61,6 +61,8 @@ DESC=$(gcloud compute instances describe "${NAME}" --project="${PROJECT}" --zone
 STATUS=$(jq -r '.status' <<< "${DESC}")
 MACHINE_TYPE=$(jq -r '.machineType | split("/") | last' <<< "${DESC}")
 BOOT_DISK=$(jq -r '[.disks[] | select(.boot)][0].source | split("/") | last' <<< "${DESC}")
+BOOT_DISK_TYPE=$(gcloud compute disks describe "${BOOT_DISK}" --project="${PROJECT}" \
+    --zone="${SRC_ZONE}" --format="value(type.basename())")
 NESTED=$(jq -r '.advancedMachineFeatures.enableNestedVirtualization // false' <<< "${DESC}")
 TAGS=$(jq -r '.tags.items // [] | join(",")' <<< "${DESC}")
 LABELS=$(jq -r '.labels // {} | to_entries | map("\(.key)=\(.value)") | join(",")' <<< "${DESC}")
@@ -72,7 +74,9 @@ SSH_KEYS=$(jq -r '[.metadata.items // [] | .[] | select(.key == "ssh-keys")][0].
 IFS=',' read -ra RAW_ZONES <<< "${usage_zone:?}"
 CANDIDATES=()
 for Z in "${RAW_ZONES[@]}"; do
-    if [ "${Z}" != "${SRC_ZONE}" ]; then
+    # Tolerate "a, b" style lists: zone names never contain spaces.
+    Z="${Z// /}"
+    if [ -n "${Z}" ] && [ "${Z}" != "${SRC_ZONE}" ]; then
         CANDIDATES+=("${Z}")
     fi
 done
@@ -188,10 +192,10 @@ PHASE="renamed"
 NEW_ZONE=""
 for Z in "${ZONES[@]}"; do
     echo "Creating disk ${NAME} in ${Z} from ${SNAP}..."
-    # The type must be explicit: `disks create` defaults to a Persistent Disk
-    # type, which C4 machines cannot attach.
+    # The type must be explicit and mirror the source disk: `disks create`
+    # defaults to a Persistent Disk type, which C4 machines cannot attach.
     if ! OUT=$(gcloud compute disks create "${NAME}" --project="${PROJECT}" --zone="${Z}" \
-        --type=hyperdisk-balanced --source-snapshot="${SNAP}" 2>&1); then
+        --type="${BOOT_DISK_TYPE}" --source-snapshot="${SNAP}" 2>&1); then
         echo "${OUT}" >&2
         if grep -qiE "${GCP_CAPACITY_ERROR_RE}" <<< "${OUT}"; then
             echo "Zone ${Z} is out of disk capacity; trying the next zone..."

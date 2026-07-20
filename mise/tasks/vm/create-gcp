@@ -39,6 +39,9 @@ echo ""
 IFS=',' read -ra ZONES <<< "${usage_zone:?}"
 CREATED_ZONE=""
 for ZONE in "${ZONES[@]}"; do
+  # Tolerate "a, b" style lists: zone names never contain spaces.
+  ZONE="${ZONE// /}"
+  [ -n "${ZONE}" ] || continue
   echo "Creating ${INSTANCE_NAME} in ${ZONE}..."
 
   # `if !` capture keeps set -e from exiting before we can classify the error.
