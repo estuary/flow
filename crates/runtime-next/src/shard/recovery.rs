@@ -72,7 +72,7 @@ pub const KEY_TRIGGER_PARAMS: &[u8] = b"trigger-params";
 /// another, the byte-distance horizon alone would prune the laggard even though
 /// little wall-clock time has actually passed. See [`prune_committed_frontier`].
 pub const FRONTIER_PRUNE_CLOCK_HORIZON: std::time::Duration =
-    std::time::Duration::from_secs(2 * 60 * 60);
+    std::time::Duration::from_secs(48 * 60 * 60);
 
 /// Minimum journal byte distance between a committed-frontier producer's read
 /// offset and the furthest-along read offset of the same `(journal, state_key)`
@@ -80,7 +80,7 @@ pub const FRONTIER_PRUNE_CLOCK_HORIZON: std::time::Duration =
 /// real operational cost of keeping an old pending span replayable: a retained
 /// positive-offset entry forces the next session to re-read from that offset.
 /// See [`prune_committed_frontier`].
-pub const FRONTIER_PRUNE_BYTE_HORIZON: i64 = 2 * 1024 * 1024 * 1024;
+pub const FRONTIER_PRUNE_BYTE_HORIZON: i64 = 8 * 1024 * 1024 * 1024;
 
 /// A single write effect contributed by a `Persist`. Values are carried as
 /// [`Bytes`] so shared allocations (e.g. a proto-decoded
@@ -1145,8 +1145,8 @@ mod test {
                     pf(0xff, 1_000_000, -20 * GIB), // group clock/offset leader
                     pf(0xaa, 0, 5 * GIB),           // old clock AND 15 GiB behind -> prune
                     pf(0xbb, 0, 8 * GIB),           // old clock AND 12 GiB behind -> prune
-                    pf(0xcc, 0, 19 * GIB), // old clock but only 1 GiB behind (< 2 GiB) -> retain
-                    pf(0xdd, 999_000, 0),  // 20 GiB behind but only 1000s old (< 2h) -> retain
+                    pf(0xcc, 0, 13 * GIB), // old clock but only 7 GiB behind (< 8 GiB) -> retain
+                    pf(0xdd, 999_000, 0),  // 20 GiB behind but only 1000s old (< 48h) -> retain
                     pf(0xee, 0, GIB),      // old + 19 GiB behind, but FH-protected -> retain
                 ],
             ),
