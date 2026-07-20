@@ -140,91 +140,109 @@ impl RocksDB {
     /// Scan the entire DB into a [`proto::Recover`] using a blocking
     /// background thread. Returns `(self, Recover)`.
     ///
-    /// `binding_state_keys` is a sorted slice of `(state_key, binding_index)`
-    /// tuples used to map from stable `state_key` to current binding index.
+    /// `binding_state_keys` yields each binding's `state_key` in binding-index
+    /// order (its position is its binding index). `scan` builds its own sorted
+    /// `(state_key, binding)` index from it, used to map from a stable
+    /// `state_key` back to its current binding index.
     ///
     /// As a side effect, stale committed-frontier (`FC:`) entries identified by
     /// [`recovery::prune_committed_frontier`] are deleted from the DB before
     /// `Recover` is returned, so the leader never observes them.
-    pub async fn scan(
+    pub fn scan<I, S>(
         self,
-        binding_state_keys: Vec<(String, u32)>,
-    ) -> Result<(Self, proto::Recover), recovery::DecodeError> {
+        binding_state_keys: I,
+    ) -> impl std::future::Future<Output = Result<(Self, proto::Recover), recovery::DecodeError>>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        // Build the sorted `(state_key, binding)` index synchronously, so the
+        // returned Future owns it and is free of the iterator's lifetime.
+        let mut index: Vec<(String, u32)> = binding_state_keys
+            .into_iter()
+            .enumerate()
+            .map(|(binding, state_key)| (state_key.as_ref().to_string(), binding as u32))
+            .collect();
+        index.sort();
         debug_assert!(
-            binding_state_keys.windows(2).all(|w| w[0].0 < w[1].0),
-            "binding_state_keys must be sorted by state_key for binary_search"
+            index.windows(2).all(|w| w[0].0 < w[1].0),
+            "binding state keys must be unique for binary_search to resolve a single binding"
         );
-        runtime::Handle::current()
-            .spawn_blocking(move || {
-                let mut recover = proto::Recover::default();
-                let mut committed_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
-                let mut hinted_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
 
-                let mut it = self.db.raw_iterator();
-                it.seek_to_first();
+        async move {
+            runtime::Handle::current()
+                .spawn_blocking(move || {
+                    let mut recover = proto::Recover::default();
+                    let mut committed_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
+                    let mut hinted_frontier: Vec<shuffle::JournalFrontier> = Vec::new();
 
-                while let Some((key, value)) = it.item() {
-                    recovery::decode_recover_key_value(
-                        &mut recover,
-                        &mut committed_frontier,
-                        &mut hinted_frontier,
-                        key,
-                        value,
-                        &binding_state_keys,
-                    )?;
-                    it.next();
-                }
-                // Check final status for iteration errors.
-                () = it.status()?;
-                std::mem::drop(it);
+                    let mut it = self.db.raw_iterator();
+                    it.seek_to_first();
 
-                // Drop stale committed-frontier (`FC:`) entries: remove them
-                // from the recovered frontier and delete them from RocksDB so
-                // the leader never sees them and they stop costing scan time.
-                let pruned =
-                    recovery::prune_committed_frontier(&mut committed_frontier, &hinted_frontier);
-                if !pruned.is_empty() {
-                    // Invert `(state_key, binding)` → `binding → state_key`.
-                    let state_key_of: std::collections::HashMap<u32, &str> = binding_state_keys
-                        .iter()
-                        .map(|(sk, idx)| (*idx, sk.as_str()))
-                        .collect();
-
-                    let mut wb = rocksdb::WriteBatch::default();
-                    for (journal, binding, producer) in &pruned {
-                        let state_key = state_key_of
-                            .get(&(*binding as u32))
-                            .expect("pruned binding is present in the binding mapping");
-                        wb.delete(recovery::committed_frontier_key(
-                            journal, state_key, producer,
-                        ));
+                    while let Some((key, value)) = it.item() {
+                        recovery::decode_recover_key_value(
+                            &mut recover,
+                            &mut committed_frontier,
+                            &mut hinted_frontier,
+                            key,
+                            value,
+                            &index,
+                        )?;
+                        it.next();
                     }
-                    // `wo` is not sync because this is GC, not a commit.
-                    let wo = rocksdb::WriteOptions::new();
-                    self.db.write_opt(wb, &wo)?;
+                    // Check final status for iteration errors.
+                    () = it.status()?;
+                    std::mem::drop(it);
 
-                    tracing::info!(
-                        producers = pruned.len(),
-                        "pruned stale committed-frontier entries during recovery scan"
+                    // Drop stale committed-frontier (`FC:`) entries: remove them
+                    // from the recovered frontier and delete them from RocksDB so
+                    // the leader never sees them and they stop costing scan time.
+                    let pruned = recovery::prune_committed_frontier(
+                        &mut committed_frontier,
+                        &hinted_frontier,
                     );
-                }
+                    if !pruned.is_empty() {
+                        // Invert `(state_key, binding)` → `binding → state_key`.
+                        let state_key_of: std::collections::HashMap<u32, &str> =
+                            index.iter().map(|(sk, idx)| (*idx, sk.as_str())).collect();
 
-                for (frontier, slot) in [
-                    (&mut committed_frontier, &mut recover.committed_frontier),
-                    (&mut hinted_frontier, &mut recover.hinted_frontier),
-                ] {
-                    // Mapping from state-key to binding index means journal frontiers are unordered.
-                    frontier
-                        .sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
+                        let mut wb = rocksdb::WriteBatch::default();
+                        for (journal, binding, producer) in &pruned {
+                            let state_key = state_key_of
+                                .get(&(*binding as u32))
+                                .expect("pruned binding is present in the binding mapping");
+                            wb.delete(recovery::committed_frontier_key(
+                                journal, state_key, producer,
+                            ));
+                        }
+                        // `wo` is not sync because this is GC, not a commit.
+                        let wo = rocksdb::WriteOptions::new();
+                        self.db.write_opt(wb, &wo)?;
 
-                    *slot =
-                        (!frontier.is_empty()).then(|| shuffle::JournalFrontier::encode(&frontier));
-                }
+                        tracing::info!(
+                            producers = pruned.len(),
+                            "pruned stale committed-frontier entries during recovery scan"
+                        );
+                    }
 
-                Ok((self, recover))
-            })
-            .await
-            .unwrap()
+                    for (frontier, slot) in [
+                        (&mut committed_frontier, &mut recover.committed_frontier),
+                        (&mut hinted_frontier, &mut recover.hinted_frontier),
+                    ] {
+                        // Mapping from state-key to binding index means journal frontiers are unordered.
+                        frontier.sort_by(|a, b| {
+                            a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding))
+                        });
+
+                        *slot = (!frontier.is_empty())
+                            .then(|| shuffle::JournalFrontier::encode(&frontier));
+                    }
+
+                    Ok((self, recover))
+                })
+                .await
+                .unwrap()
+        }
     }
 
     /// Durably seed `{}` as the connector-state base when none was recovered,
@@ -613,7 +631,7 @@ mod test {
         }
         let db = db.write_opt(wb, Default::default()).await.unwrap();
 
-        let (_db, state) = db.scan(Vec::new()).await.unwrap();
+        let (_db, state) = db.scan(Vec::<&str>::new()).await.unwrap();
         assert_eq!(
             state.connector_state_json,
             bytes::Bytes::from_static(br#"{"a":"c","ans":42,"d":"e","n":null}"#)
@@ -624,7 +642,7 @@ mod test {
     async fn fresh_task_seeds_connector_state_base() {
         let db = RocksDB::open(None).await.unwrap();
 
-        let (db, mut recover) = db.scan(Vec::new()).await.unwrap();
+        let (db, mut recover) = db.scan(Vec::<&str>::new()).await.unwrap();
         let db = db.seed_connector_state(&mut recover).await.unwrap();
         assert_eq!(
             recover.connector_state_json,
@@ -642,7 +660,7 @@ mod test {
             .await
             .unwrap();
 
-        let (_db, recover) = db.scan(Vec::new()).await.unwrap();
+        let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();
         assert_eq!(
             recover.connector_state_json,
             bytes::Bytes::from_static(b"{}")
@@ -692,8 +710,8 @@ mod test {
             )
             .await
             .unwrap();
-        let mapping = vec![("a-binding".to_string(), 1), ("z-binding".to_string(), 0)];
-        let (_db, recover) = db.scan(mapping).await.unwrap();
+        // Binding-indexed state keys (binding 0 = "z-binding", binding 1 = "a-binding").
+        let (_db, recover) = db.scan(["z-binding", "a-binding"]).await.unwrap();
 
         let committed: Vec<_> = recover
             .committed_frontier
@@ -763,8 +781,7 @@ mod test {
             .await
             .unwrap();
 
-        let mapping = vec![("sk0".to_string(), 0)];
-        let (db, recover) = db.scan(mapping.clone()).await.unwrap();
+        let (db, recover) = db.scan(["sk0"]).await.unwrap();
 
         let tags = |f: Option<shuffle::proto::Frontier>| -> Vec<Vec<u8>> {
             f.into_iter()
@@ -789,7 +806,7 @@ mod test {
         );
 
         // A second scan confirms 0x22's FC: key was actually deleted.
-        let (_db, recover2) = db.scan(mapping).await.unwrap();
+        let (_db, recover2) = db.scan(["sk0"]).await.unwrap();
         assert_eq!(tags(recover2.committed_frontier), vec![vec![0x11_u8, 0x33]]);
     }
 
@@ -833,7 +850,7 @@ mod test {
         db.db.compact_range::<&[u8], &[u8]>(None, None);
 
         // Load the state - this will also trigger a full merge if not already compacted.
-        let (_db, state) = db.scan(Vec::new()).await.unwrap();
+        let (_db, state) = db.scan(Vec::<&str>::new()).await.unwrap();
 
         // Verify the merged state contains all cursor entries.
         let parsed: serde_json::Value =
@@ -1049,7 +1066,7 @@ mod test {
             db = db.persist::<&str>(&persist, &[]).await.unwrap();
         }
 
-        let (_db, state) = db.scan(Vec::new()).await.unwrap();
+        let (_db, state) = db.scan(Vec::<&str>::new()).await.unwrap();
         assert_eq!(state.ack_intents.len(), 2);
         assert_eq!(state.ack_intents.get("j/A").unwrap().as_ref(), b"INTENT-A");
         assert_eq!(state.ack_intents.get("j/B").unwrap().as_ref(), b"INTENT-B");

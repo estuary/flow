@@ -891,7 +891,7 @@ mod tests {
         let db = serve_handle.await.unwrap().unwrap();
 
         // Confirm the Persist round-tripped: scan back the last_applied bytes.
-        let (_db, recover) = db.scan(Vec::new()).await.unwrap();
+        let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();
         assert_eq!(recover.last_applied.as_ref(), b"persisted-spec-bytes");
     }
 }
