@@ -93,6 +93,7 @@ locate-bin = { path = "../locate-bin" }
 apache-avro = { workspace = true }
 insta = { workspace = true }
 rdkafka = { workspace = true }
+reqwest = { workspace = true }
 schema_registry_converter = { workspace = true }
 serde_yaml = { workspace = true }
 sqlx = { workspace = true }

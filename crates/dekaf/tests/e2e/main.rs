@@ -15,5 +15,6 @@ mod partition_eofs;
 
 pub use harness::{
     ConnectionInfo, DekafTestEnv, cluster_name, cluster_name_2, connection_info_for_dataplane,
-    db_pool, init_tracing, trigger_migration, wait_for_dekaf_redirect, wait_for_migration_complete,
+    db_pool, fetch_dekaf_metrics, init_tracing, trigger_migration, wait_for_dekaf_redirect,
+    wait_for_migration_complete,
 };
