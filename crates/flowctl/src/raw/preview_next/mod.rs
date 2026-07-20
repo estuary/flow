@@ -521,7 +521,7 @@ async fn read_preview_state(
     descriptor: proto_flow::runtime::RocksDbDescriptor,
 ) -> anyhow::Result<bytes::Bytes> {
     let db = rocksdb::RocksDB::open(Some(descriptor)).await?;
-    let (_db, recover) = db.scan(Vec::new()).await?;
+    let (_db, recover) = db.scan(std::iter::empty::<&str>()).await?;
     Ok(recover.connector_state_json)
 }
 

@@ -140,16 +140,8 @@ where
     // Scan and send L:Recover state from RocksDB. Derivations have no max-keys
     // (connector state is a singleton), but the committed/hinted frontier is
     // per-transform, keyed by each transform's `state_key`.
-    let mut sorted_state_keys: Vec<(String, u32)> = task
-        .binding_state_keys
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| (sk.clone(), i as u32))
-        .collect();
-    sorted_state_keys.sort();
-
     let (mut db, mut recover) = db
-        .scan(sorted_state_keys)
+        .scan(task.binding_state_keys.iter())
         .await
         .context("scanning RocksDB")?;
     if shard_index == 0 {
