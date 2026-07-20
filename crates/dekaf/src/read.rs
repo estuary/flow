@@ -92,11 +92,11 @@ pub enum ReadTarget {
 /// past and drop. Reading backwards unconditionally is far too expensive,
 /// however: almost all fetches target document boundaries, and each readback
 /// re-reads and discards up to this many bytes from the journal. So reads
-/// begin exactly at the offset being served and probe whether it is a
-/// document boundary; only when the probe shows a mid-document landing does
-/// the read restart this many bytes earlier, with `next_batch` suppressing
-/// documents which end at-or-before the served offset. It's sized to be
-/// larger than the maximum size of a single document (64MB).
+/// begin by probing whether the offset being served is a document boundary
+/// (see `probe_offset`); only when the probe shows a mid-document landing
+/// does the read restart this many bytes earlier, with `next_batch`
+/// suppressing documents which end at-or-before the served offset. It's
+/// sized to be larger than the maximum size of a single document (64MB).
 const OFFSET_READBACK: i64 = 1 << 26; // 64MB
 
 /// Map an offset to be served into the journal offset at which its read
@@ -108,6 +108,22 @@ fn readback_offset(offset: i64) -> i64 {
     } else {
         offset
     }
+}
+
+/// Map an offset to be served into the journal offset at which its probe
+/// read begins: one byte earlier. An offset is a document boundary exactly
+/// when the byte before it is a document-separator newline, which the parser
+/// skips as inter-document whitespace, so a boundary probe's first document
+/// verifies with a valid UUID. Starting at the offset itself would mis-verify
+/// fetches which address a document's final byte — its trailing newline, and
+/// precisely the offset Kafka assigns the document as a record — because the
+/// stream would begin at the separator and parse the *next* document cleanly.
+/// From one byte earlier such a fetch reads the document's last content byte
+/// as an unparseable suffix instead, correctly triggering readback.
+/// Non-positive offsets pass through, as does offset 0, which is trivially a
+/// boundary.
+fn probe_offset(offset: i64) -> i64 {
+    if offset > 0 { offset - 1 } else { offset }
 }
 
 impl Read {
@@ -140,7 +156,11 @@ impl Read {
             partition_template_name.to_owned(),
             partition.spec.name.clone(),
             buffer_size,
-            offset,
+            if probe_boundary {
+                probe_offset(offset)
+            } else {
+                offset
+            },
         )
         .await?;
 
@@ -278,18 +298,22 @@ impl Read {
 
         if (now + timeout + std::time::Duration::from_secs(30)) > self.stream_exp {
             tracing::debug!("stream auth expired, fetching new token");
+            // Once this read has served a document, self.offset is that
+            // document's end and the probe verifies without a restart.
+            self.probe_boundary = self.rewrite_offsets_from.is_none();
             (self.stream, self.stream_exp) = Self::new_stream(
                 self.not_before,
                 self.listener.clone(),
                 self.partition_template_name.clone(),
                 self.journal_name.clone(),
                 self.buffer_size,
-                self.offset,
+                if self.probe_boundary {
+                    probe_offset(self.offset)
+                } else {
+                    self.offset
+                },
             )
             .await?;
-            // Once this read has served a document, self.offset is that
-            // document's end and the probe verifies without a restart.
-            self.probe_boundary = self.rewrite_offsets_from.is_none();
         }
 
         let mut records: Vec<Record> = Vec::new();
