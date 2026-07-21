@@ -167,6 +167,13 @@ struct Args {
     #[clap(long, env = "RUNTIME_V2_NEW_CAPTURES", default_value = "false")]
     runtime_v2_new_captures: bool,
 
+    /// When `true`, any *newly-created* materialization without an explicit
+    /// `enable-runtime-v2` shard flag is published onto runtime v2. Existing
+    /// materializations are unaffected, and an explicit per-task flag always
+    /// takes precedence.
+    #[clap(long, env = "RUNTIME_V2_NEW_MATERIALIZATIONS", default_value = "false")]
+    runtime_v2_new_materializations: bool,
+
     #[command(flatten)]
     controller_config: agent::controllers::ControllerConfig,
 }
@@ -404,6 +411,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
                 publisher,
                 pg_pool: pg_pool.clone(),
                 runtime_v2_new_captures: args.runtime_v2_new_captures,
+                runtime_v2_new_materializations: args.runtime_v2_new_materializations,
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,
