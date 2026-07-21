@@ -194,39 +194,45 @@ pub(super) async fn run<
         .collect();
     journal_read_suffix_index.sort();
 
-    // Reconcile recovered RocksDB state against any authoritative checkpoint,
-    // yielding the session resume Frontier and an optional RocksDB cleanup.
-    let Reconciled {
+    // Converge recovered RocksDB state against any authoritative checkpoint.
+    // Session startup state is then a projection of the actually-scanned
+    // durable state.
+    let scanned = Baseline {
         committed_close,
         committed_frontier,
-        pending_ack_intents,
+        hinted_close,
+        hinted_frontier,
+        ack_intents: pending_ack_intents,
+        legacy_checkpoint,
+    };
+    let mut connector_adopted = false;
+    let (_, scanned) = super::super::reconcile_loop(
+        (&mut shard_rx[0], &shard_tx[0], task.peers[0].as_str()),
+        scanned,
+        |scanned| {
+            reconcile(
+                scanned,
+                &connector_checkpoint,
+                &mut connector_adopted,
+                drop_v1_rollback,
+                &journal_read_suffix_index,
+            )
+        },
+        |(rx, tx, peer), persist| async move {
+            let scanned = send_rescan_persist(rx, tx, peer, persist).await?;
+            Ok(((rx, tx, peer), scanned))
+        },
+    )
+    .await
+    .context("startup reconciliation")?;
+
+    let (
         resume_frontier,
         idempotent_replay,
-        cleanup_persist,
-    } = reconcile_recovered(
-        drop_v1_rollback,
         committed_close,
-        hinted_close,
         committed_frontier,
-        hinted_frontier,
-        legacy_checkpoint,
-        connector_checkpoint,
         pending_ack_intents,
-        &journal_read_suffix_index,
-    )?;
-
-    // Durably apply the cleanup so future recoveries observe the reconciled
-    // baseline (this is the only IO the reconciliation implies).
-    if let Some(cleanup_persist) = cleanup_persist {
-        send_persist(
-            &mut shard_rx[0],
-            &shard_tx[0],
-            &task.peers[0],
-            cleanup_persist,
-        )
-        .await
-        .context("sending startup cleanup Persist")?;
-    }
+    ) = scanned.into_projected_parts();
 
     // Open the shuffle Session with the recovered resume Frontier.
     let shuffle_task = shuffle::proto::Task {
@@ -251,207 +257,308 @@ pub(super) async fn run<
     })
 }
 
-/// Outcome of [`reconcile_recovered`]: the resume Frontier plus any RocksDB
-/// cleanup that `run` must durably apply before opening the shuffle Session.
-struct Reconciled {
-    /// Final committed close Clock. Advances to the recovered `hinted_close`
-    /// when a remote-authoritative connector confirms the hinted txn committed.
+/// RocksDB state that startup reconciliation reads and converges toward an
+/// authoritative checkpoint. Field are [`proto::Recover`] fields that the
+/// reconciliation policy may change (the remaining `Recover` fields are inert
+/// to reconciliation and threaded-through untouched).
+#[derive(Clone, Debug)]
+struct Baseline {
+    /// Clock at which the last-committed transaction closed.
     committed_close: uuid::Clock,
-    /// Final committed Frontier, possibly rebuilt from an authoritative checkpoint.
+    /// Committed Frontier (`FC:`).
     committed_frontier: shuffle::Frontier,
-    /// Final ACK intents; replaced by an authoritative checkpoint's when present.
-    pending_ack_intents: BTreeMap<String, Bytes>,
-    /// Session resume Frontier: `project_hinted(hinted).reduce(committed)`.
-    resume_frontier: shuffle::Frontier,
-    /// Whether the first transaction must idempotently replay a hinted commit.
-    idempotent_replay: bool,
-    /// Startup cleanup `Persist` to durably reconcile RocksDB, or `None` when
-    /// nothing needs reconciling.
-    cleanup_persist: Option<proto::Persist>,
+    /// Clock at which the last hinted transaction closed. Adoption steps
+    /// overwrite it with the adopted close Clock (a `Persist` cannot clear it,
+    /// and a hinted close equal to committed-close is inert); the fold step
+    /// leaves it in place, already equal to the folded committed close.
+    hinted_close: uuid::Clock,
+    /// Hinted Frontier (`FH:`). A hint must survive a crash during idempotent
+    /// replay, so it's preserved unless a checkpoint adoption discards it.
+    hinted_frontier: shuffle::Frontier,
+    /// Last-persisted ACK intents (`AI:`).
+    ack_intents: BTreeMap<String, Bytes>,
+    /// Legacy V1-rollback checkpoint, or None when absent / to be deleted.
+    legacy_checkpoint: Option<consumer::Checkpoint>,
 }
 
-/// Reconcile the RocksDB-recovered frontiers (`committed_frontier`,
-/// `hinted_frontier`, `committed_close`) against any authoritative checkpoint —
-/// a `legacy_checkpoint` (V1 rollback migration) or a remote-authoritative
-/// `connector_checkpoint` recovered from Open. Returns the composed session
-/// resume Frontier and the RocksDB cleanup its caller must persist.
+impl Baseline {
+    /// Decode a recovered [`proto::Recover`] into its [`Baseline`].
+    fn from_recover(recover: proto::Recover) -> anyhow::Result<Baseline> {
+        let proto::Recover {
+            committed_close_clock,
+            committed_frontier,
+            hinted_close_clock,
+            hinted_frontier,
+            ack_intents,
+            legacy_checkpoint,
+            last_applied: _,
+            connector_state_json: _,
+            max_keys: _,
+            trigger_params_json: _,
+        } = recover;
+
+        let baseline = Baseline {
+            committed_close: uuid::Clock::from_u64(committed_close_clock),
+            committed_frontier: shuffle::Frontier::decode(committed_frontier.unwrap_or_default())
+                .context("validating committed Frontier")?,
+            hinted_close: uuid::Clock::from_u64(hinted_close_clock),
+            hinted_frontier: shuffle::Frontier::decode(hinted_frontier.unwrap_or_default())
+                .context("validating hinted Frontier")?,
+            ack_intents,
+            legacy_checkpoint,
+        };
+        Ok(baseline)
+    }
+
+    /// Consume this (converged) durable `Baseline` into exactly the parts that
+    /// start a session: the shuffle resume Frontier and its idempotent-replay
+    /// flag, plus the committed close/frontier and ACK intents threaded into
+    /// `Startup`.
+    fn into_projected_parts(
+        self,
+    ) -> (
+        shuffle::Frontier,
+        bool,
+        uuid::Clock,
+        shuffle::Frontier,
+        BTreeMap<String, Bytes>,
+    ) {
+        let Baseline {
+            committed_close,
+            committed_frontier,
+            hinted_frontier,
+            ack_intents,
+            ..
+        } = self;
+        let (resume_frontier, idempotent_replay) =
+            Self::resume_frontier(hinted_frontier, committed_frontier.clone());
+        (
+            resume_frontier,
+            idempotent_replay,
+            committed_close,
+            committed_frontier,
+            ack_intents,
+        )
+    }
+
+    /// Project a hinted + committed Frontier pair into the resume Frontier,
+    /// and whether the first transaction is an idempotent replay.
+    fn resume_frontier(
+        hinted: shuffle::Frontier,
+        committed: shuffle::Frontier,
+    ) -> (shuffle::Frontier, bool) {
+        let resume_frontier = frontier_mapping::project_hinted(hinted).reduce(committed);
+        let idempotent_replay = resume_frontier.unresolved_hints != 0;
+        (resume_frontier, idempotent_replay)
+    }
+
+    #[cfg(test)]
+    fn session_state(&self) -> (shuffle::Frontier, bool) {
+        Self::resume_frontier(
+            self.hinted_frontier.clone(),
+            self.committed_frontier.clone(),
+        )
+    }
+}
+
+/// Reconcile a recovered `scanned` [`Baseline`] toward its authoritative
+/// checkpoints — a `legacy_checkpoint` carried within `scanned` (V1 rollback
+/// migration) or a remote-authoritative `connector_checkpoint` from C:Opened —
+/// as an ordered sequence of self-clearing steps. Each step tests an explicit
+/// trigger over the scanned state and returns the incremental `Persist`
+/// that clears it; `None` means no trigger fires and `scanned` is the
+/// reconciled fixed point.
 ///
-/// Pure (no IO), so the reconciliation policy is unit-testable in isolation
-/// from the leader's shard-protocol plumbing. `journal_read_suffix_index` maps
+/// `connector_adopted` latches the one step whose trigger (a connector
+/// checkpoint without an embedded close Clock) lives in the endpoint, where
+/// no Persist can clear it: that step instead fires eagerly, at most once per
+/// startup.
+///
+/// No IO, so the policy is unit-testable in isolation from the leader's
+/// shard-protocol plumbing. `journal_read_suffix_index` maps
 /// `journal_read_suffix` => binding index and must be sorted on the suffix.
-fn reconcile_recovered(
+/// The caller stamps `seq_no`/`rescan`.
+///
+/// See also: [`crate::leader::derive::startup::reconcile`].
+fn reconcile(
+    scanned: &Baseline,
+    connector_checkpoint: &consumer::Checkpoint,
+    connector_adopted: &mut bool,
     drop_v1_rollback: bool,
-    mut committed_close: uuid::Clock,
-    hinted_close: uuid::Clock,
-    mut committed_frontier: shuffle::Frontier,
-    mut hinted_frontier: shuffle::Frontier,
-    legacy_checkpoint: Option<consumer::Checkpoint>,
-    connector_checkpoint: consumer::Checkpoint,
-    mut pending_ack_intents: BTreeMap<String, Bytes>,
     journal_read_suffix_index: &[(&str, usize)],
-) -> anyhow::Result<Reconciled> {
-    // Set when a recovered checkpoint (legacy V1 or connector) is authoritative
-    // and its mapped Frontier replaces `committed_frontier`.
-    //
-    // Rebuilding also forces us to discard the recovered `hinted_frontier`. The
-    // hinted frontier is a read-ahead of `committed_frontier` that's replayed at
-    // startup: `project_hinted` zeroes each hinted producer's read offset and
-    // relies on that producer's entry in `committed_frontier` to restore it.
-    // A rebuilt committed frontier is a fresh mapping of the authoritative
-    // checkpoint, and won't carry producers the checkpoint has dropped — e.g. the
-    // V1 runtime prunes a producer that's been silent for >24h. Any hinted
-    // producer without a committed counterpart then resolves to offset 0, forcing
-    // a full re-read of the journal (from the beginning) to replay a hint whose
-    // producer has long gone silent and whose data the checkpoint already
-    // reflects. Discarding the hinted frontier avoids this: the authoritative
-    // checkpoint is a complete `committed_frontier`, so there's nothing to replay.
-    let mut committed_frontier_rebuilt = false;
+) -> anyhow::Result<Option<proto::Persist>> {
+    const FLOOR: uuid::Clock = frontier_mapping::COMMITTED_CLOSE_FLOOR;
 
-    // Handle migration from `legacy_checkpoint`.
-    let legacy_checkpoint_present = legacy_checkpoint.is_some();
-    if let Some(legacy_checkpoint) = legacy_checkpoint {
-        let clock = frontier_mapping::extract_committed_close(&legacy_checkpoint);
-
-        if clock == Some(committed_close) {
+    // Step: convert a V1-written legacy checkpoint into the V2 baseline.
+    // Only the V1 runtime writes checkpoints without an embedded committed-close
+    // Clock — every V2 commit re-embeds it — so a marker-less legacy checkpoint
+    // means V1 wrote last (a fresh V1 → V2 migration, or a return from V1
+    // rollback) and is authoritative. Adoption discards V2 state of any
+    // abandoned timeline: stale `FC:`/`FH:` entries, and a `committed_close`
+    // that regresses to the FLOOR seed. Self-clearing: the refreshed (or
+    // deleted) legacy checkpoint carries the embedded FLOOR Clock.
+    if let Some(legacy) = &scanned.legacy_checkpoint {
+        if frontier_mapping::extract_committed_close(legacy).is_none() {
             service_kit::event!(
-                tracing::Level::DEBUG,
+                tracing::Level::INFO,
                 "leader",
-                committed_close,
-                "legacy_checkpoint present but matches Recover::committed_close (ignoring)",
+                committed_close = scanned.committed_close,
+                "legacy checkpoint has no committed-close Clock (V1 wrote it last); converting to the V2 baseline",
             );
-        } else if let Some(clock) = clock {
-            // Implementation error: these update together and should always sync.
-            anyhow::bail!(
-                "legacy_checkpoint has clock {clock:?} that doesn't match Recover's committed_close ({committed_close:?})"
-            );
-        } else {
-            service_kit::event!(
-                tracing::Level::DEBUG,
-                "leader",
-                committed_close,
-                "legacy_checkpoint doesn't contain committed-close-clock; treating as authoritative",
-            );
-            committed_frontier = frontier_mapping::checkpoint_to_frontier(
-                &legacy_checkpoint.sources,
+            let persist = frontier_mapping::adopt_checkpoint(
+                legacy,
+                FLOOR,
+                !drop_v1_rollback,
+                true, // Discard hinted state.
                 journal_read_suffix_index,
             )
-            .context("mapping recovered legacy checkpoint into Frontier")?;
-
-            hinted_frontier = Default::default(); // Discard; see `committed_frontier_rebuilt`.
-            committed_frontier_rebuilt = true;
-
-            pending_ack_intents = legacy_checkpoint.ack_intents;
+            .context("converting legacy checkpoint into the V2 baseline")?;
+            return Ok(Some(persist));
         }
-    } else {
-        service_kit::event!(
-            tracing::Level::DEBUG,
-            "leader",
-            "no legacy_checkpoint present",
-        );
     }
 
-    // Handle a `connector_checkpoint` from remote-authoritative connectors.
-    // It may be *ahead* of `committed_frontier`, which is detected as its embedded
-    // committed-close Clock matching our recovered `hinted_close`.
-    if !connector_checkpoint.sources.is_empty() {
-        let clock = frontier_mapping::extract_committed_close(&connector_checkpoint);
-
-        if clock == Some(committed_close) {
-            service_kit::event!(
-                tracing::Level::DEBUG,
-                "leader",
-                committed_close,
-                "connector_checkpoint present but matches Recover::committed_close (ignoring)",
-            );
-        } else if clock == Some(hinted_close) {
-            // Connector declares that the hinted txn did in fact commit.
-            service_kit::event!(
-                tracing::Level::DEBUG,
-                "leader",
-                committed_close,
-                hinted_close,
-                "connector_checkpoint present and matches Recover::hinted_close; applying delta",
-            );
-            committed_close = hinted_close;
-            committed_frontier = committed_frontier.reduce(std::mem::take(&mut hinted_frontier));
-
-            pending_ack_intents = connector_checkpoint.ack_intents;
-        } else if let Some(clock) = clock {
-            // Implementation error: these update together and should always sync.
+    // A legacy checkpoint reaching this point was V2-written (conversion above
+    // would otherwise have fired), and a V2-written legacy checkpoint persists
+    // atomically with committed-close: a mismatch is an implementation error.
+    if let Some(legacy) = &scanned.legacy_checkpoint {
+        let clock = frontier_mapping::extract_committed_close(legacy);
+        if clock != Some(scanned.committed_close) {
             anyhow::bail!(
-                "connector_checkpoint has clock {clock:?} which doesn't match Recover's \
-                 committed_close ({committed_close:?}) or hinted_close ({hinted_close:?})"
+                "legacy_checkpoint has clock {clock:?} that doesn't match committed_close ({:?})",
+                scanned.committed_close,
             );
-        } else {
-            service_kit::event!(
-                tracing::Level::DEBUG,
-                "leader",
-                committed_close,
-                "connector_checkpoint doesn't contain committed-close-clock; treating as authoritative",
-            );
-
-            committed_frontier = frontier_mapping::checkpoint_to_frontier(
-                &connector_checkpoint.sources,
-                journal_read_suffix_index,
-            )
-            .context("mapping recovered connector checkpoint into Frontier")?;
-
-            hinted_frontier = Default::default(); // Discard; see `committed_frontier_rebuilt`.
-            committed_frontier_rebuilt = true;
-
-            pending_ack_intents = connector_checkpoint.ack_intents;
         }
-    } else {
-        service_kit::event!(
-            tracing::Level::DEBUG,
-            "leader",
-            "no connector_checkpoint present",
-        );
     }
 
-    // Reconcile RocksDB now that the final status of the recovered V1 and
-    // connector checkpoints is known. If `committed_frontier_rebuilt`, then
-    // `committed_frontier` is not natively represented in RocksDB and must be
-    // persisted (clearing stale state). This establishes a baseline for future
-    // recoveries. Go-forward commits are deltas that apply atop this base.
-    let delete_legacy_checkpoint = drop_v1_rollback && legacy_checkpoint_present;
-    let cleanup_persist = (committed_frontier_rebuilt || delete_legacy_checkpoint).then(|| {
+    // Step: dropping V1 rollback deletes the (in-sync) legacy checkpoint.
+    // Self-clearing: the next scan recovers no legacy checkpoint.
+    if drop_v1_rollback && scanned.legacy_checkpoint.is_some() {
         service_kit::event!(
             tracing::Level::INFO,
             "leader",
-            committed_frontier_rebuilt,
-            delete_legacy_checkpoint,
-            "reconciling recovered checkpoint state",
+            "dropping V1 rollback support; deleting the legacy checkpoint",
         );
-        proto::Persist {
-            seq_no: 0,
-            delete_committed_frontier: committed_frontier_rebuilt,
-            delete_hinted_frontier: committed_frontier_rebuilt,
-            committed_frontier: committed_frontier_rebuilt
-                .then(|| shuffle::JournalFrontier::encode(&committed_frontier.journals)),
-            delete_legacy_checkpoint,
+        return Ok(Some(proto::Persist {
+            delete_legacy_checkpoint: true,
             ..Default::default()
+        }));
+    }
+
+    // Steps testing the connector checkpoint of a remote-authoritative endpoint.
+    if connector_checkpoint.sources.is_empty() {
+        return Ok(None);
+    }
+
+    match frontier_mapping::extract_committed_close(connector_checkpoint) {
+        // In sync with the last commit: nothing to reconcile.
+        Some(clock) if clock == scanned.committed_close => {}
+
+        // Step: the connector declares the hinted txn did in fact commit. This
+        // is the crashed session's Persist(commit), reconstructed from recovered
+        // inputs: advance committed_close to hinted_close, write the hinted
+        // delta as the committed Frontier — byte-identical to what the crashed
+        // commit would have written (its extents Frontier is exactly this
+        // `FH:`) — adopt the connector's ACK intents, and leave the `FH:` hint
+        // in place (recovery treats a hint covered by committed as resolved,
+        // matching a normal commit persist). When rollback is maintained the
+        // connector checkpoint IS the full merged legacy-format checkpoint, so
+        // it refreshes the legacy checkpoint verbatim. Self-clearing:
+        // committed_close advances to the connector's Clock.
+        Some(clock) if clock == scanned.hinted_close => {
+            service_kit::event!(
+                tracing::Level::INFO,
+                "leader",
+                committed_close = scanned.committed_close,
+                hinted_close = scanned.hinted_close,
+                "connector checkpoint matches hinted_close; folding the hinted delta as committed",
+            );
+            return Ok(Some(proto::Persist {
+                committed_close_clock: clock.as_u64(),
+                committed_frontier: Some(shuffle::JournalFrontier::encode(
+                    &scanned.hinted_frontier.journals,
+                )),
+                delete_ack_intents: true,
+                ack_intents: connector_checkpoint.ack_intents.clone(),
+                legacy_checkpoint: (!drop_v1_rollback).then(|| connector_checkpoint.clone()),
+                ..Default::default()
+            }));
         }
-    });
 
-    // Compose the session resume Frontier: project the recovered hinted
-    // Frontier into hinted form (last_commit -> hinted_commit, zero
-    // last_commit/offset) and reduce with the committed Frontier.
-    let resume_frontier =
-        frontier_mapping::project_hinted(hinted_frontier).reduce(committed_frontier.clone());
+        // Implementation error: a marker written at StartCommit implies its
+        // hint persisted first (Persist(hint) strictly precedes StartCommit),
+        // and only a later commit persist lets hinted_close advance past it —
+        // so the marker always matches one of the two Clocks. Conversion can't
+        // discard the hint out from under a live marker, either: it persists
+        // at startup before the session's first StartCommit, and a V1 rollback
+        // that re-arms it (by stripping the legacy marker) commits to the
+        // endpoint first, stripping this marker too. A mismatch therefore
+        // means state written outside these histories — e.g. a pre-FLOOR
+        // migration crash — and the remediation is a brief V1 rollback (which
+        // strips both markers) before re-migrating.
+        Some(clock) => anyhow::bail!(
+            "connector_checkpoint has clock {clock:?} which doesn't match committed_close \
+             ({:?}) or hinted_close ({:?})",
+            scanned.committed_close,
+            scanned.hinted_close,
+        ),
 
-    // If we recovered a producer frontier with an unapplied hinted commit,
-    // then the first transaction must be an idempotent replay of the hinted frontier.
-    let idempotent_replay = resume_frontier.unresolved_hints != 0;
+        // Step: no embedded close Clock, so the V1 runtime wrote the endpoint
+        // checkpoint last (a fresh V1 → V2 migration, or a V1 rollback that ran
+        // against the endpoint) and it's authoritative. No Persist can clear
+        // this trigger — only StartCommit writes to the endpoint — so instead
+        // adopt eagerly, at most once per startup: a redundant adoption is
+        // idempotent, while a V1 rollback that advanced the endpoint during the
+        // FLOOR epoch is adopted rather than silently skipped. The epoch ends
+        // at the first V2 commit, which embeds its close Clock.
+        None if !*connector_adopted => {
+            *connector_adopted = true;
+            service_kit::event!(
+                tracing::Level::INFO,
+                "leader",
+                committed_close = scanned.committed_close,
+                "connector checkpoint has no committed-close Clock (V1 wrote it last); adopting it",
+            );
+            let persist = frontier_mapping::adopt_checkpoint(
+                connector_checkpoint,
+                FLOOR,
+                !drop_v1_rollback,
+                true, // Discard hinted state.
+                journal_read_suffix_index,
+            )
+            .context("adopting connector checkpoint")?;
+            return Ok(Some(persist));
+        }
 
-    Ok(Reconciled {
-        committed_close,
-        committed_frontier,
-        pending_ack_intents,
-        resume_frontier,
-        idempotent_replay,
-        cleanup_persist,
-    })
+        // Already adopted this startup.
+        None => {}
+    }
+
+    Ok(None)
+}
+
+/// Send a rescan `Persist` to a shard and await the fresh `Recover` it scans in
+/// reply, decoded into a [`Baseline`].
+async fn send_rescan_persist(
+    rx: &mut BoxStream<'static, tonic::Result<proto::Materialize>>,
+    tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
+    peer: &str,
+    persist: proto::Persist,
+) -> anyhow::Result<Baseline> {
+    let verify = crate::verify("Materialize", "Recover", peer);
+
+    // Sends are best-effort: a closed peer surfaces on the next `rx`.
+    let _ = tx.send(Ok(proto::Materialize {
+        persist: Some(persist),
+        ..Default::default()
+    }));
+
+    match verify.not_eof(rx.next().await)? {
+        proto::Materialize {
+            recover: Some(recover),
+            ..
+        } => Baseline::from_recover(recover),
+        other => Err(verify.fail_msg(other)),
+    }
 }
 
 async fn recv_recovers(
@@ -1037,157 +1144,35 @@ mod tests {
         assert!(s.contains("from s1"));
     }
 
-    // ---- reconcile_recovered ----
+    // ---- reconcile ----
 
-    fn clk(secs: u64) -> uuid::Clock {
-        uuid::Clock::from_unix(secs, 0)
-    }
+    use crate::leader::fixtures::{
+        authoritative_checkpoint, clk, close_only_checkpoint, frontier, pf, producer_tags,
+    };
 
-    fn prod(tag: u8) -> uuid::Producer {
-        uuid::Producer::from_bytes([0x01, tag, 0, 0, 0, 0])
-    }
+    const FLOOR: uuid::Clock = frontier_mapping::COMMITTED_CLOSE_FLOOR;
 
-    fn pf(
-        tag: u8,
-        last_commit: uuid::Clock,
-        hinted_commit: uuid::Clock,
-        offset: i64,
-    ) -> shuffle::ProducerFrontier {
-        shuffle::ProducerFrontier {
-            producer: prod(tag),
-            last_commit,
-            hinted_commit,
-            offset,
-        }
-    }
-
-    // A single-journal, single-binding crate `shuffle::Frontier`.
-    fn frontier(
-        journal: &str,
-        binding: u16,
-        producers: Vec<shuffle::ProducerFrontier>,
-    ) -> shuffle::Frontier {
-        shuffle::Frontier::new(
-            vec![shuffle::JournalFrontier {
-                journal: journal.into(),
-                binding,
-                producers,
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
-            }],
-            vec![],
+    /// Invoke `reconcile` as one fresh startup pass (an unset adoption latch).
+    fn reconcile_once(
+        scanned: &Baseline,
+        connector_checkpoint: &consumer::Checkpoint,
+        drop_v1_rollback: bool,
+        index: &[(&str, usize)],
+    ) -> anyhow::Result<Option<proto::Persist>> {
+        let mut connector_adopted = false;
+        reconcile(
+            scanned,
+            connector_checkpoint,
+            &mut connector_adopted,
+            drop_v1_rollback,
+            index,
         )
-        .unwrap()
     }
 
-    // An authoritative checkpoint (no committed-close key) mapping
-    // "{journal};{suffix}" to a single producer at committed end offset
-    // `read_through` (begin=-1) and `last_ack`.
-    fn authoritative_checkpoint(
-        journal: &str,
-        suffix: &str,
-        tag: u8,
-        last_ack: uuid::Clock,
-        read_through: i64,
-    ) -> consumer::Checkpoint {
-        let mut sources = BTreeMap::new();
-        sources.insert(
-            format!("{journal};{suffix}"),
-            consumer::checkpoint::Source {
-                read_through,
-                producers: vec![consumer::checkpoint::source::ProducerEntry {
-                    id: Bytes::copy_from_slice(prod(tag).as_bytes()),
-                    state: Some(consumer::checkpoint::ProducerState {
-                        last_ack: last_ack.as_u64(),
-                        begin: -1,
-                    }),
-                }],
-            },
-        );
-        consumer::Checkpoint {
-            sources,
-            ack_intents: [("ack/j".to_string(), Bytes::from_static(b"ACK"))].into(),
-        }
-    }
-
-    // A checkpoint carrying only a committed-close Clock (no data sources), used
-    // for the in-sync and hinted-close-delta paths that never map it to a Frontier.
-    fn close_only_checkpoint(close: uuid::Clock, ack_key: &str) -> consumer::Checkpoint {
-        let (k, v) = frontier_mapping::encode_committed_close(close);
-        consumer::Checkpoint {
-            sources: [(k, v)].into(),
-            ack_intents: [(ack_key.to_string(), Bytes::from_static(b"C"))].into(),
-        }
-    }
-
-    fn producer_tags(f: &shuffle::Frontier) -> Vec<u8> {
-        f.journals
-            .iter()
-            .flat_map(|jf| jf.producers.iter().map(|p| p.producer.as_bytes()[1]))
-            .collect()
-    }
-
-    /// The fix: rebuilding the committed frontier from an authoritative legacy V1
-    /// checkpoint discards the stale hinted frontier, so an orphaned hint (its
-    /// producer absent from the rebuilt committed frontier — e.g. V1-pruned after
-    /// >24h idle) does NOT resume at offset 0.
-    #[test]
-    fn reconcile_rebuild_from_legacy_discards_orphan_hints() {
-        let index = [("s-a", 0usize)];
-        // Recovered RocksDB committed frontier — replaced by the rebuild.
-        let committed = frontier(
-            "j/one",
-            0,
-            vec![pf(0xaa, clk(50), uuid::Clock::zero(), -100)],
-        );
-        // Stale hinted frontier references old producer 0xaa (hint in last_commit).
-        // Its stored offset is irrelevant — project_hinted zeroes it; the offset-0
-        // re-read comes solely from 0xaa's absence in the rebuilt committed frontier.
-        let hinted = frontier(
-            "j/one",
-            0,
-            vec![pf(0xaa, clk(80), uuid::Clock::zero(), -99_999)],
-        );
-        // Legacy V1 checkpoint (no committed-close key => authoritative), carrying
-        // the current producer 0xbb committed to end offset 5000.
-        let legacy = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 5000);
-
-        let r = reconcile_recovered(
-            true, // drop_v1_rollback
-            clk(50),
-            clk(80),
-            committed,
-            hinted,
-            Some(legacy),
-            consumer::Checkpoint::default(),
-            BTreeMap::new(),
-            &index,
-        )
-        .unwrap();
-
-        // Hinted frontier discarded: no unresolved hints, no idempotent replay.
-        assert!(!r.idempotent_replay);
-        assert_eq!(r.resume_frontier.unresolved_hints, 0);
-        // Resume == committed rebuilt from the checkpoint: only producer 0xbb, at
-        // the checkpoint's committed end offset (NOT the orphan at offset 0).
-        assert_eq!(producer_tags(&r.resume_frontier), vec![0xbb]);
-        assert_eq!(r.resume_frontier.journals[0].producers[0].offset, -5000);
-        // committed_close is unchanged by the legacy path.
-        assert_eq!(r.committed_close, clk(50));
-        // Cleanup clears BOTH frontiers on disk and drops the legacy checkpoint.
-        let p = r.cleanup_persist.expect("cleanup persist");
-        assert!(p.delete_committed_frontier);
-        assert!(p.delete_hinted_frontier);
-        assert!(p.committed_frontier.is_some());
-        assert!(p.delete_legacy_checkpoint);
-        // ACK intents adopted from the authoritative checkpoint.
-        assert!(r.pending_ack_intents.contains_key("ack/j"));
-    }
-
-    /// Contrast: with no rebuild, a hinted producer that HAS a committed baseline
+    /// With no adoption, a hinted producer that HAS a committed baseline
     /// is preserved and replayed from its committed offset — never offset 0.
     #[test]
-    fn reconcile_no_rebuild_preserves_hints() {
+    fn reconcile_no_adoption_preserves_hints() {
         let index = [("s-a", 0usize)];
         let committed = frontier(
             "j/one",
@@ -1200,34 +1185,28 @@ mod tests {
             vec![pf(0xbb, clk(200), uuid::Clock::zero(), -500)],
         );
 
-        let r = reconcile_recovered(
-            false,
-            clk(50),
-            clk(60),
-            committed,
-            hinted,
-            None,
-            consumer::Checkpoint::default(),
-            BTreeMap::new(),
-            &index,
-        )
-        .unwrap();
+        let scanned = baseline(clk(50), committed, clk(60), hinted, [], None);
+        let persist =
+            reconcile_once(&scanned, &consumer::Checkpoint::default(), false, &index).unwrap();
 
+        // Nothing to reconcile on disk: `scanned` is already the fixed point, so
+        // session state derives directly from it.
+        assert!(persist.is_none());
+        let (resume_frontier, idempotent_replay) = scanned.session_state();
         // Hint preserved -> unresolved -> replayed, but from the committed offset.
-        assert!(r.idempotent_replay);
-        assert_eq!(r.resume_frontier.unresolved_hints, 1);
-        let p0 = &r.resume_frontier.journals[0].producers[0];
+        assert!(idempotent_replay);
+        assert_eq!(resume_frontier.unresolved_hints, 1);
+        let p0 = &resume_frontier.journals[0].producers[0];
         assert_eq!(p0.offset, -500);
         assert!(p0.hinted_commit > p0.last_commit);
-        // Nothing to reconcile on disk.
-        assert!(r.cleanup_persist.is_none());
     }
 
-    /// A remote-authoritative connector confirming the hinted txn committed folds
-    /// the hinted frontier into committed and advances committed_close — no rebuild,
-    /// no cleanup.
+    /// Fold with a maintained legacy (V1-rollback) checkpoint: the fold persist
+    /// refreshes the legacy checkpoint verbatim from the connector checkpoint, so
+    /// the next recovery's legacy consistency check sees the advanced committed
+    /// close rather than the stale one.
     #[test]
-    fn reconcile_connector_hinted_close_folds_delta() {
+    fn reconcile_fold_refreshes_maintained_legacy_checkpoint() {
         let index = [("s-a", 0usize)];
         let committed = frontier(
             "j/one",
@@ -1239,84 +1218,112 @@ mod tests {
             0,
             vec![pf(0xbb, clk(200), uuid::Clock::zero(), -800)],
         );
+        // In-sync legacy checkpoint at committed_close=50.
+        let legacy = close_only_checkpoint(clk(50), "ack/legacy");
+        // Connector checkpoint confirming the hinted commit at T200. When legacy
+        // is maintained this IS the full merged legacy-format checkpoint.
         let connector = close_only_checkpoint(clk(200), "ack/c");
 
-        let r = reconcile_recovered(
-            false,
-            clk(50),
-            clk(200), // hinted_close matches the connector's close clock
-            committed,
-            hinted,
-            None,
-            connector,
-            BTreeMap::new(),
+        let scanned = baseline(clk(50), committed, clk(200), hinted, [], Some(legacy));
+        let p = reconcile_once(
+            &scanned, &connector, false, // drop_v1_rollback = false: legacy is maintained
             &index,
         )
-        .unwrap();
+        .unwrap()
+        .expect("fold produces a persist");
 
-        assert_eq!(r.committed_close, clk(200));
-        assert!(r.cleanup_persist.is_none());
-        // Hinted folded into committed: 0xbb at the further offset, last_commit=200.
-        let p0 = &r.committed_frontier.journals[0].producers[0];
-        assert_eq!(p0.offset, -800);
-        assert_eq!(p0.last_commit, clk(200));
-        assert_eq!(r.resume_frontier.unresolved_hints, 0);
-        assert!(!r.idempotent_replay);
-        assert!(r.pending_ack_intents.contains_key("ack/c"));
+        assert_eq!(p.committed_close_clock, clk(200).as_u64());
+        // Legacy checkpoint refreshed to the connector checkpoint verbatim.
+        assert_eq!(p.legacy_checkpoint.as_ref(), Some(&connector));
     }
 
-    /// Dropping V1 rollback capability when the legacy checkpoint is in sync (not
-    /// authoritative) deletes only the legacy checkpoint — the hinted and committed
-    /// frontiers are untouched, so hints are still honored.
+    /// Crash window #1 — post-fold-persist, pre-WriteIntents. Recovery observes
+    /// the persisted advance (committed_close = T200, folded committed frontier,
+    /// AI: = the connector's intents) plus the connector clock still at T200. The
+    /// second reconcile pass is a fixed point (no persist) and surfaces the folded
+    /// transaction's ACK intents, so WriteIntents ACKs the folded appends rather
+    /// than recovering the prior transaction's stale intents.
     #[test]
-    fn reconcile_drop_rollback_deletes_only_legacy_checkpoint() {
+    fn reconcile_fold_post_persist_is_fixed_point() {
         let index = [("s-a", 0usize)];
+        // Post-fold committed frontier (0xbb folded to T200) and the retained hint.
         let committed = frontier(
             "j/one",
             0,
-            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -500)],
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -800)],
         );
         let hinted = frontier(
             "j/one",
             0,
-            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -500)],
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -800)],
         );
-        // In-sync legacy checkpoint: committed-close key matches committed_close.
-        let legacy = close_only_checkpoint(clk(50), "ack/legacy");
+        let connector = close_only_checkpoint(clk(200), "ack/c");
 
-        let r = reconcile_recovered(
-            true, // drop_v1_rollback
-            clk(50),
-            clk(60),
+        // AI: already holds the folded txn's connector intents.
+        let scanned = baseline(
+            clk(200),
             committed,
+            clk(200),
             hinted,
-            Some(legacy),
-            consumer::Checkpoint::default(),
-            BTreeMap::new(),
-            &index,
-        )
-        .unwrap();
+            [("ack/c", b"C".as_slice())],
+            None,
+        );
+        let persist = reconcile_once(&scanned, &connector, false, &index).unwrap();
 
-        // Not rebuilt: the hint survives and is replayed from its committed offset.
-        assert!(r.idempotent_replay);
-        assert_eq!(r.resume_frontier.journals[0].producers[0].offset, -500);
-        // Cleanup drops only the legacy checkpoint; frontiers untouched on disk.
-        let p = r
-            .cleanup_persist
-            .expect("cleanup persist for drop-rollback");
-        assert!(p.delete_legacy_checkpoint);
-        assert!(!p.delete_committed_frontier);
-        assert!(!p.delete_hinted_frontier);
-        assert!(p.committed_frontier.is_none());
+        // Connector clock now matches committed_close: no further change.
+        assert!(persist.is_none());
+        // `scanned` is the fixed point. The folded transaction's ACK intents are
+        // what the session will write, and no idempotent replay is needed.
+        assert!(scanned.ack_intents.contains_key("ack/c"));
+        let (_, idempotent_replay) = scanned.session_state();
+        assert!(!idempotent_replay);
     }
 
-    /// The same fix on the connector-authoritative rebuild branch (no legacy
-    /// checkpoint): a remote-authoritative connector checkpoint rebuilds the
-    /// committed frontier and discards the stale hinted frontier, so the orphan
-    /// hint does not resume at offset 0. Guards the connector branch's discard
-    /// independently of the legacy branch's.
+    /// Crash window #2 — post-fold, then a next transaction persisted a fresh hint
+    /// at T300 before crashing pre-commit. Recovery has committed_close = T200 and
+    /// hinted_close = T300, while the connector checkpoint is still at T200. The
+    /// connector clock must match committed_close (the "ignoring" branch) — NOT be
+    /// mistaken for a fold against the new hinted_close — so reconcile does not bail.
     #[test]
-    fn reconcile_rebuild_from_connector_discards_orphan_hints() {
+    fn reconcile_fold_then_next_hint_matches_committed_close() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -800)],
+        );
+        // A newly-persisted hint at T300 (next txn crashed before commit).
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(300), uuid::Clock::zero(), -1200)],
+        );
+        let connector = close_only_checkpoint(clk(200), "ack/c");
+
+        let scanned = baseline(
+            clk(200),
+            committed,
+            clk(300),
+            hinted,
+            [("ack/c", b"C".as_slice())],
+            None,
+        );
+        // Must not bail: connector clock T200 matches committed_close T200.
+        let persist = reconcile_once(&scanned, &connector, false, &index).unwrap();
+        assert!(persist.is_none());
+        // The new hint at T300 remains unresolved, so the session idempotently
+        // replays it as its first transaction.
+        let (_, idempotent_replay) = scanned.session_state();
+        assert!(idempotent_replay);
+    }
+
+    /// The conversion step: a marker-less (V1-written) legacy checkpoint is
+    /// adopted with `committed_close` seeded at the FLOOR, hinted state
+    /// discarded, and the legacy checkpoint refreshed with the FLOOR embedded
+    /// (self-clearing its trigger). A stale `committed_close` from an abandoned
+    /// V2 timeline (a V1 rollback that later returns) regresses to the FLOOR.
+    #[test]
+    fn reconcile_converts_v1_legacy_checkpoint() {
         let index = [("s-a", 0usize)];
         let committed = frontier(
             "j/one",
@@ -1328,34 +1335,560 @@ mod tests {
             0,
             vec![pf(0xaa, clk(80), uuid::Clock::zero(), -99_999)],
         );
-        // Remote-authoritative connector checkpoint (no committed-close key =>
-        // authoritative), carrying the current producer 0xbb at end offset 5000.
-        let connector = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 5000);
+        let legacy = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 5000);
 
-        let r = reconcile_recovered(
-            false, // no V1 rollback in play
-            clk(50),
-            clk(80),
-            committed,
-            hinted,
-            None, // no legacy checkpoint
-            connector,
-            BTreeMap::new(),
-            &index,
-        )
-        .unwrap();
+        let scanned = baseline(clk(50), committed, clk(80), hinted, [], Some(legacy));
+        let p = reconcile_once(&scanned, &consumer::Checkpoint::default(), false, &index)
+            .unwrap()
+            .expect("conversion produces a persist");
 
-        // Hinted frontier discarded: no orphan, no idempotent replay.
-        assert!(!r.idempotent_replay);
-        assert_eq!(r.resume_frontier.unresolved_hints, 0);
-        assert_eq!(producer_tags(&r.resume_frontier), vec![0xbb]);
-        assert_eq!(r.resume_frontier.journals[0].producers[0].offset, -5000);
-        // Cleanup clears both frontiers; no legacy checkpoint to drop.
-        let p = r.cleanup_persist.expect("cleanup persist");
+        assert_eq!(p.committed_close_clock, FLOOR.as_u64());
+        assert_eq!(p.hinted_close_clock, FLOOR.as_u64());
         assert!(p.delete_committed_frontier);
         assert!(p.delete_hinted_frontier);
-        assert!(p.committed_frontier.is_some());
+        assert!(p.delete_ack_intents);
+        assert!(p.ack_intents.contains_key("ack/j"));
+        let rebuilt =
+            shuffle::Frontier::decode(p.committed_frontier.clone().expect("frontier")).unwrap();
+        assert_eq!(producer_tags(&rebuilt), vec![0xbb]);
+        // The refreshed legacy checkpoint embeds the FLOOR, clearing the trigger.
         assert!(!p.delete_legacy_checkpoint);
-        assert!(r.pending_ack_intents.contains_key("ack/j"));
+        let refreshed = p.legacy_checkpoint.expect("legacy is maintained");
+        assert_eq!(
+            frontier_mapping::extract_committed_close(&refreshed),
+            Some(FLOOR),
+        );
+
+        // Under drop_v1_rollback the same conversion deletes the legacy instead.
+        let p = reconcile_once(&scanned, &consumer::Checkpoint::default(), true, &index)
+            .unwrap()
+            .expect("conversion produces a persist");
+        assert!(p.delete_legacy_checkpoint);
+        assert!(p.legacy_checkpoint.is_none());
+    }
+
+    /// A V2-written legacy checkpoint whose embedded Clock doesn't match
+    /// `committed_close` is an implementation error (they persist atomically).
+    #[test]
+    fn reconcile_legacy_clock_mismatch_bails() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -500)],
+        );
+        let legacy = close_only_checkpoint(clk(99), "ack/legacy");
+
+        let scanned = baseline(
+            clk(50),
+            committed.clone(),
+            clk(50),
+            committed,
+            [],
+            Some(legacy),
+        );
+        let err =
+            reconcile_once(&scanned, &consumer::Checkpoint::default(), false, &index).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("doesn't match committed_close"),
+            "{err:?}"
+        );
+    }
+
+    /// A connector checkpoint Clock matching neither committed_close nor
+    /// hinted_close — outside the FLOOR adoption epoch — is an implementation
+    /// error.
+    #[test]
+    fn reconcile_connector_clock_mismatch_bails() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -500)],
+        );
+        let connector = close_only_checkpoint(clk(300), "ack/c");
+
+        let scanned = baseline(clk(50), committed.clone(), clk(200), committed, [], None);
+        let err = reconcile_once(&scanned, &connector, false, &index).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("doesn't match committed_close"),
+            "{err:?}"
+        );
+    }
+
+    /// Build a `Baseline` from parts, with ACK intents given as `(journal, bytes)`
+    /// tuples for brevity.
+    fn baseline<const N: usize>(
+        committed_close: uuid::Clock,
+        committed_frontier: shuffle::Frontier,
+        hinted_close: uuid::Clock,
+        hinted_frontier: shuffle::Frontier,
+        ack_intents: [(&str, &[u8]); N],
+        legacy_checkpoint: Option<consumer::Checkpoint>,
+    ) -> Baseline {
+        Baseline {
+            committed_close,
+            committed_frontier,
+            hinted_close,
+            hinted_frontier,
+            ack_intents: ack_intents
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), Bytes::copy_from_slice(v)))
+                .collect(),
+            legacy_checkpoint,
+        }
+    }
+
+    /// Drive `reconcile_loop` against a real RocksDB, as `run` does but
+    /// without the shard-protocol plumbing — one fresh startup, with its own
+    /// adoption latch. Returns the converged, actually-scanned `Baseline` and
+    /// the Persists that were applied. `state_keys` maps binding index =>
+    /// state_key for both the persist encoder and scan decoder.
+    async fn run_reconcile_loop(
+        seed: proto::Persist,
+        connector_checkpoint: consumer::Checkpoint,
+        drop_v1_rollback: bool,
+        index: &[(&str, usize)],
+        state_keys: &[&str],
+    ) -> anyhow::Result<(Baseline, Vec<proto::Persist>)> {
+        let db = crate::shard::rocksdb::RocksDB::open(None).await.unwrap();
+        let db = db.persist(&seed, state_keys).await.unwrap();
+        let (db, recover) = db.scan(state_keys.iter().copied()).await.unwrap();
+        let scanned = Baseline::from_recover(recover)?;
+
+        let mut connector_adopted = false;
+        let ((_, persists), converged) = crate::leader::reconcile_loop(
+            (db, Vec::new()),
+            scanned,
+            |scanned| {
+                reconcile(
+                    scanned,
+                    &connector_checkpoint,
+                    &mut connector_adopted,
+                    drop_v1_rollback,
+                    index,
+                )
+            },
+            |(db, mut persists), persist| async move {
+                let db = db.persist(&persist, state_keys).await?;
+                let (db, recover) = db.scan(state_keys.iter().copied()).await?;
+                persists.push(persist);
+                Ok(((db, persists), Baseline::from_recover(recover)?))
+            },
+        )
+        .await?;
+        Ok((converged, persists))
+    }
+
+    /// A remote-authoritative connector whose checkpoint clock matches
+    /// hinted_close declares the hinted txn committed. The fold persists the
+    /// reconstructed Persist(commit) — making the committed-close advance
+    /// durable — and converges on the second pass via the "matches
+    /// committed_close" branch.
+    #[tokio::test]
+    async fn reconcile_loop_fold_converges() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -500)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -800)],
+        );
+        let seed = proto::Persist {
+            committed_frontier: Some(shuffle::JournalFrontier::encode(&committed.journals)),
+            hinted_frontier: Some(shuffle::JournalFrontier::encode(&hinted.journals)),
+            committed_close_clock: clk(50).as_u64(),
+            hinted_close_clock: clk(200).as_u64(),
+            ..Default::default()
+        };
+        let connector = close_only_checkpoint(clk(200), "ack/c");
+
+        let (converged, persists) =
+            run_reconcile_loop(seed, connector.clone(), false, &index, &["sk-0"])
+                .await
+                .unwrap();
+
+        // The one Persist is the reconstructed Persist(commit): committed_close
+        // advances to hinted_close, the hinted delta is written as committed,
+        // and the connector's ACK intents are adopted, with the resolved `FH:`
+        // hint left in place. Rollback is maintained (!drop_v1_rollback), so
+        // the legacy checkpoint is refreshed verbatim — just as a normal commit
+        // persist would have written it.
+        let [p] = persists.as_slice() else {
+            panic!("expected one persist, got {persists:?}");
+        };
+        assert_eq!(p.committed_close_clock, clk(200).as_u64());
+        assert!(p.delete_ack_intents);
+        assert!(p.ack_intents.contains_key("ack/c"));
+        let delta =
+            shuffle::Frontier::decode(p.committed_frontier.clone().expect("delta")).unwrap();
+        assert_eq!(delta.journals[0].producers[0].offset, -800);
+        assert_eq!(delta.journals[0].producers[0].last_commit, clk(200));
+        assert!(!p.delete_committed_frontier);
+        assert!(!p.delete_hinted_frontier);
+        assert_eq!(p.legacy_checkpoint.as_ref(), Some(&connector));
+
+        // Full converged durable Baseline:
+        assert_eq!(converged.committed_close, clk(200));
+        // committed folded to 0xbb @ T200 / offset -800 (the hinted delta won).
+        assert_eq!(producer_tags(&converged.committed_frontier), vec![0xbb]);
+        let p0 = &converged.committed_frontier.journals[0].producers[0];
+        assert_eq!(p0.last_commit, clk(200));
+        assert_eq!(p0.offset, -800);
+        // The `FH:` hint is left in place (resolved by the covering committed).
+        assert_eq!(producer_tags(&converged.hinted_frontier), vec![0xbb]);
+        assert_eq!(converged.hinted_close, clk(200));
+        // ACK intents are the folded commit's; the refreshed legacy checkpoint
+        // carries the folded close Clock, in sync with committed_close.
+        assert!(converged.ack_intents.contains_key("ack/c"));
+        assert_eq!(
+            frontier_mapping::extract_committed_close(
+                converged.legacy_checkpoint.as_ref().expect("maintained")
+            ),
+            Some(clk(200)),
+        );
+        // Session state: hint resolved, no idempotent replay.
+        let (_, idempotent_replay) = converged.session_state();
+        assert!(!idempotent_replay);
+    }
+
+    /// Conversion of a pure-V1 legacy checkpoint (no embedded committed-close
+    /// clock): the committed frontier and ACK intents are rewritten from the
+    /// checkpoint, the stale hinted frontier is discarded — an orphaned hint
+    /// (its producer absent from the converted frontier, e.g. V1-pruned after
+    /// >24h idle) would otherwise replay from offset 0 — both close Clocks are
+    /// seeded at the FLOOR (regressing the stale V2 clocks of the abandoned
+    /// timeline), and the legacy checkpoint is deleted (drop_v1_rollback).
+    #[tokio::test]
+    async fn reconcile_loop_converts_v1_legacy_and_drops_rollback() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xaa, clk(50), uuid::Clock::zero(), -100)],
+        );
+        // Stale hint of producer 0xaa, absent from the legacy checkpoint.
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xaa, clk(80), uuid::Clock::zero(), -99_999)],
+        );
+        let legacy = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 5000);
+        let seed = proto::Persist {
+            committed_frontier: Some(shuffle::JournalFrontier::encode(&committed.journals)),
+            hinted_frontier: Some(shuffle::JournalFrontier::encode(&hinted.journals)),
+            committed_close_clock: clk(50).as_u64(),
+            hinted_close_clock: clk(80).as_u64(),
+            legacy_checkpoint: Some(legacy),
+            ..Default::default()
+        };
+
+        let (converged, persists) = run_reconcile_loop(
+            seed,
+            consumer::Checkpoint::default(),
+            true, // drop_v1_rollback
+            &index,
+            &["sk-0"],
+        )
+        .await
+        .unwrap();
+
+        // The one Persist clears both frontiers, rewrites committed + ACK
+        // intents, seeds both close Clocks at the FLOOR, and drops the legacy
+        // checkpoint.
+        let [p] = persists.as_slice() else {
+            panic!("expected one persist, got {persists:?}");
+        };
+        assert_eq!(p.committed_close_clock, FLOOR.as_u64());
+        assert_eq!(p.hinted_close_clock, FLOOR.as_u64());
+        assert!(p.delete_committed_frontier);
+        assert!(p.delete_hinted_frontier);
+        assert!(p.delete_legacy_checkpoint);
+        assert!(p.delete_ack_intents);
+        assert!(p.ack_intents.contains_key("ack/j"));
+        let rebuilt =
+            shuffle::Frontier::decode(p.committed_frontier.clone().expect("frontier")).unwrap();
+        assert_eq!(producer_tags(&rebuilt), vec![0xbb]);
+        assert_eq!(rebuilt.journals[0].producers[0].offset, -5000);
+
+        // Full converged durable Baseline and its session projection.
+        assert_eq!(converged.committed_close, FLOOR);
+        assert_eq!(converged.hinted_close, FLOOR);
+        assert_eq!(producer_tags(&converged.committed_frontier), vec![0xbb]);
+        assert!(converged.hinted_frontier.journals.is_empty());
+        assert!(converged.ack_intents.contains_key("ack/j"));
+        assert!(converged.legacy_checkpoint.is_none());
+        let (resume_frontier, idempotent_replay) = converged.session_state();
+        assert!(!idempotent_replay);
+        assert_eq!(resume_frontier.journals[0].producers[0].offset, -5000);
+    }
+
+    /// Adoption of a marker-less connector checkpoint (V1 wrote the endpoint
+    /// last): both frontiers are cleared, committed + ACK intents are rewritten
+    /// from the connector checkpoint, the close Clocks seed at the FLOOR, and a
+    /// maintained legacy checkpoint is written from the connector with the
+    /// FLOOR embedded. Because no Persist can clear the endpoint-side trigger,
+    /// a following startup within the FLOOR epoch re-adopts — one idempotent
+    /// persist — rather than trusting equality that a V1 rollback could break.
+    #[tokio::test]
+    async fn reconcile_loop_adopts_marker_less_connector_checkpoint() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xaa, clk(50), uuid::Clock::zero(), -100)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xaa, clk(80), uuid::Clock::zero(), -99_999)],
+        );
+        let seed = proto::Persist {
+            committed_frontier: Some(shuffle::JournalFrontier::encode(&committed.journals)),
+            hinted_frontier: Some(shuffle::JournalFrontier::encode(&hinted.journals)),
+            committed_close_clock: clk(50).as_u64(),
+            hinted_close_clock: clk(80).as_u64(),
+            ..Default::default()
+        };
+        let connector = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 5000);
+
+        let (converged, persists) =
+            run_reconcile_loop(seed, connector.clone(), false, &index, &["sk-0"])
+                .await
+                .unwrap();
+
+        // The one Persist clears both frontiers, rewrites committed + ACK
+        // intents from the connector checkpoint, and seeds the FLOOR.
+        let [p] = persists.as_slice() else {
+            panic!("expected one persist, got {persists:?}");
+        };
+        assert_eq!(p.committed_close_clock, FLOOR.as_u64());
+        assert_eq!(p.hinted_close_clock, FLOOR.as_u64());
+        assert!(p.delete_committed_frontier);
+        assert!(p.delete_hinted_frontier);
+        assert!(!p.delete_legacy_checkpoint);
+        assert!(p.delete_ack_intents);
+        assert!(p.ack_intents.contains_key("ack/j"));
+        let rebuilt =
+            shuffle::Frontier::decode(p.committed_frontier.clone().expect("frontier")).unwrap();
+        assert_eq!(producer_tags(&rebuilt), vec![0xbb]);
+        assert_eq!(rebuilt.journals[0].producers[0].offset, -5000);
+
+        // Full converged durable Baseline: FLOOR epoch, committed rebuilt to the
+        // sole current producer, hinted discarded, ACKs adopted, and a
+        // maintained legacy checkpoint embedding the FLOOR.
+        assert_eq!(converged.committed_close, FLOOR);
+        assert_eq!(converged.hinted_close, FLOOR);
+        assert_eq!(producer_tags(&converged.committed_frontier), vec![0xbb]);
+        assert_eq!(
+            converged.committed_frontier.journals[0].producers[0].offset,
+            -5000
+        );
+        assert!(converged.hinted_frontier.journals.is_empty());
+        assert!(converged.ack_intents.contains_key("ack/j"));
+        assert_eq!(
+            frontier_mapping::extract_committed_close(
+                converged.legacy_checkpoint.as_ref().expect("maintained")
+            ),
+            Some(FLOOR),
+        );
+        // The orphan 0xaa hint is gone, so no offset-0 re-read and no replay.
+        let (resume_frontier, idempotent_replay) = converged.session_state();
+        assert!(!idempotent_replay);
+        assert_eq!(producer_tags(&resume_frontier), vec![0xbb]);
+        assert_eq!(resume_frontier.journals[0].producers[0].offset, -5000);
+
+        // A "second startup" — the adoption persist is now the seed — re-adopts
+        // the still-marker-less connector checkpoint exactly once, idempotently.
+        let (readopted, persists) =
+            run_reconcile_loop(persists[0].clone(), connector, false, &index, &["sk-0"])
+                .await
+                .unwrap();
+        assert_eq!(persists.len(), 1, "one idempotent re-adoption persist");
+        assert_eq!(readopted.committed_close, FLOOR);
+        assert_eq!(producer_tags(&readopted.committed_frontier), vec![0xbb]);
+    }
+
+    /// Convergence: dropping V1 rollback deletes only the legacy checkpoint and
+    /// leaves everything else intact, converging on the second pass.
+    #[tokio::test]
+    async fn reconcile_loop_drop_rollback_converges() {
+        let index = [("s-a", 0usize)];
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -500)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -500)],
+        );
+        // In-sync legacy checkpoint (committed-close key matches committed_close).
+        let legacy = close_only_checkpoint(clk(50), "ack/legacy");
+        let seed = proto::Persist {
+            committed_frontier: Some(shuffle::JournalFrontier::encode(&committed.journals)),
+            hinted_frontier: Some(shuffle::JournalFrontier::encode(&hinted.journals)),
+            committed_close_clock: clk(50).as_u64(),
+            hinted_close_clock: clk(200).as_u64(),
+            legacy_checkpoint: Some(legacy),
+            ..Default::default()
+        };
+
+        let (converged, persists) = run_reconcile_loop(
+            seed,
+            consumer::Checkpoint::default(),
+            true, // drop_v1_rollback
+            &index,
+            &["sk-0"],
+        )
+        .await
+        .unwrap();
+
+        // The one Persist deletes only the legacy checkpoint.
+        let [p] = persists.as_slice() else {
+            panic!("expected one persist, got {persists:?}");
+        };
+        assert!(p.delete_legacy_checkpoint);
+        assert!(!p.delete_committed_frontier);
+        assert!(!p.delete_hinted_frontier);
+        assert!(p.committed_frontier.is_none());
+        assert!(!p.delete_ack_intents);
+
+        // Only the legacy checkpoint is gone; frontiers and close clocks intact.
+        assert!(converged.legacy_checkpoint.is_none());
+        assert_eq!(converged.committed_close, clk(50));
+        assert_eq!(producer_tags(&converged.committed_frontier), vec![0xbb]);
+        assert_eq!(producer_tags(&converged.hinted_frontier), vec![0xbb]);
+        // The hint still resolves as an idempotent replay from its committed offset.
+        let (resume_frontier, idempotent_replay) = converged.session_state();
+        assert!(idempotent_replay);
+        assert_eq!(resume_frontier.journals[0].producers[0].offset, -500);
+    }
+
+    /// The migration first-commit crash: startup A converted the V1 legacy
+    /// checkpoint (FLOOR seeded, legacy marker embedded) and one-shot adopted
+    /// the endpoint's V1 checkpoint; the session's first transaction then
+    /// persisted its hint, stored the marked checkpoint in the endpoint at
+    /// StartCommit, and crashed pre-Persist(commit). On the next startup the
+    /// legacy marker matches the FLOOR, so conversion does NOT re-fire and the
+    /// hint survives to drive the fold: the delta lands atop the adopted V1
+    /// baseline. No adoption arm for a marked-ahead connector checkpoint is
+    /// needed — Persist(hint) strictly precedes StartCommit, so the marker
+    /// always finds its hint.
+    #[tokio::test]
+    async fn reconcile_loop_folds_migration_first_commit_crash() {
+        let index = [("s-a", 0usize)];
+        // The adopted V1 baseline (0xbb) at the FLOOR, plus the crashed first
+        // transaction's hint (0xcc, the session's own producer) at T200, and
+        // the conversion's legacy refresh embedding the FLOOR marker.
+        let baseline = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(1000), uuid::Clock::zero(), -5000)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xcc, clk(200), uuid::Clock::zero(), -8000)],
+        );
+        let mut legacy = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 5000);
+        let (k, v) = frontier_mapping::encode_committed_close(FLOOR);
+        legacy.sources.insert(k, v);
+
+        let seed = proto::Persist {
+            committed_frontier: Some(shuffle::JournalFrontier::encode(&baseline.journals)),
+            committed_close_clock: FLOOR.as_u64(),
+            hinted_frontier: Some(shuffle::JournalFrontier::encode(&hinted.journals)),
+            hinted_close_clock: clk(200).as_u64(),
+            legacy_checkpoint: Some(legacy),
+            ..Default::default()
+        };
+        // The connector checkpoint written at StartCommit: the full merged
+        // legacy-format checkpoint plus the close key confirming the commit.
+        let mut connector = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 8000);
+        let (k, v) = frontier_mapping::encode_committed_close(clk(200));
+        connector.sources.insert(k, v);
+        connector.ack_intents = [("ack/c".to_string(), Bytes::from_static(b"C"))].into();
+
+        let (converged, persists) = run_reconcile_loop(
+            seed,
+            connector.clone(),
+            false, // rollback maintained
+            &index,
+            &["sk-0"],
+        )
+        .await
+        .unwrap();
+
+        // The one Persist is the fold: committed_close advances to T200, the
+        // hinted delta is written as committed, the connector's ACK intents
+        // are adopted, and the legacy checkpoint is refreshed verbatim.
+        let [p] = persists.as_slice() else {
+            panic!("expected one persist, got {persists:?}");
+        };
+        assert_eq!(p.committed_close_clock, clk(200).as_u64());
+        assert!(!p.delete_committed_frontier);
+        assert!(!p.delete_hinted_frontier);
+        assert!(p.delete_ack_intents);
+        assert!(p.ack_intents.contains_key("ack/c"));
+        assert_eq!(p.legacy_checkpoint.as_ref(), Some(&connector));
+
+        // The folded delta merged atop the V1 baseline: both producers commit.
+        assert_eq!(converged.committed_close, clk(200));
+        assert_eq!(
+            producer_tags(&converged.committed_frontier),
+            vec![0xbb, 0xcc]
+        );
+        assert_eq!(
+            converged.committed_frontier.journals[0].producers[1].offset,
+            -8000
+        );
+        assert!(converged.ack_intents.contains_key("ack/c"));
+        assert_eq!(
+            frontier_mapping::extract_committed_close(
+                converged
+                    .legacy_checkpoint
+                    .as_ref()
+                    .expect("legacy maintained")
+            ),
+            Some(clk(200)),
+        );
+        // The hint is resolved by the covering committed entry: no replay.
+        let (_, idempotent_replay) = converged.session_state();
+        assert!(!idempotent_replay);
+    }
+
+    /// A marked connector checkpoint coexisting with a marker-less legacy
+    /// checkpoint cannot be produced by this code (conversion persists before
+    /// the session's first StartCommit, and a V1 rollback strips the endpoint
+    /// marker before the legacy one) — it's residue of a pre-FLOOR migration
+    /// crash or out-of-model divergence. The conversion fires, and the marked
+    /// connector checkpoint — matching neither seeded Clock — then bails
+    /// loudly rather than being silently adopted. Remediation is a brief V1
+    /// rollback (stripping both markers) before re-migrating.
+    #[tokio::test]
+    async fn reconcile_loop_bails_on_marked_connector_with_v1_legacy() {
+        let index = [("s-a", 0usize)];
+        let legacy = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 5000);
+        let seed = proto::Persist {
+            legacy_checkpoint: Some(legacy),
+            ..Default::default()
+        };
+        let mut connector = authoritative_checkpoint("j/one", "s-a", 0xbb, clk(1000), 8000);
+        let (k, v) = frontier_mapping::encode_committed_close(clk(200));
+        connector.sources.insert(k, v);
+
+        let err = run_reconcile_loop(seed, connector, false, &index, &["sk-0"])
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{err:?}").contains("doesn't match committed_close"),
+            "{err:?}"
+        );
     }
 }
