@@ -295,4 +295,35 @@ mod tests {
         assert_eq!(get_prefix(&collection.stores[0]), "collection-data/");
         assert_eq!(get_prefix(&recovery.stores[0]), "");
     }
+
+    #[test]
+    fn test_strip_clears_root_prefix() {
+        let stripped = strip_collection_data_suffix(models::StorageDef {
+            data_planes: vec!["ops/dp/public/gcp-us-central1".to_string()],
+            stores: vec![
+                gcs_store("bucket-a", "tenant/collection-data/"),
+                gcs_store("bucket-b", "collection-data/"),
+                gcs_store("bucket-c", "tenant/"),
+            ],
+        });
+
+        // A nested prefix keeps its base once the suffix is removed.
+        assert_eq!(get_prefix(&stripped.stores[0]), "tenant/");
+        // A prefix that is *only* the suffix strips to empty, and the store's
+        // prefix is cleared to None rather than left as an empty string. This
+        // is the shape returned to the user when a mapping is created at a bare
+        // tenant root, where the collection spec's prefix is just the suffix.
+        assert!(
+            matches!(&stripped.stores[1], models::Store::Gcs(cfg) if cfg.prefix.is_none()),
+            "expected root prefix to be cleared to None, got: {:?}",
+            stripped.stores[1],
+        );
+        // A prefix without the suffix is left untouched.
+        assert_eq!(get_prefix(&stripped.stores[2]), "tenant/");
+        // Data planes pass through unchanged.
+        assert_eq!(
+            stripped.data_planes,
+            vec!["ops/dp/public/gcp-us-central1".to_string()]
+        );
+    }
 }
