@@ -250,54 +250,18 @@ pub fn extract_committed_close(checkpoint: &consumer::Checkpoint) -> Option<uuid
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::leader::fixtures::{journal_frontier, pf, producer_entry, source};
     use bytes::Bytes;
 
-    fn producer(tag: u8) -> uuid::Producer {
-        uuid::Producer::from_bytes([0x01, tag, 0, 0, 0, 0])
-    }
-
-    fn producer_entry(
-        tag: u8,
-        last_ack: u64,
-        begin: i64,
-    ) -> consumer::checkpoint::source::ProducerEntry {
-        consumer::checkpoint::source::ProducerEntry {
-            id: Bytes::copy_from_slice(producer(tag).as_bytes()),
-            state: Some(consumer::checkpoint::ProducerState { last_ack, begin }),
-        }
-    }
-
-    fn source(
-        read_through: i64,
-        producers: Vec<consumer::checkpoint::source::ProducerEntry>,
-    ) -> consumer::checkpoint::Source {
-        consumer::checkpoint::Source {
-            read_through,
-            producers,
-        }
-    }
-
+    // Checkpoint mapping never reads `hinted_commit`, so these fixtures fix it
+    // at zero and take `last_commit` as a bare u64.
     fn producer_frontier(tag: u8, last_commit: u64, offset: i64) -> shuffle::ProducerFrontier {
-        shuffle::ProducerFrontier {
-            producer: producer(tag),
-            last_commit: uuid::Clock::from_u64(last_commit),
-            hinted_commit: uuid::Clock::zero(),
+        pf(
+            tag,
+            uuid::Clock::from_u64(last_commit),
+            uuid::Clock::zero(),
             offset,
-        }
-    }
-
-    fn journal_frontier(
-        journal: &str,
-        binding: u16,
-        producers: Vec<shuffle::ProducerFrontier>,
-    ) -> shuffle::JournalFrontier {
-        shuffle::JournalFrontier {
-            journal: journal.into(),
-            binding,
-            producers,
-            bytes_read_delta: 0,
-            bytes_behind_delta: 0,
-        }
+        )
     }
 
     #[test]
