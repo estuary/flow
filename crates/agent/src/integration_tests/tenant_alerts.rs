@@ -119,7 +119,10 @@ async fn test_tenant_alerts_happy_path() {
         .assert_alert_firing("deer/alerts/free_trial_ending", AlertType::FreeTrialEnding)
         .await;
     emails.assert_emails_sent(&["deer@new_user_onboarding.test"]);
-    assert_eq!("Next Up: Estuary Paid Tier", &emails.notifications[0].subject);
+    assert_eq!(
+        "Next Up: Estuary Paid Tier",
+        &emails.notifications[0].subject
+    );
 
     sqlx::query(
         r#"insert into stripe.customers (
