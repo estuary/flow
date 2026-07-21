@@ -165,6 +165,20 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 | `/credentials/gcp_service_account_to_impersonate` | GCP Service Account | GCP service account email for Cloud SQL IAM authentication. | string | Required for `GCPIAM` auth |
 | `/credentials/gcp_workload_identity_pool_audience` | Workload Identity Pool Audience | GCP workload identity pool audience. The format should be similar to: `//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/test-pool/providers/test-provider`. | string | Required for `GCPIAM` auth |
 
+##### Discovery Filters
+
+Options that restrict which tables are surfaced by discovery. These take effect
+when discovery runs. If your capture has automatic discovery enabled, a table
+these filters exclude will be deactivated the next time discovery runs.
+
+| Property | Title | Description | Type | Required/Default |
+| --- | --- | --- | --- | --- |
+| `/discoveryFilters` | Discovery Filters | Options that restrict which tables are visible to discovery. | object | |
+| `/discoveryFilters/include_schemas` | Include Schemas | If specified, only tables in the listed schemas are discovered. Combined as a union with the `Discovery Schema Selection` setting under Advanced Options. | string array | |
+| `/discoveryFilters/exclude_schemas` | Exclude Schemas | Tables in the listed schemas are excluded from discovery. | string array | |
+| `/discoveryFilters/table_patterns` | Table Patterns | If specified, only tables matching at least one of these glob patterns are discovered. A pattern containing a `.` matches against the qualified `schema.table` name. A pattern without a `.` matches the unqualified table name in any schema. Use `*` or `?` as wildcards. | string array | |
+| `/discoveryFilters/discover_unpublished_tables` | Discover Unpublished Tables | When set, the capture discovers all tables, including those not currently in the publication. Combined as a union with the equivalent setting under Advanced Options. | boolean | |
+
 ##### Advanced options
 
 | Property | Title | Description | Type | Required/Default |
