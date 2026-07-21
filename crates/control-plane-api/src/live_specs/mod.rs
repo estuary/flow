@@ -3,7 +3,6 @@ mod db;
 use anyhow::Context;
 use models::Capability;
 use std::ops::Deref;
-use uuid::Uuid;
 
 pub use db::{
     InferredSchemaRow, LiveSpec, fetch_expanded_live_specs, fetch_inferred_schemas,
@@ -77,14 +76,14 @@ pub async fn get_live_specs(
 }
 
 pub async fn get_connected_live_specs(
-    user_id: Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
+    permissions_set: &PrefixesAndCapabilities<'_>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let expanded_rows =
-        db::fetch_expanded_live_specs(user_id, collection_names, exclude_names, db).await?;
+        db::fetch_expanded_live_specs(collection_names, exclude_names, db, permissions_set).await?;
     let mut live = tables::LiveCatalog::default();
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {

@@ -1,7 +1,7 @@
 use crate::{TextJson, snapshot::PrefixesAndCapabilities};
 use models::{Capability, CatalogType, Id};
 use serde_json::value::RawValue;
-use sqlx::types::{Json, Uuid};
+use sqlx::types::Json;
 use tables::RoleGrant;
 
 /// Deletes the given live spec row, along with the corresponding `controller_jobs` row.
@@ -127,17 +127,21 @@ pub async fn fetch_inferred_schemas(
 /// Queries for all non-deleted `live_specs` that are connected to the given `collection_names` via
 /// `live_spec_flows`.
 pub async fn fetch_expanded_live_specs(
-    user_id: Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    permissions_set: &PrefixesAndCapabilities<'_>,
 ) -> sqlx::Result<Vec<LiveSpec>> {
+    let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = permissions_set
+        .iter()
+        .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
+        .unzip();
     sqlx::query_as!(
         LiveSpec,
         r#"
         with collections(id) as (
             select ls.id
-            from unnest($2::text[]) as names(catalog_name)
+            from unnest($1::text[]) as names(catalog_name)
             join live_specs ls on ls.catalog_name = names.catalog_name
         ),
         exp(id) as (
@@ -148,6 +152,9 @@ pub async fn fetch_expanded_live_specs(
             select lsf.target_id as id
             from collections c
             join live_spec_flows lsf on c.id = lsf.source_id
+        ),
+        user_roles as materialized (
+            select role_prefix, capability from UNNEST($3::text[], $4::grant_capability[]) as t(role_prefix, capability)
         )
         select
             ls.id as "id: Id",
@@ -160,7 +167,7 @@ pub async fn fetch_expanded_live_specs(
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
             (
-                select max(capability) from internal.user_roles($1) r
+                select max(capability) from user_roles r
                 where starts_with(ls.catalog_name, r.role_prefix)
             ) as "user_capability: Capability",
             coalesce(
@@ -172,11 +179,12 @@ pub async fn fetch_expanded_live_specs(
             ls.dependency_hash
         from exp
         join live_specs ls on ls.id = exp.id
-        where ls.spec is not null and not ls.catalog_name = any($3);
+        where ls.spec is not null and not ls.catalog_name = any($2);
         "#,
-        user_id,
         collection_names as &[&str],
         exclude_names as &[&str],
+        &prefixes,
+        &capabilities as &[Capability],
     )
     .fetch_all(db)
     .await

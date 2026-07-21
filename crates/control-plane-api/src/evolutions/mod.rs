@@ -187,11 +187,11 @@ pub async fn evolve(
         .collect::<Vec<_>>();
     let exclude_names = draft.all_spec_names().collect::<Vec<_>>();
     let expanded_live = crate::live_specs::get_connected_live_specs(
-        user_id,
         &collection_names,
         &exclude_names,
         capability_filter,
         db,
+        &prefixes_and_capabilities,
     )
     .await?;
     draft.add_live(expanded_live);
