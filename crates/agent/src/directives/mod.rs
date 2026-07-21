@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use control_plane_api::{
     directives::{Row, fetch_directive, resolve},
     logs,
@@ -49,13 +51,21 @@ pub enum Directive {
 pub struct DirectiveHandler {
     accounts_user_email: String,
     logs_tx: logs::Tx,
+    /// Live authorization Snapshot watch, retained so tests can force it to
+    /// re-fetch from Postgres after mutating grants. See `refresh_snapshot`.
+    snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
 }
 
 impl DirectiveHandler {
-    pub fn new(accounts_user_email: String, logs_tx: &logs::Tx) -> Self {
+    pub fn new(
+        accounts_user_email: String,
+        logs_tx: &logs::Tx,
+        snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
+    ) -> Self {
         Self {
             accounts_user_email,
             logs_tx: logs_tx.clone(),
+            snapshot_watch,
         }
     }
 }
@@ -133,7 +143,7 @@ impl DirectiveHandler {
             Ok(Directive::ClickToAccept(d)) => click_to_accept::apply(d, row, txn).await?,
             Ok(Directive::AcceptDemoTenant(d)) => accept_demo_tenant::apply(d, row, txn).await?,
             Ok(Directive::StorageMappings(d)) => {
-                storage_mappings::apply(d, row, &self.logs_tx, txn).await?
+                storage_mappings::apply(d, row, &self.logs_tx, txn, &self.snapshot_watch).await?
             }
         };
         Ok(status)
