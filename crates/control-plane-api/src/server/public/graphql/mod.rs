@@ -29,7 +29,7 @@ mod authorized_prefixes;
 pub(crate) mod billing;
 mod data_planes;
 mod filters;
-pub(crate) use data_planes::parse_data_plane_name;
+pub(crate) use data_planes::{parse_data_plane_name, DataPlaneCloudProvider};
 mod connectors;
 pub mod id;
 mod invite_links;
