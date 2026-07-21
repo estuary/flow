@@ -15,6 +15,9 @@ mod materialize;
 pub use service::Service;
 pub use shuffle::{ShuffleServiceFactory, ShuffleSession, ShuffleSessionFactory};
 
+#[cfg(test)]
+pub(crate) mod fixtures;
+
 /// Shard-label feature flag (under the `estuary.dev/flag/` prefix) that, when
 /// set to `"true"`, tells the leader to drop V1 rollback support for the task.
 const DROP_V1_ROLLBACK_FLAG: &str = "drop-runtime-v1-rollback";
