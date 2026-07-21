@@ -105,6 +105,8 @@ pub struct RuntimeV2Rollout {
     pub new_captures: bool,
     /// When true, newly-created materializations without an explicit flag run runtime v2.
     pub new_materializations: bool,
+    /// When true, newly-created derivations without an explicit flag run runtime v2.
+    pub new_derivations: bool,
 }
 
 impl Initialize for RuntimeV2Rollout {
@@ -124,8 +126,9 @@ impl Initialize for RuntimeV2Rollout {
         };
 
         // Gather candidate names across the task types whose rollout is enabled.
-        // Catalog names are globally unique, so captures and materializations
-        // share the single existence query below.
+        // Catalog names are globally unique, so all task types share the single
+        // existence query below. Derivations are collections carrying a `derive`
+        // block, and their shards live at `derive.shards` rather than `shards`.
         let mut candidates = Vec::new();
         if self.new_captures {
             candidates.extend(
@@ -151,6 +154,20 @@ impl Initialize for RuntimeV2Rollout {
                             .is_some_and(|model| is_candidate(row.is_touch, &model.shards))
                     })
                     .map(|row| row.materialization.to_string()),
+            );
+        }
+        if self.new_derivations {
+            candidates.extend(
+                draft
+                    .collections
+                    .iter()
+                    .filter(|row| {
+                        row.model
+                            .as_ref()
+                            .and_then(|model| model.derive.as_ref())
+                            .is_some_and(|derive| is_candidate(row.is_touch, &derive.shards))
+                    })
+                    .map(|row| row.collection.to_string()),
             );
         }
         if candidates.is_empty() {
@@ -198,6 +215,22 @@ impl Initialize for RuntimeV2Rollout {
                     && !existing.contains(row.materialization.as_str())
                 {
                     model
+                        .shards
+                        .flags
+                        .insert(flag.clone(), models::Token::new("true"));
+                }
+            }
+        }
+        if self.new_derivations {
+            for row in draft.collections.iter_mut() {
+                let Some(derive) = row.model.as_mut().and_then(|model| model.derive.as_mut())
+                else {
+                    continue;
+                };
+                if is_candidate(row.is_touch, &derive.shards)
+                    && !existing.contains(row.collection.as_str())
+                {
+                    derive
                         .shards
                         .flags
                         .insert(flag.clone(), models::Token::new("true"));

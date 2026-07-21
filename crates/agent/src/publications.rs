@@ -19,6 +19,8 @@ pub struct PublicationsExecutor {
     pub runtime_v2_new_captures: bool,
     /// When true, newly-created materializations are published onto runtime v2; see [`RuntimeV2Rollout`].
     pub runtime_v2_new_materializations: bool,
+    /// When true, newly-created derivations are published onto runtime v2; see [`RuntimeV2Rollout`].
+    pub runtime_v2_new_derivations: bool,
 }
 
 impl automations::Executor for PublicationsExecutor {
@@ -177,6 +179,7 @@ impl PublicationsExecutor {
                 RuntimeV2Rollout {
                     new_captures: self.runtime_v2_new_captures,
                     new_materializations: self.runtime_v2_new_materializations,
+                    new_derivations: self.runtime_v2_new_derivations,
                 },
                 ExpandDraft {
                     filter_user_has_admin: true,
