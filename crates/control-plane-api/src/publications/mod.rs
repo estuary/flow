@@ -143,7 +143,6 @@ impl PublicationResult {
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct Publisher {
     flowctl_go: std::path::PathBuf,
     builds_root: url::Url,

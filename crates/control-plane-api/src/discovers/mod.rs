@@ -315,7 +315,6 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .iter()
             .map(|b| b.target.to_string())
             .collect::<Vec<_>>();
-        // user_id,
 
         let live = crate::live_specs::get_live_specs(
             &collection_names,

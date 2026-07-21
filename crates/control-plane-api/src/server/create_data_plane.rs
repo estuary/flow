@@ -63,14 +63,15 @@ pub async fn create_data_plane(
         category,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
-    let models::authorizations::ControlClaims { sub: user_id, .. } = env.claims()?;
+    let claims = env.claims()?;
+    let user_id = &claims.sub;
+    let user_email = claims.email.as_deref().unwrap_or("user");
 
-    if !user_can_admin_ops(&app.snapshot_watch, *user_id) {
-        return Err(tonic::Status::permission_denied(
-            "authenticated user is not an admin of the 'ops/' tenant",
-        )
-        .into());
-    }
+    // Authorize against the request's Snapshot (not a fresh watch token) so that
+    // `authorization_outcome` can refresh-and-retry a denial that was decided
+    // from a Snapshot older than the request.
+    let policy_result = evaluate_ops_admin_authorization(env.snapshot(), *user_id, user_email);
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     let (data_plane_fqdn, base_name, pulumi_stack) = match &private {
         None => (
@@ -311,26 +312,37 @@ pub async fn create_data_plane(
     Ok(axum::Json(Response {}))
 }
 
-/// Returns whether `user_id` holds `admin` capability resolving to exactly the
-/// `ops/` tenant, which is required to create a data-plane.
+/// Builds a policy result (for `Envelope::authorization_outcome`) asserting that
+/// `user_id` holds `admin` capability resolving to exactly the `ops/` tenant,
+/// which is required to create a data-plane.
 ///
-/// This is evaluated against the authorization `Snapshot` (as was done for the
-/// storage-mappings directive), replacing the prior
+/// This replaces the prior
 /// `internal.user_roles($user, 'admin') where role_prefix = 'ops/'` SQL check.
 /// Because that check was an *exact* `ops/` match — a data-plane always lives
 /// under `ops/` — this looks for `admin` at precisely the `ops/` prefix, and
 /// deliberately does not accept a grant at an ancestor or a descendant of it.
-pub(super) fn user_can_admin_ops(
-    snapshot_watch: &std::sync::Arc<dyn tokens::Watch<crate::Snapshot>>,
+///
+/// It evaluates against a caller-provided `Snapshot` (the request's Snapshot via
+/// `Envelope::snapshot`) rather than re-reading the watch, so that
+/// `authorization_outcome` can refresh-and-retry a denial decided from a stale
+/// Snapshot.
+pub(super) fn evaluate_ops_admin_authorization(
+    snapshot: &crate::Snapshot,
     user_id: uuid::Uuid,
-) -> bool {
-    let refresh = snapshot_watch.token();
-    let snapshot = refresh.result().unwrap();
-
-    snapshot
+    user_email: &str,
+) -> crate::AuthZResult<()> {
+    let is_ops_admin = snapshot
         .prefix_and_capabilities_per_user(user_id)
         .get("ops/")
-        .is_some_and(|(_bits, legacy)| *legacy >= models::Capability::Admin)
+        .is_some_and(|(_bits, legacy)| *legacy >= models::Capability::Admin);
+
+    if is_ops_admin {
+        Ok((None, ()))
+    } else {
+        Err(tonic::Status::permission_denied(format!(
+            "{user_email} is not an admin of the 'ops/' tenant",
+        )))
+    }
 }
 
 impl Validate for Category {
@@ -345,7 +357,7 @@ impl Validate for Category {
 
 #[cfg(test)]
 mod test {
-    use super::user_can_admin_ops;
+    use super::evaluate_ops_admin_authorization;
 
     // Inserts `user_id` along with the given `user_grants`
     // (as `(object_role, capability)`) and `role_grants` (as
@@ -396,7 +408,9 @@ mod test {
         // snapshot built from the grants inserted above, rather than the empty
         // snapshot used to exercise the server's retry flow.
         let snapshot_watch = crate::test_server::snapshot(pool.clone(), false).await;
-        user_can_admin_ops(&snapshot_watch, user_id)
+        let refresh = snapshot_watch.token();
+        let snapshot = refresh.result().unwrap();
+        evaluate_ops_admin_authorization(snapshot, user_id, "test@example.com").is_ok()
     }
 
     // A user granted `admin` directly on `ops/` is authorized.
