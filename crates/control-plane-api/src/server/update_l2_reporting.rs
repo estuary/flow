@@ -34,13 +34,7 @@ pub async fn update_l2_reporting(
 ) -> Result<axum::Json<Response>, crate::ApiError> {
     let crate::ControlClaims { sub: user_id, .. } = env.claims()?;
 
-    if let None = sqlx::query!(
-        "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
-        user_id,
-    )
-    .fetch_optional(&env.pg_pool)
-    .await?
-    {
+    if !super::create_data_plane::user_can_admin_ops(&app.snapshot_watch, *user_id) {
         return Err(tonic::Status::permission_denied(
             "authenticated user is not an admin of the 'ops/' tenant",
         )

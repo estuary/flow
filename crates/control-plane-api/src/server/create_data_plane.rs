@@ -320,7 +320,7 @@ pub async fn create_data_plane(
 /// Because that check was an *exact* `ops/` match — a data-plane always lives
 /// under `ops/` — this looks for `admin` at precisely the `ops/` prefix, and
 /// deliberately does not accept a grant at an ancestor or a descendant of it.
-fn user_can_admin_ops(
+pub(super) fn user_can_admin_ops(
     snapshot_watch: &std::sync::Arc<dyn tokens::Watch<crate::Snapshot>>,
     user_id: uuid::Uuid,
 ) -> bool {
