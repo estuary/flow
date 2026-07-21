@@ -180,6 +180,12 @@ pub struct TestHarness {
     /// Live authorization Snapshot watch, retained so tests can force it to
     /// re-fetch from Postgres after mutating grants. See `refresh_snapshot`.
     pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
+    /// Write handle for `snapshot_watch`: pushes a freshly-fetched Snapshot into
+    /// the same watch. The harness drives Snapshot refreshes explicitly (see
+    /// `refresh_snapshot`) rather than through `PgSnapshotSource`'s timer-gated
+    /// polling loop, which would otherwise impose a `MIN_REFRESH_INTERVAL`
+    /// cool-off on every refresh.
+    set_snapshot: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
@@ -242,8 +248,19 @@ impl HarnessBuilder {
             eprintln!("end of PUB-LOG");
         });
 
-        let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pool.clone());
-        let snapshot_watch = tokens::watch(snapshot_source).ready_owned().await;
+        // Back the authorization Snapshot with a manually-driven watch rather
+        // than `PgSnapshotSource`'s polling loop. Tests never refresh on a timer;
+        // they push a freshly-fetched Snapshot via `set_snapshot` whenever they
+        // mutate grants (see `refresh_snapshot`), which avoids the source's
+        // `MIN_REFRESH_INTERVAL` cool-off blocking the (real-time) test clock.
+        let (snapshot_pending, snapshot_replace) =
+            tokens::manual::<control_plane_api::Snapshot>();
+        let set_snapshot: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
+            Box::new(move |snapshot| {
+                _ = snapshot_replace(Ok(snapshot));
+            });
+        set_snapshot(TestHarness::fetch_snapshot(&pool).await);
+        let snapshot_watch = snapshot_pending.ready_owned().await;
 
         let mock_connectors = connectors::MockDiscoverConnectors::default();
         let discover_handler =
@@ -287,6 +304,7 @@ impl HarnessBuilder {
             pool,
             publisher,
             snapshot_watch,
+            set_snapshot,
             builds_root,
             discover_handler,
             control_plane,
@@ -555,23 +573,26 @@ impl TestHarness {
         &mut self.control_plane
     }
 
+    /// Fetches the current authorization state from Postgres and builds a
+    /// Snapshot from it. This performs the same query `PgSnapshotSource` runs,
+    /// but without its `MIN_REFRESH_INTERVAL` cool-off, so the harness can
+    /// refresh synchronously and deterministically.
+    async fn fetch_snapshot(pool: &sqlx::PgPool) -> control_plane_api::Snapshot {
+        let mut decrypted_hmac_keys = std::collections::HashMap::new();
+        let data = control_plane_api::snapshot::try_fetch(pool, &mut decrypted_hmac_keys)
+            .await
+            .expect("failed to fetch authorization snapshot");
+        control_plane_api::Snapshot::new(tokens::now(), data)
+    }
+
     /// Forces the in-memory authorization Snapshot to re-fetch from Postgres, so
     /// that grant changes written directly to the DB become visible to publication
-    /// authorization. Integration tests run with paused time and never refresh the
-    /// Snapshot automatically, so grant-mutating helpers call this explicitly.
+    /// authorization. Tests never refresh the Snapshot on a timer, so
+    /// grant-mutating helpers call this explicitly to push the fresh state into
+    /// `snapshot_watch`.
     pub async fn refresh_snapshot(&self) {
-        let current = self.snapshot_watch.token();
-        let Ok(snapshot) = current.result() else {
-            return; // No live Snapshot to revoke; nothing to refresh.
-        };
-        let prev_version = current.version();
-        // Cancelling `revoke` signals `PgSnapshotSource` to re-fetch immediately,
-        // even under paused test time (the trigger is cancellation, not a timer).
-        snapshot.revoke.cancel();
-        // Wait until the watch publishes the newer, re-fetched Snapshot.
-        while self.snapshot_watch.version() == prev_version {
-            tokio::task::yield_now().await;
-        }
+        let snapshot = Self::fetch_snapshot(&self.pool).await;
+        (self.set_snapshot)(snapshot);
     }
 
     /// Setup a new tenant with the given name, and return the id of the user
