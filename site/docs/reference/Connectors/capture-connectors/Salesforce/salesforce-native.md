@@ -158,7 +158,7 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 | `/my_domain` | My Domain | Your Salesforce My Domain login host. Enter the full host ending in .my.salesforce.com to login with your My Domain host. e.g. mycompany.my.salesforce.com, acme--uat.sandbox.my.salesforce.com. Leave blank to log in via the standard login/test endpoint. Required when authenticating with Client Credentials. | string | `""` |
 | `/is_sandbox` | Sandbox | Whether you&#x27;re using a [Salesforce Sandbox](https://help.salesforce.com/s/articleView?id=sf.deploy_sandboxes_parent.htm&type=5). | boolean | `false` |
 | **`/credentials`** | Authentication | Credentials for the chosen [authentication method](#authentication). See the per-method credential properties below. | object | Required |
-| `/advanced/window_size` | Window size | The date window size in days to use when querying the Salesforce APIs. | integer | 18250 |
+| `/advanced/window_size` | Window size | The date window size to use when querying the Salesforce APIs. A bare integer is interpreted as a number of days; otherwise an [ISO 8601 duration](https://en.wikipedia.org/wiki/ISO_8601#Durations) (e.g. `PT1H`) is accepted. | integer or string | 18250 |
 
 ##### Credentials
 
