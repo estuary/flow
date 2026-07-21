@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select data_plane_name as \"data_plane_name!\"\n        from data_planes\n        where starts_with(data_plane_name, $2::text)\n          and data_plane_name <> all($1::text[])\n        order by id desc",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "data_plane_name!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2f0cee1f44c24eee8c3883f0ddeba0008145ed4d074dedf9b5079221c7af45f0"
+}
