@@ -81,7 +81,7 @@ impl Clock {
     }
 
     #[inline]
-    pub fn from_u64(v: u64) -> Self {
+    pub const fn from_u64(v: u64) -> Self {
         Clock(v)
     }
 

@@ -31,11 +31,13 @@ pub(super) struct Actor {
     connector_tx: mpsc::Sender<materialize::Request>,
     // RocksDB and binding state keys, when a Persist is not in flight.
     db: Option<(crate::shard::RocksDB, Vec<String>)>,
-    // RocksDB future when a Persist is in flight.
+    // RocksDB future when a Persist is in flight. Resolves to the reply the
+    // leader awaits: a `Persisted` echo, or (when `rescan`) a fresh
+    // `Recover` reflecting the just-written on-disk state.
     db_persist_fut: Option<
         BoxFuture<
             'static,
-            anyhow::Result<((crate::shard::RocksDB, Vec<String>), proto::Persisted)>,
+            anyhow::Result<((crate::shard::RocksDB, Vec<String>), proto::Materialize)>,
         >,
     >,
     // When true, don't suppress C:Load for keys less-than `max_keys`.
@@ -235,24 +237,21 @@ impl Actor {
                 msg = controller_rx.next() => {
                     self.on_controller_request(msg)?;
                 }
-                // Next, a Persist completion.
+                // Next, a Persist completion. `response` is a `Persisted` echo,
+                // or a fresh `Recover` when the Persist requested a rescan.
                 result = maybe_fut(&mut self.db_persist_fut) => {
-                    let (db, persisted) = result?;
-                    let seq_no = persisted.seq_no;
+                    let (db, response) = result?;
                     self.db = Some(db);
 
                     service_kit::event!(
                         tracing::Level::DEBUG,
                         "leader",
-                        seq_no,
-                        "RocksDB persist completed; sending L:Persisted",
+                        rescan = response.recover.is_some(),
+                        "RocksDB persist completed; replying to leader",
                     );
                     self.metrics.persists.increment(1);
 
-                    _ = self.leader_tx.send(proto::Materialize {
-                        persisted: Some(persisted),
-                        ..Default::default()
-                    });
+                    _ = self.leader_tx.send(response);
                 }
                 // Next, wait for capacity to send to the connector.
                 true = wake_connector_tx => {}
@@ -431,6 +430,7 @@ impl Actor {
             });
         } else if let Some(persist) = msg.persist {
             let seq_no = persist.seq_no;
+            let rescan = persist.rescan;
 
             let (db, binding_state_keys) = self
                 .db
@@ -440,7 +440,27 @@ impl Actor {
             self.db_persist_fut = Some(
                 async move {
                     let db = db.persist(&persist, &binding_state_keys).await?;
-                    Ok(((db, binding_state_keys), proto::Persisted { seq_no }))
+
+                    if !rescan {
+                        let response = proto::Materialize {
+                            persisted: Some(proto::Persisted { seq_no }),
+                            ..Default::default()
+                        };
+                        return Ok(((db, binding_state_keys), response));
+                    }
+
+                    // Rescan Persist (leader startup reconciliation): re-scan the
+                    // freshly-written DB and reply Recover so the leader observes
+                    // the reconciled on-disk state.
+                    let (db, recover) = db
+                        .scan(binding_state_keys.iter())
+                        .await
+                        .context("re-scanning RocksDB after rescan Persist")?;
+                    let response = proto::Materialize {
+                        recover: Some(recover),
+                        ..Default::default()
+                    };
+                    Ok(((db, binding_state_keys), response))
                 }
                 .boxed(),
             );
