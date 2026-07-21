@@ -136,9 +136,11 @@ instead materialized as **timestamptz_ns** columns with nanosecond precision, an
 using [Iceberg format v3](https://iceberg.apache.org/spec/#version-3-extended-types-and-capabilities).
 Make sure your query engine supports format v3 tables before enabling this option.
 
-Toggling the option on an existing materialization applies to data going forward: Iceberg has no
-in-place conversion between the two timestamp encodings, so each timestamp column is re-created
-under the new type, and existing rows read as **null** for those columns. Prior values remain
+Toggling the option in either direction on an existing materialization applies to data going
+forward: Iceberg has no in-place conversion between the two timestamp encodings, so each timestamp
+column is re-created under the new type, and existing rows read as **null** for those columns.
+Enabling the option on an existing format v2 table also upgrades the table to format v3 in place.
+Prior values remain
 readable in the table's earlier snapshots via time travel. To repopulate history under the new
 type, trigger a backfill of the binding, which re-materializes the table from the Flow collection.
 
