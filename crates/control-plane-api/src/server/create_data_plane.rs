@@ -65,13 +65,7 @@ pub async fn create_data_plane(
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
     let models::authorizations::ControlClaims { sub: user_id, .. } = env.claims()?;
 
-    if let None = sqlx::query!(
-        "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
-        user_id,
-    )
-    .fetch_optional(&env.pg_pool)
-    .await?
-    {
+    if !user_can_admin_ops(&app.snapshot_watch, *user_id) {
         return Err(tonic::Status::permission_denied(
             "authenticated user is not an admin of the 'ops/' tenant",
         )
@@ -317,6 +311,28 @@ pub async fn create_data_plane(
     Ok(axum::Json(Response {}))
 }
 
+/// Returns whether `user_id` holds `admin` capability resolving to exactly the
+/// `ops/` tenant, which is required to create a data-plane.
+///
+/// This is evaluated against the authorization `Snapshot` (as was done for the
+/// storage-mappings directive), replacing the prior
+/// `internal.user_roles($user, 'admin') where role_prefix = 'ops/'` SQL check.
+/// Because that check was an *exact* `ops/` match — a data-plane always lives
+/// under `ops/` — this looks for `admin` at precisely the `ops/` prefix, and
+/// deliberately does not accept a grant at an ancestor or a descendant of it.
+fn user_can_admin_ops(
+    snapshot_watch: &std::sync::Arc<dyn tokens::Watch<crate::Snapshot>>,
+    user_id: uuid::Uuid,
+) -> bool {
+    let refresh = snapshot_watch.token();
+    let snapshot = refresh.result().unwrap();
+
+    snapshot
+        .prefix_and_capabilities_per_user(user_id)
+        .get("ops/")
+        .is_some_and(|(_bits, legacy)| *legacy >= models::Capability::Admin)
+}
+
 impl Validate for Category {
     fn validate(&self) -> Result<(), validator::ValidationErrors> {
         if let Self::Manual(manual) = &self {
@@ -324,5 +340,117 @@ impl Validate for Category {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::user_can_admin_ops;
+
+    // Inserts `user_id` along with the given `user_grants`
+    // (as `(object_role, capability)`) and `role_grants` (as
+    // `(subject_role, object_role, capability)`), builds an authorization
+    // Snapshot from that database state, then evaluates the `ops/` admin check
+    // for that user. Running through a real Snapshot built from real grants
+    // proves the snapshot-based check preserves the prior SQL behavior across
+    // every scenario below.
+    async fn eval(
+        pool: &sqlx::PgPool,
+        user_id: uuid::Uuid,
+        user_grants: &[(&str, &str)],
+        role_grants: &[(&str, &str, &str)],
+    ) -> bool {
+        sqlx::query("insert into auth.users (id, email) values ($1, $2)")
+            .bind(user_id)
+            .bind(format!("{user_id}@example.com"))
+            .execute(pool)
+            .await
+            .unwrap();
+
+        for (object_role, capability) in user_grants {
+            sqlx::query(
+                "insert into user_grants (user_id, object_role, capability)
+                 values ($1, $2, $3::grant_capability)",
+            )
+            .bind(user_id)
+            .bind(object_role)
+            .bind(capability)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        for (subject_role, object_role, capability) in role_grants {
+            sqlx::query(
+                "insert into role_grants (subject_role, object_role, capability)
+                 values ($1, $2, $3::grant_capability)",
+            )
+            .bind(subject_role)
+            .bind(object_role)
+            .bind(capability)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+
+        // `gate: false` so the first (and only) refresh serves the real
+        // snapshot built from the grants inserted above, rather than the empty
+        // snapshot used to exercise the server's retry flow.
+        let snapshot_watch = crate::test_server::snapshot(pool.clone(), false).await;
+        user_can_admin_ops(&snapshot_watch, user_id)
+    }
+
+    // A user granted `admin` directly on `ops/` is authorized.
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn admin_directly_on_ops_is_authorized(pool: sqlx::PgPool) {
+        let user_id = uuid::Uuid::from_bytes([1; 16]);
+        assert!(eval(&pool, user_id, &[("ops/", "admin")], &[]).await);
+    }
+
+    // A user reaching `admin` on `ops/` transitively through a role grant
+    // (e.g. an `estuary_support/` role that is itself granted admin over `ops/`)
+    // is authorized. This exercises the recursive expansion in `user_roles`.
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn admin_on_ops_via_role_grant_is_authorized(pool: sqlx::PgPool) {
+        let user_id = uuid::Uuid::from_bytes([2; 16]);
+        assert!(
+            eval(
+                &pool,
+                user_id,
+                &[("estuary_support/", "admin")],
+                &[("estuary_support/", "ops/", "admin")],
+            )
+            .await
+        );
+    }
+
+    // Admin over a *sub-prefix* of `ops/` (e.g. `ops/dp/`) does NOT authorize:
+    // the check is an exact `role_prefix = 'ops/'` match, not a prefix match.
+    // This deliberately differs from the storage-mappings sub-prefix behavior,
+    // and pins it so a later snapshot refactor cannot silently loosen it.
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn admin_on_sub_prefix_of_ops_is_denied(pool: sqlx::PgPool) {
+        let user_id = uuid::Uuid::from_bytes([3; 16]);
+        assert!(!eval(&pool, user_id, &[("ops/dp/", "admin")], &[]).await);
+    }
+
+    // A capability below `admin` on `ops/` is not enough.
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn write_on_ops_is_denied(pool: sqlx::PgPool) {
+        let user_id = uuid::Uuid::from_bytes([4; 16]);
+        assert!(!eval(&pool, user_id, &[("ops/", "write")], &[]).await);
+    }
+
+    // Admin over an unrelated tenant confers no authority over `ops/`.
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn admin_on_unrelated_tenant_is_denied(pool: sqlx::PgPool) {
+        let user_id = uuid::Uuid::from_bytes([5; 16]);
+        assert!(!eval(&pool, user_id, &[("aliceCo/", "admin")], &[]).await);
+    }
+
+    // A user with no grants at all is denied.
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn no_grants_is_denied(pool: sqlx::PgPool) {
+        let user_id = uuid::Uuid::from_bytes([6; 16]);
+        assert!(!eval(&pool, user_id, &[], &[]).await);
     }
 }
