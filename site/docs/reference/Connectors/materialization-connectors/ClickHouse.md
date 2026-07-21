@@ -1,5 +1,5 @@
 ---
-description: Materialize data collections directly into ClickHouse using the native protocol. Handles hard and soft deletes, merge and delta updates, and sync schedules.
+description: Materialize data collections directly into ClickHouse using the native protocol. Handles hard and soft deletes, merge and delta updates, custom partitioning, and sync schedules.
 ---
 
 # ClickHouse
@@ -84,6 +84,7 @@ Use the below properties to configure a ClickHouse materialization, which will d
 |---|---|---|---|---|
 | **`/table`** | Table | Name of the database table to materialize to. The connector will create the table if it doesn't already exist. | string | Required |
 | `/delta_updates` | Delta Update | Should updates to this table be done via delta updates. | boolean | `false` |
+| `/partition_by` | Partition By | Optional expression to use as the table's `PARTITION BY` clause, for example `toYYYYMM(flow_published_at)`. Changing this value requires backfilling the binding. See [custom partitioning](#custom-partitioning). | string | |
 
 ### Sample
 
@@ -143,3 +144,28 @@ Removing tombstoned rows is a background task in the ClickHouse server, configur
 ## Delta updates
 
 This connector supports [delta updates](/concepts/materialization/#delta-updates) on a per-binding basis. When `delta_updates` is enabled for a binding, the table uses the `MergeTree` engine instead of `ReplacingMergeTree`. Every store operation is appended as-is with no deduplication — rows accumulate and are never removed.
+
+## Custom partitioning
+
+By default, tables created by the connector are not partitioned.
+To set a custom [partitioning key](https://clickhouse.com/docs/engines/table-engines/mergetree-family/custom-partitioning-key), specify the `partition_by` property on a binding.
+The value is a ClickHouse SQL expression over the table's columns, used verbatim as the table's `PARTITION BY` clause:
+
+```yaml
+bindings:
+  - resource:
+      table: my_table
+      partition_by: toYYYYMM(flow_published_at)
+    source: ${PREFIX}/${source_collection}
+```
+
+Partitioning applies to both standard and delta updates bindings.
+The expression is verified against your ClickHouse server when the materialization is published, so mistakes such as a typo or a reference to a field that isn't part of the materialization are caught before the table is created.
+
+Keep the expression low-cardinality: ClickHouse recommends keeping the total number of partitions well under 1,000, and by default rejects inserts that span more than 100 partitions in a single block.
+A hash-bucket expression such as `cityHash64(my_field) % 64` is a good fit for high-cardinality fields.
+
+ClickHouse only accepts a partitioning key when a table is created; it cannot be changed with `ALTER TABLE`. As a result:
+
+- Changing `partition_by` on an existing binding requires backfilling the binding, which drops and re-creates the table with the new partitioning key.
+- A column referenced by the partitioning key cannot change its type in place. If the collection's schema evolves such a column to a new type, backfill the binding to re-create the table.
