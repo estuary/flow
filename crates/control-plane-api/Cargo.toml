@@ -48,6 +48,7 @@ colored_json = { workspace = true }
 derivative = { workspace = true }
 enumset = { workspace = true }
 futures = { workspace = true }
+hex = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 itertools = { workspace = true }
@@ -61,7 +62,6 @@ schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-hex = { workspace = true }
 sqlx = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
