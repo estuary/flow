@@ -134,7 +134,7 @@ jobs:
       - run: mise run ci:doctest
       - run: mise run ci:gotest
       - run: mise run ci:catalog-test
-      - run: mise run build:flow-schema
+      - run: mise run ci:flow-schema-check
 
       # Run last so its flakiness can't skip the test steps above. It still gates
       # the job on failure, surfacing genuine Stripe regressions.
