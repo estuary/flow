@@ -4,16 +4,9 @@ use async_graphql::{
 };
 use std::collections::HashMap;
 
-const DEFAULT_PAGE_SIZE: usize = 50;
+pub(crate) use crate::data_plane::{DataPlaneCloudProvider, parse_data_plane_name};
 
-/// Cloud provider where the data plane is hosted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
-pub enum DataPlaneCloudProvider {
-    Aws,
-    Azure,
-    Gcp,
-    Local,
-}
+const DEFAULT_PAGE_SIZE: usize = 50;
 
 /// Controller-observed provisioning status of a configured private link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
@@ -310,62 +303,6 @@ struct DataPlaneDetails {
     aws_link_endpoints: Vec<serde_json::Value>,
     azure_link_endpoints: Vec<serde_json::Value>,
     gcp_psc_endpoints: Vec<serde_json::Value>,
-}
-
-/// Parses a data plane name into its component parts.
-/// Returns None if the name format is invalid.
-///
-/// Expected formats:
-/// - Cloud: "ops/dp/public/aws-us-east-1-c1" or "ops/dp/private/gcp-us-central1-c2"
-/// - Local: "ops/dp/local/local-foo" (any suffix after "local-")
-pub(crate) fn parse_data_plane_name(
-    name: &str,
-) -> Option<(DataPlaneCloudProvider, String, String, bool)> {
-    let last_segment = name.rsplit('/').next()?;
-    let (provider_str, after_provider) = last_segment.split_once('-')?;
-
-    match provider_str {
-        "local" => Some((
-            DataPlaneCloudProvider::Local,
-            "local".to_string(),
-            "c1".to_string(),
-            true,
-        )),
-        "aws" | "az" | "azure" | "gcp" => {
-            // Must have privacy indicator in path.
-            if !name.contains("ops/dp/private/") && !name.starts_with("ops/dp/public/") {
-                return None;
-            }
-
-            // Parse tag (cluster) suffix (e.g., "-c1", "-c5").
-            let idx = after_provider.rfind("-c")?;
-            let tag = &after_provider[idx + 1..];
-            if tag.len() < 2 || !tag[1..].chars().all(|c| c.is_ascii_digit()) {
-                return None;
-            }
-
-            let region = &after_provider[..idx];
-            if region.is_empty() {
-                return None;
-            }
-
-            let cloud_provider = match provider_str {
-                "aws" => DataPlaneCloudProvider::Aws,
-                "az" | "azure" => DataPlaneCloudProvider::Azure,
-                "gcp" => DataPlaneCloudProvider::Gcp,
-                _ => unreachable!(),
-            };
-
-            let is_public = name.starts_with("ops/dp/public/");
-            Some((
-                cloud_provider,
-                region.to_string(),
-                tag.to_string(),
-                is_public,
-            ))
-        }
-        _ => None,
-    }
 }
 
 /// A public data plane, as visible to unauthenticated callers.
@@ -1530,62 +1467,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn parses_aws_public() {
-        let (provider, region, tag, is_public) =
-            parse_data_plane_name("ops/dp/public/aws-us-east-1-c1").unwrap();
-        assert_eq!(provider, DataPlaneCloudProvider::Aws);
-        assert_eq!(region, "us-east-1");
-        assert_eq!(tag, "c1");
-        assert!(is_public);
-    }
-
-    #[test]
-    fn parses_gcp_private() {
-        let (provider, region, tag, is_public) =
-            parse_data_plane_name("ops/dp/private/estuary/gcp-us-central1-c5").unwrap();
-        assert_eq!(provider, DataPlaneCloudProvider::Gcp);
-        assert_eq!(region, "us-central1");
-        assert_eq!(tag, "c5");
-        assert!(!is_public);
-    }
-
-    #[test]
-    fn parses_azure_variants() {
-        // "az" prefix
-        let (provider, region, tag, _) =
-            parse_data_plane_name("ops/dp/private/EastPack/az-australiaeast-c1").unwrap();
-        assert_eq!(provider, DataPlaneCloudProvider::Azure);
-        assert_eq!(region, "australiaeast");
-        assert_eq!(tag, "c1");
-
-        // "azure" prefix
-        let (provider, region, tag, _) =
-            parse_data_plane_name("ops/dp/private/AccumTech/azure-eastus-c1").unwrap();
-        assert_eq!(provider, DataPlaneCloudProvider::Azure);
-        assert_eq!(region, "eastus");
-        assert_eq!(tag, "c1");
-    }
-
-    #[test]
-    fn parses_local() {
-        let (provider, region, tag, is_public) =
-            parse_data_plane_name("ops/dp/local/local-foo").unwrap();
-        assert_eq!(provider, DataPlaneCloudProvider::Local);
-        assert_eq!(region, "local");
-        assert_eq!(tag, "c1");
-        assert!(is_public);
-    }
-
-    #[test]
-    fn rejects_invalid_names() {
-        // Missing privacy indicator
-        assert!(parse_data_plane_name("ops/dp/aws-us-east-1-c1").is_none());
-        // Unknown provider
-        assert!(parse_data_plane_name("ops/dp/public/unknown-us-east-1-c1").is_none());
-        // Missing cluster suffix
-        assert!(parse_data_plane_name("ops/dp/public/aws-us-east-1").is_none());
-        // Non-numeric cluster
-        assert!(parse_data_plane_name("ops/dp/public/aws-us-east-1-ca").is_none());
-    }
 }

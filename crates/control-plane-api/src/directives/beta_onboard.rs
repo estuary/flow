@@ -63,6 +63,9 @@ pub async fn tenant_exists(
 /// The plane new tenants default to when signup carries no data-plane choice.
 pub const DEFAULT_PUBLIC_DATA_PLANE: &str = "ops/dp/public/aws-us-east-1-c1";
 
+/// Prefix identifying a data-plane's catalog name as public.
+pub const PUBLIC_DATA_PLANE_PREFIX: &str = "ops/dp/public/";
+
 /// Deprecated planes excluded from new-tenant storage mappings.
 /// gcp-us-central1-c1 (combustible-cronut) and its successor c2 are being
 /// deprecated and replaced.
@@ -70,6 +73,13 @@ pub const EXCLUDED_PUBLIC_DATA_PLANES: &[&str] = &[
     "ops/dp/public/gcp-us-central1-c1",
     "ops/dp/public/gcp-us-central1-c2",
 ];
+
+/// True if `name` names a non-deprecated public data-plane by convention
+/// (prefix and exclusion list only — does not check that a `data_planes` row
+/// with this name actually exists).
+pub fn is_selectable_public_plane(name: &str) -> bool {
+    name.starts_with(PUBLIC_DATA_PLANE_PREFIX) && !EXCLUDED_PUBLIC_DATA_PLANES.contains(&name)
+}
 
 /// Stable-sorts `planes` (already ordered id desc) so `default_plane` is
 /// first; the first entry of a storage mapping's data_planes is the default.
@@ -89,7 +99,7 @@ fn storage_specs(
     all_planes: &[String],
     colocate: bool,
 ) -> (serde_json::Value, serde_json::Value) {
-    use crate::server::public::graphql::{parse_data_plane_name, DataPlaneCloudProvider};
+    use crate::data_plane::{DataPlaneCloudProvider, parse_data_plane_name};
 
     let s3 = match default_plane {
         Some(name) if colocate => match parse_data_plane_name(name) {
@@ -146,10 +156,11 @@ pub async fn provision_tenant(
     let public_planes: Vec<String> = sqlx::query_scalar!(
         r#"select data_plane_name as "data_plane_name!"
         from data_planes
-        where starts_with(data_plane_name, 'ops/dp/public/')
+        where starts_with(data_plane_name, $2::text)
           and data_plane_name <> all($1::text[])
         order by id desc"#,
         &excluded,
+        PUBLIC_DATA_PLANE_PREFIX,
     )
     .fetch_all(&mut **txn)
     .await?;

@@ -29,9 +29,14 @@ pub struct Claims {
 /// Colocated trial buckets are gated until est-dry-dock has created the
 /// per-plane buckets (est-dry-dock#326) and real public planes have
 /// converged. Flipping this on before then would point new tenants at
-/// buckets that don't exist.
+/// buckets that don't exist. Read once and cached: the process environment
+/// doesn't change between reads, so there's no reason to re-parse it on
+/// every signup.
 fn colocate_trial_buckets_enabled() -> bool {
-    std::env::var("COLOCATED_TRIAL_BUCKETS").is_ok_and(|v| v == "1" || v == "true")
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("COLOCATED_TRIAL_BUCKETS").is_ok_and(|v| v == "1" || v == "true")
+    })
 }
 
 #[tracing::instrument(skip_all, fields(directive, row.claims))]
@@ -79,9 +84,8 @@ pub async fn apply(
     // existing, non-deprecated public data-plane before it can become the
     // tenant's default.
     if let Some(requested) = requested_data_plane.as_deref() {
-        let is_selectable = requested.starts_with("ops/dp/public/")
-            && !control_plane_api::directives::beta_onboard::EXCLUDED_PUBLIC_DATA_PLANES
-                .contains(&requested);
+        let is_selectable =
+            control_plane_api::directives::beta_onboard::is_selectable_public_plane(requested);
         let exists = is_selectable
             && sqlx::query_scalar!(
                 r#"select true as "exists!" from data_planes where data_plane_name = $1"#,
