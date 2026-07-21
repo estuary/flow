@@ -1,6 +1,6 @@
-use crate::TextJson as Json;
+use crate::{TextJson as Json, snapshot::PrefixesAndCapabilities};
 use chrono::{DateTime, Utc};
-use models::{CatalogType, Id};
+use models::{Capability, CatalogType, Id};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
@@ -79,15 +79,24 @@ pub struct SpecRow {
 /// bindings. Technically, we could implement that filtering as part of the sql
 /// query, but the extra complexity doesn't seem warranted at this time.
 pub async fn resolve_specs(
-    user_id: Uuid,
     draft_id: Id,
     collection_names: Vec<String>,
+    permissions_set: &PrefixesAndCapabilities<'_>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<Vec<SpecRow>> {
+    // Doing the filter before handing this off to the query to reduce the amount of data being sent to the db.
+    let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = permissions_set
+        .iter()
+        .filter(|(_prefix, capabilities)| capabilities.1 >= Capability::Admin)
+        .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
+        .unzip();
     sqlx::query_as!(
         SpecRow,
         r#"
-        with drafted as (
+        with user_roles as materialized (
+            select role_prefix, capability from UNNEST($3::text[], $4::grant_capability[]) as t(role_prefix, capability)
+        ),
+        drafted as (
             select
                 ds.catalog_name,
                 ds.id as draft_spec_id,
@@ -100,11 +109,11 @@ pub async fn resolve_specs(
             left join live_specs ls
                 on ds.catalog_name = ls.catalog_name
                 -- filter out live_specs rows that the user does not have admin access to
-                and exists (select 1 from internal.user_roles($2, 'admin') r where ls.catalog_name ^@ r.role_prefix)
+                and exists (select 1 from user_roles r where ls.catalog_name ^@ r.role_prefix)
             where ds.draft_id = $1
         ),
         not_drafted as (
-            select catalog_name from unnest($3::text[]) as names(catalog_name)
+            select catalog_name from unnest($2::text[]) as names(catalog_name)
             except
             select catalog_name from drafted
         ),
@@ -119,7 +128,7 @@ pub async fn resolve_specs(
             join live_specs ls on not_drafted.catalog_name = ls.catalog_name
             where
                 -- filter out live_specs rows that the user does not have admin access to
-                exists (select 1 from internal.user_roles($2, 'admin') r where ls.catalog_name ^@ r.role_prefix)
+                exists (select 1 from user_roles r where ls.catalog_name ^@ r.role_prefix)
         )
         select
             catalog_name as "catalog_name!: String",
@@ -142,8 +151,9 @@ pub async fn resolve_specs(
         from live
         "#,
         draft_id as Id,
-        user_id as Uuid,
         collection_names as Vec<String>,
+        &prefixes,
+        &capabilities as &[Capability],
     ).fetch_all(&mut **txn)
     .await
 }
