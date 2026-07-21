@@ -1,0 +1,119 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with user_roles as materialized (\n            select role_prefix, capability from UNNEST($3::text[], $4::grant_capability[]) as t(role_prefix, capability)\n        ),\n        drafted as (\n            select\n                ds.catalog_name,\n                ds.id as draft_spec_id,\n                ls.id as live_spec_id,\n                ds.expect_pub_id,\n                ls.last_pub_id as last_pub_id,\n                ds.spec as spec,\n                ds.spec_type as spec_type\n            from draft_specs ds\n            left join live_specs ls\n                on ds.catalog_name = ls.catalog_name\n                -- filter out live_specs rows that the user does not have admin access to\n                and exists (select 1 from user_roles r where ls.catalog_name ^@ r.role_prefix)\n            where ds.draft_id = $1\n        ),\n        not_drafted as (\n            select catalog_name from unnest($2::text[]) as names(catalog_name)\n            except\n            select catalog_name from drafted\n        ),\n        live as (\n            select\n                ls.catalog_name,\n                ls.spec,\n                ls.spec_type,\n                ls.last_pub_id,\n                ls.id\n            from not_drafted\n            join live_specs ls on not_drafted.catalog_name = ls.catalog_name\n            where\n                -- filter out live_specs rows that the user does not have admin access to\n                exists (select 1 from user_roles r where ls.catalog_name ^@ r.role_prefix)\n        )\n        select\n            catalog_name as \"catalog_name!: String\",\n            draft_spec_id as \"draft_spec_id: Id\",\n            live_spec_id as \"live_spec_id: Id\",\n            expect_pub_id as \"expect_pub_id: Id\",\n            last_pub_id as \"last_pub_id: Id\",\n            spec as \"spec: Json<Box<RawValue>>\",\n            spec_type as \"spec_type: CatalogType\"\n        from drafted\n        union all\n        select\n            catalog_name as \"catalog_name!: String\",\n            null as \"draft_spec_id: Id\",\n            id as \"live_spec_id: Id\",\n            null as \"expect_pub_id: Id\",\n            last_pub_id as \"last_pub_id: Id\",\n            spec as \"spec: Json<Box<RawValue>>\",\n            spec_type as \"spec_type: CatalogType\"\n        from live\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "draft_spec_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "live_spec_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 3,
+        "name": "expect_pub_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_pub_id: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 5,
+        "name": "spec: Json<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 6,
+        "name": "spec_type: CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "TextArray",
+        "TextArray",
+        {
+          "Custom": {
+            "name": "grant_capability[]",
+            "kind": {
+              "Array": {
+                "Custom": {
+                  "name": "grant_capability",
+                  "kind": {
+                    "Enum": [
+                      "none",
+                      "x_01",
+                      "x_02",
+                      "x_03",
+                      "x_04",
+                      "x_05",
+                      "x_06",
+                      "x_07",
+                      "x_08",
+                      "x_09",
+                      "read",
+                      "x_11",
+                      "x_12",
+                      "x_13",
+                      "x_14",
+                      "x_15",
+                      "x_16",
+                      "x_17",
+                      "x_18",
+                      "x_19",
+                      "write",
+                      "x_21",
+                      "x_22",
+                      "x_23",
+                      "x_24",
+                      "x_25",
+                      "x_26",
+                      "x_27",
+                      "x_28",
+                      "x_29",
+                      "admin"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "11ea317b38e527c944bf58ef38e41840a1743da8a5d1863156d6207853b19186"
+}
