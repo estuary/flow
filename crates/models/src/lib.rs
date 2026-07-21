@@ -72,7 +72,7 @@ pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Sour
 pub use source_capture::{SourceDef, SourceType, TargetNaming};
 pub use tests::{TestDef, TestDocuments, TestStep, TestStepIngest, TestStepVerify};
 pub use triggers::{
-    HttpMethod, TriggerConfig, TriggerVariables, Triggers, build_template_context,
+    HttpMethod, TriggerConfig, TriggerConfigs, TriggerVariables, Triggers, build_template_context,
     render_payload_template, triggers_schema,
 };
 

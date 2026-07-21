@@ -1058,30 +1058,28 @@ fn temporary_group_by_migration(
         .collect()
 }
 
-fn validate_triggers(
-    scope: Scope,
-    triggers: &std::collections::BTreeMap<models::Token, models::TriggerConfig>,
-    errors: &mut tables::Errors,
-) {
+fn validate_triggers(scope: Scope, triggers: &models::TriggerConfigs, errors: &mut tables::Errors) {
     let placeholder = models::TriggerVariables::placeholder();
     let scope = scope.push_prop("config");
 
-    for (name, trigger) in triggers.iter() {
-        let scope = scope.push_prop(name);
+    // `iter_named` synthesizes `trigger{N}` names for a legacy (list-shaped)
+    // config, so validation is uniform across both shapes.
+    for (name, trigger) in triggers.iter_named() {
+        let scope = scope.push_prop(&name);
 
-        crate::indexed::walk_name(scope, "trigger", name, models::Token::regex(), errors);
+        crate::indexed::walk_name(scope, "trigger", &name, models::Token::regex(), errors);
 
         match url::Url::parse(&trigger.url) {
             Err(err) => {
                 Error::TriggerInvalidUrl {
-                    name: name.to_string(),
+                    name: name.clone(),
                     detail: err.to_string(),
                 }
                 .push(scope, errors);
             }
             Ok(url) if url.scheme() != "http" && url.scheme() != "https" => {
                 Error::TriggerInvalidUrl {
-                    name: name.to_string(),
+                    name: name.clone(),
                     detail: format!(
                         "unsupported scheme '{}', must be http or https",
                         url.scheme()
@@ -1093,10 +1091,7 @@ fn validate_triggers(
         }
 
         if trigger.timeout.is_zero() {
-            Error::TriggerInvalidTimeout {
-                name: name.to_string(),
-            }
-            .push(scope, errors);
+            Error::TriggerInvalidTimeout { name: name.clone() }.push(scope, errors);
         }
 
         // Use the trigger's header keys with placeholder values so that

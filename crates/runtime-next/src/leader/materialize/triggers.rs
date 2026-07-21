@@ -13,11 +13,8 @@ impl CompiledTriggers {
     /// Compile all trigger payload templates into a shared Handlebars registry,
     /// keyed on each trigger's user-assigned name.
     pub fn compile(triggers: models::Triggers) -> anyhow::Result<Self> {
-        let models::Triggers {
-            interval,
-            config: configs,
-            sops: _,
-        } = triggers;
+        let interval = triggers.interval;
+        let configs = triggers.config.into_map();
 
         let mut registry = handlebars::Handlebars::new();
         registry.set_strict_mode(true);

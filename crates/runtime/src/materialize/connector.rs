@@ -180,21 +180,9 @@ pub async fn start<L: LogHandler>(
     let compiled_triggers = match triggers_json {
         None => None,
         Some(triggers_json) => {
-            let sealed: Box<models::RawValue> =
-                serde_json::from_slice(triggers_json).context("parsing triggers JSON")?;
-            let schema = serde_json::to_vec(&models::triggers_schema())
-                .expect("triggers schema must serialize");
-
-            let decrypted: models::Triggers = serde_json::from_str(
-                unseal::overlay::decrypt_with_overlay(&sealed, &schema)
-                    .await
-                    .context("decrypting triggers_json")?
-                    .get(),
-            )
-            .context("parsing decrypted triggers JSON")?;
-
+            let decrypted = decrypt_triggers(triggers_json).await?;
             Some(
-                CompiledTriggers::compile(decrypted.config)
+                CompiledTriggers::compile(decrypted.config.into_map())
                     .context("compiling trigger templates")?,
             )
         }
@@ -208,6 +196,51 @@ pub async fn start<L: LogHandler>(
     connector_tx.try_send(initial).unwrap();
 
     Ok((connector_tx, connector_rx, open_extras))
+}
+
+/// Decrypt a sealed `triggers_json` into its plaintext model.
+///
+/// New configs decrypt through the `sops.overlay` path. Legacy (pre-overlay)
+/// configs — recognized by a list-shaped `config` — are decrypted through the
+/// old HMAC-exclusion path instead, since their MAC was computed over a
+/// placeholder-stripped document. This compatibility branch is removed once no
+/// legacy configs remain.
+async fn decrypt_triggers(triggers_json: &[u8]) -> anyhow::Result<models::Triggers> {
+    let probe: serde_json::Value =
+        serde_json::from_slice(triggers_json).context("parsing triggers JSON")?;
+
+    if probe.get("config").is_some_and(|c| c.is_array()) {
+        let mut legacy: models::triggers::LegacyTriggers =
+            serde_json::from_value(probe).context("parsing legacy triggers JSON")?;
+        let originals = models::triggers::strip_hmac_excluded_fields(&mut legacy);
+        let stripped = models::RawValue::from_string(
+            serde_json::to_string(&legacy).context("serializing stripped triggers")?,
+        )
+        .expect("stripped triggers serialize to JSON");
+
+        let mut decrypted: models::triggers::LegacyTriggers = serde_json::from_str(
+            unseal::decrypt_sops(&stripped)
+                .await
+                .context("decrypting legacy triggers_json")?
+                .get(),
+        )
+        .context("parsing decrypted legacy triggers JSON")?;
+        models::triggers::restore_hmac_excluded_fields(&mut decrypted, originals);
+        return Ok(decrypted.into_triggers());
+    }
+
+    let sealed: Box<models::RawValue> =
+        serde_json::from_slice(triggers_json).context("parsing triggers JSON")?;
+    let schema =
+        serde_json::to_vec(&models::triggers_schema()).expect("triggers schema must serialize");
+
+    serde_json::from_str(
+        unseal::overlay::decrypt_with_overlay(&sealed, &schema)
+            .await
+            .context("decrypting triggers_json")?
+            .get(),
+    )
+    .context("parsing decrypted triggers JSON")
 }
 
 fn extract_endpoint<'r>(
