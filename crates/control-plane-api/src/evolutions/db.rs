@@ -1,4 +1,4 @@
-use crate::{TextJson as Json, snapshot::PrefixesAndCapabilities};
+use crate::TextJson as Json;
 use chrono::{DateTime, Utc};
 use models::{Capability, CatalogType, Id};
 use serde::Serialize;
@@ -81,22 +81,14 @@ pub struct SpecRow {
 pub async fn resolve_specs(
     draft_id: Id,
     collection_names: Vec<String>,
-    permissions_set: &PrefixesAndCapabilities<'_>,
+    user_id: uuid::Uuid,
+    snapshot: &crate::Snapshot,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<Vec<SpecRow>> {
-    // Doing the filter before handing this off to the query to reduce the amount of data being sent to the db.
-    let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = permissions_set
-        .iter()
-        .filter(|(_prefix, capabilities)| capabilities.1 >= Capability::Admin)
-        .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
-        .unzip();
-    sqlx::query_as!(
+    let mut rows = sqlx::query_as!(
         SpecRow,
         r#"
-        with user_roles as materialized (
-            select role_prefix, capability from UNNEST($3::text[], $4::grant_capability[]) as t(role_prefix, capability)
-        ),
-        drafted as (
+        with drafted as (
             select
                 ds.catalog_name,
                 ds.id as draft_spec_id,
@@ -108,8 +100,6 @@ pub async fn resolve_specs(
             from draft_specs ds
             left join live_specs ls
                 on ds.catalog_name = ls.catalog_name
-                -- filter out live_specs rows that the user does not have admin access to
-                and exists (select 1 from user_roles r where ls.catalog_name ^@ r.role_prefix)
             where ds.draft_id = $1
         ),
         not_drafted as (
@@ -126,9 +116,6 @@ pub async fn resolve_specs(
                 ls.id
             from not_drafted
             join live_specs ls on not_drafted.catalog_name = ls.catalog_name
-            where
-                -- filter out live_specs rows that the user does not have admin access to
-                exists (select 1 from user_roles r where ls.catalog_name ^@ r.role_prefix)
         )
         select
             catalog_name as "catalog_name!: String",
@@ -152,10 +139,37 @@ pub async fn resolve_specs(
         "#,
         draft_id as Id,
         collection_names as Vec<String>,
-        &prefixes,
-        &capabilities as &[Capability],
-    ).fetch_all(&mut **txn)
-    .await
+    )
+    .fetch_all(&mut **txn)
+    .await?;
+
+    // The admin filter previously applied in SQL (an `^@` prefix match against
+    // the user's `>= Admin` role prefixes) is now applied here from the
+    // Snapshot. It has two distinct effects, both preserved:
+    //   * a drafted spec is always retained, but its live-spec linkage
+    //     (`live_spec_id`/`last_pub_id`) is cleared when the user lacks admin —
+    //     mirroring the previous conditional LEFT JOIN; while
+    //   * a live-only (not-drafted) spec is dropped entirely without admin.
+    let reachable = snapshot.prefix_and_capabilities_per_user(user_id);
+    let user_can_admin = |catalog_name: &str| {
+        reachable.iter().any(|(prefix, (_, legacy))| {
+            *legacy >= Capability::Admin && catalog_name.starts_with(*prefix)
+        })
+    };
+
+    rows.retain_mut(|row| {
+        if row.draft_spec_id.is_some() {
+            if !user_can_admin(&row.catalog_name) {
+                row.live_spec_id = None;
+                row.last_pub_id = None;
+            }
+            true
+        } else {
+            user_can_admin(&row.catalog_name)
+        }
+    });
+
+    Ok(rows)
 }
 
 pub async fn fetch_resource_spec_schema(
