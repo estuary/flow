@@ -183,20 +183,21 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		addr = "http://localhost:" + port
 	}
 
-	// temp-data-plane predates multi-stack local infrastructure. The agent and
-	// dashboard ports are per-stack now (mise/tasks/local/stack-env), so read
-	// them from FLOW_PORT_AGENT / FLOW_PORT_DASHBOARD, keeping the historical
-	// literals as defaults for invocations outside a stack env.
+	// temp-data-plane predates multi-stack local infrastructure. The agent port
+	// is per-stack now (mise/tasks/local/stack-env), so read it from
+	// FLOW_PORT_AGENT, keeping the historical literal as a default for invocations
+	// outside a stack env. The dashboard/UI origin is global (the UI runs off-stack
+	// on the laptop): prefer FLOW_DASHBOARD_ORIGIN, else fall back to the
+	// well-known external UI origin. Both --flow.dashboard and
+	// --consumer.allow-origin derive from that single origin.
 	var envOr = func(key, def string) string {
 		if v := os.Getenv(key); v != "" {
 			return v
 		}
 		return def
 	}
-	var dashboardPort = envOr("FLOW_PORT_DASHBOARD", "3000")
 	var controlAPI = "http://agent.flow.localhost:" + envOr("FLOW_PORT_AGENT", "8675")
-	var dashboard = "http://dashboard.flow.localhost:" + dashboardPort
-	var allowOrigin = "http://localhost:" + dashboardPort
+	var dashboardOrigin = envOr("FLOW_DASHBOARD_ORIGIN", "http://localhost:3000")
 
 	var args = []string{
 		pkgbin.MustLocate("flowctl-go"),
@@ -204,7 +205,7 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"consumer",
 		"--broker.address", gazetteAddr,
 		"--broker.cache.size", "128",
-		"--consumer.allow-origin", allowOrigin,
+		"--consumer.allow-origin", dashboardOrigin,
 		"--consumer.limit", "1024",
 		"--consumer.max-hot-standbys", "0",
 		"--consumer.port", port,
@@ -214,7 +215,7 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"--flow.allow-local", "true",
 		"--flow.builds-root", buildsRoot,
 		"--flow.control-api", controlAPI,
-		"--flow.dashboard", dashboard,
+		"--flow.dashboard", dashboardOrigin,
 		"--flow.test-apis",
 		"--log.format", cmd.Log.Format,
 		"--log.level", cmd.Log.Level,

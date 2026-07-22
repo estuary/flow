@@ -14,7 +14,10 @@ TimeoutStartSec=600
 EnvironmentFile=%h/flow-local/env/gazette-%i.env
 
 ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/gazette'
-ExecStart=sh -c 'exec ${GOBIN}/gazette serve'
+# Two CORS allow-origins (gazette's BROKER_ALLOW_ORIGIN env var takes only one):
+# the global external UI, plus the optional per-stack UI at base+5. Both vars come
+# from the EnvironmentFile above.
+ExecStart=sh -c 'exec ${GOBIN}/gazette serve --broker.allow-origin ${FLOW_DASHBOARD_ORIGIN} --broker.allow-origin http://localhost:${FLOW_PORT_DASHBOARD}'
 
 Restart=on-failure
 RestartSec=5s

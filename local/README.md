@@ -91,7 +91,7 @@ Offsets within a stack's 1000-wide block:
 | Offset | Service |
 | --- | --- |
 | +00 / +01 | etcd client / peer |
-| +05 | dashboard (`site_url`; UI runs separately) |
+| +05 | *reserved* — optional per-stack UI origin (see below); the primary UI origin is `http://localhost:3000` |
 | +10 / +11 / +12 / +13 | Supabase api / db / studio / mailpit |
 | +20 / +21 | agent / config-encryption |
 | +25 | bigtable emulator |
@@ -99,7 +99,8 @@ Offsets within a stack's 1000-wide block:
 | +40 | data-plane-controller (dev-facing) |
 | +200 + 100·p | data plane `p ∈ 0..7` (`FLOW_PLANE_BASE` = base+200) |
 
-Not stack-scoped: cockpit :9090 (machine-global).
+Not stack-scoped: cockpit :9090, and the dashboard/UI origin
+`http://localhost:3000` (`FLOW_DASHBOARD_ORIGIN`) — both machine-global.
 
 Within a data plane's 100-wide block: brokers count up from `base+0`; reactors
 count *down* from `base+99` (so a single reactor lands on `base+99` — e.g. stack
@@ -108,6 +109,22 @@ gRPC `base+60` / admin `base+61`. `local:data-plane` rejects any base that isn't
 one of the stack's 8 valid plane bases (`FLOW_PLANE_BASE + 100·p`).
 
 Dekaf is **opt-in**: `local:stack --dekaf`.
+
+### The dashboard/UI origin is external and global
+
+The dashboard (estuary/ui) is **not part of a stack.** It runs on the developer's
+laptop — the Next.js dev-server at `http://localhost:3000` — and reaches a stack
+(local or remote) through `mise run vm:port-forward`. So there is one global
+`FLOW_DASHBOARD_ORIGIN=http://localhost:3000`. Every origin-sensitive consumer
+reads it: the CORS allow-origins on brokers/reactors/agent, Supabase `site_url`,
+the flowctl profile `dashboard_url`, and the reactor's `FLOW_DASHBOARD`.
+
+**Escape hatch — a second UI against a second stack.** To run another UI against a
+*second* stack concurrently, the convention is that it lives at that stack's
+`base+5` (`FLOW_PORT_DASHBOARD`: 10005, 11005, …). Brokers, reactors, and the agent
+each allow *two* CORS origins — the global `:3000` and their own `base+5`.
+*Known limitation:* Supabase `site_url` is single-valued and stays `:3000`,
+so a `base+5` UI's auth redirect still lands on `:3000` — log in via the `:3000` UI.
 
 ### Convenience exports (so nobody computes a port)
 

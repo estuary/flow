@@ -168,11 +168,21 @@ _se_cluster="local-${_se_name}-cluster"
 # a sane fallback for bare execution outside a mise context.
 _se_rocksdb_lib="${ROCKSDB_LIB_DIR:-${HOME}/rocksdb-${ROCKSDB_VERSION:-9.10.0}/lib}"
 
+# The dashboard/UI origin, deliberately GLOBAL — NOT part of a stack's 1000-wide
+# port block. The estuary/ui dev-server runs off-stack on the developer's laptop
+# at :3000 and reaches any stack (local or remote) through `mise run
+# vm:port-forward`; nothing in a stack ever binds or serves this. It is a single
+# value so every origin-sensitive consumer agrees on what the browser actually
+# sends as its Origin: CORS allow-origins on brokers/reactors/agent, Supabase
+# site_url, the flowctl dashboard_url, and the reactor's FLOW_DASHBOARD. Like
+# cockpit :9090, it is machine-global, not stack-scoped.
+_se_dashboard_origin="http://localhost:3000"
+
 # Build the block of `export` statements once, then apply and/or print it.
 #
 # Offsets within a stack's 1000-wide block (last three digits identify the
 # service uniformly across stacks):
-#   +00/+01 etcd client/peer      +05 dashboard
+#   +00/+01 etcd client/peer      +05 dashboard (reserved; see FLOW_DASHBOARD_ORIGIN)
 #   +10/+11/+12/+13 supabase api/db/studio/mailpit
 #   +20/+21 agent/config-encryption   +25 bigtable   +30/+31 kafka/kafka-ctrl
 #   +40 data-plane-controller (dev-facing)
@@ -185,6 +195,10 @@ export FLOW_STACK_DIR="${_se_flow_local}/${_se_name}"
 export FLOW_CLUSTER="${_se_cluster}"
 export FLOW_PORT_ETCD="$(( _se_base + 0 ))"
 export FLOW_PORT_ETCD_PEER="$(( _se_base + 1 ))"
+# Reserved slot for the escape hatch: an OPTIONAL per-stack UI. The common UI
+# origin is the global FLOW_DASHBOARD_ORIGIN (below); this port is nothing on its
+# own, but is offered as a second CORS allow-origin so you *can* run a second UI
+# against this stack at http://localhost:\${FLOW_PORT_DASHBOARD}. See local/README.md.
 export FLOW_PORT_DASHBOARD="$(( _se_base + 5 ))"
 export FLOW_PORT_SUPABASE_API="$(( _se_base + 10 ))"
 export FLOW_PORT_SUPABASE_DB="$(( _se_base + 11 ))"
@@ -196,7 +210,10 @@ export FLOW_PORT_BIGTABLE="$(( _se_base + 25 ))"
 export FLOW_PORT_KAFKA="$(( _se_base + 30 ))"
 export FLOW_PORT_KAFKA_CTRL="$(( _se_base + 31 ))"
 export FLOW_PLANE_BASE="$(( _se_base + 200 ))"
-export FLOW_SITE_URL="http://localhost:$(( _se_base + 5 ))"
+# External UI origin — GLOBAL, not a per-stack port (see _se_dashboard_origin
+# above). site_url derives from it so Supabase auth redirects land on the real UI.
+export FLOW_DASHBOARD_ORIGIN="${_se_dashboard_origin}"
+export FLOW_SITE_URL="${_se_dashboard_origin}"
 export FLOW_PG_URL="postgresql://postgres:postgres@localhost:$(( _se_base + 11 ))/postgres"
 # sqlx's compile-time query macros connect to DATABASE_URL to verify queries;
 # point it at this checkout's Postgres. Without this the build falls back to the
