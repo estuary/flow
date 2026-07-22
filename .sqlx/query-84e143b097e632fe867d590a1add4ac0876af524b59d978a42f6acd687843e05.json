@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            coalesce(ls.id, '00:00:00:00:00:00:00:00'::flowid) as \"id!: Id\",\n            coalesce(ls.last_pub_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_pub_id!: Id\",\n            coalesce(ls.last_build_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_build_id!: Id\",\n            coalesce(ls.data_plane_id, '00:00:00:00:00:00:00:00'::flowid) as \"data_plane_id!: Id\",\n            names as \"catalog_name!: String\",\n            ls.spec_type as \"spec_type?: CatalogType\",\n            ls.spec as \"spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.inferred_schema_md5,\n            null as \"user_capability: Capability\",\n            case when $2 then coalesce(\n                (select json_agg(row_to_json(role_grants))\n                from role_grants\n                where starts_with(names, subject_role)),\n                '[]'\n            ) else\n               '[]'\n            end as \"spec_capabilities!: Json<Vec<RoleGrant>>\",\n            ls.dependency_hash\n        from unnest($1::text[]) names\n        left outer join live_specs ls on ls.catalog_name = names\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_pub_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_build_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 3,
+        "name": "data_plane_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 4,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "spec_type?: CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "spec: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 7,
+        "name": "built_spec: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 8,
+        "name": "inferred_schema_md5",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "user_capability: Capability",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "spec_capabilities!: Json<Vec<RoleGrant>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 11,
+        "name": "dependency_hash",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "84e143b097e632fe867d590a1add4ac0876af524b59d978a42f6acd687843e05"
+}

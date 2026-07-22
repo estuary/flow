@@ -359,6 +359,54 @@ impl Snapshot {
         tables::UserGrant::reachable_prefixes(&self.role_grants, &self.user_grants, user_id)
     }
 
+    /// Select the data-planes visible to a publication for `user_id`:
+    ///   * any whose `control_id` is in `ids` (referenced by live specs, and
+    ///     therefore included regardless of the user's capability), plus
+    ///   * any whose `data_plane_name` is in `names` (storage-mapping or
+    ///     explicitly-requested planes) AND to which the user holds at least
+    ///     `min_capability`.
+    ///
+    /// A plane matched by both branches is returned once. Note the two branches
+    /// are distinct: `ids` are never capability-filtered, while `names` are only
+    /// admitted when both present in the candidate list and authorized.
+    pub fn data_planes_for_user<'s>(
+        &'s self,
+        user_id: uuid::Uuid,
+        ids: &[models::Id],
+        names: &[&str],
+        min_capability: models::Capability,
+    ) -> Vec<&'s tables::DataPlane> {
+        // A single BFS over the grant graph, reused for every name check.
+        let reachable =
+            tables::UserGrant::reachable_prefixes(&self.role_grants, &self.user_grants, user_id);
+
+        let mut selected: Vec<&'s tables::DataPlane> = Vec::new();
+
+        // Referenced by id: included without a capability check.
+        for id in ids {
+            if let Some(data_plane) = self.data_planes.get_by_key(id) {
+                selected.push(data_plane);
+            }
+        }
+
+        // Named candidate the user is authorized to at `>= min_capability`.
+        // The legacy capability column is compared to match the prior SQL,
+        // which gated on `r.capability >= 'read'`.
+        for name in names {
+            let authorized = reachable.iter().any(|(prefix, (_, capability))| {
+                *capability >= min_capability && name.starts_with(prefix)
+            });
+            if authorized && let Some(data_plane) = self.data_plane_by_catalog_name(name) {
+                selected.push(data_plane);
+            }
+        }
+
+        // De-duplicate planes matched by both branches.
+        selected.sort_by_key(|data_plane| data_plane.control_id);
+        selected.dedup_by_key(|data_plane| data_plane.control_id);
+        selected
+    }
+
     // Minimal interval between Snapshot refreshes.
     // We will postpone a requested refresh prior to this interval.
     pub const MIN_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(20);
@@ -776,6 +824,80 @@ mod tests {
                 .data_plane_by_catalog_name("ops/dp/public/plane-one/1")
                 .is_none()
         ); // Non-existent name should not match.
+    }
+
+    #[test]
+    fn test_data_planes_for_user() {
+        let snapshot = Snapshot::build_fixture(None);
+
+        // Alice reaches `ops/dp/public/` at `read` (admin on `aliceCo/`, which
+        // has a role grant to `ops/dp/public/`). `nobody` holds no grants.
+        let alice: uuid::Uuid = "40404040-4040-4040-4040-404040404040".parse().unwrap();
+        let nobody: uuid::Uuid = "99999999-9999-9999-9999-999999999999".parse().unwrap();
+        let plane_one = models::Id::new([1; 8]);
+        let plane_two = models::Id::new([2; 8]);
+
+        let names = |dps: Vec<&tables::DataPlane>| {
+            dps.into_iter()
+                .map(|dp| dp.data_plane_name.clone())
+                .collect::<Vec<_>>()
+        };
+
+        // Branch B: a named candidate the user is read-authorized to is included.
+        // Alice is also authorized to plane-two, but it isn't named, so this
+        // proves the branch is gated on the candidate list and not capability alone.
+        assert_eq!(
+            names(snapshot.data_planes_for_user(
+                alice,
+                &[],
+                &["ops/dp/public/plane-one"],
+                models::Capability::Read,
+            )),
+            vec!["ops/dp/public/plane-one"],
+        );
+
+        // With no candidate names and no ids, nothing is returned even though
+        // Alice is authorized to both planes.
+        assert!(
+            snapshot
+                .data_planes_for_user(alice, &[], &[], models::Capability::Read)
+                .is_empty()
+        );
+
+        // Branch B denies an unauthorized user even for a named candidate.
+        assert!(
+            snapshot
+                .data_planes_for_user(
+                    nobody,
+                    &[],
+                    &["ops/dp/public/plane-one"],
+                    models::Capability::Read,
+                )
+                .is_empty()
+        );
+
+        // Branch A: referenced by id is included regardless of capability, so
+        // `nobody` gets a plane it holds no capability to.
+        assert_eq!(
+            names(snapshot.data_planes_for_user(
+                nobody,
+                &[plane_two],
+                &[],
+                models::Capability::Read,
+            )),
+            vec!["ops/dp/public/plane-two"],
+        );
+
+        // A plane matched by both branches is returned exactly once.
+        assert_eq!(
+            names(snapshot.data_planes_for_user(
+                alice,
+                &[plane_one],
+                &["ops/dp/public/plane-one"],
+                models::Capability::Read,
+            )),
+            vec!["ops/dp/public/plane-one"],
+        );
     }
 
     #[test]

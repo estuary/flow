@@ -407,14 +407,13 @@ impl Publisher {
         let snapshot = self.snapshot.token();
         let snapshot = snapshot.result().unwrap();
 
-        let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
-
         let live_catalog = specs::resolve_live_specs(
+            user_id,
             &draft,
             &self.db,
             verify_user_authz,
             explicit_plane_name,
-            &prefixes_and_capabilities,
+            snapshot,
         )
         .await?;
 

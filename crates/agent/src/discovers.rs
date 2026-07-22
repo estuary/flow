@@ -1,14 +1,11 @@
-use std::sync::Arc;
-
 use anyhow::Context;
 use control_plane_api::{
     Snapshot, connector_tags,
     discovers::{Discover, DiscoverHandler, Row, fetch_discover},
     draft, live_specs,
     proxy_connectors::DiscoverConnectors,
-    snapshot::PrefixesAndCapabilities,
 };
-use models::{Capability, Id};
+use models::Id;
 use serde::{Deserialize, Serialize};
 
 /// JobStatus is the possible outcomes of a handled discover operation.
@@ -22,6 +19,7 @@ pub enum JobStatus {
     PullFailed,
     DiscoverFailed,
     MergeFailed,
+    NotAuthorized,
     Success {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         publication_id: Option<Id>,
@@ -87,7 +85,7 @@ fn precheck_failed(status: JobStatus) -> (JobStatus, ProcessResult) {
 
 pub struct DiscoverExecutor<C: DiscoverConnectors> {
     pub handler: DiscoverHandler<C>,
-    pub snapshot_watch: Arc<dyn tokens::Watch<Snapshot>>,
+    pub snapshot_watch: std::sync::Arc<dyn tokens::Watch<Snapshot>>,
 }
 
 impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
@@ -158,49 +156,62 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
 
         let snapshot = self.snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
-        let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(row.user_id);
+        // snapshot.data_plane_by_catalog_name(name)
+        // snapshot.data_plane_by_catalog_name(name)
+        // let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(row.user_id);
+        let is_authorized = tables::UserGrant::is_authorized(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            row.user_id,
+            &row.data_plane_name,
+            models::Capability::Read,
+        );
+        if !is_authorized {
+            tracing::warn!(data_plane_name = ?row.data_plane_name, "user may not be authorized to read data plane");
+            return Ok(precheck_failed(JobStatus::NotAuthorized));
+        }
+        let data_plane = snapshot.data_plane_by_catalog_name(&row.data_plane_name);
+        // let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = prefixes_and_capabilities
+        //     .iter()
+        //     .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
+        //     .unzip();
 
-        let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = prefixes_and_capabilities
-            .iter()
-            .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
-            .unzip();
+        // let maybe_data_plane = sqlx::query_as!(
+        //     tables::DataPlane,
+        //     r#"
+        //     with user_roles as materialized (
+        //         select role_prefix, capability from UNNEST($2::text[], $3::grant_capability[]) as t(role_prefix, capability)
+        //     )
+        //     SELECT
+        //         d.id AS "control_id: Id",
+        //         d.data_plane_name,
+        //         d.hmac_keys,
+        //         d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
+        //         d.data_plane_fqdn,
+        //         d.broker_address,
+        //         d.reactor_address,
+        //         d.dekaf_address,
+        //         d.dekaf_registry_address,
+        //         d.ops_logs_name AS "ops_logs_name: models::Collection",
+        //         d.ops_stats_name AS "ops_stats_name: models::Collection"
+        //     FROM data_planes d
+        //     WHERE data_plane_name = $1
+        //     AND EXISTS (
+        //         SELECT 1 FROM user_roles r
+        //         -- User must be read-authorized to the data-plane.
+        //         WHERE starts_with($1, r.role_prefix)
+        //           AND r.capability >= 'read'::grant_capability
+        //     )
+        //     "#,
+        //     row.data_plane_name,
+        //     &prefixes,
+        //     &capabilities as &[Capability],
+        // )
+        // .fetch_optional(pool)
+        // .await
+        // .context("fetching data-plane")?;
 
-        let maybe_data_plane = sqlx::query_as!(
-            tables::DataPlane,
-            r#"
-            with user_roles as materialized (
-                select role_prefix, capability from UNNEST($2::text[], $3::grant_capability[]) as t(role_prefix, capability)
-            )
-            SELECT
-                d.id AS "control_id: Id",
-                d.data_plane_name,
-                d.hmac_keys,
-                d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
-                d.data_plane_fqdn,
-                d.broker_address,
-                d.reactor_address,
-                d.dekaf_address,
-                d.dekaf_registry_address,
-                d.ops_logs_name AS "ops_logs_name: models::Collection",
-                d.ops_stats_name AS "ops_stats_name: models::Collection"
-            FROM data_planes d
-            WHERE data_plane_name = $1
-            AND EXISTS (
-                SELECT 1 FROM user_roles r
-                -- User must be read-authorized to the data-plane.
-                WHERE starts_with($1, r.role_prefix)
-                  AND r.capability >= 'read'::grant_capability
-            )
-            "#,
-            row.data_plane_name,
-            &prefixes,
-            &capabilities as &[Capability],
-        )
-        .fetch_optional(pool)
-        .await
-        .context("fetching data-plane")?;
-
-        let Some(data_plane) = maybe_data_plane else {
+        let Some(data_plane) = data_plane else {
             tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found or user may not be authorized");
             return Ok(precheck_failed(JobStatus::NoDataPlane));
         };
@@ -214,9 +225,9 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             row.update_only,
             row.logs_token,
             image_composed,
-            data_plane,
+            data_plane.clone(),
             pool,
-            &prefixes_and_capabilities,
+            &snapshot,
         )
         .await;
 
@@ -274,7 +285,7 @@ async fn prepare_discover(
     image_composed: String,
     data_plane: tables::DataPlane,
     pool: &sqlx::PgPool,
-    prefixes_and_capabilities: &PrefixesAndCapabilities<'_>,
+    snapshot: &Snapshot,
 ) -> anyhow::Result<Discover> {
     let mut draft = draft::load_draft(draft_id, pool)
         .await
@@ -293,10 +304,11 @@ async fn prepare_discover(
     // wait until they try to publish to surface that error.
     let name = &[capture_name.to_string()];
     let live = live_specs::get_live_specs(
+        user_id,
         name,
         Some(models::Capability::Read),
         pool,
-        prefixes_and_capabilities,
+        &snapshot,
     )
     .await?;
     let live_capture = live.captures.into_iter().next();
@@ -451,7 +463,6 @@ mod test {
         harness.refresh_snapshot().await;
         let snapshot = harness.snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
-        let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
         let result = super::prepare_discover(
             user_id,
             draft_id,
@@ -462,7 +473,7 @@ mod test {
             image_composed.clone(),
             data_plane.clone(),
             &harness.pool,
-            &prefixes_and_capabilities,
+            &snapshot,
         )
         .await
         .unwrap();

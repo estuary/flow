@@ -1,4 +1,4 @@
-use crate::{TextJson, snapshot::PrefixesAndCapabilities};
+use crate::TextJson;
 use models::{Capability, CatalogType, Id};
 use serde_json::value::RawValue;
 use sqlx::types::{Json, Uuid};
@@ -43,24 +43,16 @@ pub struct LiveSpec {
 /// Returns a `LiveSpec` row for each of the given `names`. This will always return a row for each
 /// name, even if no live spec exists in the database.
 pub async fn fetch_live_specs(
+    user_id: uuid::Uuid,
     names: &[String],
     fetch_user_capabilities: bool,
     fetch_spec_capabilities: bool,
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
-    permissions_set: &PrefixesAndCapabilities<'_>,
+    snapshot: &crate::Snapshot,
 ) -> sqlx::Result<Vec<LiveSpec>> {
-    let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = permissions_set
-        .iter()
-        .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
-        .unzip();
-    // The materialized CTE here ensures that `user_roles` is only invoked once,
-    // and the results used for the rest of the query.
-    sqlx::query_as!(
+    let mut live_spec = sqlx::query_as!(
         LiveSpec,
         r#"
-        with user_roles as materialized (
-            select role_prefix, capability from UNNEST($4::text[], $5::grant_capability[]) as t(role_prefix, capability)
-        )
         select
             coalesce(ls.id, '00:00:00:00:00:00:00:00'::flowid) as "id!: Id",
             coalesce(ls.last_pub_id, '00:00:00:00:00:00:00:00'::flowid) as "last_pub_id!: Id",
@@ -71,13 +63,8 @@ pub async fn fetch_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            case when $2 then (
-                select max(capability) from user_roles
-                where starts_with(names, user_roles.role_prefix)
-            ) else
-                null
-            end as "user_capability: Capability",
-            case when $3 then coalesce(
+            null as "user_capability: Capability",
+            case when $2 then coalesce(
                 (select json_agg(row_to_json(role_grants))
                 from role_grants
                 where starts_with(names, subject_role)),
@@ -90,13 +77,29 @@ pub async fn fetch_live_specs(
         left outer join live_specs ls on ls.catalog_name = names
         "#,
         names,
-        fetch_user_capabilities,
         fetch_spec_capabilities,
-        &prefixes,
-        &capabilities as &[Capability],
     )
     .fetch_all(db)
-    .await
+    .await?;
+    if fetch_user_capabilities {
+        // Compute each spec's capability independently. The user's authorization
+        // to one name must not leak to the others in the batch: a user with admin
+        // on a drafted `dogs/` spec that references `cats/noms` must still show as
+        // unauthorized to `cats/noms`. This mirrors the previous per-row SQL
+        // `max(capability) ... where starts_with(name, role_prefix)` — the user's
+        // greatest capability among the prefixes that `catalog_name` falls under.
+        let reachable = snapshot.prefix_and_capabilities_per_user(user_id);
+        for spec in live_spec.iter_mut() {
+            let mut max_capability: Option<Capability> = None;
+            for (prefix, (_, capability)) in reachable.iter() {
+                if spec.catalog_name.starts_with(*prefix) {
+                    max_capability = max_capability.max(Some(*capability));
+                }
+            }
+            spec.user_capability = max_capability;
+        }
+    }
+    Ok(live_spec)
 }
 
 pub struct InferredSchemaRow {

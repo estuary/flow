@@ -170,12 +170,12 @@ pub async fn evolve(
     };
     let snapshot = snapshot.token();
     let snapshot = snapshot.result().unwrap();
-    let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
     let live_collections = crate::live_specs::get_live_specs(
+        user_id,
         &fetch_collections,
         capability_filter,
         db,
-        &prefixes_and_capabilities,
+        snapshot,
     )
     .await?;
 

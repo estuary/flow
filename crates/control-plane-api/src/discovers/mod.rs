@@ -1,7 +1,7 @@
 pub mod db;
 pub mod specs;
 
-use crate::{Snapshot, proxy_connectors::DiscoverConnectors, snapshot::PrefixesAndCapabilities};
+use crate::{Snapshot, proxy_connectors::DiscoverConnectors};
 
 use anyhow::Context;
 use models::discovers::{Changed, Changes};
@@ -228,7 +228,6 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
         let snapshot = self.snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
-        let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
 
         let output = Self::build_merged_catalog(
             capture_name,
@@ -239,7 +238,8 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             spec.resource_path_pointers,
             db,
             reset_on_key_change,
-            &prefixes_and_capabilities,
+            user_id,
+            snapshot,
         )
         .await?;
 
@@ -267,7 +267,8 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         resource_path_pointers: Vec<String>,
         db: &PgPool,
         reset_on_key_change: bool,
-        prefixes_and_capabilities: &PrefixesAndCapabilities<'_>,
+        user_id: Uuid,
+        snapshot: &Snapshot,
     ) -> anyhow::Result<DiscoverOutput> {
         let discovered_bindings = match specs::parse_response(discovered)
             .context("converting connector discovery response into specs")
@@ -315,13 +316,12 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .iter()
             .map(|b| b.target.to_string())
             .collect::<Vec<_>>();
-        // user_id,
-
         let live = crate::live_specs::get_live_specs(
+            user_id,
             &collection_names,
             filter_user_authz.then_some(models::Capability::Read),
             db,
-            prefixes_and_capabilities,
+            snapshot,
         )
         .await?;
 
