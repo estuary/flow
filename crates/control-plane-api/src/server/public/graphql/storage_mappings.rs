@@ -94,6 +94,10 @@ async fn check_store_health(
     match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, fut).await {
         Ok(Ok(resp)) if resp.store_health_error.is_empty() => None,
         Ok(Ok(resp)) => Some(resp.store_health_error),
+        // Surface the store's own diagnostic verbatim. The `Display` prefix
+        // ("fragment store is unhealthy: ") is redundant in this context, where
+        // the caller already knows it's reporting a failed store health check.
+        Ok(Err(gazette::Error::FragmentStoreUnhealthy(err))) => Some(err),
         Ok(Err(err)) => Some(err.to_string()),
         Err(_) => Some("Health check timed out".to_string()),
     }
@@ -150,6 +154,29 @@ async fn run_all_health_checks(
     results
 }
 
+/// Render failing health checks into a human-readable summary, one store per
+/// line. `createStorageMapping`/`updateStorageMapping` return only a flat error
+/// string, so — unlike `testConnectionHealth`, whose per-store results already
+/// carry the store as a structured field — the store must be named in the text
+/// for a caller to know which one failed.
+fn describe_health_failures<'a>(
+    catalog_prefix: &models::Prefix,
+    failures: impl IntoIterator<Item = &'a StorageHealthItem>,
+) -> String {
+    failures
+        .into_iter()
+        .map(|item| {
+            format!(
+                "  - {} on data-plane {}: {}",
+                item.fragment_store.0.to_url(catalog_prefix),
+                item.data_plane_name,
+                item.error.as_deref().unwrap_or("unknown error"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[derive(Debug, Default)]
 pub struct StorageMappingsMutation;
 
@@ -185,10 +212,14 @@ impl StorageMappingsMutation {
         // Run health checks.
         let health_checks =
             run_all_health_checks(&catalog_prefix, &data_planes, &spec.stores).await;
-        let all_passed = health_checks.iter().all(|c| c.error.is_none());
+        let failures: Vec<&StorageHealthItem> =
+            health_checks.iter().filter(|c| c.error.is_some()).collect();
 
-        if !all_passed {
-            return Err(async_graphql::Error::new("Storage health checks failed"));
+        if !failures.is_empty() {
+            return Err(async_graphql::Error::new(format!(
+                "Storage health checks failed:\n{}",
+                describe_health_failures(&catalog_prefix, failures),
+            )));
         }
 
         let mut txn = env.pg_pool.begin().await?;
@@ -335,23 +366,27 @@ impl StorageMappingsMutation {
         let republish = spec.stores != current.0.stores;
 
         // Check if any health check failed for a newly added store or data plane.
-        let has_new_failures = health_checks.iter().any(|c| {
-            if c.error.is_none() {
-                return false;
-            }
-            let is_new_store = !current.0.stores.contains(&c.fragment_store.0);
-            let is_new_dp = !current.0.data_planes.contains(&c.data_plane_name);
-            is_new_store || is_new_dp
-        });
+        let new_failures: Vec<&StorageHealthItem> = health_checks
+            .iter()
+            .filter(|c| {
+                if c.error.is_none() {
+                    return false;
+                }
+                let is_new_store = !current.0.stores.contains(&c.fragment_store.0);
+                let is_new_dp = !current.0.data_planes.contains(&c.data_plane_name);
+                is_new_store || is_new_dp
+            })
+            .collect();
 
-        if has_new_failures {
+        if !new_failures.is_empty() {
             // We only fail on health check errors for newly added stores or data planes.
             // Tasks under this storage mapping will still be broken if there are any failing
             // health checks, but we allow the update so long as the user isn't adding more
             // problems than there already were.
-            return Err(async_graphql::Error::new(
-                "Storage health checks failed for newly added stores or data planes",
-            ));
+            return Err(async_graphql::Error::new(format!(
+                "Storage health checks failed for newly added stores or data planes:\n{}",
+                describe_health_failures(&catalog_prefix, new_failures),
+            )));
         }
 
         // A single conceptual "storage mapping" is (today) stored as two
