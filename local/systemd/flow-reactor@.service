@@ -15,7 +15,10 @@ EnvironmentFile=%h/flow-local/env/reactor-%i.env
 
 ExecStartPre=sh -c 'cd ${FLOW_ROOT} && cargo build -p bindings'
 ExecStartPre=sh -c 'cd ${FLOW_ROOT} && ./mise/tasks/build/flowctl-go'
-ExecStart=sh -c 'exec ${GOBIN}/flowctl-go serve consumer'
+# Two CORS allow-origins (CONSUMER_ALLOW_ORIGIN env var takes only one): the
+# global external UI, plus the optional per-stack UI at base+5. Both vars come
+# from the EnvironmentFile above.
+ExecStart=sh -c 'exec ${GOBIN}/flowctl-go serve consumer --consumer.allow-origin ${FLOW_DASHBOARD_ORIGIN} --consumer.allow-origin http://localhost:${FLOW_PORT_DASHBOARD}'
 
 Restart=on-failure
 RestartSec=5s
