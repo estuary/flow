@@ -81,7 +81,7 @@ impl Clock {
     }
 
     #[inline]
-    pub fn from_u64(v: u64) -> Self {
+    pub const fn from_u64(v: u64) -> Self {
         Clock(v)
     }
 
@@ -524,6 +524,14 @@ mod test {
                 "flags={flags:?} clock={clock} lc={lc_in} mc={mc_in}: expected {expected:?}, got {outcome:?}"
             );
             assert_eq!((lc.as_u64(), mc.as_u64()), (*lc_out, *mc_out));
+
+            // Invariant: a live `max_continue` is either zero or strictly
+            // greater than `last_commit`, never equal.
+            assert!(
+                *mc_out == 0 || mc_out > lc_out,
+                "invariant: max_continue {mc_out} must be zero or > last_commit {lc_out} \
+                 (flags={flags:?} clock={clock} lc={lc_in} mc={mc_in})"
+            );
         }
     }
 

@@ -18,9 +18,9 @@ use lz4_flex::frame::BlockMode;
 pub struct Read {
     /// Journal offset to be served by this Read.
     /// (Actual next offset may be larger if a fragment was removed).
-    /// The underlying journal read begins up to OFFSET_READBACK bytes
-    /// earlier, and documents which end at-or-before this offset are
-    /// suppressed rather than served.
+    /// If this offset lands inside a document, the underlying journal read
+    /// begins up to OFFSET_READBACK bytes earlier, and documents which end
+    /// at-or-before this offset are suppressed rather than served.
     pub(crate) offset: i64,
     /// Most-recent journal write head observed by this Read.
     pub(crate) last_write_head: i64,
@@ -78,14 +78,19 @@ pub enum ReadTarget {
     Docs(usize),
 }
 
-/// Journal reads begin this many bytes before the offset being served, and
-/// `next_batch` suppresses documents which end at-or-before that offset.
 /// Dekaf maps each document to the Kafka offset of its final byte, so a
 /// consumer may fetch at an offset which lands in the middle of a document,
 /// for example when it plans fetches by numerically partitioning the offset
-/// space. Reading backwards lets such a fetch serve its containing document,
-/// which a read started at the fetch offset would scan past and drop.
-/// It's sized to be larger than the maximum size of a single document (64MB).
+/// space. Serving such a fetch requires reading backwards to reach the
+/// containing document, which a read started at the fetch offset would scan
+/// past and drop. Reading backwards unconditionally is far too expensive,
+/// however: almost all fetches target document boundaries, and each readback
+/// re-reads and discards up to this many bytes from the journal. So
+/// `stream_start_offset` first inspects the byte before the offset being
+/// served to determine whether it's a document boundary; only a mid-document
+/// landing begins this many bytes earlier, with `next_batch` suppressing
+/// documents which end at-or-before the served offset. It's sized to be
+/// larger than the maximum size of a single document (64MB).
 const OFFSET_READBACK: i64 = 1 << 26; // 64MB
 
 /// Map an offset to be served into the journal offset at which its read
@@ -119,10 +124,24 @@ impl Read {
             .name
             .as_str();
 
+        let task_name = match auth {
+            SessionAuthentication::Task(task_auth) => task_auth.task_name.clone(),
+            SessionAuthentication::Redirect { .. } => {
+                bail!("Redirected sessions cannot read data")
+            }
+        };
+
         // Data-preview reads pass a fragment-start offset, which is always a
-        // document boundary, and don't require reading backwards.
+        // document boundary, and don't require boundary verification.
         let stream_offset = if rewrite_offsets_from.is_none() {
-            readback_offset(offset)
+            Self::stream_start_offset(
+                &task_state_listener,
+                partition_template_name,
+                &partition.spec.name,
+                &task_name,
+                offset,
+            )
+            .await?
         } else {
             offset
         };
@@ -158,30 +177,19 @@ impl Read {
             partition_template_name: partition_template_name.to_owned(),
             journal_name: partition.spec.name.clone(),
             collection_name: collection.name.to_owned(),
-            task_name: match auth {
-                SessionAuthentication::Task(task_auth) => task_auth.task_name.clone(),
-                SessionAuthentication::Redirect { .. } => {
-                    bail!("Redirected sessions cannot read data")
-                }
-            },
+            task_name,
             rewrite_offsets_from,
             deletes: auth.deletions(),
             partition_leader_epoch: collection.binding_backfill_counter as i32,
         })
     }
 
-    async fn new_stream(
-        not_before: Option<Clock>,
-        listener: TaskStateListener,
-        partition_template_name: String,
-        journal_name: String,
-        buffer_size: usize,
-        offset: i64,
-    ) -> anyhow::Result<(ReadJsonLines, std::time::SystemTime)> {
-        let (not_before_sec, _) = not_before
-            .map(|c: Clock| Clock::to_unix(&c))
-            .unwrap_or((0, 0));
-
+    /// Fetch the current journal client and authorization expiry for this
+    /// partition's template from the task state.
+    async fn journal_client(
+        listener: &TaskStateListener,
+        partition_template_name: &str,
+    ) -> anyhow::Result<(gazette::journal::Client, std::time::SystemTime)> {
         let task_state = listener.get().await?;
 
         let partitions = match task_state.as_ref() {
@@ -210,6 +218,126 @@ impl Read {
             ))??;
 
         Ok((
+            client,
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(claims.exp),
+        ))
+    }
+
+    /// Resolve the journal offset at which a stream serving `offset` begins.
+    ///
+    /// Collection journals are newline-delimited JSON: every document is
+    /// written compactly and terminated by exactly one newline, and JSON
+    /// forbids unescaped control characters within strings, so a raw newline
+    /// byte occurs in journal content only as a document terminator. `offset`
+    /// is therefore a document boundary exactly when the preceding byte is a
+    /// newline, which a single-byte point read determines directly.
+    ///
+    /// Any other byte means `offset` lands inside a document — commonly a
+    /// fetch addressing a document's final byte, which is the Kafka offset
+    /// assigned to the document as a record — and the stream must begin up to
+    /// OFFSET_READBACK earlier to serve the containing document, with
+    /// `next_batch` suppressing its predecessors.
+    ///
+    /// If the preceding byte is unavailable — offset zero, at or beyond the
+    /// write head, expired from the journal, or the journal is suspended or
+    /// deleted — then no containing document can be served regardless, and
+    /// the stream begins at `offset`.
+    async fn stream_start_offset(
+        listener: &TaskStateListener,
+        partition_template_name: &str,
+        journal_name: &str,
+        task_name: &str,
+        offset: i64,
+    ) -> anyhow::Result<i64> {
+        if offset <= 0 {
+            return Ok(offset);
+        }
+
+        let (client, _exp) = Self::journal_client(listener, partition_template_name).await?;
+
+        let stream = client.read(broker::ReadRequest {
+            journal: journal_name.to_string(),
+            offset: offset - 1,
+            end_offset: offset,
+            block: false,
+            ..Default::default()
+        });
+        tokio::pin!(stream);
+
+        loop {
+            match stream.next().await {
+                // EOF without content: no byte precedes `offset` to read.
+                None => return Ok(offset),
+                Some(Ok(resp)) => {
+                    if resp.fragment.is_some() || resp.content.is_empty() {
+                        continue; // Metadata-only response.
+                    }
+                    // The broker fast-forwards past deleted fragments, in which
+                    // case the byte (and its containing document) is gone.
+                    let index = (offset - 1) - resp.offset;
+                    if index < 0 {
+                        return Ok(offset);
+                    }
+                    if resp.content[index as usize] == b'\n' {
+                        return Ok(offset);
+                    }
+
+                    metrics::counter!(
+                        "dekaf_readback_reads",
+                        "task_name" => task_name.to_string(),
+                        "journal_name" => journal_name.to_string(),
+                    )
+                    .increment(1);
+                    tracing::debug!(
+                        offset,
+                        journal_name,
+                        "offset is not a document boundary; reading back"
+                    );
+                    return Ok(readback_offset(offset));
+                }
+                Some(Err(gazette::RetryError {
+                    inner: gazette::Error::BrokerStatus(status),
+                    ..
+                })) if matches!(
+                    status,
+                    broker::Status::OffsetNotYetAvailable
+                        | broker::Status::Suspended
+                        | broker::Status::JournalNotFound
+                ) =>
+                {
+                    // No preceding byte to inspect. Begin at `offset` and let
+                    // the stream itself surface any terminal condition.
+                    return Ok(offset);
+                }
+                Some(Err(gazette::RetryError { attempt, inner }))
+                    if inner.is_transient() && attempt < 5 =>
+                {
+                    tracing::warn!(error = ?inner, "retrying transient error of boundary probe read");
+                    continue;
+                }
+                Some(Err(gazette::RetryError { inner, .. })) => {
+                    return Err(anyhow::Error::new(inner)
+                        .context("reading the byte before the fetch offset"));
+                }
+            }
+        }
+    }
+
+    async fn new_stream(
+        not_before: Option<Clock>,
+        listener: TaskStateListener,
+        partition_template_name: String,
+        journal_name: String,
+        buffer_size: usize,
+        offset: i64,
+    ) -> anyhow::Result<(ReadJsonLines, std::time::SystemTime)> {
+        let (not_before_sec, _) = not_before
+            .map(|c: Clock| Clock::to_unix(&c))
+            .unwrap_or((0, 0));
+
+        let (client, exp) = Self::journal_client(&listener, &partition_template_name).await?;
+
+        Ok((
             client.read_json_lines(
                 broker::ReadRequest {
                     offset,
@@ -223,7 +351,7 @@ impl Read {
                 // network delay of the next fetch request.
                 buffer_size,
             ),
-            std::time::UNIX_EPOCH + std::time::Duration::from_secs(claims.exp),
+            exp,
         ))
     }
 
@@ -241,13 +369,30 @@ impl Read {
 
         if (now + timeout + std::time::Duration::from_secs(30)) > self.stream_exp {
             tracing::debug!("stream auth expired, fetching new token");
+            // Once this read has served a document, self.offset is that
+            // document's end — a boundary — and the probe resolves to it
+            // without readback. A refresh during an in-progress readback
+            // instead re-probes the original mid-document offset and resumes
+            // the readback.
+            let stream_offset = if self.rewrite_offsets_from.is_none() {
+                Self::stream_start_offset(
+                    &self.listener,
+                    &self.partition_template_name,
+                    &self.journal_name,
+                    &self.task_name,
+                    self.offset,
+                )
+                .await?
+            } else {
+                self.offset
+            };
             (self.stream, self.stream_exp) = Self::new_stream(
                 self.not_before,
                 self.listener.clone(),
                 self.partition_template_name.clone(),
                 self.journal_name.clone(),
                 self.buffer_size,
-                readback_offset(self.offset),
+                stream_offset,
             )
             .await?;
         }

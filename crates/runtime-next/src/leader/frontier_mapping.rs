@@ -1,4 +1,6 @@
-//! Mapping between legacy `consumer.Checkpoint` and `shuffle::Frontier`.
+//! Mapping between legacy `consumer.Checkpoint` and `shuffle::Frontier`,
+//! plus the `Persist` that adopts an authoritative checkpoint wholesale
+//! during startup reconciliation.
 use proto_gazette::consumer;
 use proto_gazette::uuid;
 use std::collections::BTreeMap;
@@ -29,6 +31,12 @@ pub fn checkpoint_to_frontier(
     let mut journals: Vec<shuffle::JournalFrontier> = Vec::with_capacity(sources.len());
 
     for (source_key, source) in sources {
+        // Skip the synthetic committed-close source (`encode_committed_close`):
+        // it's not a journal source, and connectors round-trip it verbatim
+        // within their stored checkpoints.
+        if source_key.as_bytes() == crate::shard::recovery::KEY_COMMITTED_CLOSE {
+            continue;
+        }
         let Some((journal, suffix)) = source_key.split_once(';') else {
             return Err(Error::MissingSourceKeySuffix {
                 source_key: source_key.clone(),
@@ -247,57 +255,88 @@ pub fn extract_committed_close(checkpoint: &consumer::Checkpoint) -> Option<uuid
     Some(uuid::Clock::from_u64(state.last_ack))
 }
 
+/// Committed-close Clock seeded when reconciliation adopts an authoritative
+/// checkpoint carrying no embedded close Clock (one last written by the V1
+/// runtime). It's shuffle's `OBSERVED_COMMIT_FLOOR`: greater than zero (a
+/// never-reconciled RocksDB) yet strictly below every real Clock, so a
+/// committed-close equal to this floor durably means "a consistent V2
+/// baseline was adopted, and no V2 transaction has committed atop it yet".
+/// Because each `Persist` applies as one atomic WriteBatch, the committed
+/// close doubles as the marker proving all of an adoption's effects landed.
+pub const COMMITTED_CLOSE_FLOOR: uuid::Clock = uuid::Clock::from_u64(1);
+
+/// Build the `Persist` that adopts an authoritative `checkpoint` wholesale:
+/// its mapped sources replace the committed Frontier, its ACK intents replace
+/// `AI:`, and `close` is stamped as the committed close Clock.
+///
+/// When `maintain_rollback`, the legacy checkpoint is replaced by `checkpoint`
+/// with `close` embedded — preserving the invariant that a V2-written legacy
+/// checkpoint always matches committed-close. Otherwise any legacy checkpoint
+/// is deleted (vacuously, when none exists).
+///
+/// When `discard_hints` (materializations), hinted state is discarded rather
+/// than replayed. A hint is a read-ahead of the committed Frontier:
+/// `project_hinted` zeroes each hinted producer's read offset and relies on
+/// that producer's committed entry to restore it. An adopted checkpoint is a
+/// fresh mapping that won't carry producers the checkpoint has dropped (e.g.
+/// the V1 runtime prunes a producer that's been silent for >24h), and an
+/// orphaned hint would resolve to offset zero, forcing a full journal re-read
+/// to replay a hint whose data the checkpoint already reflects. A `Persist`
+/// cannot express clearing the hinted-close Clock, so it's overwritten with
+/// `close`; a hinted close equal to committed-close is inert.
+///
+/// The mapped Frontier is deliberately NOT pruned: the shard's recovery scan
+/// is the sole prune point, and it both drops stale producers from its
+/// `Recover` and deletes them from RocksDB — so any stale entries this
+/// adoption persists live for exactly one persist/re-scan round-trip, and the
+/// leader's converged baseline never contains them. Reconciliation termination
+/// doesn't depend on pruning: adoption steps trigger on the committed-close
+/// Clock, never on Frontier content.
+pub fn adopt_checkpoint(
+    checkpoint: &consumer::Checkpoint,
+    close: uuid::Clock,
+    maintain_rollback: bool,
+    discard_hints: bool,
+    journal_read_suffix_index: &[(&str, usize)],
+) -> Result<crate::proto::Persist, Error> {
+    let frontier = checkpoint_to_frontier(&checkpoint.sources, journal_read_suffix_index)?;
+
+    let legacy_checkpoint = maintain_rollback.then(|| {
+        let mut refresh = checkpoint.clone();
+        let (key, source) = encode_committed_close(close);
+        refresh.sources.insert(key, source);
+        refresh
+    });
+
+    Ok(crate::proto::Persist {
+        committed_close_clock: close.as_u64(),
+        delete_committed_frontier: true,
+        committed_frontier: Some(shuffle::JournalFrontier::encode(&frontier.journals)),
+        delete_ack_intents: true,
+        ack_intents: checkpoint.ack_intents.clone(),
+        hinted_close_clock: if discard_hints { close.as_u64() } else { 0 },
+        delete_hinted_frontier: discard_hints,
+        delete_legacy_checkpoint: !maintain_rollback,
+        legacy_checkpoint,
+        ..Default::default()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::leader::fixtures::{journal_frontier, pf, producer_entry, source};
     use bytes::Bytes;
 
-    fn producer(tag: u8) -> uuid::Producer {
-        uuid::Producer::from_bytes([0x01, tag, 0, 0, 0, 0])
-    }
-
-    fn producer_entry(
-        tag: u8,
-        last_ack: u64,
-        begin: i64,
-    ) -> consumer::checkpoint::source::ProducerEntry {
-        consumer::checkpoint::source::ProducerEntry {
-            id: Bytes::copy_from_slice(producer(tag).as_bytes()),
-            state: Some(consumer::checkpoint::ProducerState { last_ack, begin }),
-        }
-    }
-
-    fn source(
-        read_through: i64,
-        producers: Vec<consumer::checkpoint::source::ProducerEntry>,
-    ) -> consumer::checkpoint::Source {
-        consumer::checkpoint::Source {
-            read_through,
-            producers,
-        }
-    }
-
+    // Checkpoint mapping never reads `hinted_commit`, so these fixtures fix it
+    // at zero and take `last_commit` as a bare u64.
     fn producer_frontier(tag: u8, last_commit: u64, offset: i64) -> shuffle::ProducerFrontier {
-        shuffle::ProducerFrontier {
-            producer: producer(tag),
-            last_commit: uuid::Clock::from_u64(last_commit),
-            hinted_commit: uuid::Clock::zero(),
+        pf(
+            tag,
+            uuid::Clock::from_u64(last_commit),
+            uuid::Clock::zero(),
             offset,
-        }
-    }
-
-    fn journal_frontier(
-        journal: &str,
-        binding: u16,
-        producers: Vec<shuffle::ProducerFrontier>,
-    ) -> shuffle::JournalFrontier {
-        shuffle::JournalFrontier {
-            journal: journal.into(),
-            binding,
-            producers,
-            bytes_read_delta: 0,
-            bytes_behind_delta: 0,
-        }
+        )
     }
 
     #[test]

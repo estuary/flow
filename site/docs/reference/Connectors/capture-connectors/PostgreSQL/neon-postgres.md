@@ -185,6 +185,20 @@ See [connectors](../../../../concepts/connectors.md#using-connectors) to learn m
 | `/credentials/azure_client_id` | Azure Client ID | Azure App Registration Client ID for Azure Active Directory authentication. | string | Required for `AzureIAM` auth |
 | `/credentials/azure_tenant_id` | Azure Tenant ID | Azure Tenant ID for Azure Active Directory authentication. | string | Required for `AzureIAM` auth |
 
+##### Discovery Filters
+
+Options that restrict which tables are surfaced by discovery. These take effect
+when discovery runs. If your capture has automatic discovery enabled, a table
+these filters exclude will be deactivated the next time discovery runs.
+
+| Property | Title | Description | Type | Required/Default |
+| --- | --- | --- | --- | --- |
+| `/discoveryFilters` | Discovery Filters | Options that restrict which tables are visible to discovery. | object | |
+| `/discoveryFilters/include_schemas` | Include Schemas | If specified, only tables in the listed schemas are discovered. Combined as a union with the `Discovery Schema Selection` setting under Advanced Options. | string array | |
+| `/discoveryFilters/exclude_schemas` | Exclude Schemas | Tables in the listed schemas are excluded from discovery. | string array | |
+| `/discoveryFilters/table_patterns` | Table Patterns | If specified, only tables matching at least one of these glob patterns are discovered. A pattern containing a `.` matches against the qualified `schema.table` name. A pattern without a `.` matches the unqualified table name in any schema. Use `*` or `?` as wildcards. | string array | |
+| `/discoveryFilters/discover_unpublished_tables` | Discover Unpublished Tables | When set, the capture discovers all tables, including those not currently in the publication. Combined as a union with the equivalent setting under Advanced Options. | boolean | |
+
 ##### Advanced options
 
 | Property | Title | Description | Type | Required/Default |

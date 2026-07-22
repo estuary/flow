@@ -67,10 +67,18 @@ impl ReadState {
         self.write_head = offset;
         self.prev_write_head = offset;
     }
+
+    /// Retrieve the latest state of a Producer.
+    pub fn producer_state(&self, producer: uuid::Producer) -> ProducerState {
+        (self.pending.get(&producer))
+            .or_else(|| self.settled.get(&producer))
+            .cloned()
+            .unwrap_or_default()
+    }
 }
 
 /// Metadata about a document in a ReadyRead batch.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Meta {
     /// Begin offset (inclusive) of `doc` within the journal.
     pub begin_offset: i64,
@@ -233,6 +241,89 @@ pub async fn probe_read_start(
             Some(Ok(resp)) => return Ok((resp.offset, resp.write_head, resp.header)),
         }
     }
+}
+
+/// Classification of a `ReadLines` failure.
+pub enum ReadFailure {
+    /// The journal was deleted or fully suspended — no fragments remain. Carries
+    /// the broker status (`JournalNotFound` or `Suspended`).
+    JournalRemoved(broker::Status),
+    /// A retry-able transient error, and number of attempts.
+    Transient(gazette::Error, usize),
+    /// A terminal error; the caller fails.
+    Terminal(gazette::Error),
+}
+
+pub fn classify_read_failure(err: gazette::RetryError) -> ReadFailure {
+    let gazette::RetryError {
+        attempt,
+        inner: err,
+    } = err;
+
+    match err {
+        gazette::Error::BrokerStatus(
+            status @ (broker::Status::JournalNotFound | broker::Status::Suspended),
+        ) => ReadFailure::JournalRemoved(status),
+        err if err.is_transient() => ReadFailure::Transient(err, attempt),
+        err => ReadFailure::Terminal(err),
+    }
+}
+
+/// Parse a `LinesBatch` into a `ReadyRead`: transcode to archived documents, put
+/// any unparsed remainder back onto `read`, extract and validate per-document
+/// metadata, and pair the head document with its metadata (its tail rides along
+/// in the returned `ReadyRead`). Pure processing, no IO.
+///
+/// `context` labels a transcode error ("transcoding documents" for a main read,
+/// "transcoding replay documents" for a historical read).
+pub fn parse_lines_batch(
+    parser: &mut simd_doc::SimdParser,
+    validator: &mut doc::Validator,
+    binding: &crate::Binding,
+    journal: &str,
+    mut read: super::ReadLines,
+    mut lines_batch: gazette::journal::read::LinesBatch,
+    context: &'static str,
+) -> anyhow::Result<ReadyRead> {
+    let transcoded = match simd_doc::transcode_many(
+        parser,
+        &mut lines_batch.content,
+        &mut lines_batch.offset,
+        Default::default(),
+    ) {
+        Err((err, location)) => {
+            return Err(map_read_error(
+                gazette::Error::Parsing { err, location },
+                journal,
+                binding.state_key(),
+                context,
+            ));
+        }
+        Ok(transcoded) => transcoded,
+    };
+
+    // There may be a remainder if we failed to parse partway through.
+    // Put it back to handle it next time.
+    if !lines_batch.content.is_empty() {
+        read.as_mut().put_back(lines_batch.content.into());
+    }
+
+    let metas = extract_metas(&transcoded, &binding.source_uuid_ptr, validator, journal)?;
+
+    // Consume into owned documents and pair with pre-extracted metadata.
+    let mut doc_tail = transcoded.into_iter();
+    let mut meta_tail = metas.into_iter();
+
+    let (doc, _) = doc_tail.next().expect("non-empty transcoded");
+    let meta = meta_tail.next().expect("non-empty metas");
+
+    Ok(ReadyRead {
+        doc,
+        meta,
+        doc_tail,
+        meta_tail,
+        inner: read,
+    })
 }
 
 /// Map a non-transient gazette Error into an anyhow::Error with context.

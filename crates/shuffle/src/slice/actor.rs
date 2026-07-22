@@ -1,6 +1,10 @@
 use super::{
     heap::{ReadyReadEntry, ReadyReadHeap},
-    read::{Meta, ReadState, ReadyRead, map_read_error, probe_read_start},
+    read::{
+        Meta, ReadFailure, ReadState, ReadyRead, classify_read_failure, map_read_error,
+        parse_lines_batch, probe_read_start,
+    },
+    replay::Replay,
     routing,
     state::{self, FlushState, ProgressState, Topology},
 };
@@ -52,11 +56,28 @@ pub struct SliceActor {
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
     pub ready_read_heap: ReadyReadHeap,
+    /// A replay of a gapped producer's pending transaction, if any.
+    /// A Slice has at most one replay, which stalls all other reads.
+    pub replay: Option<Replay>,
     /// Per-task metrics counters and gauges.
     pub metrics: super::Metrics,
 }
 
-struct Buffers {
+impl Drop for SliceActor {
+    fn drop(&mut self) {
+        // Reads which were still active at drop (cancellation).
+        let live_reads =
+            self.pending_probes.len() + self.pending_reads.len() + self.ready_read_heap.len();
+
+        // Ensure that `*_started` / `*_stopped` counters are balanced.
+        self.metrics.reads_stopped.increment(live_reads as u64);
+        self.metrics
+            .replays_stopped
+            .increment(self.replay.is_some() as u64);
+    }
+}
+
+pub(super) struct Buffers {
     packed_key: bytes::BytesMut,
     targets: Vec<usize>,
     permits: Vec<mpsc::Permit<'static, shuffle::LogRequest>>,
@@ -124,6 +145,12 @@ impl SliceActor {
         let mut ticker = tokio::time::interval(crate::ACTOR_TICKER_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        // Warning mechanism which is armed on tick and disarmed on read.
+        // This is a coarse mechanism as it's disarmed by any read, including
+        // completions of tailing bindings that don't unblock the heap,
+        // but it's cheap and gives us noisy optics into truly wedged tasks.
+        let mut stall_armed = false;
+
         let mut loop_count: u64 = 0;
         loop {
             loop_count += 1;
@@ -165,7 +192,13 @@ impl SliceActor {
 
                 // Lowest priority is processing journal listings and reads.
                 Some(probe_result) = self.pending_probes.next() => {
-                    let (start_offset, read) = probe_result?;
+                    let (start_offset, read) = match probe_result {
+                        Ok(ok) => ok,
+                        Err(err) => {
+                            self.metrics.reads_stopped.increment(1);
+                            return Err(err);
+                        }
+                    };
                     // Seed the ReadState's offsets at the probe's resolved start
                     // before parking, so byte deltas exclude the filtered range
                     // the read skipped.
@@ -177,10 +210,19 @@ impl SliceActor {
                 }
                 Some((result, read)) = self.pending_reads.next() => {
                     self.on_pending_read_resolved(result, read)?;
+                    stall_armed = false;
+                }
+                (replay, result) = Replay::next_batch(&mut self.replay) => {
+                    self.on_replay_read_resolved(replay, result)?;
                 }
 
                 // Periodic tick ensures tracing fires even when idle.
-                _ = ticker.tick() => {}
+                _ = ticker.tick() => {
+                    if stall_armed {
+                        self.emit_stall_warnings();
+                    }
+                    stall_armed = true;
+                }
             }
         }
 
@@ -307,7 +349,7 @@ impl SliceActor {
         let read_id = self.reads.len() as u32;
 
         // Resolve the checkpoint into producer state and start offset.
-        let (offset, producers) = state::resolve_checkpoint(checkpoint);
+        let state::ResolvedCheckpoint { offset, producers } = state::resolve_checkpoint(checkpoint);
 
         let mut request = broker::ReadRequest {
             // Add `journal_read_suffix` as a metadata component to the journal name.
@@ -472,12 +514,45 @@ impl SliceActor {
         );
     }
 
+    fn emit_stall_warnings(&self) {
+        for read in &self.pending_reads {
+            let Some(read) = read.get_ref() else {
+                continue; // Read has already resolved.
+            };
+            if read.tailing() {
+                continue; // Tailing reads don't stall heap drain.
+            }
+
+            let read_state = &self.reads[read.id() as usize];
+            let fragment = read.fragment();
+            let mod_time = if fragment.mod_time != 0 {
+                tokens::DateTime::from_timestamp_secs(fragment.mod_time)
+            } else {
+                None
+            };
+
+            service_kit::event!(
+                tracing::Level::WARN,
+                "stall",
+                read_id = read.id(),
+                binding = read_state.binding_index,
+                journal = read_state.journal.to_string(),
+                read_offset = read_state.read_offset,
+                write_head = read.write_head(),
+                fragment_mod_time = service_kit::event::debug(mod_time),
+                fragment_begin = fragment.begin,
+                fragment_end = fragment.end,
+                "read is stalled awaiting broker I/O",
+            );
+        }
+    }
+
     /// Parse a LinesBatch into documents and push a ReadyRead onto the heap, or
     /// handle a terminal/transient status from the underlying ReadLines stream.
     fn process_read_result(
         &mut self,
         result: Option<gazette::RetryResult<gazette::journal::read::LinesBatch>>,
-        mut read: super::ReadLines,
+        read: super::ReadLines,
     ) -> anyhow::Result<()> {
         let read_state = &mut self.reads[read.id() as usize];
         let binding = &self.topology.bindings[read_state.binding_index as usize];
@@ -496,38 +571,29 @@ impl SliceActor {
             return Ok(());
         };
 
-        let mut lines_batch = match result {
-            Err(gazette::RetryError {
-                attempt,
-                inner: err,
-            }) => match err {
-                gazette::Error::BrokerStatus(broker::Status::JournalNotFound) => {
+        let lines_batch = match result {
+            Err(err) => match classify_read_failure(err) {
+                ReadFailure::JournalRemoved(status) => {
                     service_kit::event!(
-                        tracing::Level::INFO,
+                        tracing::Level::DEBUG,
                         "read",
                         read_id = read.id(),
                         binding = binding.index,
                         journal,
-                        "stopped journal read (JOURNAL_NOT_FOUND)",
+                        status = status.as_str_name(),
+                        "stopped journal read due to removal",
                     );
                     self.metrics.reads_stopped.increment(1);
                     return Ok(());
                 }
-                gazette::Error::BrokerStatus(broker::Status::Suspended) => {
+                ReadFailure::Transient(err, attempt) => {
+                    let level = if attempt == 0 {
+                        tracing::Level::TRACE
+                    } else {
+                        tracing::Level::WARN
+                    };
                     service_kit::event!(
-                        tracing::Level::INFO,
-                        "read",
-                        read_id = read.id(),
-                        binding = binding.index,
-                        journal,
-                        "stopped journal read (SUSPENDED)",
-                    );
-                    self.metrics.reads_stopped.increment(1);
-                    return Ok(());
-                }
-                err if err.is_transient() => {
-                    service_kit::event!(
-                        tracing::Level::WARN,
+                        level,
                         "read",
                         read_id = read.id(),
                         binding = binding.index,
@@ -538,7 +604,8 @@ impl SliceActor {
                     );
                     return self.park_or_process(read);
                 }
-                err => {
+                ReadFailure::Terminal(err) => {
+                    self.metrics.reads_stopped.increment(1);
                     return Err(map_read_error(
                         err,
                         &read_state.journal,
@@ -565,49 +632,20 @@ impl SliceActor {
             "received LinesBatch",
         );
 
-        let transcoded = match simd_doc::transcode_many(
+        let ready_read = match parse_lines_batch(
             &mut self.parser,
-            &mut lines_batch.content,
-            &mut lines_batch.offset,
-            Default::default(),
-        ) {
-            Err((err, location)) => {
-                return Err(map_read_error(
-                    gazette::Error::Parsing { err, location },
-                    &read_state.journal,
-                    binding.state_key(),
-                    "transcoding documents",
-                ));
-            }
-            Ok(transcoded) => transcoded,
-        };
-
-        // There may be a remainder if we failed to parse partway through.
-        // Put it back to handle it next time.
-        if !lines_batch.content.is_empty() {
-            read.as_mut().put_back(lines_batch.content.into());
-        }
-
-        let metas = super::read::extract_metas(
-            &transcoded,
-            &binding.source_uuid_ptr,
             &mut self.validators[read_state.binding_index as usize],
+            binding,
             &read_state.journal,
-        )?;
-
-        // Consume into owned documents and pair with pre-extracted metadata.
-        let mut doc_tail = transcoded.into_iter();
-        let mut meta_tail = metas.into_iter();
-
-        let (doc, _) = doc_tail.next().expect("non-empty transcoded");
-        let meta = meta_tail.next().expect("non-empty metas");
-
-        let ready_read = ReadyRead {
-            doc,
-            meta,
-            doc_tail,
-            meta_tail,
-            inner: read,
+            read,
+            lines_batch,
+            "transcoding documents",
+        ) {
+            Ok(ready_read) => ready_read,
+            Err(err) => {
+                self.metrics.reads_stopped.increment(1);
+                return Err(err);
+            }
         };
 
         self.ready_read_heap.push(ReadyReadEntry {
@@ -669,6 +707,22 @@ impl SliceActor {
                 }
             }
 
+            // If there's an active replay, sequence and drain its historical
+            // documents. They append before all heap documents, including the
+            // replay trigger (still in the heap).
+            if let Some(replay) = self.replay.take() {
+                return match self.try_drain_replay(replay, buffers) {
+                    // We require a permit to send further Appends.
+                    Ok(Some(tx)) => Ok(future::Either::Left(tx.reserve_owned().map(ok))),
+                    // We're awaiting further replay I/O.
+                    Ok(None) => Ok(idle),
+                    Err(err) => {
+                        self.metrics.replays_stopped.increment(1);
+                        Err(err)
+                    }
+                };
+            }
+
             // Defer draining if any read could still resolve to content that
             // preempts the current heap top: a parked non-tailing (stalled) read,
             // or a newly-started read still probing its write head (parked in
@@ -703,7 +757,17 @@ impl SliceActor {
                 )));
             }
 
-            let sequenced = state::sequence_document(read_state, binding, meta)?;
+            let producer_state = read_state.producer_state(meta.producer);
+            let sequenced =
+                state::sequence_producer(producer_state, &read_state.journal, binding, meta)?;
+
+            // If this document awakens a gapped producer, then we must pause
+            // here (leaving this document in the heap) while we replay the
+            // gapped span. We'll re-sequence this document when it's done.
+            if sequenced.replay {
+                self.start_replay(read_id, producer_state, *meta)?;
+                continue;
+            }
 
             // If this is an Append, attempt to send it to the appropriate shard(s).
             if sequenced.is_append {
@@ -851,7 +915,7 @@ impl SliceActor {
 
     /// Try to send Append requests to target log channels (all-or-nothing).
     /// Returns `Err(tx)` with the sender that lacked capacity.
-    fn try_log_request_append_tx(
+    pub(super) fn try_log_request_append_tx(
         binding: &crate::Binding,
         buffers: &mut Buffers,
         journal: &str,

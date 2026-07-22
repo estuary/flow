@@ -11,7 +11,7 @@ Checkpoint {
                 producers: [
                     ProducerFrontier {
                         producer: Producer(01:00:00:00:00:01),
-                        last_commit: Clock(0s 0ns),
+                        last_commit: Clock(0s 4ns),
                         hinted_commit: Clock(0s 0ns),
                         offset: -1095,
                     },

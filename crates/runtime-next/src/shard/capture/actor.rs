@@ -799,7 +799,7 @@ mod tests {
         assert_eq!(shapes.len(), 2); // One inferred shape handed back per binding.
 
         // The committing Persist durably recorded the connector state.
-        let (_db, recover) = db.scan(Vec::new()).await.unwrap();
+        let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();
         assert_eq!(
             recover.connector_state_json.as_ref(),
             br#"{"cursor":"lsn-9"}"#

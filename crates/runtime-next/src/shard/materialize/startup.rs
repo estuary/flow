@@ -133,15 +133,8 @@ where
     let _ = shard_ref;
 
     // Scan and send L:Recover state from RocksDB.
-    let mut sorted_state_keys: Vec<(String, u32)> = bindings
-        .iter()
-        .enumerate()
-        .map(|(i, b)| (b.state_key.clone(), i as u32))
-        .collect();
-    sorted_state_keys.sort();
-
     let (mut db, mut recover) = db
-        .scan(sorted_state_keys)
+        .scan(bindings.iter().map(|b| b.state_key.as_str()))
         .await
         .context("scanning RocksDB")?;
     if shard_index == 0 {

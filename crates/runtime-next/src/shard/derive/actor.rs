@@ -30,9 +30,11 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     codec: connector_init::Codec,
     // RocksDB, when a Persist is not in flight (shard zero only persists).
     db: Option<crate::shard::RocksDB>,
-    // RocksDB future when a Persist is in flight.
+    // RocksDB future when a Persist is in flight. Resolves to the reply the
+    // leader awaits: a `Persisted` echo, or (when `rescan`) a fresh `Recover`
+    // reflecting the just-written on-disk state.
     db_persist_fut:
-        Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Persisted)>>>,
+        Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Derive)>>>,
     // Output-combiner drain + publish future, when in flight.
     drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
     // Channel for sending to the leader.
@@ -208,24 +210,21 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 msg = controller_rx.next() => {
                     self.on_controller_request(msg)?;
                 }
-                // A Persist completion (shard zero).
+                // A Persist completion (shard zero). `response` is a `Persisted`
+                // echo, or a fresh `Recover` when the Persist requested a rescan.
                 result = maybe_fut(&mut self.db_persist_fut) => {
-                    let (db, persisted) = result?;
-                    let seq_no = persisted.seq_no;
+                    let (db, response) = result?;
                     self.db = Some(db);
 
                     service_kit::event!(
                         tracing::Level::DEBUG,
                         "leader",
-                        seq_no,
-                        "RocksDB persist completed; sending L:Persisted",
+                        rescan = response.recover.is_some(),
+                        "RocksDB persist completed; replying to leader",
                     );
                     self.metrics.persists.increment(1);
 
-                    _ = self.leader_tx.send(proto::Derive {
-                        persisted: Some(persisted),
-                        ..Default::default()
-                    });
+                    _ = self.leader_tx.send(response);
                 }
                 // A drain + publish completion.
                 result = maybe_fut(&mut self.drain_fut) => {
@@ -429,6 +428,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             });
         } else if let Some(persist) = msg.persist {
             let seq_no = persist.seq_no;
+            let rescan = persist.rescan;
             let db = self
                 .db
                 .take()
@@ -438,7 +438,27 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             self.db_persist_fut = Some(
                 async move {
                     let db = db.persist(&persist, &task.binding_state_keys).await?;
-                    Ok((db, proto::Persisted { seq_no }))
+
+                    if !rescan {
+                        let response = proto::Derive {
+                            persisted: Some(proto::Persisted { seq_no }),
+                            ..Default::default()
+                        };
+                        return Ok((db, response));
+                    }
+
+                    // Rescan Persist (leader startup reconciliation): re-scan the
+                    // freshly-written DB and reply Recover so the leader observes
+                    // the reconciled on-disk state.
+                    let (db, recover) = db
+                        .scan(task.binding_state_keys.iter())
+                        .await
+                        .context("re-scanning RocksDB after rescan Persist")?;
+                    let response = proto::Derive {
+                        recover: Some(recover),
+                        ..Default::default()
+                    };
+                    Ok((db, response))
                 }
                 .boxed(),
             );
@@ -852,7 +872,7 @@ mod tests {
         let db = serve_handle.await.unwrap().unwrap();
 
         // Confirm the Persist round-tripped.
-        let (_db, recover) = db.scan(Vec::new()).await.unwrap();
+        let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();
         assert_eq!(recover.last_applied.as_ref(), b"persisted-spec-bytes");
     }
 }

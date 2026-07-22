@@ -14,7 +14,7 @@ TimeoutStartSec=600
 EnvironmentFile=%h/flow-local/env/agent-%i.env
 
 ExecStartPre=sh -c 'cd ${FLOW_ROOT} && cargo build -p agent'
-ExecStart=sh -c 'exec ${CARGO_TARGET_DIR}/debug/agent --allow-origin http://localhost:${FLOW_PORT_DASHBOARD}'
+ExecStart=sh -c 'exec ${CARGO_TARGET_DIR}/debug/agent --allow-origin http://localhost:${FLOW_PORT_DASHBOARD} --allow-origin http://localhost:3000'
 
 Restart=on-failure
 RestartSec=5s

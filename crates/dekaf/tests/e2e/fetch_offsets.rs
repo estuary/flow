@@ -113,6 +113,27 @@ fn payload(i: usize) -> serde_json::Value {
     json!({"id": format!("doc-{i:02}"), "value": "x".repeat(64)})
 }
 
+/// Total `dekaf_readback_reads` recorded for journals of this test's
+/// namespace. Namespaces are unique per test, so concurrent tests sharing the
+/// Dekaf instance cannot contaminate each other's counts.
+async fn readback_reads_for(namespace: &str) -> anyhow::Result<u64> {
+    let metrics = super::fetch_dekaf_metrics().await?;
+
+    let mut total = 0;
+    for line in metrics.lines() {
+        if !line.starts_with("dekaf_readback_reads{") || !line.contains(namespace) {
+            continue;
+        }
+        let value = line
+            .rsplit_once(' ')
+            .context("malformed metric line")?
+            .1
+            .parse::<f64>()?;
+        total += value as u64;
+    }
+    Ok(total)
+}
+
 /// A fetch at an offset which lands inside a document must serve that
 /// document, not skip forward to the next one.
 ///
@@ -155,6 +176,70 @@ async fn test_fetch_mid_document_returns_containing_document() -> anyhow::Result
     let records = fetch_records_at_nonempty(&mut client, target_offset).await?;
 
     assert_eq!(records.first().map(|r| r.offset), Some(target_offset));
+
+    // The mid-document fetch is detected by inspecting the byte before the
+    // fetch offset, and served by a read which begins with readback.
+    assert!(
+        readback_reads_for(&env.namespace).await? >= 1,
+        "expected the mid-document fetch to record a readback read"
+    );
+
+    Ok(())
+}
+
+/// A fetch at a document-boundary offset must be served without readback.
+///
+/// Boundary offsets are the overwhelmingly common case: a sequential consumer
+/// always fetches at its last record's offset plus one, which is the next
+/// document's begin. Each readback read re-reads up to OFFSET_READBACK
+/// (64MB) from the journal only to discard it, so paying it for boundary
+/// fetches regressed Dekaf's broker-side read volume by several orders of
+/// magnitude on read-heavy workloads.
+#[tokio::test]
+async fn test_fetch_at_document_boundary_avoids_readback() -> anyhow::Result<()> {
+    super::init_tracing();
+
+    let env = DekafTestEnv::setup("fetch_boundary", FIXTURE).await?;
+    env.inject_documents("data", (0..8).map(payload)).await?;
+
+    let info = env.connection_info().await?;
+    let token = env.dekaf_token()?;
+    let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
+
+    let low = resolve_offset(&mut client, -2).await?;
+    let high = resolve_offset(&mut client, -1).await?;
+    let all = read_all_records(&mut client, low, high).await?;
+
+    // Target the boundary following a data record far enough from the write
+    // head that this cannot be mistaken for a data-preview fetch.
+    let target_index = {
+        let data_indices: Vec<usize> = (0..all.len()).filter(|&i| !all[i].control).collect();
+        data_indices[data_indices.len() / 2]
+    };
+    let boundary_offset = all[target_index].offset + 1;
+
+    assert!(
+        high - boundary_offset >= 13,
+        "fetch offset must be far enough from the write head to avoid data-preview detection"
+    );
+
+    // A record's offset is its document's final byte, so offset + 1 is the
+    // begin of the next document: the position a sequential consumer fetches.
+    let mut client = TestKafkaClient::connect(&info.broker, &info.username, &token).await?;
+    let records = fetch_records_at_nonempty(&mut client, boundary_offset).await?;
+
+    assert_eq!(
+        records.first().map(|r| r.offset),
+        Some(all[target_index + 1].offset)
+    );
+
+    // Every fetch in this test targeted a document boundary (ListOffsets
+    // results and record offsets plus one), so none may pay a readback.
+    assert_eq!(
+        readback_reads_for(&env.namespace).await?,
+        0,
+        "boundary fetches must not record readback reads"
+    );
 
     Ok(())
 }

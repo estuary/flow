@@ -153,11 +153,23 @@ async fn drive_one_shard(
         }))
         .map_err(|_| anyhow::anyhow!("serve task closed before SessionLoop"))?;
 
-    for (idx, target_txns) in session_targets.into_iter().enumerate() {
+    // Every run ends with one additional empty "drain" session (represented
+    // as `None`): the runtime halts a session after its final commit without
+    // running its post-commit work, so the drain session's startup recovery
+    // performs the last transaction's Acknowledge before the preview exits.
+    // A run aborted by timeout or Ctrl-C skips it, like any other session.
+    let sessions = session_targets
+        .into_iter()
+        .map(Some)
+        .chain(std::iter::once(None));
+
+    for (idx, target_txns) in sessions.enumerate() {
         if stop_token.is_cancelled() {
             break;
         }
         let session_index = idx + 1;
+        let drain = target_txns.is_none();
+        let target_txns = target_txns.unwrap_or(0);
 
         // A fixture preview reads each session from its own directory (fresh
         // segments from segment one); live preview shares the run's directory.
@@ -185,6 +197,7 @@ async fn drive_one_shard(
             session = session_index,
             shard_index,
             target_txns,
+            drain,
             "starting preview session",
         );
 
@@ -200,7 +213,14 @@ async fn drive_one_shard(
             }))
             .map_err(|_| anyhow::anyhow!("serve task closed before Task"))?;
 
-        drive_session_responses(&request_tx, &mut response_rx, session_index, &stop_token).await?;
+        drive_session_responses(
+            &request_tx,
+            &mut response_rx,
+            session_index,
+            &stop_token,
+            drain,
+        )
+        .await?;
     }
 
     drop(request_tx);
@@ -216,6 +236,7 @@ async fn drive_session_responses(
     response_rx: &mut mpsc::UnboundedReceiver<tonic::Result<proto::Materialize>>,
     session_index: usize,
     stop_token: &CancellationToken,
+    drain: bool,
 ) -> anyhow::Result<()> {
     let verify = runtime_next::verify("Materialize", "Joined, Opened, or Stopped", "shard");
 
@@ -239,6 +260,18 @@ async fn drive_session_responses(
                     tracing::debug!(session_index, max_etcd_revision, "session joined");
                 } else if let Some(proto::materialize::Opened { container, .. }) = &msg.opened {
                     tracing::debug!(session_index, ?container, "session opened");
+
+                    // A drain session runs no transactions: request a graceful
+                    // stop as soon as it opens. The leader completes its
+                    // startup tail — which acknowledges the prior session's
+                    // final committed transaction — before honoring the stop.
+                    if drain && !requested_stop {
+                        requested_stop = true;
+                        _ = request_tx.send(Ok(proto::Materialize {
+                            stop: Some(proto::Stop {}),
+                            ..Default::default()
+                        }));
+                    }
                 } else if let Some(proto::Stopped {}) = msg.stopped {
                     tracing::debug!(session_index, "session stopped");
                     return Ok(());

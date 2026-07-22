@@ -34,6 +34,14 @@ SERVE_HANDLERS=true
 SKIP_CONNECTOR_TABLE_CHECK=true
 SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
 
+# Local stacks run the V2 task runtime for every newly-created task: the agent
+# stamps enable-runtime-v2 onto new captures, derivations, and materializations
+# at publication time. Existing tasks and explicit per-task flags are unaffected.
+# See RuntimeV2Rollout in crates/control-plane-api.
+RUNTIME_V2_NEW_CAPTURES=true
+RUNTIME_V2_NEW_DERIVATIONS=true
+RUNTIME_V2_NEW_MATERIALIZATIONS=true
+
 BIGTABLE_PROJECT=estuary-local
 BIGTABLE_INSTANCE=estuary-local
 BIGTABLE_EMULATOR_HOST=localhost:${FLOW_PORT_BIGTABLE}

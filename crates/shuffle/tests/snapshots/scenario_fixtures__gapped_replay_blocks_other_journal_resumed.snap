@@ -1,0 +1,30 @@
+---
+source: crates/shuffle/tests/scenario_fixtures.rs
+expression: read2
+---
+[
+    ReadEntry {
+        binding: 0,
+        journal: "testing/apples/2020202020202020/category=alpha/pivot=00",
+        doc: Object {
+            "_meta": Object {
+                "uuid": String("1381400a-1dd2-11b2-8001-030000000002"),
+            },
+            "category": String("alpha"),
+            "id": String("gb-p2"),
+            "value": Number(20),
+        },
+    },
+    ReadEntry {
+        binding: 1,
+        journal: "testing/bananas/2020202020202020/category=alpha/pivot=00",
+        doc: Object {
+            "_meta": Object {
+                "uuid": String("1381400a-1dd2-11b2-8000-050000000003"),
+            },
+            "category": String("alpha"),
+            "id": String("gb-p3"),
+            "value": Number(30),
+        },
+    },
+]
