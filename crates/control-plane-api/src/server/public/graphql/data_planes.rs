@@ -1,3 +1,4 @@
+use super::filters;
 use async_graphql::{
     ComplexObject, Context, SimpleObject,
     types::connection::{self, Connection},
@@ -5,6 +6,14 @@ use async_graphql::{
 use std::collections::HashMap;
 
 const DEFAULT_PAGE_SIZE: usize = 50;
+
+/// Optional filter for the `dataPlanes` query. When omitted, all accessible
+/// data planes are returned.
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct DataPlanesFilter {
+    /// Filter on the `closed` flag.
+    pub closed: Option<filters::BoolFilter>,
+}
 
 /// Cloud provider where the data plane is hosted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
@@ -36,6 +45,8 @@ pub struct DataPlane {
     pub tag: String,
     /// Whether this is a public data-plane.
     pub is_public: bool,
+    /// Whether this data plane is closed to new selection.
+    pub closed: bool,
     /// CIDR blocks for this data-plane.
     pub cidr_blocks: Vec<String>,
     /// GCP service account email for this data-plane.
@@ -363,9 +374,13 @@ impl DataPlanesQuery {
     ///
     /// Results are paginated and sorted by data_plane_name.
     /// Only data planes the user has at least read capability to are returned.
+    ///
+    /// `filter.closed.eq` restricts results to data planes whose `closed`
+    /// flag matches it; omitting it returns both open and closed planes.
     pub async fn data_planes(
         &self,
         ctx: &Context<'_>,
+        filter: Option<DataPlanesFilter>,
         after: Option<String>,
         before: Option<String>,
         first: Option<i32>,
@@ -374,6 +389,11 @@ impl DataPlanesQuery {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
         let snapshot = env.snapshot();
+
+        let closed_eq = filter
+            .as_ref()
+            .and_then(|f| f.closed.as_ref())
+            .and_then(|f| f.eq);
 
         // Filter to only data planes the user can read and that have valid
         // names, sorted by data_plane_name for consistent pagination.
@@ -395,6 +415,13 @@ impl DataPlanesQuery {
             })
             .collect();
         accessible_data_planes.sort_by(|a, b| a.data_plane_name.cmp(&b.data_plane_name));
+
+        // Narrow to the requested `closed` value before pagination, so page
+        // sizes and cursors stay correct. The flag rides along in the authz
+        // snapshot, so this needs no database round-trip.
+        if let Some(want_closed) = closed_eq {
+            accessible_data_planes.retain(|dp| dp.closed == want_closed);
+        }
 
         // Apply cursor-based pagination.
         let (rows, has_prev, has_next) =
@@ -446,6 +473,7 @@ impl DataPlanesQuery {
                     region,
                     tag,
                     is_public,
+                    closed: dp.closed,
                     cidr_blocks: details.map(|d| d.cidr_blocks.clone()).unwrap_or_default(),
                     gcp_service_account_email: details
                         .and_then(|d| d.gcp_service_account_email.clone()),
@@ -478,6 +506,8 @@ impl DataPlanesQuery {
     /// This query requires no authentication. It exposes only the name, cloud
     /// provider, and region of public data planes, so that account-creation
     /// flows can offer a data-plane selection before the user has signed up.
+    /// Closed planes are always excluded: this query drives new selection,
+    /// which is exactly what closing a plane retires it from.
     ///
     /// Results are paginated and sorted by name.
     pub async fn public_data_planes(
@@ -497,7 +527,7 @@ impl DataPlanesQuery {
             .filter_map(|dp| {
                 let (cloud_provider, region, _tag, is_public) =
                     parse_data_plane_name(&dp.data_plane_name)?;
-                is_public.then(|| PublicDataPlane {
+                (is_public && !dp.closed).then(|| PublicDataPlane {
                     name: dp.data_plane_name.clone(),
                     cloud_provider,
                     region,
@@ -759,6 +789,136 @@ mod tests {
             first_error_message(&denied)
                 .contains("the request is missing a required Authorization: Bearer token"),
             "expected an unauthenticated error, got: {denied}",
+        );
+    }
+
+    // `publicDataPlanes` drives pre-signup selection, so a closed plane must
+    // never appear. Closing one of the two public fixture planes must drop it
+    // while the other remains.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_public_data_planes_excludes_closed(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let closed_dp = "ops/dp/public/gcp-us-central1-c2";
+        let open_dp = "ops/dp/public/aws-us-west-2-c1";
+        sqlx::query("UPDATE data_planes SET closed = true WHERE data_plane_name = $1")
+            .bind(closed_dp)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // The snapshot is built after the update, so it captures closed = true.
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        publicDataPlanes {
+                            edges { node { name } }
+                        }
+                    }
+                    "#
+                }),
+                None,
+            )
+            .await;
+
+        let names: Vec<&str> = response["data"]["publicDataPlanes"]["edges"]
+            .as_array()
+            .unwrap_or_else(|| panic!("expected edges, got: {response}"))
+            .iter()
+            .map(|e| e["node"]["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, vec![open_dp], "closed public plane must be excluded");
+    }
+
+    // The `filter.closed.eq` argument narrows the listing to matching planes,
+    // while omitting the filter returns both open and closed planes. The
+    // `data_planes` fixture leaves both public planes open by default; closing
+    // one exercises all three cases.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_graphql_data_planes_closed_filter(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let closed_dp = "ops/dp/public/gcp-us-central1-c2";
+        let open_dp = "ops/dp/public/aws-us-west-2-c1";
+        sqlx::query("UPDATE data_planes SET closed = true WHERE data_plane_name = $1")
+            .bind(closed_dp)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let server =
+            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
+                .await;
+        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        // Collects the sorted set of returned data-plane names for the given
+        // `filter` argument (JSON null when omitted).
+        async fn names(
+            server: &test_server::TestServer,
+            token: &str,
+            filter: serde_json::Value,
+        ) -> Vec<String> {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        query($filter: DataPlanesFilter) {
+                            dataPlanes(filter: $filter) {
+                                edges { node { name closed } }
+                            }
+                        }
+                        "#,
+                        "variables": { "filter": filter },
+                    }),
+                    Some(token),
+                )
+                .await;
+            let mut names: Vec<String> = response["data"]["dataPlanes"]["edges"]
+                .as_array()
+                .unwrap_or_else(|| panic!("expected edges, got: {response}"))
+                .iter()
+                .map(|e| e["node"]["name"].as_str().unwrap().to_string())
+                .collect();
+            names.sort();
+            names
+        }
+
+        // No filter: both planes, regardless of `closed`.
+        assert_eq!(
+            names(&server, &token, serde_json::Value::Null).await,
+            vec![open_dp.to_string(), closed_dp.to_string()],
+        );
+        // closed eq false -> only the open plane.
+        assert_eq!(
+            names(
+                &server,
+                &token,
+                serde_json::json!({ "closed": { "eq": false } })
+            )
+            .await,
+            vec![open_dp.to_string()],
+        );
+        // closed eq true -> only the closed plane.
+        assert_eq!(
+            names(
+                &server,
+                &token,
+                serde_json::json!({ "closed": { "eq": true } })
+            )
+            .await,
+            vec![closed_dp.to_string()],
         );
     }
 

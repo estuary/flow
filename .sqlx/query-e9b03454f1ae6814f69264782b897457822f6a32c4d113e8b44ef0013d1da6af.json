@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            d.id AS \"control_id: models::Id\",\n            d.data_plane_name,\n            d.data_plane_fqdn,\n            d.hmac_keys,\n            d.encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            d.broker_address,\n            d.reactor_address,\n            d.dekaf_address,\n            d.dekaf_registry_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        WHERE d.hmac_keys::text <> '{}' or d.encrypted_hmac_keys::text <> '{}'\n        ",
+  "query": "\n        SELECT\n            id AS \"control_id: models::Id\",\n            data_plane_name,\n            data_plane_fqdn,\n            closed,\n            hmac_keys,\n            encrypted_hmac_keys as \"encrypted_hmac_keys: models::RawValue\",\n            broker_address,\n            reactor_address,\n            dekaf_address,\n            dekaf_registry_address,\n            ops_logs_name AS \"ops_logs_name: models::Collection\",\n            ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes\n        WHERE data_plane_name = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -20,49 +20,57 @@
       },
       {
         "ordinal": 3,
+        "name": "closed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
         "name": "hmac_keys",
         "type_info": "TextArray"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "encrypted_hmac_keys: models::RawValue",
         "type_info": "Json"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "broker_address",
         "type_info": "Text"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "reactor_address",
         "type_info": "Text"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "dekaf_address",
         "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "dekaf_registry_address",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "ops_logs_name: models::Collection",
         "type_info": "Text"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "ops_stats_name: models::Collection",
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text"
+      ]
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -76,5 +84,5 @@
       false
     ]
   },
-  "hash": "135e56a90465e7efa0822a471f0c0e56a340c3ff7710f753ab8c97df4fd783b7"
+  "hash": "e9b03454f1ae6814f69264782b897457822f6a32c4d113e8b44ef0013d1da6af"
 }

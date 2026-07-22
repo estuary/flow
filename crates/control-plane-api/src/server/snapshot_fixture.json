@@ -61,6 +61,7 @@
       "control_id": "0101010101010101",
       "data_plane_name": "ops/dp/public/plane-one",
       "data_plane_fqdn": "fqdn1",
+      "closed": false,
       "hmac_keys": [
         "a2V5MQ==",
         "a2V5Mg=="
@@ -77,6 +78,7 @@
       "control_id": "0202020202020202",
       "data_plane_name": "ops/dp/public/plane-two",
       "data_plane_fqdn": "fqdn2",
+      "closed": false,
       "hmac_keys": [
         "a2V5Mw=="
       ],
