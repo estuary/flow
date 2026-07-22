@@ -1,7 +1,8 @@
+use crate::Snapshot;
 use anyhow::Context;
 use itertools::Itertools;
 use models::Capability;
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 use uuid::Uuid;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.
@@ -11,6 +12,7 @@ pub trait Initialize: Send + Sync {
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot_watch: &Arc<dyn tokens::Watch<Snapshot>>,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
@@ -22,6 +24,7 @@ impl Initialize for NoopInitialize {
         _db: &sqlx::PgPool,
         _user_id: Uuid,
         _draft: &mut tables::DraftCatalog,
+        _snapshot_watch: &Arc<dyn tokens::Watch<Snapshot>>,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -37,9 +40,14 @@ where
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot_watch: &Arc<dyn tokens::Watch<Snapshot>>,
     ) -> anyhow::Result<()> {
-        self.0.initialize(db, user_id, draft).await?;
-        self.1.initialize(db, user_id, draft).await?;
+        self.0
+            .initialize(db, user_id, draft, snapshot_watch)
+            .await?;
+        self.1
+            .initialize(db, user_id, draft, snapshot_watch)
+            .await?;
         Ok(())
     }
 }
@@ -65,6 +73,7 @@ impl Initialize for ExpandDraft {
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot_watch: &Arc<dyn tokens::Watch<Snapshot>>,
     ) -> anyhow::Result<()> {
         // Expand the set of drafted specs to include any tasks that read from or write to any of
         // the published collections. We do this so that validation can catch any inconsistencies
@@ -81,12 +90,16 @@ impl Initialize for ExpandDraft {
         } else {
             None
         };
+        let snapshot = snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+
         let expanded_catalog = crate::live_specs::get_connected_live_specs(
             user_id,
             &drafted_collections,
             &all_drafted_specs,
             capability_filter,
             db,
+            snapshot,
         )
         .await?;
         tracing::debug!(
@@ -112,6 +125,7 @@ impl Initialize for RuntimeV2Rollout {
         db: &sqlx::PgPool,
         _user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        _snapshot_watch: &Arc<dyn tokens::Watch<Snapshot>>,
     ) -> anyhow::Result<()> {
         if !self.new_captures {
             return Ok(());

@@ -143,7 +143,6 @@ impl PublicationResult {
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct Publisher {
     flowctl_go: std::path::PathBuf,
     builds_root: url::Url,
@@ -317,7 +316,7 @@ impl Publisher {
     ) -> anyhow::Result<PublicationResult> {
         let mut draft = raw_draft.clone_specs();
         initialize
-            .initialize(&self.db, *user_id, &mut draft)
+            .initialize(&self.db, *user_id, &mut draft, &self.snapshot)
             .await
             .context("initializing draft")?;
         // It's important that we generate the pub id inside the retry loop so that we can

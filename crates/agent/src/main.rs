@@ -395,7 +395,8 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 
     let automations_fut = if args.max_automations > 0 {
-        let directive_executor = agent::DirectiveHandler::new(args.accounts_email, &logs_tx);
+        let directive_executor =
+            agent::DirectiveHandler::new(args.accounts_email, &logs_tx, snapshot_watch.clone());
         let connector_tags_executor = agent::TagExecutor::new(&args.connector_network, &logs_tx);
         let mut automations_server = automations::Server::new()
             .register(agent::controllers::LiveSpecControllerExecutor::new(

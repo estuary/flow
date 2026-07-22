@@ -1,14 +1,11 @@
-use std::io::Write;
+use std::{io::Write, sync::Arc};
 
 use crate::directives::JobStatus;
 use anyhow::Context;
 use control_plane_api::{
     directives::{
         Row,
-        storage_mappings::{
-            StorageMapping, fetch_storage_mappings, upsert_storage_mapping,
-            user_has_admin_capability,
-        },
+        storage_mappings::{StorageMapping, fetch_storage_mappings, upsert_storage_mapping},
     },
     jobs, logs,
 };
@@ -33,12 +30,13 @@ pub async fn apply(
     row: Row,
     logs_tx: &logs::Tx,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    snapshot_watch: &Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
 ) -> anyhow::Result<JobStatus> {
     let detail = format!(
         "updated by user {} via applied directive {}",
         row.user_id, row.apply_id
     );
-    let (collection_data, recovery) = match validate(txn, logs_tx, row).await {
+    let (collection_data, recovery) = match validate(txn, logs_tx, row, &snapshot_watch).await {
         Ok(c) => c,
         Err(err) => {
             return Ok(JobStatus::invalid_claims(err));
@@ -75,6 +73,7 @@ async fn validate(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     logs_tx: &logs::Tx,
     row: Row,
+    snapshot_watch: &Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
 ) -> anyhow::Result<(ProposedMapping, ProposedMapping)> {
     let claims: Claims =
         serde_json::from_str(row.user_claims.get()).context("parsing user_claims")?;
@@ -94,8 +93,11 @@ async fn validate(
     // Note: we must assert that user has admin capability for the _entire tenant_, even if in the
     // future we allow for updating mappings of narrower prefixes. This is required because a new
     // storage mapping for `a/b/` may implicitly override the existing mapping for `a/`.
+    let refresh = snapshot_watch.token();
+    let snapshot = refresh.result().unwrap();
+
     let user_has_admin =
-        user_has_admin_capability(row.user_id, &claims.catalog_prefix, txn).await?;
+        user_can_admin_tenant(&snapshot, row.user_id, claims.catalog_prefix.as_str());
     anyhow::ensure!(
         user_has_admin,
         "user does not have required 'admin' capability to '{}'",
@@ -126,6 +128,28 @@ async fn validate(
     add_store(&mut recovery_data.spec, claims.add_store.clone());
 
     Ok((collection_data, recovery_data))
+}
+
+/// Returns whether `user_id` holds `admin` capability on `catalog_prefix`
+/// itself, or on any prefix nested beneath it, according to `snapshot`.
+///
+/// This deliberately mirrors the legacy
+/// `internal.user_roles($user, 'admin') where starts_with(role_prefix, catalog_prefix)`
+/// SQL check that it replaced: a user who administers only a *sub-prefix* of
+/// the tenant (e.g. `acmeCo/team/` when altering `acmeCo/`) remains authorized.
+/// Note this is the reverse of `tables::UserGrant::is_authorized`, which
+/// considers only grants at or *above* `catalog_prefix`.
+fn user_can_admin_tenant(
+    snapshot: &control_plane_api::Snapshot,
+    user_id: Uuid,
+    catalog_prefix: &str,
+) -> bool {
+    snapshot
+        .prefix_and_capabilities_per_user(user_id)
+        .iter()
+        .any(|(role_prefix, capabilities)| {
+            role_prefix.starts_with(catalog_prefix) && capabilities.1 >= models::Capability::Admin
+        })
 }
 
 // This is a macro instead of a function to work around the fact that file paths are `OsStr`s
@@ -323,3 +347,127 @@ This file is written to your storage bucket in order to test that we have the ne
 permissions to create and delete objects. If you're seeing this file stick around, then it's
 likely because we lacked the necessary permissions to delete it. You may remove this file at
 any time, and doing so will not impact the function of Estuary."#;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use control_plane_api::snapshot::SnapshotData;
+
+    // Tenant prefix under test. Storage mappings may only be altered for a
+    // top-level tenant, so this is always a single-segment prefix.
+    const TENANT: &str = "acmeCo/";
+
+    fn user_grant(
+        user_id: Uuid,
+        object_role: &str,
+        capability: models::Capability,
+    ) -> tables::UserGrant {
+        tables::UserGrant {
+            user_id,
+            object_role: models::Prefix::new(object_role),
+            capability,
+            bundles: Vec::new(),
+        }
+    }
+
+    fn role_grant(
+        subject_role: &str,
+        object_role: &str,
+        capability: models::Capability,
+    ) -> tables::RoleGrant {
+        tables::RoleGrant {
+            subject_role: models::Prefix::new(subject_role),
+            object_role: models::Prefix::new(object_role),
+            capability,
+            bundles: Vec::new(),
+        }
+    }
+
+    fn snapshot(
+        user_grants: Vec<tables::UserGrant>,
+        role_grants: Vec<tables::RoleGrant>,
+    ) -> control_plane_api::Snapshot {
+        let data = SnapshotData {
+            collections: Vec::new(),
+            data_planes: Vec::new(),
+            migrations: Vec::new(),
+            role_grants,
+            user_grants,
+            tasks: Vec::new(),
+        };
+        control_plane_api::Snapshot::new(chrono::DateTime::UNIX_EPOCH, data)
+    }
+
+    // Case 1: a user granted `admin` directly on the tenant root is authorized.
+    // This is the case where the old SQL check and `is_authorized` agreed.
+    #[test]
+    fn admin_on_tenant_root_is_authorized() {
+        let user_id = Uuid::from_bytes([1; 16]);
+        let snapshot = snapshot(
+            vec![user_grant(user_id, TENANT, models::Capability::Admin)],
+            Vec::new(),
+        );
+        assert!(user_can_admin_tenant(&snapshot, user_id, TENANT));
+    }
+
+    // Case 2: a user granted `admin` only on a prefix *beneath* the tenant root
+    // is still authorized. This is the behavior that would have been lost with a
+    // plain `is_authorized` check, and which the sub-prefix scan preserves.
+    #[test]
+    fn admin_on_sub_prefix_is_authorized() {
+        let user_id = Uuid::from_bytes([2; 16]);
+        let snapshot = snapshot(
+            vec![user_grant(
+                user_id,
+                "acmeCo/team/",
+                models::Capability::Admin,
+            )],
+            Vec::new(),
+        );
+        assert!(user_can_admin_tenant(&snapshot, user_id, TENANT));
+    }
+
+    // Case 3: a user reaches `admin` on the tenant transitively, through a role
+    // grant (e.g. an `estuary_support/` role that is itself granted admin over
+    // the tenant). The grant-graph projection must be honored.
+    #[test]
+    fn admin_via_role_grant_projection_is_authorized() {
+        let user_id = Uuid::from_bytes([3; 16]);
+        let snapshot = snapshot(
+            vec![user_grant(
+                user_id,
+                "estuary_support/",
+                models::Capability::Admin,
+            )],
+            vec![role_grant(
+                "estuary_support/",
+                TENANT,
+                models::Capability::Admin,
+            )],
+        );
+        assert!(user_can_admin_tenant(&snapshot, user_id, TENANT));
+    }
+
+    // Negative control: a capability below `admin` on the tenant is not enough.
+    #[test]
+    fn write_capability_is_denied() {
+        let user_id = Uuid::from_bytes([4; 16]);
+        let snapshot = snapshot(
+            vec![user_grant(user_id, TENANT, models::Capability::Write)],
+            Vec::new(),
+        );
+        assert!(!user_can_admin_tenant(&snapshot, user_id, TENANT));
+    }
+
+    // Negative control: admin over a sibling tenant confers no authority here,
+    // proving the sub-prefix scan does not match unrelated or ancestor prefixes.
+    #[test]
+    fn admin_on_unrelated_tenant_is_denied() {
+        let user_id = Uuid::from_bytes([5; 16]);
+        let snapshot = snapshot(
+            vec![user_grant(user_id, "bobCo/", models::Capability::Admin)],
+            Vec::new(),
+        );
+        assert!(!user_can_admin_tenant(&snapshot, user_id, TENANT));
+    }
+}

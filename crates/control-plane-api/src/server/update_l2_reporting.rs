@@ -32,20 +32,19 @@ pub async fn update_l2_reporting(
         dry_run,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::ApiError> {
-    let crate::ControlClaims { sub: user_id, .. } = env.claims()?;
+    let claims = env.claims()?;
+    let user_id = &claims.sub;
+    let user_email = claims.email.as_deref().unwrap_or("user");
 
-    if let None = sqlx::query!(
-        "select role_prefix from internal.user_roles($1, 'admin') where role_prefix = 'ops/'",
-        user_id,
-    )
-    .fetch_optional(&env.pg_pool)
-    .await?
-    {
-        return Err(tonic::Status::permission_denied(
-            "authenticated user is not an admin of the 'ops/' tenant",
-        )
-        .into());
-    }
+    // Authorize against the request's Snapshot (not a fresh watch token) so that
+    // `authorization_outcome` can refresh-and-retry a denial that was decided
+    // from a Snapshot older than the request.
+    let policy_result = super::create_data_plane::evaluate_ops_admin_authorization(
+        env.snapshot(),
+        *user_id,
+        user_email,
+    );
+    let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
 
     let template = include_str!("../../../../ops-catalog/reporting-L2-template.bundle.json");
     let tables::DraftCatalog { collections, .. } =

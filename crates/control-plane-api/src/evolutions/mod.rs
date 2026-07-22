@@ -190,6 +190,7 @@ pub async fn evolve(
         &exclude_names,
         capability_filter,
         db,
+        &snapshot,
     )
     .await?;
     draft.add_live(expanded_live);
