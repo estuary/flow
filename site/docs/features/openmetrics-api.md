@@ -54,7 +54,7 @@ To try this locally with Docker, you can run:
 docker run --rm -it -p "9090:9090" -v $(pwd)/prometheus.yml:/etc/prometheus/prometheus.yml prom/prometheus:latest
 ```
 
-You will then be able to view a Prometheus dashboard at http://localhost:9090/ to start graphing your metrics.
+You will then be able to view a Prometheus dashboard at `http://localhost:9090/` to start graphing your metrics.
 
 ![Prometheus dashboard](https://storage.googleapis.com/estuary-marketing-strapi-uploads/uploads//openmetrics_prometheus_3fb3fe6bfa/openmetrics_prometheus_3fb3fe6bfa.png)
 

@@ -95,7 +95,7 @@ Refer to the [Postgres docs](https://www.postgresql.org/docs/current/sql-alterpu
 
 Upon start-up, the Estuary connector for Postgres will automatically create the [replication slot](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html#LOGICALDECODING-REPLICATION-SLOTS) required for ingesting data change events from Postgres. The slot's name will be prefixed with `estuary_`, followed by a unique identifier.
 
-To prevent storage bloat, **Neon automatically removes _inactive_ replication slots after a period of time if there are other _active_ replication slots**. If you have or intend on having more than one replication slot, please see [Unused replication slots](https://docs.neon.tech/docs/logical-replication-neon#unused-replication-slots) to learn more.
+To prevent storage bloat, **Neon automatically removes _inactive_ replication slots after a period of time if there are other _active_ replication slots**. If you have or intend on having more than one replication slot, please see [Unused replication slots](https://neon.tech/docs/guides/logical-replication-neon#unused-replication-slots) to learn more.
 
 ## Connection Pooling
 

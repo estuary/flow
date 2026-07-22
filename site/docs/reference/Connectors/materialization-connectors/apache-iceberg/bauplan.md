@@ -4,7 +4,7 @@ description: Materialize data into a Bauplan data lake. This variation of Estuar
 
 # Bauplan
 
-[Bauplan](https://www.bauplan.io) is a serverless data lake platform built natively on Apache Iceberg. It provides a managed REST catalog so you can run SQL and Python queries directly on your Iceberg tables without managing catalog infrastructure yourself.
+[Bauplan](https://bauplanlabs.com/) is a serverless data lake platform built natively on Apache Iceberg. It provides a managed REST catalog so you can run SQL and Python queries directly on your Iceberg tables without managing catalog infrastructure yourself.
 
 This connector materializes Estuary collections into Bauplan as Iceberg tables. The connector is a variant of the [Apache Iceberg connector](./apache-iceberg.md). The setup steps are the same — refer to that page for the full configuration reference, including EMR Serverless setup. The only Bauplan-specific configuration is the catalog connection below.
 
