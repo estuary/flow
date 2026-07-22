@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        select\n            coalesce(ls.id, '00:00:00:00:00:00:00:00'::flowid) as \"id!: Id\",\n            coalesce(ls.last_pub_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_pub_id!: Id\",\n            coalesce(ls.last_build_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_build_id!: Id\",\n            coalesce(ls.data_plane_id, '00:00:00:00:00:00:00:00'::flowid) as \"data_plane_id!: Id\",\n            names as \"catalog_name!: String\",\n            ls.spec_type as \"spec_type?: CatalogType\",\n            ls.spec as \"spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.inferred_schema_md5,\n            null as \"user_capability: Capability\",\n            case when $2 then coalesce(\n                (select json_agg(row_to_json(role_grants))\n                from role_grants\n                where starts_with(names, subject_role)),\n                '[]'\n            ) else\n               '[]'\n            end as \"spec_capabilities!: Json<Vec<RoleGrant>>\",\n            ls.dependency_hash\n        from unnest($1::text[]) names\n        left outer join live_specs ls on ls.catalog_name = names\n        ",
+  "query": "\n        select\n            coalesce(ls.id, '00:00:00:00:00:00:00:00'::flowid) as \"id!: Id\",\n            coalesce(ls.last_pub_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_pub_id!: Id\",\n            coalesce(ls.last_build_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_build_id!: Id\",\n            coalesce(ls.data_plane_id, '00:00:00:00:00:00:00:00'::flowid) as \"data_plane_id!: Id\",\n            names as \"catalog_name!: String\",\n            ls.spec_type as \"spec_type?: CatalogType\",\n            ls.spec as \"spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.inferred_schema_md5,\n            null as \"user_capability: Capability\",\n            -- `spec_capabilities` are synthesized from the authorization Snapshot\n            -- below rather than queried here; see `fetch_spec_capabilities`.\n            '[]' as \"spec_capabilities!: Json<Vec<RoleGrant>>\",\n            ls.dependency_hash\n        from unnest($1::text[]) names\n        left outer join live_specs ls on ls.catalog_name = names\n        ",
   "describe": {
     "columns": [
       {
@@ -68,7 +68,7 @@
       {
         "ordinal": 10,
         "name": "spec_capabilities!: Json<Vec<RoleGrant>>",
-        "type_info": "Json"
+        "type_info": "Text"
       },
       {
         "ordinal": 11,
@@ -78,8 +78,7 @@
     ],
     "parameters": {
       "Left": [
-        "TextArray",
-        "Bool"
+        "TextArray"
       ]
     },
     "nullable": [
@@ -97,5 +96,5 @@
       true
     ]
   },
-  "hash": "84e143b097e632fe867d590a1add4ac0876af524b59d978a42f6acd687843e05"
+  "hash": "a05dfa2b6e56e602b0a9ceaff15a04a01d8af3458726c26ddf0e32503cc7ff5a"
 }
