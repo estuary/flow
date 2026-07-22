@@ -156,9 +156,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
 
         let snapshot = self.snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
-        // snapshot.data_plane_by_catalog_name(name)
-        // snapshot.data_plane_by_catalog_name(name)
-        // let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(row.user_id);
+
         let is_authorized = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
@@ -171,45 +169,6 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             return Ok(precheck_failed(JobStatus::NotAuthorized));
         }
         let data_plane = snapshot.data_plane_by_catalog_name(&row.data_plane_name);
-        // let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = prefixes_and_capabilities
-        //     .iter()
-        //     .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
-        //     .unzip();
-
-        // let maybe_data_plane = sqlx::query_as!(
-        //     tables::DataPlane,
-        //     r#"
-        //     with user_roles as materialized (
-        //         select role_prefix, capability from UNNEST($2::text[], $3::grant_capability[]) as t(role_prefix, capability)
-        //     )
-        //     SELECT
-        //         d.id AS "control_id: Id",
-        //         d.data_plane_name,
-        //         d.hmac_keys,
-        //         d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
-        //         d.data_plane_fqdn,
-        //         d.broker_address,
-        //         d.reactor_address,
-        //         d.dekaf_address,
-        //         d.dekaf_registry_address,
-        //         d.ops_logs_name AS "ops_logs_name: models::Collection",
-        //         d.ops_stats_name AS "ops_stats_name: models::Collection"
-        //     FROM data_planes d
-        //     WHERE data_plane_name = $1
-        //     AND EXISTS (
-        //         SELECT 1 FROM user_roles r
-        //         -- User must be read-authorized to the data-plane.
-        //         WHERE starts_with($1, r.role_prefix)
-        //           AND r.capability >= 'read'::grant_capability
-        //     )
-        //     "#,
-        //     row.data_plane_name,
-        //     &prefixes,
-        //     &capabilities as &[Capability],
-        // )
-        // .fetch_optional(pool)
-        // .await
-        // .context("fetching data-plane")?;
 
         let Some(data_plane) = data_plane else {
             tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found or user may not be authorized");
