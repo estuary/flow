@@ -609,7 +609,7 @@ impl StorageMappingsQuery {
                 match (exact_prefixes.is_empty(), under_prefix.is_none()) {
                     (true, true) => {
                         return Err(
-                            "must provide exactly one of `exactPrefixes` or `underPrefix`".into(),
+                            "provide exactly one of `exactPrefixes` or `underPrefix`, or omit `by` entirely".into(),
                         );
                     }
                     (false, false) => {
