@@ -7,7 +7,6 @@ pub use db::{
 };
 use models::Capability;
 use std::ops::Deref;
-use uuid::Uuid;
 
 /// Fetches live specs, returning them as a `tables::LiveCatalog`. Optionally
 /// filters the specs based on user capability. If `filter_capability` is
@@ -76,14 +75,16 @@ pub async fn get_live_specs(
 }
 
 pub async fn get_connected_live_specs(
+    user_id: uuid::Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
-    permissions_set: &PrefixesAndCapabilities<'_>,
+    snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let expanded_rows =
-        db::fetch_expanded_live_specs(collection_names, exclude_names, db, permissions_set).await?;
+        db::fetch_expanded_live_specs(user_id, collection_names, exclude_names, db, snapshot)
+            .await?;
     let mut live = tables::LiveCatalog::default();
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {

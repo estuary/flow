@@ -134,16 +134,13 @@ pub async fn fetch_inferred_schemas(
 /// Queries for all non-deleted `live_specs` that are connected to the given `collection_names` via
 /// `live_spec_flows`.
 pub async fn fetch_expanded_live_specs(
+    user_id: uuid::Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
-    permissions_set: &PrefixesAndCapabilities<'_>,
+    snapshot: &crate::Snapshot,
 ) -> sqlx::Result<Vec<LiveSpec>> {
-    let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = permissions_set
-        .iter()
-        .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
-        .unzip();
-    sqlx::query_as!(
+    let mut expanded = sqlx::query_as!(
         LiveSpec,
         r#"
         with collections(id) as (
@@ -159,9 +156,6 @@ pub async fn fetch_expanded_live_specs(
             select lsf.target_id as id
             from collections c
             join live_spec_flows lsf on c.id = lsf.source_id
-        ),
-        user_roles as materialized (
-            select role_prefix, capability from UNNEST($3::text[], $4::grant_capability[]) as t(role_prefix, capability)
         )
         select
             ls.id as "id: Id",
@@ -173,16 +167,11 @@ pub async fn fetch_expanded_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            (
-                select max(capability) from user_roles r
-                where starts_with(ls.catalog_name, r.role_prefix)
-            ) as "user_capability: Capability",
-            coalesce(
-                (select json_agg(row_to_json(role_grants))
-                from role_grants
-                where starts_with(ls.catalog_name, subject_role)),
-                '[]'
-            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
+            -- `user_capability` and `spec_capabilities` are synthesized from the
+            -- authorization Snapshot below rather than queried here. The `null`
+            -- (→ None) and empty-array placeholders are overwritten afterwards.
+            null as "user_capability: Capability",
+            '[]' as "spec_capabilities!: Json<Vec<RoleGrant>>",
             ls.dependency_hash
         from exp
         join live_specs ls on ls.id = exp.id
@@ -190,11 +179,27 @@ pub async fn fetch_expanded_live_specs(
         "#,
         collection_names as &[&str],
         exclude_names as &[&str],
-        &prefixes,
-        &capabilities as &[Capability],
     )
     .fetch_all(db)
-    .await
+    .await?;
+
+    // Compute each spec's `user_capability` (the user's greatest capability among
+    // the prefixes that `catalog_name` falls under) and `spec_capabilities` (the
+    // role grants the spec holds by virtue of its own name/role) from the
+    // Snapshot, replacing the previous `user_roles` and `role_grants` subqueries.
+    let reachable = snapshot.prefix_and_capabilities_per_user(user_id);
+    for spec in expanded.iter_mut() {
+        let mut max_capability: Option<Capability> = None;
+        for (prefix, (_, capability)) in reachable.iter() {
+            if spec.catalog_name.starts_with(*prefix) {
+                max_capability = max_capability.max(Some(*capability));
+            }
+        }
+        spec.user_capability = max_capability;
+        spec.spec_capabilities = Json(snapshot.spec_capabilities(&spec.catalog_name));
+    }
+
+    Ok(expanded)
 }
 
 /// Returns all live spec names under the given prefix.

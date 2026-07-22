@@ -92,15 +92,14 @@ impl Initialize for ExpandDraft {
         };
         let snapshot = snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
-        let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
 
         let expanded_catalog = crate::live_specs::get_connected_live_specs(
-            // user_id,
+            user_id,
             &drafted_collections,
             &all_drafted_specs,
             capability_filter,
             db,
-            &prefixes_and_capabilities,
+            snapshot,
         )
         .await?;
         tracing::debug!(
