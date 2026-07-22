@@ -224,6 +224,24 @@ pub async fn create_data_plane(
     .fetch_one(&env.pg_pool)
     .await?;
 
+    // The data-plane row is now committed, but the authorization Snapshot that
+    // the publisher reads is eventually-consistent and may predate this insert.
+    // Both the publication below and the caller's subsequent `update-l2-reporting`
+    // resolve this data-plane by name *from the Snapshot* (see
+    // `Snapshot::data_planes_for_user`), so they'd fail to find a plane that only
+    // exists in Postgres. Force an early refresh and wait for a Snapshot taken
+    // after this write before proceeding.
+    let started = tokens::now();
+    loop {
+        let refresh = app.snapshot_watch.token();
+        let snapshot = refresh.result().expect("Snapshot refresh never fails");
+        if snapshot.taken_after(started) {
+            break;
+        }
+        snapshot.revoke.cancel(); // Request an early refresh.
+        refresh.expired().await;
+    }
+
     // Install ops logs and stats collections, as well as L1 roll-ups.
     // These may fail to activate if the data-plane is still being provisioned.
     let draft_str = include_str!("../../../../ops-catalog/data-plane-template.bundle.json")
