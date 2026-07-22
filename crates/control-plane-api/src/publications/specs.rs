@@ -696,7 +696,7 @@ pub async fn resolve_live_specs(
         }
     }
 
-    let rows: Vec<crate::live_specs::LiveSpec> = crate::live_specs::fetch_live_specs(
+    let rows = crate::live_specs::fetch_live_specs(
         user_id,
         &all_spec_names,
         verify_user_authz,

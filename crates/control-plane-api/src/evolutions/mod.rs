@@ -1,14 +1,12 @@
 mod db;
 
+use crate::Snapshot;
+pub use db::{Row, fetch_evolution, fetch_resource_spec_schema, resolve, resolve_specs};
 use itertools::Itertools;
+pub use models::{Capability, evolutions::EvolvedCollection};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::{collections::BTreeSet, sync::Arc};
-
-pub use db::{Row, fetch_evolution, fetch_resource_spec_schema, resolve, resolve_specs};
-pub use models::{Capability, evolutions::EvolvedCollection};
-
-use crate::Snapshot;
 
 #[derive(Debug)]
 pub struct Evolution {

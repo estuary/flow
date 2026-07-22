@@ -359,6 +359,20 @@ impl Snapshot {
         tables::UserGrant::reachable_prefixes(&self.role_grants, &self.user_grants, user_id)
     }
 
+    /// Returns the "spec capabilities" of a spec named `catalog_name`: the role
+    /// grants whose `subject_role` is a prefix of the name — the capabilities the
+    /// spec holds by virtue of its own name/role. This is the Snapshot-sourced
+    /// equivalent of the prior `role_grants where starts_with(name, subject_role)`
+    /// query, used to check that a spec is authorized to read its sources and
+    /// write its targets.
+    pub fn spec_capabilities(&self, catalog_name: &str) -> Vec<tables::RoleGrant> {
+        self.role_grants
+            .iter()
+            .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+            .cloned()
+            .collect()
+    }
+
     /// Select the data-planes visible to a publication for `user_id`:
     ///   * any whose `control_id` is in `ids` (referenced by live specs, and
     ///     therefore included regardless of the user's capability), plus

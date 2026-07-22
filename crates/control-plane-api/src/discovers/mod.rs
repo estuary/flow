@@ -231,6 +231,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
         let output = Self::build_merged_catalog(
             capture_name,
+            user_id,
             filter_user_authz,
             update_only,
             draft,
@@ -238,7 +239,6 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             spec.resource_path_pointers,
             db,
             reset_on_key_change,
-            user_id,
             snapshot,
         )
         .await?;
@@ -260,6 +260,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
     async fn build_merged_catalog(
         capture_name: models::Capture,
+        user_id: Uuid,
         filter_user_authz: bool,
         update_only: bool,
         mut draft: tables::DraftCatalog,
@@ -267,7 +268,6 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         resource_path_pointers: Vec<String>,
         db: &PgPool,
         reset_on_key_change: bool,
-        user_id: Uuid,
         snapshot: &Snapshot,
     ) -> anyhow::Result<DiscoverOutput> {
         let discovered_bindings = match specs::parse_response(discovered)

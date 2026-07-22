@@ -64,23 +64,18 @@ pub async fn fetch_live_specs(
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
             null as "user_capability: Capability",
-            case when $2 then coalesce(
-                (select json_agg(row_to_json(role_grants))
-                from role_grants
-                where starts_with(names, subject_role)),
-                '[]'
-            ) else
-               '[]'
-            end as "spec_capabilities!: Json<Vec<RoleGrant>>",
+            -- `spec_capabilities` are synthesized from the authorization Snapshot
+            -- below rather than queried here; see `fetch_spec_capabilities`.
+            '[]' as "spec_capabilities!: Json<Vec<RoleGrant>>",
             ls.dependency_hash
         from unnest($1::text[]) names
         left outer join live_specs ls on ls.catalog_name = names
         "#,
         names,
-        fetch_spec_capabilities,
     )
     .fetch_all(db)
     .await?;
+
     if fetch_user_capabilities {
         // Compute each spec's capability independently. The user's authorization
         // to one name must not leak to the others in the batch: a user with admin
@@ -97,6 +92,15 @@ pub async fn fetch_live_specs(
                 }
             }
             spec.user_capability = max_capability;
+        }
+    }
+    if fetch_spec_capabilities {
+        // A spec's capabilities are the role grants whose `subject_role` is a
+        // prefix of its `catalog_name` — the grants it holds by virtue of its
+        // own name/role. Sourced from the Snapshot's `role_grants` rather than
+        // the database, mirroring `role_grants where starts_with(name, subject_role)`.
+        for spec in live_spec.iter_mut() {
+            spec.spec_capabilities = Json(snapshot.spec_capabilities(&spec.catalog_name));
         }
     }
     Ok(live_spec)
