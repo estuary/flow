@@ -253,8 +253,7 @@ impl HarnessBuilder {
         // they push a freshly-fetched Snapshot via `set_snapshot` whenever they
         // mutate grants (see `refresh_snapshot`), which avoids the source's
         // `MIN_REFRESH_INTERVAL` cool-off blocking the (real-time) test clock.
-        let (snapshot_pending, snapshot_replace) =
-            tokens::manual::<control_plane_api::Snapshot>();
+        let (snapshot_pending, snapshot_replace) = tokens::manual::<control_plane_api::Snapshot>();
         let set_snapshot: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
             Box::new(move |snapshot| {
                 _ = snapshot_replace(Ok(snapshot));
@@ -657,13 +656,14 @@ impl TestHarness {
             .collect();
         let snapshot = self.snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
-        let prefixes_and_capabilities = snapshot.prefix_and_capabilities_per_user(user_id);
+
         let specs = control_plane_api::live_specs::fetch_live_specs(
+            user_id,
             &owned_names,
             false, /* don't fetch user capabilities */
             false, /* don't fetch spec capabilities */
             &self.pool,
-            &prefixes_and_capabilities,
+            &snapshot,
         )
         .await
         .expect("failed to query live specs");

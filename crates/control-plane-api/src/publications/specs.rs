@@ -1,7 +1,6 @@
 use super::{LockFailure, UncommittedBuild};
 use crate::draft;
 use crate::publications::db::{self, LiveRevision, LiveSpecUpdate};
-use crate::snapshot::PrefixesAndCapabilities;
 use anyhow::Context;
 use itertools::Itertools;
 use models::Capability;
@@ -665,11 +664,12 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
 }
 
 pub async fn resolve_live_specs(
+    user_id: uuid::Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
-    permissions_set: &PrefixesAndCapabilities<'_>,
+    snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
@@ -696,12 +696,13 @@ pub async fn resolve_live_specs(
         }
     }
 
-    let rows: Vec<crate::live_specs::LiveSpec> = crate::live_specs::fetch_live_specs(
+    let rows = crate::live_specs::fetch_live_specs(
+        user_id,
         &all_spec_names,
         verify_user_authz,
         true, // always fetch spec capabilities
         db,
-        permissions_set,
+        snapshot,
     )
     .await
     .context("fetching live specs")?;
@@ -860,59 +861,19 @@ pub async fn resolve_live_specs(
     data_plane_ids.sort();
     data_plane_ids.dedup();
 
-    let (prefixes, capabilities): (Vec<String>, Vec<Capability>) = permissions_set
-        .iter()
-        .map(|(prefix, capabilities)| (prefix.to_string(), capabilities.1))
-        .unzip();
-
-    live.data_planes = sqlx::query_as!(
-        tables::DataPlane,
-        r#"
-        WITH
-        data_plane_ids AS (
-            SELECT id
-            FROM UNNEST($1::flowid[]) AS t(id)
-        ),
-        user_roles AS materialized (
-            select role_prefix, capability from UNNEST($3::text[], $4::grant_capability[]) as t(role_prefix, capability)
-        ),
-        data_plane_names AS (
-            SELECT name
-            FROM UNNEST($2::text[]) AS t(name)
-            -- User must be read-authorized to data-plane.
-            WHERE EXISTS (
-                SELECT 1
-                FROM user_roles AS r
-                WHERE starts_with(t.name, r.role_prefix)
-                  AND r.capability >= 'read'::grant_capability
-            )
+    // Data-planes referenced by live specs (`data_plane_ids`) are always included,
+    // while those referenced only by name (storage mappings or `explicit_plane_name`)
+    // must be read-authorized to the user.
+    live.data_planes = snapshot
+        .data_planes_for_user(
+            user_id,
+            &data_plane_ids,
+            &data_plane_names,
+            Capability::Read,
         )
-        SELECT
-            d.id AS "control_id: Id",
-            d.data_plane_name,
-            d.hmac_keys,
-            d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
-            d.data_plane_fqdn,
-            d.broker_address,
-            d.reactor_address,
-            d.dekaf_address,
-            d.dekaf_registry_address,
-            d.ops_logs_name AS "ops_logs_name: models::Collection",
-            d.ops_stats_name AS "ops_stats_name: models::Collection"
-        FROM data_planes d
-        WHERE
-            d.id IN (select id from data_plane_ids) OR
-            d.data_plane_name in (select name from data_plane_names)
-        "#,
-        &data_plane_ids as &[Id],
-        &data_plane_names as &[&str],
-        &prefixes,
-        &capabilities as &[Capability],
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .collect();
+        .into_iter()
+        .cloned()
+        .collect();
 
     resolve_inferred_schemas(draft, &mut live, db).await?;
 
