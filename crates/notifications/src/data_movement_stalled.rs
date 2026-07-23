@@ -8,7 +8,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &fired_subject,
-            r#"Estuary Flow: Alert for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Alert for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering data_movement_stalled-fired-subject template")?;
 
@@ -27,7 +27,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &resolved_subject,
-            r#"Estuary Flow: Alert resolved for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Alert resolved for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering data_movement_stalled-resolved-subject template")?;
 

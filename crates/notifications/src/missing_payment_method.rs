@@ -8,14 +8,14 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &resolved_subject,
-            r#"Estuary: Thanks for Adding a Payment Method🎉"#,
+            r#"Estuary: Thanks for Adding a Payment Method 🎉"#,
         )
         .context("registering missing_payment_method-resolved-subject template")?;
 
     registry
         .register_template_string(
             &resolved_body,
-            r#"<p class="body-text">We hope you are enjoying Estuary Flow. We have received your payment method for your account <span class="identifier">{{arguments.tenant}}</span>. {{#if (eq arguments.plan_state "free_trial")}}After your free trial ends on <strong>{{arguments.trial_end}}</strong>, you will automatically be switched the paid tier.{{else}}You are now on the paid tier.{{/if}}</p>
+            r#"<p class="body-text">We hope you're enjoying Estuary! We have received your payment method for your account <span class="identifier">{{arguments.tenant}}</span>. {{#if (eq arguments.plan_state "free_trial")}}After your free trial ends on <strong>{{arguments.trial_end}}</strong>, you will automatically be switched to the paid tier.{{else}}You are now on the paid tier.{{/if}}</p>
 <a href="https://dashboard.estuary.dev/admin/billing" class="button">📈 See your bill</a>
 
 <hr style="border: 0; border-top: 1px dashed lightgrey; margin: 40px 0 10px 0;">
@@ -32,14 +32,14 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
 <div style="margin-top: 15px;">
     <p style="font-weight: bold; font-size: 19px; margin-bottom: 5px;">How can I access Estuary Support?</p>
     <div style="border-left: 4px solid lightgrey; padding-left: 12px; margin-bottom: 15px;">
-        <p class="body-text" style="margin-bottom: 0;">Reach out to support@estuary.dev or join our slack.</p>
+        <p class="body-text" style="margin-bottom: 0;">Reach out to support@estuary.dev or join our <a href="https://go.estuary.dev/slack">Slack community</a>.</p>
     </div>
 </div>
 
 <div style="margin-top: 15px;">
-    <p style="font-weight: bold; font-size: 19px; margin-bottom: 5px;">Is it possible to schedule data flows?</p>
+    <p style="font-weight: bold; font-size: 19px; margin-bottom: 5px;">How do I estimate my monthly bill?</p>
     <div style="border-left: 4px solid lightgrey; padding-left: 12px; margin-bottom: 15px;">
-        <p class="body-text" style="margin-bottom: 0;">Estuary moves most data in real-time by default, without the need for scheduling, but you can add "update delays" to data warehouses to enable more downtime on your warehouse for cost savings. This can be enabled under "advanced settings" and default settings are 30 minutes for a warehouse.</p>
+        <p class="body-text" style="margin-bottom: 0;">Estuary charges based on throughput and connector usage. See our simple <a href="https://estuary.dev/pricing/#pricing-calculator">pricing calculator</a> to estimate costs based on expected usage or <a href="https://docs.estuary.dev/getting-started/pricing/">read more about pricing plans</a>.</p>
     </div>
 </div>"#,
         )
