@@ -108,6 +108,11 @@ materializations:
     # they will automatically be added to the materialization. This property
     # is optional.
     sourceCapture: acmeCo/example/a-capture
+
+    # Specify an action to take when a schema change is rejected due to
+    # incompatibility. This property is optional. If not provided, the
+    # materialization defaults to backfilling bindings.
+    onIncompatibleSchemaChange: backfill
 ```
 
 ## Processing order

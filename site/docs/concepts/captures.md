@@ -91,7 +91,7 @@ The toggles in the web app correspond directly to the properties above:
 
 - "Automatically keep schemas up to date" enables `autoDiscover`
 - "Automatically add new collections" corresponds to `addNewBindings`
-- "Breaking changes re-versions collections" corresponds to `evolveIncompatibleCollections`
+- "Changing primary keys re-versions collections" corresponds to `evolveIncompatibleCollections`
 
 ## Specification
 

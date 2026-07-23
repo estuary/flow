@@ -4,72 +4,93 @@ description: Handle Estuary schema changes safely with automatic evolution and g
 
 # Schema Evolution
 
-When collection specifications and schemas change, you must make corresponding changes in other parts of your Data Flow to avoid errors. In this guide, you'll learn how to respond to different types of collection changes.
+When schemas change, Estuary's default behavior is to automatically evolve their specifications to avoid errors.
+This guide covers what to expect when using automatic schema evolution, and how to handle schema changes if automatic evolution is turned off.
 
-Manual methods (using flowctl) as well as features available in the Estuary web app are covered here.
-For an in-depth overview of the automatic schema evolution feature in the web app and how it works, see [this article](../concepts/advanced/evolutions.md).
+For a conceptual overview of schema evolution, see [the schema evolution concepts page](/concepts/advanced/evolutions).
 
 ## Introduction
 
-Estuary [collections](../concepts/collections.md) serve not only as your real-time data storage, but also as a contract between tasks that produce and consume their data. **Captures** are producers, **materializations** are consumers, and **derivations** can act as either.
+Estuary [collections](/concepts/collections) serve not only as your real-time data storage, but also as a contract between tasks that produce and consume their data. **Captures** are producers, **materializations** are consumers, and **derivations** can act as either.
 
-This contract helps prevent data loss and error in your Data Flows, and is defined in terms of the collection specification, or spec, which includes:
+This contract helps prevent data loss and error in your data flows, and is defined in terms of the collection specification, or spec, which includes:
 
 * The JSON schema
 * The collection `key`
-* [Projections](../concepts/advanced/projections.md), if any
+* [Projections](/concepts/advanced/projections), if any
 
-There are many reasons a collection spec might change. Often, it's due to a change in the source data. Regardless, you'll need to make changes to downstream tasks — most often, materializations — to avoid errors.
+There are many reasons a collection spec might change. Often, it's due to a change in the source data.
+Estuary will automatically infer schema changes. You can then control whether your pipeline automatically handles evolution tasks with:
+* `autoDiscover` capture settings
+* `onIncompatibleSchemaChange` materialization settings
+
+## Automatic schema evolution
+
+Estuary's default behavior is to automatically discover changes and evolve schemas.
+This is especially useful for data you expect to change shape frequently, or for data that includes outliers which initial schema inference may not capture.
+
+You can set your desired [auto-discover](/concepts/captures/#automatically-update-captures) behavior from the capture.
+
+This comprises several related functions:
+* Automatically keep schemas up to date
+* Automatically add new collections
+* Changing primary keys resets collections
+
+Estuary accounts for incompatible schema changes (such as changes to a column's data type) by _widening_ the schema.
+
+:::info
+Automatic schema evolution will only ever widen data types.
+To narrow a column's data type instead, use a [dataflow reset](/reference/backfilling-data/#dataflow-reset) to reset inferred schemas and backfill data.
+:::
+
+## Manually changing schemas
+
+If you do not opt to automatically evolve schemas, you can still manually update specifications as necessary.
+This can be useful when you want tight type checking and want to be alerted when data does not conform to the existing schema.
+
+For manual updates, ensure all [auto-discover](/concepts/captures/#automatically-update-captures) options are toggled off in the capture or remove the `autoDiscover` stanza from the specification file.
+
+You can then choose how your materialization should behave when encountering an incompatible schema change, such as setting `onIncompatibleSchemaChange` to `abort` or `disableBinding` to wait for manual review.
+
+Either fix malformed data in the source or manually update the specification to accept the irregular document.
+
+To manually edit collection specifications, see guides on [using `flowctl`](/guides/flowctl/edit-specification-locally) and the [collection concept docs](/concepts/collections).
 
 ## Schema evolution scenarios
 
-This guide is broken down into sections for different common scenarios, depending on which properties of the collection spec have changed.
+Collection specifications can change for many reasons. Common changes requiring evolution can include:
 
-- [The `key` pointers have changed](#re-creating-a-collection)
-- [The logical partitioning configuration has changed](#re-creating-a-collection)
+- [The `key` pointers have changed](#collection-key-changes)
+- [The logical partitioning configuration has changed](#logical-partition-changes)
 - The `schema` (or `readSchema` if defined separately) has changed
     - [A new field is added](#a-new-field-is-added)
     - [A field's data type has changed](#a-fields-data-type-has-changed)
     - [A field was removed](#a-field-was-removed)
 
-:::info
-There are a variety of reasons why these properties may change, and also different mechanisms for detecting changes in source data. In general, it doesn't matter why the collection spec has changed, only _what_ has changed. However, [AutoDiscovers](../concepts/captures.md#automatically-update-captures) are able to handle some of these scenarios automatically. Where applicable, AutoDiscover behavior will be called out under each section.
-:::
+There are a variety of reasons why these properties may change, and also different mechanisms for detecting changes in source data. In general, it doesn't matter why the collection spec has changed, only _what_ has changed.
 
-### Re-creating a collection
+The sections below provide additional details on these scenarios.
 
-*Scenario: the `key` pointer or logical partitioning configurations have changed.*
+### Collection key changes
 
-The `key` of an Estuary collection cannot be changed after the collection is created. The same is true of the logical partitioning, which also cannot be changed after the collection is created.
+*Scenario: the collection `key` pointer has changed.*
 
-If you need to change either of those parts of a collection spec, you'll need to create a new collection and update the bindings of any captures or materializations that reference the old collection.
+Schema evolution, whether automatic or manual, can update a collection's key.
 
-**Web app workflow**
+Note that materializations can specify separate [group-by keys](/guides/customize-materialization-fields/#group-by-keys) from the collection key structure.
+Ensure the materialization group-by key is updated if you wish to propogate key changes downstream.
 
-If you're working in the Estuary web app, you'll see an error message and an option to re-create the collection as shown in the example below.
+### Logical partition changes
 
-![](./guide-images/evolution-re-create-ui.png)
+*Scenario: the logical partitioning configuration has changed.*
 
-Click **Apply** to re-create the collection and update any tasks that reference the old collection with the new name.
+Changes to a collection's [logical partitioning](/concepts/advanced/projections/#logical-partitions) require a [dataflow reset](/reference/backfilling-data/#dataflow-reset) to reset the collection.
 
-**flowctl workflow:**
+If you need to change logical partitions, you can control the partition projections and reset from the collection specification file.
 
-If you're working with flowctl, you'll need to re-create the collection manually in your `flow.yaml` file. You must also update any captures or materializations that reference it. For example, say you have a data flow defined by the following specs:
+For example, your `flow.yaml` file might look like:
 
 ```yaml
-captures:
-  acmeCo/inventory/source-postgres:
-    endpoint:
-      connector:
-        image: ghcr.io/estuary/source-postgres:v1
-        config: encrypted-pg-config.sops.yaml
-    bindings:
-      - resource:
-          namespace: public
-          stream: anvils
-          mode: Normal
-        target: acmeCo/inventory/anvils
-
 collections:
   acmeCo/inventory/anvils:
     key: [/sku]
@@ -80,69 +101,14 @@ collections:
         warehouse_id: { type: string }
         quantity: { type: integer }
       required: [sku, warehouse_id, quantity]
-
-materializations:
-  acmeCo/data-warehouse/materialize-snowflake:
-    endpoint:
-      connector:
-        image: ghcr.io/estuary/materialize-snowflake:v1
-        config: encrypted-snowflake-config.sops.yaml
-    bindings:
-      - source: acmeCo/inventory/anvils
-        resource:
-          table: anvils
-          schema: inventory
+    projections:
+      warehouse_id:
+        location: /warehouse_id
+        partition: true
+    reset: true
 ```
 
-To change the collection key, you would update the YAML like so. Note the capture `target`, collection name, and materialization `source`.
-
-```yaml
-captures:
-  acmeCo/inventory/source-postgres:
-    endpoint:
-      connector:
-        image: ghcr.io/estuary/source-postgres:v1
-        config: encrypted-pg-config.sops.yaml
-    bindings:
-      - resource:
-          namespace: public
-          stream: anvils
-          mode: Normal
-        backfill: 1
-        target: acmeCo/inventory/anvils_v2
-
-collections:
-  acmeCo/inventory/anvils_v2:
-    key: [/sku]
-    schema:
-      type: object
-      properties:
-        sku: { type: string }
-        warehouse_id: { type: string }
-        quantity: { type: integer }
-      required: [sku, warehouse_id, quantity]
-
-materializations:
-  acmeCo/data-warehouse/materialize-snowflake:
-    endpoint:
-      connector:
-        image: ghcr.io/estuary/materialize-snowflake:v1
-        config: encrypted-snowflake-config.sops.yaml
-    bindings:
-      - source: acmeCo/inventory/anvils_v2
-        backfill: 1
-        resource:
-          table: anvils
-          schema: inventory
-```
-
-The existing `acmeCo/inventory/anvils` collection will not be modified and will remain in place, but won't update because no captures are writing to it.
-
- Also note the addition of the `backfill` property. If the `backfill` property already exists, just increment its value. For the materialization, this will ensure that the destination table in Snowflake gets dropped and re-created, and that the materialization will backfill it from the beginning. In the capture, it similarly causes it to start over from the beginning, writing the captured data into the new collection.
-
-**Auto-Discovers:**
-
-If you enabled the option to [**Automatically keep schemas up to date** (`autoDiscover`)](../concepts/captures.md#automatically-update-captures) and selected **Breaking change re-versions collections** (`evolveIncompatibleCollections`) for the capture, this evolution would be performed automatically.
+The dataflow reset will automatically update associated capture and materialization bindings and kick off a backfill.
 
 ### A new field is added
 
@@ -156,7 +122,7 @@ If your materialization binding is set to `recommended: false`, or if the new fi
 
 To manually add a field:
 
-* **In the web app,** [edit the materialization](/guides/edit-data-flows/#edit-a-materialization), find the affected binding, and click **Show Fields**.
+* **In the dashboard,** edit the materialization, find the affected binding, and require desired fields with [field selection](/guides/customize-materialization-fields/#field-selection-for-materializations).
 * **Using flowctl,** add the field to `fields.include` in the materialization specification as shown [here](/concepts/materialization/#projected-fields).
 
 :::info
@@ -247,11 +213,11 @@ materializations:
 
 Note that the only change was to increment the `backfill` counter. If the previous binding spec did not specify `backfill`, then just add `backfill: 1`.
 
-This works because the type is broadened, so existing values will still validate against the new schema. If this were not the case, then you'd likely need to [re-create the whole collection](#re-creating-a-collection).
+This works because the type is broadened, so existing values will still validate against the new schema. If this were not the case, then you'd likely need to perform a [dataflow reset](/reference/backfilling-data/#dataflow-reset).
 
 **Auto-Discovers:**
 
-If you enabled the option to [**Automatically keep schemas up to date** (`autoDiscover`)](../concepts/captures.md#automatically-update-captures) and selected **Breaking change re-versions collections** (`evolveIncompatibleCollections`) for the capture, this evolution would be performed automatically.
+If you enabled the option to [**Automatically keep schemas up to date** (`autoDiscover`)](../concepts/captures.md#automatically-update-captures), this evolution would be performed automatically.
 
 ### A field was removed
 
