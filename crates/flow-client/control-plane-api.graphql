@@ -1816,10 +1816,10 @@ type QueryRoot {
 	Returns storage mappings accessible to the current user.
 	
 	Returns mappings under every prefix where the caller has catalog-read
-	capability. The optional `by` filter narrows those authorized results.
+	capability. The optional `filter` narrows those authorized results.
 	Results are paginated and sorted by catalog_prefix.
 	"""
-	storageMappings(by: StorageMappingsBy @deprecated(reason: "Omit this argument to return all accessible storage mappings."), after: String, before: String, first: Int, last: Int): StorageMappingConnection!
+	storageMappings(by: StorageMappingsBy @deprecated(reason: "Prefer `filter: { catalogPrefix }` for prefix scoping. `by` also supports exact-prefix lookups not yet covered by `filter`."), filter: StorageMappingsFilter, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
 	"""
 	Returns data planes accessible to the current user.
 	
@@ -2369,6 +2369,21 @@ input StorageMappingsBy {
 	Exactly one of `exactPrefixes` or `underPrefix` must be provided.
 	"""
 	underPrefix: Prefix
+}
+
+"""
+Composable filter for the `storageMappings` query. Every field is optional
+and only narrows the result set; the caller's catalog-read scope is enforced
+independently, so a filter can never widen what a caller may see.
+"""
+input StorageMappingsFilter {
+	"""
+	Narrow to storage mappings whose catalog prefix starts with this prefix,
+	e.g. `acmeCo/`. This matches the whole subtree — mappings for `acmeCo/`,
+	`acmeCo/team-a/`, etc. — the same way the deprecated `by: { underPrefix }`
+	does, and composes with the caller's authorized read prefixes.
+	"""
+	catalogPrefix: PrefixFilter
 }
 
 type Tenant {

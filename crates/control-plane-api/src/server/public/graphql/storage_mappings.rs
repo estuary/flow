@@ -1,3 +1,4 @@
+use super::filters;
 use crate::directives::storage_mappings::{
     collection_and_recovery_spec_from, insert_storage_mapping, strip_collection_data_suffix,
     update_storage_mapping, upsert_storage_mapping,
@@ -587,6 +588,18 @@ pub struct StorageMappingsBy {
     pub under_prefix: Option<models::Prefix>,
 }
 
+/// Composable filter for the `storageMappings` query. Every field is optional
+/// and only narrows the result set; the caller's catalog-read scope is enforced
+/// independently, so a filter can never widen what a caller may see.
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct StorageMappingsFilter {
+    /// Narrow to storage mappings whose catalog prefix starts with this prefix,
+    /// e.g. `acmeCo/`. This matches the whole subtree — mappings for `acmeCo/`,
+    /// `acmeCo/team-a/`, etc. — the same way the deprecated `by: { underPrefix }`
+    /// does, and composes with the caller's authorized read prefixes.
+    pub catalog_prefix: Option<filters::PrefixFilter>,
+}
+
 /// A storage mapping that defines where collection data is stored.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct StorageMapping {
@@ -620,19 +633,33 @@ impl StorageMappingsQuery {
     /// Returns storage mappings accessible to the current user.
     ///
     /// Returns mappings under every prefix where the caller has catalog-read
-    /// capability. The optional `by` filter narrows those authorized results.
+    /// capability. The optional `filter` narrows those authorized results.
     /// Results are paginated and sorted by catalog_prefix.
     pub async fn storage_mappings(
         &self,
         ctx: &Context<'_>,
-        #[graphql(deprecation = "Omit this argument to return all accessible storage mappings.")]
+        #[graphql(
+            deprecation = "Prefer `filter: { catalogPrefix }` for prefix scoping. `by` also \
+                                 supports exact-prefix lookups not yet covered by `filter`."
+        )]
         by: Option<StorageMappingsBy>,
+        filter: Option<StorageMappingsFilter>,
         after: Option<String>,
         before: Option<String>,
         first: Option<i32>,
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedStorageMappings> {
         let env = ctx.data::<crate::Envelope>()?;
+
+        // `filter: { catalogPrefix: { startsWith } }` is the going-forward
+        // replacement for `by: { underPrefix }`; both scope to a subtree
+        // identically. They're mutually exclusive so the scope is unambiguous.
+        let filter_prefix: Option<String> = filter
+            .and_then(|f| f.catalog_prefix)
+            .and_then(|f| f.starts_with);
+        if by.is_some() && filter_prefix.is_some() {
+            return Err("provide either `by` or `filter`, not both; `by` is deprecated".into());
+        }
 
         let (exact_prefixes, under_prefix) = match by {
             None => (Vec::new(), None),
@@ -657,6 +684,11 @@ impl StorageMappingsQuery {
                 }
             }
         };
+
+        // A `filter` prefix scopes exactly like `underPrefix`; fold it into the
+        // same slot so it flows through `authorized_prefixes` and the query's
+        // subtree predicate. Mutual exclusion above guarantees at most one.
+        let under_prefix = under_prefix.or_else(|| filter_prefix.map(models::Prefix::new));
 
         let snapshot = env.snapshot();
         let mut read_prefixes = super::authorized_prefixes::authorized_prefixes(
@@ -993,5 +1025,125 @@ mod test {
           }
         }
         "###);
+    }
+
+    // The `filter` argument scopes by catalog-prefix subtree exactly like the
+    // deprecated `by: { underPrefix }`, and composes with the caller's read
+    // scope. Providing both `by` and `filter` is rejected.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn storage_mappings_filter_scopes_by_prefix(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let spec = crate::TextJson(models::StorageDef {
+            data_planes: Vec::new(),
+            stores: vec![models::Store::example()],
+        });
+        for prefix in ["aliceCo/", "aliceCo/team/", "otherCo/"] {
+            sqlx::query("INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ($1, $2)")
+                .bind(prefix)
+                .bind(&spec)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        // Helper: run the query with the given variables and return the sorted
+        // list of returned catalog prefixes, asserting no GraphQL errors.
+        async fn prefixes(
+            server: &test_server::TestServer,
+            token: &str,
+            variables: serde_json::Value,
+        ) -> Vec<String> {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                            query($by: StorageMappingsBy, $filter: StorageMappingsFilter) {
+                                storageMappings(by: $by, filter: $filter) {
+                                    edges { node { catalogPrefix } }
+                                }
+                            }
+                        "#,
+                        "variables": variables,
+                    }),
+                    Some(token),
+                )
+                .await;
+            assert!(
+                response.get("errors").is_none(),
+                "unexpected errors: {response}"
+            );
+            response["data"]["storageMappings"]["edges"]
+                .as_array()
+                .expect("edges array")
+                .iter()
+                .map(|edge| edge["node"]["catalogPrefix"].as_str().unwrap().to_string())
+                .collect()
+        }
+
+        // A prefix filter narrows to the matching subtree, the same result the
+        // deprecated `by: { underPrefix }` produces.
+        let narrowed = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "filter": { "catalogPrefix": { "startsWith": "aliceCo/team/" } } }),
+        )
+        .await;
+        assert_eq!(narrowed, vec!["aliceCo/team/"]);
+
+        // A broader prefix returns the whole authorized subtree.
+        let subtree = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "filter": { "catalogPrefix": { "startsWith": "aliceCo/" } } }),
+        )
+        .await;
+        assert_eq!(subtree, vec!["aliceCo/", "aliceCo/team/"]);
+
+        // The filter can never widen scope past the caller's grants.
+        let cross_tenant = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "filter": { "catalogPrefix": { "startsWith": "otherCo/" } } }),
+        )
+        .await;
+        assert!(cross_tenant.is_empty());
+
+        // An empty filter behaves like omitting it: all accessible mappings.
+        let all = prefixes(&server, &alice_token, serde_json::json!({ "filter": {} })).await;
+        assert_eq!(all, vec!["aliceCo/", "aliceCo/team/"]);
+
+        // `by` and `filter` are mutually exclusive.
+        let both: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                        query($by: StorageMappingsBy, $filter: StorageMappingsFilter) {
+                            storageMappings(by: $by, filter: $filter) {
+                                edges { node { catalogPrefix } }
+                            }
+                        }
+                    "#,
+                    "variables": {
+                        "by": { "underPrefix": "aliceCo/" },
+                        "filter": { "catalogPrefix": { "startsWith": "aliceCo/" } },
+                    },
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            both["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "expected an error when both `by` and `filter` are provided: {both}"
+        );
     }
 }
