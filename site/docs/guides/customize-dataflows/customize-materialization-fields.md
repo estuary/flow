@@ -194,7 +194,7 @@ Two metadata fields are the exception, and are selected automatically whenever a
 * `_meta/op`: the change operation type (create, update, or delete).
 * `flow_published_at`: the time at which Estuary published the document.
 
-To materialize any other `_meta` field, add it explicitly to the binding's `require` list (or click **Require** for that field in the Field Selection table). There is no wildcard or global setting that includes all `_meta` fields at once; each field must be named individually, per binding:
+To materialize any other [`_meta` field](/guides/advanced-usage/metadata-fields), add it explicitly to the binding's `require` list (or click **Require** for that field in the Field Selection table). There is no wildcard or global setting that includes all `_meta` fields at once; each field must be named individually, per binding:
 
 ```yaml
 bindings:
