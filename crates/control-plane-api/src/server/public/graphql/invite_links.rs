@@ -441,6 +441,32 @@ async fn ensure_private_data_plane_grants(
     if tenant.is_empty() {
         return Ok(());
     }
+
+    // Only install these grants for tenants that actually own a private data
+    // plane. Provisioning gates the identical grants on `if let Some(private)`;
+    // without the same gate here, redeeming an admin invite for a tenant that
+    // never had a private data plane fabricates grants to `ops/dp/private/` and
+    // `ops/tasks/private/` prefixes that don't exist. Because the insert runs on
+    // every admin redeem with `ON CONFLICT DO NOTHING`, those zombie grants also
+    // reappear after being deleted. A private data plane is a `data_planes` row
+    // named `ops/dp/private/<tenant>/<region>`; match it with the `^@` prefix
+    // operator (not `LIKE`, since tenant names may contain `_`).
+    let private_dp_prefix = format!("ops/dp/private/{tenant}/");
+    let has_private_data_plane = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM data_planes WHERE data_plane_name ^@ $1
+        ) AS "exists!"
+        "#,
+        private_dp_prefix,
+    )
+    .fetch_one(&mut *txn)
+    .await?;
+
+    if !has_private_data_plane {
+        return Ok(());
+    }
+
     let grant_objects = vec![
         format!("ops/dp/private/{tenant}/"),
         format!("ops/tasks/private/{tenant}/"),
@@ -690,14 +716,19 @@ mod test {
         );
     }
 
-    // Regression test for #2848. Redeeming an admin invite for a sub-prefix
-    // must install explicit read grants with the sub-prefix as the subject —
-    // both to the tenant's private data plane prefix (for the publish-time
-    // filter in publications/specs.rs) and to the ops-tasks prefix (for any
-    // RLS-gated log/stats reads). Non-admin invites must not install grants.
+    // Regression test for #2848. When the tenant owns a private data plane,
+    // redeeming an admin invite for a sub-prefix must install explicit read
+    // grants with the sub-prefix as the subject — both to the tenant's private
+    // data plane prefix (for the publish-time filter in publications/specs.rs)
+    // and to the ops-tasks prefix (for any RLS-gated log/stats reads). Non-admin
+    // invites must not install grants. The `private_links` fixture is what gives
+    // `aliceCo` its private data plane.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
-        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
     )]
     async fn test_redeem_admin_invite_inserts_private_dp_grants(pool: sqlx::PgPool) {
         let _guard = test_server::init();
@@ -853,6 +884,91 @@ mod test {
         .await
         .unwrap();
         assert_eq!(count_after_second, 2);
+    }
+
+    // Zombie-grant regression. When the tenant does NOT own a private data
+    // plane, redeeming an admin invite must install no grants at all —
+    // otherwise every redeem fabricates read grants to `ops/dp/private/` and
+    // `ops/tasks/private/` prefixes that don't exist, and `ON CONFLICT DO
+    // NOTHING` re-creates them after they're deleted. This fixture omits
+    // `private_links`, so `aliceCo` has no private data plane.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_redeem_admin_invite_skips_grants_without_private_dp(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice_token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ('22222222-2222-2222-2222-222222222222', 'bob@example.test')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let bob_token =
+            server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), Some("bob@example.test"));
+
+        let admin_invite: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($prefix: Prefix!, $capability: Capability!) {
+                        createInviteLink(
+                            catalogPrefix: $prefix
+                            capability: $capability
+                            singleUse: false
+                        ) { token }
+                    }"#,
+                    "variables": {
+                        "prefix": "aliceCo/sub/",
+                        "capability": "admin"
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+
+        let admin_token = admin_invite["data"]["createInviteLink"]["token"]
+            .as_str()
+            .unwrap();
+
+        let _: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": admin_token }
+                }),
+                Some(&bob_token),
+            )
+            .await;
+
+        let zombie_grant_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM role_grants
+            WHERE subject_role = 'aliceCo/sub/'
+              AND object_role IN ('ops/dp/private/aliceCo/', 'ops/tasks/private/aliceCo/')
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            zombie_grant_count, 0,
+            "admin redeem must not install private DP grants for a tenant with no private data plane"
+        );
     }
 
     #[sqlx::test(
