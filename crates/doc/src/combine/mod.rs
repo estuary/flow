@@ -125,14 +125,43 @@ pub use spill::{SpillDrainer, SpillWriter};
 pub struct Accumulator {
     memtable: Option<MemTable>,
     spill: SpillWriter<std::fs::File>,
+    // Per-binding spill-segment cutoff: an entry in a segment whose ordinal is
+    // below `cutoffs[binding]` is stale. Accumulator-local; zeroed when the
+    // spill file is, so ordinals and fences restart together.
+    cutoffs: Box<[u32]>,
 }
 
 impl Accumulator {
     pub fn new(spec: Spec, spill: std::fs::File) -> Result<Self, Error> {
+        let cutoffs = vec![0u32; spec.keys.len()].into_boxed_slice();
         Ok(Self {
             memtable: Some(MemTable::new(spec)),
             spill: SpillWriter::new(spill)?,
+            cutoffs,
         })
+    }
+
+    /// Truncate `binding`'s backfill boundary: everything the Accumulator holds
+    /// for `binding` becomes stale — already-spilled segments are fenced by
+    /// ordinal, and the live MemTable drops its pre-boundary sources while
+    /// flagging its Loaded fronts stale (see [`MemTable::truncate`]).
+    ///
+    /// Callers MUST ensure every later `add` for `binding` is post-boundary, or
+    /// is explicitly stale via [`MemTable::add_stale_front`]; `truncate` only
+    /// reclassifies what is already present.
+    pub fn truncate(&mut self, binding: usize) {
+        let Self {
+            memtable: Some(memtable),
+            spill,
+            cutoffs,
+        } = self
+        else {
+            unreachable!("memtable is always Some");
+        };
+
+        // Fence every segment written so far (all ordinals < the segment count).
+        cutoffs[binding] = spill.segment_ranges().len() as u32;
+        memtable.truncate(binding as u16);
     }
 
     /// Obtain an MemTable with available capacity.
@@ -142,6 +171,7 @@ impl Accumulator {
         let Self {
             memtable: Some(memtable),
             spill,
+            ..
         } = self
         else {
             unreachable!("memtable is always Some");
@@ -169,16 +199,21 @@ impl Accumulator {
 
     /// Map this combine Accumulator into a Drainer, which will drain directly
     /// from the inner MemTable (if no spill occurred) or from an inner SpillDrainer.
+    /// Stale entries (flagged, or fenced by a segment cutoff) are dropped on
+    /// drain, transferring only their `front()` existence onto the fresh entry.
     pub fn into_drainer(self) -> Result<Drainer, Error> {
         let Self {
             memtable: Some(memtable),
             mut spill,
+            cutoffs,
         } = self
         else {
             unreachable!("memtable must be Some");
         };
 
         if spill.segment_ranges().is_empty() {
+            // No segments spilled: cutoffs cannot fence anything, so staleness
+            // is entirely carried by the STALE flag.
             let (spill, _ranges) = spill.into_parts();
 
             Ok(Drainer::Mem {
@@ -190,8 +225,15 @@ impl Accumulator {
             let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE)?;
             let (spill, ranges) = spill.into_parts();
 
+            // Empty when nothing was truncated, so segment stamping short-circuits.
+            let cutoffs: Arc<[u32]> = if cutoffs.iter().all(|&c| c == 0) {
+                Vec::new().into()
+            } else {
+                cutoffs.into()
+            };
+
             Ok(Drainer::Spill {
-                drainer: SpillDrainer::new(spec, spill, &ranges)?,
+                drainer: SpillDrainer::new(spec, spill, &ranges, cutoffs)?,
             })
         }
     }
@@ -330,6 +372,15 @@ impl Meta {
         self.1 & META_FLAG_FRONT != 0
     }
 
+    /// Is this entry stale (superseded by a backfill truncation)? A stale entry
+    /// is never validated or reduced; on drain it's discarded, transferring only
+    /// its `front()` existence onto the first fresh entry of the shared
+    /// (binding, key).
+    #[inline]
+    pub fn stale(&self) -> bool {
+        self.1 & META_FLAG_STALE != 0
+    }
+
     /// Is this entry known to be valid? Known-valid entries skip validation
     /// during spill/drain, and are assumed to not need redaction (validation
     /// drives redaction).
@@ -377,6 +428,16 @@ impl Meta {
     fn set_not_associative(&mut self) {
         self.1 |= META_FLAG_NOT_ASSOCIATIVE;
     }
+
+    #[inline]
+    fn set_front(&mut self) {
+        self.1 |= META_FLAG_FRONT;
+    }
+
+    #[inline]
+    fn set_stale(&mut self) {
+        self.1 |= META_FLAG_STALE;
+    }
 }
 
 impl std::fmt::Debug for Meta {
@@ -396,6 +457,9 @@ impl std::fmt::Debug for Meta {
         if self.known_valid() {
             s.field(&"V");
         }
+        if self.stale() {
+            s.field(&"S");
+        }
         s.finish()
     }
 }
@@ -408,6 +472,8 @@ const META_FLAG_NOT_ASSOCIATIVE: u8 = 0x02;
 const META_FLAG_DELETED: u8 = 0x04;
 // Flag marking this entry is known to be valid against its schema.
 const META_FLAG_KNOWN_VALID: u8 = 0x08;
+// Flag marking this entry is stale (superseded by a backfill truncation).
+const META_FLAG_STALE: u8 = 0x10;
 
 // The number of used bytes within a Bump allocator.
 fn bump_mem_used(alloc: &bumpalo::Bump) -> usize {

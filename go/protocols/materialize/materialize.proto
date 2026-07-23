@@ -6,6 +6,7 @@ option go_package = "github.com/estuary/flow/go/protocols/materialize";
 import "consumer/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
+import "google/protobuf/timestamp.proto";
 
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
@@ -185,6 +186,30 @@ message Request {
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "statePatches"
     ];
+
+    // Backfill-begin signals observed during this transaction. A connector
+    // acts on those relevant to its key range.
+    message BackfillBegin {
+      uint32 binding = 1;
+      // Truncation boundary of the binding's backfill: documents published at or
+      // after this time are current, while earlier ones were superseded by the
+      // backfill. It equals the begin's own publication time (flow_published_at),
+      // and is carried on both begin and complete so connectors need not track it
+      // across transactions.
+      google.protobuf.Timestamp timestamp = 2;
+    }
+    repeated BackfillBegin backfill_begins = 2;
+
+    // Backfill-complete signals observed during this transaction. See
+    // BackfillBegin.
+    message BackfillComplete {
+      uint32 binding = 1;
+      // Truncation boundary of the completed backfill (see BackfillBegin.timestamp):
+      // the connector may delete destination rows whose flow_published_at predates
+      // this time, as they were superseded by the backfill.
+      google.protobuf.Timestamp timestamp = 2;
+    }
+    repeated BackfillComplete backfill_completes = 3;
   }
   Flush flush = 6;
 

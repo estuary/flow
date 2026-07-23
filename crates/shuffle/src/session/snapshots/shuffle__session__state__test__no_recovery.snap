@@ -22,17 +22,23 @@ PipelineSnapshot {
             },
         ],
         flushed_lsn: [],
+        latest_backfill_begin: {},
+        latest_backfill_complete: {},
         unresolved_hints: 0,
     },
     unresolved: Frontier {
         journals: [],
         flushed_lsn: [],
+        latest_backfill_begin: {},
+        latest_backfill_complete: {},
         unresolved_hints: 0,
     },
     unresolved_count: 0,
     progressed: Frontier {
         journals: [],
         flushed_lsn: [],
+        latest_backfill_begin: {},
+        latest_backfill_complete: {},
         unresolved_hints: 0,
     },
 }

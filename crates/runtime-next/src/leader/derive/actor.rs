@@ -415,7 +415,8 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                             all_commits.push(leader_commit);
                         }
 
-                        let intents = publisher::intents::build_transaction_intents(&all_commits);
+                        let intents =
+                            publisher::intents::build_transaction_intents(&all_commits, None);
 
                         Ok((publisher, intents))
                     }

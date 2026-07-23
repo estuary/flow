@@ -578,6 +578,12 @@ pub struct Recover {
     /// Persisted trigger parameters (materialize only), or empty.
     #[prost(bytes = "bytes", tag = "10")]
     pub trigger_params_json: ::prost::bytes::Bytes,
+    /// Active-backfill begin clocks, keyed by binding index. Restored so the
+    /// capture runtime can re-apply truncated-at journal labels on startup and
+    /// resolve a BackfillComplete's truncated_at. Resolved from "AB:{state_key}"
+    /// keys by the scan.
+    #[prost(btree_map = "uint32, fixed64", tag = "11")]
+    pub active_backfills: ::prost::alloc::collections::BTreeMap<u32, u64>,
 }
 /// Persist is sent by the leader to shard zero when state must be durably
 /// written. Each field maps to a contractual WriteBatch effect on shard
@@ -668,6 +674,35 @@ pub struct Persist {
     /// Effect: after the WriteBatch commits, scan and reply `Recover` not `Persisted`.
     #[prost(bool, tag = "17")]
     pub rescan: bool,
+    /// The active-backfill change this transaction observed, if any. At most one
+    /// per commit — a backfill control signal stands alone in its transaction.
+    #[prost(oneof = "persist::ActiveBackfillChange", tags = "18, 19")]
+    pub active_backfill_change: ::core::option::Option<persist::ActiveBackfillChange>,
+}
+/// Nested message and enum types in `Persist`.
+pub mod persist {
+    /// The active-backfill change this transaction observed, if any. At most one
+    /// per commit — a backfill control signal stands alone in its transaction.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum ActiveBackfillChange {
+        /// BackfillBegin: record the binding's begin clock.
+        /// Effect: Put fixed64-LE under "AB:{state_key}" (state_key resolved by the encoder).
+        #[prost(message, tag = "18")]
+        Begin(super::ActiveBackfillBegin),
+        /// BackfillComplete: clear the binding's active-backfill entry.
+        /// Effect: Delete "AB:{state_key}" (state_key resolved by the encoder).
+        #[prost(uint32, tag = "19")]
+        CompleteBinding(u32),
+    }
+}
+/// ActiveBackfillBegin records a binding's backfill begin clock — its
+/// authoritative truncated_at — staged by a committing Persist.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ActiveBackfillBegin {
+    #[prost(uint32, tag = "1")]
+    pub binding: u32,
+    #[prost(fixed64, tag = "2")]
+    pub truncated_at: u64,
 }
 /// Persisted is sent by shard zero to the leader after the state is durable
 /// in the recovery log.
@@ -996,12 +1031,48 @@ pub mod materialize {
         }
     }
     /// Leader → Shards. Signals end of Load phase.
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Flush {
         /// Prior transaction's aggregated C:Acknowledged state patches.
         /// State Update Wire Format.
         #[prost(bytes = "bytes", tag = "1")]
         pub connector_patches_json: ::prost::bytes::Bytes,
+        /// Backfill-begin markers observed during this transaction (the leader's
+        /// per-transaction delta). Each shard forwards them to its connector as a
+        /// C:Flush notification. The shuffle reads fold each marker exactly once per
+        /// committed generation, so the set is already a delta — no leader-side
+        /// deduplication.
+        #[prost(message, repeated, tag = "2")]
+        pub backfill_begins: ::prost::alloc::vec::Vec<flush::BackfillBegin>,
+        /// Backfill-complete markers observed during this transaction. Forwarded like
+        /// `backfill_begins`.
+        #[prost(message, repeated, tag = "3")]
+        pub backfill_completes: ::prost::alloc::vec::Vec<flush::BackfillComplete>,
+    }
+    /// Nested message and enum types in `Flush`.
+    pub mod flush {
+        /// A backfill-begin marker: a binding index and the begin clock (the
+        /// truncation boundary).
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct BackfillBegin {
+            /// Binding index.
+            #[prost(uint32, tag = "1")]
+            pub binding: u32,
+            /// Begin clock: the backfill's truncation boundary.
+            #[prost(fixed64, tag = "2")]
+            pub clock: u64,
+        }
+        /// A backfill-complete marker; same shape as BackfillBegin, where `clock` is
+        /// the completed backfill's begin (truncation) boundary.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct BackfillComplete {
+            /// Binding index.
+            #[prost(uint32, tag = "1")]
+            pub binding: u32,
+            /// Begin clock the completed backfill reported (its truncation boundary).
+            #[prost(fixed64, tag = "2")]
+            pub clock: u64,
+        }
     }
     /// Shard → Leader. Flush phase complete.
     /// Reports connector state patches and max-key deltas from C:Flushed.

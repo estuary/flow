@@ -110,7 +110,7 @@ async fn hello_world(build: Arc<build::Output>, journal_client: gazette::journal
     // Build and write ACK intent documents.
     let (producer, commit_clock, journals) = publisher.commit_intents();
     let journal_acks =
-        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)]);
+        publisher::intents::build_transaction_intents(&[(producer, commit_clock, journals)], None);
 
     publisher
         .write_intents(journal_acks)

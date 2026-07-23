@@ -9,6 +9,7 @@ expression: metas
         clock: Clock(1000s 1000ns),
         flags: Flags(8000 (OUTSIDE_TXN)),
         producer: Producer(01:00:00:00:00:00),
+        backfill_event: None,
     },
     Meta {
         begin_offset: 12430,
@@ -16,6 +17,7 @@ expression: metas
         clock: Clock(1000s 2000ns),
         flags: Flags(1 (CONTINUE_TXN)),
         producer: Producer(01:00:00:00:00:00),
+        backfill_event: None,
     },
     Meta {
         begin_offset: 12504,
@@ -23,5 +25,28 @@ expression: metas
         clock: Clock(1000s 3000ns),
         flags: Flags(2 (ACK_TXN)),
         producer: Producer(01:00:00:00:00:00),
+        backfill_event: None,
+    },
+    Meta {
+        begin_offset: 12562,
+        end_offset: 12655,
+        clock: Clock(1000s 4000ns),
+        flags: Flags(2 (ACK_TXN)),
+        producer: Producer(01:00:00:00:00:00),
+        backfill_event: Some(
+            BackfillBegin,
+        ),
+    },
+    Meta {
+        begin_offset: 12655,
+        end_offset: 12784,
+        clock: Clock(1000s 5000ns),
+        flags: Flags(2 (ACK_TXN)),
+        producer: Producer(01:00:00:00:00:00),
+        backfill_event: Some(
+            BackfillComplete {
+                truncated_at: Clock(1700000000s 0ns),
+            },
+        ),
     },
 ]

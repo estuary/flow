@@ -343,6 +343,16 @@ The same "did `unresolved` make progress?" signal disarms the `on_tick`
 stall timeout: it fires only when no progress at all occurs between
 two consecutive ticks.
 
+A peek also carries `latest_backfill_begin` eagerly (cloned from
+`unresolved`, which retains it for the eventual resolved `ready`), as
+scan-classification metadata: a downstream materialization must observe a
+backfill-truncation boundary before it scans any source or Loaded document
+at or above that boundary's clock, so documents on opposite sides of the
+boundary are never combined. The begin clock only becomes durable
+checkpoint state once its causal hints resolve and it rides a fully-resolved
+`ready`. `latest_backfill_complete` is surfaced the same way — eagerly on a peek
+and durably on a resolved `ready` — but plays no part in classification.
+
 ### 12. Coordinator Receives Checkpoint
 
 The coordinator receives `NextCheckpoint` chunks and reassembles a

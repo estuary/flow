@@ -345,6 +345,17 @@ impl SliceActor {
         let binding_state_key = binding.state_key().to_string();
         let client = (*self.topology.journal_clients[binding.index as usize]).clone();
         let spec = spec.context("StartRead missing spec")?;
+
+        let truncated_at = match spec
+            .labels
+            .as_ref()
+            .map_or(Ok(""), |set| labels::maybe_one(set, labels::TRUNCATED_AT))?
+        {
+            "" => uuid::Clock::default(),
+            value => uuid::Clock::from_u64(labels::parse_truncated_at(value)?),
+        };
+        let effective_not_before = binding.not_before.max(truncated_at);
+
         let journal = spec.name.into_boxed_str();
         let read_id = self.reads.len() as u32;
 
@@ -356,7 +367,7 @@ impl SliceActor {
             // This helps identify the sources of reads from the perspective of a gazette broker.
             journal: format!("{journal};{}", binding.journal_read_suffix),
 
-            begin_mod_time: binding.not_before.to_unix().0 as i64,
+            begin_mod_time: effective_not_before.to_unix().0 as i64,
             block: true,
             do_not_proxy: true,
             end_offset: 0, // No end offset.
@@ -388,6 +399,7 @@ impl SliceActor {
         self.reads.push(ReadState::recovered(
             binding_index as u16,
             journal,
+            truncated_at,
             producers,
         ));
 
@@ -758,8 +770,13 @@ impl SliceActor {
             }
 
             let producer_state = read_state.producer_state(meta.producer);
-            let sequenced =
-                state::sequence_producer(producer_state, &read_state.journal, binding, meta)?;
+            let sequenced = state::sequence_producer(
+                producer_state,
+                &read_state.journal,
+                read_state.truncated_at,
+                binding,
+                meta,
+            )?;
 
             // If this document awakens a gapped producer, then we must pause
             // here (leaving this document in the heap) while we replay the
@@ -812,7 +829,7 @@ impl SliceActor {
             read_state.read_offset = end_offset;
 
             if sequenced.is_commit {
-                if flags == uuid::Flags::ACK_TXN {
+                if flags.is_ack() {
                     // This ACK is (binding, journal)-scoped: it commits only
                     // this producer's documents in this binding's read of this journal.
                     // But, it may contain causal hints of *other* journals which
@@ -833,7 +850,12 @@ impl SliceActor {
                 self.flush.set_ready();
             }
 
-            // Step producer state forward to reflect the append.
+            // Fold any committed backfill control clock into this journal's
+            // per-flush backfill state, then step producer state forward.
+            read_state.backfill_begin = read_state.backfill_begin.max(sequenced.backfill_begin);
+            read_state.backfill_complete = read_state
+                .backfill_complete
+                .max(sequenced.backfill_complete);
             _ = read_state
                 .pending
                 .insert(producer, sequenced.producer_state);

@@ -30,5 +30,7 @@ Frontier {
         0/200,
         0/300,
     ],
+    latest_backfill_begin: {},
+    latest_backfill_complete: {},
     unresolved_hints: 0,
 }

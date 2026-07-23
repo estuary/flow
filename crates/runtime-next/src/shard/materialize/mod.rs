@@ -1,4 +1,5 @@
 mod actor;
+mod boundaries;
 mod connector;
 mod drain;
 mod handler;
@@ -83,6 +84,7 @@ impl Metrics {
 struct Binding {
     collection_name: String,             // Source collection.
     delta_updates: bool,                 // Delta updates, or standard?
+    document_uuid_ptr: json::Pointer,    // Document UUID pointer (often /_meta/uuid).
     key_extractors: Vec<doc::Extractor>, // Key extractors for this collection.
     read_schema_json: bytes::Bytes,      // Read JSON-Schema of collection documents.
     ser_policy: doc::SerPolicy,          // Serialization policy for this source.

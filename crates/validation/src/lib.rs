@@ -890,6 +890,7 @@ mod test {
             models::Id::new([0, 0, 0, 0, 0, 0, 2, 2]),
             "test-plane".to_string(),
             "test-plane.example.com".to_string(),
+            false, // closed
             vec!["test-key".to_string()],
             models::RawValue::default(),
             models::Collection::new("ops/acmeCo/logs"),
