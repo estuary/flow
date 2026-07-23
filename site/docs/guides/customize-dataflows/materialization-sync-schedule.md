@@ -18,7 +18,12 @@ reduce the costs incurred in the destination from the actions the connector
 takes to load data to it.
 :::
 
-Most warehouse materialization connectors (such as [Snowflake](/reference/Connectors/materialization-connectors/Snowflake), [Databricks](/reference/Connectors/materialization-connectors/databricks), and [BigQuery](/reference/Connectors/materialization-connectors/BigQuery)) support configuring a sync schedule.
+Sync schedules are supported by two kinds of materialization connectors:
+
+- Warehouse connectors, such as [Snowflake](/reference/Connectors/materialization-connectors/Snowflake), [Databricks](/reference/Connectors/materialization-connectors/databricks), and [BigQuery](/reference/Connectors/materialization-connectors/BigQuery), as well as Amazon Redshift, MotherDuck, ClickHouse, and Azure Fabric Warehouse.
+- File and object-store connectors that write data in batches, such as the Amazon S3, Google Cloud Storage, and Azure Blob Storage file materializations, and the Apache Iceberg materializations. For these connectors the batching interval (for example, an upload interval) is the sync frequency.
+
+Transactional database materializations (such as PostgreSQL, MySQL, and SQL Server) and streaming or API destinations (such as Elasticsearch, MongoDB, DynamoDB, and Pinecone) do _not_ use a sync schedule; they apply updates as they arrive.
 Check the connector reference docs to determine if a specific connector supports sync schedules.
 
 ## How transactions are used to sync data to a destination
@@ -42,6 +47,16 @@ amount of time. This extra delay is only applied when the materialization is
 fully caught up - backfills always run as fast as possible. And while a
 transaction is delayed, Estuary will continue batching and combining new
 documents so that the next transaction contains all of the latest data.
+
+The connector decides whether it is caught up or still backfilling by looking at
+the sizes of its recent transactions. If any of the last several transactions
+stored a large number of documents (on the order of a million), the
+materialization is assumed to still be backfilling, and the sync schedule delay
+is skipped so that it can catch up as fast as possible. Once several consecutive
+transactions are all below that size, the materialization is treated as caught
+up and the sync schedule delay applies. This behavior is the same for every
+connector that supports a sync schedule, including the file and object-store
+connectors.
 
 You can read about [how continuous materialization
 works](/concepts/materialization/#how-continuous-materialization-works) for
