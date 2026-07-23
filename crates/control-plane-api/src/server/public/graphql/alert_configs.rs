@@ -218,6 +218,39 @@ impl AlertConfigsQuery {
         )
         .await
     }
+
+    /// Resolves the effective alert config at a single prefix or catalog name,
+    /// merging all ancestor prefix layers and controller defaults.
+    ///
+    /// This does not require an `alert_configs` row to exist at the scope, so
+    /// it works for prefixes and names that carry no explicit config and are
+    /// therefore absent from the `alertConfigs` listing. `catalogPrefixOrName`
+    /// is a prefix ending in `/` or an exact catalog name; the caller must have
+    /// `CatalogRead` capability on it.
+    pub async fn effective_alert_config(
+        &self,
+        ctx: &Context<'_>,
+        catalog_prefix_or_name: String,
+    ) -> async_graphql::Result<EffectiveAlertConfig> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let claims = env.claims()?;
+
+        validate_prefix_or_name(&catalog_prefix_or_name)?;
+
+        // Reading a scope's effective config requires catalog-read access at
+        // that scope. Ancestor layers merged into the result are visible to
+        // anyone who can read the scope, matching the `effective` field on
+        // AlertConfigEntry and `effectiveAlertConfig` on liveSpec.
+        let policy_result = crate::server::evaluate_names_authorization(
+            env.snapshot(),
+            claims,
+            models::authz::Capability::CatalogRead,
+            [catalog_prefix_or_name.as_str()],
+        );
+        env.authorization_outcome(policy_result).await?;
+
+        resolve_effective_alert_config(ctx, &catalog_prefix_or_name).await
+    }
 }
 
 #[derive(Debug, Default)]
@@ -591,5 +624,108 @@ mod test {
             )
             .await;
         insta::assert_json_snapshot!("effective_defaults_plus_prefix_override", response);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_effective_alert_config_query(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let defaults = models::AlertConfig {
+            data_movement_stalled: None,
+            shard_failed: Some(models::ShardFailedConfig {
+                enabled: Some(true),
+                condition: Some(models::ShardFailedCondition {
+                    failures: Some(3),
+                    per: Some(std::time::Duration::from_secs(8 * 3600)),
+                }),
+            }),
+            task_chronically_failing: None,
+            task_idle: None,
+        };
+
+        let server = test_server::TestServer::start_with_alert_defaults(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+            defaults,
+        )
+        .await;
+
+        let token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        // A prefix with no explicit alert_configs row is absent from the
+        // alertConfigs listing but still resolves an effective config here,
+        // sourced entirely from controller defaults (provenance source null).
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        effectiveAlertConfig(catalogPrefixOrName: "aliceCo/nested/deep/") {
+                            config
+                            provenance { path source }
+                        }
+                    }"#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!("query_effective_defaults_only", response);
+
+        // Insert a prefix override at aliceCo/.
+        let _: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation {
+                        updateAlertConfig(
+                            catalogPrefixOrName: "aliceCo/"
+                            config: { shardFailed: { condition: { failures: 5 } } }
+                        ) { id }
+                    }"#
+                }),
+                Some(&token),
+            )
+            .await;
+
+        // The nested prefix inherits the aliceCo/ override merged over defaults,
+        // with provenance attributing the overridden field to aliceCo/.
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        effectiveAlertConfig(catalogPrefixOrName: "aliceCo/nested/deep/") {
+                            config
+                            provenance { path source }
+                        }
+                    }"#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!("query_effective_inherited_override", response);
+
+        // A prefix the caller cannot read is denied.
+        let response: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        effectiveAlertConfig(catalogPrefixOrName: "notAliceCo/") {
+                            config
+                            provenance { path source }
+                        }
+                    }"#
+                }),
+                Some(&token),
+            )
+            .await;
+        insta::assert_json_snapshot!("query_effective_denied", response);
     }
 }

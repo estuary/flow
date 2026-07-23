@@ -1816,6 +1816,17 @@ type QueryRoot {
 	"""
 	alertConfigs(filter: AlertConfigsFilter, after: String, first: Int): AlertConfigEntryConnection!
 	"""
+	Resolves the effective alert config at a single prefix or catalog name,
+	merging all ancestor prefix layers and controller defaults.
+	
+	This does not require an `alert_configs` row to exist at the scope, so
+	it works for prefixes and names that carry no explicit config and are
+	therefore absent from the `alertConfigs` listing. `catalogPrefixOrName`
+	is a prefix ending in `/` or an exact catalog name; the caller must have
+	`Read` capability on it.
+	"""
+	effectiveAlertConfig(catalogPrefixOrName: String!): EffectiveAlertConfig!
+	"""
 	Returns all possible alert types with their user-facing metadata.
 	"""
 	alertTypes: [AlertTypeInfo!]!

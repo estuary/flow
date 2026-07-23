@@ -1,0 +1,33 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_configs.rs
+expression: response
+---
+{
+  "data": {
+    "effectiveAlertConfig": {
+      "config": {
+        "shardFailed": {
+          "condition": {
+            "failures": 5,
+            "per": "8h"
+          },
+          "enabled": true
+        }
+      },
+      "provenance": [
+        {
+          "path": "shardFailed.condition.failures",
+          "source": "aliceCo/"
+        },
+        {
+          "path": "shardFailed.condition.per",
+          "source": null
+        },
+        {
+          "path": "shardFailed.enabled",
+          "source": null
+        }
+      ]
+    }
+  }
+}
