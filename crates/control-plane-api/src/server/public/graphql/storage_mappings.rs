@@ -41,14 +41,20 @@ impl ConnectionHealthTestResult {
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct CreateStorageMappingResult {
     /// The catalog prefix for which the storage mapping was created.
+    #[graphql(deprecation = "Use storageMapping.catalogPrefix instead.")]
     pub catalog_prefix: models::Prefix,
+    /// The newly created storage mapping.
+    pub storage_mapping: StorageMapping,
 }
 
 /// Result of updating a storage mapping.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct UpdateStorageMappingResult {
     /// The catalog prefix for which the storage mapping was updated.
+    #[graphql(deprecation = "Use storageMapping.catalogPrefix instead.")]
     pub catalog_prefix: models::Prefix,
+    /// The updated storage mapping.
+    pub storage_mapping: StorageMapping,
     /// Whether a republish is required because the primary storage bucket changed.
     pub republish: bool,
 }
@@ -301,7 +307,15 @@ impl StorageMappingsMutation {
             "created storage mapping"
         );
 
-        Ok(CreateStorageMappingResult { catalog_prefix })
+        Ok(CreateStorageMappingResult {
+            catalog_prefix: catalog_prefix.clone(),
+            storage_mapping: StorageMapping {
+                catalog_prefix,
+                detail,
+                spec: async_graphql::Json(strip_collection_data_suffix(collection_spec)),
+                user_capability: models::Capability::Admin,
+            },
+        })
     }
 
     /// Update an existing storage mapping for the given catalog prefix.
@@ -441,7 +455,13 @@ impl StorageMappingsMutation {
         );
 
         Ok(UpdateStorageMappingResult {
-            catalog_prefix,
+            catalog_prefix: catalog_prefix.clone(),
+            storage_mapping: StorageMapping {
+                catalog_prefix,
+                detail,
+                spec: async_graphql::Json(strip_collection_data_suffix(collection_spec)),
+                user_capability: models::Capability::Admin,
+            },
             republish,
         })
     }
@@ -559,11 +579,11 @@ fn resolve_data_planes<'s>(
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct StorageMappingsBy {
     /// Fetch storage mappings by exact catalog prefixes.
-    /// At least one of `exactPrefixes` or `underPrefix` must be provided.
+    /// Exactly one of `exactPrefixes` or `underPrefix` must be provided.
     pub exact_prefixes: Option<Vec<models::Prefix>>,
     /// Fetch all storage mappings under this prefix pattern.
     /// For example, "acmeCo/" returns mappings for "acmeCo/", "acmeCo/team-a/", etc.
-    /// At least one of `exactPrefixes` or `underPrefix` must be provided.
+    /// Exactly one of `exactPrefixes` or `underPrefix` must be provided.
     pub under_prefix: Option<models::Prefix>,
 }
 
@@ -593,16 +613,20 @@ pub type PaginatedStorageMappings = Connection<
 #[derive(Debug, Default)]
 pub struct StorageMappingsQuery;
 
+const MAX_PREFIXES: usize = 20;
+
 #[async_graphql::Object]
 impl StorageMappingsQuery {
     /// Returns storage mappings accessible to the current user.
     ///
-    /// Requires at least read capability to the queried prefixes.
+    /// Returns mappings under every prefix where the caller has catalog-read
+    /// capability. The optional `by` filter narrows those authorized results.
     /// Results are paginated and sorted by catalog_prefix.
     pub async fn storage_mappings(
         &self,
         ctx: &Context<'_>,
-        by: StorageMappingsBy,
+        #[graphql(deprecation = "Omit this argument to return all accessible storage mappings.")]
+        by: Option<StorageMappingsBy>,
         after: Option<String>,
         before: Option<String>,
         first: Option<i32>,
@@ -610,42 +634,56 @@ impl StorageMappingsQuery {
     ) -> async_graphql::Result<PaginatedStorageMappings> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let StorageMappingsBy {
-            exact_prefixes,
-            under_prefix,
-        } = by;
-        let exact_prefixes = exact_prefixes.unwrap_or_default();
-
-        // Validate that exactly one of the two input options is provided.
-        match (exact_prefixes.is_empty(), under_prefix.is_none()) {
-            (true, true) => {
-                return Err("must provide exactly one of `exactPrefixes` or `underPrefix`".into());
+        let (exact_prefixes, under_prefix) = match by {
+            None => (Vec::new(), None),
+            Some(StorageMappingsBy {
+                exact_prefixes,
+                under_prefix,
+            }) => {
+                let exact_prefixes = exact_prefixes.unwrap_or_default();
+                match (exact_prefixes.is_empty(), under_prefix.is_none()) {
+                    (true, true) => {
+                        return Err(
+                            "provide exactly one of `exactPrefixes` or `underPrefix`, or omit `by` entirely".into(),
+                        );
+                    }
+                    (false, false) => {
+                        return Err(
+                            "`exactPrefixes` and `underPrefix` are mutually exclusive; provide only one"
+                                .into(),
+                        );
+                    }
+                    _ => (exact_prefixes, under_prefix),
+                }
             }
-            (false, false) => {
-                return Err(
-                    "`exactPrefixes` and `underPrefix` are mutually exclusive; provide only one"
-                        .into(),
-                );
-            }
-            _ => {}
-        }
-
-        // Verify user has read capability to the queried prefixes.
-        let claims = env.claims()?;
-
-        let prefixes_to_check: Vec<&models::Prefix> = if let Some(ref prefix) = under_prefix {
-            vec![prefix]
-        } else {
-            exact_prefixes.iter().collect()
         };
 
-        let policy_result = crate::server::evaluate_names_authorization(
-            &env.snapshot(),
-            claims,
-            models::Capability::Read,
-            prefixes_to_check,
+        let snapshot = env.snapshot();
+        let mut read_prefixes = super::authorized_prefixes::authorized_prefixes(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            env.claims()?.sub,
+            models::authz::Capability::CatalogRead,
+            under_prefix.as_ref().map(|prefix| prefix.as_str()),
         );
-        env.authorization_outcome(policy_result).await?;
+
+        if !exact_prefixes.is_empty() {
+            read_prefixes.retain(|authorized| {
+                exact_prefixes.iter().any(|exact| {
+                    exact.as_str().starts_with(authorized.as_str())
+                        || authorized.starts_with(exact.as_str())
+                })
+            });
+        }
+
+        if read_prefixes.is_empty() {
+            return Ok(PaginatedStorageMappings::new(false, false));
+        }
+        if read_prefixes.len() > MAX_PREFIXES {
+            return Err(async_graphql::Error::new(
+                "Too many accessible prefixes; narrow results with a filter",
+            ));
+        }
 
         let (rows, has_prev, has_next) =
             connection::query_with::<String, _, _, _, async_graphql::Error>(
@@ -662,6 +700,7 @@ impl StorageMappingsQuery {
                     let result = if before.is_some() || last.is_some() {
                         let rows = fetch_storage_mappings_before(
                             &env.pg_pool,
+                            &read_prefixes,
                             &exact_prefixes,
                             under_prefix.as_ref(),
                             before.as_deref(),
@@ -674,6 +713,7 @@ impl StorageMappingsQuery {
                     } else {
                         let rows = fetch_storage_mappings_after(
                             &env.pg_pool,
+                            &read_prefixes,
                             &exact_prefixes,
                             under_prefix.as_ref(),
                             after.as_deref(),
@@ -737,6 +777,7 @@ struct StorageMappingRow {
 
 async fn fetch_storage_mappings_after(
     db: &sqlx::PgPool,
+    read_prefixes: &[String],
     exact_prefixes: &[models::Prefix],
     under_prefix: Option<&models::Prefix>,
     after: Option<&str>,
@@ -746,6 +787,7 @@ async fn fetch_storage_mappings_after(
     // which would trigger domain constraint validation on bind.
     let exact_prefixes: Vec<String> = exact_prefixes.iter().map(|p| p.to_string()).collect();
     let under_prefix = under_prefix.map(|p| p.as_str());
+    let filter_all = exact_prefixes.is_empty() && under_prefix.is_none();
 
     let rows = sqlx::query!(
         r#"
@@ -755,14 +797,18 @@ async fn fetch_storage_mappings_after(
             spec as "spec!: crate::TextJson<models::StorageDef>"
         FROM storage_mappings
         WHERE NOT catalog_prefix ^@ 'recovery/'
+        AND catalog_prefix::text ^@ ANY($1)
         AND (
-            catalog_prefix::text = any($1::text[])
-            OR ($2::text IS NOT NULL AND catalog_prefix ^@ $2::text)
+            $2::bool
+            OR catalog_prefix::text = any($3::text[])
+            OR ($4::text IS NOT NULL AND catalog_prefix ^@ $4::text)
         )
-        AND ($3::text IS NULL OR catalog_prefix > $3::text)
+        AND ($5::text IS NULL OR catalog_prefix > $5::text)
         ORDER BY catalog_prefix ASC
-        LIMIT $4
+        LIMIT $6
         "#,
+        read_prefixes,
+        filter_all,
         &exact_prefixes,
         under_prefix,
         after,
@@ -783,6 +829,7 @@ async fn fetch_storage_mappings_after(
 
 async fn fetch_storage_mappings_before(
     db: &sqlx::PgPool,
+    read_prefixes: &[String],
     exact_prefixes: &[models::Prefix],
     under_prefix: Option<&models::Prefix>,
     before: Option<&str>,
@@ -792,6 +839,7 @@ async fn fetch_storage_mappings_before(
     // which would trigger domain constraint validation on bind.
     let exact_prefixes: Vec<String> = exact_prefixes.iter().map(|p| p.to_string()).collect();
     let under_prefix = under_prefix.map(|p| p.as_str());
+    let filter_all = exact_prefixes.is_empty() && under_prefix.is_none();
 
     let mut rows = sqlx::query!(
         r#"
@@ -801,14 +849,18 @@ async fn fetch_storage_mappings_before(
             spec as "spec!: crate::TextJson<models::StorageDef>"
         FROM storage_mappings
         WHERE NOT catalog_prefix ^@ 'recovery/'
+        AND catalog_prefix::text ^@ ANY($1)
         AND (
-            catalog_prefix::text = any($1::text[])
-            OR ($2::text IS NOT NULL AND catalog_prefix ^@ $2::text)
+            $2::bool
+            OR catalog_prefix::text = any($3::text[])
+            OR ($4::text IS NOT NULL AND catalog_prefix ^@ $4::text)
         )
-        AND ($3::text IS NULL OR catalog_prefix < $3::text)
+        AND ($5::text IS NULL OR catalog_prefix < $5::text)
         ORDER BY catalog_prefix DESC
-        LIMIT $4
+        LIMIT $6
         "#,
+        read_prefixes,
+        filter_all,
         &exact_prefixes,
         under_prefix,
         before,
@@ -828,4 +880,118 @@ async fn fetch_storage_mappings_before(
             spec: r.spec.0,
         })
         .collect())
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test_server;
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn storage_mappings_are_scoped_to_readable_prefixes(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let spec = crate::TextJson(models::StorageDef {
+            data_planes: Vec::new(),
+            stores: vec![models::Store::example()],
+        });
+        for prefix in ["aliceCo/", "aliceCo/team/", "otherCo/"] {
+            sqlx::query("INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ($1, $2)")
+                .bind(prefix)
+                .bind(&spec)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+        let bob_token = server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), None);
+
+        let query = |by: Option<serde_json::Value>| {
+            serde_json::json!({
+                "query": r#"
+                    query($by: StorageMappingsBy) {
+                        storageMappings(by: $by) {
+                            edges { node { catalogPrefix } }
+                        }
+                    }
+                "#,
+                "variables": { "by": by },
+            })
+        };
+
+        let all_readable: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                        query {
+                            storageMappings {
+                                edges { node { catalogPrefix } }
+                            }
+                        }
+                    "#,
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        insta::assert_json_snapshot!(all_readable, @r###"
+        {
+          "data": {
+            "storageMappings": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogPrefix": "aliceCo/"
+                  }
+                },
+                {
+                  "node": {
+                    "catalogPrefix": "aliceCo/team/"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "###);
+
+        let narrowed: serde_json::Value = server
+            .graphql(
+                &query(Some(serde_json::json!({
+                    "exactPrefixes": ["aliceCo/", "otherCo/"]
+                }))),
+                Some(&alice_token),
+            )
+            .await;
+        insta::assert_json_snapshot!(narrowed, @r###"
+        {
+          "data": {
+            "storageMappings": {
+              "edges": [
+                {
+                  "node": {
+                    "catalogPrefix": "aliceCo/"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        "###);
+
+        let no_access: serde_json::Value = server.graphql(&query(None), Some(&bob_token)).await;
+        insta::assert_json_snapshot!(no_access, @r###"
+        {
+          "data": {
+            "storageMappings": {
+              "edges": []
+            }
+          }
+        }
+        "###);
+    }
 }

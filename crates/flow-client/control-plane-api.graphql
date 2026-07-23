@@ -688,7 +688,11 @@ type CreateStorageMappingResult {
 	"""
 	The catalog prefix for which the storage mapping was created.
 	"""
-	catalogPrefix: Prefix!
+	catalogPrefix: Prefix! @deprecated(reason: "Use storageMapping.catalogPrefix instead.")
+	"""
+	The newly created storage mapping.
+	"""
+	storageMapping: StorageMapping!
 }
 
 """
@@ -1796,10 +1800,11 @@ type QueryRoot {
 	"""
 	Returns storage mappings accessible to the current user.
 	
-	Requires at least read capability to the queried prefixes.
+	Returns mappings under every prefix where the caller has catalog-read
+	capability. The optional `by` filter narrows those authorized results.
 	Results are paginated and sorted by catalog_prefix.
 	"""
-	storageMappings(by: StorageMappingsBy!, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
+	storageMappings(by: StorageMappingsBy @deprecated(reason: "Omit this argument to return all accessible storage mappings."), after: String, before: String, first: Int, last: Int): StorageMappingConnection!
 	"""
 	Returns data planes accessible to the current user.
 	
@@ -2335,13 +2340,13 @@ Input type for querying storage mappings.
 input StorageMappingsBy {
 	"""
 	Fetch storage mappings by exact catalog prefixes.
-	At least one of `exactPrefixes` or `underPrefix` must be provided.
+	Exactly one of `exactPrefixes` or `underPrefix` must be provided.
 	"""
 	exactPrefixes: [Prefix!]
 	"""
 	Fetch all storage mappings under this prefix pattern.
 	For example, "acmeCo/" returns mappings for "acmeCo/", "acmeCo/team-a/", etc.
-	At least one of `exactPrefixes` or `underPrefix` must be provided.
+	Exactly one of `exactPrefixes` or `underPrefix` must be provided.
 	"""
 	underPrefix: Prefix
 }
@@ -2386,7 +2391,11 @@ type UpdateStorageMappingResult {
 	"""
 	The catalog prefix for which the storage mapping was updated.
 	"""
-	catalogPrefix: Prefix!
+	catalogPrefix: Prefix! @deprecated(reason: "Use storageMapping.catalogPrefix instead.")
+	"""
+	The updated storage mapping.
+	"""
+	storageMapping: StorageMapping!
 	"""
 	Whether a republish is required because the primary storage bucket changed.
 	"""

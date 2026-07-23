@@ -9,8 +9,10 @@
 Restart the agent API service to pick up changes:
 
 ```bash
-systemctl --user restart flow-control-agent.service
+systemctl --user restart flow-control-agent@flow.service
 ```
+
+Replace `flow` with the stack name printed by `mise run local:stack-info`.
 
 ### Updating the GraphQL Schema
 
