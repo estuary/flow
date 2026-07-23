@@ -256,6 +256,7 @@ impl Baseline {
             connector_state_json: _,
             max_keys,
             trigger_params_json: _,
+            active_backfills: _, // capture-only state
         } = recover;
 
         // Derivations never track max-keys or a hinted frontier.

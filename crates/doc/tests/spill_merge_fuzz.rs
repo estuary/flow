@@ -182,7 +182,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool, bool)>) -> Result<(), FuzzError> {
     // Spill the final memtable_spill and drain via SpillDrainer.
     let spec = memtable_spill.spill(&mut spill, chunk_target).unwrap();
     let (spill, ranges) = spill.into_parts();
-    let mut spill_drainer = combine::SpillDrainer::new(spec, spill, &ranges)?;
+    let mut spill_drainer = combine::SpillDrainer::new(spec, spill, &ranges, Vec::new().into())?;
 
     let mut expect_it = expect_full.into_iter();
 

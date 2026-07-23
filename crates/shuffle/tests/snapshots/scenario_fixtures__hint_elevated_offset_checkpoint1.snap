@@ -1,6 +1,5 @@
 ---
 source: crates/shuffle/tests/scenario_fixtures.rs
-assertion_line: 2056
 expression: "Checkpoint { frontier: &scrub_measures(&base), read: read1, }"
 ---
 Checkpoint {
@@ -42,6 +41,8 @@ Checkpoint {
             },
         ],
         flushed_lsn: [],
+        latest_backfill_begin: {},
+        latest_backfill_complete: {},
         unresolved_hints: 1,
     },
     read: [

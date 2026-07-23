@@ -120,6 +120,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             control_id,
             format!("ops/dp/public/test-{control_id}"),
             "the-data-plane.dp.estuary-data.com".to_string(),
+            false, // closed
             vec!["hmac-key".to_string()],
             models::RawValue::from_string("{}".to_string()).unwrap(),
             models::Collection::new("ops/logs"),

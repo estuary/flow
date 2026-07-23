@@ -157,6 +157,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             SELECT
                 d.id AS "control_id: Id",
                 d.data_plane_name,
+                d.closed,
                 d.hmac_keys,
                 d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
                 d.data_plane_fqdn,
@@ -412,6 +413,7 @@ mod test {
             control_id: Id::zero(),
             data_plane_name: "test-data-plane".to_string(),
             data_plane_fqdn: "data.plane.test".to_string(),
+            closed: false,
             hmac_keys: Vec::new(),
             encrypted_hmac_keys: models::RawValue::from_string("{}".to_string()).unwrap(),
             ops_logs_name: models::Collection::new("tha/logs"),

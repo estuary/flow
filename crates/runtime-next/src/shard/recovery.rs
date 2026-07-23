@@ -18,12 +18,21 @@
 //! between the binding indices used in the leader protocol and the
 //! `state_key` strings used in RocksDB keys.
 //!
+//! Three keys carry backfill-truncation state, split by task type: `AB:` is
+//! capture state — the in-progress active backfills that drive the
+//! `estuary.dev/truncated-at` journal label — while `BB:`/`BC:` are
+//! materialization state — the cumulative begin/complete clocks of the durable
+//! truncation boundary used for stale source/loaded handling.
+//!
 //! | Prefix       | Key tail                                 | Value                            |
 //! |--------------|------------------------------------------|----------------------------------|
 //! | `FH:`        | `{journal}\0{state_key}\0{producer[6]}`  | proto `shuffle.ProducerFrontier` |
 //! | `FC:`        | `{journal}\0{state_key}\0{producer[6]}`  | proto `shuffle.ProducerFrontier` |
 //! | `AI:`        | `{journal}`                              | raw ACK intent bytes             |
 //! | `MK-v2:`     | `{state_key}`                            | `tuple::pack` packed key         |
+//! | `AB:`        | `{state_key}`                            | fixed64 little-endian clock      |
+//! | `BB:`        | `{state_key}`                            | fixed64 little-endian clock      |
+//! | `BC:`        | `{state_key}`                            | fixed64 little-endian clock      |
 //! | (singleton)  | `checkpoint`                             | legacy `consumer.Checkpoint`     |
 //! | (singleton)  | `committed-close`                        | fixed64 little-endian clock      |
 //! | (singleton)  | `connector-state`                        | reduced JSON merge-patch         |
@@ -52,6 +61,22 @@ pub const PREFIX_ACK_INTENT: &[u8] = b"AI:";
 pub const PREFIX_ACK_INTENT_END: &[u8] = b"AI;";
 /// Key prefix for per-binding max-key entries: `MK-v2:{state_key}`.
 pub const PREFIX_MAX_KEY: &[u8] = b"MK-v2:";
+/// Capture state. Per-binding active-backfill begin clock.
+pub const PREFIX_ACTIVE_BACKFILL: &[u8] = b"AB:";
+/// Materialization state. Per-binding cumulative backfill-begin clock.
+pub const PREFIX_BACKFILL_BEGIN: &[u8] = b"BB:";
+/// Materialization state. Per-binding cumulative backfill-complete clock.
+pub const PREFIX_BACKFILL_COMPLETE: &[u8] = b"BC:";
+/// Materialization state. Backfill-begin clocks of the *hinted* frontier —
+/// persisted so a not-yet-committed marker survives recovery (both the
+/// remote-authoritative reduce and the local idempotent replay rely on it).
+pub const PREFIX_HINTED_BACKFILL_BEGIN: &[u8] = b"HB:";
+/// Exclusive upper bound used for `DeleteRange` over `PREFIX_HINTED_BACKFILL_BEGIN`.
+pub const PREFIX_HINTED_BACKFILL_BEGIN_END: &[u8] = b"HB;";
+/// Materialization state. Backfill-complete clocks of the *hinted* frontier.
+pub const PREFIX_HINTED_BACKFILL_COMPLETE: &[u8] = b"HC:";
+/// Exclusive upper bound used for `DeleteRange` over `PREFIX_HINTED_BACKFILL_COMPLETE`.
+pub const PREFIX_HINTED_BACKFILL_COMPLETE_END: &[u8] = b"HC;";
 /// Legacy checkpoint.
 pub const KEY_LEGACY_CHECKPOINT: &[u8] = b"checkpoint";
 /// Clock at which the last-committed transaction closed.
@@ -189,6 +214,20 @@ pub fn encode_persist<S: AsRef<str>>(
             &mut emit,
             &mut buf,
         )?;
+
+        // Cumulative backfill clocks ride the committed Frontier (keyed by
+        // state_key), persisting the durable truncation boundary so it survives
+        // transaction rotation and leader restart. Kept out of encode_frontier
+        // (a separate keyspace) so the hinted frontier can carry its own
+        // boundary under distinct prefixes; see the hinted path below.
+        encode_backfill_clocks(
+            frontier,
+            binding_state_keys,
+            PREFIX_BACKFILL_BEGIN,
+            PREFIX_BACKFILL_COMPLETE,
+            &mut emit,
+            &mut buf,
+        )?;
     }
 
     for patch in crate::patches::split_state_patches(&persist.connector_patches_json)? {
@@ -206,16 +245,40 @@ pub fn encode_persist<S: AsRef<str>>(
     }
 
     if persist.delete_hinted_frontier {
-        emit(KeyOp::DeleteRange {
-            from: Bytes::from_static(PREFIX_HINTED_FRONTIER),
-            to: Bytes::from_static(PREFIX_HINTED_FRONTIER_END),
-        });
+        // Clear the hinted frontier and its backfill boundary together — each
+        // hint Persist rewrites both, so stale per-suffix entries must not linger.
+        for (from, to) in [
+            (PREFIX_HINTED_FRONTIER, PREFIX_HINTED_FRONTIER_END),
+            (
+                PREFIX_HINTED_BACKFILL_BEGIN,
+                PREFIX_HINTED_BACKFILL_BEGIN_END,
+            ),
+            (
+                PREFIX_HINTED_BACKFILL_COMPLETE,
+                PREFIX_HINTED_BACKFILL_COMPLETE_END,
+            ),
+        ] {
+            emit(KeyOp::DeleteRange {
+                from: Bytes::from_static(from),
+                to: Bytes::from_static(to),
+            });
+        }
     }
     if let Some(frontier) = &persist.hinted_frontier {
         encode_frontier(
             PREFIX_HINTED_FRONTIER,
             frontier,
             binding_state_keys,
+            &mut emit,
+            &mut buf,
+        )?;
+        // Persist the hinted frontier's backfill boundary too, under its own
+        // prefixes (see PREFIX_HINTED_BACKFILL_BEGIN for why).
+        encode_backfill_clocks(
+            frontier,
+            binding_state_keys,
+            PREFIX_HINTED_BACKFILL_BEGIN,
+            PREFIX_HINTED_BACKFILL_COMPLETE,
             &mut emit,
             &mut buf,
         )?;
@@ -257,6 +320,36 @@ pub fn encode_persist<S: AsRef<str>>(
         emit(KeyOp::Put {
             key: buf.split().freeze(),
             value: packed_key.clone(),
+        });
+    }
+
+    // Active-backfill change: at most one per commit. Begin records the
+    // binding's truncated_at clock; Complete clears it.
+    if let Some(change) = &persist.active_backfill_change {
+        let (binding, truncated_at) = match change {
+            proto::persist::ActiveBackfillChange::Begin(begin) => {
+                (begin.binding, Some(begin.truncated_at))
+            }
+            proto::persist::ActiveBackfillChange::CompleteBinding(binding) => (*binding, None),
+        };
+        let state_key = binding_state_keys
+            .get(binding as usize)
+            .ok_or(EncodeError::UnknownBinding {
+                binding,
+                num_bindings: binding_state_keys.len(),
+            })?
+            .as_ref();
+
+        buf.extend_from_slice(PREFIX_ACTIVE_BACKFILL);
+        buf.extend_from_slice(state_key.as_bytes());
+        let key = buf.split().freeze();
+
+        emit(match truncated_at {
+            Some(clock) => KeyOp::Put {
+                key,
+                value: Bytes::copy_from_slice(&clock.to_le_bytes()),
+            },
+            None => KeyOp::Delete { key },
         });
     }
 
@@ -322,6 +415,47 @@ fn encode_frontier<S: AsRef<str>>(
     Ok(())
 }
 
+fn encode_backfill_clocks<S: AsRef<str>>(
+    frontier: &shuffle::proto::Frontier,
+    binding_state_keys: &[S],
+    begin_prefix: &[u8],
+    complete_prefix: &[u8],
+    emit: &mut impl FnMut(KeyOp),
+    buf: &mut BytesMut,
+) -> Result<(), EncodeError> {
+    for entry in &frontier.latest_backfill_begin {
+        let state_key = binding_state_keys
+            .get(entry.binding as usize)
+            .ok_or(EncodeError::UnknownBinding {
+                binding: entry.binding,
+                num_bindings: binding_state_keys.len(),
+            })?
+            .as_ref();
+        buf.extend_from_slice(begin_prefix);
+        buf.extend_from_slice(state_key.as_bytes());
+        emit(KeyOp::Put {
+            key: buf.split().freeze(),
+            value: Bytes::copy_from_slice(&entry.clock.to_le_bytes()),
+        });
+    }
+    for entry in &frontier.latest_backfill_complete {
+        let state_key = binding_state_keys
+            .get(entry.binding as usize)
+            .ok_or(EncodeError::UnknownBinding {
+                binding: entry.binding,
+                num_bindings: binding_state_keys.len(),
+            })?
+            .as_ref();
+        buf.extend_from_slice(complete_prefix);
+        buf.extend_from_slice(state_key.as_bytes());
+        emit(KeyOp::Put {
+            key: buf.split().freeze(),
+            value: Bytes::copy_from_slice(&entry.clock.to_le_bytes()),
+        });
+    }
+    Ok(())
+}
+
 fn append_frontier_key(
     out: &mut BytesMut,
     prefix: &[u8],
@@ -359,14 +493,18 @@ pub fn committed_frontier_key(journal: &str, state_key: &str, producer: &uuid::P
 /// Decode one RocksDB `(key, value)` pair into recovery accumulators.
 ///
 /// `binding_state_keys` is a slice of `(state_key, binding_index)` tuples
-/// sorted on `state_key`, used to translate persisted `state_key`s in
-/// `FH:`/`FC:`/`MK-v2:` keys into their current binding indices. Entries
-/// whose `state_key` does not appear in the slice are silently dropped: they
-/// belong to bindings that have been removed or backfilled.
+/// sorted on `state_key`, used to translate persisted `state_key`s into their
+/// current binding indices. Entries whose `state_key` does not appear in the
+/// slice are silently dropped: they belong to bindings that have been removed
+/// or backfilled.
 pub fn decode_recover_key_value(
     recover: &mut proto::Recover,
     committed_frontier: &mut Vec<shuffle::JournalFrontier>,
     hinted_frontier: &mut Vec<shuffle::JournalFrontier>,
+    committed_backfill_begin: &mut std::collections::BTreeMap<u32, u64>,
+    committed_backfill_complete: &mut std::collections::BTreeMap<u32, u64>,
+    hinted_backfill_begin: &mut std::collections::BTreeMap<u32, u64>,
+    hinted_backfill_complete: &mut std::collections::BTreeMap<u32, u64>,
     key: &[u8],
     value: &[u8],
     binding_state_keys: &[(String, u32)],
@@ -389,6 +527,39 @@ pub fn decode_recover_key_value(
                 .insert(binding, Bytes::copy_from_slice(value));
         }
         Ok(())
+    } else if let Some(rest) = key.strip_prefix(PREFIX_ACTIVE_BACKFILL) {
+        let state_key = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
+        if let Some(binding) = lookup_binding(binding_state_keys, state_key) {
+            recover
+                .active_backfills
+                .insert(binding, decode_clock(value, "active-backfill")?);
+        }
+        Ok(())
+    } else if let Some(rest) = key.strip_prefix(PREFIX_BACKFILL_BEGIN) {
+        let state_key = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
+        if let Some(binding) = lookup_binding(binding_state_keys, state_key) {
+            committed_backfill_begin.insert(binding, decode_clock(value, "backfill-begin")?);
+        }
+        Ok(())
+    } else if let Some(rest) = key.strip_prefix(PREFIX_BACKFILL_COMPLETE) {
+        let state_key = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
+        if let Some(binding) = lookup_binding(binding_state_keys, state_key) {
+            committed_backfill_complete.insert(binding, decode_clock(value, "backfill-complete")?);
+        }
+        Ok(())
+    } else if let Some(rest) = key.strip_prefix(PREFIX_HINTED_BACKFILL_BEGIN) {
+        let state_key = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
+        if let Some(binding) = lookup_binding(binding_state_keys, state_key) {
+            hinted_backfill_begin.insert(binding, decode_clock(value, "hinted-backfill-begin")?);
+        }
+        Ok(())
+    } else if let Some(rest) = key.strip_prefix(PREFIX_HINTED_BACKFILL_COMPLETE) {
+        let state_key = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
+        if let Some(binding) = lookup_binding(binding_state_keys, state_key) {
+            hinted_backfill_complete
+                .insert(binding, decode_clock(value, "hinted-backfill-complete")?);
+        }
+        Ok(())
     } else if key == KEY_COMMITTED_CLOSE {
         recover.committed_close_clock = decode_clock(value, "committed-close-clock")?;
         Ok(())
@@ -406,6 +577,50 @@ pub fn decode_recover_key_value(
     } else {
         Ok(())
     }
+}
+
+/// Restore backfill clocks recovered from the `BB:`/`BC:` (committed) and
+/// `HB:`/`HC:` (hinted) keys onto their respective Frontiers, advancing the
+/// durable truncation boundary. The hinted boundary lets a marker observed in a
+/// hinted-but-not-committed transaction survive a remote-authoritative recovery.
+pub fn restore_backfill_clocks(
+    recover: &mut proto::Recover,
+    committed_backfill_begin: std::collections::BTreeMap<u32, u64>,
+    committed_backfill_complete: std::collections::BTreeMap<u32, u64>,
+    hinted_backfill_begin: std::collections::BTreeMap<u32, u64>,
+    hinted_backfill_complete: std::collections::BTreeMap<u32, u64>,
+) {
+    stamp_backfill(
+        &mut recover.committed_frontier,
+        committed_backfill_begin,
+        committed_backfill_complete,
+    );
+    stamp_backfill(
+        &mut recover.hinted_frontier,
+        hinted_backfill_begin,
+        hinted_backfill_complete,
+    );
+}
+
+/// Stamp per-binding backfill clocks onto an optional Frontier, creating it only
+/// when there's a boundary to record.
+fn stamp_backfill(
+    frontier: &mut Option<shuffle::proto::Frontier>,
+    begin: std::collections::BTreeMap<u32, u64>,
+    complete: std::collections::BTreeMap<u32, u64>,
+) {
+    if begin.is_empty() && complete.is_empty() {
+        return;
+    }
+    let frontier = frontier.get_or_insert_default();
+    frontier.latest_backfill_begin = begin
+        .into_iter()
+        .map(|(binding, clock)| shuffle::proto::frontier::BackfillBegin { binding, clock })
+        .collect();
+    frontier.latest_backfill_complete = complete
+        .into_iter()
+        .map(|(binding, clock)| shuffle::proto::frontier::BackfillComplete { binding, clock })
+        .collect();
 }
 
 fn decode_clock(value: &[u8], kind: &'static str) -> Result<u64, DecodeError> {
@@ -693,16 +908,31 @@ mod test {
         let mut recover = proto::Recover::default();
         let mut committed_frontier = Vec::new();
         let mut hinted_frontier = Vec::new();
+        let mut committed_backfill_begin = std::collections::BTreeMap::new();
+        let mut committed_backfill_complete = std::collections::BTreeMap::new();
+        let mut hinted_backfill_begin = std::collections::BTreeMap::new();
+        let mut hinted_backfill_complete = std::collections::BTreeMap::new();
         for (k, v) in pairs {
             decode_recover_key_value(
                 &mut recover,
                 &mut committed_frontier,
                 &mut hinted_frontier,
+                &mut committed_backfill_begin,
+                &mut committed_backfill_complete,
+                &mut hinted_backfill_begin,
+                &mut hinted_backfill_complete,
                 &k,
                 &v,
                 binding_state_keys,
             )?;
         }
+        restore_backfill_clocks(
+            &mut recover,
+            committed_backfill_begin,
+            committed_backfill_complete,
+            hinted_backfill_begin,
+            hinted_backfill_complete,
+        );
         Ok(DecodedRecover {
             recover,
             committed_frontier,
@@ -866,6 +1096,210 @@ mod test {
 
         let mapping = state_key_index(&[("materialize/mat/t1", 0), ("materialize/mat/t2", 1)]);
         insta::assert_debug_snapshot!(decode_pairs(store, &mapping).unwrap());
+    }
+
+    #[test]
+    fn committed_backfill_clocks_roundtrip() {
+        let persist = proto::Persist {
+            committed_frontier: Some(shuffle::proto::Frontier {
+                latest_backfill_begin: vec![
+                    shuffle::proto::frontier::BackfillBegin {
+                        binding: 0,
+                        clock: 111,
+                    },
+                    shuffle::proto::frontier::BackfillBegin {
+                        binding: 1,
+                        clock: 222,
+                    },
+                ],
+                latest_backfill_complete: vec![shuffle::proto::frontier::BackfillComplete {
+                    binding: 0,
+                    clock: 110,
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let binding_state_keys = &["materialize/mat/t1", "materialize/mat/t2"];
+        let mut store: Vec<(Bytes, Bytes)> = Vec::new();
+        encode_persist(&persist, binding_state_keys, |op| apply_op(&mut store, op)).unwrap();
+        store.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mapping = state_key_index(&[("materialize/mat/t1", 0), ("materialize/mat/t2", 1)]);
+        let recovered = decode_pairs(store, &mapping)
+            .unwrap()
+            .recover
+            .committed_frontier
+            .expect("committed frontier recovered");
+
+        assert_eq!(recovered.latest_backfill_begin, persist_frontier_begin());
+        assert_eq!(
+            recovered.latest_backfill_complete,
+            vec![shuffle::proto::frontier::BackfillComplete {
+                binding: 0,
+                clock: 110,
+            }],
+        );
+    }
+
+    #[test]
+    fn hinted_backfill_clocks_roundtrip() {
+        // The hinted boundary must survive encode→decode via the HB:/HC: keys —
+        // the durability a remote-authoritative recovery relies on.
+        let persist = proto::Persist {
+            delete_hinted_frontier: true,
+            hinted_frontier: Some(shuffle::proto::Frontier {
+                latest_backfill_begin: vec![shuffle::proto::frontier::BackfillBegin {
+                    binding: 0,
+                    clock: 111,
+                }],
+                latest_backfill_complete: vec![shuffle::proto::frontier::BackfillComplete {
+                    binding: 0,
+                    clock: 110,
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let binding_state_keys = &["materialize/mat/t1", "materialize/mat/t2"];
+        let mut store: Vec<(Bytes, Bytes)> = Vec::new();
+        encode_persist(&persist, binding_state_keys, |op| apply_op(&mut store, op)).unwrap();
+        store.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mapping = state_key_index(&[("materialize/mat/t1", 0), ("materialize/mat/t2", 1)]);
+        let recovered = decode_pairs(store, &mapping)
+            .unwrap()
+            .recover
+            .hinted_frontier
+            .expect("hinted frontier recovered from HB:/HC: keys");
+
+        assert_eq!(
+            recovered.latest_backfill_begin,
+            vec![shuffle::proto::frontier::BackfillBegin {
+                binding: 0,
+                clock: 111,
+            }],
+        );
+        assert_eq!(
+            recovered.latest_backfill_complete,
+            vec![shuffle::proto::frontier::BackfillComplete {
+                binding: 0,
+                clock: 110,
+            }],
+        );
+    }
+
+    #[test]
+    fn active_backfill_change_roundtrip() {
+        // Capture-side AB: keys. A BackfillBegin records the binding's
+        // truncated_at clock; a later BackfillComplete deletes it. Bindings are
+        // keyed by stable state_key, so binding 1 resolves to "cap/c/t1".
+        let binding_state_keys = &["cap/c/t0", "cap/c/t1"];
+        let mapping = state_key_index(&[("cap/c/t0", 0), ("cap/c/t1", 1)]);
+
+        let begin = proto::Persist {
+            active_backfill_change: Some(proto::persist::ActiveBackfillChange::Begin(
+                proto::ActiveBackfillBegin {
+                    binding: 1,
+                    truncated_at: 0xABCD,
+                },
+            )),
+            ..Default::default()
+        };
+        let mut store: Vec<(Bytes, Bytes)> = Vec::new();
+        encode_persist(&begin, binding_state_keys, |op| apply_op(&mut store, op)).unwrap();
+
+        let recovered = decode_pairs(store.clone(), &mapping).unwrap().recover;
+        assert_eq!(
+            recovered.active_backfills,
+            std::collections::BTreeMap::from([(1, 0xABCD)]),
+            "begin records binding 1's clock under its state_key",
+        );
+
+        // Completing binding 1 deletes the AB: key seeded above.
+        let complete = proto::Persist {
+            active_backfill_change: Some(proto::persist::ActiveBackfillChange::CompleteBinding(1)),
+            ..Default::default()
+        };
+        encode_persist(&complete, binding_state_keys, |op| apply_op(&mut store, op)).unwrap();
+
+        let recovered = decode_pairs(store, &mapping).unwrap().recover;
+        assert!(
+            recovered.active_backfills.is_empty(),
+            "complete clears the binding's active backfill",
+        );
+    }
+
+    fn persist_frontier_begin() -> Vec<shuffle::proto::frontier::BackfillBegin> {
+        vec![
+            shuffle::proto::frontier::BackfillBegin {
+                binding: 0,
+                clock: 111,
+            },
+            shuffle::proto::frontier::BackfillBegin {
+                binding: 1,
+                clock: 222,
+            },
+        ]
+    }
+
+    #[test]
+    fn restore_backfill_clocks_preserves_existing_journals() {
+        // The common case: a materialization with committed read offsets that has
+        // also observed a backfill. The clocks attach to the journal-bearing
+        // committed Frontier rather than replacing it.
+        let mut recover = proto::Recover {
+            committed_frontier: Some(frontier_fixture()),
+            ..Default::default()
+        };
+        let journals = recover
+            .committed_frontier
+            .as_ref()
+            .unwrap()
+            .journals
+            .clone();
+
+        restore_backfill_clocks(
+            &mut recover,
+            std::collections::BTreeMap::from([(0u32, 111u64)]),
+            std::collections::BTreeMap::from([(0u32, 110u64)]),
+            std::collections::BTreeMap::new(),
+            std::collections::BTreeMap::new(),
+        );
+
+        let frontier = recover.committed_frontier.unwrap();
+        assert_eq!(frontier.journals, journals, "journals are untouched");
+        assert_eq!(
+            frontier.latest_backfill_begin,
+            vec![shuffle::proto::frontier::BackfillBegin {
+                binding: 0,
+                clock: 111,
+            }],
+        );
+        assert_eq!(
+            frontier.latest_backfill_complete,
+            vec![shuffle::proto::frontier::BackfillComplete {
+                binding: 0,
+                clock: 110,
+            }],
+        );
+    }
+
+    #[test]
+    fn restore_backfill_clocks_without_clocks_is_noop() {
+        // No clocks must not materialize a committed Frontier: it stays `None`,
+        // matching the hinted-frontier "None when empty" invariant.
+        let mut recover = proto::Recover::default();
+        restore_backfill_clocks(
+            &mut recover,
+            std::collections::BTreeMap::new(),
+            std::collections::BTreeMap::new(),
+            std::collections::BTreeMap::new(),
+            std::collections::BTreeMap::new(),
+        );
+        assert!(recover.committed_frontier.is_none());
     }
 
     #[test]

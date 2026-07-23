@@ -91,7 +91,7 @@ message JournalFrontier {
   string journal_name_suffix = 2;
   // Binding index under which the journal is read.
   // When persisting across sessions, this should be mapped via the task binding's
-  // `journal_read_suffix` to ensure stability across task versions.
+  // `state_key` to ensure stability across task versions.
   uint32 binding = 3;
   // Delta of journal bytes read since the last checkpoint.
   // Summed during reduction.
@@ -111,6 +111,32 @@ message Frontier {
   repeated JournalFrontier journals = 1;
   // Per-shard flushed LSN, indexed by shard_index.
   repeated uint64 flushed_lsn = 2;
+
+  // BackfillBegin is a binding's latest backfill-begin clock, keyed by binding
+  // index.
+  message BackfillBegin {
+    // Binding index.
+    uint32 binding = 1;
+    // Clock of the binding's most recent backfill-begin.
+    fixed64 clock = 2;
+  }
+  // Latest backfill-begin clock for each binding in the checkpoint delta.
+  // Populated only on a terminal (empty-journals) frontier of a Progressed
+  // or NextCheckpoint sequence. Empty otherwise.
+  repeated BackfillBegin latest_backfill_begin = 3;
+
+  // BackfillComplete reports a binding's most recent backfill-complete event,
+  // keyed by binding index.
+  message BackfillComplete {
+    // Binding index.
+    uint32 binding = 1;
+    // Truncation boundary of the completed backfill: the backfill's begin clock.
+    fixed64 clock = 2;
+  }
+  // Latest backfill-complete clock for each binding in the checkpoint delta.
+  // Populated only on a terminal (empty-journals) frontier of a Progressed
+  // or NextCheckpoint sequence. Empty otherwise.
+  repeated BackfillComplete latest_backfill_complete = 4;
 }
 
 // SessionRequest is sent by the Coordinator to manage the shuffle session.

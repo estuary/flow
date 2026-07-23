@@ -1,8 +1,9 @@
-use super::{Binding, LoadKeys};
+use super::{Binding, LoadKeys, boundaries::Boundaries};
 use anyhow::Context;
 use bytes::Buf;
 use bytes::{BufMut, Bytes};
 use proto_flow::materialize;
+use proto_gazette::uuid;
 use std::collections::{HashMap, VecDeque};
 
 use crate::proto::materialize::loaded::Binding as LoadedBinding;
@@ -49,6 +50,7 @@ impl Scanner {
     pub fn step(
         &mut self,
         bindings: &[Binding],
+        boundaries: &Boundaries,
         load_keys: &mut LoadKeys,
         max_keys: &mut [(Bytes, Bytes)],
         disable_load_optimization: bool,
@@ -83,6 +85,30 @@ impl Scanner {
             let binding = bindings
                 .get(meta.binding.to_native() as usize)
                 .context("scan entry has invalid meta.binding")?;
+
+            let active = self.active.entry(binding_index).or_default();
+
+            // Accumulate metrics for active bindings of the scan. A stale doc
+            // still counts here (it was read) before the drop below.
+            let clock = meta.clock.to_native();
+            if active.sourced_docs_total == 0 {
+                active.index = binding_index;
+                active.max_source_clock = clock;
+                active.min_source_clock = clock;
+            } else {
+                active.max_source_clock = active.max_source_clock.max(clock);
+                active.min_source_clock = active.min_source_clock.min(clock);
+            }
+            active.sourced_docs_total += 1;
+            active.sourced_bytes_total += doc.source_byte_length.to_native() as u64;
+
+            // Drop source documents below the binding's truncation boundary:
+            // superseded, never stored, so they must not add to the combiner,
+            // ratchet `next_max`, or emit a Load. Correct only for
+            // post-observation arrivals; earlier ones were handled by truncate().
+            if boundaries.is_stale(binding_index as usize, uuid::Clock::from_u64(clock)) {
+                continue;
+            }
 
             memtable
                 .add_embedded(
@@ -124,21 +150,6 @@ impl Scanner {
             let (prev_max, next_max) = &mut max_keys[binding_index as usize];
             let gt_prev_max = key_packed > *prev_max;
             let gt_next_max = gt_prev_max && key_packed > *next_max;
-
-            let active = self.active.entry(binding_index).or_default();
-
-            // Accumulate metrics for active bindings of the scan.
-            let clock = meta.clock.to_native();
-            if active.sourced_docs_total == 0 {
-                active.index = binding_index;
-                active.max_source_clock = clock;
-                active.min_source_clock = clock;
-            } else {
-                active.max_source_clock = active.max_source_clock.max(clock);
-                active.min_source_clock = active.min_source_clock.min(clock);
-            }
-            active.sourced_docs_total += 1;
-            active.sourced_bytes_total += doc.source_byte_length.to_native() as u64;
 
             // Is `key_packed` larger than the largest key previously stored
             // to the connector? If so, then it cannot possibly exist.

@@ -59,6 +59,26 @@ pub trait Publisher: Send + 'static {
     /// Flush all currently buffered documents.
     fn flush(&mut self) -> impl std::future::Future<Output = tonic::Result<()>> + Send;
 
+    /// Snapshot a backfill marker broadcast for `binding_index`'s collection:
+    /// every partition journal, a single ticked commit clock, and the producer
+    /// identity — fed to `publisher::intents::build_transaction_intents` with a
+    /// marker. For a `Begin`, the returned clock is the authoritative
+    /// `truncated_at`. `None` when the publisher performs no real journal IO.
+    fn marker_commit(
+        &mut self,
+        binding_index: usize,
+    ) -> impl std::future::Future<
+        Output = tonic::Result<Option<(uuid::Producer, uuid::Clock, Vec<String>)>>,
+    > + Send;
+
+    /// Apply (or re-apply) the `estuary.dev/truncated-at` journal label for the
+    /// shard's active backfills. `active_backfills` is keyed by task-binding
+    /// index; the value is the backfill's begin-clock.
+    fn apply_truncated_at_labels(
+        &mut self,
+        active_backfills: &BTreeMap<u32, u64>,
+    ) -> impl std::future::Future<Output = tonic::Result<()>> + Send;
+
     /// Snapshot this publisher's contribution to the current transaction's
     /// ACK intents, or `None` when no real publishes happened (so there are no
     /// commit positions to encode).
@@ -215,6 +235,26 @@ impl Publisher for JournalPublisher {
         self.0.flush().await
     }
 
+    async fn marker_commit(
+        &mut self,
+        binding_index: usize,
+    ) -> tonic::Result<Option<(uuid::Producer, uuid::Clock, Vec<String>)>> {
+        // Task-binding index `i` maps to publisher binding `i + 1` (binding 0 is
+        // the fixed ops-stats journal), mirroring `publish_doc`.
+        Ok(Some(self.0.marker_commit(binding_index + 1).await?))
+    }
+
+    async fn apply_truncated_at_labels(
+        &mut self,
+        active_backfills: &BTreeMap<u32, u64>,
+    ) -> tonic::Result<()> {
+        let mapped: BTreeMap<usize, u64> = active_backfills
+            .iter()
+            .map(|(&binding, &clock)| (binding as usize + 1, clock))
+            .collect();
+        self.0.apply_truncated_at_labels(&mapped).await
+    }
+
     fn commit_intents(&mut self) -> Option<(uuid::Producer, uuid::Clock, Vec<String>)> {
         Some(self.0.commit_intents())
     }
@@ -367,6 +407,20 @@ impl Publisher for NoopPublisher {
     }
 
     async fn flush(&mut self) -> tonic::Result<()> {
+        Ok(())
+    }
+
+    async fn marker_commit(
+        &mut self,
+        _binding_index: usize,
+    ) -> tonic::Result<Option<(uuid::Producer, uuid::Clock, Vec<String>)>> {
+        Ok(None)
+    }
+
+    async fn apply_truncated_at_labels(
+        &mut self,
+        _active_backfills: &BTreeMap<u32, u64>,
+    ) -> tonic::Result<()> {
         Ok(())
     }
 

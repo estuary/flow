@@ -297,6 +297,7 @@ where
     db = db.seed_connector_state(&mut recover).await?;
     let proto::Recover {
         ack_intents,
+        active_backfills,
         mut connector_state_json,
         last_applied,
         ..
@@ -389,10 +390,16 @@ where
     // binding layout, and stow the session's final shapes back when it ends.
     let shapes = task.binding_shapes_by_index(std::mem::take(shapes_by_key));
 
+    // Only shard zero drives backfill truncation: it owns the origin of the key
+    // and r-clock ranges, so it sees each backfill's full lifecycle even when split.
+    let is_shard_zero = range.key_begin == 0 && range.r_clock_begin == 0;
+
     let (db, shapes) = super::actor::Actor::new(
+        active_backfills,
         binding_state_keys,
         connector_tx,
         db,
+        is_shard_zero,
         metrics,
         logger,
         publisher,

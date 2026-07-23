@@ -191,7 +191,7 @@ pub mod request {
     /// Flush loads. No further Loads will be sent in this transaction,
     /// and the runtime will await the connectors's remaining Loaded
     /// responses followed by one Flushed response.
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Flush {
         /// Aggregated state patches from all shards' prior-transaction Acknowledged
         /// responses, as a tab-delimited JSON array. Includes this shard's own
@@ -200,6 +200,39 @@ pub mod request {
         /// cooperative multi-shard strategies use this to observe peers' state.
         #[prost(bytes = "bytes", tag = "1")]
         pub state_patches_json: ::prost::bytes::Bytes,
+        #[prost(message, repeated, tag = "2")]
+        pub backfill_begins: ::prost::alloc::vec::Vec<flush::BackfillBegin>,
+        #[prost(message, repeated, tag = "3")]
+        pub backfill_completes: ::prost::alloc::vec::Vec<flush::BackfillComplete>,
+    }
+    /// Nested message and enum types in `Flush`.
+    pub mod flush {
+        /// Backfill-begin signals observed during this transaction. A connector
+        /// acts on those relevant to its key range.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct BackfillBegin {
+            #[prost(uint32, tag = "1")]
+            pub binding: u32,
+            /// Truncation boundary of the binding's backfill: documents published at or
+            /// after this time are current, while earlier ones were superseded by the
+            /// backfill. It equals the begin's own publication time (flow_published_at),
+            /// and is carried on both begin and complete so connectors need not track it
+            /// across transactions.
+            #[prost(message, optional, tag = "2")]
+            pub timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
+        }
+        /// Backfill-complete signals observed during this transaction. See
+        /// BackfillBegin.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct BackfillComplete {
+            #[prost(uint32, tag = "1")]
+            pub binding: u32,
+            /// Truncation boundary of the completed backfill (see BackfillBegin.timestamp):
+            /// the connector may delete destination rows whose flow_published_at predates
+            /// this time, as they were superseded by the backfill.
+            #[prost(message, optional, tag = "2")]
+            pub timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
+        }
     }
     /// Store documents updated by the current transaction.
     ///

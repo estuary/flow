@@ -498,6 +498,8 @@ fn ex_capture_response() -> capture::Response {
         checkpoint: Some(capture::response::Checkpoint {
             state: Some(ex_connector_state()),
         }),
+        backfill_begin: Some(capture::response::BackfillBegin { binding: 4 }),
+        backfill_complete: Some(capture::response::BackfillComplete { binding: 5 }),
         internal: ex_internal(),
     }
 }
@@ -645,6 +647,20 @@ fn ex_materialize_request() -> materialize::Request {
         }),
         flush: Some(materialize::request::Flush {
             state_patches_json: json!([{"flushed": 1}]).to_string().into(),
+            backfill_begins: vec![materialize::request::flush::BackfillBegin {
+                binding: 2,
+                timestamp: Some(pbjson_types::Timestamp {
+                    seconds: 1700000000,
+                    nanos: 0,
+                }),
+            }],
+            backfill_completes: vec![materialize::request::flush::BackfillComplete {
+                binding: 3,
+                timestamp: Some(pbjson_types::Timestamp {
+                    seconds: 1700000500,
+                    nanos: 123000000,
+                }),
+            }],
         }),
         store: Some(materialize::request::Store {
             binding: 3,

@@ -199,6 +199,7 @@ impl SliceActor {
                 let sequenced = state::sequence_producer(
                     producer_state,
                     &read_state.journal,
+                    read_state.truncated_at,
                     binding,
                     &ready_read.meta,
                 )?;

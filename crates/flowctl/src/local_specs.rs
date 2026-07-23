@@ -351,6 +351,7 @@ impl Resolver {
                 row.id,
                 row.data_plane_name,
                 String::new(),                 // data_plane_fqdn
+                false,                         // closed
                 Vec::new(),                    // hmac_keys
                 models::RawValue::default(),   // encrypted_hmac_keys
                 models::Collection::default(), // ops_logs_name

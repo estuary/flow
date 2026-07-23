@@ -370,6 +370,8 @@ impl CheckpointPipeline {
                 journals: peek_journals,
                 flushed_lsn: self.unresolved.flushed_lsn.clone(),
                 unresolved_hints: self.unresolved.unresolved_hints,
+                latest_backfill_begin: self.unresolved.latest_backfill_begin.clone(),
+                latest_backfill_complete: self.unresolved.latest_backfill_complete.clone(),
             };
             self.floor_flushed_lsn(&mut peek);
 
@@ -779,6 +781,30 @@ mod test {
     ) {
         let mut proto = crate::JournalFrontier::encode(&journals);
         proto.flushed_lsn = flushed_lsn;
+        pipeline.on_progressed(0, proto).unwrap();
+    }
+
+    fn ingest_progressed_with_backfill(
+        pipeline: &mut CheckpointPipeline,
+        journals: Vec<crate::JournalFrontier>,
+        begin: &[(u16, u64)],
+        complete: &[(u16, u64)],
+    ) {
+        let mut proto = crate::JournalFrontier::encode(&journals);
+        proto.latest_backfill_begin = begin
+            .iter()
+            .map(|(binding, clock)| shuffle::frontier::BackfillBegin {
+                binding: *binding as u32,
+                clock: *clock,
+            })
+            .collect();
+        proto.latest_backfill_complete = complete
+            .iter()
+            .map(|(binding, clock)| shuffle::frontier::BackfillComplete {
+                binding: *binding as u32,
+                clock: *clock,
+            })
+            .collect();
         pipeline.on_progressed(0, proto).unwrap();
     }
 
@@ -1242,6 +1268,8 @@ mod test {
                 journals: vec![jf("journal/A", 0, vec![pf(0x01, 10, 100, -50)])],
                 flushed_lsn: vec![],
                 unresolved_hints: 1,
+                latest_backfill_begin: Default::default(),
+                latest_backfill_complete: Default::default(),
             },
             vec![0],
         );
@@ -1363,6 +1391,8 @@ mod test {
                 journals: vec![jf("journal/A", 0, vec![pf(0x01, 50, 200, -100)])],
                 flushed_lsn: vec![],
                 unresolved_hints: 0,
+                latest_backfill_begin: Default::default(),
+                latest_backfill_complete: Default::default(),
             },
             vec![0],
         );
@@ -1567,6 +1597,8 @@ mod test {
             journals: vec![jf("test/journal/F", 0, vec![pf(0x01, 100, 200, -500)])],
             flushed_lsn: vec![],
             unresolved_hints: 0,
+            latest_backfill_begin: Default::default(),
+            latest_backfill_complete: Default::default(),
         };
 
         // Checkpoint found in resume_checkpoint.
@@ -1859,6 +1891,8 @@ mod test {
             ],
             flushed_lsn: vec![],
             unresolved_hints: 0,
+            latest_backfill_begin: Default::default(),
+            latest_backfill_complete: Default::default(),
         };
         let mut pipeline = CheckpointPipeline::new(&resume, vec![0, 0]);
 
@@ -1889,5 +1923,239 @@ mod test {
         );
         assert_eq!(pipeline.unresolved.unresolved_hints, 0, "hint resolved");
         assert!(!pipeline.ready.journals.is_empty(), "promoted to ready");
+    }
+
+    // A backfill marker broadcast to journals A and B: reading A's ACK commits A
+    // and hints B. Both marker clocks ride peeks eagerly but stay gated in
+    // `unresolved` — never durable — until B's ACK resolves them, then ride
+    // exactly one resolved `ready`.
+    #[test]
+    fn test_backfill_marker_gated_on_hint_resolution() {
+        let mut pipeline = test_pipeline();
+        let c = 100u64;
+        let cc = 50u64; // A prior backfill's completion clock.
+
+        // Read A's marker ACK: A committed at `c`; B is hinted at `c`. The begin
+        // and complete metadata ride in with the (still unresolved) frontier.
+        ingest_progressed_with_backfill(
+            &mut pipeline,
+            vec![
+                jf("journal/A", 0, vec![pf(0x01, c, 0, -100)]),
+                jf("journal/B", 0, vec![pf(0x01, 0, c, 0)]),
+            ],
+            &[(0, c)],
+            &[(0, cc)],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1, "B's hint holds it");
+
+        // A peek carries both eager marker clocks, gated in `unresolved`.
+        pipeline.request().unwrap();
+        let peek = pipeline.take_ready().expect("peek of unresolved");
+        assert_ne!(
+            peek.unresolved_hints, 0,
+            "it is a peek, not a resolved ready"
+        );
+        assert_eq!(
+            peek.latest_backfill_begin.get(&0),
+            Some(&uuid::Clock::from_u64(c)),
+            "peek carries the eager begin clock"
+        );
+        assert_eq!(
+            peek.latest_backfill_complete.get(&0),
+            Some(&uuid::Clock::from_u64(cc)),
+            "peek carries the eager complete clock too"
+        );
+
+        // Partial progress on B's hint (toward but below `c`) re-arms the peek
+        // without resolving it: the eager markers re-surface.
+        ingest_progressed_with_backfill(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x01, c / 2, 0, -50)])],
+            &[(0, c)],
+            &[(0, cc)],
+        );
+        assert_eq!(
+            pipeline.unresolved.unresolved_hints, 1,
+            "B's hint still holds (advanced below `c`)"
+        );
+        pipeline.request().unwrap();
+        let peek2 = pipeline.take_ready().expect("re-armed peek");
+        assert_eq!(
+            peek2.latest_backfill_begin.get(&0),
+            Some(&uuid::Clock::from_u64(c)),
+            "eager begin re-surfaces on the re-armed peek"
+        );
+        assert_eq!(
+            peek2.latest_backfill_complete.get(&0),
+            Some(&uuid::Clock::from_u64(cc)),
+            "eager complete re-surfaces too"
+        );
+
+        // Read B's marker ACK: B commits at `c`, resolving the hold-back hint.
+        ingest_progressed_with_backfill(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x01, c, 0, -200)])],
+            &[(0, c)],
+            &[(0, cc)],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0, "resolved");
+
+        // Both clocks now ride exactly one fully-resolved checkpoint.
+        pipeline.request().unwrap();
+        let ready = pipeline.take_ready().expect("resolved checkpoint");
+        assert_eq!(ready.unresolved_hints, 0);
+        assert_eq!(
+            ready.latest_backfill_begin.get(&0),
+            Some(&uuid::Clock::from_u64(c)),
+            "begin delivered on the resolved frontier"
+        );
+        assert_eq!(
+            ready.latest_backfill_complete.get(&0),
+            Some(&uuid::Clock::from_u64(cc)),
+            "complete delivered on the resolved frontier"
+        );
+
+        // A subsequent checkpoint does not re-deliver it.
+        pipeline.request().unwrap();
+        assert!(
+            pipeline.take_ready().is_none(),
+            "marker delivered exactly once"
+        );
+    }
+
+    // Recovery counterpart to the gating test: the replay carries the marker in its
+    // OWN checkpoint. Startup seeds the resume frontier with the hinted−committed
+    // marker delta (see startup.rs) and project_unresolved_hints preserves it, so
+    // the delta rides `unresolved` → the recovery-resolved `ready`.
+    #[test]
+    fn test_recovery_replay_carries_marker_on_recovery_ready() {
+        // Resume with an unresolved hint for P1 on journal/A, plus the seeded marker
+        // delta (as startup computes it) → recovery_pending.
+        let mut pipeline = CheckpointPipeline::new(
+            &crate::Frontier {
+                journals: vec![jf("journal/A", 0, vec![pf(0x01, 50, 200, -100)])],
+                flushed_lsn: vec![],
+                unresolved_hints: 1,
+                latest_backfill_begin: std::collections::BTreeMap::from([(
+                    0,
+                    uuid::Clock::from_u64(42),
+                )]),
+                latest_backfill_complete: Default::default(),
+            },
+            vec![0],
+        );
+        assert!(pipeline.recovery_pending);
+
+        // Replaying to the hinted commit resolves the hint.
+        pipeline.request().unwrap();
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 200, 0, -300)])],
+            vec![],
+        );
+
+        // The replay's own recovery checkpoint carries the marker — the seeded delta
+        // rode `unresolved` → `ready`, not one transaction late.
+        let recovery = pipeline.take_ready().expect("recovery ready");
+        assert_eq!(recovery.unresolved_hints, 0, "recovery is fully resolved");
+        assert_eq!(
+            recovery.latest_backfill_begin.get(&0),
+            Some(&uuid::Clock::from_u64(42)),
+            "replay's own checkpoint carries the marker",
+        );
+    }
+
+    // Two backfill generations in flight: gen-1's begin (clock C1) is unresolved
+    // when gen-2's begin (clock C2 > C1) arrives and parks in `progressed`. The
+    // generations must deliver in order, each exactly once.
+    #[test]
+    fn test_backfill_markers_two_generations_in_order() {
+        let mut pipeline = test_pipeline();
+        let (c1, c2) = (100u64, 200u64);
+
+        // Gen-1: read A's marker (A committed @C1, B hinted @C1). → unresolved.
+        ingest_progressed_with_backfill(
+            &mut pipeline,
+            vec![
+                jf("journal/A", 0, vec![pf(0x01, c1, 0, -100)]),
+                jf("journal/B", 0, vec![pf(0x01, 0, c1, 0)]),
+            ],
+            &[(0, c1)],
+            &[],
+        );
+
+        // Gen-2: read A's later marker (A committed @C2, B hinted @C2). `unresolved`
+        // is occupied by gen-1, so this parks in `progressed` carrying begin @C2.
+        ingest_progressed_with_backfill(
+            &mut pipeline,
+            vec![
+                jf("journal/A", 0, vec![pf(0x01, c2, 0, -300)]),
+                jf("journal/B", 0, vec![pf(0x01, 0, c2, 0)]),
+            ],
+            &[(0, c2)],
+            &[],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1, "gen-1 still held");
+
+        // Resolve gen-1: read B's marker @C1. gen-1 promotes to ready; gen-2 then
+        // promotes from `progressed` into `unresolved` (B hinted @C2, held).
+        ingest_progressed_with_backfill(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x01, c1, 0, -200)])],
+            &[(0, c1)],
+            &[],
+        );
+
+        pipeline.request().unwrap();
+        let gen1 = pipeline.take_ready().expect("gen-1 resolved");
+        assert_eq!(
+            gen1.latest_backfill_begin.get(&0),
+            Some(&uuid::Clock::from_u64(c1)),
+            "first generation delivers C1"
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1, "gen-2 now held");
+
+        // Resolve gen-2: read B's marker @C2.
+        ingest_progressed_with_backfill(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x01, c2, 0, -400)])],
+            &[(0, c2)],
+            &[],
+        );
+
+        pipeline.request().unwrap();
+        let gen2 = pipeline.take_ready().expect("gen-2 resolved");
+        assert_eq!(
+            gen2.latest_backfill_begin.get(&0),
+            Some(&uuid::Clock::from_u64(c2)),
+            "second generation delivers C2"
+        );
+    }
+
+    // A single-partition collection: a marker ACK carries no hints, so its
+    // frontier is immediately fully-resolved and the marker delivers at once.
+    #[test]
+    fn test_backfill_marker_single_partition_immediate() {
+        let mut pipeline = test_pipeline();
+
+        ingest_progressed_with_backfill(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 100, 0, -100)])],
+            &[(0, 100)],
+            &[(0, 100)],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0);
+
+        pipeline.request().unwrap();
+        let ready = pipeline.take_ready().expect("immediate delivery");
+        assert_eq!(ready.unresolved_hints, 0);
+        assert_eq!(
+            ready.latest_backfill_begin.get(&0),
+            Some(&uuid::Clock::from_u64(100))
+        );
+        assert_eq!(
+            ready.latest_backfill_complete.get(&0),
+            Some(&uuid::Clock::from_u64(100))
+        );
     }
 }
