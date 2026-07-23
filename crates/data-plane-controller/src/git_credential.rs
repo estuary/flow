@@ -50,7 +50,9 @@ pub async fn run_git_credential(args: GitCredentialArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let token = get_token().await.context("failed to obtain installation token")?;
+    let token = get_token()
+        .await
+        .context("failed to obtain installation token")?;
 
     // Emit the credential to git. The username is fixed for App tokens.
     print!("username=x-access-token\npassword={token}\n\n");
@@ -158,18 +160,15 @@ struct AccessTokenResponse {
 
 /// Sign an App JWT and exchange it for a fresh installation access token.
 async fn mint_token() -> anyhow::Result<CachedToken> {
-    let app_id = std::env::var(ENV_APP_ID)
-        .with_context(|| format!("{ENV_APP_ID} is not set"))?;
+    let app_id = std::env::var(ENV_APP_ID).with_context(|| format!("{ENV_APP_ID} is not set"))?;
     let installation_id = std::env::var(ENV_INSTALLATION_ID)
         .with_context(|| format!("{ENV_INSTALLATION_ID} is not set"))?;
-    let private_key = std::env::var(ENV_APP_KEY)
-        .with_context(|| format!("{ENV_APP_KEY} is not set"))?;
+    let private_key =
+        std::env::var(ENV_APP_KEY).with_context(|| format!("{ENV_APP_KEY} is not set"))?;
 
     let jwt = sign_app_jwt(&app_id, &private_key).context("failed to sign App JWT")?;
 
-    let url = format!(
-        "https://api.github.com/app/installations/{installation_id}/access_tokens"
-    );
+    let url = format!("https://api.github.com/app/installations/{installation_id}/access_tokens");
 
     let response = reqwest::Client::new()
         .post(&url)
