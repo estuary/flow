@@ -66,46 +66,19 @@ ready-to-paste commands. See `local/README.md`.
 
 ## Architecture Overview
 
-### Core Concepts
+`docs/platform/` is the canonical, porcelain description of the platform — its
+concepts, operational components, and ubiquitous language as implemented today.
+[`docs/platform/README.md`](docs/platform/README.md) is the concept map; each
+node opens with a glossary and breadcrumbs down to the crates and protobufs that
+implement it. Start there when onboarding onto a concept. Maintained by the
+`platform-docs` skill.
 
-Users interact with the control plane to manage a catalog of:
-- **Captures**: tasks which capture from a user endpoint into target collections
-- **Collections**: collections of data with enforced JSON Schema
-- **Derivations**: both a collection and a task - the task builds its collection through transformation of other collections
-- **Materializations**: tasks which maintain materialized views of source collections in an endpoint
-- **Tests**: fixtures of source collection inputs and expected derivation outputs
-
-Collections and tasks have a declarative (JSON/YAML) **model**.
-Users refine model changes in **drafts**, which are **published**
-to the control plane for verification and testing.
-The control plane compiles the user's catalog model into
-**built specs** that have extra specifics required by the runtime,
-and activates specs into their associated data plane.
-
-Collections and tasks live in a unified, hierarchical namespace.
-`/`-delimited prefixes act as "roles" and are the unit of AuthZ.
-Users are granted capabilities to roles (`user_grants` table),
-and roles are granted capabilities to other roles (`role_grants`).
-A top-level prefix like `acmeCo/` homes an organization and
-is called a "tenant".
-
-### Control-plane components
-- **Supabase**: catalog and platform config DB
-- **Agent**: APIs and background automation
-- **Data-plane controller**: provisions data planes
-
-### Data-plane components
-- **Gazette**: brokers serve the journals that back collections
-- **Reactors**: runtime written to Gazette consumer framework;
-  executes tasks and runs connectors as sidecars over gRPC
-- **Etcd**: config for gazette and reactors
-
-### Protocols
-
-- `go/protocols/flow/flow.proto` - core types and built specs
-- `go/protocols/capture/capture.proto`
-- `go/protocols/derive/derive.proto`
-- `go/protocols/materialize/materialize.proto`
+Users manage a **catalog** of captures, collections, derivations,
+materializations, and tests through the **control plane**; the platform runs
+those tasks and serves their data in one or more **data planes**. The concepts
+behind those terms — the catalog lifecycle, the hierarchical namespace and its
+grants, the control- and data-plane components, and the protocols — all live in
+`docs/platform/`.
 
 ## README.md
 
