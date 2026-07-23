@@ -331,6 +331,9 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
   - [Configuration](./amazon-ads.md)
   - Package - ghcr.io/estuary/source-amazon-ads:v2
 - Amazon SQS
+  - [Configuration](./amazon-sqs-native.md)
+  - Package - ghcr.io/estuary/source-sqs:v1
+- Amazon SQS (deprecated)
   - [Configuration](./amazon-sqs.md)
   - Package - ghcr.io/estuary/source-amazon-sqs:v1
 - Amplitude
