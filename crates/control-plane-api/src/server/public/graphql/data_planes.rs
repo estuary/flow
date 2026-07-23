@@ -1015,7 +1015,10 @@ mod tests {
             serde_json::json!({ "filter": { "id": { "in": [aws_id] } } }),
         )
         .await;
-        assert_eq!(one, vec![(aws_id.clone(), "ops/dp/public/aws-us-west-2-c1".to_string())]);
+        assert_eq!(
+            one,
+            vec![(aws_id.clone(), "ops/dp/public/aws-us-west-2-c1".to_string())]
+        );
 
         // Filter by a set of ids returns all matches the caller can read.
         let both = ids_and_names(
@@ -1066,10 +1069,14 @@ mod tests {
                 Some(&token),
             )
             .await;
-        let data_plane_id = spec["data"]["liveSpecs"]["edges"][0]["node"]["liveSpec"]["dataPlaneId"]
-            .as_str()
-            .expect("live spec dataPlaneId");
-        assert_eq!(data_plane_id, aws_id, "DataPlane.id must equal LiveSpec.dataPlaneId");
+        let data_plane_id =
+            spec["data"]["liveSpecs"]["edges"][0]["node"]["liveSpec"]["dataPlaneId"]
+                .as_str()
+                .expect("live spec dataPlaneId");
+        assert_eq!(
+            data_plane_id, aws_id,
+            "DataPlane.id must equal LiveSpec.dataPlaneId"
+        );
 
         let resolved = ids_and_names(
             &server,
