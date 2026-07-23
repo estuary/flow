@@ -1523,7 +1523,19 @@ type PendingConfigUpdateStatus {
 scalar Prefix
 
 input PrefixFilter {
+	"""
+	Match values that start with this prefix — a subtree match, e.g.
+	`acmeCo/` matches `acmeCo/`, `acmeCo/team/`, and so on.
+	"""
 	startsWith: String
+	"""
+	Match values exactly equal to any entry in this set. An empty set
+	matches nothing. Where a resolver accepts both, `startsWith` and `in`
+	intersect (a value must satisfy both); resolvers whose backing query
+	treats them as alternative modes reject the combination instead — see
+	`storageMappings`.
+	"""
+	in: [String!]
 }
 
 """
@@ -1798,9 +1810,9 @@ type QueryRoot {
 	Lists alert-config rows visible to the caller.
 	
 	Results are limited to readable prefixes and sorted by
-	`catalog_prefix_or_name`. `filter.catalogPrefixOrName.startsWith` can
-	narrow the results further. Passing a full catalog name returns at
-	most one exact-name row.
+	`catalog_prefix_or_name`. `filter.catalogPrefixOrName` narrows further,
+	by subtree (`startsWith`) and/or an exact set (`in`). Passing a full
+	catalog name returns at most one exact-name row.
 	"""
 	alertConfigs(filter: AlertConfigsFilter, after: String, first: Int): AlertConfigEntryConnection!
 	"""
@@ -2378,10 +2390,12 @@ independently, so a filter can never widen what a caller may see.
 """
 input StorageMappingsFilter {
 	"""
-	Narrow to storage mappings whose catalog prefix starts with this prefix,
-	e.g. `acmeCo/`. This matches the whole subtree — mappings for `acmeCo/`,
-	`acmeCo/team-a/`, etc. — the same way the deprecated `by: { underPrefix }`
-	does, and composes with the caller's authorized read prefixes.
+	Narrow by catalog prefix. `startsWith` matches a whole subtree —
+	mappings for `acmeCo/`, `acmeCo/team-a/`, etc. — like the deprecated
+	`by: { underPrefix }`. `in` matches an exact set of prefixes, like
+	`by: { exactPrefixes }`. The two are alternative query modes and are
+	mutually exclusive. Either way, results compose with (never widen past)
+	the caller's authorized read prefixes.
 	"""
 	catalogPrefix: PrefixFilter
 }

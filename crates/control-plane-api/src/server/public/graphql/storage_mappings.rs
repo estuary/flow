@@ -593,10 +593,12 @@ pub struct StorageMappingsBy {
 /// independently, so a filter can never widen what a caller may see.
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct StorageMappingsFilter {
-    /// Narrow to storage mappings whose catalog prefix starts with this prefix,
-    /// e.g. `acmeCo/`. This matches the whole subtree — mappings for `acmeCo/`,
-    /// `acmeCo/team-a/`, etc. — the same way the deprecated `by: { underPrefix }`
-    /// does, and composes with the caller's authorized read prefixes.
+    /// Narrow by catalog prefix. `startsWith` matches a whole subtree —
+    /// mappings for `acmeCo/`, `acmeCo/team-a/`, etc. — like the deprecated
+    /// `by: { underPrefix }`. `in` matches an exact set of prefixes, like
+    /// `by: { exactPrefixes }`. The two are alternative query modes and are
+    /// mutually exclusive. Either way, results compose with (never widen past)
+    /// the caller's authorized read prefixes.
     pub catalog_prefix: Option<filters::PrefixFilter>,
 }
 
@@ -651,18 +653,35 @@ impl StorageMappingsQuery {
     ) -> async_graphql::Result<PaginatedStorageMappings> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        // `filter: { catalogPrefix: { startsWith } }` is the going-forward
-        // replacement for `by: { underPrefix }`; both scope to a subtree
-        // identically. They're mutually exclusive so the scope is unambiguous.
-        let filter_prefix: Option<String> = filter
-            .and_then(|f| f.catalog_prefix)
-            .and_then(|f| f.starts_with);
-        if by.is_some() && filter_prefix.is_some() {
+        // `filter` is the going-forward replacement for `by`: `catalogPrefix.
+        // startsWith` maps to `underPrefix` (a subtree) and `catalogPrefix.in`
+        // maps to `exactPrefixes` (an exact set). `by` and `filter`, and a
+        // filter's `startsWith` and `in`, are alternative modes — at most one
+        // may be set — so the resolved scope is unambiguous.
+        let (filter_starts_with, filter_in) = match filter.and_then(|f| f.catalog_prefix) {
+            Some(cp) => (cp.starts_with, cp.r#in),
+            None => (None, None),
+        };
+        if by.is_some() && (filter_starts_with.is_some() || filter_in.is_some()) {
             return Err("provide either `by` or `filter`, not both; `by` is deprecated".into());
+        }
+        if filter_starts_with.is_some() && filter_in.is_some() {
+            return Err(
+                "`filter.catalogPrefix.startsWith` and `.in` are mutually exclusive".into(),
+            );
         }
 
         let (exact_prefixes, under_prefix) = match by {
-            None => (Vec::new(), None),
+            None => {
+                // Derive the scope from `filter` (mutually exclusive with `by`).
+                let exact_prefixes = filter_in
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(models::Prefix::new)
+                    .collect::<Vec<_>>();
+                let under_prefix = filter_starts_with.map(models::Prefix::new);
+                (exact_prefixes, under_prefix)
+            }
             Some(StorageMappingsBy {
                 exact_prefixes,
                 under_prefix,
@@ -684,11 +703,6 @@ impl StorageMappingsQuery {
                 }
             }
         };
-
-        // A `filter` prefix scopes exactly like `underPrefix`; fold it into the
-        // same slot so it flows through `authorized_prefixes` and the query's
-        // subtree predicate. Mutual exclusion above guarantees at most one.
-        let under_prefix = under_prefix.or_else(|| filter_prefix.map(models::Prefix::new));
 
         let snapshot = env.snapshot();
         let mut read_prefixes = super::authorized_prefixes::authorized_prefixes(
@@ -1120,30 +1134,88 @@ mod test {
         let all = prefixes(&server, &alice_token, serde_json::json!({ "filter": {} })).await;
         assert_eq!(all, vec!["aliceCo/", "aliceCo/team/"]);
 
-        // `by` and `filter` are mutually exclusive.
-        let both: serde_json::Value = server
-            .graphql(
-                &serde_json::json!({
-                    "query": r#"
-                        query($by: StorageMappingsBy, $filter: StorageMappingsFilter) {
-                            storageMappings(by: $by, filter: $filter) {
-                                edges { node { catalogPrefix } }
+        // `in` matches an exact set of prefixes (unlike `startsWith`, it does
+        // not descend into the subtree), the same result `by: { exactPrefixes }`
+        // produces.
+        let exact_one = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "filter": { "catalogPrefix": { "in": ["aliceCo/"] } } }),
+        )
+        .await;
+        assert_eq!(exact_one, vec!["aliceCo/"]);
+
+        // An `in` set returns every match the caller can read.
+        let exact_many = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "filter": { "catalogPrefix": { "in": ["aliceCo/", "aliceCo/team/"] } }
+            }),
+        )
+        .await;
+        assert_eq!(exact_many, vec!["aliceCo/", "aliceCo/team/"]);
+
+        // A cross-tenant `in` entry is dropped rather than widening scope; an
+        // unknown prefix simply matches nothing.
+        let exact_cross_tenant = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "filter": { "catalogPrefix": { "in": ["aliceCo/", "otherCo/", "ghostCo/"] } }
+            }),
+        )
+        .await;
+        assert_eq!(exact_cross_tenant, vec!["aliceCo/"]);
+
+        // Helper: assert a set of variables is rejected with a GraphQL error.
+        async fn expect_error(
+            server: &test_server::TestServer,
+            token: &str,
+            variables: serde_json::Value,
+        ) {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                            query($by: StorageMappingsBy, $filter: StorageMappingsFilter) {
+                                storageMappings(by: $by, filter: $filter) {
+                                    edges { node { catalogPrefix } }
+                                }
                             }
-                        }
-                    "#,
-                    "variables": {
-                        "by": { "underPrefix": "aliceCo/" },
-                        "filter": { "catalogPrefix": { "startsWith": "aliceCo/" } },
-                    },
-                }),
-                Some(&alice_token),
-            )
-            .await;
-        assert!(
-            both["errors"]
-                .as_array()
-                .is_some_and(|errors| !errors.is_empty()),
-            "expected an error when both `by` and `filter` are provided: {both}"
-        );
+                        "#,
+                        "variables": variables,
+                    }),
+                    Some(token),
+                )
+                .await;
+            assert!(
+                response["errors"]
+                    .as_array()
+                    .is_some_and(|errors| !errors.is_empty()),
+                "expected an error for variables {variables}: {response}"
+            );
+        }
+
+        // `by` and `filter` are mutually exclusive.
+        expect_error(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "by": { "underPrefix": "aliceCo/" },
+                "filter": { "catalogPrefix": { "startsWith": "aliceCo/" } },
+            }),
+        )
+        .await;
+
+        // Within a filter, `startsWith` and `in` are mutually exclusive.
+        expect_error(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "filter": { "catalogPrefix": { "startsWith": "aliceCo/", "in": ["aliceCo/"] } },
+            }),
+        )
+        .await;
     }
 }

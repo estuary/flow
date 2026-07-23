@@ -108,9 +108,9 @@ impl AlertConfigsQuery {
     /// Lists alert-config rows visible to the caller.
     ///
     /// Results are limited to readable prefixes and sorted by
-    /// `catalog_prefix_or_name`. `filter.catalogPrefixOrName.startsWith` can
-    /// narrow the results further. Passing a full catalog name returns at
-    /// most one exact-name row.
+    /// `catalog_prefix_or_name`. `filter.catalogPrefixOrName` narrows further,
+    /// by subtree (`startsWith`) and/or an exact set (`in`). Passing a full
+    /// catalog name returns at most one exact-name row.
     pub async fn alert_configs(
         &self,
         ctx: &Context<'_>,
@@ -121,17 +121,29 @@ impl AlertConfigsQuery {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        let prefix_starts_with = filter
-            .and_then(|f| f.catalog_prefix_or_name)
-            .and_then(|f| f.starts_with);
+        let (prefix_starts_with, prefix_in) = match filter.and_then(|f| f.catalog_prefix_or_name) {
+            Some(cp) => (cp.starts_with, cp.r#in),
+            None => (None, None),
+        };
 
-        let read_prefixes = super::authorized_prefixes::authorized_prefixes(
+        let mut read_prefixes = super::authorized_prefixes::authorized_prefixes(
             &env.snapshot().role_grants,
             &env.snapshot().user_grants,
             claims.sub,
             models::Capability::Read,
             prefix_starts_with.as_deref(),
         );
+
+        // An exact-set filter narrows the authorized prefixes just as a
+        // `startsWith` hint does, so the MAX_PREFIXES guard stays meaningful for
+        // callers who can read many prefixes.
+        if let Some(exact) = prefix_in.as_deref() {
+            read_prefixes.retain(|authorized| {
+                exact.iter().any(|e| {
+                    e.starts_with(authorized.as_str()) || authorized.starts_with(e.as_str())
+                })
+            });
+        }
 
         if read_prefixes.is_empty() {
             return Ok(PaginatedAlertConfigs::new(false, false));
@@ -164,6 +176,7 @@ impl AlertConfigsQuery {
                     WHERE catalog_prefix_or_name::text ^@ ANY($1)
                       AND ($2::text IS NULL OR catalog_prefix_or_name::text > $2)
                       AND ($3::text IS NULL OR catalog_prefix_or_name::text ^@ $3)
+                      AND ($5::text[] IS NULL OR catalog_prefix_or_name::text = ANY($5))
                     ORDER BY catalog_prefix_or_name ASC
                     LIMIT $4 + 1
                     "#,
@@ -171,6 +184,7 @@ impl AlertConfigsQuery {
                     after.as_deref(),
                     prefix_starts_with.as_deref(),
                     limit as i64,
+                    prefix_in.as_deref(),
                 )
                 .fetch_all(&env.pg_pool)
                 .await

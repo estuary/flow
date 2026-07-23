@@ -72,17 +72,29 @@ impl InviteLinksQuery {
             .as_ref()
             .and_then(|f| f.single_use.as_ref())
             .and_then(|f| f.eq);
-        let prefix_starts_with = filter
-            .and_then(|f| f.catalog_prefix)
-            .and_then(|f| f.starts_with);
+        let (prefix_starts_with, prefix_in) = match filter.and_then(|f| f.catalog_prefix) {
+            Some(cp) => (cp.starts_with, cp.r#in),
+            None => (None, None),
+        };
 
-        let admin_prefixes = super::authorized_prefixes::authorized_prefixes(
+        let mut admin_prefixes = super::authorized_prefixes::authorized_prefixes(
             &env.snapshot().role_grants,
             &env.snapshot().user_grants,
             env.claims()?.sub,
             models::Capability::Admin,
             prefix_starts_with.as_deref(),
         );
+
+        // An exact-set filter narrows the authorized prefixes just as a
+        // `startsWith` hint does, so the MAX_PREFIXES guard stays meaningful for
+        // callers who admin many prefixes.
+        if let Some(exact) = prefix_in.as_deref() {
+            admin_prefixes.retain(|authorized| {
+                exact.iter().any(|e| {
+                    e.starts_with(authorized.as_str()) || authorized.starts_with(e.as_str())
+                })
+            });
+        }
 
         if admin_prefixes.is_empty() {
             return Ok(PaginatedInviteLinks::new(false, false));
@@ -116,6 +128,7 @@ impl InviteLinksQuery {
                 LEFT JOIN tenants t ON il.catalog_prefix::text ^@ t.tenant
                 WHERE il.catalog_prefix::text ^@ ANY($1)
                   AND ($5::text IS NULL OR il.catalog_prefix::text ^@ $5)
+                  AND ($6::text[] IS NULL OR il.catalog_prefix::text = ANY($6))
                   AND ($4::bool IS NULL OR il.single_use = $4)
                   AND ($2::timestamptz IS NULL OR il.created_at < $2)
                 ORDER BY il.created_at DESC
@@ -126,6 +139,7 @@ impl InviteLinksQuery {
                     limit as i64,
                     single_use_eq,
                     prefix_starts_with.as_deref(),
+                    prefix_in.as_deref(),
                 )
                 .fetch_all(&env.pg_pool)
                 .await?;
