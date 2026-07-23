@@ -9,7 +9,9 @@ A capture, derivation, or materialization — a process the platform runs in a d
 _Avoid_: job, pipeline
 
 **Shard**:
-A unit of a task's partitioned, independently-assigned execution.
+A unit of a task's partitioned, independently-assigned execution. The
+[data plane](../data-plane/) owns this primitive; here it is just a task's unit
+of parallelism.
 
 **Activation**:
 Installing a built spec's task into its data plane so the runtime executes it.
