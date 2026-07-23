@@ -107,15 +107,34 @@ fn read_cache(path: &std::path::Path) -> Option<CachedToken> {
     serde_json::from_slice(&bytes).ok()
 }
 
-/// Atomically write the cache: write to a temp file in the same directory,
-/// then rename over the target so concurrent readers never see a torn file.
+/// Atomically write the cache: write to a per-process temp file in the same
+/// directory, then rename over the target. Concurrent readers never see a torn
+/// file, and the per-process temp name keeps concurrent writers from clobbering
+/// each other's in-progress writes before the rename. The file is created 0600
+/// because it holds a live installation token, mirroring the 0400 treatment of
+/// the SSH key it replaces.
 fn write_cache(path: &std::path::Path, token: &CachedToken) {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
     let Ok(serialized) = serde_json::to_vec(token) else {
         return;
     };
-    let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, &serialized).is_ok() {
+
+    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
+
+    let write_result = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)
+        .and_then(|mut f| f.write_all(&serialized));
+
+    if write_result.is_ok() {
         let _ = std::fs::rename(&tmp, path);
+    } else {
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
