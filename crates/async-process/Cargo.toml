@@ -9,6 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+futures = { workspace = true }
 libc = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

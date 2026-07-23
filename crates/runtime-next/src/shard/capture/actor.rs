@@ -12,6 +12,23 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+type PersistFut = BoxFuture<
+    'static,
+    anyhow::Result<(
+        (crate::shard::RocksDB, Vec<String>),
+        Option<proto::persist::ActiveBackfillChange>,
+    )>,
+>;
+type StatsWriteFut<P> = BoxFuture<
+    'static,
+    tonic::Result<(
+        P,
+        BTreeMap<String, Bytes>,
+        Option<proto::persist::ActiveBackfillChange>,
+    )>,
+>;
+type LabelsApplyFut<P> = BoxFuture<'static, (P, BTreeMap<u32, u64>, tonic::Result<()>)>;
+
 /// Shard-side capture transaction loop for one connector session.
 ///
 /// The actor drives the [`fsm::Head`] and [`fsm::Tail`] state machines: it polls
@@ -34,6 +51,10 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     token_restart_at: Option<tokio::time::Instant>,
     // Logger of task-centric state changes and events.
     logger: L,
+    // True only for shard zero (origin of the key and r-clock ranges). Gates
+    // backfill truncation: only shard zero emits backfill messages and manages
+    // truncated-at labels, since it alone sees each backfill's full lifecycle.
+    is_shard_zero: bool,
 
     // --- Parked resources: `Some` unless borrowed by an in-flight future. ---
     // RocksDB is parked with its per-binding state keys.
@@ -52,15 +73,26 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     acknowledge_fut: Option<BoxFuture<'static, anyhow::Result<()>>>,
     drain_fut: Option<BoxFuture<'static, anyhow::Result<drain::Output<P>>>>,
     intents_write_fut: Option<BoxFuture<'static, tonic::Result<P>>>,
-    persist_fut: Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, Vec<String>)>>>,
+    labels_apply_fut: Option<LabelsApplyFut<P>>,
+    persist_fut: Option<PersistFut>,
     split_fut: Option<crate::shard::SplitFuture>,
-    stats_write_fut: Option<BoxFuture<'static, tonic::Result<(P, BTreeMap<String, Bytes>)>>>,
+    stats_write_fut: Option<StatsWriteFut<P>>,
+
+    // `truncated_at` clock of each binding with an in-progress backfill —
+    // present from its BackfillBegin until its BackfillComplete commits.
+    active_backfills: BTreeMap<u32, u64>,
+    // True when `active_backfills` differs from what's reflected in journal
+    // labels.
+    labels_dirty: bool,
 
     // --- Hand-offs staged between FSM steps. ---
     // Drain output, staged for `TailDrain`.
     drain_finished: Option<fsm::DrainedCapture>,
     // ACK intents from a completed stats write, staged for `TailWriteStats`.
     pending_ack_intents: BTreeMap<String, Bytes>,
+    // Active-backfill change resolved by the stats write (needs the marker's
+    // commit clock), staged for `TailWriteStats` to fold into its Persist.
+    pending_active_backfill_change: Option<proto::persist::ActiveBackfillChange>,
 }
 
 /// Drain inputs staged by a Rotate, handed to [`drain::drain_and_publish`]
@@ -72,9 +104,11 @@ struct DrainInput {
 
 impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
+        active_backfills: BTreeMap<u32, u64>,
         binding_state_keys: Vec<String>,
         connector_tx: mpsc::Sender<Request>,
         db: crate::shard::RocksDB,
+        is_shard_zero: bool,
         metrics: super::Metrics,
         logger: L,
         publisher: P,
@@ -90,12 +124,14 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             tokio::time::Instant::now() + delay
         });
 
+        let labels_dirty = !active_backfills.is_empty();
         Self {
             task,
             connector_tx,
             metrics,
             token_restart_at,
             logger,
+            is_shard_zero,
             db: Some((db, binding_state_keys)),
             publisher: Some(publisher),
             shapes: Some(shapes),
@@ -104,11 +140,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             acknowledge_fut: None,
             drain_fut: None,
             intents_write_fut: None,
+            labels_apply_fut: None,
             persist_fut: None,
             split_fut: None,
             stats_write_fut: None,
+            active_backfills,
+            labels_dirty,
             drain_finished: None,
             pending_ack_intents: BTreeMap::new(),
+            pending_active_backfill_change: None,
         }
     }
 
@@ -168,12 +208,14 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 self.acknowledge_fut.is_none(),
                 &mut self.drain_finished,
                 self.intents_write_fut.is_none(),
+                self.labels_apply_fut.is_none(),
                 now,
                 self.persist_fut.is_none(),
                 &self.task,
                 self.stats_write_fut
                     .is_none()
                     .then_some(&mut self.pending_ack_intents),
+                &mut self.pending_active_backfill_change,
             );
             if prev_kind != tail.kind() {
                 service_kit::event!(
@@ -254,10 +296,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     self.drain_fut = None;
                 }
                 Some(result) = maybe_fut(&mut self.stats_write_fut) => {
-                    let (publisher, ack_intents) = result.map_err(crate::status_to_anyhow)
+                    let (publisher, ack_intents, change) = result.map_err(crate::status_to_anyhow)
                         .context("writing capture ops stats document")?;
                     self.publisher = Some(publisher);
                     self.pending_ack_intents = ack_intents;
+                    self.pending_active_backfill_change = change;
                     self.stats_write_fut = None;
 
                     // WriteStats flushed this transaction's collection appends, so
@@ -265,8 +308,23 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     self.observe_throttle();
                 }
                 Some(result) = maybe_fut(&mut self.persist_fut) => {
-                    self.db = Some(result?);
+                    let (db, change) = result?;
+                    self.db = Some(db);
                     self.persist_fut = None;
+                    match change {
+                        Some(proto::persist::ActiveBackfillChange::Begin(begin)) => {
+                            self.active_backfills.insert(begin.binding, begin.truncated_at);
+                            self.labels_dirty = true;
+                        }
+                        Some(proto::persist::ActiveBackfillChange::CompleteBinding(binding)) => {
+                            self.active_backfills.remove(&binding);
+                            // Re-apply remaining backfills' labels; if this was the
+                            // last one, an empty map has nothing to apply, so don't
+                            // strand `labels_dirty` at true.
+                            self.labels_dirty = !self.active_backfills.is_empty();
+                        }
+                        None => {}
+                    }
                 }
                 Some(result) = maybe_fut(&mut self.acknowledge_fut) => {
                     result?;
@@ -286,6 +344,13 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         std::time::Instant::now(),
                     );
                     self.split_fut = None;
+                }
+                Some((publisher, active_backfills, result)) = maybe_fut(&mut self.labels_apply_fut) => {
+                    result.context("applying truncated-at journal labels")?;
+                    self.publisher = Some(publisher);
+                    self.active_backfills = active_backfills;
+                    self.labels_apply_fut = None;
+                    self.labels_dirty = false;
                 }
                 // Process controller messages next.
                 msg = controller_rx.next() => {
@@ -444,8 +509,17 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 true
             }
 
-            fsm::Action::WriteStats { stats } => {
+            fsm::Action::WriteStats { stats, backfill } => {
                 let mut publisher = self.publisher.take().context("missing capture publisher")?;
+                // A BackfillComplete truncates to its matching begin's clock,
+                // recovered from the shard's active-backfill state; snapshot it
+                // before the future moves `publisher`.
+                let active_backfill_begin = match &backfill {
+                    Some(fsm::BackfillMessage::BackfillComplete { binding }) => {
+                        self.active_backfills.get(binding).copied()
+                    }
+                    _ => None,
+                };
                 self.stats_write_fut = Some(
                     async move {
                         if !stats.capture.is_empty() {
@@ -453,14 +527,11 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                         }
                         publisher.flush().await?;
 
-                        let intents = match publisher.commit_intents() {
-                            Some(commit) => {
-                                publisher::intents::build_transaction_intents(&[commit])
-                            }
-                            None => BTreeMap::new(),
-                        };
+                        let (intents, change) =
+                            build_write_intents(&mut publisher, backfill, active_backfill_begin)
+                                .await?;
 
-                        Ok((publisher, intents))
+                        Ok((publisher, intents, change))
                     }
                     .boxed(),
                 );
@@ -479,7 +550,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                             .persist(&persist, &binding_state_keys)
                             .await
                             .context("Persisting capture state")?;
-                        Ok((db, binding_state_keys))
+                        Ok(((db, binding_state_keys), persist.active_backfill_change))
                     }
                     .boxed(),
                 );
@@ -513,6 +584,28 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     .boxed(),
                 );
                 true
+            }
+
+            fsm::Action::ApplyTruncatedLabels => {
+                // Only shard zero manages truncated-at labels: a non-zero shard
+                // that inherited `active_backfills` (e.g. a mid-backfill split)
+                // can't clear them — BackfillComplete reaches only shard zero.
+                if !self.is_shard_zero || !self.labels_dirty || self.active_backfills.is_empty() {
+                    false
+                } else {
+                    let mut publisher =
+                        self.publisher.take().context("missing capture publisher")?;
+                    let active_backfills = std::mem::take(&mut self.active_backfills);
+                    self.labels_apply_fut = Some(
+                        async move {
+                            let result =
+                                publisher.apply_truncated_at_labels(&active_backfills).await;
+                            (publisher, active_backfills, result)
+                        }
+                        .boxed(),
+                    );
+                    true
+                }
             }
 
             fsm::Action::Error(error) => return Err(error),
@@ -560,7 +653,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     ) -> anyhow::Result<()> {
         let verify = crate::verify(
             "Capture",
-            "Captured, SourcedSchema, or Checkpoint",
+            "Captured, SourcedSchema, Checkpoint, BackfillBegin, or BackfillComplete",
             "connector",
         );
         let Some(response) = msg else {
@@ -588,10 +681,131 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 "received Checkpoint from connector",
             );
             fsm::ConnectorRx::Checkpoint(checkpoint)
+        } else if let Some(response::BackfillBegin { binding }) = response.backfill_begin {
+            if !self.is_shard_zero {
+                anyhow::bail!(
+                    "connector emitted BackfillBegin for binding {binding}, but \
+                     only shard zero manages backfill truncation"
+                );
+            }
+            if binding as usize >= self.task.bindings.len() {
+                anyhow::bail!("connector emitted BackfillBegin for out-of-range binding {binding}");
+            }
+            service_kit::event!(
+                tracing::Level::INFO,
+                "connector",
+                binding,
+                "received BackfillBegin from connector",
+            );
+            fsm::ConnectorRx::Backfill(fsm::BackfillMessage::BackfillBegin { binding })
+        } else if let Some(response::BackfillComplete { binding }) = response.backfill_complete {
+            if !self.is_shard_zero {
+                anyhow::bail!(
+                    "connector emitted BackfillComplete for binding {binding}, but \
+                     only shard zero manages backfill truncation"
+                );
+            }
+            if binding as usize >= self.task.bindings.len() {
+                anyhow::bail!(
+                    "connector emitted BackfillComplete for out-of-range binding {binding}"
+                );
+            }
+            service_kit::event!(
+                tracing::Level::INFO,
+                "connector",
+                binding,
+                "received BackfillComplete from connector",
+            );
+            fsm::ConnectorRx::Backfill(fsm::BackfillMessage::BackfillComplete { binding })
         } else {
             return Err(verify.fail_msg(response));
         };
         Ok(())
+    }
+}
+
+/// Snapshot this transaction's ACK intents, plus its resolved
+/// [`proto::persist::ActiveBackfillChange`] for a marker transaction. An ordinary
+/// transaction (`backfill` is `None`) ACKs only journals it appended; a marker
+/// broadcasts across *every* partition via [`crate::Publisher::marker_commit`].
+async fn build_write_intents(
+    publisher: &mut impl crate::Publisher,
+    backfill: Option<fsm::BackfillMessage>,
+    active_backfill_begin: Option<u64>,
+) -> tonic::Result<(
+    BTreeMap<String, Bytes>,
+    Option<proto::persist::ActiveBackfillChange>,
+)> {
+    match backfill {
+        None => {
+            let intents = match publisher.commit_intents() {
+                Some(commit) => publisher::intents::build_transaction_intents(&[commit], None),
+                None => BTreeMap::new(),
+            };
+            Ok((intents, None))
+        }
+        Some(fsm::BackfillMessage::BackfillBegin { binding }) => {
+            let Some((producer, clock, journals)) =
+                publisher.marker_commit(binding as usize).await?
+            else {
+                // Preview only: no journal IO, so no broadcast clock. Stage the
+                // Begin with a zero (inert) boundary so preview state transitions
+                // like a real run — a `truncated_at` of 0 suppresses nothing,
+                // since real document clocks are always > 0.
+                return Ok((
+                    BTreeMap::new(),
+                    Some(proto::persist::ActiveBackfillChange::Begin(
+                        proto::ActiveBackfillBegin {
+                            binding,
+                            truncated_at: 0,
+                        },
+                    )),
+                ));
+            };
+            // The marker's single broadcast clock is the authoritative boundary.
+            let truncated_at = clock.as_u64();
+            let intents = publisher::intents::build_transaction_intents(
+                &[(producer, clock, journals)],
+                Some(&publisher::intents::BackfillMarker::Begin),
+            );
+            Ok((
+                intents,
+                Some(proto::persist::ActiveBackfillChange::Begin(
+                    proto::ActiveBackfillBegin {
+                        binding,
+                        truncated_at,
+                    },
+                )),
+            ))
+        }
+        Some(fsm::BackfillMessage::BackfillComplete { binding }) => {
+            let Some(truncated_at) = active_backfill_begin else {
+                // Orphaned complete (no active backfill, e.g. a begin was never
+                // observed): publish nothing, change nothing. Unexpected — a
+                // connector shouldn't complete a backfill it never began — so
+                // surface it rather than swallowing it silently.
+                service_kit::event!(
+                    tracing::Level::WARN,
+                    "connector",
+                    binding,
+                    "ignoring a BackfillComplete with no matching active backfill (orphaned complete)",
+                );
+                return Ok((BTreeMap::new(), None));
+            };
+            let change = Some(proto::persist::ActiveBackfillChange::CompleteBinding(
+                binding,
+            ));
+            let Some((producer, clock, journals)) =
+                publisher.marker_commit(binding as usize).await?
+            else {
+                return Ok((BTreeMap::new(), change));
+            };
+            let intents = publisher::intents::build_transaction_intents(
+                &[(producer, clock, journals)],
+                Some(&publisher::intents::BackfillMarker::Complete { truncated_at }),
+            );
+            Ok((intents, change))
+        }
     }
 }
 
@@ -740,9 +954,11 @@ mod tests {
         let shapes = task.binding_shapes_by_index(Default::default());
 
         let actor = Actor::new(
+            BTreeMap::new(),
             vec!["stateA".to_string(), "stateB".to_string()],
             connector_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
+            true,
             super::super::Metrics::new("test/shard"),
             crate::TracingLogger,
             crate::publish::NoopPublisher,
@@ -826,9 +1042,11 @@ mod tests {
         let shapes = task.binding_shapes_by_index(Default::default());
 
         let mut actor = Actor::new(
+            BTreeMap::new(),
             vec!["stateA".to_string()],
             connector_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
+            true,
             super::super::Metrics::new("test/shard"),
             crate::TracingLogger,
             publisher,
@@ -886,6 +1104,241 @@ mod tests {
             .observe(J, true, std::time::Instant::now());
         actor.observe_throttle();
         assert!(actor.split_fut.is_none());
+    }
+
+    #[tokio::test]
+    async fn backfill_message_rejects_out_of_range_binding() {
+        // `mk_task(true)` has two bindings (indices 0 and 1); index 2 is out of
+        // range. An out-of-range binding from the connector must surface as a
+        // clean error rather than panicking downstream in publisher indexing.
+        let (connector_tx, _conn_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+        let db = crate::shard::RocksDB::open(None).await.unwrap();
+        let task = std::sync::Arc::new(mk_task(true));
+        let publisher = crate::publish::NoopPublisher;
+        let shapes = task.binding_shapes_by_index(Default::default());
+
+        let actor = Actor::new(
+            BTreeMap::new(),
+            vec!["stateA".to_string(), "stateB".to_string()],
+            connector_tx,
+            db,
+            true, // is_shard_zero
+            super::super::Metrics::new("test/shard"),
+            crate::TracingLogger,
+            publisher,
+            shapes,
+            task,
+            None, // token_restart_at
+        );
+
+        let mut ready = fsm::ConnectorRx::Eof;
+        for response in [
+            Response {
+                backfill_begin: Some(response::BackfillBegin { binding: 2 }),
+                ..Default::default()
+            },
+            Response {
+                backfill_complete: Some(response::BackfillComplete { binding: 2 }),
+                ..Default::default()
+            },
+        ] {
+            let err = actor
+                .on_connector_rx(&mut ready, Some(Ok(response)))
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("out-of-range binding 2"),
+                "unexpected error: {err}",
+            );
+        }
+    }
+
+    /// Backfill lifecycle across a restart: a Begin persists the active backfill, a
+    /// fresh session recovers it, a Complete removes it, and an orphaned Complete
+    /// (never-begun binding) is a no-op. `truncated_at` is 0 — the preview
+    /// publisher's no-op marker clock. Each backfill message is sealed by its own
+    /// terminating Checkpoint.
+    #[tokio::test]
+    async fn serve_backfill_lifecycle() {
+        // One capture session over `db`: feed `responses`, drain `expect_acks`
+        // Acknowledges (one per committed marker transaction, so each commits
+        // before Stop), then Stop and return the db.
+        async fn run_capture_session(
+            db: crate::shard::RocksDB,
+            active_backfills: BTreeMap<u32, u64>,
+            responses: Vec<tonic::Result<Response>>,
+            expect_acks: usize,
+        ) -> crate::shard::RocksDB {
+            let (connector_tx, mut actor_to_conn_rx) =
+                mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+            let (conn_resp_tx, conn_resp_rx) =
+                mpsc::channel::<tonic::Result<Response>>(crate::CHANNEL_BUFFER);
+            let (controller_tx, controller_rx) =
+                mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
+
+            let task = std::sync::Arc::new(mk_task(true));
+            let publisher = crate::publish::NoopPublisher;
+            let shapes = task.binding_shapes_by_index(Default::default());
+
+            let actor = Actor::new(
+                active_backfills,
+                vec!["stateA".to_string(), "stateB".to_string()],
+                connector_tx,
+                db,
+                true,
+                super::super::Metrics::new("test/shard"),
+                crate::TracingLogger,
+                publisher,
+                shapes,
+                task,
+                None, // token_restart_at
+            );
+
+            let serve = tokio::spawn(async move {
+                let mut controller_rx = UnboundedReceiverStream::new(controller_rx);
+                actor
+                    .serve(
+                        ReceiverStream::new(conn_resp_rx),
+                        &mut controller_rx,
+                        fsm::Head::Idle(fsm::HeadIdle::default()),
+                        fsm::Tail::Recover(fsm::TailRecover {
+                            checkpoints: 0,
+                            ack_intents: BTreeMap::new(),
+                        }),
+                    )
+                    .await
+            });
+
+            for response in responses {
+                conn_resp_tx.send(response).await.unwrap();
+            }
+            for _ in 0..expect_acks {
+                assert!(actor_to_conn_rx.recv().await.unwrap().acknowledge.is_some());
+            }
+
+            controller_tx
+                .send(Ok(proto::Capture {
+                    stop: Some(proto::Stop {}),
+                    ..Default::default()
+                }))
+                .unwrap();
+            let (db, _shapes) = serve.await.unwrap().unwrap();
+            db
+        }
+
+        let state_keys = || vec!["stateA".to_string(), "stateB".to_string()];
+
+        let db = run_capture_session(
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            BTreeMap::new(),
+            vec![
+                Ok(Response {
+                    backfill_begin: Some(response::BackfillBegin { binding: 0 }),
+                    ..Default::default()
+                }),
+                checkpoint(br#"{"cursor":"1"}"#),
+            ],
+            1,
+        )
+        .await;
+        let (db, recover) = db.scan(state_keys()).await.unwrap();
+        assert_eq!(
+            recover.active_backfills,
+            BTreeMap::from([(0u32, 0u64)]),
+            "begin persisted the active backfill",
+        );
+
+        let db = run_capture_session(
+            db,
+            recover.active_backfills,
+            vec![
+                Ok(Response {
+                    backfill_complete: Some(response::BackfillComplete { binding: 0 }),
+                    ..Default::default()
+                }),
+                checkpoint(br#"{"cursor":"2"}"#),
+                Ok(Response {
+                    backfill_complete: Some(response::BackfillComplete { binding: 1 }),
+                    ..Default::default()
+                }),
+                checkpoint(br#"{"cursor":"3"}"#),
+            ],
+            2,
+        )
+        .await;
+        let (_db, recover) = db.scan(state_keys()).await.unwrap();
+        assert_eq!(
+            recover.active_backfills,
+            BTreeMap::new(),
+            "complete removed binding 0; orphaned complete for binding 1 was a no-op",
+        );
+    }
+
+    /// A shard recovered mid-backfill (non-empty `active_backfills`) re-applies its
+    /// truncated-at labels on the first `ApplyTruncatedLabels` rather than skipping
+    /// — the restart case a false `labels_dirty` seed would silently break.
+    #[tokio::test]
+    async fn recovered_active_backfills_reapply_labels() {
+        let (connector_tx, _connector_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+        let task = std::sync::Arc::new(mk_task(true));
+        let publisher = crate::publish::NoopPublisher;
+        let shapes = task.binding_shapes_by_index(Default::default());
+
+        let mut actor = Actor::new(
+            BTreeMap::from([(0u32, 5u64)]), // recovered mid-backfill
+            vec!["stateA".to_string(), "stateB".to_string()],
+            connector_tx,
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            true,
+            super::super::Metrics::new("test/shard"),
+            crate::TracingLogger,
+            publisher,
+            shapes,
+            task.clone(),
+            None, // token_restart_at
+        );
+
+        let mut accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
+        actor
+            .dispatch(fsm::Action::ApplyTruncatedLabels, &mut accumulator)
+            .unwrap();
+        assert!(
+            actor.labels_apply_fut.is_some(),
+            "recovered active backfills must re-apply labels, not skip",
+        );
+    }
+
+    /// A non-shard-zero shard that inherited `active_backfills` via a mid-backfill
+    /// split must NOT apply truncated-at labels: it never sees the BackfillComplete
+    /// that would clear them.
+    #[tokio::test]
+    async fn non_shard_zero_skips_label_apply() {
+        let (connector_tx, _connector_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
+        let task = std::sync::Arc::new(mk_task(true));
+        let publisher = crate::publish::NoopPublisher;
+        let shapes = task.binding_shapes_by_index(Default::default());
+
+        let mut actor = Actor::new(
+            BTreeMap::from([(0u32, 5u64)]), // inherited mid-backfill via a split
+            vec!["stateA".to_string(), "stateB".to_string()],
+            connector_tx,
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            false, // not shard zero
+            super::super::Metrics::new("test/shard"),
+            crate::TracingLogger,
+            publisher,
+            shapes,
+            task.clone(),
+            None, // token_restart_at
+        );
+
+        let mut accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
+        actor
+            .dispatch(fsm::Action::ApplyTruncatedLabels, &mut accumulator)
+            .unwrap();
+        assert!(
+            actor.labels_apply_fut.is_none(),
+            "a non-shard-zero shard must not apply truncated-at labels",
+        );
     }
 
     /// `parse_sourced_schema` resolves a valid closed schema to its binding and

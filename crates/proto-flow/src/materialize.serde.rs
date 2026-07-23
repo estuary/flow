@@ -833,11 +833,23 @@ impl serde::Serialize for request::Flush {
         if !self.state_patches_json.is_empty() {
             len += 1;
         }
+        if !self.backfill_begins.is_empty() {
+            len += 1;
+        }
+        if !self.backfill_completes.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Request.Flush", len)?;
         if !self.state_patches_json.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("statePatches", &crate::as_raw_json(&self.state_patches_json)?)?;
+        }
+        if !self.backfill_begins.is_empty() {
+            struct_ser.serialize_field("backfillBegins", &self.backfill_begins)?;
+        }
+        if !self.backfill_completes.is_empty() {
+            struct_ser.serialize_field("backfillCompletes", &self.backfill_completes)?;
         }
         struct_ser.end()
     }
@@ -851,11 +863,17 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
         const FIELDS: &[&str] = &[
             "state_patches_json",
             "statePatches",
+            "backfill_begins",
+            "backfillBegins",
+            "backfill_completes",
+            "backfillCompletes",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             StatePatchesJson,
+            BackfillBegins,
+            BackfillCompletes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -879,6 +897,8 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                     {
                         match value {
                             "statePatches" | "state_patches_json" => Ok(GeneratedField::StatePatchesJson),
+                            "backfillBegins" | "backfill_begins" => Ok(GeneratedField::BackfillBegins),
+                            "backfillCompletes" | "backfill_completes" => Ok(GeneratedField::BackfillCompletes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -899,6 +919,8 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut state_patches_json__ = None;
+                let mut backfill_begins__ = None;
+                let mut backfill_completes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::StatePatchesJson => {
@@ -909,6 +931,18 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                                 Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
                             ;
                         }
+                        GeneratedField::BackfillBegins => {
+                            if backfill_begins__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("backfillBegins"));
+                            }
+                            backfill_begins__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::BackfillCompletes => {
+                            if backfill_completes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("backfillCompletes"));
+                            }
+                            backfill_completes__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -916,10 +950,240 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                 }
                 Ok(request::Flush {
                     state_patches_json: state_patches_json__.unwrap_or_default(),
+                    backfill_begins: backfill_begins__.unwrap_or_default(),
+                    backfill_completes: backfill_completes__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("materialize.Request.Flush", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for request::flush::BackfillBegin {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.binding != 0 {
+            len += 1;
+        }
+        if self.timestamp.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("materialize.Request.Flush.BackfillBegin", len)?;
+        if self.binding != 0 {
+            struct_ser.serialize_field("binding", &self.binding)?;
+        }
+        if let Some(v) = self.timestamp.as_ref() {
+            struct_ser.serialize_field("timestamp", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for request::flush::BackfillBegin {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "binding",
+            "timestamp",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Binding,
+            Timestamp,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "binding" => Ok(GeneratedField::Binding),
+                            "timestamp" => Ok(GeneratedField::Timestamp),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = request::flush::BackfillBegin;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct materialize.Request.Flush.BackfillBegin")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::flush::BackfillBegin, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut binding__ = None;
+                let mut timestamp__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Binding => {
+                            if binding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("binding"));
+                            }
+                            binding__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Timestamp => {
+                            if timestamp__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("timestamp"));
+                            }
+                            timestamp__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(request::flush::BackfillBegin {
+                    binding: binding__.unwrap_or_default(),
+                    timestamp: timestamp__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("materialize.Request.Flush.BackfillBegin", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for request::flush::BackfillComplete {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.binding != 0 {
+            len += 1;
+        }
+        if self.timestamp.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("materialize.Request.Flush.BackfillComplete", len)?;
+        if self.binding != 0 {
+            struct_ser.serialize_field("binding", &self.binding)?;
+        }
+        if let Some(v) = self.timestamp.as_ref() {
+            struct_ser.serialize_field("timestamp", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for request::flush::BackfillComplete {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "binding",
+            "timestamp",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Binding,
+            Timestamp,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "binding" => Ok(GeneratedField::Binding),
+                            "timestamp" => Ok(GeneratedField::Timestamp),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = request::flush::BackfillComplete;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct materialize.Request.Flush.BackfillComplete")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::flush::BackfillComplete, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut binding__ = None;
+                let mut timestamp__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Binding => {
+                            if binding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("binding"));
+                            }
+                            binding__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Timestamp => {
+                            if timestamp__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("timestamp"));
+                            }
+                            timestamp__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(request::flush::BackfillComplete {
+                    binding: binding__.unwrap_or_default(),
+                    timestamp: timestamp__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("materialize.Request.Flush.BackfillComplete", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for request::Load {

@@ -662,6 +662,7 @@ dependencies = [
 name = "async-process"
 version = "0.0.0"
 dependencies = [
+ "futures",
  "insta",
  "libc",
  "tokio",

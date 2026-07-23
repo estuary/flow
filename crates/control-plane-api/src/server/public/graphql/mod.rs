@@ -214,6 +214,7 @@ pub(crate) async fn graphql_handler(
 /// of date, which is why we're using this html instead.
 /// Changes from original:
 ///     1. Added default auth header
+///     2. Added inputValueDeprecation: true
 pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
     axum::response::Html(
         r#"
@@ -288,6 +289,10 @@ pub async fn graphql_graphiql() -> impl axum::response::IntoResponse {
                   fetcher,
                   plugins,
                   defaultEditorToolsVisibility: true,
+                  // Ask for deprecated input fields/arguments in the
+                  // introspection query, so they show (struck through) in the
+                  // docs instead of being silently hidden.
+                  inputValueDeprecation: true,
                   // ---------- auth header customization ----------
                   defaultHeaders : (()=>{
                     const access_token = new URLSearchParams(window.location.search).get('access_token');

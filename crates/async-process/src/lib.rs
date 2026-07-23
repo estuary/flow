@@ -8,11 +8,28 @@ use std::os::fd::OwnedHandle as OwnedImpl;
 
 pub struct Child {
     pid: libc::pid_t,
-    status: Result<tokio::task::JoinHandle<std::process::Child>, std::process::Child>,
+    status: Status,
 
     pub stdin: Option<ChildStdio>,
     pub stdout: Option<ChildStdio>,
     pub stderr: Option<ChildStdio>,
+}
+
+/// State machine for reaping the child process.
+///
+/// A `spawn_blocking` task reaps the child by blocking in its `wait()`.
+/// `Status` tracks whether that task is still running, has completed (yielding
+/// the reaped `std::process::Child`), or was abandoned because its runtime was
+/// torn down before it could reap.
+enum Status {
+    /// The `spawn_blocking` reaping task is running; it yields the reaped child.
+    Reaping(tokio::task::JoinHandle<std::process::Child>),
+    /// The child has been reaped and its exit status can be queried.
+    Reaped(std::process::Child),
+    /// The reaping task did not complete: its runtime was torn down (join was
+    /// cancelled) or it panicked. The child was not reaped by us, so `Drop`
+    /// must SIGKILL *and* reap it (nobody else will) to avoid a zombie.
+    Abandoned,
 }
 
 pub type ChildStdio = tokio::fs::File;
@@ -24,7 +41,7 @@ impl From<std::process::Child> for Child {
         let stderr = map_stdio(inner.stderr.take());
 
         let pid = inner.id() as libc::pid_t;
-        let status = Ok(tokio::runtime::Handle::current().spawn_blocking(move || {
+        let status = Status::Reaping(tokio::runtime::Handle::current().spawn_blocking(move || {
             _ = inner.wait();
             inner
         }));
@@ -45,33 +62,96 @@ impl Child {
     }
 
     pub async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
-        if let Ok(handle) = &mut self.status {
-            self.status = Err(handle.await.unwrap());
+        if let Status::Reaping(handle) = &mut self.status {
+            match handle.await {
+                Ok(inner) => self.status = Status::Reaped(inner),
+                Err(join_err) => {
+                    // The reaping `spawn_blocking` task did not complete: its
+                    // runtime was torn down (join cancelled) or it panicked.
+                    // This is a routine teardown path — e.g. a cancelled shard
+                    // context — so surface it as an error rather than panicking.
+                    // `Drop` will SIGKILL the (unreaped) child via `self.pid`.
+                    self.status = Status::Abandoned;
+                    return Err(std::io::Error::other(format!(
+                        "child reaping task did not complete: {join_err}"
+                    )));
+                }
+            }
         }
-        let Err(inner) = &mut self.status else {
-            unreachable!()
-        };
-        inner.wait()
+        match &mut self.status {
+            Status::Reaped(inner) => inner.wait(),
+            // `Reaping` was just resolved above, so this is `Abandoned`.
+            _ => Err(std::io::Error::other("child reaping task did not complete")),
+        }
     }
 
+    /// Reports whether the child process has been reaped (its exit status
+    /// collected). A `false` result means the child may still be running, or
+    /// has exited but not yet been reaped.
     pub fn is_finished(&mut self) -> bool {
-        match &self.status {
-            Ok(handle) => handle.is_finished(),
-            Err(_inner) => true,
+        self.try_resolve();
+        matches!(self.status, Status::Reaped(_))
+    }
+
+    // Advance `Reaping` if the reaping task has already terminated: to `Reaped`
+    // if it yielded the reaped child, or `Abandoned` if it was cancelled or
+    // panicked without reaping. A JoinHandle may be polled outside a runtime,
+    // so this is safe to call from `Drop`.
+    fn try_resolve(&mut self) {
+        let Status::Reaping(handle) = &mut self.status else {
+            return;
+        };
+        match futures::FutureExt::now_or_never(handle) {
+            Some(Ok(inner)) => self.status = Status::Reaped(inner),
+            Some(Err(_)) => self.status = Status::Abandoned,
+            None => {} // Still reaping.
+        }
+    }
+
+    // SIGKILL the child. It may already have exited (ESRCH), which is fine.
+    fn kill(&self) {
+        if unsafe { libc::kill(self.pid, libc::SIGKILL) } == -1 {
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() != Some(libc::ESRCH) {
+                tracing::error!(pid = self.pid, err = ?err, "failed to SIGKILL dropped child");
+            }
+        }
+    }
+
+    // SIGKILL the child and reap it, so it doesn't linger as a zombie. Used when
+    // the reaping task terminated without reaping and nobody else will do so.
+    // The child is not reaped by us, so its pid has not yet been recycled and is
+    // safe to signal; SIGKILL cannot be caught, so the following `waitpid` blocks
+    // only briefly.
+    fn kill_and_reap(&self) {
+        self.kill();
+
+        let mut status = 0;
+        while unsafe { libc::waitpid(self.pid, &mut status, 0) } == -1 {
+            let err = std::io::Error::last_os_error();
+            match err.raw_os_error() {
+                Some(libc::EINTR) => continue, // Interrupted by a signal; retry.
+                Some(libc::ECHILD) => break,   // Already reaped elsewhere; fine.
+                _ => {
+                    tracing::error!(pid = self.pid, err = ?err, "failed to reap dropped child");
+                    break;
+                }
+            }
         }
     }
 }
 
 impl Drop for Child {
     fn drop(&mut self) {
-        if self.is_finished() {
-            // Already exited.
-        } else if unsafe { libc::kill(self.pid, libc::SIGKILL) } == -1 {
-            tracing::error!(
-                pid = self.pid,
-                err = ?std::io::Error::last_os_error(),
-                "failed to send SIGKILL to dropped child process"
-            );
+        self.try_resolve();
+        match &self.status {
+            // Reaped: the pid may already be recycled, so leave it be.
+            Status::Reaped(_) => {}
+            // The reaping task is still blocked in the child's `wait()` and will
+            // reap it once it exits; just ensure the child exits.
+            Status::Reaping(_) => self.kill(),
+            // The reaping task terminated without reaping; nobody else will.
+            Status::Abandoned => self.kill_and_reap(),
         }
     }
 }
@@ -129,7 +209,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{Child, Command, input_output, output};
+    use super::{Child, Command, Status, input_output, output};
 
     #[tokio::test]
     async fn test_wait() {
@@ -144,6 +224,129 @@ mod test {
         // Sleep for six hours.
         let child: Child = Command::new("sleep").arg("21600").spawn().unwrap().into();
         std::mem::drop(child); // Doesn't block for six hours.
+    }
+
+    // Regression test: if the reaping `spawn_blocking` task doesn't complete —
+    // because its runtime was torn down (`JoinError::Cancelled`) or it panicked
+    // (`JoinError::Panic`) — then `wait()` must surface an error rather than
+    // panicking on `.unwrap()`. This was observed on a routine teardown path
+    // (a cancelled runtime-next shard context) during a shard-cancellation soak.
+    //
+    // Reaping-task failure is not reliably reproducible by tearing down a real
+    // runtime (a running `spawn_blocking` task is detached, not cancelled), so
+    // we drive a real child process with a hand-built reaping handle that fails
+    // in each way.
+    #[tokio::test]
+    async fn test_wait_survives_reaping_task_cancellation() {
+        let (pid, handle) = spawn_cancelled_reaper();
+        assert_child_wait_is_graceful(pid, handle).await;
+    }
+
+    #[tokio::test]
+    async fn test_wait_survives_reaping_task_panic() {
+        // A reaping task that panics -> JoinError::Panic.
+        let inner = Command::new("sleep").arg("21600").spawn().unwrap();
+        let pid = inner.id() as libc::pid_t;
+        let handle = tokio::task::spawn_blocking(move || -> std::process::Child {
+            let _keep_alive = inner; // Dropped (not reaped) as the closure unwinds.
+            panic!("reaping task panic");
+        });
+
+        assert_child_wait_is_graceful(pid, handle).await;
+    }
+
+    // Drive a `Child` whose reaping `handle` fails through `wait()` and assert it
+    // errors gracefully, then that `Drop` kills and reaps the still-live child.
+    async fn assert_child_wait_is_graceful(
+        pid: libc::pid_t,
+        handle: tokio::task::JoinHandle<std::process::Child>,
+    ) {
+        let mut child = build_abandoned_child(pid, handle);
+
+        // `wait()` returns an error rather than panicking, ...
+        let result = child.wait().await;
+        assert!(result.is_err(), "expected an error, got {result:?}");
+        // ... is idempotent on a repeated call, ...
+        assert!(child.wait().await.is_err());
+        // ... and reports the unreaped child as not finished so `Drop` kills it.
+        assert!(!child.is_finished());
+        assert_eq!(
+            unsafe { libc::kill(pid, 0) },
+            0,
+            "child should be alive before Drop"
+        );
+
+        std::mem::drop(child);
+
+        // `Drop` SIGKILLed *and* reaped the abandoned child, so its pid is gone
+        // entirely, with no lingering zombie.
+        assert_child_reaped(pid);
+    }
+
+    // Regression test for the drop-without-`wait()` path (e.g. the container
+    // guard in runtime-next, which relies solely on `Drop` to kill its child).
+    // A cancelled reaping task is "finished" but never reaped it; `Drop` must
+    // not mistake that for an exited child (which would leak the live process),
+    // and must reap it (which would otherwise leak a zombie).
+    #[tokio::test]
+    async fn test_drop_without_wait_reaps_cancelled_child() {
+        let (pid, handle) = spawn_cancelled_reaper();
+        // Let the abort take effect: the task becomes finished but never reaped.
+        while !handle.is_finished() {
+            tokio::task::yield_now().await;
+        }
+
+        let mut child = build_abandoned_child(pid, handle);
+        assert!(!child.is_finished());
+        assert_eq!(
+            unsafe { libc::kill(pid, 0) },
+            0,
+            "child should be alive before Drop"
+        );
+
+        std::mem::drop(child); // No `wait()` was ever called.
+
+        assert_child_reaped(pid);
+    }
+
+    // Spawn a long-lived `sleep` child and a reaping task which holds it but is
+    // cancelled (aborted while pending) -> its join fails with
+    // `JoinError::Cancelled`, leaving the child unreaped and alive.
+    fn spawn_cancelled_reaper() -> (libc::pid_t, tokio::task::JoinHandle<std::process::Child>) {
+        let inner = Command::new("sleep").arg("21600").spawn().unwrap();
+        let pid = inner.id() as libc::pid_t;
+        let handle = tokio::spawn(async move {
+            std::future::pending::<()>().await;
+            inner // Never reached; keeps the child unreaped and alive.
+        });
+        handle.abort();
+        (pid, handle)
+    }
+
+    // Build a `Child` around a real (still-running) process `pid` whose reaping
+    // `handle` fails (its join resolves to a `JoinError`) without reaping.
+    fn build_abandoned_child(
+        pid: libc::pid_t,
+        handle: tokio::task::JoinHandle<std::process::Child>,
+    ) -> Child {
+        Child {
+            pid,
+            status: Status::Reaping(handle),
+            stdin: None,
+            stdout: None,
+            stderr: None,
+        }
+    }
+
+    // Assert `pid` no longer exists: killed *and* reaped, leaving no zombie
+    // (a zombie would still respond to `kill(pid, 0)` with success).
+    fn assert_child_reaped(pid: libc::pid_t) {
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH),
+            "child pid {pid} still exists after Drop",
+        );
     }
 
     #[tokio::test]

@@ -18,6 +18,7 @@ pub const KEY_BEGIN_MIN: &str = "00000000";
 pub const KEY_END: &str = "estuary.dev/key-end";
 pub const KEY_END_MAX: &str = "ffffffff";
 pub const MANAGED_BY_FLOW: &str = "estuary.dev/flow";
+pub const TRUNCATED_AT: &str = "estuary.dev/truncated-at";
 
 // ShardSpec labels.
 pub const TASK_NAME: &str = "estuary.dev/task-name";
@@ -187,10 +188,12 @@ pub fn is_data_plane_label(label: &str) -> bool {
         return true;
     }
     match label {
-        // Key and R-Clock splits are performed within the data-plane.
-        CORDON | KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END | SPLIT_SOURCE | SPLIT_TARGET => {
-            true
-        }
+        // Labels the data-plane runtime applies to live journals/shards — key,
+        // r-clock, and shard splits, cordoning, and the backfill truncation
+        // boundary — which activation and partition splits must preserve rather
+        // than rebuild away.
+        CORDON | KEY_BEGIN | KEY_END | RCLOCK_BEGIN | RCLOCK_END | SPLIT_SOURCE | SPLIT_TARGET
+        | TRUNCATED_AT => true,
         _ => false,
     }
 }
@@ -216,6 +219,21 @@ pub fn expect_one_u32(set: &LabelSet, name: &str) -> Result<u32, Error> {
         });
     };
     Ok(parsed)
+}
+
+/// Format a Gazette message clock (`u64`) as a [`TRUNCATED_AT`] label value: a
+/// fixed-width, 16-character lowercase hex string.
+pub fn truncated_at_value(clock: u64) -> String {
+    format!("{clock:016x}")
+}
+
+/// Parse a [`TRUNCATED_AT`] label value produced by [`truncated_at_value`] back
+/// into its `u64` clock.
+pub fn parse_truncated_at(value: &str) -> Result<u64, Error> {
+    u64::from_str_radix(value, 16).map_err(|_| Error::InvalidValue {
+        name: TRUNCATED_AT.to_string(),
+        value: value.to_string(),
+    })
 }
 
 pub fn expect_one<'s>(set: &'s LabelSet, name: &str) -> Result<&'s str, Error> {
@@ -633,5 +651,33 @@ mod test {
         )
         .unwrap_err();
         assert!(matches!(err, Error::NotSorted(..)));
+    }
+
+    #[test]
+    fn truncated_at_value_roundtrips_and_sorts() {
+        // Always 16 lowercase hex chars, and round-trips.
+        for clock in [0u64, 1, 0xdead_beef, u64::MAX, 1_750_000_000 << 4] {
+            let v = super::truncated_at_value(clock);
+            assert_eq!(v.len(), 16, "value {v:?} is not fixed-width");
+            assert_eq!(super::parse_truncated_at(&v).unwrap(), clock);
+        }
+        // Lexical (string) order matches clock (numeric) order.
+        let mut by_value = [3u64, 1 << 40, 2, u64::MAX, 1 << 4];
+        let mut numeric = by_value;
+        by_value.sort_by_key(|c| super::truncated_at_value(*c));
+        numeric.sort();
+        assert_eq!(by_value, numeric);
+
+        // Unparseable values error (a stale 19-digit decimal that overflows
+        // u64, non-hex, empty).
+        assert!(super::parse_truncated_at("1234605616436508552").is_err());
+        assert!(super::parse_truncated_at("zzzzzzzzzzzzzzzz").is_err());
+        assert!(super::parse_truncated_at("").is_err());
+        // We trust our own encoding, so non-canonical-but-parseable forms
+        // (uppercase hex here) are accepted rather than rejected.
+        assert_eq!(
+            super::parse_truncated_at("DEADBEEF00000001").unwrap(),
+            0xDEAD_BEEF_0000_0001,
+        );
     }
 }

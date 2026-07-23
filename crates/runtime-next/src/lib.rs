@@ -226,6 +226,16 @@ impl Accumulator {
         Ok((memtable, alloc, self.1.parse_one(doc_bytes, alloc)?))
     }
 
+    /// Truncate `binding`'s backfill boundary: pre-boundary documents the
+    /// combiner holds become stale (existence-only) and already-spilled segments
+    /// are fenced. See [`doc::combine::Accumulator::truncate`].
+    pub fn truncate(&mut self, binding: usize) {
+        self.0.truncate(binding)
+    }
+
+    /// Drain the combiner. Stale entries — flagged or fenced by a backfill
+    /// truncation — are discarded, transferring only their existence onto the
+    /// fresh entry of a shared (binding, key).
     pub fn into_drainer(
         self,
     ) -> Result<(doc::combine::Drainer, simd_doc::Parser), doc::combine::Error> {

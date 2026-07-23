@@ -474,6 +474,7 @@ pub async fn try_fetch(
             d.id AS "control_id: models::Id",
             d.data_plane_name,
             d.data_plane_fqdn,
+            d.closed,
             d.hmac_keys,
             d.encrypted_hmac_keys as "encrypted_hmac_keys: models::RawValue",
             d.broker_address,

@@ -79,6 +79,11 @@ tables!(
         val data_plane_name: String,
         // Unique and fully-qualified domain name of this data-plane.
         val data_plane_fqdn: String,
+        // Whether this data-plane is closed to new selection. Closed planes
+        // keep serving existing tasks but are hidden from the default
+        // `dataPlanes` listing, letting operators retire a plane from new
+        // selection without deleting its record.
+        val closed: bool,
         // HMAC-256 keys for this data-plane.
         // The first is used for signing, and any key may validate.
         val hmac_keys: Vec<String>,

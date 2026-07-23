@@ -956,6 +956,7 @@ pub async fn resolve_live_specs(
         SELECT
             d.id AS "control_id: Id",
             d.data_plane_name,
+            d.closed,
             d.hmac_keys,
             d.encrypted_hmac_keys AS "encrypted_hmac_keys: models::RawValue",
             d.data_plane_fqdn,

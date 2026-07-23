@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        WITH\n        data_plane_ids AS (\n            SELECT id\n            FROM UNNEST($1::flowid[]) AS t(id)\n        ),\n        data_plane_names AS (\n            -- Names are pre-filtered to those the user is read-authorized to,\n            -- so no in-SQL authorization check is needed here.\n            SELECT name\n            FROM UNNEST($2::text[]) AS t(name)\n        )\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.dekaf_address,\n            d.dekaf_registry_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        WHERE\n            d.id IN (select id from data_plane_ids) OR\n            d.data_plane_name in (select name from data_plane_names)\n        ",
+  "query": "\n        WITH\n        data_plane_ids AS (\n            SELECT id\n            FROM UNNEST($1::flowid[]) AS t(id)\n        ),\n        data_plane_names AS (\n            -- Names are pre-filtered to those the user is read-authorized to,\n            -- so no in-SQL authorization check is needed here.\n            SELECT name\n            FROM UNNEST($2::text[]) AS t(name)\n        )\n        SELECT\n            d.id AS \"control_id: Id\",\n            d.data_plane_name,\n            d.closed,\n            d.hmac_keys,\n            d.encrypted_hmac_keys AS \"encrypted_hmac_keys: models::RawValue\",\n            d.data_plane_fqdn,\n            d.broker_address,\n            d.reactor_address,\n            d.dekaf_address,\n            d.dekaf_registry_address,\n            d.ops_logs_name AS \"ops_logs_name: models::Collection\",\n            d.ops_stats_name AS \"ops_stats_name: models::Collection\"\n        FROM data_planes d\n        WHERE\n            d.id IN (select id from data_plane_ids) OR\n            d.data_plane_name in (select name from data_plane_names)\n        ",
   "describe": {
     "columns": [
       {
@@ -15,46 +15,51 @@
       },
       {
         "ordinal": 2,
+        "name": "closed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
         "name": "hmac_keys",
         "type_info": "TextArray"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "encrypted_hmac_keys: models::RawValue",
         "type_info": "Json"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "data_plane_fqdn",
         "type_info": "Text"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "broker_address",
         "type_info": "Text"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "reactor_address",
         "type_info": "Text"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "dekaf_address",
         "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "dekaf_registry_address",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "ops_logs_name: models::Collection",
         "type_info": "Text"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "ops_stats_name: models::Collection",
         "type_info": "Text"
       }
@@ -87,11 +92,12 @@
       false,
       false,
       false,
+      false,
       true,
       true,
       false,
       false
     ]
   },
-  "hash": "c8a5a9f44e3487a8de3765575e5e531e690ae110a7726a27f1c3eb9378c578e3"
+  "hash": "426ee005c45dc239371adf3ba61030e7c9db9a6fcdfc11e627586f86ca9fd5b1"
 }

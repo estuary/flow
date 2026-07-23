@@ -11,6 +11,12 @@ use tokio::sync::mpsc;
 
 /// Actor leads transactions of an established materialization task session.
 pub struct Actor<P: crate::Publisher, L: crate::Logger> {
+    // Cumulative per-binding backfill-begin clock, accumulated across all
+    // transactions of the session.
+    backfill_begin: BTreeMap<u16, uuid::Clock>,
+    // Cumulative per-binding backfill-complete clock, accumulated across all
+    // transactions of the session.
+    backfill_complete: BTreeMap<u16, uuid::Clock>,
     // Client used for trigger dispatch.
     http_client: reqwest::Client,
     // Future for an in-flight ACK intents write, if any.
@@ -41,6 +47,8 @@ pub struct Actor<P: crate::Publisher, L: crate::Logger> {
 
 impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
+        backfill_begin: BTreeMap<u16, uuid::Clock>,
+        backfill_complete: BTreeMap<u16, uuid::Clock>,
         http_client: reqwest::Client,
         legacy_checkpoint: Option<shuffle::Frontier>,
         metrics: super::Metrics,
@@ -50,6 +58,8 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         task: Task,
     ) -> Self {
         Self {
+            backfill_begin,
+            backfill_complete,
             http_client,
             intents_write_fut: None,
             legacy_checkpoint: legacy_checkpoint.map(|f| (f, consumer::Checkpoint::default())),
@@ -127,7 +137,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 "leader materialize Actor::serve iteration"
             );
 
-            let action: fsm::Action;
+            let mut action: fsm::Action;
             let prev_kind = tail.kind();
             (action, tail) = tail.step(
                 &self.trigger_debounce,
@@ -148,6 +158,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     "transition",
                 );
             }
+            self.merge_backfill_clocks(&mut action);
             let tail_wake_after = self.dispatch(action)?;
 
             let action: fsm::Action;
@@ -199,7 +210,10 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
                     Duration::ZERO
                 }
-                action => self.dispatch(action)?,
+                mut action => {
+                    self.merge_backfill_clocks(&mut action);
+                    self.dispatch(action)?
+                }
             };
             let wake_after = std::cmp::min(head_wake_after, tail_wake_after);
 
@@ -333,6 +347,75 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         Ok(())
     }
 
+    /// Stamp the session-cumulative backfill boundary onto outgoing frontiers:
+    /// `Load` stamps begin only (shards classify on begin; the connector's
+    /// Complete rides `Flush`), `Persist` stamps both maps as durable state.
+    fn merge_backfill_clocks(&mut self, action: &mut fsm::Action) {
+        match action {
+            fsm::Action::Load { frontier } if frontier.unresolved_hints != 0 => {
+                // Eager peek: fold the cumulative begin into the frontier's own
+                // eager begin (a union) without advancing the cumulative maps.
+                for (binding, clock) in &self.backfill_begin {
+                    let entry = frontier
+                        .latest_backfill_begin
+                        .entry(*binding)
+                        .or_insert(uuid::Clock::zero());
+                    *entry = (*entry).max(*clock);
+                }
+            }
+            fsm::Action::Load { frontier } => {
+                // Resolved Load: fold the begin and complete deltas into the
+                // cumulative maps (complete feeds Persist), then stamp begin.
+                for (binding, clock) in &frontier.latest_backfill_begin {
+                    let entry = self
+                        .backfill_begin
+                        .entry(*binding)
+                        .or_insert(uuid::Clock::zero());
+                    *entry = (*entry).max(*clock);
+                }
+                for (binding, clock) in &frontier.latest_backfill_complete {
+                    let entry = self
+                        .backfill_complete
+                        .entry(*binding)
+                        .or_insert(uuid::Clock::zero());
+                    *entry = (*entry).max(*clock);
+                }
+                frontier.latest_backfill_begin = self.backfill_begin.clone();
+            }
+            fsm::Action::Persist { persist } => {
+                let begin: Vec<_> = self
+                    .backfill_begin
+                    .iter()
+                    .map(|(binding, clock)| shuffle::proto::frontier::BackfillBegin {
+                        binding: *binding as u32,
+                        clock: clock.as_u64(),
+                    })
+                    .collect();
+                let complete: Vec<_> = self
+                    .backfill_complete
+                    .iter()
+                    .map(
+                        |(binding, clock)| shuffle::proto::frontier::BackfillComplete {
+                            binding: *binding as u32,
+                            clock: clock.as_u64(),
+                        },
+                    )
+                    .collect();
+                for frontier in [
+                    &mut persist.committed_frontier,
+                    &mut persist.hinted_frontier,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    frontier.latest_backfill_begin = begin.clone();
+                    frontier.latest_backfill_complete = complete.clone();
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Execute the outgoing-IO primitive for an Action.
     #[tracing::instrument(level = "trace", fields(action = ?action), skip_all)]
     fn dispatch(&mut self, action: fsm::Action) -> anyhow::Result<Duration> {
@@ -354,11 +437,35 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 });
             }
 
-            fsm::Action::Flush { connector_patches } => {
+            fsm::Action::Flush {
+                connector_patches,
+                backfill_begins,
+                backfill_completes,
+            } => {
                 service_kit::event!(tracing::Level::DEBUG, "shard", "broadcasting L:Flush");
+                let backfill_begins = backfill_begins
+                    .into_iter()
+                    .map(
+                        |(binding, clock)| proto::materialize::flush::BackfillBegin {
+                            binding: binding as u32,
+                            clock: clock.as_u64(),
+                        },
+                    )
+                    .collect();
+                let backfill_completes = backfill_completes
+                    .into_iter()
+                    .map(
+                        |(binding, clock)| proto::materialize::flush::BackfillComplete {
+                            binding: binding as u32,
+                            clock: clock.as_u64(),
+                        },
+                    )
+                    .collect();
                 self.broadcast(proto::Materialize {
                     flush: Some(proto::materialize::Flush {
                         connector_patches_json: connector_patches,
+                        backfill_begins,
+                        backfill_completes,
                     }),
                     ..Default::default()
                 });
@@ -428,7 +535,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
 
                         let intents = match publisher.commit_intents() {
                             Some(commit) => {
-                                publisher::intents::build_transaction_intents(&[commit])
+                                publisher::intents::build_transaction_intents(&[commit], None)
                             }
                             None => BTreeMap::new(),
                         };
@@ -608,6 +715,8 @@ mod tests {
             triggers: None,
         };
         let actor = Actor::new(
+            BTreeMap::new(),
+            BTreeMap::new(),
             reqwest::Client::new(),
             None,
             super::super::Metrics::new("test/task/shard"),
@@ -727,6 +836,231 @@ mod tests {
                     assert!(s.contains(needle), "missing {needle:?} in {s}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn merge_backfill_clocks_load_advances_and_stamps() {
+        let (mut actor, _rxs) = mk_actor(1);
+        actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
+        actor.backfill_complete = BTreeMap::from([(0, uuid::Clock::from_u64(4))]);
+
+        // Incoming Load delta: an older binding 0 (must not regress the
+        // cumulative) and a fresh binding 1.
+        let mut action = fsm::Action::Load {
+            frontier: shuffle::Frontier {
+                latest_backfill_begin: BTreeMap::from([
+                    (0, uuid::Clock::from_u64(3)),
+                    (1, uuid::Clock::from_u64(7)),
+                ]),
+                latest_backfill_complete: BTreeMap::from([(1, uuid::Clock::from_u64(6))]),
+                ..Default::default()
+            },
+        };
+        actor.merge_backfill_clocks(&mut action);
+
+        let want_begin = BTreeMap::from([
+            (0, uuid::Clock::from_u64(5)), // kept 5, not regressed to 3
+            (1, uuid::Clock::from_u64(7)),
+        ]);
+        let want_complete =
+            BTreeMap::from([(0, uuid::Clock::from_u64(4)), (1, uuid::Clock::from_u64(6))]);
+
+        // The cumulative maps advance (max-fold), never regress.
+        assert_eq!(actor.backfill_begin, want_begin);
+        assert_eq!(actor.backfill_complete, want_complete);
+
+        // The outgoing frontier carries the full cumulative begin, not just the
+        // delta. (Complete isn't stamped on a Load; only the fold above matters.)
+        let fsm::Action::Load { frontier } = &action else {
+            panic!("expected Load");
+        };
+        assert_eq!(frontier.latest_backfill_begin, want_begin);
+    }
+
+    // An eager (unresolved-peek) Load stamps cumulative ∪ eager begin but must
+    // NOT advance the cumulative maps; a following Persist stamps only the
+    // pre-eager resolved state.
+    #[test]
+    fn merge_backfill_clocks_eager_load_does_not_advance_cumulative() {
+        let (mut actor, _rxs) = mk_actor(1);
+        actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
+        actor.backfill_complete = BTreeMap::from([(0, uuid::Clock::from_u64(4))]);
+
+        // An unresolved peek carrying eager markers: a higher begin for binding
+        // 0, a fresh binding 1, and a complete.
+        let mut action = fsm::Action::Load {
+            frontier: shuffle::Frontier {
+                latest_backfill_begin: BTreeMap::from([
+                    (0, uuid::Clock::from_u64(9)),
+                    (1, uuid::Clock::from_u64(7)),
+                ]),
+                latest_backfill_complete: BTreeMap::from([(0, uuid::Clock::from_u64(8))]),
+                unresolved_hints: 1,
+                ..Default::default()
+            },
+        };
+        actor.merge_backfill_clocks(&mut action);
+
+        // The outgoing frontier carries cumulative ∪ eager begin.
+        let fsm::Action::Load { frontier } = &action else {
+            panic!("expected Load");
+        };
+        assert_eq!(
+            frontier.latest_backfill_begin,
+            BTreeMap::from([(0, uuid::Clock::from_u64(9)), (1, uuid::Clock::from_u64(7))]),
+        );
+
+        // Neither cumulative map advanced — the eager markers are not durable.
+        assert_eq!(
+            actor.backfill_begin,
+            BTreeMap::from([(0, uuid::Clock::from_u64(5))]),
+            "eager begin must not advance the cumulative map",
+        );
+        assert_eq!(
+            actor.backfill_complete,
+            BTreeMap::from([(0, uuid::Clock::from_u64(4))]),
+            "eager complete must not advance the cumulative map",
+        );
+
+        // A subsequent Persist stamps only the pre-eager cumulative begin (5).
+        let mut persist = fsm::Action::Persist {
+            persist: proto::Persist {
+                committed_frontier: Some(shuffle::proto::Frontier::default()),
+                ..Default::default()
+            },
+        };
+        actor.merge_backfill_clocks(&mut persist);
+        let fsm::Action::Persist { persist } = &persist else {
+            panic!("expected Persist");
+        };
+        assert_eq!(
+            persist
+                .committed_frontier
+                .as_ref()
+                .unwrap()
+                .latest_backfill_begin,
+            vec![shuffle::proto::frontier::BackfillBegin {
+                binding: 0,
+                clock: 5,
+            }],
+            "Persist stamps only durable resolved state, never the eager begin",
+        );
+    }
+
+    #[test]
+    fn merge_backfill_clocks_persist_stamps() {
+        let (mut actor, _rxs) = mk_actor(1);
+        actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
+        actor.backfill_complete = BTreeMap::from([(0, uuid::Clock::from_u64(4))]);
+
+        let mut action = fsm::Action::Persist {
+            persist: proto::Persist {
+                committed_frontier: Some(shuffle::proto::Frontier::default()),
+                ..Default::default()
+            },
+        };
+        actor.merge_backfill_clocks(&mut action);
+
+        let fsm::Action::Persist { persist } = &action else {
+            panic!("expected Persist");
+        };
+        let frontier = persist.committed_frontier.as_ref().unwrap();
+        assert_eq!(
+            frontier.latest_backfill_begin,
+            vec![shuffle::proto::frontier::BackfillBegin {
+                binding: 0,
+                clock: 5,
+            }],
+        );
+        assert_eq!(
+            frontier.latest_backfill_complete,
+            vec![shuffle::proto::frontier::BackfillComplete {
+                binding: 0,
+                clock: 4,
+            }],
+        );
+    }
+
+    // A hint Persist carries a `hinted_frontier`, not a `committed_frontier`; it
+    // must be stamped too. The hinted boundary is persisted durably (HB:/HC: keys,
+    // see recovery.rs) and reduced into committed on a remote-authoritative
+    // recovery, so a marker observed in the hinted transaction isn't lost.
+    #[test]
+    fn merge_backfill_clocks_stamps_hinted_frontier() {
+        let (mut actor, _rxs) = mk_actor(1);
+        actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
+
+        let mut action = fsm::Action::Persist {
+            persist: proto::Persist {
+                hinted_frontier: Some(shuffle::proto::Frontier::default()),
+                ..Default::default()
+            },
+        };
+        actor.merge_backfill_clocks(&mut action);
+
+        let fsm::Action::Persist { persist } = &action else {
+            panic!("expected Persist");
+        };
+        assert_eq!(
+            persist
+                .hinted_frontier
+                .as_ref()
+                .unwrap()
+                .latest_backfill_begin,
+            vec![shuffle::proto::frontier::BackfillBegin {
+                binding: 0,
+                clock: 5,
+            }],
+        );
+    }
+
+    #[test]
+    fn merge_backfill_clocks_noop_cases() {
+        let (mut actor, _rxs) = mk_actor(1);
+        actor.backfill_begin = BTreeMap::from([(0, uuid::Clock::from_u64(5))]);
+
+        // A Persist without a committed frontier has nothing to stamp...
+        let mut persist = fsm::Action::Persist {
+            persist: proto::Persist::default(),
+        };
+        actor.merge_backfill_clocks(&mut persist);
+
+        // ...and a non-Load/Persist action is ignored.
+        let mut store = fsm::Action::Store;
+        actor.merge_backfill_clocks(&mut store);
+
+        assert_eq!(
+            actor.backfill_begin,
+            BTreeMap::from([(0, uuid::Clock::from_u64(5))]),
+        );
+    }
+
+    // Ordinary delivery: the FSM's per-transaction marker delta (carried on
+    // `Action::Flush`) is serialized onto the broadcast L:Flush, so each shard
+    // can notify its connector.
+    #[test]
+    fn flush_action_serializes_backfill_delta() {
+        let (mut actor, mut rxs) = mk_actor(2);
+
+        actor
+            .dispatch(fsm::Action::Flush {
+                connector_patches: bytes::Bytes::new(),
+                backfill_begins: BTreeMap::from([(0, uuid::Clock::from_u64(42))]),
+                backfill_completes: BTreeMap::new(),
+            })
+            .unwrap();
+
+        for rx in &mut rxs {
+            let flush = rx.try_recv().unwrap().unwrap().flush.unwrap();
+            assert_eq!(
+                flush.backfill_begins,
+                vec![proto::materialize::flush::BackfillBegin {
+                    binding: 0,
+                    clock: 42,
+                }],
+            );
+            assert!(flush.backfill_completes.is_empty());
         }
     }
 }

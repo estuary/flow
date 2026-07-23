@@ -66,10 +66,12 @@ impl Entries {
     }
 
     fn compact(&mut self, alloc: &'static Bump) -> Result<(), Error> {
-        // `sort_ord` orders over (binding, key, !front):
-        // For each (binding, key), we take front() entries first, and further
-        // rely on sort preserving the order in which entries were added.
-        // This maintains the left-to-right associative ordering of reductions.
+        // `sort_ord` orders over (binding, key, stale, !front):
+        // For each (binding, key), stale entries sort first, then front()
+        // entries, and we further rely on sort preserving the order in which
+        // entries were added. This maintains the left-to-right associative
+        // ordering of reductions. Stale is a group boundary, so compaction
+        // never reduces a stale entry with a fresh one.
         //
         // `meta` contains a packed structure that's order-preserving over
         // (binding, key), so we first test it for inequality.
@@ -80,6 +82,7 @@ impl Entries {
                     // Cold path: Meta prefix was equal, so compare the full key.
                     compare_root_keys(&self.spec.keys[l.meta.binding()], &l.root, &r.root)
                 })
+                .then_with(|| l.meta.stale().cmp(&r.meta.stale()).reverse())
                 .then_with(|| l.meta.front().cmp(&r.meta.front()).reverse())
         };
         let validators = &mut self.spec.validators;
@@ -87,6 +90,11 @@ impl Entries {
         // Closure which attempts an associative reduction of `index` into `index-1`.
         // If the reduction succeeds then the item at `index` is removed.
         let mut maybe_reduce = |next: &mut Vec<HeapEntry<'_>>, index: usize| -> Result<(), Error> {
+            // Stale content is known-dead: never validate or reduce it. Groups
+            // are uniformly stale or fresh (per `sort_ord`), so one test suffices.
+            if next[index].meta.stale() {
+                return Ok(());
+            }
             let rhs = &next[index];
 
             let rhs_outcomes = validate_root(
@@ -234,6 +242,24 @@ impl MemTable {
 
     /// Add the document to the MemTable.
     pub fn add<'s>(&'s self, binding: u16, root: HeapNode<'s>, front: bool) -> Result<(), Error> {
+        self.add_inner(binding, root, front, false)
+    }
+
+    /// Add a Loaded document the caller has classified as stale. Like `add` with
+    /// `front=true`, but flagged stale: its value is never reduced or emitted,
+    /// while its existence transfers onto the fresh entry of the same
+    /// (binding, key). See [`super::Accumulator::truncate`].
+    pub fn add_stale_front<'s>(&'s self, binding: u16, root: HeapNode<'s>) -> Result<(), Error> {
+        self.add_inner(binding, root, true, true)
+    }
+
+    fn add_inner<'s>(
+        &'s self,
+        binding: u16,
+        root: HeapNode<'s>,
+        front: bool,
+        stale: bool,
+    ) -> Result<(), Error> {
         // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
         let root = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(root) };
@@ -245,12 +271,15 @@ impl MemTable {
             &mut entries.scratch,
             None,
         );
-        let meta = Meta::new(
+        let mut meta = Meta::new(
             binding,
             &entries.scratch,
             front,
             false, // `known_valid`
         );
+        if stale {
+            meta.set_stale();
+        }
 
         entries.queued.push(HeapEntry {
             meta,
@@ -263,6 +292,30 @@ impl MemTable {
         } else {
             Ok(())
         }
+    }
+
+    /// Truncate `binding` within this MemTable in a single pass: drop its
+    /// `!front()` entries (pre-boundary sources carry no existence) and flag its
+    /// `front()` entries stale in place (value dead, but the body is retained so
+    /// drain can match its key against fresh entries). Other bindings untouched.
+    pub fn truncate(&self, binding: u16) {
+        // Safety: mutable borrow does not escape this function.
+        let entries = unsafe { &mut *self.entries.get() };
+
+        let retain = |entry: &mut HeapEntry| -> bool {
+            if entry.meta.binding() != binding as usize {
+                return true;
+            } else if !entry.meta.front() {
+                return false;
+            }
+            entry.meta.set_stale();
+            true
+        };
+
+        // `sorted` stays sorted: `retain_mut` preserves order, and the binding's
+        // survivors are homogeneous stale fronts, which sort ahead of fresh.
+        entries.queued.retain_mut(retain);
+        entries.sorted.retain_mut(retain);
     }
 
     /// Add a pre-serialized ArchivedEmbedded document from the shuffle reader.
@@ -432,6 +485,34 @@ impl MemDrainer {
         let Some(HeapEntry { mut meta, mut root }) = self.it.next() else {
             return Ok(None);
         };
+
+        // Advance past stale entries to the first fresh entry of their key,
+        // ORing their front() existence onto it. A stale run with no fresh
+        // successor emits nothing.
+        let mut stale_front = false;
+        while meta.stale() {
+            stale_front |= meta.front();
+
+            let Some(next) = self.it.next() else {
+                return Ok(None); // Trailing stale run: nothing to emit.
+            };
+
+            let same_key = meta.0 == next.meta.0
+                && compare_root_keys(&self.spec.keys[meta.binding()], &root, &next.root).is_eq();
+
+            HeapEntry { meta, root } = next;
+            self.in_group = false;
+
+            if !same_key {
+                // Orphaned stale run: drop its existence (next may differ in binding).
+                stale_front = false;
+            }
+        }
+
+        if stale_front {
+            meta.set_front(); // Transfer stale existence onto the fresh output.
+        }
+
         let is_full = self.spec.is_full[meta.binding()];
         let keys = self.spec.keys[meta.binding()].as_ref();
         let name = &self.spec.names[meta.binding()];
@@ -643,6 +724,469 @@ mod test {
         memtable
             .add_embedded(binding, &packed_prefix, embedded, front, false)
             .unwrap();
+    }
+
+    /// A full-reduction Spec over `n_bindings` bindings keyed on `/key`, whose
+    /// `v` array reduces by append. A closure (not `vec![…; N]`) because
+    /// `Validator` isn't `Clone`.
+    fn append_merge_spec(n_bindings: usize) -> Spec {
+        let binding = || {
+            let schema = build_schema(
+                &url::Url::parse("http://example/schema").unwrap(),
+                &json!({
+                    "properties": { "v": { "type": "array", "reduce": { "strategy": "append" } } },
+                    "reduce": { "strategy": "merge" }
+                }),
+            )
+            .unwrap();
+            (
+                true, // Full reduction.
+                vec![Extractor::with_default(
+                    "/key",
+                    &SerPolicy::noop(),
+                    json!("def"),
+                )],
+                "test",
+                Validator::new(schema).unwrap(),
+            )
+        };
+        Spec::with_bindings(std::iter::repeat_with(binding).take(n_bindings), Vec::new())
+    }
+
+    /// Force the Accumulator's current MemTable into a new spill segment,
+    /// leaving a fresh empty MemTable behind.
+    fn force_spill(acc: &mut crate::combine::Accumulator) {
+        let spec = acc
+            .memtable
+            .take()
+            .unwrap()
+            .spill(&mut acc.spill, CHUNK_TARGET_SIZE)
+            .unwrap();
+        acc.memtable = Some(MemTable::new(spec));
+    }
+
+    fn project(doc: DrainedDoc) -> (usize, serde_json::Value, bool) {
+        (
+            doc.meta.binding(),
+            serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap(),
+            doc.meta.front(),
+        )
+    }
+
+    #[test]
+    fn test_truncate_partition() {
+        // Backfill truncation over two bindings: binding 0 is truncated (its
+        // pre-boundary sources dropped, stale Loaded rows kept as existence-only
+        // fronts) while binding 1 is untouched. The drain output must be
+        // identical whether the fixture stays in memory (MemTable::truncate) or
+        // is forced through a spill file whose pre-boundary segment is fenced by
+        // ordinal (Accumulator::truncate).
+        let doc = |key: &str, v: &str| json!({ "key": key, "v": [v] });
+
+        let expected = vec![
+            // Two stale Loaded fronts transfer existence once onto the fresh source.
+            (0, json!({"key": "exist_once", "v": ["s2"]}), true),
+            // Pre-boundary sources dropped; only the fresh source stores.
+            (0, json!({"key": "multi", "v": ["a2"]}), false),
+            // A dropped pre-boundary source fabricates no existence.
+            (0, json!({"key": "no_exist", "v": ["x2"]}), false),
+            // A fresh Loaded front reduces with a fresh source; pre-boundary dropped.
+            (0, json!({"key": "reduce2", "v": ["r_load", "r_src"]}), true),
+            // "orphan" and "zzz_cross" are stale-only and emit nothing; binding 1
+            // (never truncated) drains normally.
+            (1, json!({"key": "b", "v": ["b0"]}), false),
+        ];
+
+        // Add post-boundary arrivals: stale Loaded rows (add_stale_front), one
+        // fresh Loaded front, then fresh sources, and an untouched binding 1.
+        let add_post = |mt: &MemTable| {
+            for (key, v) in [
+                ("exist_once", "L0"),
+                ("exist_once", "L1"),
+                ("orphan", "gone"),
+                ("zzz_cross", "gone"),
+            ] {
+                mt.add_stale_front(0, HeapNode::from_node(&doc(key, v), mt.alloc()))
+                    .unwrap();
+            }
+            mt.add(
+                0,
+                HeapNode::from_node(&doc("reduce2", "r_load"), mt.alloc()),
+                true,
+            )
+            .unwrap();
+            for (key, v) in [
+                ("exist_once", "s2"),
+                ("multi", "a2"),
+                ("no_exist", "x2"),
+                ("reduce2", "r_src"),
+            ] {
+                mt.add(0, HeapNode::from_node(&doc(key, v), mt.alloc()), false)
+                    .unwrap();
+            }
+            mt.add(1, HeapNode::from_node(&doc("b", "b0"), mt.alloc()), false)
+                .unwrap();
+        };
+        // Pre-boundary source documents of binding 0 (dropped/fenced on truncate).
+        let pre = [("multi", "a0"), ("no_exist", "x0"), ("reduce2", "r0")];
+
+        // In-memory variant: MemTable::truncate directly between adds.
+        {
+            let memtable = MemTable::new(append_merge_spec(2));
+            for (key, v) in pre {
+                memtable
+                    .add(
+                        0,
+                        HeapNode::from_node(&doc(key, v), memtable.alloc()),
+                        false,
+                    )
+                    .unwrap();
+            }
+            memtable.truncate(0);
+            add_post(&memtable);
+
+            let in_memory = memtable
+                .try_into_drainer()
+                .unwrap()
+                .map_ok(project)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(in_memory, expected, "in-memory drain");
+        }
+
+        // Spill variant: an Accumulator spills the pre-boundary sources into a
+        // segment, Accumulator::truncate fences that segment by ordinal, and
+        // post-boundary arrivals (including stale fronts carrying their
+        // persisted STALE flag) land in the final segment.
+        {
+            let mut acc = crate::combine::Accumulator::new(
+                append_merge_spec(2),
+                tempfile::tempfile().unwrap(),
+            )
+            .unwrap();
+            {
+                let mt = acc.memtable().unwrap();
+                for (key, v) in pre {
+                    mt.add(0, HeapNode::from_node(&doc(key, v), mt.alloc()), false)
+                        .unwrap();
+                }
+            }
+            force_spill(&mut acc); // Pre-boundary sources become segment 0.
+            acc.truncate(0); // Fence segment 0 for binding 0.
+            add_post(acc.memtable().unwrap());
+
+            let spilled = acc
+                .into_drainer()
+                .unwrap()
+                .map_ok(project)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(spilled, expected, "spill drain");
+        }
+    }
+
+    #[test]
+    fn test_truncate_purges_and_flags() {
+        // truncate() drops the binding's !front entries and flags its front
+        // entries stale in place, across both the compacted `sorted` vec and the
+        // uncompacted `queued` vec, leaving other bindings untouched.
+        let memtable = MemTable::new(append_merge_spec(2));
+        let add = |binding: u16, key: &str, front: bool| {
+            let node = HeapNode::from_node(&json!({"key": key, "v": ["x"]}), memtable.alloc());
+            memtable.add(binding, node, front).unwrap();
+        };
+
+        add(0, "s_front", true);
+        add(0, "s_drop", false);
+        memtable.compact().unwrap(); // Move the above into `sorted`.
+        add(0, "q_front", true);
+        add(0, "q_drop", false);
+        add(1, "other", false); // Untouched second binding.
+
+        memtable.truncate(0);
+
+        // Safety: no references to `entries` are lent out.
+        let entries = unsafe { &*memtable.entries.get() };
+        let key_of = |e: &HeapEntry| -> String {
+            serde_json::to_value(SerPolicy::noop().on(&e.root.access().unwrap())).unwrap()["key"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+
+        // Binding 0: only the two front entries survive, both now stale.
+        let mut b0: Vec<(String, bool, bool)> = entries
+            .sorted
+            .iter()
+            .chain(entries.queued.iter())
+            .filter(|e| e.meta.binding() == 0)
+            .map(|e| (key_of(e), e.meta.front(), e.meta.stale()))
+            .collect();
+        b0.sort();
+        assert_eq!(
+            b0,
+            vec![
+                ("q_front".to_string(), true, true),
+                ("s_front".to_string(), true, true),
+            ],
+        );
+
+        // Binding 1: untouched (fresh, not stale).
+        let b1: Vec<(String, bool, bool)> = entries
+            .sorted
+            .iter()
+            .chain(entries.queued.iter())
+            .filter(|e| e.meta.binding() == 1)
+            .map(|e| (key_of(e), e.meta.front(), e.meta.stale()))
+            .collect();
+        assert_eq!(b1, vec![("other".to_string(), false, false)]);
+    }
+
+    #[test]
+    fn test_stale_front_spilled_after_truncate() {
+        // A Loaded row flagged stale via add_stale_front AFTER truncate lands in
+        // a segment at/above the cutoff, so its staleness rides the persisted
+        // flag byte (not the ordinal fence) and it's still discarded on drain,
+        // transferring only existence onto the fresh source.
+        let mut acc =
+            crate::combine::Accumulator::new(append_merge_spec(1), tempfile::tempfile().unwrap())
+                .unwrap();
+        {
+            let mt = acc.memtable().unwrap();
+            mt.add(
+                0,
+                HeapNode::from_node(&json!({"key": "k", "v": ["pre"]}), mt.alloc()),
+                false,
+            )
+            .unwrap();
+        }
+        force_spill(&mut acc); // "pre" becomes fenced segment 0.
+        acc.truncate(0);
+        {
+            let mt = acc.memtable().unwrap();
+            mt.add_stale_front(
+                0,
+                HeapNode::from_node(&json!({"key": "k", "v": ["stale_load"]}), mt.alloc()),
+            )
+            .unwrap();
+            mt.add(
+                0,
+                HeapNode::from_node(&json!({"key": "k", "v": ["fresh"]}), mt.alloc()),
+                false,
+            )
+            .unwrap();
+        }
+
+        let out = acc
+            .into_drainer()
+            .unwrap()
+            .map_ok(|d| {
+                (
+                    serde_json::to_value(SerPolicy::noop().on_owned(&d.root)).unwrap(),
+                    d.meta.front(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(out, vec![(json!({"key": "k", "v": ["fresh"]}), true)]);
+    }
+
+    #[test]
+    fn test_multiple_truncates() {
+        // Truncating one binding repeatedly within a single Accumulator keeps
+        // dropping each generation's pre-boundary source, so only the final
+        // generation's data drains.
+        let mut acc =
+            crate::combine::Accumulator::new(append_merge_spec(1), tempfile::tempfile().unwrap())
+                .unwrap();
+        let add = |acc: &mut crate::combine::Accumulator, v: &str, front: bool| {
+            let mt = acc.memtable().unwrap();
+            let node = HeapNode::from_node(&json!({"key": "k", "v": [v]}), mt.alloc());
+            mt.add(0, node, front).unwrap();
+        };
+
+        add(&mut acc, "v0", false);
+        acc.truncate(0); // Drops v0.
+        add(&mut acc, "v1", false);
+        acc.truncate(0); // Drops v1.
+        add(&mut acc, "v2", false);
+        add(&mut acc, "load", true);
+
+        let out = acc
+            .into_drainer()
+            .unwrap()
+            .map_ok(|d| {
+                (
+                    serde_json::to_value(SerPolicy::noop().on_owned(&d.root)).unwrap(),
+                    d.meta.front(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(out, vec![(json!({"key": "k", "v": ["load", "v2"]}), true)]);
+    }
+
+    #[test]
+    fn test_multiple_truncates_across_segments() {
+        // The ordinal cutoff ratchets across real spilled segments: truncate,
+        // spill, truncate again. Every pre-boundary segment stays fenced, and a
+        // stale front in the earliest (still-fenced) segment transfers its
+        // existence onto the final fresh source.
+        let mut acc =
+            crate::combine::Accumulator::new(append_merge_spec(1), tempfile::tempfile().unwrap())
+                .unwrap();
+        let add = |acc: &mut crate::combine::Accumulator, v: &str, front: bool| {
+            let mt = acc.memtable().unwrap();
+            let node = HeapNode::from_node(&json!({"key": "k", "v": [v]}), mt.alloc());
+            mt.add(0, node, front).unwrap();
+        };
+
+        add(&mut acc, "load", true); // A Loaded front, pre-boundary.
+        add(&mut acc, "v0", false);
+        force_spill(&mut acc); // Segment 0: [load(front), v0].
+        acc.truncate(0); // cutoffs[0] = 1, fencing segment 0.
+
+        add(&mut acc, "v1", false);
+        force_spill(&mut acc); // Segment 1: [v1].
+        acc.truncate(0); // cutoffs[0] = 2, fencing segments 0 and 1.
+
+        add(&mut acc, "v2", false); // Fresh source in the final segment.
+
+        let out = acc
+            .into_drainer()
+            .unwrap()
+            .map_ok(|d| {
+                (
+                    serde_json::to_value(SerPolicy::noop().on_owned(&d.root)).unwrap(),
+                    d.meta.front(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        // v0 and v1 (fenced sources) drop; `load`'s existence (fenced segment 0)
+        // transfers onto v2.
+        assert_eq!(out, vec![(json!({"key": "k", "v": ["v2"]}), true)]);
+    }
+
+    #[test]
+    fn test_existence_transfer_across_locations() {
+        // Two stale fronts for one key reach drain by different routes — one
+        // fenced by an ordinal cutoff, one carrying a persisted STALE flag — and
+        // together transfer existence exactly once onto the fresh source.
+        let mut acc =
+            crate::combine::Accumulator::new(append_merge_spec(1), tempfile::tempfile().unwrap())
+                .unwrap();
+
+        {
+            let mt = acc.memtable().unwrap();
+            mt.add(
+                0,
+                HeapNode::from_node(&json!({"key": "k", "v": ["load_a"]}), mt.alloc()),
+                true,
+            )
+            .unwrap();
+        }
+        force_spill(&mut acc); // Segment 0: [load_a(front)].
+        acc.truncate(0); // Fences segment 0 → load_a stale by ordinal.
+
+        {
+            let mt = acc.memtable().unwrap();
+            // A Loaded row classified stale on arrival, after the truncate.
+            mt.add_stale_front(
+                0,
+                HeapNode::from_node(&json!({"key": "k", "v": ["load_b"]}), mt.alloc()),
+            )
+            .unwrap();
+            mt.add(
+                0,
+                HeapNode::from_node(&json!({"key": "k", "v": ["fresh"]}), mt.alloc()),
+                false,
+            )
+            .unwrap();
+        }
+
+        let out = acc
+            .into_drainer()
+            .unwrap()
+            .map_ok(|d| {
+                (
+                    serde_json::to_value(SerPolicy::noop().on_owned(&d.root)).unwrap(),
+                    d.meta.front(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        // load_a (fenced) and load_b (persisted flag) drop; existence transfers
+        // once onto `fresh`.
+        assert_eq!(out, vec![(json!({"key": "k", "v": ["fresh"]}), true)]);
+    }
+
+    #[test]
+    fn test_truncate_associative() {
+        // Truncation composes with associative (non-full) reduction across a
+        // spill: fenced stale entries are skipped, existence transfers onto the
+        // first fresh entry, and the associative drain emits the leftmost alone.
+        let schema = build_schema(
+            &url::Url::parse("http://example/schema").unwrap(),
+            &json!({
+                "properties": { "v": { "type": "array", "reduce": { "strategy": "append" } } },
+                "reduce": { "strategy": "merge" }
+            }),
+        )
+        .unwrap();
+        let spec = Spec::with_bindings(
+            [(
+                false, // Associative (not full) reduction.
+                vec![Extractor::with_default(
+                    "/key",
+                    &SerPolicy::noop(),
+                    json!("def"),
+                )],
+                "test",
+                Validator::new(schema).unwrap(),
+            )],
+            Vec::new(),
+        );
+        let mut acc =
+            crate::combine::Accumulator::new(spec, tempfile::tempfile().unwrap()).unwrap();
+        let add = |acc: &mut crate::combine::Accumulator, v: &str, front: bool| {
+            let mt = acc.memtable().unwrap();
+            let node = HeapNode::from_node(&json!({"key": "k", "v": [v]}), mt.alloc());
+            mt.add(0, node, front).unwrap();
+        };
+
+        add(&mut acc, "load", true); // Loaded front, pre-boundary.
+        add(&mut acc, "s", false); // Pre-boundary source.
+        force_spill(&mut acc); // Segment 0: [load(front), s].
+        acc.truncate(0); // Fences segment 0.
+        add(&mut acc, "a", false); // Fresh sources, post-boundary.
+        add(&mut acc, "b", false);
+
+        let out = acc
+            .into_drainer()
+            .unwrap()
+            .map_ok(|d| {
+                (
+                    serde_json::to_value(SerPolicy::noop().on_owned(&d.root)).unwrap(),
+                    d.meta.front(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        // `load`/`s` (fenced) are gone; existence transfers onto the first fresh
+        // entry `a`. Associative drain emits the leftmost alone, then `b`.
+        assert_eq!(
+            out,
+            vec![
+                (json!({"key": "k", "v": ["a"]}), true),
+                (json!({"key": "k", "v": ["b"]}), false),
+            ],
+        );
     }
 
     #[test]
@@ -1375,7 +1919,8 @@ mod test {
 
             // Read back all spilled documents and verify redaction
             let (spill, ranges) = spill.into_parts();
-            let drainer = crate::combine::SpillDrainer::new(spec, spill, &ranges).unwrap();
+            let drainer =
+                crate::combine::SpillDrainer::new(spec, spill, &ranges, Vec::new().into()).unwrap();
 
             let docs: String = drainer
                 .map(|doc| {

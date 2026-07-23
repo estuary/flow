@@ -5,7 +5,7 @@ description: Use the Zuora connector to capture billing objects such as accounts
 # Zuora
 
 This connector captures data from [Zuora](https://www.zuora.com/) objects into Estuary Flow collections.
-It authenticates with Zuora's [OAuth 2.0](https://developer.zuora.com/api-references/api/overview/#section/Authentication) client credentials flow and reads data through Zuora's [Data Query / Export API](https://developer.zuora.com/api-references/api/operation/POST_DataQuery/).
+It authenticates with Zuora's [OAuth 2.0](https://developer.zuora.com/api-references/api/overview/#section/Authentication) client credentials flow and reads data through Zuora's [AQuA API](https://docs.zuora.com/en/zuora-platform/data/aggregate-query-api-aqua/aqua-api-introduction).
 
 ## Supported data resources
 
