@@ -3,6 +3,17 @@ use futures::{FutureExt, TryStreamExt};
 use proto_flow::flow;
 use tables::CatalogResolver;
 
+// Brings the GraphQL scalar types (notably `Prefix` and `JSON`) into module
+// scope so the `graphql_client` derive below can resolve them by name.
+use crate::graphql::*;
+
+#[derive(graphql_client::GraphQLQuery)]
+#[graphql(
+    schema_path = "../flow-client/control-plane-api.graphql",
+    query_path = "src/storage_mappings.graphql"
+)]
+struct StorageMappingsQuery;
+
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
 pub(crate) async fn load_and_validate(
@@ -104,6 +115,7 @@ async fn validate(
 
     let mut live = Resolver {
         pg: ctx.pg.clone(),
+        rest: ctx.rest.clone(),
         access_token: ctx.access_token(),
     }
     .resolve(draft.all_catalog_names())
@@ -221,6 +233,7 @@ pub(crate) fn pick_policy(
 
 pub(crate) struct Resolver {
     pub pg: postgrest::Postgrest,
+    pub rest: flow_client_next::rest::Client,
     pub access_token: Option<String>,
 }
 
@@ -266,14 +279,6 @@ impl Resolver {
             return Ok(live);
         }
 
-        // Query storage mappings from the tenants of `catalog_names`.
-        #[derive(serde::Deserialize)]
-        struct StorageMappingRow {
-            catalog_prefix: models::Prefix,
-            id: models::Id,
-            spec: models::StorageDef,
-        }
-
         // Extract all unique slash-terminated prefixes from catalog names.
         // For example, "acmeCo/team-A/anvils/orders" produces:
         // ["acmeCo/", "acmeCo/team-A/", "acmeCo/team-A/anvils/"]
@@ -288,44 +293,41 @@ impl Resolver {
         prefixes.sort();
         prefixes.dedup();
 
-        let storage_mappings = chunk_names(&prefixes)
+        // Fetch storage mappings through the control-plane GraphQL API, one
+        // request per tenant. GraphQL authorizes reads against the snapshot grant
+        // graph, which resolves a user's grant to any *ancestor* of a requested
+        // prefix. A user scoped to a sub-prefix (e.g. an admin of
+        // `acmeCo/team-A/`) can therefore still read the tenant-root mapping at
+        // `acmeCo/`. PostgREST could not: its row-level security only walked
+        // grants downward, so such users saw zero mappings and discovery failed
+        // to resolve a task's data plane.
+        let storage_mappings = group_prefixes_by_tenant(&prefixes)
             .into_iter()
             .map(|prefixes| {
-                let builder = self
-                    .pg
-                    .from("storage_mappings")
-                    .select("catalog_prefix,id,spec")
-                    .in_("catalog_prefix", prefixes);
+                let rest = self.rest.clone();
                 let access_token = self.access_token.clone();
 
                 async move {
-                    flow_client_next::postgrest::exec::<Vec<StorageMappingRow>>(
-                        builder,
-                        access_token.as_deref(),
-                    )
-                    .await
+                    fetch_tenant_storage_mappings(&rest, access_token.as_deref(), prefixes).await
                 }
             })
             .collect::<futures::stream::FuturesUnordered<_>>()
-            .try_collect::<Vec<Vec<StorageMappingRow>>>()
-            .await
-            .context("failed to fetch storage mappings")?;
+            .try_collect::<Vec<Vec<(models::Prefix, models::StorageDef)>>>()
+            .await?;
 
-        for row in storage_mappings.into_iter().flatten() {
-            // TODO(johnny): The PostgREST API does not surface recovery/ mappings.
-            // Work around for now, by synthesizing them. This should switch to GraphQL.
-            if row.catalog_prefix.starts_with("recovery/") {
-                continue; // Does not actually happen in practice.
-            }
-
+        for (catalog_prefix, spec) in storage_mappings.into_iter().flatten() {
+            // A storage mapping is (today) stored as two rows: this collection-data
+            // mapping and an empty `recovery/` mapping that `walk_prefix` tolerates.
+            // The GraphQL API returns only the former, so synthesize the latter.
+            // `control_id` is not consulted by validation, so pass a zero Id.
             live.storage_mappings.insert_row(
-                &row.catalog_prefix,
-                row.id,
-                &row.spec.stores,
-                &row.spec.data_planes,
+                &catalog_prefix,
+                models::Id::zero(),
+                &spec.stores,
+                &spec.data_planes,
             );
             live.storage_mappings.insert_row(
-                models::Prefix::new(format!("recovery/{}", row.catalog_prefix)),
+                models::Prefix::new(format!("recovery/{catalog_prefix}")),
                 models::Id::zero(),
                 Vec::new(),
                 Vec::new(),
@@ -510,6 +512,112 @@ impl Resolver {
     }
 }
 
+/// Page size for the control-plane `storageMappings` query. A tenant usually has
+/// only a handful of storage mappings, so a single page typically suffices.
+const STORAGE_MAPPINGS_PAGE_SIZE: i64 = 100;
+
+/// Group slash-terminated catalog prefixes by tenant (their first path segment),
+/// preserving each tenant's prefixes in one group.
+///
+/// The control-plane `storageMappings` query authorizes a request as a whole and
+/// rejects it entirely if the user lacks read access to any requested prefix.
+/// Keeping each tenant's prefixes in their own request means an unreadable
+/// foreign tenant — reachable through a cross-tenant reference — fails only its
+/// own request rather than hiding a readable tenant's mappings.
+fn group_prefixes_by_tenant(prefixes: &[&str]) -> Vec<Vec<models::Prefix>> {
+    let mut groups: std::collections::BTreeMap<&str, Vec<models::Prefix>> =
+        std::collections::BTreeMap::new();
+
+    for &prefix in prefixes {
+        // Prefixes are slash-terminated, so the tenant spans up to and including
+        // the first '/'.
+        let tenant = match prefix.find('/') {
+            Some(pos) => &prefix[..=pos],
+            None => prefix,
+        };
+        groups
+            .entry(tenant)
+            .or_default()
+            .push(models::Prefix::new(prefix));
+    }
+
+    groups.into_values().collect()
+}
+
+/// Fetch the storage mappings for one tenant's `prefixes` via the control-plane
+/// GraphQL API, following pagination. Returns each mapping's prefix paired with
+/// its parsed [`models::StorageDef`].
+///
+/// A GraphQL-level error — most commonly an authorization denial for a prefix in
+/// this group — yields an empty result rather than propagating. This preserves
+/// the silent row-level filtering the prior PostgREST/RLS path performed for
+/// prefixes the user could not read, so discovery keeps working across
+/// cross-tenant references. Transport and HTTP errors still propagate.
+async fn fetch_tenant_storage_mappings(
+    rest: &flow_client_next::rest::Client,
+    access_token: Option<&str>,
+    prefixes: Vec<models::Prefix>,
+) -> anyhow::Result<Vec<(models::Prefix, models::StorageDef)>> {
+    use graphql_client::GraphQLQuery;
+
+    let mut out = Vec::new();
+    let mut after: Option<String> = None;
+
+    loop {
+        let variables = storage_mappings_query::Variables {
+            // Resolve exactly this tenant's requested prefixes in one request via
+            // the `in` exact-set predicate (the going-forward replacement for the
+            // deprecated `by: { exactPrefixes }`).
+            filter: Some(storage_mappings_query::StorageMappingsFilter {
+                catalog_prefix: Some(storage_mappings_query::PrefixFilter {
+                    starts_with: None,
+                    in_: Some(prefixes.iter().map(|p| p.to_string()).collect()),
+                }),
+            }),
+            after: after.take(),
+            first: Some(STORAGE_MAPPINGS_PAGE_SIZE),
+        };
+        let body = StorageMappingsQuery::build_query(variables);
+
+        let response: graphql_client::Response<storage_mappings_query::ResponseData> =
+            crate::graphql::agent_unary(rest, access_token, crate::graphql::GRAPHQL_PATH, &body)
+                .await
+                .context("failed to fetch storage mappings")?;
+
+        if let Some(errors) = response.errors.filter(|e| !e.is_empty()) {
+            tracing::debug!(
+                ?errors,
+                ?prefixes,
+                "storage mappings query returned errors; treating this tenant as having no visible mappings"
+            );
+            return Ok(Vec::new());
+        }
+
+        let connection = response
+            .data
+            .context("storage mappings query returned no data and no errors")?
+            .storage_mappings;
+
+        for edge in connection.edges {
+            let spec = serde_json::from_str::<models::StorageDef>(edge.node.spec.get())
+                .context("failed to parse storage mapping spec")?;
+            out.push((edge.node.catalog_prefix, spec));
+        }
+
+        if !connection.page_info.has_next_page {
+            break;
+        }
+        after = connection.page_info.end_cursor;
+        // The control plane always returns an endCursor alongside hasNextPage.
+        assert!(
+            after.is_some(),
+            "storageMappings pageInfo missing endCursor"
+        );
+    }
+
+    Ok(out)
+}
+
 // PostgREST passes query predicates (like `column=in.(a,b,c)`) as URL query
 // parameters, so fetching a large set of catalog names in a single request can
 // produce a URL that exceeds a server or proxy length limit. We therefore split
@@ -565,7 +673,35 @@ fn chunk_names<'a>(names: &[&'a str]) -> Vec<Vec<&'a str>> {
 
 #[cfg(test)]
 mod test {
-    use super::{API_FETCH_URL_BUDGET, chunk_names, encoded_len};
+    use super::{API_FETCH_URL_BUDGET, chunk_names, encoded_len, group_prefixes_by_tenant};
+
+    #[test]
+    fn groups_prefixes_by_tenant() {
+        // Prefixes spanning two tenants must land in separate per-tenant groups so
+        // one tenant's authorization outcome never masks another's. Callers pass
+        // sorted prefixes (as the resolver does), and grouping by tenant keeps them
+        // sorted; tenants themselves come back in sorted order.
+        let prefixes = vec![
+            "acmeCo/",
+            "acmeCo/team-A/",
+            "acmeCo/team-A/anvils/",
+            "beetleCo/",
+            "beetleCo/widgets/",
+        ];
+        let groups = group_prefixes_by_tenant(&prefixes);
+
+        let as_strings: Vec<Vec<&str>> = groups
+            .iter()
+            .map(|group| group.iter().map(|p| p.as_str()).collect())
+            .collect();
+        assert_eq!(
+            as_strings,
+            vec![
+                vec!["acmeCo/", "acmeCo/team-A/", "acmeCo/team-A/anvils/"],
+                vec!["beetleCo/", "beetleCo/widgets/"],
+            ]
+        );
+    }
 
     fn chunk_encoded_len(chunk: &[&str]) -> usize {
         chunk.iter().map(|n| encoded_len(n) + 3).sum()

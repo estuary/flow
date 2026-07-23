@@ -287,6 +287,7 @@ async fn do_rpc(
 async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<()> {
     let resolver = local_specs::Resolver {
         pg: ctx.pg.clone(),
+        rest: ctx.rest.clone(),
         access_token: ctx.access_token(),
     };
 

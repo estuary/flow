@@ -1,0 +1,14 @@
+query StorageMappingsQuery($filter: StorageMappingsFilter, $after: String, $first: Int) {
+    storageMappings(filter: $filter, after: $after, first: $first) {
+        pageInfo {
+            hasNextPage
+            endCursor
+        }
+        edges {
+            node {
+                catalogPrefix
+                spec
+            }
+        }
+    }
+}
