@@ -18,16 +18,29 @@ printf '%s\n' "${DPC_SERVICE_ACCOUNT}" > ${GOOGLE_APPLICATION_CREDENTIALS}
 if [[ "${MODE}" == "service" ]]; then
     # AWS profile to expect in ~/.aws/credentials
     export AWS_PROFILE=data-plane-ops
-    # Disable host-key checks when cloning our git repo.
-    export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
 
     mkdir -p /root/.aws
-    printf '%s\n' "${DPC_GITHUB_SSH_KEY}" > /root/ssh_key
     printf '%s\n' "${DPC_IAM_CREDENTIALS}" > /root/.aws/credentials
 
-    chmod 0400 /root/ssh_key
-    eval "$(ssh-agent -s)"
-    ssh-add /root/ssh_key
+    # Select git authentication for cloning our private repos. This is the
+    # cutover switch from the SSH machine user to a GitHub App: it defaults to
+    # `ssh` so behavior is unchanged until we flip it to `github-app`.
+    if [[ "${DPC_GIT_AUTH_MODE:-ssh}" == "github-app" ]]; then
+        # Rewrite the SSH-style remotes baked into the controller to HTTPS, and
+        # hand git a credential helper that mints and caches short-lived App
+        # installation tokens on demand. Auth stays out of the worker code,
+        # just as ssh-agent did.
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global credential."https://github.com".helper \
+            "!/usr/local/bin/data-plane-controller git-credential"
+    else
+        # SSH machine-user path. Disable host-key checks when cloning our repo.
+        export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
+        printf '%s\n' "${DPC_GITHUB_SSH_KEY}" > /root/ssh_key
+        chmod 0400 /root/ssh_key
+        eval "$(ssh-agent -s)"
+        ssh-add /root/ssh_key
+    fi
 fi
 
 # Log out the IP from which we're running.

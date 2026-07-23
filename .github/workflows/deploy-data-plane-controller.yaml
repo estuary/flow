@@ -58,6 +58,14 @@ jobs:
             DPC_DATABASE_CA=/etc/db-ca.crt
             DPC_DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
             NO_COLOR=1
+            # Git auth for cloning private repos. Leave `ssh` until the GitHub
+            # App is verified, then flip to `github-app` to cut over. See
+            # crates/data-plane-controller/entrypoint.sh.
+            DPC_GIT_AUTH_MODE=ssh
+            # GitHub App identifiers (non-secret). Installation ID is available
+            # once the App is installed on estuary/est-dry-dock.
+            DPC_GITHUB_APP_ID=4126016
+            DPC_GITHUB_INSTALLATION_ID=148554392
 
           secrets: |-
             CONTROL_PLANE_DB_CA_CERT=CONTROL_PLANE_DB_CA_CERT:latest
@@ -66,6 +74,9 @@ jobs:
             DPC_ARM_SUBSCRIPTION_ID=DPC_ARM_SUBSCRIPTION_ID:latest
             DPC_ARM_TENANT_ID=DPC_ARM_TENANT_ID:latest
             DPC_GITHUB_SSH_KEY=DPC_GITHUB_SSH_KEY:latest
+            # GitHub App private key (PEM), stored in estuary-control Secret
+            # Manager alongside DPC_GITHUB_SSH_KEY.
+            DPC_GITHUB_APP_KEY=DPC_GITHUB_APP_KEY:latest
             DPC_IAM_CREDENTIALS=DPC_IAM_CREDENTIALS:latest
             DPC_SERVICE_ACCOUNT=DPC_SERVICE_ACCOUNT:latest
             DPC_VULTR_API_KEY=DPC_VULTR_API_KEY:latest
