@@ -1,3 +1,4 @@
+pub mod git_credential;
 pub mod job;
 pub mod protocol;
 pub mod service;

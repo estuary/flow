@@ -13,6 +13,8 @@ enum Mode {
     Job(data_plane_controller::job::JobArgs),
     /// Run as a service (worker) - receives HTTP requests and executes work
     Service(data_plane_controller::service::ServiceArgs),
+    /// Act as a git credential helper, minting GitHub App installation tokens.
+    GitCredential(data_plane_controller::git_credential::GitCredentialArgs),
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -43,6 +45,9 @@ fn main() -> Result<(), anyhow::Error> {
         match cli.mode {
             Mode::Job(args) => data_plane_controller::job::run_job(args).await,
             Mode::Service(args) => data_plane_controller::service::run_service(args).await,
+            Mode::GitCredential(args) => {
+                data_plane_controller::git_credential::run_git_credential(args).await
+            }
         }
     }));
 
