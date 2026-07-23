@@ -510,6 +510,14 @@ impl TestHarness {
             del_tenants as (
                 delete from tenants
             ),
+            -- Storage mappings must be cleared too: `provision_tenant` (and the
+            -- beta-onboard directive) insert a tenant's mapping with `on conflict
+            -- do nothing`, so a mapping left over from an earlier run — including
+            -- one whose `data_planes` captured a developer's live local stack —
+            -- would silently survive and be read by the next test.
+            del_storage_mappings as (
+                delete from storage_mappings
+            ),
             del_user_grants as (
                 -- preserve the system user's role grants
                 delete from user_grants where user_id != $1
@@ -549,6 +557,19 @@ impl TestHarness {
             ),
             del_daily_stats as (
                 delete from catalog_stats_daily
+            ),
+            -- Clear data-planes too, so every test starts from a deterministic
+            -- baseline regardless of any data-planes a developer's live local
+            -- stack has registered in this shared database (e.g. a running
+            -- `mise run local:stack` registers `ops/dp/public/<name>-cluster`).
+            -- `setup_test_connectors` re-inserts the single `ops/dp/public/test`
+            -- plane the tests expect. `data_plane_private_links` is deleted first
+            -- to satisfy its foreign key onto `data_planes`.
+            del_data_plane_private_links as (
+                delete from internal.data_plane_private_links
+            ),
+            del_data_planes as (
+                delete from data_planes
             )
             delete from catalog_stats_monthly;"#,
             system_user_id
