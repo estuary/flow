@@ -1,4 +1,5 @@
 use proto_gazette::uuid::{Clock, Producer};
+use std::collections::BTreeMap;
 
 /// Per-producer sequencing state.
 ///
@@ -68,6 +69,8 @@ pub fn build_flush_frontier(
 ) -> crate::Frontier {
     // Walk all journal reads to build their JournalFrontier.
     let mut journals: Vec<crate::JournalFrontier> = Vec::new();
+    let mut latest_backfill_begin = BTreeMap::<u16, Clock>::new();
+    let mut latest_backfill_complete = BTreeMap::<u16, Clock>::new();
 
     for read_state in reads.iter_mut() {
         if read_state.pending.is_empty() {
@@ -78,6 +81,26 @@ pub fn build_flush_frontier(
             // even if offsets advanced meanwhile.
             continue;
         }
+
+        // Backfill clocks are per-binding metadata. Drain this journal's clocks
+        // into the checkpoint maps; a non-zero clock implies the read has
+        // pending work. Multiple journals of one binding fold to their max.
+        let binding = read_state.binding_index;
+        let backfill_begin = std::mem::take(&mut read_state.backfill_begin);
+        if backfill_begin != Clock::zero() {
+            latest_backfill_begin
+                .entry(binding)
+                .and_modify(|c| *c = (*c).max(backfill_begin))
+                .or_insert(backfill_begin);
+        }
+        let backfill_complete = std::mem::take(&mut read_state.backfill_complete);
+        if backfill_complete != Clock::zero() {
+            latest_backfill_complete
+                .entry(binding)
+                .and_modify(|c| *c = (*c).max(backfill_complete))
+                .or_insert(backfill_complete);
+        }
+
         let mut producers: Vec<_> = read_state
             .pending
             .iter()
@@ -119,6 +142,8 @@ pub fn build_flush_frontier(
         unresolved_hints: 0, // By construction: only `last_commit` set.
         journals,
         flushed_lsn: vec![crate::log::Lsn::ZERO; shard_count],
+        latest_backfill_begin,
+        latest_backfill_complete,
     };
 
     // Build a Frontier from causal hints via single-pass iteration.
@@ -162,6 +187,8 @@ pub fn build_flush_frontier(
         unresolved_hints,
         journals: hint_journals,
         flushed_lsn: vec![],
+        latest_backfill_begin: Default::default(),
+        latest_backfill_complete: Default::default(),
     })
 }
 
@@ -205,6 +232,9 @@ mod test {
         super::super::read::ReadState {
             binding_index: binding,
             journal: journal.into(),
+            truncated_at: Clock::zero(),
+            backfill_begin: Clock::zero(),
+            backfill_complete: Clock::zero(),
             settled: ProducerMap::default(),
             pending: map,
             read_offset,
@@ -369,5 +399,39 @@ mod test {
             .collect::<Vec<_>>();
 
         insta::assert_debug_snapshot!(snap);
+    }
+
+    #[test]
+    fn test_build_flush_frontier_drains_backfill_clocks_from_reads() {
+        // Two journals of one binding (shared `suffix/0`). The drain folds both
+        // journals' clocks per-binding via `max` and clears each read's fields.
+        // journal/A is processed first with the smaller begin; journal/B carries
+        // the larger begin, so the fold must `max`-upgrade to it rather than keep
+        // the first-seen value. Only journal/A carries a complete.
+        let mut has_both = read_state("journal/A", 0, &[(0x01, 100, -500)]);
+        has_both.backfill_begin = Clock::from_u64(80);
+        has_both.backfill_complete = Clock::from_u64(100);
+
+        let mut begin_only = read_state("journal/B", 0, &[(0x03, 0, 700)]);
+        begin_only.backfill_begin = Clock::from_u64(90);
+
+        let mut reads = vec![has_both, begin_only];
+
+        let frontier = build_flush_frontier(&mut reads, std::iter::empty(), 2);
+
+        // Per-binding max across both journals of binding 0.
+        assert_eq!(
+            frontier.latest_backfill_begin.get(&0),
+            Some(&Clock::from_u64(90))
+        );
+        assert_eq!(
+            frontier.latest_backfill_complete.get(&0),
+            Some(&Clock::from_u64(100))
+        );
+
+        // The per-journal clocks are drained (reset to zero).
+        assert_eq!(reads[0].backfill_begin, Clock::zero());
+        assert_eq!(reads[0].backfill_complete, Clock::zero());
+        assert_eq!(reads[1].backfill_begin, Clock::zero());
     }
 }

@@ -134,7 +134,8 @@ fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
     let spec = memtable_2.spill(&mut spill, 1 << 18).unwrap();
     let (mut spill, ranges) = spill.into_parts();
 
-    let mut spill_drainer = SpillDrainer::new(spec, &mut spill, &ranges).unwrap();
+    let mut spill_drainer =
+        SpillDrainer::new(spec, &mut spill, &ranges, Vec::new().into()).unwrap();
 
     let mut actual_associative = None;
     let mut actual_full = json!(null);

@@ -30,6 +30,10 @@ pub(super) struct Startup<P: crate::Publisher, S: crate::leader::ShuffleSession,
     pub session: S,
     // Task definition.
     pub task: Task,
+    // Leader's initial cumulative backfill-begin boundary (committed ∪ hinted).
+    pub backfill_begin: BTreeMap<u16, uuid::Clock>,
+    // Leader's initial cumulative backfill-complete boundary (committed ∪ hinted).
+    pub backfill_complete: BTreeMap<u16, uuid::Clock>,
 }
 
 #[tracing::instrument(
@@ -124,6 +128,7 @@ pub(super) async fn run<
         legacy_checkpoint,
         max_keys,
         trigger_params_json: pending_trigger_params,
+        active_backfills: _, // capture-only state
     } = recv_recovers(shard_rx, &task.peers)
         .await
         .context("receiving Recover fan-in")?;
@@ -232,6 +237,8 @@ pub(super) async fn run<
         committed_close,
         committed_frontier,
         pending_ack_intents,
+        backfill_begin,
+        backfill_complete,
     ) = scanned.into_projected_parts();
 
     // Open the shuffle Session with the recovered resume Frontier.
@@ -254,6 +261,8 @@ pub(super) async fn run<
         publisher,
         session,
         task,
+        backfill_begin,
+        backfill_complete,
     })
 }
 
@@ -295,6 +304,7 @@ impl Baseline {
             connector_state_json: _,
             max_keys: _,
             trigger_params_json: _,
+            active_backfills: _, // capture-only state
         } = recover;
 
         let baseline = Baseline {
@@ -322,6 +332,8 @@ impl Baseline {
         uuid::Clock,
         shuffle::Frontier,
         BTreeMap<String, Bytes>,
+        BTreeMap<u16, uuid::Clock>,
+        BTreeMap<u16, uuid::Clock>,
     ) {
         let Baseline {
             committed_close,
@@ -330,14 +342,47 @@ impl Baseline {
             ack_intents,
             ..
         } = self;
-        let (resume_frontier, idempotent_replay) =
+
+        // Markers the hinted transaction adds over committed — the delta the
+        // replay re-notifies (not the whole cumulative, which would re-notify
+        // every backfill).
+        let delta_begin = backfill_delta(
+            &hinted_frontier.latest_backfill_begin,
+            &committed_frontier.latest_backfill_begin,
+        );
+        let delta_complete = backfill_delta(
+            &hinted_frontier.latest_backfill_complete,
+            &committed_frontier.latest_backfill_complete,
+        );
+        // Leader's cumulative = committed ∪ hinted, so a hinted marker is present
+        // for prior-gen load classification on every replay Load (peek rounds
+        // included). The committed boundary survives a checkpoint adopt (only
+        // `FC:` is cleared) and the hinted boundary is dropped with the hints
+        // (`delete_hinted_frontier` clears `HB:`/`HC:`), so the scanned Baseline
+        // already reflects the reconciled truncation state.
+        let backfill_begin = backfill_union(
+            committed_frontier.latest_backfill_begin.clone(),
+            &hinted_frontier.latest_backfill_begin,
+        );
+        let backfill_complete = backfill_union(
+            committed_frontier.latest_backfill_complete.clone(),
+            &hinted_frontier.latest_backfill_complete,
+        );
+
+        let (mut resume_frontier, idempotent_replay) =
             Self::resume_frontier(hinted_frontier, committed_frontier.clone());
+        // The session replay carries only the marker delta.
+        resume_frontier.latest_backfill_begin = delta_begin;
+        resume_frontier.latest_backfill_complete = delta_complete;
+
         (
             resume_frontier,
             idempotent_replay,
             committed_close,
             committed_frontier,
             ack_intents,
+            backfill_begin,
+            backfill_complete,
         )
     }
 
@@ -760,6 +805,34 @@ async fn recv_opened(
     .await?;
 
     Ok(openeds.swap_remove(0))
+}
+
+fn backfill_union(
+    mut a: BTreeMap<u16, uuid::Clock>,
+    b: &BTreeMap<u16, uuid::Clock>,
+) -> BTreeMap<u16, uuid::Clock> {
+    for (binding, clock) in b {
+        let entry = a.entry(*binding).or_insert(uuid::Clock::zero());
+        *entry = (*entry).max(*clock);
+    }
+    a
+}
+
+fn backfill_delta(
+    hinted: &BTreeMap<u16, uuid::Clock>,
+    committed: &BTreeMap<u16, uuid::Clock>,
+) -> BTreeMap<u16, uuid::Clock> {
+    hinted
+        .iter()
+        .filter(|(binding, clock)| {
+            **clock
+                > committed
+                    .get(*binding)
+                    .copied()
+                    .unwrap_or(uuid::Clock::zero())
+        })
+        .map(|(binding, clock)| (*binding, *clock))
+        .collect()
 }
 
 #[cfg(test)]

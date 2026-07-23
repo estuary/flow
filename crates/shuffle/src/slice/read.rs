@@ -2,6 +2,14 @@ use super::producer::ProducerState;
 use crate::ProducerMap;
 use proto_gazette::{broker, uuid};
 
+/// A backfill begin/complete event, parsed from the top-level fields of an
+/// ACK_TXN document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackfillEvent {
+    BackfillBegin,
+    BackfillComplete { truncated_at: uuid::Clock },
+}
+
 /// State about an active read, indexed by its `read.id()`.
 ///
 /// Each ReadState represents one (journal, binding) pair and is the
@@ -14,6 +22,16 @@ pub struct ReadState {
     pub binding_index: u16,
     /// The journal name (canonical, without the `;suffix` read metadata).
     pub journal: Box<str>,
+    /// Truncation boundary for this journal: the `estuary.dev/truncated-at`
+    /// label clock, or zero when absent. Documents published before it were
+    /// superseded by a backfill, so `sequence_document` suppresses their append.
+    pub truncated_at: uuid::Clock,
+    /// Clock of the latest `BackfillBegin` folded from a committing ACK on this
+    /// journal, awaiting the next flush (zero = none).
+    pub backfill_begin: uuid::Clock,
+    /// Truncation boundary of the latest `BackfillComplete` folded from a
+    /// committing ACK on this journal, awaiting the next flush (zero = none).
+    pub backfill_complete: uuid::Clock,
     /// Producers whose state is settled: either from the initial checkpoint
     /// or drained from `pending` at the start of a flush cycle.
     pub settled: ProducerMap<ProducerState>,
@@ -36,11 +54,15 @@ impl ReadState {
     pub fn recovered(
         binding_index: u16,
         journal: Box<str>,
+        truncated_at: uuid::Clock,
         settled: ProducerMap<ProducerState>,
     ) -> Self {
         Self {
             binding_index,
             journal,
+            truncated_at,
+            backfill_begin: uuid::Clock::zero(),
+            backfill_complete: uuid::Clock::zero(),
             settled,
             pending: Default::default(),
             read_offset: 0,
@@ -92,6 +114,8 @@ pub struct Meta {
     pub flags: uuid::Flags,
     /// Publication Producer of `doc` (extracted from its UUID).
     pub producer: uuid::Producer,
+    /// Parsed backfill event, when this ACK document carries backfill fields.
+    pub backfill_event: Option<BackfillEvent>,
 }
 
 /// ReadyRead is a ReadLines which has one or more parsed documents.
@@ -135,7 +159,37 @@ pub fn extract_metas(
                 )
             })?;
 
-        let flags = if flags != uuid::Flags::ACK_TXN && validator.is_valid(archived) {
+        let backfill_event = if !flags.is_ack() {
+            None
+        } else {
+            match json::AsNode::as_node(archived) {
+                json::Node::Object(fields) => {
+                    if json::Fields::get(fields, "backfillBegin").is_some() {
+                        Some(BackfillEvent::BackfillBegin)
+                    } else if json::Fields::get(fields, "backfillComplete").is_some() {
+                        let truncated_at = json::Fields::get(fields, "truncatedAt")
+                            .map(|field| json::Field::value(&field))
+                            .and_then(|node| match node {
+                                doc::ArchivedNode::String(s) => labels::parse_truncated_at(s).ok(),
+                                _ => None,
+                            })
+                            .map(uuid::Clock::from_u64)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "journal {journal} offset {begin_offset}: \
+                                     BackfillComplete ACK is missing a valid truncatedAt"
+                                )
+                            })?;
+                        Some(BackfillEvent::BackfillComplete { truncated_at })
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        };
+
+        let flags = if !flags.is_ack() && validator.is_valid(archived) {
             uuid::Flags(flags.0 | crate::FLAGS_SCHEMA_VALID)
         } else {
             flags
@@ -147,6 +201,7 @@ pub fn extract_metas(
             clock,
             flags,
             producer,
+            backfill_event,
         };
         begin_offset = end_offset;
 
@@ -370,7 +425,8 @@ mod test {
 
     #[test]
     fn test_extract_metas() {
-        // Schema requires "required_field", exercising both valid and invalid paths.
+        // Schema requires "required_field", exercising valid, invalid, ACK bypass,
+        // and backfill marker (begin / complete) ACK paths.
         let schema = br#"{"type":"object","required":["required_field"]}"#;
         let bundle = doc::validation::build_bundle(schema).unwrap();
         let mut validator = doc::Validator::new(bundle).unwrap();
@@ -380,21 +436,38 @@ mod test {
         let c1 = clock.tick();
         let c2 = clock.tick();
         let c3 = clock.tick();
+        let c4 = clock.tick();
+        let c5 = clock.tick();
 
-        // Three docs exercise: non-zero base offset, offset chaining,
-        // OUTSIDE_TXN/CONTINUE_TXN/ACK_TXN flags, valid + invalid schema, ACK bypass.
         let json = [
+            // Valid schema, OUTSIDE_TXN.
             format!(
                 r#"{{"_meta":{{"uuid":"{}"}},"required_field":"present"}}"#,
                 make_uuid_str(p1, c1, uuid::Flags::OUTSIDE_TXN),
             ),
+            // Invalid schema, CONTINUE_TXN.
             format!(
                 r#"{{"_meta":{{"uuid":"{}"}},"other":"value"}}"#,
                 make_uuid_str(p1, c2, uuid::Flags::CONTINUE_TXN),
             ),
+            // ACK_TXN (skips validation).
             format!(
                 r#"{{"_meta":{{"uuid":"{}"}}}}"#,
                 make_uuid_str(p1, c3, uuid::Flags::ACK_TXN),
+            ),
+            // Backfill begin marker: an ACK_TXN carrying a top-level
+            // `backfillBegin` field (alongside `is_ack`). Skips validation like
+            // any ACK; its own clock is the truncation boundary.
+            format!(
+                r#"{{"_meta":{{"uuid":"{}"}},"is_ack":true,"backfillBegin":true}}"#,
+                make_uuid_str(p1, c4, uuid::Flags::ACK_TXN),
+            ),
+            // Backfill complete marker: an ACK_TXN carrying the begin boundary it
+            // completed as a top-level hex-encoded-clock `truncatedAt`.
+            format!(
+                r#"{{"_meta":{{"uuid":"{}"}},"is_ack":true,"backfillComplete":true,"truncatedAt":"{}"}}"#,
+                make_uuid_str(p1, c5, uuid::Flags::ACK_TXN),
+                labels::truncated_at_value(uuid::Clock::from_unix(1_700_000_000, 0).as_u64()),
             ),
         ]
         .join("\n")

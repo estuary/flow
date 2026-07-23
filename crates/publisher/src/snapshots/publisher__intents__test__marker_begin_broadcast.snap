@@ -1,0 +1,102 @@
+---
+source: crates/publisher/src/intents.rs
+expression: "parse_intents(build_transaction_intents(&txn, Some(&BackfillMarker::Begin),))"
+---
+[
+  [
+    "acmeCo/anvils/part=a/pivot=00",
+    [
+      {
+        "_meta": {
+          "uuid": "45566778-2334-1112-a002-010000000001"
+        },
+        "backfillBegin": true,
+        "hints": [
+          {
+            "j": [
+              10,
+              "b/pivot=00"
+            ],
+            "p": [
+              {}
+            ]
+          },
+          {
+            "j": [
+              10,
+              "c/pivot=00"
+            ],
+            "p": [
+              {}
+            ]
+          }
+        ],
+        "is_ack": true
+      }
+    ]
+  ],
+  [
+    "acmeCo/anvils/part=b/pivot=00",
+    [
+      {
+        "_meta": {
+          "uuid": "45566778-2334-1112-a002-010000000001"
+        },
+        "backfillBegin": true,
+        "hints": [
+          {
+            "j": [
+              10,
+              "a/pivot=00"
+            ],
+            "p": [
+              {}
+            ]
+          },
+          {
+            "j": [
+              10,
+              "c/pivot=00"
+            ],
+            "p": [
+              {}
+            ]
+          }
+        ],
+        "is_ack": true
+      }
+    ]
+  ],
+  [
+    "acmeCo/anvils/part=c/pivot=00",
+    [
+      {
+        "_meta": {
+          "uuid": "45566778-2334-1112-a002-010000000001"
+        },
+        "backfillBegin": true,
+        "hints": [
+          {
+            "j": [
+              10,
+              "a/pivot=00"
+            ],
+            "p": [
+              {}
+            ]
+          },
+          {
+            "j": [
+              10,
+              "b/pivot=00"
+            ],
+            "p": [
+              {}
+            ]
+          }
+        ],
+        "is_ack": true
+      }
+    ]
+  ]
+]
