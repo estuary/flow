@@ -696,6 +696,12 @@ A data plane where tasks execute and collections are stored.
 """
 type DataPlane {
 	"""
+	Stable identifier of this data-plane. This is the same value carried by
+	a `LiveSpec`'s `dataPlaneId`, so a spec's data plane can be resolved with
+	`dataPlanes(filter: { id: { in: [dataPlaneId] } })`.
+	"""
+	id: Id!
+	"""
 	Name of this data-plane under the catalog namespace.
 	"""
 	name: String!
@@ -809,6 +815,25 @@ type DataPlaneEdge {
 	cursor: String!
 }
 
+"""
+Composable filter for the `dataPlanes` query. Every field is optional and
+only narrows the result set; the caller's read-capability scope is enforced
+independently, so a filter can never widen what a caller may see.
+"""
+input DataPlanesFilter {
+	"""
+	Resolve specific data planes by their id, e.g. a `LiveSpec`'s
+	`dataPlaneId`. Ids the caller cannot read, and ids that match no data
+	plane, are omitted rather than erroring.
+	"""
+	id: IdFilter
+	"""
+	Narrow to data planes whose name starts with this prefix, e.g.
+	`ops/dp/private/<tenant>`.
+	"""
+	dataPlaneName: PrefixFilter
+}
+
 input DateFilter {
 	gt: NaiveDate
 	lt: NaiveDate
@@ -875,6 +900,13 @@ input GCPPrivateServiceConnectInput {
 }
 
 scalar Id
+
+input IdFilter {
+	"""
+	Match any id in this set. An empty set matches nothing.
+	"""
+	in: [Id!]
+}
 
 """
 Status of the inferred schema
@@ -1806,7 +1838,7 @@ type QueryRoot {
 	Results are paginated and sorted by data_plane_name.
 	Only data planes the user has at least read capability to are returned.
 	"""
-	dataPlanes(after: String, before: String, first: Int, last: Int): DataPlaneConnection!
+	dataPlanes(filter: DataPlanesFilter, after: String, before: String, first: Int, last: Int): DataPlaneConnection!
 	"""
 	Returns all public data planes.
 	

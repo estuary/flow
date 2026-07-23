@@ -15,3 +15,9 @@ pub struct DateFilter {
 pub struct PrefixFilter {
     pub starts_with: Option<String>,
 }
+
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct IdFilter {
+    /// Match any id in this set. An empty set matches nothing.
+    pub r#in: Option<Vec<models::Id>>,
+}
