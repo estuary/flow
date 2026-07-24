@@ -420,10 +420,23 @@ async fn test_source_capture_no_annotations() {
             }
         }
     }));
+
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
     let pub_id = Id::new([0, 0, 0, 0, 0, 0, 0, 9]);
     let built = harness
         .publisher
-        .build(user_id, pub_id, None, draft, Uuid::new_v4(), None, false, 0)
+        .build(
+            user_id,
+            pub_id,
+            None,
+            draft,
+            Uuid::new_v4(),
+            None,
+            false,
+            0,
+            snapshot,
+        )
         .await
         .expect("build failed");
     assert!(built.has_errors());

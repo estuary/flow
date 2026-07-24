@@ -349,6 +349,7 @@ impl Publisher {
                 default_data_plane_name.as_deref(),
                 *verify_user_authz,
                 retry_count,
+                snapshot,
             )
             .await?;
         finalize.finalize(&mut built).context("finalizing build")?;
@@ -372,7 +373,7 @@ impl Publisher {
 
     /// Build and verify the given draft. This is `pub` only because we have existing tests that
     /// use it. If you want to publish something, use the `Publisher::publish` function instead.
-    #[tracing::instrument(level = "info", skip(self, draft))]
+    #[tracing::instrument(level = "info", skip(self, draft, snapshot))]
     pub async fn build(
         &self,
         user_id: Uuid,
@@ -383,6 +384,7 @@ impl Publisher {
         explicit_plane_name: Option<&str>,
         verify_user_authz: bool,
         retry_count: u32,
+        snapshot: &crate::Snapshot,
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = tokens::now();
         let build_id = self.id_gen.lock().unwrap().next();
@@ -421,8 +423,6 @@ impl Publisher {
                 retry_count,
             });
         }
-        let snapshot = self.snapshot.token();
-        let snapshot = snapshot.result().unwrap();
 
         let live_catalog = specs::resolve_live_specs(
             user_id,
