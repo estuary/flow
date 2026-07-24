@@ -1,3 +1,4 @@
+use super::filters;
 use crate::directives::storage_mappings::{
     collection_and_recovery_spec_from, insert_storage_mapping, strip_collection_data_suffix,
     update_storage_mapping, upsert_storage_mapping,
@@ -95,8 +96,6 @@ async fn check_store_health(
 ) -> Option<String> {
     let fut = client.fragment_store_health(broker::FragmentStoreHealthRequest {
         fragment_store: fragment_store.to_string(),
-        check_delete: true,
-        check_delete_prefix: "recovery/".to_string(),
     });
 
     match tokio::time::timeout(HEALTH_CHECK_TIMEOUT, fut).await {
@@ -589,6 +588,46 @@ pub struct StorageMappingsBy {
     pub under_prefix: Option<models::Prefix>,
 }
 
+impl StorageMappingsBy {
+    /// Maps the deprecated `by` selection onto the equivalent `PrefixFilter`:
+    /// `underPrefix` is a `startsWith` subtree and `exactPrefixes` is an `in`
+    /// exact set, so `by` and `filter` resolve through one shared path. Enforces
+    /// that exactly one mode is set, naming `by`'s own fields in the error.
+    fn into_prefix_filter(self) -> async_graphql::Result<filters::PrefixFilter> {
+        let exact_prefixes = self.exact_prefixes.unwrap_or_default();
+        match (exact_prefixes.is_empty(), self.under_prefix.is_none()) {
+            (true, true) => Err(async_graphql::Error::new(
+                "provide exactly one of `exactPrefixes` or `underPrefix`, or omit `by` entirely",
+            )),
+            (false, false) => Err(async_graphql::Error::new(
+                "`exactPrefixes` and `underPrefix` are mutually exclusive; provide only one",
+            )),
+            (false, true) => Ok(filters::PrefixFilter {
+                starts_with: None,
+                r#in: Some(exact_prefixes.iter().map(|p| p.to_string()).collect()),
+            }),
+            (true, false) => Ok(filters::PrefixFilter {
+                starts_with: self.under_prefix.map(|p| p.to_string()),
+                r#in: None,
+            }),
+        }
+    }
+}
+
+/// Composable filter for the `storageMappings` query. Every field is optional
+/// and only narrows the result set; the caller's catalog-read scope is enforced
+/// independently, so a filter can never widen what a caller may see.
+#[derive(Debug, Clone, Default, async_graphql::InputObject)]
+pub struct StorageMappingsFilter {
+    /// Narrow by catalog prefix. `startsWith` matches a whole subtree —
+    /// mappings for `acmeCo/`, `acmeCo/team-a/`, etc. — like the deprecated
+    /// `by: { underPrefix }`. `in` matches an exact set of prefixes, like
+    /// `by: { exactPrefixes }`. The two are alternative query modes and are
+    /// mutually exclusive. Either way, results compose with (never widen past)
+    /// the caller's authorized read prefixes.
+    pub catalog_prefix: Option<filters::PrefixFilter>,
+}
+
 /// A storage mapping that defines where collection data is stored.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct StorageMapping {
@@ -622,13 +661,18 @@ impl StorageMappingsQuery {
     /// Returns storage mappings accessible to the current user.
     ///
     /// Returns mappings under every prefix where the caller has catalog-read
-    /// capability. The optional `by` filter narrows those authorized results.
+    /// capability. The optional `filter` narrows those authorized results.
     /// Results are paginated and sorted by catalog_prefix.
     pub async fn storage_mappings(
         &self,
         ctx: &Context<'_>,
-        #[graphql(deprecation = "Omit this argument to return all accessible storage mappings.")]
+        #[graphql(
+            deprecation = "Prefer `filter: { catalogPrefix }`: `startsWith` replaces `underPrefix` \
+                                 and `in` replaces `exactPrefixes`. `by` is retained only for \
+                                 existing clients."
+        )]
         by: Option<StorageMappingsBy>,
+        filter: Option<StorageMappingsFilter>,
         after: Option<String>,
         before: Option<String>,
         first: Option<i32>,
@@ -636,47 +680,38 @@ impl StorageMappingsQuery {
     ) -> async_graphql::Result<PaginatedStorageMappings> {
         let env = ctx.data::<crate::Envelope>()?;
 
-        let (exact_prefixes, under_prefix) = match by {
-            None => (Vec::new(), None),
-            Some(StorageMappingsBy {
-                exact_prefixes,
-                under_prefix,
-            }) => {
-                let exact_prefixes = exact_prefixes.unwrap_or_default();
-                match (exact_prefixes.is_empty(), under_prefix.is_none()) {
-                    (true, true) => {
-                        return Err(
-                            "provide exactly one of `exactPrefixes` or `underPrefix`, or omit `by` entirely".into(),
-                        );
-                    }
-                    (false, false) => {
-                        return Err(
-                            "`exactPrefixes` and `underPrefix` are mutually exclusive; provide only one"
-                                .into(),
-                        );
-                    }
-                    _ => (exact_prefixes, under_prefix),
+        // `filter` is the going-forward replacement for `by`. Map the
+        // deprecated `by` onto the same `PrefixFilter` shape — `underPrefix` is
+        // a `startsWith` subtree, `exactPrefixes` is an `in` exact set — so both
+        // resolve through the shared `filtered_authorized_prefixes`. `by` and
+        // `filter` are mutually exclusive.
+        let prefix_filter = match (by, filter.and_then(|f| f.catalog_prefix)) {
+            (Some(by), filter_catalog_prefix) => {
+                if filter_catalog_prefix
+                    .is_some_and(|cp| cp.starts_with.is_some() || cp.r#in.is_some())
+                {
+                    return Err(
+                        "provide either `by` or `filter`, not both; `by` is deprecated".into(),
+                    );
                 }
+                Some(by.into_prefix_filter()?)
             }
+            (None, filter_catalog_prefix) => filter_catalog_prefix,
         };
 
         let snapshot = env.snapshot();
-        let mut read_prefixes = super::authorized_prefixes::authorized_prefixes(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            env.claims()?.sub,
-            models::authz::Capability::CatalogRead,
-            under_prefix.as_ref().map(|prefix| prefix.as_str()),
-        );
-
-        if !exact_prefixes.is_empty() {
-            read_prefixes.retain(|authorized| {
-                exact_prefixes.iter().any(|exact| {
-                    exact.as_str().starts_with(authorized.as_str())
-                        || authorized.starts_with(exact.as_str())
-                })
-            });
-        }
+        let (read_prefixes, under_prefix, exact_prefixes) =
+            super::authorized_prefixes::filtered_authorized_prefixes(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                env.claims()?.sub,
+                models::authz::Capability::CatalogRead,
+                prefix_filter,
+                "filter.catalogPrefix",
+            )
+            .map(|(prefixes, starts_with, r#in)| {
+                (prefixes, starts_with, r#in.unwrap_or_default())
+            })?;
 
         if read_prefixes.is_empty() {
             return Ok(PaginatedStorageMappings::new(false, false));
@@ -704,7 +739,7 @@ impl StorageMappingsQuery {
                             &env.pg_pool,
                             &read_prefixes,
                             &exact_prefixes,
-                            under_prefix.as_ref(),
+                            under_prefix.as_deref(),
                             before.as_deref(),
                             limit as i64,
                         )
@@ -717,7 +752,7 @@ impl StorageMappingsQuery {
                             &env.pg_pool,
                             &read_prefixes,
                             &exact_prefixes,
-                            under_prefix.as_ref(),
+                            under_prefix.as_deref(),
                             after.as_deref(),
                             limit as i64,
                         )
@@ -780,15 +815,13 @@ struct StorageMappingRow {
 async fn fetch_storage_mappings_after(
     db: &sqlx::PgPool,
     read_prefixes: &[String],
-    exact_prefixes: &[models::Prefix],
-    under_prefix: Option<&models::Prefix>,
+    exact_prefixes: &[String],
+    under_prefix: Option<&str>,
     after: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<StorageMappingRow>> {
-    // Convert to plain strings to avoid sqlx encoding as `_catalog_name` domain array,
-    // which would trigger domain constraint validation on bind.
-    let exact_prefixes: Vec<String> = exact_prefixes.iter().map(|p| p.to_string()).collect();
-    let under_prefix = under_prefix.map(|p| p.as_str());
+    // Prefixes bind as `text[]`/`text` rather than the `_catalog_name` domain
+    // array, so sqlx does not run domain-constraint validation on bind.
     let filter_all = exact_prefixes.is_empty() && under_prefix.is_none();
 
     let rows = sqlx::query!(
@@ -811,7 +844,7 @@ async fn fetch_storage_mappings_after(
         "#,
         read_prefixes,
         filter_all,
-        &exact_prefixes,
+        exact_prefixes,
         under_prefix,
         after,
         limit,
@@ -832,15 +865,13 @@ async fn fetch_storage_mappings_after(
 async fn fetch_storage_mappings_before(
     db: &sqlx::PgPool,
     read_prefixes: &[String],
-    exact_prefixes: &[models::Prefix],
-    under_prefix: Option<&models::Prefix>,
+    exact_prefixes: &[String],
+    under_prefix: Option<&str>,
     before: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<StorageMappingRow>> {
-    // Convert to plain strings to avoid sqlx encoding as `_catalog_name` domain array,
-    // which would trigger domain constraint validation on bind.
-    let exact_prefixes: Vec<String> = exact_prefixes.iter().map(|p| p.to_string()).collect();
-    let under_prefix = under_prefix.map(|p| p.as_str());
+    // Prefixes bind as `text[]`/`text` rather than the `_catalog_name` domain
+    // array, so sqlx does not run domain-constraint validation on bind.
     let filter_all = exact_prefixes.is_empty() && under_prefix.is_none();
 
     let mut rows = sqlx::query!(
@@ -863,7 +894,7 @@ async fn fetch_storage_mappings_before(
         "#,
         read_prefixes,
         filter_all,
-        &exact_prefixes,
+        exact_prefixes,
         under_prefix,
         before,
         limit,
@@ -887,6 +918,66 @@ async fn fetch_storage_mappings_before(
 #[cfg(test)]
 mod test {
     use crate::test_server;
+
+    #[test]
+    fn by_under_prefix_maps_to_starts_with() {
+        let filter = super::StorageMappingsBy {
+            exact_prefixes: None,
+            under_prefix: Some(models::Prefix::new("acmeCo/")),
+        }
+        .into_prefix_filter()
+        .unwrap();
+        assert_eq!(filter.starts_with.as_deref(), Some("acmeCo/"));
+        assert_eq!(filter.r#in, None);
+    }
+
+    #[test]
+    fn by_exact_prefixes_maps_to_in() {
+        let filter = super::StorageMappingsBy {
+            exact_prefixes: Some(vec![
+                models::Prefix::new("acmeCo/"),
+                models::Prefix::new("betaCo/"),
+            ]),
+            under_prefix: None,
+        }
+        .into_prefix_filter()
+        .unwrap();
+        assert_eq!(filter.starts_with, None);
+        assert_eq!(
+            filter.r#in,
+            Some(vec!["acmeCo/".to_string(), "betaCo/".to_string()])
+        );
+    }
+
+    #[test]
+    fn by_rejects_both_modes() {
+        let err = super::StorageMappingsBy {
+            exact_prefixes: Some(vec![models::Prefix::new("acmeCo/")]),
+            under_prefix: Some(models::Prefix::new("acmeCo/")),
+        }
+        .into_prefix_filter()
+        .unwrap_err();
+        assert_eq!(
+            err.message,
+            "`exactPrefixes` and `underPrefix` are mutually exclusive; provide only one"
+        );
+    }
+
+    #[test]
+    fn by_rejects_neither_mode() {
+        // Empty `exactPrefixes` counts as absent, so this is the "neither" case
+        // — legacy `by` errors rather than treating it as "match everything".
+        let err = super::StorageMappingsBy {
+            exact_prefixes: Some(vec![]),
+            under_prefix: None,
+        }
+        .into_prefix_filter()
+        .unwrap_err();
+        assert_eq!(
+            err.message,
+            "provide exactly one of `exactPrefixes` or `underPrefix`, or omit `by` entirely"
+        );
+    }
 
     #[sqlx::test(
         migrations = "../../supabase/migrations",
@@ -995,5 +1086,215 @@ mod test {
           }
         }
         "###);
+    }
+
+    // The `filter` argument scopes by catalog-prefix subtree exactly like the
+    // deprecated `by: { underPrefix }`, and composes with the caller's read
+    // scope. Providing both `by` and `filter` is rejected.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn storage_mappings_filter_scopes_by_prefix(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let spec = crate::TextJson(models::StorageDef {
+            data_planes: Vec::new(),
+            stores: vec![models::Store::example()],
+        });
+        for prefix in ["aliceCo/", "aliceCo/team/", "otherCo/"] {
+            sqlx::query("INSERT INTO storage_mappings (catalog_prefix, spec) VALUES ($1, $2)")
+                .bind(prefix)
+                .bind(&spec)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let snapshot = test_server::snapshot(pool.clone(), false).await;
+        let server = test_server::TestServer::start(pool.clone(), snapshot).await;
+        let alice_token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
+
+        // Helper: run the query with the given variables and return the sorted
+        // list of returned catalog prefixes, asserting no GraphQL errors.
+        async fn prefixes(
+            server: &test_server::TestServer,
+            token: &str,
+            variables: serde_json::Value,
+        ) -> Vec<String> {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                            query($by: StorageMappingsBy, $filter: StorageMappingsFilter) {
+                                storageMappings(by: $by, filter: $filter) {
+                                    edges { node { catalogPrefix } }
+                                }
+                            }
+                        "#,
+                        "variables": variables,
+                    }),
+                    Some(token),
+                )
+                .await;
+            assert!(
+                response.get("errors").is_none(),
+                "unexpected errors: {response}"
+            );
+            response["data"]["storageMappings"]["edges"]
+                .as_array()
+                .expect("edges array")
+                .iter()
+                .map(|edge| edge["node"]["catalogPrefix"].as_str().unwrap().to_string())
+                .collect()
+        }
+
+        // A prefix filter narrows to the matching subtree, the same result the
+        // deprecated `by: { underPrefix }` produces.
+        let narrowed = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "filter": { "catalogPrefix": { "startsWith": "aliceCo/team/" } } }),
+        )
+        .await;
+        assert_eq!(narrowed, vec!["aliceCo/team/"]);
+
+        // A broader prefix returns the whole authorized subtree.
+        let subtree = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "filter": { "catalogPrefix": { "startsWith": "aliceCo/" } } }),
+        )
+        .await;
+        assert_eq!(subtree, vec!["aliceCo/", "aliceCo/team/"]);
+
+        // The filter can never widen scope past the caller's grants.
+        let cross_tenant = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "filter": { "catalogPrefix": { "startsWith": "otherCo/" } } }),
+        )
+        .await;
+        assert!(cross_tenant.is_empty());
+
+        // Omitting the filter returns every accessible mapping. This is the
+        // baseline the present-but-empty filter forms must match.
+        let no_filter = prefixes(&server, &alice_token, serde_json::json!({})).await;
+        assert_eq!(no_filter, vec!["aliceCo/", "aliceCo/team/"]);
+
+        // An empty filter — and an empty `catalogPrefix` within it — behave
+        // like omitting the filter: neither narrows anything.
+        let empty_filter =
+            prefixes(&server, &alice_token, serde_json::json!({ "filter": {} })).await;
+        assert_eq!(empty_filter, no_filter);
+        let empty_catalog_prefix = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "filter": { "catalogPrefix": {} } }),
+        )
+        .await;
+        assert_eq!(empty_catalog_prefix, no_filter);
+
+        // `in` matches an exact set of prefixes (unlike `startsWith`, it does
+        // not descend into the subtree), the same result `by: { exactPrefixes }`
+        // produces.
+        let exact_one = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({ "filter": { "catalogPrefix": { "in": ["aliceCo/"] } } }),
+        )
+        .await;
+        assert_eq!(exact_one, vec!["aliceCo/"]);
+
+        // A cross-tenant `in` entry is dropped rather than widening scope; an
+        // unknown prefix simply matches nothing. This also confirms several
+        // `in` entries return every authorized exact match (`filters::test`
+        // covers the multi-entry narrowing logic directly).
+        let exact_cross_tenant = prefixes(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "filter": { "catalogPrefix": { "in": ["aliceCo/", "otherCo/", "ghostCo/"] } }
+            }),
+        )
+        .await;
+        assert_eq!(exact_cross_tenant, vec!["aliceCo/"]);
+
+        // Helper: assert a set of variables is rejected with a GraphQL error.
+        // When `expected_message` is given it must appear in the first error, so
+        // that distinct rejection branches are told apart rather than any error
+        // counting as a pass.
+        async fn expect_error(
+            server: &test_server::TestServer,
+            token: &str,
+            variables: serde_json::Value,
+            expected_message: Option<&str>,
+        ) {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                            query($by: StorageMappingsBy, $filter: StorageMappingsFilter) {
+                                storageMappings(by: $by, filter: $filter) {
+                                    edges { node { catalogPrefix } }
+                                }
+                            }
+                        "#,
+                        "variables": variables,
+                    }),
+                    Some(token),
+                )
+                .await;
+            assert!(
+                response["errors"]
+                    .as_array()
+                    .is_some_and(|errors| !errors.is_empty()),
+                "expected an error for variables {variables}: {response}"
+            );
+            if let Some(expected) = expected_message {
+                let message = response["errors"][0]["message"]
+                    .as_str()
+                    .unwrap_or_default();
+                assert!(
+                    message.contains(expected),
+                    "expected error containing {expected:?}, got {message:?} for variables {variables}"
+                );
+            }
+        }
+
+        // `by` and `filter` are mutually exclusive.
+        expect_error(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "by": { "underPrefix": "aliceCo/" },
+                "filter": { "catalogPrefix": { "startsWith": "aliceCo/" } },
+            }),
+            Some("provide either `by` or `filter`"),
+        )
+        .await;
+
+        // Within a filter, `startsWith` and `in` are mutually exclusive.
+        expect_error(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "filter": { "catalogPrefix": { "startsWith": "aliceCo/", "in": ["aliceCo/"] } },
+            }),
+            Some("mutually exclusive; provide only one"),
+        )
+        .await;
+
+        // An empty `in` set is rejected at input validation, rather than
+        // ambiguously meaning "match nothing" or "match everything".
+        expect_error(
+            &server,
+            &alice_token,
+            serde_json::json!({
+                "filter": { "catalogPrefix": { "in": [] } },
+            }),
+            None,
+        )
+        .await;
     }
 }

@@ -139,7 +139,9 @@ type AlertConfigEntryEdge {
 
 """
 Optional filter for the `alertConfigs` query. When omitted, all accessible
-rows are returned.
+rows are returned. A filter only narrows those results; the caller's
+catalog-read scope is enforced independently, so it can never widen what a
+caller may see.
 """
 input AlertConfigsFilter {
 	"""
@@ -988,6 +990,11 @@ type InviteLinkEdge {
 	cursor: String!
 }
 
+"""
+Composable filter for the `inviteLinks` query. Every field is optional and
+only narrows the result set; the caller's admin scope is enforced
+independently, so a filter can never widen what a caller may see.
+"""
 input InviteLinksFilter {
 	singleUse: BoolFilter
 	catalogPrefix: PrefixFilter
@@ -1523,7 +1530,20 @@ type PendingConfigUpdateStatus {
 scalar Prefix
 
 input PrefixFilter {
+	"""
+	Match values that start with this prefix — a subtree match, e.g.
+	`acmeCo/` matches `acmeCo/`, `acmeCo/team/`, and so on.
+	"""
 	startsWith: String
+	"""
+	Match values exactly equal to any entry in this set. When provided the
+	set must be non-empty; an empty `in` is rejected during input
+	validation rather than silently matching nothing (or everything).
+	`startsWith` and `in` are mutually exclusive: a resolver rejects a
+	filter that sets both, so a prefix scope is always either a subtree
+	(`startsWith`) or an exact set (`in`), never a mix.
+	"""
+	in: [String!]
 }
 
 """
@@ -1798,9 +1818,9 @@ type QueryRoot {
 	Lists alert-config rows visible to the caller.
 	
 	Results are limited to readable prefixes and sorted by
-	`catalog_prefix_or_name`. `filter.catalogPrefixOrName.startsWith` can
-	narrow the results further. Passing a full catalog name returns at
-	most one exact-name row.
+	`catalog_prefix_or_name`. `filter.catalogPrefixOrName` narrows further,
+	by subtree (`startsWith`) or an exact set (`in`) — not both. Passing a
+	full catalog name returns at most one exact-name row.
 	"""
 	alertConfigs(filter: AlertConfigsFilter, after: String, first: Int): AlertConfigEntryConnection!
 	"""
@@ -1816,10 +1836,10 @@ type QueryRoot {
 	Returns storage mappings accessible to the current user.
 	
 	Returns mappings under every prefix where the caller has catalog-read
-	capability. The optional `by` filter narrows those authorized results.
+	capability. The optional `filter` narrows those authorized results.
 	Results are paginated and sorted by catalog_prefix.
 	"""
-	storageMappings(by: StorageMappingsBy @deprecated(reason: "Omit this argument to return all accessible storage mappings."), after: String, before: String, first: Int, last: Int): StorageMappingConnection!
+	storageMappings(by: StorageMappingsBy @deprecated(reason: "Prefer `filter: { catalogPrefix }`: `startsWith` replaces `underPrefix` and `in` replaces `exactPrefixes`. `by` is retained only for existing clients."), filter: StorageMappingsFilter, after: String, before: String, first: Int, last: Int): StorageMappingConnection!
 	"""
 	Returns data planes accessible to the current user.
 	
@@ -1846,7 +1866,8 @@ type QueryRoot {
 	List invite links the caller has admin access to.
 	
 	Returns invite links under all prefixes where the caller has admin
-	capability, optionally narrowed by a prefix filter.
+	capability, optionally narrowed by a prefix filter — a subtree
+	(`startsWith`) or an exact set (`in`), not both.
 	"""
 	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
 	"""
@@ -2369,6 +2390,23 @@ input StorageMappingsBy {
 	Exactly one of `exactPrefixes` or `underPrefix` must be provided.
 	"""
 	underPrefix: Prefix
+}
+
+"""
+Composable filter for the `storageMappings` query. Every field is optional
+and only narrows the result set; the caller's catalog-read scope is enforced
+independently, so a filter can never widen what a caller may see.
+"""
+input StorageMappingsFilter {
+	"""
+	Narrow by catalog prefix. `startsWith` matches a whole subtree —
+	mappings for `acmeCo/`, `acmeCo/team-a/`, etc. — like the deprecated
+	`by: { underPrefix }`. `in` matches an exact set of prefixes, like
+	`by: { exactPrefixes }`. The two are alternative query modes and are
+	mutually exclusive. Either way, results compose with (never widen past)
+	the caller's authorized read prefixes.
+	"""
+	catalogPrefix: PrefixFilter
 }
 
 type Tenant {

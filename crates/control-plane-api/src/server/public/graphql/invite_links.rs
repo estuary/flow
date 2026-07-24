@@ -41,6 +41,9 @@ pub type PaginatedInviteLinks = connection::Connection<
     connection::DisableNodesField,
 >;
 
+/// Composable filter for the `inviteLinks` query. Every field is optional and
+/// only narrows the result set; the caller's admin scope is enforced
+/// independently, so a filter can never widen what a caller may see.
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct InviteLinksFilter {
     pub single_use: Option<filters::BoolFilter>,
@@ -58,7 +61,8 @@ impl InviteLinksQuery {
     /// List invite links the caller has admin access to.
     ///
     /// Returns invite links under all prefixes where the caller has admin
-    /// capability, optionally narrowed by a prefix filter.
+    /// capability, optionally narrowed by a prefix filter — a subtree
+    /// (`startsWith`) or an exact set (`in`), not both.
     async fn invite_links(
         &self,
         ctx: &Context<'_>,
@@ -72,17 +76,16 @@ impl InviteLinksQuery {
             .as_ref()
             .and_then(|f| f.single_use.as_ref())
             .and_then(|f| f.eq);
-        let prefix_starts_with = filter
-            .and_then(|f| f.catalog_prefix)
-            .and_then(|f| f.starts_with);
-
-        let admin_prefixes = super::authorized_prefixes::authorized_prefixes(
-            &env.snapshot().role_grants,
-            &env.snapshot().user_grants,
-            env.claims()?.sub,
-            models::Capability::Admin,
-            prefix_starts_with.as_deref(),
-        );
+        let snapshot = env.snapshot();
+        let (admin_prefixes, prefix_starts_with, prefix_in) =
+            super::authorized_prefixes::filtered_authorized_prefixes(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                env.claims()?.sub,
+                models::Capability::Admin,
+                filter.and_then(|f| f.catalog_prefix),
+                "filter.catalogPrefix",
+            )?;
 
         if admin_prefixes.is_empty() {
             return Ok(PaginatedInviteLinks::new(false, false));
@@ -116,6 +119,7 @@ impl InviteLinksQuery {
                 LEFT JOIN tenants t ON il.catalog_prefix::text ^@ t.tenant
                 WHERE il.catalog_prefix::text ^@ ANY($1)
                   AND ($5::text IS NULL OR il.catalog_prefix::text ^@ $5)
+                  AND ($6::text[] IS NULL OR il.catalog_prefix::text = ANY($6))
                   AND ($4::bool IS NULL OR il.single_use = $4)
                   AND ($2::timestamptz IS NULL OR il.created_at < $2)
                 ORDER BY il.created_at DESC
@@ -126,6 +130,7 @@ impl InviteLinksQuery {
                     limit as i64,
                     single_use_eq,
                     prefix_starts_with.as_deref(),
+                    prefix_in.as_deref(),
                 )
                 .fetch_all(&env.pg_pool)
                 .await?;
@@ -1396,6 +1401,111 @@ mod test {
             parent_filter_edges.len(),
             4,
             "parent prefix filter returns all invite links under the grant"
+        );
+
+        // `in` matches an exact set of prefixes. Helper: run an `in` filter and
+        // return the count of returned links, asserting no GraphQL errors.
+        async fn in_filter_count(
+            server: &test_server::TestServer,
+            token: &str,
+            prefixes: serde_json::Value,
+        ) -> usize {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        query($in: [String!]) {
+                            inviteLinks(filter: { catalogPrefix: { in: $in } }) {
+                                edges { node { catalogPrefix } }
+                            }
+                        }"#,
+                        "variables": { "in": prefixes },
+                    }),
+                    Some(token),
+                )
+                .await;
+            assert!(
+                response.get("errors").is_none(),
+                "unexpected errors: {response}"
+            );
+            response["data"]["inviteLinks"]["edges"]
+                .as_array()
+                .expect("should have edges")
+                .len()
+        }
+
+        // An exact `in` entry matches only links at exactly that prefix, not the
+        // whole subtree — the three links created at "aliceCo/", but not the one
+        // under "aliceCo/data/invite/".
+        assert_eq!(
+            in_filter_count(&server, &alice_token, serde_json::json!(["aliceCo/"])).await,
+            3,
+            "`in: [aliceCo/]` returns only the exact-prefix links"
+        );
+
+        // The sub-prefix entry is authorized because it descends from Alice's
+        // "aliceCo/" admin grant (the retain keeps that grant), and the SQL
+        // exact-match then selects just the one link under it.
+        assert_eq!(
+            in_filter_count(
+                &server,
+                &alice_token,
+                serde_json::json!(["aliceCo/data/invite/"])
+            )
+            .await,
+            1,
+            "`in` narrows to an exact sub-prefix authorized via a broader grant"
+        );
+
+        // A cross-tenant entry Alice cannot admin is dropped rather than
+        // widening scope, leaving no authorized prefixes and an empty result.
+        assert_eq!(
+            in_filter_count(&server, &alice_token, serde_json::json!(["otherCo/"])).await,
+            0,
+            "an unauthorized `in` entry is dropped, not honored"
+        );
+
+        // `startsWith` and `in` are mutually exclusive prefix-scoping modes;
+        // providing both is rejected rather than intersected.
+        let both: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        inviteLinks(filter: { catalogPrefix: { startsWith: "aliceCo/", in: ["aliceCo/"] } }) {
+                            edges { node { catalogPrefix } }
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            both["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "combining `startsWith` and `in` should be rejected: {both}"
+        );
+
+        // An empty `in` set is rejected at input validation.
+        let empty_in: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        inviteLinks(filter: { catalogPrefix: { in: [] } }) {
+                            edges { node { catalogPrefix } }
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            empty_in["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "empty `in` should be rejected: {empty_in}"
         );
     }
 
