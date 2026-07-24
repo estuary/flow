@@ -114,7 +114,7 @@ async fn walk_materialization<C: Connectors>(
     let models::MaterializationDef {
         on_incompatible_schema_change,
         source: sources,
-        target_naming,
+        mut target_naming,
         endpoint,
         bindings: bindings_model,
         mut shards,
@@ -123,6 +123,23 @@ async fn walk_materialization<C: Connectors>(
         delete: _,
         reset,
     } = model;
+
+    // Model fix: Promote source.target_naming == WithSchema to top-level
+    // MatchSourceStructure. These represent identical behavior, and this
+    // progressive upgrade lets us eventually remove the legacy field.
+    if target_naming.is_none() {
+        if let Some(source) = &sources {
+            if source.to_normalized_def().target_naming == models::TargetNaming::WithSchema {
+                target_naming = Some(models::TargetNamingStrategy::MatchSourceStructure {
+                    table_template: None,
+                    schema_template: None,
+                });
+                model_fixes.push(
+                    "promoted source.targetNaming 'withSchema' to top-level targetNaming 'matchSourceStructure'".to_string(),
+                );
+            }
+        }
+    }
 
     indexed::walk_name(
         scope,
