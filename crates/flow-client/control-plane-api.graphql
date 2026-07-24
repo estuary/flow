@@ -915,7 +915,7 @@ scalar Id
 
 input IdFilter {
 	"""
-	Match any id in this set. An empty set matches nothing.
+	Match any id in this non-empty set.
 	"""
 	in: [Id!]
 }
