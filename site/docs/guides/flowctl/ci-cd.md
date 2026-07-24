@@ -44,6 +44,18 @@ To create a [capture](../../concepts/captures.md), start with a local `flow.yaml
 You will need to use the capture connector's [reference](../../reference/Connectors/capture-connectors/README.md) for details on the available settings, authorization methods, and required fields for the configuration.
 The connector's reference page will include an example specification you can use to get started.
 
+:::tip Recommended: generate bindings and collections with `flowctl discover`
+Rather than hand-writing every binding and its collection, start from a minimal capture spec with an empty `bindings: []` list, then run [`flowctl discover`](../../concepts/captures.md#discovery-through-flowctl):
+
+```bash
+flowctl discover --source flow.yaml
+```
+
+This invokes the connector from your data plane, enumerates the source's resources, and writes the `bindings` and their target `collections` back into your local files. The generated collections are **connector-managed** and inference-ready, so [`autoDiscover`](../../concepts/captures.md#automatically-update-captures) can keep their schemas in sync and the read schema evolves automatically. This is the recommended starting point for most captures.
+
+Hand-authoring the capture and collections (as shown below) is best reserved for when you already have a fixed, known schema and deliberately want to own it. See [Connector-managed schemas](../../concepts/schemas.md#connector-managed-schemas-and-auto-discover) for the trade-offs.
+:::
+
 At a minimum, the configuration will need to specify:
 * The capture name
 * The connector image for the capture
@@ -104,18 +116,38 @@ captures:
 
 Note that you will not be able to successfully publish a capture by itself. You will also need to define the collections that relate to the capture's bindings.
 
+:::note `autoDiscover` and version-controlled specs
+If you enable [`autoDiscover`](../../concepts/captures.md#automatically-update-captures) on a capture whose specs live in Git, note that it republishes the capture and its collections out-of-band whenever the source changes, so the live specs can drift from your repository. Either re-run `flowctl catalog pull-specs` after it fires to bring your repo back in sync, or leave `autoDiscover` off and rely on schema inference (below) for read-schema evolution.
+:::
+
 ### Collection Configuration
 
 When you create a capture configuration, you will also need to create associated [collection](../../concepts/collections.md) configurations. Your resource streams will flow into these collections as a staging area before final materialization.
 
 Collections provide an opportunity to enforce schemas and transform data with [derivations](#derivation-configuration).
-When using the UI, Estuary will intelligently infer these schemas for you. When you're creating your own specifications from scratch, however, you will need to be very aware of your source system's schema in order to replicate it accurately.
 
-Create a collection specification for each **target** you identified in your capture bindings. The collection specification should, at a minimum, include:
-* The schema, with its properties and their types
-* Any required fields in the schema, including the key field
-* The key field used to identify and order documents
-    * Since the key can be a composite, JSON pointers are used to identify relevant fields, so field names should begin with `/`
+If you generated your bindings with `flowctl discover` (recommended above), the target collections were written for you with connector-managed, inference-ready schemas, and you can skip ahead to [publishing](#publishing-resources).
+
+When hand-authoring collections instead, create a specification for each **target** you identified in your capture bindings. At a minimum, each collection needs a schema and a key (the key field identifies and orders documents; since it can be composite, fields are given as JSON pointers beginning with `/`).
+
+You do **not** need to replicate every source column by hand, and it is usually a mistake to try. A fully-specified schema is *frozen*: when the source later adds a column or emits a value that doesn't match (for example a `null` in a field you typed as a required string), the capture fails validation. Instead, define a permissive `writeSchema` (typically just the key) and let [continuous schema inference](../../concepts/schemas.md#continuous-schema-inference) fill in the rest via the `readSchema`:
+
+```yaml
+collections:
+  Artificial-Industries/ci-cd/postgres_shipments:
+    writeSchema:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer }
+    readSchema:
+      allOf:
+        - $ref: flow://write-schema
+        - $ref: flow://inferred-schema
+    key: [/id]
+```
+
+Schema inference works well with a version-controlled catalog: publishing with `flowctl` never reverts the inferred read schema, and Estuary keeps it up to date as new data arrives, whether or not `autoDiscover` is enabled. The fully-specified schemas shown below are appropriate only when you want to enforce an exact shape and will maintain it by hand.
 
 Consider these example specifications:
 
