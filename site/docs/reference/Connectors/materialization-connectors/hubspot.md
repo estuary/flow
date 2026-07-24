@@ -5,7 +5,7 @@ description: Materialize collections to HubSpot CRM objects such as Contacts, Co
 # HubSpot
 
 The HubSpot connector writes to HubSpot CRM objects such as Contacts,
-Companies, Deals, etc.
+Companies, and Deals.
 
 ## Prerequisites
 
