@@ -100,7 +100,11 @@ pub async fn provision_tenant(
             insert into storage_mappings (catalog_prefix, spec, detail) values
                 ($2, json_build_object(
                     'stores', '[{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]'::json,
-                    'data_planes', (select arr from public_planes)
+                    -- `json_agg` yields SQL NULL over an empty set, so coalesce to an
+                    -- empty array. A null `data_planes` produces `"data_planes": null`,
+                    -- which fails to deserialize into `StorageDef` (its `Vec` field
+                    -- tolerates a missing key but not an explicit null).
+                    'data_planes', coalesce((select arr from public_planes), '[]'::json)
                 ), $3),
                 ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
             on conflict do nothing
