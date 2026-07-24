@@ -26,6 +26,15 @@ $ npm build
 
 This command generates static content into the `build` directory and can be served using any static contents hosting service.
 
+**macOS note:** `npm run build` fails locally on macOS's default case-insensitive
+filesystem with `The redirect plugin is not supposed to override existing files`
+for the `hubspot-real-time` redirect in `docusaurus.config.js`. That redirect's
+`from` path differs from the real `HubSpot-real-time` page only by case, so the
+plugin sees a collision when writing the redirect stub. This does not affect
+production: CI builds on Linux (case-sensitive), so the two paths are genuinely
+distinct there. To build locally on macOS, temporarily comment out that redirect
+entry, or build inside a case-sensitive volume/Docker.
+
 ### Deployment
 
 Using SSH:

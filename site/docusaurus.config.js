@@ -46,7 +46,7 @@ const config = {
   tagline: 'Fast, configurable ETL your way',
   url: URL,
   baseUrl: BASE_URL,
-  onBrokenAnchors: 'warn', // TODO(johnny): Fix broken links and make this 'throw'.
+  onBrokenAnchors: 'throw',
   onBrokenLinks: 'throw',
   favicon: 'img/favicon-2.ico',
   organizationName: 'estuary',

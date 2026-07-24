@@ -38,7 +38,7 @@ tests:
 
 By default, Estuary assumes `lastWriteWins` reductions are **associative** — that
 documents sharing a collection key can be combined incrementally, in any grouping,
-without changing the final result (see [Reduction guarantees](./#reduction-guarantees)).
+without changing the final result (see [Reduction guarantees](../#reduction-guarantees)).
 This is what produces one row per key: same-key documents are progressively combined
 down to a single value.
 
