@@ -550,8 +550,8 @@ impl TestHarness {
     /// Setup a new tenant with the given name, and return the id of the user
     /// who has `admin` capabilities to it. Performs essentially the same setup
     /// as the beta onboarding directive, so the user_grants, role_grants,
-    /// storage_mappings, and tenants tables should all look just like they
-    /// would in production.
+    /// storage_mappings, tenants, alert_subscriptions, and alert_configs
+    /// tables should all look just like they would in production.
     pub async fn setup_tenant(&self, tenant: &str) -> sqlx::types::Uuid {
         let email = format!("{tenant}@{}.test", self.test_name.replace(' ', "-"));
         let meta = serde_json::json!({
