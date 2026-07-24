@@ -44,7 +44,7 @@ Collection field names are mapped to HubSpot property names automatically
 similarly to how HubSpot generates property names: the field name is
 lowercased, leading underscores are removed as well as other symbols
 characters, and if the field begins with a number it will be prefixed with
-`n`.Names are truncated to 100 characters.
+`n`. Names are truncated to 100 characters.
 
 ## Deletions
 
