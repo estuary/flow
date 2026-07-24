@@ -358,6 +358,77 @@ input BillingAddressInput {
 	country: String
 }
 
+"""
+An authorized adjustment to a tenant's invoice for a particular month,
+such as a make-good credit or a negotiated service fee. Adjustments are
+created by Estuary support staff and appear as invoice line items.
+"""
+type BillingAdjustment {
+	"""
+	Unique id of this adjustment.
+	"""
+	id: Id!
+	"""
+	Time at which this adjustment was created.
+	"""
+	createdAt: DateTime!
+	"""
+	Time at which this adjustment was last updated.
+	"""
+	updatedAt: DateTime!
+	"""
+	Tenant whose invoice is adjusted.
+	"""
+	tenant: String!
+	"""
+	Month of the invoice being adjusted, as the first instant of that
+	month in UTC.
+	"""
+	billedMonth: DateTime!
+	"""
+	Adjustment amount in USD cents. Positive values increase the invoice
+	total, and negative values are credits which decrease it.
+	"""
+	usdCents: Int!
+	"""
+	Email of the Estuary employee who authorized this adjustment.
+	"""
+	authorizer: String!
+	"""
+	Human-readable reason for this adjustment.
+	"""
+	detail: String
+}
+
+type BillingAdjustmentConnection {
+	"""
+	Information to aid in pagination.
+	"""
+	pageInfo: PageInfo!
+	"""
+	A list of edges.
+	"""
+	edges: [BillingAdjustmentEdge!]!
+	"""
+	A list of nodes.
+	"""
+	nodes: [BillingAdjustment!]!
+}
+
+"""
+An edge in a connection.
+"""
+type BillingAdjustmentEdge {
+	"""
+	The item at the end of the edge
+	"""
+	node: BillingAdjustment!
+	"""
+	A cursor for use in pagination
+	"""
+	cursor: String!
+}
+
 type BillingContact {
 	email: String
 	name: String
@@ -675,6 +746,10 @@ type CreateApiKeyResult {
 	client caches without a follow-up query.
 	"""
 	serviceAccount: ServiceAccount!
+}
+
+type CreateBillingAdjustmentPayload {
+	adjustment: BillingAdjustment!
 }
 
 type CreateBillingSetupIntentPayload {
@@ -1237,6 +1312,15 @@ type LockFailure {
 
 type MutationRoot {
 	createBillingSetupIntent(tenant: String!): CreateBillingSetupIntentPayload!
+	"""
+	Create a billing adjustment (a credit or fee) against a tenant's
+	invoice for a given month. Adjustments are Estuary-internal: the
+	caller must be a member of estuary_support/, so that a tenant admin
+	cannot credit their own account. The adjustment's `authorizer` is
+	derived from the caller's authenticated email and is never
+	client-supplied.
+	"""
+	createBillingAdjustment(tenant: String!, billedMonth: DateTime!, usdCents: Int!, detail: String!): CreateBillingAdjustmentPayload!
 	setBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
 	setBillingContact(tenant: String!, email: String!, name: String!, address: BillingAddressInput!): SetBillingContactPayload!
 	deleteBillingPaymentMethod(tenant: String!, paymentMethodId: String!): BillingPaymentMethodPayload!
@@ -2381,6 +2465,11 @@ type TenantBilling {
 	paymentMethods: [PaymentMethod!]!
 	primaryPaymentMethod: PaymentMethod
 	invoices(filter: InvoiceFilter, after: String, before: String, first: Int, last: Int): InvoiceConnection!
+	"""
+	Billing adjustments (credits and fees) applied to this tenant's
+	invoices, ordered newest-first.
+	"""
+	adjustments(after: String, before: String, first: Int, last: Int): BillingAdjustmentConnection!
 }
 
 """
