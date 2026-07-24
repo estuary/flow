@@ -178,12 +178,7 @@ pub async fn evolve(
     .await
     {
         Ok(live) => live,
-        Err(err)
-            if matches!(
-                err.downcast_ref::<validation::Error>(),
-                Some(validation::Error::AuthorizationSnapshotStale { .. })
-            ) =>
-        {
+        Err(err) if validation::is_authz_snapshot_stale(&err) => {
             // A referenced collection was denied against a snapshot that
             // predates it. Request an early refresh so a retry sees the fresher
             // snapshot, and surface the retryable error.
@@ -211,12 +206,7 @@ pub async fn evolve(
     .await
     {
         Ok(live) => live,
-        Err(err)
-            if matches!(
-                err.downcast_ref::<validation::Error>(),
-                Some(validation::Error::AuthorizationSnapshotStale { .. })
-            ) =>
-        {
+        Err(err) if validation::is_authz_snapshot_stale(&err) => {
             snapshot.revoke.cancel();
             return Err(err);
         }

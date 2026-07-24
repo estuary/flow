@@ -406,3 +406,14 @@ impl Error {
         errors.insert_row(scope.flatten(), anyhow::anyhow!(self));
     }
 }
+
+/// Returns true if `err` is (or wraps) an [`Error::AuthorizationSnapshotStale`].
+/// This classifies a *retryable* authorization failure: the decision was made
+/// against a control-plane snapshot older than the spec, so it should be retried
+/// against a fresher snapshot rather than surfaced as a terminal error.
+pub fn is_authz_snapshot_stale(err: &anyhow::Error) -> bool {
+    matches!(
+        err.downcast_ref::<Error>(),
+        Some(Error::AuthorizationSnapshotStale { .. })
+    )
+}

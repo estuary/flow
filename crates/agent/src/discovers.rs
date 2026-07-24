@@ -266,12 +266,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                     Err(draft_errs),
                 ))
             }
-            Err(err)
-                if matches!(
-                    err.downcast_ref::<validation::Error>(),
-                    Some(validation::Error::AuthorizationSnapshotStale { .. })
-                ) =>
-            {
+            Err(err) if validation::is_authz_snapshot_stale(&err) => {
                 // A referenced spec was denied against a snapshot that predates
                 // it. Request an early refresh and retry, rather than reporting a
                 // spurious DiscoverFailed.

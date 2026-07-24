@@ -102,7 +102,7 @@ impl PublicationsExecutor {
                 };
                 (result.status, errors, final_id)
             }
-            Err(error) if control_plane_api::publications::is_authz_snapshot_stale(&error) => {
+            Err(error) if validation::is_authz_snapshot_stale(&error) => {
                 // A referenced spec was denied by an authorization snapshot older
                 // than that spec. `Publisher::publish` already requested an early
                 // refresh; leave the publication queued and reschedule so a retry

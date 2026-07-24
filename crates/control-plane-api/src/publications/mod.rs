@@ -286,7 +286,7 @@ impl Publisher {
                 .await
             {
                 Ok(result) => result,
-                Err(err) if is_authz_snapshot_stale(&err) => {
+                Err(err) if validation::is_authz_snapshot_stale(&err) => {
                     // The draft referenced a spec that was denied by an
                     // authorization snapshot older than that spec — a grant may
                     // simply not be reflected yet. Request an early refresh and
@@ -729,16 +729,6 @@ impl Publisher {
             "assigned control_ids"
         );
     }
-}
-
-/// Returns true if `err` is (or wraps) a `validation::Error::AuthorizationSnapshotStale`,
-/// meaning a spec was denied by an authorization snapshot older than that spec.
-/// Such a publication should be retried against a fresher snapshot rather than failed.
-pub fn is_authz_snapshot_stale(err: &anyhow::Error) -> bool {
-    matches!(
-        err.downcast_ref::<validation::Error>(),
-        Some(validation::Error::AuthorizationSnapshotStale { .. })
-    )
 }
 
 fn is_empty_draft(build: &UncommittedBuild) -> bool {
