@@ -1,5 +1,6 @@
 use super::super::tenant::validate_tenant_name;
 use super::super::verify_authorization;
+use super::adjustments::{self, BillingAdjustment};
 use super::billing_provider;
 use super::contact::{self, BillingAddress, BillingAddressInput, BillingContact};
 use super::payment_methods::PaymentMethod;
@@ -85,6 +86,77 @@ impl BillingMutation {
         Ok(CreateBillingSetupIntentPayload {
             client_secret: super::super::Sensitive::new(client_secret),
         })
+    }
+
+    /// Create a billing adjustment (a credit or fee) against a tenant's
+    /// invoice for a given month. Adjustments are Estuary-internal: the
+    /// caller must be a member of estuary_support/, so that a tenant admin
+    /// cannot credit their own account. The adjustment's `authorizer` is
+    /// derived from the caller's authenticated email and is never
+    /// client-supplied.
+    async fn create_billing_adjustment(
+        &self,
+        ctx: &Context<'_>,
+        tenant: String,
+        billed_month: chrono::DateTime<chrono::Utc>,
+        usd_cents: i32,
+        detail: String,
+    ) -> Result<CreateBillingAdjustmentPayload> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let tenant = validate_tenant_name(&tenant)?;
+
+        verify_authorization(env, "estuary_support/", models::Capability::Admin).await?;
+        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+
+        // The authorizer is the caller's email: from the token's email claim
+        // when present, and otherwise from auth.users (access tokens minted
+        // via refresh-token exchange carry no email claim).
+        let claims = env.claims()?;
+        let authorizer = match claims.email.clone() {
+            Some(email) => email,
+            None => {
+                sqlx::query_scalar!(r#"SELECT email FROM auth.users WHERE id = $1"#, claims.sub,)
+                    .fetch_optional(&env.pg_pool)
+                    .await?
+                    .flatten()
+                    .context("authenticated user has no email address")?
+            }
+        };
+
+        adjustments::require_month_boundary(billed_month)?;
+        if usd_cents == 0 {
+            return Err(async_graphql::Error::new("usdCents must be non-zero"));
+        }
+        if detail.trim().is_empty() || detail.len() > 4096 {
+            return Err(async_graphql::Error::new(
+                "detail must be non-empty and at most 4096 characters",
+            ));
+        }
+
+        let exists: bool = sqlx::query_scalar!(
+            r#"SELECT EXISTS(SELECT 1 FROM tenants WHERE tenant = $1) AS "exists!""#,
+            tenant.as_str(),
+        )
+        .fetch_one(&env.pg_pool)
+        .await?;
+        if !exists {
+            return Err(async_graphql::Error::new(format!(
+                "tenant {tenant} does not exist"
+            )));
+        }
+
+        let adjustment = adjustments::insert_adjustment(
+            &env.pg_pool,
+            tenant.as_str(),
+            billed_month,
+            usd_cents,
+            &authorizer,
+            &detail,
+        )
+        .await
+        .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+
+        Ok(CreateBillingAdjustmentPayload { adjustment })
     }
 
     async fn set_billing_payment_method(
@@ -231,6 +303,11 @@ pub struct BillingPaymentMethodPayload {
 #[derive(Debug, Clone, SimpleObject)]
 pub struct SetBillingContactPayload {
     contact: BillingContact,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct CreateBillingAdjustmentPayload {
+    adjustment: BillingAdjustment,
 }
 
 #[cfg(test)]

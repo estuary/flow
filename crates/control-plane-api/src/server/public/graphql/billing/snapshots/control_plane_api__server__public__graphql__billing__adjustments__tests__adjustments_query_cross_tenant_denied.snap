@@ -1,0 +1,21 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/billing/adjustments.rs
+expression: cross
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 13,
+          "line": 3
+        }
+      ],
+      "message": "PermissionDenied: adjustother@example.test is not authorized to access prefix or name 'adjustco/' with required capability read",
+      "path": [
+        "tenant"
+      ]
+    }
+  ]
+}

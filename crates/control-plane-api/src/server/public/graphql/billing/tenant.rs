@@ -1,5 +1,9 @@
+use super::super::TimestampCursor;
 use super::super::tenant::Tenant;
 use super::super::verify_authorization;
+use super::adjustments::{
+    BillingAdjustment, fetch_adjustments_backward, fetch_adjustments_forward,
+};
 use super::billing_provider;
 use super::contact::{self, BillingContact};
 use super::invoices::{Invoice, InvoiceFilter};
@@ -25,8 +29,8 @@ impl Tenant {
 
 /// The billing provider is resolved lazily by the fields which actually
 /// require it (payment methods), so that database-backed fields like
-/// `contact` and `invoices` work on deployments where billing is not
-/// configured.
+/// `contact`, `invoices`, and `adjustments` work on deployments where
+/// billing is not configured.
 #[derive(Debug, Clone)]
 pub struct TenantBilling {
     tenant: String,
@@ -120,6 +124,56 @@ impl TenantBilling {
                     let cursor = InvoiceCursor::from_row(&row);
                     let invoice = Invoice::from_row(row);
                     connection::Edge::new(cursor, invoice)
+                }));
+                Ok(connection)
+            },
+        )
+        .await
+    }
+
+    /// Billing adjustments (credits and fees) applied to this tenant's
+    /// invoices, ordered newest-first.
+    async fn adjustments(
+        &self,
+        ctx: &Context<'_>,
+        after: Option<String>,
+        before: Option<String>,
+        first: Option<i32>,
+        last: Option<i32>,
+    ) -> Result<Connection<TimestampCursor, BillingAdjustment>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let tenant = self.tenant.clone();
+
+        connection::query_with::<TimestampCursor, _, _, _, async_graphql::Error>(
+            after,
+            before,
+            first,
+            last,
+            |after, before, first, last| async move {
+                let has_before = before.is_some();
+                let has_after = after.is_some();
+                let (rows, has_prev, has_next) = if has_before || last.is_some() {
+                    let (rows, has_prev) = fetch_adjustments_backward(
+                        &env.pg_pool,
+                        &tenant,
+                        before.map(|c| c.0),
+                        last,
+                    )
+                    .await
+                    .map_err(async_graphql::Error::from)?;
+                    (rows, has_prev, has_before)
+                } else {
+                    let (rows, has_next) =
+                        fetch_adjustments_forward(&env.pg_pool, &tenant, after.map(|c| c.0), first)
+                            .await
+                            .map_err(async_graphql::Error::from)?;
+                    (rows, has_after, has_next)
+                };
+
+                let mut connection = Connection::new(has_prev, has_next);
+                connection.edges.extend(rows.into_iter().map(|row| {
+                    let cursor = TimestampCursor(row.created_at);
+                    connection::Edge::new(cursor, row)
                 }));
                 Ok(connection)
             },
