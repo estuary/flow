@@ -144,6 +144,11 @@ materializations:
           object: Companies
 ```
 
+## Limitations
+
+- Materializing associations between CRM objects is not currently supported.
+- Sensitive and Highly Sensitive fields cannot be written to, as the connector
+  does not request the required scopes.
 
 [object definition]: https://developers.hubspot.com/docs/api-reference/latest/crm/objects/contacts/object-definition
 [Properties API]: https://developers.hubspot.com/docs/api-reference/latest/crm/properties/get-properties
