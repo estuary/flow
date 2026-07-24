@@ -178,13 +178,31 @@ pub const BLOCK_HEADER_LEN: usize = 8;
 
 /// LogJoin coordinates multiple Slice streams connecting to the same Log.
 /// Each Log shard receives connections from all Slices (M connections total).
+///
+/// The map is keyed by `(directory, session_id, log_shard_index)` in
+/// [`crate::Service`]. Including `session_id` makes retries collision-free by
+/// construction: a fresh session never reuses a prior session's slots even if
+/// it reuses the same `directory`. `directory` stays in the key because
+/// `session_id` is a u32 of time-nanos and can collide across concurrent tasks
+/// on one sidecar.
 pub(crate) struct LogJoin {
-    shards: Vec<
-        Option<(
-            BoxStream<'static, tonic::Result<shuffle::LogRequest>>,
-            mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
-        )>,
-    >,
+    /// One slot per Slice, indexed by `slice_shard_index`. `None` until that
+    /// Slice connects (or after its slot is reaped on abort).
+    shards: Vec<Option<LogJoinSlot>>,
+}
+
+/// A single Slice's connection to a Log rendezvous.
+pub(crate) struct LogJoinSlot {
+    /// The Slice's request stream and the response sender back to it, handed to
+    /// the [`super::actor::LogActor`] once the rendezvous completes.
+    request_rx: BoxStream<'static, tonic::Result<shuffle::LogRequest>>,
+    response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
+    /// Fired by the invocation that completes the rendezvous to release this
+    /// slot's parked, non-completing handler so it exits `Ok`. A per-slot
+    /// `oneshot` (rather than a shared `watch`) keeps the release edge-triggered
+    /// and lets a completing invocation hand off ownership per slot without a
+    /// broadcast the parked handlers would have to filter.
+    complete_tx: tokio::sync::oneshot::Sender<()>,
 }
 
 #[derive(Clone)]
