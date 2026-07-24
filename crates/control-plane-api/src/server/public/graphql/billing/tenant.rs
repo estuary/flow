@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use super::super::tenant::Tenant;
 use super::super::verify_authorization;
 use super::billing_provider;
@@ -7,7 +5,7 @@ use super::contact::{self, BillingContact};
 use super::invoices::{Invoice, InvoiceFilter};
 use super::loaders::CustomerDataLoader;
 use super::payment_methods::PaymentMethod;
-use crate::billing::{self, BillingProvider, InvoiceCursor};
+use crate::billing::{self, InvoiceCursor};
 use async_graphql::{
     ComplexObject, Context, Result,
     connection::{self, Connection},
@@ -19,21 +17,19 @@ impl Tenant {
     async fn billing(&self, ctx: &Context<'_>) -> Result<TenantBilling> {
         let env = ctx.data::<crate::Envelope>()?;
         verify_authorization(env, &self.name, models::authz::Capability::ViewBilling).await?;
-        let provider = billing_provider(ctx)?;
-        Ok(TenantBilling::new(self.name.clone(), provider))
+        Ok(TenantBilling {
+            tenant: self.name.clone(),
+        })
     }
 }
 
+/// The billing provider is resolved lazily by the fields which actually
+/// require it (payment methods), so that database-backed fields like
+/// `contact` and `invoices` work on deployments where billing is not
+/// configured.
 #[derive(Debug, Clone)]
 pub struct TenantBilling {
     tenant: String,
-    provider: Arc<dyn BillingProvider>,
-}
-
-impl TenantBilling {
-    fn new(tenant: String, provider: Arc<dyn BillingProvider>) -> Self {
-        Self { tenant, provider }
-    }
 }
 
 #[async_graphql::Object]
@@ -46,12 +42,12 @@ impl TenantBilling {
     }
 
     async fn payment_methods(&self, ctx: &Context<'_>) -> Result<Vec<PaymentMethod>> {
+        let provider = billing_provider(ctx)?;
         let loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
         let Some(customer) = loader.load_one(self.tenant.clone()).await? else {
             return Ok(Vec::new());
         };
-        let methods = self
-            .provider
+        let methods = provider
             .list_payment_methods(&customer.id)
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))?;
@@ -59,6 +55,7 @@ impl TenantBilling {
     }
 
     async fn primary_payment_method(&self, ctx: &Context<'_>) -> Result<Option<PaymentMethod>> {
+        let provider = billing_provider(ctx)?;
         let loader = ctx.data::<DataLoader<CustomerDataLoader>>()?;
         let Some(customer) = loader.load_one(self.tenant.clone()).await? else {
             return Ok(None);
@@ -66,8 +63,7 @@ impl TenantBilling {
         let Some(primary_id) = billing::default_payment_method_id(&customer) else {
             return Ok(None);
         };
-        let pm = self
-            .provider
+        let pm = provider
             .get_payment_method(&primary_id.parse().map_err(|_| {
                 async_graphql::Error::new("invalid payment method ID in customer default")
             })?)
