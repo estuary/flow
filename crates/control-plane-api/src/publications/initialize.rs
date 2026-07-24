@@ -11,6 +11,7 @@ pub trait Initialize: Send + Sync {
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot: &crate::Snapshot,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
@@ -22,6 +23,7 @@ impl Initialize for NoopInitialize {
         _db: &sqlx::PgPool,
         _user_id: Uuid,
         _draft: &mut tables::DraftCatalog,
+        _snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -37,9 +39,10 @@ where
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
-        self.0.initialize(db, user_id, draft).await?;
-        self.1.initialize(db, user_id, draft).await?;
+        self.0.initialize(db, user_id, draft, snapshot).await?;
+        self.1.initialize(db, user_id, draft, snapshot).await?;
         Ok(())
     }
 }
@@ -65,6 +68,7 @@ impl Initialize for ExpandDraft {
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        _snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         // Expand the set of drafted specs to include any tasks that read from or write to any of
         // the published collections. We do this so that validation can catch any inconsistencies
@@ -116,6 +120,7 @@ impl Initialize for RuntimeV2Rollout {
         db: &sqlx::PgPool,
         _user_id: Uuid,
         draft: &mut tables::DraftCatalog,
+        _snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         let flag = models::Token::new(models::ENABLE_RUNTIME_V2);
 

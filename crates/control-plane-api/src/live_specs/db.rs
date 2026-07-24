@@ -2,7 +2,6 @@ use crate::TextJson;
 use models::{Capability, CatalogType, Id};
 use serde_json::value::RawValue;
 use sqlx::types::{Json, Uuid};
-use tables::RoleGrant;
 
 /// Deletes the given live spec row, along with the corresponding `controller_jobs` row.
 pub async fn hard_delete_live_spec(id: Id, txn: &mut sqlx::PgConnection) -> sqlx::Result<()> {
@@ -35,22 +34,17 @@ pub struct LiveSpec {
     pub inferred_schema_md5: Option<String>,
     // User's capability to the specification `catalog_name`.
     pub user_capability: Option<Capability>,
-    // Capabilities of the specification with respect to other roles.
-    pub spec_capabilities: Json<Vec<RoleGrant>>,
     pub dependency_hash: Option<String>,
 }
 
 /// Returns a `LiveSpec` row for each of the given `names`. This will always return a row for each
 /// name, even if no live spec exists in the database.
 pub async fn fetch_live_specs(
-    user_id: uuid::Uuid,
     names: &[String],
-    fetch_user_capabilities: bool,
-    fetch_spec_capabilities: bool,
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
-    snapshot: &crate::Snapshot,
+    _snapshot: &crate::Snapshot,
 ) -> sqlx::Result<Vec<LiveSpec>> {
-    let mut live_spec = sqlx::query_as!(
+    let live_spec = sqlx::query_as!(
         LiveSpec,
         r#"
         select
@@ -64,9 +58,6 @@ pub async fn fetch_live_specs(
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
             null as "user_capability: Capability",
-            -- `spec_capabilities` are synthesized from the authorization Snapshot
-            -- below rather than queried here; see `fetch_spec_capabilities`.
-            '[]' as "spec_capabilities!: Json<Vec<RoleGrant>>",
             ls.dependency_hash
         from unnest($1::text[]) names
         left outer join live_specs ls on ls.catalog_name = names
@@ -76,33 +67,6 @@ pub async fn fetch_live_specs(
     .fetch_all(db)
     .await?;
 
-    if fetch_user_capabilities {
-        // Compute each spec's capability independently. The user's authorization
-        // to one name must not leak to the others in the batch: a user with admin
-        // on a drafted `dogs/` spec that references `cats/noms` must still show as
-        // unauthorized to `cats/noms`. This mirrors the previous per-row SQL
-        // `max(capability) ... where starts_with(name, role_prefix)` — the user's
-        // greatest capability among the prefixes that `catalog_name` falls under.
-        let reachable = snapshot.prefix_and_capabilities_per_user(user_id);
-        for spec in live_spec.iter_mut() {
-            let mut max_capability: Option<Capability> = None;
-            for (prefix, (_, capability)) in reachable.iter() {
-                if spec.catalog_name.starts_with(*prefix) {
-                    max_capability = max_capability.max(Some(*capability));
-                }
-            }
-            spec.user_capability = max_capability;
-        }
-    }
-    if fetch_spec_capabilities {
-        // A spec's capabilities are the role grants whose `subject_role` is a
-        // prefix of its `catalog_name` — the grants it holds by virtue of its
-        // own name/role. Sourced from the Snapshot's `role_grants` rather than
-        // the database, mirroring `role_grants where starts_with(name, subject_role)`.
-        for spec in live_spec.iter_mut() {
-            spec.spec_capabilities = Json(snapshot.spec_capabilities(&spec.catalog_name));
-        }
-    }
     Ok(live_spec)
 }
 
@@ -170,12 +134,6 @@ pub async fn fetch_expanded_live_specs(
                 select max(capability) from internal.user_roles($1) r
                 where starts_with(ls.catalog_name, r.role_prefix)
             ) as "user_capability: Capability",
-            coalesce(
-                (select json_agg(row_to_json(role_grants))
-                from role_grants
-                where starts_with(ls.catalog_name, subject_role)),
-                '[]'
-            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
             ls.dependency_hash
         from exp
         join live_specs ls on ls.id = exp.id

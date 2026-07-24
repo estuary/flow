@@ -315,8 +315,10 @@ impl Publisher {
         }: &DraftPublication<Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut draft = raw_draft.clone_specs();
+        let snapshot = self.snapshot.token();
+        let snapshot = snapshot.result().unwrap();
         initialize
-            .initialize(&self.db, *user_id, &mut draft)
+            .initialize(&self.db, *user_id, &mut draft, snapshot)
             .await
             .context("initializing draft")?;
         // It's important that we generate the pub id inside the retry loop so that we can

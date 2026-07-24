@@ -26,15 +26,7 @@ pub async fn get_live_specs(
     // Limit each individual query to 512 names to avoid statement timeouts when
     // fetching a large number of specs when `filter_capability` is `Some`.
     for names_chunk in names.chunks(512) {
-        let rows = db::fetch_live_specs(
-            user_id,
-            names_chunk,
-            filter_capability.is_some(), // fetch user capabilities only if needed
-            false,                       // we never need spec_capabilities here
-            db,
-            snapshot,
-        )
-        .await?;
+        let rows = db::fetch_live_specs(names_chunk, db, snapshot).await?;
         for row in rows {
             // Spec type might be null because we used to set it to null when deleting specs.
             // For recently deleted specs, it will still be present.
@@ -45,14 +37,17 @@ pub async fn get_live_specs(
                 continue;
             };
             if let Some(min_capability) = filter_capability {
-                if !row
-                    .user_capability
-                    .is_some_and(|actual_capability| actual_capability >= min_capability)
-                {
+                if !tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    user_id,
+                    &row.catalog_name,
+                    min_capability,
+                ) {
                     continue;
                 }
             }
-            let built_spec_json = row.built_spec.as_ref().ok_or_else(|| {
+            let built_spec_json: &Box<sqlx::types::JsonRawValue> = row.built_spec.as_ref().ok_or_else(|| {
                 tracing::warn!(catalog_name = %row.catalog_name, id = %row.id, "got row with spec but not built_spec");
                 anyhow::anyhow!("missing built_spec for {:?}, but spec is non-null", row.catalog_name)
             })?.deref();

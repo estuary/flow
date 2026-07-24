@@ -42,11 +42,33 @@ impl JobStatus {
 
 type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error>>;
 
-pub struct DiscoverOutcome {
-    id: Id,
-    draft_id: Id,
-    result: ProcessResult,
-    status: JobStatus,
+/// How long to wait before re-polling a discover whose authorization could not
+/// be determined because the snapshot predated the discover row (see
+/// `Processed::RetryStale`). A short backoff favors responsiveness; if the
+/// refresh hasn't landed yet the task simply re-polls (and re-requests the
+/// refresh) until it does.
+const STALE_SNAPSHOT_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Outcome of evaluating a discover in `DiscoverExecutor::process`.
+enum Processed {
+    /// A terminal status (success or failure) to be persisted and resolved.
+    Resolved(JobStatus, ProcessResult),
+    /// Authorization could not be determined because the snapshot predated the
+    /// discover row. A refresh has been requested; retry after a short delay.
+    RetryStale,
+}
+
+pub enum DiscoverOutcome {
+    /// The discover reached a terminal state and should be resolved.
+    Resolved {
+        id: Id,
+        draft_id: Id,
+        result: ProcessResult,
+        status: JobStatus,
+    },
+    /// The authorization snapshot was stale; the discover is left queued and
+    /// re-polled once a refreshed snapshot should be authoritative.
+    RetryStale,
 }
 
 impl automations::Outcome for DiscoverOutcome {
@@ -54,12 +76,17 @@ impl automations::Outcome for DiscoverOutcome {
         self,
         txn: &'s mut sqlx::PgConnection,
     ) -> anyhow::Result<automations::Action> {
-        let DiscoverOutcome {
+        let DiscoverOutcome::Resolved {
             id,
             draft_id,
             result,
             status,
-        } = self;
+        } = self
+        else {
+            // Leave the discover unresolved and re-poll after a short delay, by
+            // which point a refreshed snapshot should be authoritative.
+            return Ok(automations::Action::Sleep(STALE_SNAPSHOT_RETRY_BACKOFF));
+        };
 
         control_plane_api::draft::delete_errors(draft_id, txn)
             .await
@@ -79,8 +106,8 @@ impl automations::Outcome for DiscoverOutcome {
     }
 }
 
-fn precheck_failed(status: JobStatus) -> (JobStatus, ProcessResult) {
-    (status, Err(Vec::new()))
+fn precheck_failed(status: JobStatus) -> Processed {
+    Processed::Resolved(status, Err(Vec::new()))
 }
 
 pub struct DiscoverExecutor<C: DiscoverConnectors> {
@@ -110,15 +137,30 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
         let draft_id = row.draft_id;
         assert_eq!(row.id, task_id);
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
-        let (status, result) = self.process(row, pool).await?;
-        tracing::info!(id=%task_id, %time_queued, ?status, "finished");
+
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+
+        let processed = self.process(row, pool, &snapshot).await?;
         inbox.clear();
-        Ok(DiscoverOutcome {
-            id: task_id,
-            draft_id,
-            result,
-            status,
-        })
+        match processed {
+            Processed::Resolved(status, result) => {
+                tracing::info!(id=%task_id, %time_queued, ?status, "finished");
+                Ok(DiscoverOutcome::Resolved {
+                    id: task_id,
+                    draft_id,
+                    result,
+                    status,
+                })
+            }
+            Processed::RetryStale => {
+                tracing::info!(
+                    id=%task_id, %time_queued,
+                    "authorization snapshot is stale; rescheduling discover after refresh"
+                );
+                Ok(DiscoverOutcome::RetryStale)
+            }
+        }
     }
 }
 
@@ -128,7 +170,8 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         &self,
         row: Row,
         pool: &sqlx::PgPool,
-    ) -> anyhow::Result<(JobStatus, ProcessResult)> {
+        snapshot: &Snapshot,
+    ) -> anyhow::Result<Processed> {
         tracing::info!(
             %row.capture_name,
             %row.connector_tag_id,
@@ -154,9 +197,6 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
 
-        let snapshot = self.snapshot_watch.token();
-        let snapshot = snapshot.result().unwrap();
-
         let is_authorized = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
@@ -166,7 +206,18 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         );
         if !is_authorized {
             tracing::warn!(data_plane_name = ?row.data_plane_name, "user may not be authorized to read data plane");
-            return Ok(precheck_failed(JobStatus::NotAuthorized));
+            if snapshot.taken > row.updated_at {
+                // The snapshot reflects the world after this discover was
+                // queued, so the denial is authoritative.
+                return Ok(precheck_failed(JobStatus::NotAuthorized));
+            } else {
+                // The snapshot predates this discover's row, so a grant that
+                // would authorize the read may not be reflected yet. Request an
+                // early refresh and retry, rather than emitting a spurious
+                // NotAuthorized/NoDataPlane.
+                snapshot.revoke.cancel();
+                return Ok(Processed::RetryStale);
+            }
         }
         let data_plane = snapshot.data_plane_by_catalog_name(&row.data_plane_name);
 
@@ -196,7 +247,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         };
 
         match result {
-            Ok(output) if output.is_success() => Ok((
+            Ok(output) if output.is_success() => Ok(Processed::Resolved(
                 JobStatus::Success {
                     publication_id: None,
                     specs_unchanged: false,
@@ -210,7 +261,10 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                     .iter()
                     .map(tables::Error::to_draft_error)
                     .collect::<Vec<_>>();
-                Ok((JobStatus::DiscoverFailed, Err(draft_errs)))
+                Ok(Processed::Resolved(
+                    JobStatus::DiscoverFailed,
+                    Err(draft_errs),
+                ))
             }
             Err(err) => {
                 let draft_errors = vec![models::draft_error::Error {
@@ -221,7 +275,10 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                     catalog_name: row.capture_name.clone(),
                     detail: format!("{:#}", err),
                 }];
-                Ok((JobStatus::DiscoverFailed, Err(draft_errors)))
+                Ok(Processed::Resolved(
+                    JobStatus::DiscoverFailed,
+                    Err(draft_errors),
+                ))
             }
         }
     }

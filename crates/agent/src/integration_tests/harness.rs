@@ -671,7 +671,6 @@ impl TestHarness {
     }
 
     pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
-        let user_id = self.control_plane().inner.system_user_id;
         let owned_names: Vec<String> = prev_specs
             .all_spec_names()
             .map(|n| (*n).to_owned())
@@ -679,16 +678,10 @@ impl TestHarness {
         let snapshot = self.snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
 
-        let specs = control_plane_api::live_specs::fetch_live_specs(
-            user_id,
-            &owned_names,
-            false, /* don't fetch user capabilities */
-            false, /* don't fetch spec capabilities */
-            &self.pool,
-            &snapshot,
-        )
-        .await
-        .expect("failed to query live specs");
+        let specs =
+            control_plane_api::live_specs::fetch_live_specs(&owned_names, &self.pool, &snapshot)
+                .await
+                .expect("failed to query live specs");
         assert_eq!(
             prev_specs.spec_count(),
             specs.len(),
@@ -1320,6 +1313,66 @@ impl TestHarness {
         );
 
         UserDiscoverResult::load(disco_id, &self.pool).await
+    }
+
+    /// Inserts a queued `discovers` row for a caller-chosen `data_plane_name`
+    /// and returns its id, without running it. Unlike `user_discover`, the
+    /// data-plane is a parameter so tests can drive authorization outcomes
+    /// (which are evaluated against `data_plane_name`).
+    pub async fn queue_discover(
+        &self,
+        image_name: &str,
+        image_tag: &str,
+        capture_name: &str,
+        draft_id: Id,
+        data_plane_name: &str,
+    ) -> Id {
+        let connector_tag = sqlx::query!(
+            r##"select ct.id as "id: Id"
+            from connectors c
+            join connector_tags ct on c.id = ct.connector_id
+            where c.image_name = $1 and ct.image_tag = $2;"##,
+            image_name,
+            image_tag
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("querying for connector_tags id");
+
+        let config_json = TextJson(models::RawValue::from_str("{}").unwrap());
+        let disco = sqlx::query!(
+            r##"insert into discovers (
+                capture_name,
+                connector_tag_id,
+                draft_id,
+                endpoint_config,
+                update_only,
+                data_plane_name
+            ) values ($1, $2, $3, $4, false, $5)
+            returning id as "id: Id";"##,
+            capture_name as &str,
+            connector_tag.id as Id,
+            draft_id as Id,
+            config_json as TextJson<models::RawValue>,
+            data_plane_name as &str,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+        disco.id
+    }
+
+    /// Returns the current `job_status` of a `discovers` row.
+    pub async fn discover_job_status(&self, discover_id: Id) -> crate::discovers::JobStatus {
+        let row = sqlx::query!(
+            r#"select job_status as "job_status: TextJson<discovers::JobStatus>"
+            from discovers where id = $1;"#,
+            discover_id as Id,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .expect("failed to query discover");
+        row.job_status.0
     }
 
     pub async fn fail_shard(&mut self, shard: &ShardRef) {
