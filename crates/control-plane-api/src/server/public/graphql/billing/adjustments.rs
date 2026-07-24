@@ -74,6 +74,19 @@ pub async fn insert_adjustment(
     .await
 }
 
+/// Page size used when the caller does not pass `first`/`last`, so an
+/// unbounded connection request can't fetch a tenant's entire adjustment
+/// history in one shot.
+const DEFAULT_PAGE_SIZE: usize = 100;
+
+/// Drops the extra sentinel row fetched to detect a further page, returning
+/// the page rows and whether more exist beyond it.
+fn trim_page(mut rows: Vec<BillingAdjustment>, page_size: usize) -> (Vec<BillingAdjustment>, bool) {
+    let has_more = rows.len() > page_size;
+    rows.truncate(page_size);
+    (rows, has_more)
+}
+
 /// Forward pagination: fetch adjustments older than `cursor` (or the newest
 /// adjustments when `cursor` is `None`). Returned rows are ordered newest-first.
 pub async fn fetch_adjustments_forward(
@@ -82,8 +95,9 @@ pub async fn fetch_adjustments_forward(
     cursor: Option<DateTime<Utc>>,
     limit: Option<usize>,
 ) -> sqlx::Result<(Vec<BillingAdjustment>, bool)> {
-    let query_limit = limit.map(|l| l as i64 + 1).unwrap_or(i64::MAX);
-    let mut rows = sqlx::query_as!(
+    let page_size = limit.unwrap_or(DEFAULT_PAGE_SIZE);
+    let query_limit = page_size as i64 + 1;
+    let rows = sqlx::query_as!(
         BillingAdjustment,
         r#"
         SELECT
@@ -108,11 +122,7 @@ pub async fn fetch_adjustments_forward(
     .fetch_all(pool)
     .await?;
 
-    let has_more = limit.is_some_and(|l| rows.len() > l);
-    if let Some(l) = limit {
-        rows.truncate(l);
-    }
-    Ok((rows, has_more))
+    Ok(trim_page(rows, page_size))
 }
 
 /// Backward pagination: fetch adjustments newer than `cursor`. Returned rows
@@ -124,8 +134,9 @@ pub async fn fetch_adjustments_backward(
     cursor: Option<DateTime<Utc>>,
     limit: Option<usize>,
 ) -> sqlx::Result<(Vec<BillingAdjustment>, bool)> {
-    let query_limit = limit.map(|l| l as i64 + 1).unwrap_or(i64::MAX);
-    let mut rows = sqlx::query_as!(
+    let page_size = limit.unwrap_or(DEFAULT_PAGE_SIZE);
+    let query_limit = page_size as i64 + 1;
+    let rows = sqlx::query_as!(
         BillingAdjustment,
         r#"
         SELECT
@@ -150,10 +161,7 @@ pub async fn fetch_adjustments_backward(
     .fetch_all(pool)
     .await?;
 
-    let has_more = limit.is_some_and(|l| rows.len() > l);
-    if let Some(l) = limit {
-        rows.truncate(l);
-    }
+    let (mut rows, has_more) = trim_page(rows, page_size);
     rows.reverse();
     Ok((rows, has_more))
 }
@@ -367,7 +375,10 @@ mod tests {
         let _guard = test_server::init();
         let tenant = "adjustpage";
         let admin_user_id = provision_test_tenant(&pool, tenant).await;
-        let support_user_id = provision_support_user(&pool, "support@estuary.test", tenant).await;
+        // Seeds the estuary_support/ grants so the fixture inserts below have a
+        // valid authorizer; the returned user id isn't needed (the test reads
+        // as the tenant admin).
+        provision_support_user(&pool, "support@estuary.test", tenant).await;
 
         // Insert three adjustments with distinct, increasing created_at values,
         // so "credit 2" is the newest.
@@ -393,7 +404,6 @@ mod tests {
             .await
             .expect("insert adjustment fixture");
         }
-        let _ = support_user_id;
 
         let (server, admin_token) =
             start_server_and_token(&pool, admin_user_id, tenant, mock_provider()).await;
