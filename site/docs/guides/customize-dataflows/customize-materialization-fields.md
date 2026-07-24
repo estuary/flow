@@ -185,6 +185,28 @@ Regardless of user selections, the connector will always require certain basic f
 
 The dashboard will provide a full list of fields that will be materialized, including required fields, along with their selection reasons.
 
+### Metadata (`_meta`) fields and depth selection
+
+Document metadata fields under `_meta` (such as `_meta/source/ts_ms`, `_meta/source/txid`, and `_meta/before/*`) are treated as a special case: they are **not** selected by the depth-based **modes** (Depth One, Depth Two, or Unlimited Depth). Even Unlimited Depth does not pull in `_meta` subfields automatically.
+
+Two metadata fields are the exception, and are selected automatically whenever any depth mode is active:
+
+* `_meta/op`: the change operation type (create, update, or delete).
+* `flow_published_at`: the time at which Estuary published the document.
+
+To materialize any other [`_meta` field](/guides/advanced-usage/metadata-fields), add it explicitly to the binding's `require` list (or click **Require** for that field in the Field Selection table). There is no wildcard or global setting that includes all `_meta` fields at once; each field must be named individually, per binding:
+
+```yaml
+bindings:
+  - source: acmeCo/example/collection
+    resource: { table: example_table }
+    fields:
+      recommended: true
+      require:
+        _meta/source/ts_ms: {}
+        _meta/source/txid: {}
+```
+
 ### Group-By Keys
 
 In addition to selecting fields to materialize, you can also specify which of those fields should be used as group-by keys.
