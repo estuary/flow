@@ -1,5 +1,5 @@
 ---
-description: Materialize collections to HubSpot CRM objects such as Contacts, Companies, Deals, etc.
+description: Materialize collections to HubSpot CRM objects such as Contacts, Companies, and Deals for reverse-ETL workflows.
 ---
 
 # HubSpot
