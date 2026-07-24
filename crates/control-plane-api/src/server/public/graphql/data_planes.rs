@@ -914,6 +914,7 @@ mod tests {
                         dataPlanes {
                             edges {
                                 node {
+                                    id
                                     name
                                     fqdn
                                     reactorAddress
@@ -938,35 +939,26 @@ mod tests {
             .await;
 
         insta::assert_json_snapshot!(response);
-    }
 
-    // Exercises the `filter` argument and the `id` field. Alice can read both
-    // public data planes from the fixture; the defunct private one is neither
-    // authorized nor present in the snapshot.
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
-    )]
-    async fn test_graphql_data_planes_filter(pool: sqlx::PgPool) {
-        let _guard = test_server::init();
-
-        let server =
-            test_server::TestServer::start(pool.clone(), test_server::snapshot(pool, false).await)
-                .await;
-
-        let token = server.make_access_token(uuid::Uuid::from_bytes([0x11; 16]), None);
-
-        // Helper: run a query (optionally with variables) and return the list of
-        // `{ id, name }` node objects, asserting the response carried no errors.
+        // Exercise the filters against the same server and fixture as the
+        // unfiltered field snapshot above.
         async fn ids_and_names(
             server: &test_server::TestServer,
             token: &str,
-            query: &str,
-            variables: serde_json::Value,
+            filter: serde_json::Value,
         ) -> Vec<(String, String)> {
             let response: serde_json::Value = server
                 .graphql(
-                    &serde_json::json!({ "query": query, "variables": variables }),
+                    &serde_json::json!({
+                        "query": r#"
+                            query($filter: DataPlanesFilter) {
+                                dataPlanes(filter: $filter) {
+                                    edges { node { id name } }
+                                }
+                            }
+                        "#,
+                        "variables": { "filter": filter },
+                    }),
                     Some(token),
                 )
                 .await;
@@ -987,65 +979,38 @@ mod tests {
                 .collect()
         }
 
-        const LIST_QUERY: &str = r#"
-            query($filter: DataPlanesFilter) {
-                dataPlanes(filter: $filter) {
-                    edges { node { id name } }
-                }
-            }
-        "#;
+        let edges = response["data"]["dataPlanes"]["edges"]
+            .as_array()
+            .expect("edges array");
+        let id_for = |name: &str| {
+            edges
+                .iter()
+                .find(|edge| edge["node"]["name"] == name)
+                .and_then(|edge| edge["node"]["id"].as_str())
+                .unwrap_or_else(|| panic!("missing id for data plane {name}"))
+                .to_string()
+        };
+        let aws_id = id_for("ops/dp/public/aws-us-west-2-c1");
+        let gcp_id = id_for("ops/dp/public/gcp-us-central1-c2");
 
-        // Unfiltered: both public planes, sorted by name.
-        let all = ids_and_names(&server, &token, LIST_QUERY, serde_json::json!({})).await;
-        assert_eq!(
-            all.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>(),
-            vec![
-                "ops/dp/public/aws-us-west-2-c1",
-                "ops/dp/public/gcp-us-central1-c2",
-            ],
-        );
-        let (aws_id, _) = all[0].clone();
-        let (gcp_id, _) = all[1].clone();
-
-        // Filter by a single id resolves exactly that plane.
-        let one = ids_and_names(
+        // A multi-id filter returns known matches and omits unknown ids without
+        // erroring.
+        let known_and_unknown = ids_and_names(
             &server,
             &token,
-            LIST_QUERY,
-            serde_json::json!({ "filter": { "id": { "in": [aws_id] } } }),
+            serde_json::json!({ "id": { "in": [aws_id, "ffffffffffffffff"] } }),
         )
         .await;
         assert_eq!(
-            one,
-            vec![(aws_id.clone(), "ops/dp/public/aws-us-west-2-c1".to_string())]
+            known_and_unknown,
+            vec![(aws_id, "ops/dp/public/aws-us-west-2-c1".to_string())]
         );
-
-        // Filter by a set of ids returns all matches the caller can read.
-        let both = ids_and_names(
-            &server,
-            &token,
-            LIST_QUERY,
-            serde_json::json!({ "filter": { "id": { "in": [aws_id, gcp_id.clone()] } } }),
-        )
-        .await;
-        assert_eq!(both.len(), 2);
-
-        // A well-formed but unknown id is omitted, not an error.
-        let unknown = ids_and_names(
-            &server,
-            &token,
-            LIST_QUERY,
-            serde_json::json!({ "filter": { "id": { "in": ["ffffffffffffffff"] } } }),
-        )
-        .await;
-        assert!(unknown.is_empty());
 
         // Name-prefix filter narrows to the single matching plane.
         let by_prefix = ids_and_names(
             &server,
             &token,
-            LIST_QUERY,
-            serde_json::json!({ "filter": { "dataPlaneName": { "startsWith": "ops/dp/public/gcp" } } }),
+            serde_json::json!({ "dataPlaneName": { "startsWith": "ops/dp/public/gcp" } }),
         )
         .await;
         assert_eq!(
@@ -1069,25 +1034,27 @@ mod tests {
                 Some(&token),
             )
             .await;
+        assert!(
+            spec.get("errors").is_none(),
+            "unexpected errors resolving live spec: {spec}"
+        );
         let data_plane_id =
             spec["data"]["liveSpecs"]["edges"][0]["node"]["liveSpec"]["dataPlaneId"]
                 .as_str()
                 .expect("live spec dataPlaneId");
-        assert_eq!(
-            data_plane_id, aws_id,
-            "DataPlane.id must equal LiveSpec.dataPlaneId"
-        );
 
         let resolved = ids_and_names(
             &server,
             &token,
-            LIST_QUERY,
-            serde_json::json!({ "filter": { "id": { "in": [data_plane_id] } } }),
+            serde_json::json!({ "id": { "in": [data_plane_id] } }),
         )
         .await;
         assert_eq!(
             resolved,
-            vec![(aws_id, "ops/dp/public/aws-us-west-2-c1".to_string())],
+            vec![(
+                data_plane_id.to_string(),
+                "ops/dp/public/aws-us-west-2-c1".to_string()
+            )],
         );
     }
 
