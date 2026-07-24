@@ -15,7 +15,9 @@ const DEFAULT_PAGE_SIZE: usize = 50;
 const MAX_PREFIXES: usize = 20;
 
 /// Optional filter for the `alertConfigs` query. When omitted, all accessible
-/// rows are returned.
+/// rows are returned. A filter only narrows those results; the caller's
+/// catalog-read scope is enforced independently, so it can never widen what a
+/// caller may see.
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct AlertConfigsFilter {
     /// Filter on the `catalog_prefix_or_name` column.
@@ -108,9 +110,9 @@ impl AlertConfigsQuery {
     /// Lists alert-config rows visible to the caller.
     ///
     /// Results are limited to readable prefixes and sorted by
-    /// `catalog_prefix_or_name`. `filter.catalogPrefixOrName.startsWith` can
-    /// narrow the results further. Passing a full catalog name returns at
-    /// most one exact-name row.
+    /// `catalog_prefix_or_name`. `filter.catalogPrefixOrName` narrows further,
+    /// by subtree (`startsWith`) or an exact set (`in`) — not both. Passing a
+    /// full catalog name returns at most one exact-name row.
     pub async fn alert_configs(
         &self,
         ctx: &Context<'_>,
@@ -121,17 +123,16 @@ impl AlertConfigsQuery {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        let prefix_starts_with = filter
-            .and_then(|f| f.catalog_prefix_or_name)
-            .and_then(|f| f.starts_with);
-
-        let read_prefixes = super::authorized_prefixes::authorized_prefixes(
-            &env.snapshot().role_grants,
-            &env.snapshot().user_grants,
-            claims.sub,
-            models::Capability::Read,
-            prefix_starts_with.as_deref(),
-        );
+        let snapshot = env.snapshot();
+        let (read_prefixes, prefix_starts_with, prefix_in) =
+            super::authorized_prefixes::filtered_authorized_prefixes(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                claims.sub,
+                models::Capability::Read,
+                filter.and_then(|f| f.catalog_prefix_or_name),
+                "filter.catalogPrefixOrName",
+            )?;
 
         if read_prefixes.is_empty() {
             return Ok(PaginatedAlertConfigs::new(false, false));
@@ -164,6 +165,7 @@ impl AlertConfigsQuery {
                     WHERE catalog_prefix_or_name::text ^@ ANY($1)
                       AND ($2::text IS NULL OR catalog_prefix_or_name::text > $2)
                       AND ($3::text IS NULL OR catalog_prefix_or_name::text ^@ $3)
+                      AND ($5::text[] IS NULL OR catalog_prefix_or_name::text = ANY($5))
                     ORDER BY catalog_prefix_or_name ASC
                     LIMIT $4 + 1
                     "#,
@@ -171,6 +173,7 @@ impl AlertConfigsQuery {
                     after.as_deref(),
                     prefix_starts_with.as_deref(),
                     limit as i64,
+                    prefix_in.as_deref(),
                 )
                 .fetch_all(&env.pg_pool)
                 .await
@@ -577,5 +580,152 @@ mod test {
             )
             .await;
         insta::assert_json_snapshot!("effective_defaults_plus_prefix_override", response);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_alert_configs_filter(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // Alice can read `aliceCo/` (admin grant) and `ops/dp/public/` (role
+        // grant), but not `otherCo/`. Seed one config row per prefix.
+        for name in ["aliceCo/", "aliceCo/team/", "otherCo/"] {
+            sqlx::query("INSERT INTO alert_configs (catalog_prefix_or_name, config) VALUES ($1, '{}'::jsonb)")
+                .bind(name)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        // `gate: false` serves the real authorization snapshot immediately.
+        // Unlike the invite-link tests, this test seeds rows with raw SQL and
+        // never runs an authorized mutation first, so nothing would otherwise
+        // advance a gated snapshot past its initial empty state.
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let alice_token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        // Helper: run a filter and return the returned catalog_prefix_or_name
+        // values (already sorted ascending by the query), asserting no errors.
+        async fn names(
+            server: &test_server::TestServer,
+            token: &str,
+            filter: serde_json::Value,
+        ) -> Vec<String> {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                            query($filter: AlertConfigsFilter) {
+                                alertConfigs(filter: $filter) {
+                                    edges { node { catalogPrefixOrName } }
+                                }
+                            }
+                        "#,
+                        "variables": { "filter": filter },
+                    }),
+                    Some(token),
+                )
+                .await;
+            assert!(
+                response.get("errors").is_none(),
+                "unexpected errors: {response}"
+            );
+            response["data"]["alertConfigs"]["edges"]
+                .as_array()
+                .expect("edges array")
+                .iter()
+                .map(|edge| {
+                    edge["node"]["catalogPrefixOrName"]
+                        .as_str()
+                        .unwrap()
+                        .to_string()
+                })
+                .collect()
+        }
+
+        // No filter returns every readable row and never `otherCo/`.
+        let all = names(&server, &alice_token, serde_json::json!({})).await;
+        assert_eq!(all, vec!["aliceCo/", "aliceCo/team/"]);
+
+        // `startsWith` narrows by subtree.
+        let subtree = names(
+            &server,
+            &alice_token,
+            serde_json::json!({ "catalogPrefixOrName": { "startsWith": "aliceCo/team/" } }),
+        )
+        .await;
+        assert_eq!(subtree, vec!["aliceCo/team/"]);
+
+        // `in` matches an exact set. Alice can read two prefixes, so this also
+        // exercises the retain() that narrows the authorized set down before
+        // the MAX_PREFIXES guard.
+        let exact_one = names(
+            &server,
+            &alice_token,
+            serde_json::json!({ "catalogPrefixOrName": { "in": ["aliceCo/"] } }),
+        )
+        .await;
+        assert_eq!(exact_one, vec!["aliceCo/"]);
+
+        // `startsWith` and `in` are mutually exclusive prefix-scoping modes;
+        // providing both is rejected rather than intersected.
+        let both: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        alertConfigs(filter: { catalogPrefixOrName: { startsWith: "aliceCo/", in: ["aliceCo/team/"] } }) {
+                            edges { node { catalogPrefixOrName } }
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            both["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "combining `startsWith` and `in` should be rejected: {both}"
+        );
+
+        // A cross-tenant `in` entry Alice cannot read is dropped, not honored.
+        let cross_tenant = names(
+            &server,
+            &alice_token,
+            serde_json::json!({ "catalogPrefixOrName": { "in": ["otherCo/"] } }),
+        )
+        .await;
+        assert!(cross_tenant.is_empty());
+
+        // An empty `in` set is rejected at input validation.
+        let empty_in: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        alertConfigs(filter: { catalogPrefixOrName: { in: [] } }) {
+                            edges { node { catalogPrefixOrName } }
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            empty_in["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "empty `in` should be rejected: {empty_in}"
+        );
     }
 }
