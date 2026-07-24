@@ -23,6 +23,13 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 )
 
+// hstsHeaderValue instructs clients to only ever reach us over HTTPS.
+// We emit it on every HTTPS response, including the best-effort error
+// responses of serveConnErr: a security scanner connecting to the raw
+// address (no matching SNI) is served an error and would otherwise see
+// no HSTS header at all.
+const hstsHeaderValue = "max-age=31536000; includeSubDomains"
+
 // Frontend accepts connections over its configured Listener,
 // matches on the TLS ServerName (SNI), and either:
 //
@@ -393,6 +400,8 @@ func (p *Frontend) serveConnHTTP(user *frontendConn) {
 	var handle = func(w http.ResponseWriter, req *http.Request) {
 		httpStartedCounter.WithLabelValues(task, port, req.Method).Inc()
 
+		w.Header().Set("Strict-Transport-Security", hstsHeaderValue)
+
 		if user.resolved.portIsPublic {
 			reverse.ServeHTTP(w, req)
 		} else if req.URL.Path == "/auth-redirect" {
@@ -436,9 +445,13 @@ func (f *Frontend) serveConnErr(conn net.Conn, status int, body string) {
 	// We're terminating this connection and sending a best-effort error.
 	// We don't know what the client is, or even if they speak HTTP,
 	// but we do only offer `http/1.1` during ALPN under an error condition.
+	// Emit HSTS on error responses too. Clients that reach us over a raw
+	// address without a matching SNI are served here rather than through
+	// the HTTP handler, and must still be told to prefer HTTPS.
 	var resp, _ = httputil.DumpResponse(&http.Response{
 		ProtoMajor: 1, ProtoMinor: 1,
 		StatusCode: status,
+		Header:     http.Header{"Strict-Transport-Security": []string{hstsHeaderValue}},
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Close:      true,
 	}, true)
