@@ -35,6 +35,10 @@ pub struct LiveSpec {
     // User's capability to the specification `catalog_name`.
     pub user_capability: Option<Capability>,
     pub dependency_hash: Option<String>,
+    // When the live spec row was last updated. `None` when no live spec exists
+    // yet for `catalog_name` (the outer join yielded no row). Used to detect an
+    // authorization snapshot that predates a concurrent change to the spec.
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Returns a `LiveSpec` row for each of the given `names`. This will always return a row for each
@@ -58,7 +62,8 @@ pub async fn fetch_live_specs(
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
             null as "user_capability: Capability",
-            ls.dependency_hash
+            ls.dependency_hash,
+            ls.updated_at as "updated_at?: chrono::DateTime<chrono::Utc>"
         from unnest($1::text[]) names
         left outer join live_specs ls on ls.catalog_name = names
         "#,
@@ -134,7 +139,8 @@ pub async fn fetch_expanded_live_specs(
                 select max(capability) from internal.user_roles($1) r
                 where starts_with(ls.catalog_name, r.role_prefix)
             ) as "user_capability: Capability",
-            ls.dependency_hash
+            ls.dependency_hash,
+            ls.updated_at as "updated_at?: chrono::DateTime<chrono::Utc>"
         from exp
         join live_specs ls on ls.id = exp.id
         where ls.spec is not null and not ls.catalog_name = any($3);

@@ -168,14 +168,30 @@ pub async fn evolve(
     };
     let snapshot = snapshot.token();
     let snapshot = snapshot.result().unwrap();
-    let live_collections = crate::live_specs::get_live_specs(
+    let live_collections = match crate::live_specs::get_live_specs(
         user_id,
         &fetch_collections,
         capability_filter,
         db,
         snapshot,
     )
-    .await?;
+    .await
+    {
+        Ok(live) => live,
+        Err(err)
+            if matches!(
+                err.downcast_ref::<validation::Error>(),
+                Some(validation::Error::AuthorizationSnapshotStale { .. })
+            ) =>
+        {
+            // A referenced collection was denied against a snapshot that
+            // predates it. Request an early refresh so a retry sees the fresher
+            // snapshot, and surface the retryable error.
+            snapshot.revoke.cancel();
+            return Err(err);
+        }
+        Err(err) => return Err(err),
+    };
 
     draft.add_live(live_collections);
 
@@ -184,14 +200,28 @@ pub async fn evolve(
         .map(|r| r.current_name.as_str())
         .collect::<Vec<_>>();
     let exclude_names = draft.all_spec_names().collect::<Vec<_>>();
-    let expanded_live = crate::live_specs::get_connected_live_specs(
+    let expanded_live = match crate::live_specs::get_connected_live_specs(
         user_id,
         &collection_names,
         &exclude_names,
         capability_filter,
         db,
+        snapshot,
     )
-    .await?;
+    .await
+    {
+        Ok(live) => live,
+        Err(err)
+            if matches!(
+                err.downcast_ref::<validation::Error>(),
+                Some(validation::Error::AuthorizationSnapshotStale { .. })
+            ) =>
+        {
+            snapshot.revoke.cancel();
+            return Err(err);
+        }
+        Err(err) => return Err(err),
+    };
     draft.add_live(expanded_live);
 
     let mut actions = Vec::new();

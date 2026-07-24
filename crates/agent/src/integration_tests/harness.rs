@@ -1460,17 +1460,35 @@ impl TestHarness {
         .expect("failed to create publication");
         txn.commit().await.expect("failed to commit transaction");
 
-        let task_id = self
-            .run_automation_task(automations::task_types::PUBLICATIONS)
-            .await
-            .expect("expected a publication task to have run");
-        assert_eq!(
-            task_id, pub_id,
-            "automations task id should match the publication that was just created"
-        );
+        // A publication whose authorization was evaluated against a stale
+        // Snapshot reschedules (Action::Sleep) instead of resolving. Production
+        // re-polls it once the background watch refreshes; here we mimic that by
+        // refreshing the Snapshot and forcing the task due, bounded so a genuine
+        // failure to converge still surfaces.
+        let mut attempts = 0;
+        let pub_result = loop {
+            let task_id = self
+                .run_automation_task(automations::task_types::PUBLICATIONS)
+                .await
+                .expect("expected a publication task to have run");
+            assert_eq!(
+                task_id, pub_id,
+                "automations task id should match the publication that was just created"
+            );
 
-        let pub_result = self.get_publication_result(pub_id.into()).await;
-        assert_ne!(publications::StatusType::Queued, pub_result.status.r#type);
+            let pub_result = self.get_publication_result(pub_id.into()).await;
+            if pub_result.status.r#type != publications::StatusType::Queued {
+                break pub_result;
+            }
+
+            attempts += 1;
+            assert!(
+                attempts < 5,
+                "publication kept rescheduling on a stale authorization snapshot"
+            );
+            self.refresh_snapshot().await;
+            self.set_min_task_wake_at(pub_id).await;
+        };
         pub_result
     }
 

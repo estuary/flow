@@ -281,9 +281,25 @@ impl Publisher {
             // Generate a new id on each attempt, so that we can retry `PublicationSuperseded`
             // errors with a greater id.
             let publication_id = self.next_id();
-            let result = self
+            let result = match self
                 .try_publish(publication_id, retry_count, &publication)
-                .await?;
+                .await
+            {
+                Ok(result) => result,
+                Err(err) if is_authz_snapshot_stale(&err) => {
+                    // The draft referenced a spec that was denied by an
+                    // authorization snapshot older than that spec — a grant may
+                    // simply not be reflected yet. Request an early refresh and
+                    // surface the retryable error, rather than failing. Callers
+                    // that run within a task poll (the `PublicationsExecutor`)
+                    // reschedule and retry once a newer snapshot is observed.
+                    if let Ok(snapshot) = self.snapshot.token().result() {
+                        snapshot.revoke.cancel();
+                    }
+                    return Err(err);
+                }
+                Err(err) => return Err(err),
+            };
 
             if result.status.is_success() || result.status.is_empty_draft() {
                 return Ok(result);
@@ -713,6 +729,16 @@ impl Publisher {
             "assigned control_ids"
         );
     }
+}
+
+/// Returns true if `err` is (or wraps) a `validation::Error::AuthorizationSnapshotStale`,
+/// meaning a spec was denied by an authorization snapshot older than that spec.
+/// Such a publication should be retried against a fresher snapshot rather than failed.
+pub fn is_authz_snapshot_stale(err: &anyhow::Error) -> bool {
+    matches!(
+        err.downcast_ref::<validation::Error>(),
+        Some(validation::Error::AuthorizationSnapshotStale { .. })
+    )
 }
 
 fn is_empty_draft(build: &UncommittedBuild) -> bool {

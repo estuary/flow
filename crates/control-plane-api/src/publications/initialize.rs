@@ -68,7 +68,7 @@ impl Initialize for ExpandDraft {
         db: &sqlx::PgPool,
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
-        _snapshot: &crate::Snapshot,
+        snapshot: &crate::Snapshot,
     ) -> anyhow::Result<()> {
         // Expand the set of drafted specs to include any tasks that read from or write to any of
         // the published collections. We do this so that validation can catch any inconsistencies
@@ -91,6 +91,7 @@ impl Initialize for ExpandDraft {
             &all_drafted_specs,
             capability_filter,
             db,
+            snapshot,
         )
         .await?;
         tracing::debug!(

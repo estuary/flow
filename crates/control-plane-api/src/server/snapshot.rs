@@ -361,10 +361,8 @@ impl Snapshot {
 
     /// Returns the "spec capabilities" of a spec named `catalog_name`: the role
     /// grants whose `subject_role` is a prefix of the name — the capabilities the
-    /// spec holds by virtue of its own name/role. This is the Snapshot-sourced
-    /// equivalent of the prior `role_grants where starts_with(name, subject_role)`
-    /// query, used to check that a spec is authorized to read its sources and
-    /// write its targets.
+    /// spec holds by virtue of its own name/role. This is only to be used fo error
+    /// reporting to improve error messages.
     pub fn spec_capabilities(&self, catalog_name: &str) -> Vec<tables::RoleGrant> {
         self.role_grants
             .iter()

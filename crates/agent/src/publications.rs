@@ -42,18 +42,25 @@ impl automations::Executor for PublicationsExecutor {
     ) -> anyhow::Result<Self::Outcome> {
         tracing::debug!(?inbox, "starting publication task");
         let row = fetch_publication(task_id, pool).await?;
-        self.handle_task(row).await?;
+        let action = self.handle_task(row).await?;
 
         // Always clear inbox, or else we'll get re-polled.
         inbox.clear();
-        // Publication tasks are always done at the end. We don't retry because there is likely
-        // a user waiting for the result, who could easily retry the operation themselves.
-        Ok(automations::Action::Done)
+        // A publication is normally `Done` at the end — we don't retry failures
+        // because a user is likely waiting and can retry themselves. The one
+        // exception is a stale authorization snapshot, where `handle_task`
+        // returns a `Sleep` so we re-poll once a fresher snapshot is observed.
+        Ok(action)
     }
 }
 
+/// How long to wait before re-polling a publication whose authorization was
+/// evaluated against a snapshot older than a referenced spec. A refresh was
+/// already requested; by the next poll a newer snapshot should be authoritative.
+const PUBLICATION_STALE_SNAPSHOT_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl PublicationsExecutor {
-    async fn handle_task(&self, row: Row) -> anyhow::Result<()> {
+    async fn handle_task(&self, row: Row) -> anyhow::Result<automations::Action> {
         let id = row.id;
 
         // First ensure that the publication status is queued. Otherwise,
@@ -62,7 +69,7 @@ impl PublicationsExecutor {
             Ok(status) if status.r#type == StatusType::Queued => { /* continue to publish */ }
             Ok(other) => {
                 tracing::warn!(?other, "skipping publication which is no longer queued");
-                return Ok(());
+                return Ok(automations::Action::Done);
             }
             Err(error) => {
                 // Weird edge case, but we don't update the status so that we
@@ -70,7 +77,7 @@ impl PublicationsExecutor {
                 // the task completed so that the user can update the status
                 // back to queued if they want.
                 tracing::error!(?error, "failed to parse publication job status");
-                return Ok(());
+                return Ok(automations::Action::Done);
             }
         }
 
@@ -94,6 +101,19 @@ impl PublicationsExecutor {
                     None
                 };
                 (result.status, errors, final_id)
+            }
+            Err(error) if control_plane_api::publications::is_authz_snapshot_stale(&error) => {
+                // A referenced spec was denied by an authorization snapshot older
+                // than that spec. `Publisher::publish` already requested an early
+                // refresh; leave the publication queued and reschedule so a retry
+                // observes a fresher snapshot rather than reporting a failure.
+                tracing::info!(
+                    pub_id = %id, %time_queued,
+                    "publication authorization snapshot is stale; rescheduling"
+                );
+                return Ok(automations::Action::Sleep(
+                    PUBLICATION_STALE_SNAPSHOT_BACKOFF,
+                ));
             }
             Err(error) => {
                 tracing::warn!(?error, pub_id = %id, "build finished with error");
@@ -127,7 +147,7 @@ impl PublicationsExecutor {
         if status.is_success() && !dry_run {
             delete_draft(draft_id, &self.pg_pool).await?;
         }
-        Ok(())
+        Ok(automations::Action::Done)
     }
 
     #[tracing::instrument(skip_all, fields(

@@ -300,6 +300,10 @@ pub enum Error {
         larger_id: models::Id,
     },
     #[error(
+        "authorization for {catalog_name} was evaluated against a control-plane snapshot older than the spec; please retry the operation"
+    )]
+    AuthorizationSnapshotStale { catalog_name: String },
+    #[error(
         "This spec was updated while you were editing — please refresh and re-apply your changes.\nThis may have been an automated system update. (expected publication ID {expect_id}, actual {actual_id})"
     )]
     ExpectPubIdNotMatched {

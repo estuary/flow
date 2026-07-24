@@ -266,6 +266,18 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                     Err(draft_errs),
                 ))
             }
+            Err(err)
+                if matches!(
+                    err.downcast_ref::<validation::Error>(),
+                    Some(validation::Error::AuthorizationSnapshotStale { .. })
+                ) =>
+            {
+                // A referenced spec was denied against a snapshot that predates
+                // it. Request an early refresh and retry, rather than reporting a
+                // spurious DiscoverFailed.
+                snapshot.revoke.cancel();
+                Ok(Processed::RetryStale)
+            }
             Err(err) => {
                 let draft_errors = vec![models::draft_error::Error {
                     scope: Some(

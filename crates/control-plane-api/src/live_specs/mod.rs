@@ -44,6 +44,21 @@ pub async fn get_live_specs(
                     &row.catalog_name,
                     min_capability,
                 ) {
+                    // A denial evaluated against a snapshot that predates the
+                    // spec's own update may be spurious: a just-added grant may
+                    // not be reflected in this snapshot yet. Signal stale so the
+                    // caller can refresh and retry. An authoritative denial
+                    // (snapshot taken after the spec's update) falls through to
+                    // today's silent drop.
+                    let stale = row
+                        .updated_at
+                        .is_some_and(|updated_at| snapshot.taken <= updated_at);
+                    if stale {
+                        return Err(validation::Error::AuthorizationSnapshotStale {
+                            catalog_name: row.catalog_name.clone(),
+                        }
+                        .into());
+                    }
                     continue;
                 }
             }
@@ -76,17 +91,32 @@ pub async fn get_connected_live_specs(
     exclude_names: &[&str],
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
+    snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let expanded_rows =
         db::fetch_expanded_live_specs(user_id, collection_names, exclude_names, db).await?;
     let mut live = tables::LiveCatalog::default();
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
-            if !exp
-                .user_capability
-                .map(|c| c >= minimum_capability)
-                .unwrap_or(false)
-            {
+            if !tables::UserGrant::is_authorized(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
+                &exp.catalog_name,
+                minimum_capability,
+            ) {
+                // As in `get_live_specs`, a denial evaluated against a snapshot
+                // that predates the spec's own update may be spurious. Signal
+                // stale so the caller can refresh and retry; otherwise drop.
+                let stale = exp
+                    .updated_at
+                    .is_some_and(|updated_at| snapshot.taken <= updated_at);
+                if stale {
+                    return Err(validation::Error::AuthorizationSnapshotStale {
+                        catalog_name: exp.catalog_name.clone(),
+                    }
+                    .into());
+                }
                 continue;
             }
         }
