@@ -1,23 +1,23 @@
 mod db;
 
 use anyhow::Context;
-use models::Capability;
-use std::ops::Deref;
-use uuid::Uuid;
-
 pub use db::{
     InferredSchemaRow, LiveSpec, fetch_expanded_live_specs, fetch_inferred_schemas,
     fetch_live_spec_names_by_prefix, fetch_live_specs, hard_delete_live_spec,
 };
+use models::Capability;
+use std::ops::Deref;
+use uuid::Uuid;
 
 /// Fetches live specs, returning them as a `tables::LiveCatalog`. Optionally
 /// filters the specs based on user capability. If `filter_capability` is
 /// `None`, then no filtering will be done.
 pub async fn get_live_specs(
-    user_id: Uuid,
+    user_id: uuid::Uuid,
     names: &[String],
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
+    snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let mut live = tables::LiveCatalog::default();
 
@@ -26,14 +26,7 @@ pub async fn get_live_specs(
     // Limit each individual query to 512 names to avoid statement timeouts when
     // fetching a large number of specs when `filter_capability` is `Some`.
     for names_chunk in names.chunks(512) {
-        let rows = db::fetch_live_specs(
-            user_id,
-            names_chunk,
-            filter_capability.is_some(), // fetch user capabilities only if needed
-            false,                       // we never need spec_capabilities here
-            db,
-        )
-        .await?;
+        let rows = db::fetch_live_specs(names_chunk, db).await?;
         for row in rows {
             // Spec type might be null because we used to set it to null when deleting specs.
             // For recently deleted specs, it will still be present.
@@ -44,14 +37,29 @@ pub async fn get_live_specs(
                 continue;
             };
             if let Some(min_capability) = filter_capability {
-                if !row
-                    .user_capability
-                    .is_some_and(|actual_capability| actual_capability >= min_capability)
-                {
+                if !tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    user_id,
+                    &row.catalog_name,
+                    min_capability,
+                ) {
+                    // A denial evaluated against a snapshot that predates the
+                    // spec's own update may be spurious: a just-added grant may
+                    // not be reflected in this snapshot yet. Signal stale so the
+                    // caller can refresh and retry. An authoritative denial
+                    // (snapshot taken after the spec's update) falls through to
+                    // today's silent drop.
+                    if !snapshot.taken_after(row.last_pub_id.timestamp()) {
+                        return Err(validation::Error::AuthorizationSnapshotStale {
+                            catalog_name: row.catalog_name.clone(),
+                        }
+                        .into());
+                    }
                     continue;
                 }
             }
-            let built_spec_json = row.built_spec.as_ref().ok_or_else(|| {
+            let built_spec_json: &Box<sqlx::types::JsonRawValue> = row.built_spec.as_ref().ok_or_else(|| {
                 tracing::warn!(catalog_name = %row.catalog_name, id = %row.id, "got row with spec but not built_spec");
                 anyhow::anyhow!("missing built_spec for {:?}, but spec is non-null", row.catalog_name)
             })?.deref();
@@ -80,17 +88,29 @@ pub async fn get_connected_live_specs(
     exclude_names: &[&str],
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
+    snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let expanded_rows =
         db::fetch_expanded_live_specs(user_id, collection_names, exclude_names, db).await?;
     let mut live = tables::LiveCatalog::default();
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
-            if !exp
-                .user_capability
-                .map(|c| c >= minimum_capability)
-                .unwrap_or(false)
-            {
+            if !tables::UserGrant::is_authorized(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
+                &exp.catalog_name,
+                minimum_capability,
+            ) {
+                // As in `get_live_specs`, a denial evaluated against a snapshot
+                // that predates the spec's own update may be spurious. Signal
+                // stale so the caller can refresh and retry; otherwise drop.
+                if !snapshot.taken_after(exp.last_pub_id.timestamp()) {
+                    return Err(validation::Error::AuthorizationSnapshotStale {
+                        catalog_name: exp.catalog_name.clone(),
+                    }
+                    .into());
+                }
                 continue;
             }
         }

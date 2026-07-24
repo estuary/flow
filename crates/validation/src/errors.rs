@@ -300,6 +300,10 @@ pub enum Error {
         larger_id: models::Id,
     },
     #[error(
+        "authorization for {catalog_name} was evaluated against a control-plane snapshot older than the spec; please retry the operation"
+    )]
+    AuthorizationSnapshotStale { catalog_name: String },
+    #[error(
         "This spec was updated while you were editing — please refresh and re-apply your changes.\nThis may have been an automated system update. (expected publication ID {expect_id}, actual {actual_id})"
     )]
     ExpectPubIdNotMatched {
@@ -401,4 +405,15 @@ impl Error {
     pub fn push(self, scope: crate::Scope, errors: &mut tables::Errors) {
         errors.insert_row(scope.flatten(), anyhow::anyhow!(self));
     }
+}
+
+/// Returns true if `err` is (or wraps) an [`Error::AuthorizationSnapshotStale`].
+/// This classifies a *retryable* authorization failure: the decision was made
+/// against a control-plane snapshot older than the spec, so it should be retried
+/// against a fresher snapshot rather than surfaced as a terminal error.
+pub fn is_authz_snapshot_stale(err: &anyhow::Error) -> bool {
+    matches!(
+        err.downcast_ref::<Error>(),
+        Some(Error::AuthorizationSnapshotStale { .. })
+    )
 }

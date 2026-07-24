@@ -117,6 +117,7 @@ impl TestServer {
             pg_pool.clone(),
             models::IdGenerator::new(0),
             Box::new(NoopBuilder),
+            snapshot.clone(),
         );
 
         let app = Arc::new(crate::App::new(

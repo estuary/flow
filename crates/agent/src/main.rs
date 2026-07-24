@@ -314,12 +314,26 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             .context("failed to create builds-root directory")?;
     }
 
+    // Create the snapshot source and start the refresh loop.
+    // Snapshot fetches retry internally forever, so a persistent failure (a
+    // broken query, sops / KMS breakage) would otherwise hang here with the
+    // port unbound and nothing logged at error level. Bound the wait so that
+    // startup fails visibly, and fits within Cloud Run's 240s startup probe
+    // window even after the database retry budget above.
+    let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pg_pool.clone());
+    let snapshot_watch = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        tokens::watch(snapshot_source).ready_owned(),
+    )
+    .await
+    .context("timed out fetching the initial authorization snapshot")?;
+
     // Start a logs sink into which agent loops may stream logs.
     let (logs_tx, logs_rx) = tokio::sync::mpsc::channel(8192);
     let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
     let connectors = DataPlaneConnectors::new(logs_tx.clone());
-    let discover_handler = DiscoverHandler::new(connectors.clone());
+    let discover_handler = DiscoverHandler::new(connectors.clone(), snapshot_watch.clone());
 
     let builder = control_plane_api::publications::builds::new_builder(connectors);
     let mut publisher = Publisher::new(
@@ -330,6 +344,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         pg_pool.clone(),
         agent::id_generator::with_random_shard(),
         builder,
+        snapshot_watch.clone(),
     );
     if args.skip_connector_table_check {
         publisher = publisher.with_skip_connector_table_check();
@@ -347,20 +362,6 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         }
     }
     .shared();
-
-    // Create the snapshot source and start the refresh loop.
-    // Snapshot fetches retry internally forever, so a persistent failure (a
-    // broken query, sops / KMS breakage) would otherwise hang here with the
-    // port unbound and nothing logged at error level. Bound the wait so that
-    // startup fails visibly, and fits within Cloud Run's 240s startup probe
-    // window even after the database retry budget above.
-    let snapshot_source = control_plane_api::snapshot::PgSnapshotSource::new(pg_pool.clone());
-    let snapshot_watch = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        tokens::watch(snapshot_source).ready_owned(),
-    )
-    .await
-    .context("timed out fetching the initial authorization snapshot")?;
 
     let controller_publication_cooldown =
         chrono::Duration::from_std(args.controller_publication_cooldown)?;
@@ -390,7 +391,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         jwt_secret.as_bytes(),
         pg_pool.clone(),
         publisher.clone(),
-        snapshot_watch,
+        snapshot_watch.clone(),
         args.stripe_webhook_secret,
     ));
     let api_router = control_plane_api::build_router(
@@ -423,6 +424,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
             })
             .register(agent::DiscoverExecutor {
                 handler: discover_handler,
+                snapshot_watch,
             })
             .register(directive_executor)
             .register(connector_tags_executor)

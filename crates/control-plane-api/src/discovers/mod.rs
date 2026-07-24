@@ -1,13 +1,13 @@
 pub mod db;
 pub mod specs;
 
-use crate::proxy_connectors::DiscoverConnectors;
+use crate::{Snapshot, proxy_connectors::DiscoverConnectors};
 
 use anyhow::Context;
 use models::discovers::{Changed, Changes};
 use proto_flow::{capture, flow::capture_spec};
 use sqlx::{PgPool, types::Uuid};
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 // Re-export key types and functions that executors will need
 pub use db::{Row, fetch_discover, resolve};
@@ -145,11 +145,15 @@ impl DiscoverOutput {
 #[derive(Clone)]
 pub struct DiscoverHandler<C> {
     pub connectors: C,
+    pub snapshot_watch: Arc<dyn tokens::Watch<Snapshot>>,
 }
 
 impl<C: DiscoverConnectors> DiscoverHandler<C> {
-    pub fn new(connectors: C) -> Self {
-        Self { connectors }
+    pub fn new(connectors: C, snapshot_watch: Arc<dyn tokens::Watch<Snapshot>>) -> Self {
+        Self {
+            connectors,
+            snapshot_watch,
+        }
     }
 }
 
@@ -222,6 +226,9 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             }
         };
 
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+
         let output = Self::build_merged_catalog(
             capture_name,
             user_id,
@@ -232,6 +239,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             spec.resource_path_pointers,
             db,
             reset_on_key_change,
+            snapshot,
         )
         .await?;
 
@@ -252,7 +260,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
 
     async fn build_merged_catalog(
         capture_name: models::Capture,
-        user_id: uuid::Uuid,
+        user_id: Uuid,
         filter_user_authz: bool,
         update_only: bool,
         mut draft: tables::DraftCatalog,
@@ -260,6 +268,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         resource_path_pointers: Vec<String>,
         db: &PgPool,
         reset_on_key_change: bool,
+        snapshot: &Snapshot,
     ) -> anyhow::Result<DiscoverOutput> {
         let discovered_bindings = match specs::parse_response(discovered)
             .context("converting connector discovery response into specs")
@@ -307,12 +316,12 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             .iter()
             .map(|b| b.target.to_string())
             .collect::<Vec<_>>();
-
         let live = crate::live_specs::get_live_specs(
             user_id,
             &collection_names,
             filter_user_authz.then_some(models::Capability::Read),
             db,
+            snapshot,
         )
         .await?;
 

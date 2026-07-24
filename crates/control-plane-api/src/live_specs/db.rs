@@ -2,7 +2,6 @@ use crate::TextJson;
 use models::{Capability, CatalogType, Id};
 use serde_json::value::RawValue;
 use sqlx::types::{Json, Uuid};
-use tables::RoleGrant;
 
 /// Deletes the given live spec row, along with the corresponding `controller_jobs` row.
 pub async fn hard_delete_live_spec(id: Id, txn: &mut sqlx::PgConnection) -> sqlx::Result<()> {
@@ -35,28 +34,22 @@ pub struct LiveSpec {
     pub inferred_schema_md5: Option<String>,
     // User's capability to the specification `catalog_name`.
     pub user_capability: Option<Capability>,
-    // Capabilities of the specification with respect to other roles.
-    pub spec_capabilities: Json<Vec<RoleGrant>>,
     pub dependency_hash: Option<String>,
+    // When the live spec row was last updated. `None` when no live spec exists
+    // yet for `catalog_name` (the outer join yielded no row). Used to detect an
+    // authorization snapshot that predates a concurrent change to the spec.
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Returns a `LiveSpec` row for each of the given `names`. This will always return a row for each
 /// name, even if no live spec exists in the database.
 pub async fn fetch_live_specs(
-    user_id: Uuid,
     names: &[String],
-    fetch_user_capabilities: bool,
-    fetch_spec_capabilities: bool,
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 ) -> sqlx::Result<Vec<LiveSpec>> {
-    // The materialized CTE here ensures that `user_roles` is only invoked once,
-    // and the results used for the rest of the query.
-    sqlx::query_as!(
+    let live_spec = sqlx::query_as!(
         LiveSpec,
         r#"
-        with user_roles as materialized (
-            select role_prefix, capability from internal.user_roles($1)
-        )
         select
             coalesce(ls.id, '00:00:00:00:00:00:00:00'::flowid) as "id!: Id",
             coalesce(ls.last_pub_id, '00:00:00:00:00:00:00:00'::flowid) as "last_pub_id!: Id",
@@ -67,31 +60,18 @@ pub async fn fetch_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            case when $3 then (
-                select max(capability) from user_roles
-                where starts_with(names, user_roles.role_prefix)
-            ) else
-                null
-            end as "user_capability: Capability",
-            case when $4 then coalesce(
-                (select json_agg(row_to_json(role_grants))
-                from role_grants
-                where starts_with(names, subject_role)),
-                '[]'
-            ) else
-               '[]'
-            end as "spec_capabilities!: Json<Vec<RoleGrant>>",
-            ls.dependency_hash
-        from unnest($2::text[]) names
+            null as "user_capability: Capability",
+            ls.dependency_hash,
+            ls.updated_at as "updated_at?: chrono::DateTime<chrono::Utc>"
+        from unnest($1::text[]) names
         left outer join live_specs ls on ls.catalog_name = names
         "#,
-        user_id,
         names,
-        fetch_user_capabilities,
-        fetch_spec_capabilities,
     )
     .fetch_all(db)
-    .await
+    .await?;
+
+    Ok(live_spec)
 }
 
 pub struct InferredSchemaRow {
@@ -158,13 +138,8 @@ pub async fn fetch_expanded_live_specs(
                 select max(capability) from internal.user_roles($1) r
                 where starts_with(ls.catalog_name, r.role_prefix)
             ) as "user_capability: Capability",
-            coalesce(
-                (select json_agg(row_to_json(role_grants))
-                from role_grants
-                where starts_with(ls.catalog_name, subject_role)),
-                '[]'
-            ) as "spec_capabilities!: Json<Vec<RoleGrant>>",
-            ls.dependency_hash
+            ls.dependency_hash,
+            ls.updated_at as "updated_at?: chrono::DateTime<chrono::Utc>"
         from exp
         join live_specs ls on ls.id = exp.id
         where ls.spec is not null and not ls.catalog_name = any($3);

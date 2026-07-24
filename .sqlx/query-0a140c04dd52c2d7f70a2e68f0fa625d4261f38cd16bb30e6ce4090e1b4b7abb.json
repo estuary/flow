@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            coalesce(ls.id, '00:00:00:00:00:00:00:00'::flowid) as \"id!: Id\",\n            coalesce(ls.last_pub_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_pub_id!: Id\",\n            coalesce(ls.last_build_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_build_id!: Id\",\n            coalesce(ls.data_plane_id, '00:00:00:00:00:00:00:00'::flowid) as \"data_plane_id!: Id\",\n            names as \"catalog_name!: String\",\n            ls.spec_type as \"spec_type?: CatalogType\",\n            ls.spec as \"spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.inferred_schema_md5,\n            null as \"user_capability: Capability\",\n            ls.dependency_hash,\n            ls.updated_at as \"updated_at?: chrono::DateTime<chrono::Utc>\"\n        from unnest($1::text[]) names\n        left outer join live_specs ls on ls.catalog_name = names\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_pub_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_build_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 3,
+        "name": "data_plane_id!: Id",
+        "type_info": "Macaddr8"
+      },
+      {
+        "ordinal": 4,
+        "name": "catalog_name!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "spec_type?: CatalogType",
+        "type_info": {
+          "Custom": {
+            "name": "catalog_spec_type",
+            "kind": {
+              "Enum": [
+                "capture",
+                "collection",
+                "materialization",
+                "test"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "spec: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 7,
+        "name": "built_spec: TextJson<Box<RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 8,
+        "name": "inferred_schema_md5",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "user_capability: Capability",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "dependency_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at?: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "0a140c04dd52c2d7f70a2e68f0fa625d4261f38cd16bb30e6ce4090e1b4b7abb"
+}

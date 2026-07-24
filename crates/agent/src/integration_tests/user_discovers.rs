@@ -333,6 +333,86 @@ async fn test_user_discovers() {
     }
 }
 
+/// A discover whose authorization is evaluated against a Snapshot that predates
+/// the discover row (so a just-added grant may not be reflected yet) must be
+/// retried rather than failed: it stays queued and reschedules. Once the
+/// Snapshot is authoritative (taken after the row's `updated_at`), an
+/// unauthorized discover resolves terminally to `NotAuthorized`.
+#[tokio::test]
+async fn test_discover_retries_on_stale_snapshot() {
+    use crate::discovers::JobStatus;
+
+    let mut harness = TestHarness::init("test_discover_retries_on_stale_snapshot").await;
+    let user_id = harness.setup_tenant("cats").await;
+
+    // A data-plane the "cats" tenant user has no grant to read.
+    let foreign_dp = "dogs/dp/private/test";
+
+    // Scenario 1: stale Snapshot -> reschedule.
+    // `setup_tenant` refreshed the Snapshot; queuing the discover afterwards
+    // makes the Snapshot's `taken` predate the row's `updated_at`.
+    let stale_draft = harness
+        .create_draft(user_id, "stale discover", Default::default())
+        .await;
+    let stale_id = harness
+        .queue_discover(
+            "source/test",
+            ":test",
+            "cats/capture-stale",
+            stale_draft,
+            foreign_dp,
+        )
+        .await;
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(stale_id), ran, "expected the stale discover to run");
+    assert!(
+        matches!(
+            harness.discover_job_status(stale_id).await,
+            JobStatus::Queued
+        ),
+        "stale-snapshot discover should stay queued (rescheduled), got: {:?}",
+        harness.discover_job_status(stale_id).await,
+    );
+
+    // Scenario 2: authoritative Snapshot -> terminal NotAuthorized.
+    // Refreshing after the row is queued makes `snapshot.taken > row.updated_at`,
+    // so the denial is definitive. Scenario 1's task is now sleeping and won't be
+    // re-dequeued, so this run picks up the new discover.
+    let authz_draft = harness
+        .create_draft(user_id, "authoritative discover", Default::default())
+        .await;
+    let authz_id = harness
+        .queue_discover(
+            "source/test",
+            ":test",
+            "cats/capture-authz",
+            authz_draft,
+            foreign_dp,
+        )
+        .await;
+    harness.refresh_snapshot().await;
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(
+        Some(authz_id),
+        ran,
+        "expected the authoritative discover to run"
+    );
+    assert!(
+        matches!(
+            harness.discover_job_status(authz_id).await,
+            JobStatus::NotAuthorized
+        ),
+        "authoritative unauthorized discover should resolve NotAuthorized, got: {:?}",
+        harness.discover_job_status(authz_id).await,
+    );
+}
+
 fn document_schema(version: usize) -> bytes::Bytes {
     serde_json::to_string(&serde_json::json!({
         "type": "object",

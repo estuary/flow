@@ -1,5 +1,5 @@
 use anyhow::Context;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 // SnapshotData encapsulates all data required to construct a Snapshot.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -87,6 +87,16 @@ pub struct SnapshotMigration {
     // Data-plane being migrated to.
     pub tgt_plane_id: models::Id,
 }
+
+/// This is used to return a collections of all prefixes and the
+/// associated permissions.
+pub type PrefixesAndCapabilities<'a> = BTreeMap<
+    &'a str,
+    (
+        enumset::EnumSet<models::authz::Capability>,
+        models::Capability,
+    ),
+>;
 
 impl Snapshot {
     /// Construct a new, empty Snapshot.
@@ -339,6 +349,26 @@ impl Snapshot {
                     None
                 }
             })
+    }
+
+    /// Returns all prefix and permissions associated with the a given user.
+    pub fn prefix_and_capabilities_per_user<'a>(
+        &'a self,
+        user_id: uuid::Uuid,
+    ) -> PrefixesAndCapabilities<'a> {
+        tables::UserGrant::reachable_prefixes(&self.role_grants, &self.user_grants, user_id)
+    }
+
+    /// Returns the "spec capabilities" of a spec named `catalog_name`: the role
+    /// grants whose `subject_role` is a prefix of the name — the capabilities the
+    /// spec holds by virtue of its own name/role. This is only to be used for error
+    /// reporting to improve error messages.
+    pub fn spec_capabilities(&self, catalog_name: &str) -> Vec<tables::RoleGrant> {
+        self.role_grants
+            .iter()
+            .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+            .cloned()
+            .collect()
     }
 
     // Minimal interval between Snapshot refreshes.

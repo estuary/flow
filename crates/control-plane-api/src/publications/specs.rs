@@ -727,12 +727,22 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
     names
 }
 
+/// Builds the retryable `AuthorizationSnapshotStale` error returned when an
+/// authorization denial was evaluated against a snapshot older than the spec.
+fn authz_snapshot_stale(catalog_name: &str) -> anyhow::Error {
+    validation::Error::AuthorizationSnapshotStale {
+        catalog_name: catalog_name.to_string(),
+    }
+    .into()
+}
+
 pub async fn resolve_live_specs(
-    user_id: Uuid,
+    user_id: uuid::Uuid,
     draft: &tables::DraftCatalog,
     db: &sqlx::PgPool,
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
+    snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
@@ -759,15 +769,9 @@ pub async fn resolve_live_specs(
         }
     }
 
-    let rows = crate::live_specs::fetch_live_specs(
-        user_id,
-        &all_spec_names,
-        verify_user_authz,
-        true, // always fetch spec capabilities
-        db,
-    )
-    .await
-    .context("fetching live specs")?;
+    let rows = crate::live_specs::fetch_live_specs(&all_spec_names, db)
+        .await
+        .context("fetching live specs")?;
 
     // Check the user and spec authorizations.
     // Start by making an easy way to lookup whether each row was drafted or not.
@@ -782,6 +786,14 @@ pub async fn resolve_live_specs(
         let catalog_name = spec_row.catalog_name.as_str();
         let n_errors = live.errors.len();
 
+        // An authorization denial evaluated against a snapshot older than this
+        // spec's own last update may be spurious — a concurrent change (e.g. a
+        // just-added grant) that this snapshot doesn't reflect yet. When that's
+        // possible we short-circuit with a retryable stale error so the
+        // publication is retried against a fresher snapshot, rather than
+        // reporting a hard (and possibly wrong) authorization failure.
+        let spec_stale = snapshot.taken <= spec_row.last_pub_id.timestamp();
+
         if drafted_names.contains(catalog_name) {
             // Get the metadata about the draft spec that matches this catalog name.
             // This must exist in `draft`, otherwise `spec_meta` will panic.
@@ -789,7 +801,18 @@ pub async fn resolve_live_specs(
             let scope = tables::synthetic_scope(catalog_type, catalog_name);
 
             // If the spec is included in the draft, then the user must have admin capability to it.
-            if verify_user_authz && !matches!(spec_row.user_capability, Some(Capability::Admin)) {
+            if verify_user_authz
+                && !tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    user_id,
+                    &spec_row.catalog_name,
+                    models::Capability::Admin,
+                )
+            {
+                if spec_stale {
+                    return Err(authz_snapshot_stale(catalog_name));
+                }
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
@@ -802,28 +825,39 @@ pub async fn resolve_live_specs(
             }
             // Spec authz must always be checked, even if we're not checking user authz
             for source in reads_from {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    source.starts_with(c.object_role.as_str()) && c.capability >= Capability::Read
-                }) {
+                if !tables::RoleGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &spec_row.catalog_name,
+                    &source,
+                    Capability::Read,
+                ) {
+                    if spec_stale {
+                        return Err(authz_snapshot_stale(catalog_name));
+                    }
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            serde_json::to_string_pretty(&snapshot.spec_capabilities(&spec_row.catalog_name)).unwrap(),
                         ),
                     });
                 }
             }
             for target in writes_to {
-                if !spec_row.spec_capabilities.iter().any(|c| {
-                    target.starts_with(c.object_role.as_str())
-                        && matches!(c.capability, Capability::Write | Capability::Admin)
-                }) {
+                if !tables::RoleGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &spec_row.catalog_name,
+                    &target,
+                    Capability::Write,
+                ) {
+                    if spec_stale {
+                        return Err(authz_snapshot_stale(catalog_name));
+                    }
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
                             "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
-                            serde_json::to_string_pretty(&spec_row.spec_capabilities.0).unwrap(),
+                            serde_json::to_string_pretty(&snapshot.spec_capabilities(&spec_row.catalog_name)).unwrap(),
                         ),
                     });
                 }
@@ -837,11 +871,17 @@ pub async fn resolve_live_specs(
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
-                && !spec_row
-                    .user_capability
-                    .map(|c| c >= Capability::Read)
-                    .unwrap_or(false)
+                && !tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    user_id,
+                    &spec_row.catalog_name,
+                    Capability::Read,
+                )
             {
+                if spec_stale {
+                    return Err(authz_snapshot_stale(catalog_name));
+                }
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {
                     scope,
@@ -920,6 +960,19 @@ pub async fn resolve_live_specs(
         .dedup()
         .collect();
 
+    let data_plane_names: Vec<&str> = data_plane_names
+        .into_iter()
+        .filter(|name| {
+            tables::UserGrant::is_authorized(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
+                *name,
+                models::Capability::Read,
+            )
+        })
+        .collect();
+
     data_plane_ids.sort();
     data_plane_ids.dedup();
 
@@ -932,14 +985,10 @@ pub async fn resolve_live_specs(
             FROM UNNEST($1::flowid[]) AS t(id)
         ),
         data_plane_names AS (
+            -- Names are pre-filtered to those the user is read-authorized to,
+            -- so no in-SQL authorization check is needed here.
             SELECT name
             FROM UNNEST($2::text[]) AS t(name)
-            -- User must be read-authorized to data-plane.
-            WHERE EXISTS (
-                SELECT 1
-                FROM internal.user_roles($3, 'read') AS r
-                WHERE starts_with(t.name, r.role_prefix)
-            )
         )
         SELECT
             d.id AS "control_id: Id",
@@ -961,7 +1010,6 @@ pub async fn resolve_live_specs(
         "#,
         &data_plane_ids as &[Id],
         &data_plane_names as &[&str],
-        user_id as Uuid,
     )
     .fetch_all(db)
     .await?

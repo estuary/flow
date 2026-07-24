@@ -8,7 +8,7 @@
 /// sub-prefix of the grant OR the grant is a sub-prefix of the filter. This
 /// bidirectional check lets callers query with a filter that is either broader
 /// or narrower than their grants.
-pub(super) fn authorized_prefixes(
+pub(crate) fn authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
     user_id: uuid::Uuid,

@@ -1,31 +1,31 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        with user_roles as materialized (\n            select role_prefix, capability from internal.user_roles($1)\n        )\n        select\n            coalesce(ls.id, '00:00:00:00:00:00:00:00'::flowid) as \"id!: Id\",\n            coalesce(ls.last_pub_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_pub_id!: Id\",\n            coalesce(ls.last_build_id, '00:00:00:00:00:00:00:00'::flowid) as \"last_build_id!: Id\",\n            coalesce(ls.data_plane_id, '00:00:00:00:00:00:00:00'::flowid) as \"data_plane_id!: Id\",\n            names as \"catalog_name!: String\",\n            ls.spec_type as \"spec_type?: CatalogType\",\n            ls.spec as \"spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.inferred_schema_md5,\n            case when $3 then (\n                select max(capability) from user_roles\n                where starts_with(names, user_roles.role_prefix)\n            ) else\n                null\n            end as \"user_capability: Capability\",\n            case when $4 then coalesce(\n                (select json_agg(row_to_json(role_grants))\n                from role_grants\n                where starts_with(names, subject_role)),\n                '[]'\n            ) else\n               '[]'\n            end as \"spec_capabilities!: Json<Vec<RoleGrant>>\",\n            ls.dependency_hash\n        from unnest($2::text[]) names\n        left outer join live_specs ls on ls.catalog_name = names\n        ",
+  "query": "\n        with collections(id) as (\n            select ls.id\n            from unnest($2::text[]) as names(catalog_name)\n            join live_specs ls on ls.catalog_name = names.catalog_name\n        ),\n        exp(id) as (\n            select lsf.source_id as id\n            from collections c\n            join live_spec_flows lsf on c.id = lsf.target_id\n            union\n            select lsf.target_id as id\n            from collections c\n            join live_spec_flows lsf on c.id = lsf.source_id\n        )\n        select\n            ls.id as \"id: Id\",\n            ls.last_pub_id as \"last_pub_id: Id\",\n            ls.last_build_id as \"last_build_id: Id\",\n            ls.data_plane_id as \"data_plane_id: Id\",\n            ls.catalog_name,\n            ls.spec_type as \"spec_type?: CatalogType\",\n            ls.spec as \"spec: TextJson<Box<RawValue>>\",\n            ls.built_spec as \"built_spec: TextJson<Box<RawValue>>\",\n            ls.inferred_schema_md5,\n            (\n                select max(capability) from internal.user_roles($1) r\n                where starts_with(ls.catalog_name, r.role_prefix)\n            ) as \"user_capability: Capability\",\n            ls.dependency_hash,\n            ls.updated_at as \"updated_at?: chrono::DateTime<chrono::Utc>\"\n        from exp\n        join live_specs ls on ls.id = exp.id\n        where ls.spec is not null and not ls.catalog_name = any($3);\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id!: Id",
+        "name": "id: Id",
         "type_info": "Macaddr8"
       },
       {
         "ordinal": 1,
-        "name": "last_pub_id!: Id",
+        "name": "last_pub_id: Id",
         "type_info": "Macaddr8"
       },
       {
         "ordinal": 2,
-        "name": "last_build_id!: Id",
+        "name": "last_build_id: Id",
         "type_info": "Macaddr8"
       },
       {
         "ordinal": 3,
-        "name": "data_plane_id!: Id",
+        "name": "data_plane_id: Id",
         "type_info": "Macaddr8"
       },
       {
         "ordinal": 4,
-        "name": "catalog_name!: String",
+        "name": "catalog_name",
         "type_info": "Text"
       },
       {
@@ -106,37 +106,36 @@
       },
       {
         "ordinal": 10,
-        "name": "spec_capabilities!: Json<Vec<RoleGrant>>",
-        "type_info": "Json"
+        "name": "dependency_hash",
+        "type_info": "Text"
       },
       {
         "ordinal": 11,
-        "name": "dependency_hash",
-        "type_info": "Text"
+        "name": "updated_at?: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
         "TextArray",
-        "Bool",
-        "Bool"
+        "TextArray"
       ]
     },
     "nullable": [
-      null,
-      null,
-      null,
-      null,
-      null,
+      false,
+      false,
+      false,
+      false,
+      false,
       true,
       true,
       true,
       true,
       null,
-      null,
-      true
+      true,
+      false
     ]
   },
-  "hash": "6336a73b8d0dedacb47563fc753ca867a6e5a285c2862d552910767381170ab0"
+  "hash": "2dffd83d13b811e514a6ccee5cf12ccd1fa80d64f929c0e5dae6267f18ffbbce"
 }
