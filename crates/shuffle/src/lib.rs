@@ -54,6 +54,8 @@ mod session;
 pub mod slice;
 
 #[cfg(test)]
+mod open_deadlock_tests;
+#[cfg(test)]
 pub(crate) mod testing;
 
 /// Document passed JSON Schema validation.
