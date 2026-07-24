@@ -727,6 +727,15 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
     names
 }
 
+/// Builds the retryable `AuthorizationSnapshotStale` error returned when an
+/// authorization denial was evaluated against a snapshot older than the spec.
+fn authz_snapshot_stale(catalog_name: &str) -> anyhow::Error {
+    validation::Error::AuthorizationSnapshotStale {
+        catalog_name: catalog_name.to_string(),
+    }
+    .into()
+}
+
 pub async fn resolve_live_specs(
     user_id: uuid::Uuid,
     draft: &tables::DraftCatalog,
@@ -760,7 +769,7 @@ pub async fn resolve_live_specs(
         }
     }
 
-    let rows = crate::live_specs::fetch_live_specs(&all_spec_names, db, snapshot)
+    let rows = crate::live_specs::fetch_live_specs(&all_spec_names, db)
         .await
         .context("fetching live specs")?;
 
@@ -776,6 +785,16 @@ pub async fn resolve_live_specs(
     for spec_row in rows {
         let catalog_name = spec_row.catalog_name.as_str();
         let n_errors = live.errors.len();
+
+        // An authorization denial evaluated against a snapshot older than this
+        // spec's own last update may be spurious — a concurrent change (e.g. a
+        // just-added grant) that this snapshot doesn't reflect yet. When that's
+        // possible we short-circuit with a retryable stale error so the
+        // publication is retried against a fresher snapshot, rather than
+        // reporting a hard (and possibly wrong) authorization failure.
+        let spec_stale = spec_row
+            .updated_at
+            .is_some_and(|updated_at| snapshot.taken <= updated_at);
 
         if drafted_names.contains(catalog_name) {
             // Get the metadata about the draft spec that matches this catalog name.
@@ -793,6 +812,9 @@ pub async fn resolve_live_specs(
                     models::Capability::Admin,
                 )
             {
+                if spec_stale {
+                    return Err(authz_snapshot_stale(catalog_name));
+                }
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
@@ -811,6 +833,9 @@ pub async fn resolve_live_specs(
                     &source,
                     Capability::Read,
                 ) {
+                    if spec_stale {
+                        return Err(authz_snapshot_stale(catalog_name));
+                    }
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
@@ -827,6 +852,9 @@ pub async fn resolve_live_specs(
                     &target,
                     Capability::Write,
                 ) {
+                    if spec_stale {
+                        return Err(authz_snapshot_stale(catalog_name));
+                    }
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
@@ -853,6 +881,9 @@ pub async fn resolve_live_specs(
                     Capability::Read,
                 )
             {
+                if spec_stale {
+                    return Err(authz_snapshot_stale(catalog_name));
+                }
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {
                     scope,

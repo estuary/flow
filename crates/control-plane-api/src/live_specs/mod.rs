@@ -26,7 +26,7 @@ pub async fn get_live_specs(
     // Limit each individual query to 512 names to avoid statement timeouts when
     // fetching a large number of specs when `filter_capability` is `Some`.
     for names_chunk in names.chunks(512) {
-        let rows = db::fetch_live_specs(names_chunk, db, snapshot).await?;
+        let rows = db::fetch_live_specs(names_chunk, db).await?;
         for row in rows {
             // Spec type might be null because we used to set it to null when deleting specs.
             // For recently deleted specs, it will still be present.

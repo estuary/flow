@@ -46,7 +46,6 @@ pub struct LiveSpec {
 pub async fn fetch_live_specs(
     names: &[String],
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
-    _snapshot: &crate::Snapshot,
 ) -> sqlx::Result<Vec<LiveSpec>> {
     let live_spec = sqlx::query_as!(
         LiveSpec,

@@ -675,13 +675,10 @@ impl TestHarness {
             .all_spec_names()
             .map(|n| (*n).to_owned())
             .collect();
-        let snapshot = self.snapshot_watch.token();
-        let snapshot = snapshot.result().unwrap();
 
-        let specs =
-            control_plane_api::live_specs::fetch_live_specs(&owned_names, &self.pool, &snapshot)
-                .await
-                .expect("failed to query live specs");
+        let specs = control_plane_api::live_specs::fetch_live_specs(&owned_names, &self.pool)
+            .await
+            .expect("failed to query live specs");
         assert_eq!(
             prev_specs.spec_count(),
             specs.len(),
