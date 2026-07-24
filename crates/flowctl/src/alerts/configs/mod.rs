@@ -122,6 +122,7 @@ async fn do_list(args: &ListArgs, ctx: &mut crate::CliContext) -> anyhow::Result
         .map(|p| list_alert_configs::AlertConfigsFilter {
             catalog_prefix_or_name: Some(list_alert_configs::PrefixFilter {
                 starts_with: Some(p.clone()),
+                in_: None,
             }),
         });
     let rows = fetch_all(ctx, filter).await?;
@@ -198,6 +199,7 @@ async fn fetch_existing(
     let filter = Some(list_alert_configs::AlertConfigsFilter {
         catalog_prefix_or_name: Some(list_alert_configs::PrefixFilter {
             starts_with: Some(prefix_or_name.to_string()),
+            in_: None,
         }),
     });
     let rows = fetch_all(ctx, filter).await?;
