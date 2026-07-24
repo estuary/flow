@@ -146,6 +146,7 @@ mod test {
 
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct IdFilter {
-    /// Match any id in this set. An empty set matches nothing.
+    /// Match any id in this non-empty set.
+    #[graphql(validator(min_items = 1))]
     pub r#in: Option<Vec<models::Id>>,
 }
