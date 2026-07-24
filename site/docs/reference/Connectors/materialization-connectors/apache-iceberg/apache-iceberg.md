@@ -233,10 +233,12 @@ Endpoint](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-integr
 
 :::important
 If you plan to query your S3 table buckets using AWS analytics services such as
-Amazon Athena, all table column names must be lowercase. You should enable the
-advanced option "Lowercase Column Names" in the materialization configuration if
-your source collection has fields with capital letters in their names to ensure
-all columns are created as lowercase.
+Amazon Athena, all table column names must be lowercase. You should set the
+advanced option "Field Name Case" to `lowercase` in the materialization
+configuration if your source collection has fields with capital letters in their
+names to ensure all columns are created as lowercase. The older "Lowercase
+Column Names" option does the same thing and is deprecated; use "Field Name
+Case" instead.
 :::
 
 To configure the materialization to connect directly to the S3 Tables Iceberg REST Endpoint:
@@ -343,6 +345,16 @@ Now you can configure the materialization:
   - Set the **Scope** as `PRINCIPAL_ROLE:<your_principal>`, where
     `<your_principal>` is the name of the **Principal Role** you created when
     creating the **Service Connection**
+
+:::important
+By default the materialization creates namespaces and tables with lower case
+names. Snowflake resolves unquoted identifiers as upper case, so queries written
+against a lower case table must quote it, as in `select * from
+"my_namespace"."my_table"`. To be able to query the tables without quoting, set
+the advanced option "Table Identifier Case" to `uppercase` before the tables are
+created. Changing this option later does not rename tables that already exist:
+the materialization will instead create a new set of tables using the new casing.
+:::
 
 :::tip
 You can specify the `<open_catalog_account_identifier>` in the **Base URL**
@@ -619,7 +631,9 @@ See below for a full list of configuration options.
 | **`/compute/credentials`**           | EMR Authentication     | Authentication method for EMR.                                                                                       | [EMR Credentials](#emr-credentials) | Required     |
 |   `/compute/bucket_path`             | Bucket Path            | Optional prefix used to store staged data files.                                                                     | string           |                                 |
 |   `/compute/systems_manager_prefix`  | System Manager Prefix  | Prefix for parameters in Systems Manager as an absolute directory path (must start and end with `/`).                | string           | `/estuary/`                     |
-|   `/advanced/lowercase_column_names` | Lowercase Column Names | Create all columns with lowercase names.                                                                             | boolean          |                                 |
+|   `/advanced/lowercase_column_names` | Lowercase Column Names | Deprecated: use `field_name_case` instead. Create all columns with lowercase names.                                  | boolean          |                                 |
+|   `/advanced/table_identifier_case`  | Table Identifier Case  | Casing for namespace and table names: 'lowercase' (default), 'uppercase', or 'preserve'.                             | string           |                                 |
+|   `/advanced/field_name_case`        | Field Name Case        | Casing for column names: 'preserve' (default), 'lowercase', or 'uppercase'.                                          | string           |                                 |
 |   `/glue_optimizers`                 | Glue Table Optimizers  | Configure AWS Glue managed table optimizers for compaction. See [configuration details](#glue-table-optimizers).    | object           |                                 |
 
 #### Credentials
