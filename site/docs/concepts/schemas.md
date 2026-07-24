@@ -273,6 +273,77 @@ collections:
     key: [/id]
 ```
 
+### Connector-managed schemas and auto-discover
+
+For collections produced by a capture connector, Estuary manages the collection's schema through a
+reserved definition, `flow://connector-schema`, in the schema's `$defs`. Each time
+[`autoDiscover`](./captures.md#automatically-update-captures) runs, it overwrites that definition
+with the schema the connector reports for the source table or stream. A connector-managed collection
+looks like this:
+
+```yaml
+collections:
+  acmeCo/orders:
+    schema:
+      $defs:
+        "flow://connector-schema": {}   # populated and kept up to date by auto-discover
+      $ref: flow://connector-schema
+    key: [/id]
+```
+
+The `$defs` entry marks the collection as connector-managed, and the top-level `$ref` makes that
+managed schema the one documents are validated against.
+
+If a collection's schema does not contain a `flow://connector-schema` entry in `$defs`,
+auto-discover treats the schema as user-owned and will not modify it. Refreshing bindings (running a
+discover) on a capture that includes such a collection fails with an error like:
+
+```
+collection acmeCo/orders has a schema that is not managed by auto-discover (it has no $defs
+entry for 'flow://connector-schema'). To opt in, add {"$defs": {"flow://connector-schema": {}}}
+to the collection schema
+```
+
+This is deliberate, so that auto-discover never overwrites a schema you wrote by hand. It most
+commonly appears when collections were authored directly (for example, built and published from a
+local `flowctl` project with inline schemas) rather than created through Estuary's discovery flow.
+
+#### Opting a hand-authored collection into management
+
+Adding only the empty `$defs` entry stops the error, but it is not sufficient on its own:
+auto-discover will populate the definition, but your existing top-level schema still validates
+documents unless it references that definition. To fully hand the collection over, structure the
+schema so the connector schema is both defined and referenced:
+
+```yaml
+schema:
+  $defs:
+    "flow://connector-schema": {}
+  $ref: flow://connector-schema
+key: [/id]
+```
+
+On the next discover, auto-discover fills `flow://connector-schema` with the live source schema, and
+documents validate against it from then on. If the connector supports
+[continuous schema inference](#continuous-schema-inference), auto-discover also splits the single
+schema into separate write and read schemas, so that the read schema can widen automatically as the
+source changes. The resulting shape is:
+
+```yaml
+writeSchema:
+  $defs:
+    "flow://connector-schema": {}
+  $ref: flow://connector-schema
+readSchema:
+  allOf:
+    - $ref: flow://write-schema
+    - $ref: flow://inferred-schema
+key: [/id]
+```
+
+You do not need to build this split by hand for connector collections; auto-discover creates it the
+first time it runs against a connector-managed collection.
+
 ## Reductions
 
 Estuary's collections have keys, and multiple documents
