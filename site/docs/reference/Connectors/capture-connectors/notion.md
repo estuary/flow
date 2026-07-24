@@ -13,8 +13,8 @@ This connector is based on an open-source connector from a third party, with mod
 The following data resources are supported:
 
 * [Blocks](https://developers.notion.com/reference/retrieve-a-block)
-* [Comments](https://developers.notion.com/reference/retrieve-a-comment)
-* [Databases](https://developers.notion.com/reference/retrieve-a-database)
+* [Comments](https://developers.notion.com/reference/retrieve-comment)
+* [Databases](https://developers.notion.com/reference/retrieve-database)
 * [Pages](https://developers.notion.com/reference/retrieve-a-page)
 * [Users](https://developers.notion.com/reference/get-user)
 

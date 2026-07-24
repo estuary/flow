@@ -12,7 +12,7 @@ The following data resources are supported through the Sentry APIs:
 
 - [Environments](https://docs.sentry.io/api/environments/list-an-organizations-environments/)
 - [Teams](https://docs.sentry.io/api/teams/list-an-organizations-teams/)
-- [Projects](https://docs.sentry.io/api/projects/list-your-projects/)
+- [Projects](https://docs.sentry.io/api/organizations/list-an-organizations-projects/)
 - [Issues](https://docs.sentry.io/api/events/list-a-projects-issues/)
 - [Releases](https://docs.sentry.io/api/releases/list-an-organizations-releases/)
 

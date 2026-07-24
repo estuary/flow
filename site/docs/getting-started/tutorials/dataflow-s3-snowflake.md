@@ -22,7 +22,7 @@ You'll need:
 
 #### The data
 
-New York City hosts the United States' largest bike share program, Citi Bike. [Citi Bike shares ride data](https://ride.citibikenyc.com/system-data) in CSV format with the public, including the starting and ending times and locations for every ride.
+New York City hosts the United States' largest bike share program, Citi Bike. [Citi Bike shares ride data](https://citibikenyc.com/system-data) in CSV format with the public, including the starting and ending times and locations for every ride.
 They upload new data monthly to [their Amazon S3 bucket](https://s3.amazonaws.com/tripdata/index.html) as a zipped CSV file.
 
 In this scenario, let's imagine you're interested in urban bike safety, or perhaps you plan to open a bike store and entice Citi Bike renters to buy their own bikes.

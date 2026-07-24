@@ -12,9 +12,9 @@ The connector supports the following Qualtrics resources:
 
 | Resource | Sync Mode | Update Interval | Description |
 |----------|-----------|-----------------|-------------|
-| [surveys](https://api.qualtrics.com/c3c1496b60e02-surveys) | Full Refresh | 15 minutes | Survey metadata including titles, settings, and configuration |
-| [survey_questions](https://api.qualtrics.com/c3c1496b60e02-surveys) | Full Refresh | 15 minutes | Questions and structure for all surveys in your account |
-| [survey_responses](https://api.qualtrics.com/97d9e758e373e-create-response-export) | Incremental | 5 minutes | Individual survey responses with all answer data |
+| [surveys](https://api.qualtrics.com/2c55b7ff8b0c7-list-surveys) | Full Refresh | 15 minutes | Survey metadata including titles, settings, and configuration |
+| [survey_questions](https://api.qualtrics.com/957c5f8a4604b-get-questions) | Full Refresh | 15 minutes | Questions and structure for all surveys in your account |
+| [survey_responses](https://api.qualtrics.com/6b00592b9c013-start-response-export) | Incremental | 5 minutes | Individual survey responses with all answer data |
 
 ## Prerequisites
 
