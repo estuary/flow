@@ -599,11 +599,24 @@ impl TestHarness {
     /// but without its `MIN_REFRESH_INTERVAL` cool-off, so the harness can
     /// refresh synchronously and deterministically.
     async fn fetch_snapshot(pool: &sqlx::PgPool) -> control_plane_api::Snapshot {
+        Self::fetch_snapshot_at(pool, tokens::now()).await
+    }
+
+    /// Like `fetch_snapshot`, but stamps the returned Snapshot with an explicit
+    /// `taken` time. Authorization staleness is decided by comparing `taken`
+    /// against a spec's own last-publication time (`Snapshot::taken_after`, which
+    /// also allows for `Snapshot::TEMPORAL_SKEW`). Tests compress wall-clock time
+    /// into a few milliseconds, so callers that need a Snapshot which is
+    /// authoritative for just-published specs push `taken` forward here.
+    async fn fetch_snapshot_at(
+        pool: &sqlx::PgPool,
+        taken: tokens::DateTime,
+    ) -> control_plane_api::Snapshot {
         let mut decrypted_hmac_keys = std::collections::HashMap::new();
         let data = control_plane_api::snapshot::try_fetch(pool, &mut decrypted_hmac_keys)
             .await
             .expect("failed to fetch authorization snapshot");
-        control_plane_api::Snapshot::new(tokens::now(), data)
+        control_plane_api::Snapshot::new(taken, data)
     }
 
     /// Forces the in-memory authorization Snapshot to re-fetch from Postgres, so
@@ -1483,7 +1496,17 @@ impl TestHarness {
                 attempts < 5,
                 "publication kept rescheduling on a stale authorization snapshot"
             );
-            self.refresh_snapshot().await;
+            // Production reschedules a stale-snapshot publication and, by the time
+            // it re-runs, the background watch has produced a Snapshot taken well
+            // after the referenced specs' last publication. Staleness is gated by
+            // `Snapshot::taken_after`, which requires `taken` to exceed a spec's
+            // last-publication time by `Snapshot::TEMPORAL_SKEW`. Compressed test
+            // time never advances that far on its own, so stamp the refreshed
+            // Snapshot with a `taken` pushed comfortably past that window to model
+            // the elapsed wait. Grows each attempt because `tokens::now()` advances.
+            let taken = tokens::now() + control_plane_api::Snapshot::TEMPORAL_SKEW * 4;
+            let snapshot = Self::fetch_snapshot_at(&self.pool, taken).await;
+            (self.set_snapshot)(snapshot);
             self.set_min_task_wake_at(pub_id).await;
         };
         pub_result

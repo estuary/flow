@@ -50,10 +50,7 @@ pub async fn get_live_specs(
                     // caller can refresh and retry. An authoritative denial
                     // (snapshot taken after the spec's update) falls through to
                     // today's silent drop.
-                    let stale = row
-                        .updated_at
-                        .is_some_and(|updated_at| snapshot.taken <= updated_at);
-                    if stale {
+                    if !snapshot.taken_after(row.last_pub_id.timestamp()) {
                         return Err(validation::Error::AuthorizationSnapshotStale {
                             catalog_name: row.catalog_name.clone(),
                         }
@@ -108,10 +105,7 @@ pub async fn get_connected_live_specs(
                 // As in `get_live_specs`, a denial evaluated against a snapshot
                 // that predates the spec's own update may be spurious. Signal
                 // stale so the caller can refresh and retry; otherwise drop.
-                let stale = exp
-                    .updated_at
-                    .is_some_and(|updated_at| snapshot.taken <= updated_at);
-                if stale {
+                if !snapshot.taken_after(exp.last_pub_id.timestamp()) {
                     return Err(validation::Error::AuthorizationSnapshotStale {
                         catalog_name: exp.catalog_name.clone(),
                     }

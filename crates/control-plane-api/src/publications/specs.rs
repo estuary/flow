@@ -792,9 +792,7 @@ pub async fn resolve_live_specs(
         // possible we short-circuit with a retryable stale error so the
         // publication is retried against a fresher snapshot, rather than
         // reporting a hard (and possibly wrong) authorization failure.
-        let spec_stale = spec_row
-            .updated_at
-            .is_some_and(|updated_at| snapshot.taken <= updated_at);
+        let spec_stale = snapshot.taken <= spec_row.last_pub_id.timestamp();
 
         if drafted_names.contains(catalog_name) {
             // Get the metadata about the draft spec that matches this catalog name.
@@ -962,17 +960,16 @@ pub async fn resolve_live_specs(
         .dedup()
         .collect();
 
-    // A named data-plane is only visible when the user is read-authorized to it.
-    // This is the prior `internal.user_roles($3, 'read')` sub-query, evaluated
-    // against the snapshot rather than in SQL, so only the already-authorized
-    // names are passed into the query below.
-    let reachable = snapshot.prefix_and_capabilities_per_user(user_id);
     let data_plane_names: Vec<&str> = data_plane_names
         .into_iter()
         .filter(|name| {
-            reachable.iter().any(|(prefix, (_, capability))| {
-                *capability >= models::Capability::Read && name.starts_with(prefix)
-            })
+            tables::UserGrant::is_authorized(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                user_id,
+                *name,
+                models::Capability::Read,
+            )
         })
         .collect();
 
