@@ -28,8 +28,10 @@ pub struct ServiceImpl {
     /// Transport channels to dialed peers.
     pub(crate) channels: std::sync::Mutex<HashMap<String, tonic::transport::Channel>>,
     /// Shared state for coordinating Log RPCs from multiple Slices into a single LogActor.
-    /// Keyed by (directory, log_shard_index).
-    pub(crate) log_joins: std::sync::Mutex<HashMap<(String, u32), log::LogJoin>>,
+    /// Keyed by (directory, session_id, log_shard_index). `session_id` scopes
+    /// each rendezvous to its session so retries can't collide with a prior
+    /// session's leftover slots; see [`log::LogJoin`].
+    pub(crate) log_joins: std::sync::Mutex<HashMap<(String, u32, u32), log::LogJoin>>,
     /// Registry of in-flight Session/Slice/Log handlers, for the admin surface.
     pub(crate) registry: service_kit::Registry,
     /// Signs `SHUFFLE` bearer tokens for every outbound shuffle hop.
