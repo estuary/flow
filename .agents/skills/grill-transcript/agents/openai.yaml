@@ -1,0 +1,5 @@
+interface:
+  display_name: "Grill Transcript"
+  short_description: "Build a transcript record of a grilling session"
+policy:
+  allow_implicit_invocation: false
