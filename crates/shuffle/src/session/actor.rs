@@ -247,8 +247,10 @@ impl SessionActor {
                 );
 
                 let routed = self.topology.route_read(&added)?;
-                let (routed_shard, start_read) = self.topology.build_start_read(&routed, added);
-                self.start_reads.push_back((routed_shard, start_read));
+
+                if let Some(start_read) = self.topology.build_start_read(&routed, added) {
+                    self.start_reads.push_back(start_read);
+                }
 
                 Ok(())
             }
@@ -264,6 +266,124 @@ impl SessionActor {
 
             response => Err(verify.fail(response)),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::testing::{jf, pf, test_binding, test_journal_spec, test_listing_added};
+
+    /// Build a SessionActor over a 1-shard topology resuming from
+    /// `resume_checkpoint`, classified exactly as `serve_session` classifies it.
+    fn test_actor(resume_checkpoint: crate::Frontier) -> SessionActor {
+        let shards = vec![shuffle::Shard {
+            id: "test/task/shard-0".to_string(),
+            range: Some(proto_flow::flow::RangeSpec {
+                key_begin: 0,
+                key_end: u32::MAX,
+                r_clock_begin: 0,
+                r_clock_end: u32::MAX,
+            }),
+            endpoint: String::new(),
+            directory: "/test/log/shard-0".to_string(),
+            ..Default::default()
+        }];
+        let bindings = vec![test_binding(0, true, None, "/suffix")];
+        let binding_cohorts = bindings.iter().map(|b| b.cohort).collect();
+
+        let checkpoint =
+            super::super::state::CheckpointPipeline::new(&resume_checkpoint, binding_cohorts);
+        let topology = super::super::state::Topology {
+            session_id: 1,
+            shards,
+            bindings,
+            resume_checkpoint,
+        };
+        let (slice_request_tx, _slice_request_rx) = crate::new_channel();
+        let (session_response_tx, _session_response_rx) = mpsc::unbounded_channel();
+
+        SessionActor {
+            topology,
+            checkpoint,
+            progress_ready: vec![true],
+            session_response_tx,
+            slice_request_tx: vec![slice_request_tx],
+            start_reads: Default::default(),
+            metrics: super::super::Metrics::new("test/task/shard-0"),
+        }
+    }
+
+    /// Feed a ListingAdded for `journal` and return the journals for which a
+    /// StartRead was buffered.
+    fn listing_added(actor: &mut SessionActor, journal: &str) -> Vec<String> {
+        actor
+            .on_slice_response(
+                0,
+                Some(Ok(shuffle::SliceResponse {
+                    listing_added: Some(test_listing_added(
+                        0,
+                        test_journal_spec(journal, 0x10000000, 0x20000000, &[]),
+                    )),
+                    ..Default::default()
+                })),
+            )
+            .unwrap();
+
+        actor
+            .start_reads
+            .iter()
+            .map(|(_shard, start_read)| start_read.spec.as_ref().unwrap().name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn test_recovery_session_starts_only_hinted_reads() {
+        // Resume from a crashed transaction which hinted journal/A only.
+        let resume = crate::Frontier {
+            journals: vec![
+                jf("test/collection/A", 0, vec![pf(0x01, 100, 200, -500)]),
+                jf("test/collection/B", 0, vec![pf(0x03, 100, 0, -500)]),
+            ],
+            unresolved_hints: 1,
+            ..Default::default()
+        };
+
+        let mut actor = test_actor(resume.clone());
+
+        // journal/B carries no unresolved hint, and journal/C is absent from
+        // the resume checkpoint entirely (newly listed mid-recovery). Neither
+        // is part of the replay, so neither read starts.
+        assert!(listing_added(&mut actor, "test/collection/B").is_empty());
+        assert!(listing_added(&mut actor, "test/collection/C").is_empty());
+
+        // The hinted journal does start, carrying its taken producers.
+        assert_eq!(
+            listing_added(&mut actor, "test/collection/A"),
+            vec!["test/collection/A".to_string()],
+        );
+        assert_eq!(actor.start_reads[0].1.checkpoint.len(), 1);
+
+        // A steady-state session resuming from the same journals (minus the
+        // hint) starts every read it is told about.
+        let mut steady = crate::Frontier {
+            journals: resume.journals.clone(),
+            ..Default::default()
+        };
+        steady.journals[0].producers[0].hinted_commit = proto_gazette::uuid::Clock::zero();
+
+        let mut actor = test_actor(steady);
+
+        _ = listing_added(&mut actor, "test/collection/A");
+        _ = listing_added(&mut actor, "test/collection/B");
+        assert_eq!(
+            listing_added(&mut actor, "test/collection/C"),
+            vec![
+                "test/collection/A".to_string(),
+                "test/collection/B".to_string(),
+                "test/collection/C".to_string(),
+            ],
+        );
     }
 }
 

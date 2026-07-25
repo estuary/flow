@@ -3,6 +3,7 @@
 //! HeadFSM drives the currently-open transaction toward commit:
 //!   Stop ← Idle ↔ Extend
 //!          Idle → Flush → Persist(hint) → Store → WriteStats → StartCommit → Persist(commit) → Rotate
+//!                                                                                            ↘ Stop (stopping)
 //!
 //! TailFSM drives post-commit work for the prior transaction:
 //!   Begin → Acknowledge → (Persist) → WriteIntents → (Trigger)
@@ -14,6 +15,10 @@
 //! idle with Tail already done, or after its next durable commit. Any post-
 //! commit work for that last transaction is recovered and resumed by the next
 //! leader session.
+//!
+//! A recovery session (`idempotent_replay == true`) arms `stopping` once the
+//! replay transaction - the only transaction of the session - is ready to close.
+//! A following session completes its Tail work while resuming normal processing.
 
 use super::super::frontier_mapping;
 use super::{Task, close_policy, triggers};
@@ -179,7 +184,7 @@ impl Head {
         ready_frontier: &mut Option<shuffle::Frontier>,
         shard_rx: &mut Option<(usize, proto::Materialize)>,
         stats_write_idle: Option<&mut BTreeMap<String, bytes::Bytes>>,
-        stopping: bool,
+        stopping: &mut bool,
         tail: &mut Tail,
         task: &Task,
     ) -> (Action, Head) {
@@ -199,7 +204,7 @@ impl Head {
             Head::Store(s) => s.step(binding_bytes_behind, shard_rx, task),
             Head::WriteStats(s) => s.step(legacy_checkpoint, stats_write_idle, task),
             Head::StartCommit(s) => {
-                s.step(debounce, legacy_checkpoint, now, shard_rx, stopping, task)
+                s.step(debounce, legacy_checkpoint, now, shard_rx, *stopping, task)
             }
             Head::Stop => panic!("HeadFSM::Stop observed at step boundary"),
         }
@@ -260,8 +265,8 @@ pub struct HeadIdle {
     pub extents: Extents,
     /// Running disk usage of per-shard combiners.
     pub combiner_usage_bytes: Vec<u64>,
-    /// Are we replaying recovered transaction extents?
-    /// When true, we MUST stop extending as soon as no unresolved hints remain.
+    /// Are we replaying recovered transaction extents? When true, we cease
+    /// extending and arm `stopping` as soon as no unresolved hints remain.
     pub idempotent_replay: bool,
     /// Close Clock of the last transaction, which may be recovered from a
     /// prior session, or zero.
@@ -275,7 +280,7 @@ impl HeadIdle {
         close_requested: &mut bool,
         debounce: &mut TriggerDebounce,
         ready_frontier: &mut Option<shuffle::Frontier>,
-        stopping: bool,
+        stopping: &mut bool,
         tail: &mut Tail,
         task: &Task,
     ) -> (Action, Head) {
@@ -283,7 +288,7 @@ impl HeadIdle {
         let tail_done = matches!(tail, Tail::Done(_));
 
         // Termination condition: stop at a clean transaction boundary.
-        if stopping && !is_open && tail_done {
+        if *stopping && !is_open && tail_done {
             return (Action::PollAgain, Head::Stop);
         }
         // Clear stale close_requested from after prior transaction close.
@@ -316,7 +321,7 @@ impl HeadIdle {
             open_age,
             read_bytes,
             read_docs,
-            stopping,
+            stopping: *stopping,
             tail_done,
             unresolved_hints: self.extents.frontier.unresolved_hints != 0
                 // An unstarted `idempotent_replay` is itself an unresolved hint: the
@@ -379,7 +384,11 @@ impl HeadIdle {
             }
             return (Action::Idle, Head::Idle(self));
         } else if may_close {
-            let Self { mut extents, .. } = self;
+            let Self {
+                mut extents,
+                idempotent_replay,
+                ..
+            } = self;
             extents.close = now;
 
             let connector_patches = match tail {
@@ -403,6 +412,12 @@ impl HeadIdle {
                 max_key_deltas: max_keys,
                 ..Default::default()
             };
+
+            if idempotent_replay {
+                // The idempotent recovery transaction is the only one we'll
+                // process this session. Tail work is deferred until restart.
+                *stopping = true;
+            }
 
             return (
                 Action::Flush {
@@ -926,6 +941,8 @@ impl TailBegin {
         //    in which case Head emitted Rotate and not Stop, or
         // b) because `on_transaction_completed` tripped on `max_transactions`
         //    being reached.
+        // (An idempotent replay's close also arms `stopping`, but never
+        // reaches here: it stops without a Rotate.)
         if stopping {
             let action = Action::Idle;
             let state = TailDone {
@@ -1352,7 +1369,7 @@ mod tests {
                 &mut self.ready_frontier,
                 &mut self.shard_rx,
                 self.stats_idle.then_some(&mut self.pending_ack_intents),
-                self.stopping,
+                &mut self.stopping,
                 tail,
                 &self.task,
             )
@@ -1521,12 +1538,11 @@ mod tests {
     /// stop. No IO; each step mutates Ctx fields and reads back the
     /// (Action, State) tuple.
     ///
-    /// Phase 1: txn 1 is an idempotent replay of a recovered transaction.
-    ///          The initial HeadIdle carries `idempotent_replay` with empty
-    ///          extents, so the first extend is forced by the synthetic
-    ///          "unstarted replay is an unresolved hint" bootstrap. A second
-    ///          frontier resolves the recovered hints, after which the replay
-    ///          closes and drives the full commit sequence to Action::Rotate.
+    /// Phase 1: txn 1 opens on an unresolved-hints peek, which forces a second
+    ///          Load round (a transaction may close only on a coherent
+    ///          boundary). A resolved frontier arrives, `close_requested`
+    ///          trips the close, and the full commit sequence runs to
+    ///          Action::Rotate.
     /// Phase 2: rotation hands `pending` to Tail::Begin. Head opens txn 2
     ///          (one Load); while Head awaits the second Loaded, Tail's full
     ///          post-acknowledge sequence runs interleaved: Acknowledged x2
@@ -1555,21 +1571,12 @@ mod tests {
             task,
             trigger_running: false,
         };
-        // txn 1 begins as an idempotent replay: HeadIdle carries
-        // `idempotent_replay` with empty extents (as `handler::serve` builds it
-        // on recovery of a prepared-but-uncommitted transaction).
-        let mut head = Head::Idle(HeadIdle {
-            idempotent_replay: true,
-            ..Default::default()
-        });
+        let mut head = Head::Idle(HeadIdle::default());
         let mut tail = Tail::Done(TailDone::default());
 
-        // ===== Phase 1: txn 1 lifecycle (idempotent replay) =====
+        // ===== Phase 1: txn 1 lifecycle =====
 
-        // The recovered hints arrive as a `ready_frontier` peek, not yet in
-        // `extents.frontier`. Replay suppresses policy-driven extend, so the
-        // first Load is forced only by the "unstarted replay is an unresolved
-        // hint" bootstrap. Absent it, HeadIdle would spin without progress.
+        // txn 1 opens on a peek carrying unresolved hints.
         ctx.ready_frontier = Some(shuffle::Frontier {
             unresolved_hints: 1,
             ..Default::default()
@@ -1602,8 +1609,9 @@ mod tests {
 
         // Second Load round applied the hint-resolving frontier, so extents now
         // carry no unresolved hints. Loaded x2 arrive without another frontier
-        // queued; HeadExtend re-polls into HeadIdle. With the replay's hints
-        // resolved, the close policy force-closes the replay txn → Flush.
+        // queued; HeadExtend re-polls into HeadIdle, where `close_requested`
+        // closes the txn → Flush.
+        ctx.close_requested = true;
         ctx.shard_rx = Some(mk_loaded(0));
         let (_action, h) = ctx.step_head(head, &mut tail);
         head = h;
@@ -1891,6 +1899,125 @@ mod tests {
         // (next_action, next_state) = (PollAgain, Head::Stop) — no Rotate.
         // PollAgain (not Idle) lets the actor loop exit `while !Head::Stop`
         // immediately rather than parking for a 60s ACTOR_TICK_INTERVAL.
+        ctx.shard_rx = Some(mk_head_persisted(&head));
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        assert!(matches!(action, Action::PollAgain));
+        assert!(matches!(head, Head::Stop));
+        assert!(matches!(tail, Tail::Done(_)));
+    }
+
+    /// An idempotent-recovery session performs the replay and nothing else.
+    /// The session opens with Tail recovering the *crashed* transaction's
+    /// post-commit work (which must run: `stopping` is not pre-armed), and
+    /// Head replaying its recovered extents. Closing the replay arms
+    /// `stopping`, so the commit chain ends Persist → Head::Stop with no
+    /// Rotate — leaving *this* transaction's Tail work, and every read beyond
+    /// the hinted frontier, to the next session.
+    #[test]
+    fn idempotent_replay_commits_then_stops() {
+        let mut ctx = Ctx {
+            binding_bytes_behind: vec![0; 1],
+            close_requested: false,
+            debounce: TriggerDebounce::default(),
+            intents_idle: true,
+            legacy_checkpoint: None,
+            now: uuid::Clock::from_unix(1_700_000_000, 0),
+            pending_ack_intents: BTreeMap::new(),
+            ready_frontier: None,
+            shard_rx: None,
+            stats_idle: false,
+            stopping: false,
+            task: mk_task(1),
+            trigger_running: false,
+        };
+        // As `handler::serve` builds a recovery session: Tail resumes the
+        // committed-but-unacknowledged transaction, Head replays the prepared
+        // one with empty extents.
+        let mut tail = Tail::Begin(TailBegin {
+            pending: PendingDeltas::default(),
+        });
+        let mut head = Head::Idle(HeadIdle {
+            idempotent_replay: true,
+            ..Default::default()
+        });
+
+        // The hazard: a session-opening Begin must Acknowledge. Nothing has
+        // armed `stopping` yet, so it does.
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::Acknowledge { .. }));
+
+        ctx.shard_rx = Some(mk_acknowledged(0, b""));
+        let (action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(action, Action::WriteIntents { .. }));
+
+        let (_action, t) = ctx.step_tail(tail);
+        tail = t;
+        assert!(matches!(tail, Tail::Done(_)), "prior txn fully drained");
+
+        // The recovered hints arrive as a `ready_frontier` peek, not yet in
+        // `extents.frontier`. Replay suppresses policy-driven extend, so the
+        // first Load is forced only by the "unstarted replay is an unresolved
+        // hint" bootstrap. Absent it, HeadIdle would spin without progress.
+        ctx.ready_frontier = Some(shuffle::Frontier {
+            unresolved_hints: 1,
+            ..Default::default()
+        });
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        assert!(matches!(action, Action::Load { .. }));
+
+        // A second frontier resolves the recovered hints; the still-unresolved
+        // extents force one more Load round rather than a close.
+        ctx.ready_frontier = Some(shuffle::Frontier::default());
+        ctx.shard_rx = Some(mk_loaded(0));
+        let (_action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        let (_action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        assert!(matches!(head, Head::Extend(_)));
+        assert!(!ctx.stopping, "an open replay does not arm stopping");
+
+        // Hints resolved: the close policy force-closes the replay, which arms
+        // `stopping` on its way to Flush.
+        ctx.shard_rx = Some(mk_loaded(0));
+        let (_action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        assert!(matches!(action, Action::Flush { .. }));
+        assert!(ctx.stopping, "closing the replay arms stopping");
+
+        // Drive the commit sequence. It is a full transaction: the replay is
+        // durably committed before the session exits.
+        ctx.shard_rx = Some(mk_flushed(0, b""));
+        let (_action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        ctx.shard_rx = Some(mk_head_persisted(&head));
+        let (_action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        ctx.shard_rx = Some(mk_stored(0));
+        let (_action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        ctx.stats_idle = true;
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        ctx.stats_idle = false;
+        assert!(matches!(action, Action::StartCommit { .. }));
+
+        ctx.shard_rx = Some(mk_started_commit(0, b""));
+        let (action, h) = ctx.step_head(head, &mut tail);
+        head = h;
+        assert!(
+            matches!(action, Action::Persist { .. }),
+            "the replay commits durably",
+        );
+
+        // The committing Persisted chains to Stop, not Rotate: this
+        // transaction's Acknowledge and ACK-intent writes are the next
+        // session's first act.
         ctx.shard_rx = Some(mk_head_persisted(&head));
         let (action, h) = ctx.step_head(head, &mut tail);
         head = h;

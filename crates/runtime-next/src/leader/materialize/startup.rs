@@ -1274,6 +1274,67 @@ mod tests {
         assert!(p0.hinted_commit > p0.last_commit);
     }
 
+    /// The two-session recovery handoff. Session 1 replays the crashed
+    /// transaction, commits it, and exits at that commit. Session 2 recovers
+    /// that durable state: it is not a replay, it resumes from the frontier the
+    /// replay committed, and it carries the deferred ACK intents which its Tail
+    /// writes as its first act.
+    #[test]
+    fn two_session_recovery_handoff() {
+        // Session 1: a transaction prepared (hinted at T200) but never
+        // committed, over a committed floor at offset 1_000.
+        let committed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(50), uuid::Clock::zero(), -1_000)],
+        );
+        let hinted = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -1_000)],
+        );
+        let session_1 = baseline(clk(50), committed, clk(60), hinted, [], None);
+
+        let (resume, idempotent_replay) = session_1.session_state();
+        assert!(idempotent_replay, "session 1 replays");
+        assert_eq!(resume.journals[0].producers[0].offset, -1_000);
+
+        // The replay resolves the hint, and its recovery checkpoint covers
+        // T200 at the cut floor it resumed from. Both the hinted (Flush) and
+        // committed (commit) Persists of the replay transaction write that
+        // frontier, and the commit persists its ACK intents — which the
+        // session exits without writing.
+        let replayed = frontier(
+            "j/one",
+            0,
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -1_000)],
+        );
+        let session_2 = baseline(
+            clk(200),
+            replayed.clone(),
+            clk(200),
+            replayed,
+            [("j/ack", b"intent")],
+            None,
+        );
+
+        let (resume, idempotent_replay) = session_2.session_state();
+        assert!(
+            !idempotent_replay,
+            "recovery completed; session 2 does ordinary work",
+        );
+        assert_eq!(resume.unresolved_hints, 0);
+        assert_eq!(
+            resume.journals[0].producers[0].offset, -1_000,
+            "session 2 resumes from the frontier the replay committed",
+        );
+        assert_eq!(
+            session_2.ack_intents.len(),
+            1,
+            "the deferred post-commit work, run as session 2's first act",
+        );
+    }
+
     /// Fold with a maintained legacy (V1-rollback) checkpoint: the fold persist
     /// refreshes the legacy checkpoint verbatim from the connector checkpoint, so
     /// the next recovery's legacy consistency check sees the advanced committed

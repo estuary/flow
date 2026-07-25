@@ -13,6 +13,9 @@ pub struct Topology {
     /// Per-binding shuffle configuration extracted from the task spec.
     pub bindings: Vec<crate::Binding>,
     /// Checkpoint frontier restored from the previous session.
+    /// A non-zero `unresolved_hints` makes this an idempotent-recovery session:
+    /// the checkpoint carries a transaction which the crashed session prepared
+    /// but never durably committed, and which this session must replay.
     pub resume_checkpoint: crate::Frontier,
 }
 
@@ -135,11 +138,15 @@ impl Topology {
         })
     }
 
+    /// Build the StartRead of a routed `(journal, binding)`, paired with the
+    /// Slice shard which will serve it. None if this session must not read the
+    /// journal: a recovery session replays only journals having an unresolved
+    /// hint, and skips all others.
     pub fn build_start_read(
         &mut self,
         routed: &RoutedRead,
         added: shuffle::slice_response::ListingAdded,
-    ) -> (usize, shuffle::slice_request::StartRead) {
+    ) -> Option<(usize, shuffle::slice_request::StartRead)> {
         let shuffle::slice_response::ListingAdded {
             binding,
             spec,
@@ -158,9 +165,13 @@ impl Topology {
         // content / producers are entirely gone, and upon resume its first
         // written offset is at-or-above its offset at time of suspension
         // (a read from nominal zero immediately seeks to this resume offset).
-        let checkpoint = self
+        //
+        // `resume_checkpoint.unresolved_hints` is deliberately NOT adjusted as
+        // producers drain. It classifies the *session* and is fixed at resume.
+        let checkpoint: Vec<_> = self
             .resume_checkpoint
             .find_journal(journal_name, binding.index)
+            .map(|index| &mut self.resume_checkpoint.journals[index])
             .map(|jf| {
                 std::mem::take(&mut jf.producers)
                     .into_iter()
@@ -174,7 +185,23 @@ impl Topology {
             })
             .unwrap_or_default();
 
-        (
+        // A recovery session replays only journals having an unresolved hint.
+        if self.resume_checkpoint.unresolved_hints != 0
+            && !checkpoint
+                .iter()
+                .any(|pf| pf.hinted_commit > pf.last_commit)
+        {
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "topology",
+                journal = journal_name.to_string(),
+                binding = binding.index,
+                "skipping read of journal with no unresolved hint (recovery session)",
+            );
+            return None;
+        }
+
+        Some((
             routed.shard_index,
             shuffle::slice_request::StartRead {
                 binding: binding.index as u32,
@@ -184,7 +211,7 @@ impl Topology {
                 route,
                 checkpoint,
             },
-        )
+        ))
     }
 }
 
@@ -194,8 +221,9 @@ impl Topology {
 ///
 /// Causal hints gate the `unresolved` → `ready` promotion: progress stays in
 /// `unresolved` until all hinted journals confirm the producer committed.
-/// The `recovery_pending` flag additionally gates `progressed` → `unresolved`
-/// to protect the recovery checkpoint from contamination.
+/// A recovery session additionally never promotes `progressed` → `unresolved`
+/// at all (see `recovery_session` docs), so it emits exactly one checkpoint —
+/// the recovery checkpoint — and then quiesces.
 ///
 /// Why hold `progressed` back behind `unresolved`? Newer progress can introduce
 /// fresh causal hints. If we let `progressed` clobber `unresolved` whenever
@@ -236,11 +264,9 @@ pub struct CheckpointPipeline {
     ready: crate::Frontier,
     /// True if the client has requested a checkpoint.
     requested: bool,
-    /// True while the recovery checkpoint has not yet been consumed by the client.
-    /// While set, newly accumulated `progressed` is NOT promoted into `unresolved`,
-    /// ensuring the recovery checkpoint in `ready` is not contaminated.
-    /// Cleared by `take_ready()`.
-    recovery_pending: bool,
+    /// True for the whole life of an idempotent-recovery session, which is
+    /// one-shot and parks at recovery completion until torn down by the leader.
+    recovery_session: bool,
     /// Per-cohort map from Producer to the highest committed Clock observed
     /// when promoting unresolved → ready. Used to pre-resolve stale causal
     /// hints from re-enabled bindings whose journals are catching up.
@@ -269,11 +295,13 @@ impl CheckpointPipeline {
             .max()
             .map_or(0, |m| m as usize + 1);
 
+        let recovery_session = unresolved.unresolved_hints != 0;
+
         service_kit::event!(
             tracing::Level::DEBUG,
             "pipeline",
             num_cohorts,
-            recovery_pending = unresolved.unresolved_hints != 0,
+            recovery_session,
             unresolved_hints = unresolved.unresolved_hints,
             "CheckpointPipeline initialized",
         );
@@ -281,7 +309,6 @@ impl CheckpointPipeline {
         let mut completed_clocks = vec![crate::ProducerMap::default(); num_cohorts];
         update_completed_clocks(&mut completed_clocks, &binding_cohorts, resume_checkpoint);
 
-        let recovery_pending = unresolved.unresolved_hints != 0;
         Self {
             progressed: Default::default(),
             unresolved,
@@ -289,7 +316,7 @@ impl CheckpointPipeline {
             unresolved_peek_progress: false,
             ready: Default::default(),
             requested: false,
-            recovery_pending,
+            recovery_session,
             completed_clocks,
             binding_cohorts,
             emitted_flushed_lsn: Vec::new(),
@@ -334,14 +361,9 @@ impl CheckpointPipeline {
             service_kit::event!(
                 tracing::Level::DEBUG,
                 "pipeline",
-                was_recovery = self.recovery_pending,
+                recovery_session = self.recovery_session,
                 "taking `ready` frontier"
             );
-
-            // Clearing recovery_pending may unblock accumulated progress that was
-            // previously held back to avoid contaminating the recovery checkpoint.
-            self.recovery_pending = false;
-            self.try_promote();
 
             return Some(ready);
         }
@@ -459,6 +481,9 @@ impl CheckpointPipeline {
             );
             let resolved = std::mem::take(&mut self.unresolved);
 
+            // With `unresolved` emptied there is nothing left to peek at.
+            self.unresolved_peek_progress = false;
+
             update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
             self.ready = std::mem::take(&mut self.ready).reduce(resolved);
         } else if advanced_count != 0 {
@@ -526,10 +551,9 @@ impl CheckpointPipeline {
     }
 
     /// Promote `progressed` → `unresolved` → `ready` when the pipeline is unblocked.
-    /// While `recovery_pending` is set, promotion is skipped so that accumulated
-    /// progress doesn't contaminate the recovery checkpoint sitting in `ready`.
+    /// A recovery session never promotes at all.
     fn try_promote(&mut self) {
-        if self.recovery_pending || !self.unresolved.journals.is_empty() {
+        if self.recovery_session || !self.unresolved.journals.is_empty() {
             return;
         }
         if self.progressed.journals.is_empty() {
@@ -626,7 +650,7 @@ impl std::fmt::Debug for CheckpointPipeline {
             .field("unresolved_peek_progress", &self.unresolved_peek_progress)
             .field("ready", &self.ready.journals.len())
             .field("requested", &self.requested)
-            .field("recovery_pending", &self.recovery_pending)
+            .field("recovery_session", &self.recovery_session)
             .finish()
     }
 }
@@ -763,11 +787,20 @@ mod test {
 
     /// Build a Topology with sensible defaults for testing.
     fn test_topology(shards: Vec<shuffle::Shard>, bindings: Vec<crate::Binding>) -> Topology {
+        test_topology_resuming(shards, bindings, Default::default())
+    }
+
+    /// Build a Topology resuming from `resume_checkpoint`.
+    fn test_topology_resuming(
+        shards: Vec<shuffle::Shard>,
+        bindings: Vec<crate::Binding>,
+        resume_checkpoint: crate::Frontier,
+    ) -> Topology {
         Topology {
             session_id: 1,
             shards,
             bindings,
-            resume_checkpoint: Default::default(),
+            resume_checkpoint,
         }
     }
 
@@ -1277,7 +1310,7 @@ mod test {
             },
             vec![0],
         );
-        assert!(pipeline.recovery_pending);
+        assert!(pipeline.recovery_session);
 
         // Without progress, a request returns nothing — neither ready nor peek.
         pipeline.request().unwrap();
@@ -1315,7 +1348,7 @@ mod test {
         assert!(!pipeline.requested);
         assert!(!pipeline.unresolved_peek_progress, "cleared by peek");
         assert_eq!(pipeline.unresolved.unresolved_hints, 1);
-        assert!(pipeline.recovery_pending, "peek does not clear recovery");
+        assert!(pipeline.recovery_session, "peek does not clear recovery");
 
         // Second request without further progress: blocks again.
         pipeline.request().unwrap();
@@ -1323,7 +1356,7 @@ mod test {
 
         // Full resolution: unresolved → ready (carries no bytes — bytes are
         // queued in self.progressed). take_ready returns the recovery
-        // checkpoint and clears recovery_pending.
+        // checkpoint, which is this session's one and only checkpoint.
         ingest_progressed(
             &mut pipeline,
             vec![jf("journal/A", 0, vec![pf(0x01, 100, 0, -300)])],
@@ -1336,25 +1369,22 @@ mod test {
             100
         );
         assert_eq!(recovery.journals[0].bytes_read_delta, 0);
-        assert!(!pipeline.recovery_pending);
+        assert!(pipeline.recovery_session, "recovery is sticky");
 
-        // The byte deltas from the partial-advance chunk emerge exactly once
-        // on the next ready (try_promote ran when recovery_pending cleared).
+        // The session now quiesces: the held-back byte deltas are never promoted.
         pipeline.request().unwrap();
-        let post = pipeline.take_ready().expect("post-recovery ready");
-        assert_eq!(post.unresolved_hints, 0);
-        assert_eq!(
-            post.journals[0].bytes_read_delta, 400,
-            "bytes ride exactly once"
+        assert!(
+            pipeline.take_ready().is_none(),
+            "no second checkpoint after recovery",
         );
-        assert_eq!(post.journals[0].bytes_behind_delta, 1000);
+        assert_eq!(pipeline.progressed.journals[0].bytes_read_delta, 400);
     }
 
     /// Snapshot-friendly view of the checkpoint pipeline state.
     #[derive(Debug)]
     #[allow(dead_code)]
     struct PipelineSnapshot<'a> {
-        recovery_pending: bool,
+        recovery_session: bool,
         ready: &'a crate::Frontier,
         unresolved: &'a crate::Frontier,
         unresolved_count: usize,
@@ -1363,7 +1393,7 @@ mod test {
 
     fn pipeline_snapshot(pipeline: &CheckpointPipeline) -> PipelineSnapshot<'_> {
         PipelineSnapshot {
-            recovery_pending: pipeline.recovery_pending,
+            recovery_session: pipeline.recovery_session,
             ready: &pipeline.ready,
             unresolved: &pipeline.unresolved,
             unresolved_count: pipeline.unresolved.unresolved_hints,
@@ -1414,8 +1444,9 @@ mod test {
         );
         insta::assert_debug_snapshot!("after_hint_resolved", pipeline_snapshot(&pipeline));
 
-        // Second Progressed arrives before client polls — must not contaminate
-        // the recovery checkpoint sitting in ready.
+        // Second Progressed arrives before client polls — held back so the
+        // recovery checkpoint exactly matches the crashed transaction
+        // (see `recovery_session`).
         ingest_progressed(
             &mut pipeline,
             vec![jf_with_bytes(
@@ -1435,7 +1466,8 @@ mod test {
         insta::assert_debug_snapshot!("taken_recovery", &recovery);
         insta::assert_debug_snapshot!("after_take", pipeline_snapshot(&pipeline));
 
-        // Normal pipeline resumes with accumulated progress.
+        // The session quiesces: `recovery_session` is sticky, so further
+        // progress accumulates in `progressed` and is never promoted.
         ingest_progressed(
             &mut pipeline,
             vec![jf_with_bytes(
@@ -1447,7 +1479,12 @@ mod test {
             )],
             vec![3000],
         );
-        insta::assert_debug_snapshot!("after_normal_resumes", pipeline_snapshot(&pipeline));
+        pipeline.request().unwrap();
+        assert!(
+            pipeline.take_ready().is_none(),
+            "recovery is one-shot: no second checkpoint",
+        );
+        insta::assert_debug_snapshot!("after_quiesced", pipeline_snapshot(&pipeline));
     }
 
     #[test]
@@ -1611,7 +1648,7 @@ mod test {
             test_journal_spec("test/journal/F", 0x10000000, 0x20000000, &[]),
         );
         let routed_f = topology.route_read(&added_f).unwrap();
-        let (_shard_index, start_read_f) = topology.build_start_read(&routed_f, added_f);
+        let (_shard_index, start_read_f) = topology.build_start_read(&routed_f, added_f).unwrap();
 
         // Second call for the same journal: producers were taken, so checkpoint is empty.
         let added_f2 = test_listing_added(
@@ -1619,7 +1656,8 @@ mod test {
             test_journal_spec("test/journal/F", 0x10000000, 0x20000000, &[]),
         );
         let routed_f2 = topology.route_read(&added_f2).unwrap();
-        let (_shard_index, start_read_f2) = topology.build_start_read(&routed_f2, added_f2);
+        let (_shard_index, start_read_f2) =
+            topology.build_start_read(&routed_f2, added_f2).unwrap();
 
         // Checkpoint not found (empty checkpoint).
         let added_g = test_listing_added(
@@ -1627,7 +1665,7 @@ mod test {
             test_journal_spec("test/journal/G", 0x10000000, 0x20000000, &[]),
         );
         let routed_g = topology.route_read(&added_g).unwrap();
-        let (_shard_index, start_read_g) = topology.build_start_read(&routed_g, added_g);
+        let (_shard_index, start_read_g) = topology.build_start_read(&routed_g, added_g).unwrap();
 
         insta::assert_debug_snapshot!(&[start_read_f, start_read_f2, start_read_g]);
     }
@@ -1902,7 +1940,7 @@ mod test {
 
         // The recovery hint must be in unresolved, not silently filtered.
         assert_eq!(pipeline.unresolved.unresolved_hints, 1);
-        assert!(pipeline.recovery_pending);
+        assert!(pipeline.recovery_session);
         insta::assert_debug_snapshot!(
             "recovery_hint_survives_completed_clocks",
             pipeline_snapshot(&pipeline)
@@ -2034,7 +2072,7 @@ mod test {
     #[test]
     fn test_recovery_replay_carries_marker_on_recovery_ready() {
         // Resume with an unresolved hint for P1 on journal/A, plus the seeded marker
-        // delta (as startup computes it) → recovery_pending.
+        // delta (as startup computes it) → recovery_session.
         let mut pipeline = CheckpointPipeline::new(
             &crate::Frontier {
                 journals: vec![jf("journal/A", 0, vec![pf(0x01, 50, 200, -100)])],
@@ -2048,7 +2086,7 @@ mod test {
             },
             vec![0],
         );
-        assert!(pipeline.recovery_pending);
+        assert!(pipeline.recovery_session);
 
         // Replaying to the hinted commit resolves the hint.
         pipeline.request().unwrap();

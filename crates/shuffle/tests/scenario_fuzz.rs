@@ -720,18 +720,23 @@ fn polling_complete(
     frontier: &shuffle::Frontier,
     commit_clocks: &HashMap<ProducerId, uuid::Clock>,
 ) -> bool {
-    for (&prod_id, &expected_clock) in commit_clocks {
-        let producer = make_producer_id(prod_id);
-        let visible = frontier.journals.iter().any(|jf| {
-            jf.producers
-                .iter()
-                .any(|pf| pf.producer == producer && pf.last_commit >= expected_clock)
-        });
-        if !visible {
-            return false;
-        }
-    }
-    true
+    commit_clocks
+        .iter()
+        .all(|(&prod_id, &clock)| commit_visible(frontier, prod_id, clock))
+}
+
+/// Does `frontier` show `prod_id` committed at-or-past `expected_clock`?
+fn commit_visible(
+    frontier: &shuffle::Frontier,
+    prod_id: ProducerId,
+    expected_clock: uuid::Clock,
+) -> bool {
+    let producer = make_producer_id(prod_id);
+    frontier.journals.iter().any(|jf| {
+        jf.producers
+            .iter()
+            .any(|pf| pf.producer == producer && pf.last_commit >= expected_clock)
+    })
 }
 
 /// Client-side hints projection with production hint fidelity: project
@@ -1020,7 +1025,7 @@ async fn run_test_case_inner(
         record_oracle_with_counters(&mut oracle, &round.actions, &counter_starts);
 
         // Compute commit clocks for polling termination.
-        let commit_clocks: HashMap<ProducerId, uuid::Clock> = round
+        let mut commit_clocks: HashMap<ProducerId, uuid::Clock> = round
             .actions
             .iter()
             .filter(|(_, action)| {
@@ -1100,11 +1105,18 @@ async fn run_test_case_inner(
         // recovered checkpoint justifies, re-reads everything above it — the
         // crash round's writes — and re-commits its transactions at their
         // original clocks. Poll until every committing producer of the crash
-        // round is visible again. When the recovery frontier carries unresolved
-        // hints (this round's multi-journal ACK commits), the pipeline first
-        // emits recovery peeks and then the recovery checkpoint; polling
-        // reduces through them until all hints resolve AND all commits are
-        // visible.
+        // round is visible again.
+        //
+        // A recovery checkpoint carrying unresolved hints (this round's
+        // multi-journal ACK commits) takes *two* sessions, as production does:
+        // the first replays exactly the hinted transaction — emitting recovery
+        // peeks and then the recovery checkpoint, and reading nothing beyond
+        // its hinted frontier — and then quiesces, standing in for a leader
+        // which commits that checkpoint and exits. Its log dies with it, so it
+        // is scanned before the restart, which resumes from that committed
+        // checkpoint and delivers everything else.
+        let mut recovered_scan = Vec::new();
+
         if round.crash {
             session
                 .close()
@@ -1136,12 +1148,59 @@ async fn run_test_case_inner(
                 ..Default::default()
             };
 
-            if !commit_clocks.is_empty() || recovery.unresolved_hints != 0 {
+            if recovery.unresolved_hints != 0 {
+                // The idempotent-replay session: peeks, then its one resolved
+                // checkpoint. It emits nothing further.
                 loop {
                     let delta = session
                         .next_checkpoint()
                         .await
                         .map_err(|e| format!("recovery next_checkpoint: {e}"))?;
+
+                    round_frontier = round_frontier.reduce(delta);
+
+                    if round_frontier.unresolved_hints == 0 {
+                        break;
+                    }
+                }
+                recovered_scan =
+                    collect_scanned_entries(&round_frontier, log_dir, &mut shard_state);
+
+                session
+                    .close()
+                    .await
+                    .map_err(|e| format!("session.close on recovery: {e}"))?;
+
+                // The leader commits the recovery checkpoint and restarts.
+                // Commits it took are done; the rest are re-delivered by the
+                // restarted session.
+                commit_clocks.retain(|&prod_id, &mut clock| {
+                    !commit_visible(&round_frontier, prod_id, clock)
+                });
+
+                recovery = recovery.reduce(std::mem::take(&mut round_frontier));
+                recovery.flushed_lsn = vec![];
+                recovery.journals.iter_mut().for_each(|jf| {
+                    jf.bytes_behind_delta = 0;
+                });
+
+                shard_state = (0..test_case.num_shards).map(|_| None).collect();
+                session = shuffle::SessionClient::open(
+                    service,
+                    task.clone(),
+                    shards.clone(),
+                    recovery.clone(),
+                )
+                .await
+                .map_err(|e| format!("SessionClient::open on restart: {e}"))?;
+            }
+
+            if !commit_clocks.is_empty() {
+                loop {
+                    let delta = session
+                        .next_checkpoint()
+                        .await
+                        .map_err(|e| format!("restarted next_checkpoint: {e}"))?;
 
                     round_frontier = round_frontier.reduce(delta);
 
@@ -1158,11 +1217,14 @@ async fn run_test_case_inner(
         // Skip scanning when there's no log data yet (flushed_lsn is empty before
         // any checkpoint has been received). FrontierScan::new requires flushed_lsn
         // to contain an entry for our shard_index.
-        let scanned = if round_frontier.flushed_lsn.is_empty() {
-            vec![]
-        } else {
-            collect_scanned_entries(&round_frontier, log_dir, &mut shard_state)
-        };
+        let mut scanned = recovered_scan;
+        if !round_frontier.flushed_lsn.is_empty() {
+            scanned.extend(collect_scanned_entries(
+                &round_frontier,
+                log_dir,
+                &mut shard_state,
+            ));
+        }
         oracle.verify_round(&scanned).map_err(|e| {
             format!("Round {round_idx} verification failed: {e}\n  Test case: {test_case:?}")
         })?;
