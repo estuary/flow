@@ -1,6 +1,5 @@
 ---
 source: crates/shuffle/src/slice/state.rs
-assertion_line: 999
 expression: entries
 ---
 [

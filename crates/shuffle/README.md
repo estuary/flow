@@ -404,10 +404,39 @@ Once all hints resolve, the frontier promotes to `ready`. When the
 coordinator sends `NextCheckpoint` and `ready` is non-empty, the Session
 sends it as a single `Frontier` message.
 
+#### Idempotent recovery is a session of its own
+
 At startup, `resume_checkpoint` may contain unresolved hints from the
-previous session. The `recovery_pending` flag gates promotion until the
-coordinator consumes this recovery checkpoint, so that the very first
-checkpoint is exactly the hinted frontier and no more (or less).
+previous session: a transaction it prepared but never durably committed,
+which must be replayed exactly. Such a session does that replay and
+nothing else. Three mechanisms, each self-gating on the resume
+checkpoint, make it so:
+
+- The Session starts reads only for `(journal, binding)` pairs carrying
+  an unresolved hint (`Topology::build_start_read` returns None otherwise,
+  gated on `resume_checkpoint.unresolved_hints`). Every other journal —
+  including one newly listed mid-recovery — is the next session's work.
+- Each such read parks the moment its own hints resolve
+  (`slice::read::Park`): it drops its in-hand batch and its journal read
+  stream at the resolving committing close, so no read tails on into post-crash
+  content. Its `ReadState` survives, so the resolving flush delta still
+  reaches the Session.
+- `CheckpointPipeline::recovery_session` is sticky: newer `progressed`
+  is never promoted, so the one checkpoint this session emits is exactly
+  the hinted frontier, no more and no less, and the Session then
+  quiesces.
+
+The coordinator (`runtime-next`'s materialize leader) commits that
+checkpoint and exits — deferring the transaction's own post-commit work
+to the next session, which resumes it exactly as any crash restart
+would. That restart is what bounds the replay's disk: the one unbounded
+term, tailing past the hinted frontier while a lower-priority cohort
+still resolves, is gone, so the replay fits within the same
+`estuary.dev/shuffle-disk-limit` the crashed session ran under.
+
+The restart is not yet *cheap*: the recovery checkpoint's producer
+offsets sit at the old cut floor the replay started from, so the next
+session re-reads the whole hinted span before it makes new progress.
 
 #### Peeks of partial progress
 
@@ -472,7 +501,8 @@ next one.
   - `listing.rs`: Gazette journal listing subscriber.
   - `producer.rs`: Per-producer state tracking and flush frontier
     construction.
-  - `read.rs`: ReadState, document metadata extraction, journal probing.
+  - `read.rs`: ReadState (including its hinted-frontier park), document
+    metadata extraction, journal probing.
   - `replay.rs`: Bounded historical replay of a gapped producer's span on
     restart recovery.
   - `routing.rs`: Clock rotation and shard routing.

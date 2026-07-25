@@ -231,17 +231,18 @@ mod test {
             );
         }
         super::super::read::ReadState {
-            binding_index: binding,
-            journal: journal.into(),
-            truncated_at: Clock::zero(),
-            backfill_begin: Clock::zero(),
-            backfill_complete: Clock::zero(),
-            reported: ProducerMap::default(),
             unreported: map,
             read_offset,
             prev_read_offset,
             write_head,
             prev_write_head,
+            ..super::super::read::ReadState::recovered(
+                binding,
+                journal.into(),
+                Clock::zero(),
+                ProducerMap::default(),
+                ProducerMap::default(),
+            )
         }
     }
 

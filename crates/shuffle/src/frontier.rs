@@ -590,7 +590,7 @@ impl Frontier {
     }
 
     /// Look up a journal entry by `(journal, binding)`.
-    pub fn find_journal(&mut self, journal: &str, binding: u16) -> Option<&mut JournalFrontier> {
+    pub fn find_journal(&self, journal: &str, binding: u16) -> Option<usize> {
         self.journals
             .binary_search_by(|jf| {
                 jf.journal
@@ -599,7 +599,6 @@ impl Frontier {
                     .then(jf.binding.cmp(&binding))
             })
             .ok()
-            .map(|i| &mut self.journals[i])
     }
 
     /// Advance `last_commit` on producers of `self` up to each one's

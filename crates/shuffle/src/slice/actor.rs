@@ -360,7 +360,11 @@ impl SliceActor {
         let read_id = self.reads.len() as u32;
 
         // Resolve the checkpoint into producer state and start offset.
-        let state::ResolvedCheckpoint { offset, producers } = state::resolve_checkpoint(checkpoint);
+        let state::ResolvedCheckpoint {
+            offset,
+            producers,
+            hinted,
+        } = state::resolve_checkpoint(checkpoint);
 
         let mut request = broker::ReadRequest {
             // Add `journal_read_suffix` as a metadata component to the journal name.
@@ -401,6 +405,7 @@ impl SliceActor {
             journal,
             truncated_at,
             producers,
+            hinted,
         ));
 
         self.pending_probes.push(Box::pin(async move {
@@ -828,6 +833,20 @@ impl SliceActor {
             // Track maximum forward progress of the read.
             read_state.read_offset = end_offset;
 
+            // Fold any committed backfill control clock into this journal's
+            // per-flush backfill state, then step producer state forward.
+            read_state.backfill_begin = read_state.backfill_begin.max(sequenced.backfill_begin);
+            read_state.backfill_complete = read_state
+                .backfill_complete
+                .max(sequenced.backfill_complete);
+
+            _ = read_state
+                .unreported
+                .insert(producer, sequenced.producer_state);
+
+            // Copy so the `binding` borrow can end below, freeing &mut self for re-borrow.
+            let (cohort, read_delay) = (binding.cohort, binding.read_delay);
+
             if sequenced.is_commit {
                 if flags.is_ack() {
                     // This ACK is (binding, journal)-scoped: it commits only
@@ -839,7 +858,7 @@ impl SliceActor {
                     state::extract_causal_hints(
                         &self.topology.hint_index,
                         &read_state.journal,
-                        binding.cohort,
+                        cohort,
                         read_state.binding_index,
                         producer,
                         clock,
@@ -848,20 +867,29 @@ impl SliceActor {
                     )?;
                 }
                 self.flush.set_ready();
+
+                // If we resolved our last recovery resumption hint, then park.
+                // Everything after is post-crash docs this session can't consume.
+                if read_state.resolve_hint(producer, &sequenced.producer_state) {
+                    debug_assert!(self.replay.is_none());
+
+                    service_kit::event!(
+                        tracing::Level::INFO,
+                        "read",
+                        read_id,
+                        binding = read_state.binding_index,
+                        journal = read_state.journal.to_string(),
+                        read_offset = read_state.read_offset,
+                        write_head = read_state.write_head,
+                        "parked read at its hinted frontier",
+                    );
+                    // The read is in none of `pending_probes`, `pending_reads`,
+                    // or the heap.
+                    self.metrics.reads_stopped.increment(1);
+
+                    continue; // Drops `read`, `doc_tail` and `meta_tail`.
+                }
             }
-
-            // Fold any committed backfill control clock into this journal's
-            // per-flush backfill state, then step producer state forward.
-            read_state.backfill_begin = read_state.backfill_begin.max(sequenced.backfill_begin);
-            read_state.backfill_complete = read_state
-                .backfill_complete
-                .max(sequenced.backfill_complete);
-            _ = read_state
-                .unreported
-                .insert(producer, sequenced.producer_state);
-
-            // Copy so the `binding` borrow ends here, freeing &mut self for re-borrow.
-            let read_delay = binding.read_delay;
 
             // Advance doc_tail and meta_tail in lock-step (guaranteed equal length).
             match (doc_tail.next(), meta_tail.next()) {

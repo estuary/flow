@@ -747,8 +747,9 @@ async fn multiple_producers(
 /// Phase 1: multi-journal CONTINUE_TXN + ACK, producing hinted_commit values.
 /// Construct a modified resume frontier with unresolved hints (simulating a
 /// crash before hint resolution). Phase 2: write more data, resume from the
-/// modified frontier. First checkpoint advances to exactly the hinted boundary;
-/// second checkpoint picks up the remaining progress.
+/// modified frontier — an idempotent-recovery session, which advances to
+/// exactly the hinted boundary, emits that one checkpoint, and then quiesces.
+/// Phase 3: a fresh session resuming from it picks up the remaining progress.
 async fn resume_from_checkpoint(
     materialization_spec: &flow::MaterializationSpec,
     capture_spec: &flow::CaptureSpec,
@@ -758,8 +759,10 @@ async fn resume_from_checkpoint(
 ) {
     let phase1_dir = log_dir.join("resume_checkpoint_p1");
     let phase2_dir = log_dir.join("resume_checkpoint_p2");
-    std::fs::create_dir_all(&phase1_dir).unwrap();
-    std::fs::create_dir_all(&phase2_dir).unwrap();
+    let phase3_dir = log_dir.join("resume_checkpoint_p3");
+    for dir in [&phase1_dir, &phase2_dir, &phase3_dir] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
 
     let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
 
@@ -869,13 +872,12 @@ async fn resume_from_checkpoint(
         service,
         build_task(materialization_spec),
         build_shards(1, service.peer_endpoint(), &phase2_dir),
-        resume_frontier,
+        resume_frontier.clone(),
     )
     .await
     .expect("SessionClient::open phase 2");
 
-    // First checkpoint: recovery resolves the banana hint. New progress
-    // (apple2) is held back by recovery_pending.
+    // The recovery checkpoint: the replay resolves both hints and stops there.
     let recovery_frontier =
         next_resolved_checkpoint(&mut session, "phase 2 recovery checkpoint").await;
     let mut phase2_shard_state: ShardState = (0..1).map(|_| None).collect();
@@ -889,11 +891,32 @@ async fn resume_from_checkpoint(
         }
     );
 
-    // Second checkpoint: picks up remaining progress (apples original + new).
-    let progress_frontier =
-        next_resolved_checkpoint(&mut session, "phase 2 progress checkpoint").await;
+    // Recovery is the whole job of this session: its reads have parked at the
+    // hinted frontier and its pipeline holds back every later delta, so no
+    // second checkpoint is forthcoming. (`close` tolerates the abandoned
+    // request.) A leader observes this by exiting at the recovery commit.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(3), session.next_checkpoint())
+            .await
+            .is_err(),
+        "a recovery session emits exactly one checkpoint, then quiesces",
+    );
+    session.close().await.expect("close phase 2");
+
+    // ---- Phase 3: the restart, which does the ordinary work. ----
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &phase3_dir),
+        resume_frontier.reduce(recovery_frontier),
+    )
+    .await
+    .expect("SessionClient::open phase 3");
+
+    let progress_frontier = next_resolved_checkpoint(&mut session, "phase 3 checkpoint").await;
+    let mut phase3_shard_state: ShardState = (0..1).map(|_| None).collect();
     let progress_read =
-        collect_read_entries(&progress_frontier, &phase2_dir, &mut phase2_shard_state);
+        collect_read_entries(&progress_frontier, &phase3_dir, &mut phase3_shard_state);
     insta::assert_debug_snapshot!(
         "resume_from_checkpoint_progress",
         Checkpoint {
@@ -902,7 +925,7 @@ async fn resume_from_checkpoint(
         }
     );
 
-    session.close().await.expect("close phase 2");
+    session.close().await.expect("close phase 3");
 }
 
 /// One publisher writes CONTINUE_TXN documents across two different
