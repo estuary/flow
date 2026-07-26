@@ -53,6 +53,7 @@ jsonwebtoken = { workspace = true }
 librocksdb-sys = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
 rocksdb = { workspace = true }
 serde = { workspace = true }

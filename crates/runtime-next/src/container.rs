@@ -12,6 +12,11 @@ use tokio::io::AsyncBufReadExt;
 // connectors.
 const CONNECTOR_INIT_PORT: u16 = 49092;
 
+// For now, we support only Linux amd64 connectors. `docker pull` must request
+// it explicitly: under Docker's containerd image store a platform-less pull
+// fetches only the host's variant, which `docker run --platform` cannot use.
+const CONNECTOR_PLATFORM: &str = "linux/amd64";
+
 const RUNTIME_PROTO_LABEL: &str = "FLOW_RUNTIME_PROTOCOL";
 const USAGE_RATE_LABEL: &str = "dev.estuary.usage-rate";
 const PORT_PUBLIC_LABEL_PREFIX: &str = "dev.estuary.port-public.";
@@ -39,9 +44,7 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
             .context("pulling image")?;
     }
 
-    let inspect_output = docker_cmd(&["inspect", image])
-        .await
-        .context("inspecting image")?;
+    let inspect_output = inspect_image(image).await.context("inspecting image")?;
 
     let inspection = parse_image_inspection(&inspect_output)?;
     tracing::info!(
@@ -143,8 +146,7 @@ pub async fn start<L: crate::Logger>(
         connector_memory_limit(),
         "--cpus".to_string(),
         connector_cpu_limit(),
-        // For now, we support only Linux amd64 connectors.
-        "--platform=linux/amd64".to_string(),
+        format!("--platform={CONNECTOR_PLATFORM}"),
         // Attach labels that let us group connector resource usage under a few dimensions.
         format!("--label=image={}", image),
         format!("--label=task-name={}", task_name),
@@ -204,18 +206,31 @@ pub async fn start<L: crate::Logger>(
     tokio::spawn(async move {
         let mut stderr = tokio::io::BufReader::new(stderr);
         let mut line = String::new();
-
-        // Wait for a non-empty read of stderr to complete or EOF/error.
-        // Note that `flow-connector-init` writes one whitespace byte on startup.
-        if let Ok(buf) = stderr.fill_buf().await {
-            if buf.first() == Some(&b' ') {
-                stderr.consume(1); // Discard.
-            }
-        }
-        std::mem::drop(ready_tx); // Signal that we're ready.
+        let mut ready_tx = Some(ready_tx);
 
         let decoder = ops::decode::Decoder::new(std::time::SystemTime::now);
         loop {
+            // `flow-connector-init` binds its port and then writes a single
+            // whitespace byte: our only signal that the container is up. Anything
+            // before it is `docker run` talking -- pull progress, or a failure
+            // such as a name conflict -- and mistaking that for readiness races
+            // us into inspecting a container which doesn't exist yet.
+            let first = match stderr.fill_buf().await {
+                Ok([]) => None, // Clean EOF.
+                Ok(buf) => Some(buf[0]),
+                Err(error) => {
+                    tracing::error!(%error, "failed to read from connector stderr");
+                    None
+                }
+            };
+            let Some(first) = first else { break };
+
+            if first == b' ' && ready_tx.is_some() {
+                stderr.consume(1); // Discard.
+                _ = ready_tx.take().unwrap().send(()); // Signal that we're ready.
+                continue;
+            }
+
             line.clear();
 
             match stderr.read_line(&mut line).await {
@@ -232,6 +247,8 @@ pub async fn start<L: crate::Logger>(
             let sanitized = sanitize_event_type(&quoted_task_name, log);
             pump_logger.log(&sanitized);
         }
+        // An un-sent `ready_tx` cancels on drop, telling `start()` that stderr
+        // closed before the container came up.
     });
 
     // Wait for container to become ready, or close its stderr (likely due to a crash),
@@ -240,7 +257,12 @@ pub async fn start<L: crate::Logger>(
         _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
             anyhow::bail!("timeout waiting for the container to become ready");
         }
-        _ = ready_rx => (),
+        ready = ready_rx => if ready.is_err() {
+            anyhow::bail!(
+                "container exited before flow-connector-init started; \
+                 the cause is in the preceding connector logs"
+            );
+        },
     }
 
     // Ask docker for network configuration that it assigned to the container.
@@ -376,13 +398,9 @@ impl<L: crate::Logger> Drop for Guard<L> {
     }
 }
 
+/// Generate a name for a connector container which is unique on this host.
 fn unique_container_name() -> String {
-    let n = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-
-    format!("fc_{:x}", n as u32)
+    format!("fc_{:016x}", rand::random::<u64>())
 }
 
 fn docker_cli() -> String {
@@ -425,7 +443,14 @@ async fn docker_pull(image: &str, logger: &impl crate::Logger) -> anyhow::Result
     const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
     for attempt in 1..=MAX_RETRIES {
-        let Err(err) = docker_cmd(&["pull", image, "--quiet"]).await else {
+        let Err(err) = docker_cmd(&[
+            "pull",
+            image,
+            "--quiet",
+            &format!("--platform={CONNECTOR_PLATFORM}"),
+        ])
+        .await
+        else {
             return Ok(());
         };
 
@@ -669,7 +694,7 @@ async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Res
     let name = format!("{}_fci", unique_container_name());
     docker_cmd(&[
         "create",
-        "--platform=linux/amd64",
+        &format!("--platform={CONNECTOR_PLATFORM}"),
         &format!("--name={name}"),
         CONNECTOR_INIT_IMAGE,
     ])
@@ -689,6 +714,30 @@ async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Res
     Ok(())
 }
 
+/// Inspect the `CONNECTOR_PLATFORM` variant of `image`, which must already be
+/// pulled. The result is mounted into the container as `/image-inspect.json`,
+/// from which `flow-connector-init` derives the connector's real entrypoint.
+///
+/// Plain `docker inspect` reports the host platform's variant, which under the
+/// containerd image store may not be present at all -- yielding an empty
+/// `Config` that fails to parse. Only `docker image inspect` takes `--platform`.
+/// `podman image inspect` has no such flag and needs none, as it stores the
+/// concrete image that `--platform` pulled; hence the fallback.
+async fn inspect_image(image: &str) -> anyhow::Result<Vec<u8>> {
+    let platform = format!("--platform={CONNECTOR_PLATFORM}");
+
+    match docker_cmd(&["image", "inspect", &platform, image]).await {
+        Ok(output) => Ok(output),
+        Err(error) => {
+            tracing::debug!(
+                %error,
+                "`image inspect --platform` failed; retrying without it"
+            );
+            docker_cmd(&["image", "inspect", image]).await
+        }
+    }
+}
+
 async fn inspect_image_and_copy(
     image: &str,
     tmp_path: &std::path::Path,
@@ -698,9 +747,7 @@ async fn inspect_image_and_copy(
         docker_pull(image, logger).await.context("pulling image")?;
     }
 
-    let inspect_content = docker_cmd(&["inspect", image])
-        .await
-        .context("inspecting image")?;
+    let inspect_content = inspect_image(image).await.context("inspecting image")?;
 
     tokio::fs::write(tmp_path, &inspect_content)
         .await
