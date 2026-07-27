@@ -50,6 +50,10 @@ pub async fn tenant_exists(
     Ok(illegal.is_some() || exists.is_some())
 }
 
+/// `DataMovementStalled` threshold to seed into a new tenant's `alert_configs`
+const DEFAULT_DATA_MOVEMENT_STALLED_THRESHOLD: std::time::Duration =
+    std::time::Duration::from_secs(12 * 60 * 60);
+
 pub async fn provision_tenant(
     accounts_user_email: &str,
     detail: Option<String>,
@@ -63,6 +67,17 @@ pub async fn provision_tenant(
         .copied()
         .filter(models::status::AlertType::is_default)
         .collect();
+
+    let default_alert_config = serde_json::to_value(models::AlertConfig {
+        data_movement_stalled: Some(models::DataMovementStalledConfig {
+            enabled: Some(true),
+            condition: Some(models::DataMovementStalledCondition {
+                stalled_for: DEFAULT_DATA_MOVEMENT_STALLED_THRESHOLD,
+            }),
+        }),
+        ..Default::default()
+    })
+    .expect("AlertConfig serializes to JSON");
 
     // Note that the gcp-us-central1-c1 (combustible-cronut) dataplane is excluded here
     // because it's being deprecated and replaced.
@@ -108,6 +123,11 @@ pub async fn provision_tenant(
         create_alert_subscription as (
             insert into alert_subscriptions (catalog_prefix, email, include_alert_types)
             values ($2, (select email from auth.users where id = $1 limit 1), $5)
+        ),
+        create_alert_config as (
+            insert into alert_configs (catalog_prefix_or_name, config, detail)
+            values ($2, $6, $3)
+            on conflict do nothing
         )
         insert into tenants (tenant, detail) values ($2, $3);
         "#,
@@ -116,6 +136,7 @@ pub async fn provision_tenant(
         detail.clone() as Option<String>,
         accounts_user_email as &str,
         &default_alert_types as &[models::status::AlertType],
+        default_alert_config as serde_json::Value,
     )
     .execute(&mut **txn)
     .await?;

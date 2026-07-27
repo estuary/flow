@@ -449,6 +449,14 @@ async fn test_data_movement_stalled_end_to_end() {
     harness.setup_tenant("acme").await;
     let pool = harness.pool.clone();
 
+    // Tenant provisioning seeds an `acme/` DataMovementStalled config. Remove
+    // it so the cases below exercise the no-config and legacy-fallback paths,
+    // which remain reachable for tenants that predate the seeded default.
+    sqlx::raw_sql("delete from alert_configs where catalog_prefix_or_name = 'acme/'")
+        .execute(&pool)
+        .await
+        .expect("failed to delete seeded alert config");
+
     insert_capture_for_controller(&pool, "acme/team-a/stalled", chrono::Duration::hours(3)).await;
     insert_capture_for_controller(&pool, "acme/team-a/special", chrono::Duration::hours(3)).await;
     insert_capture_for_controller(&pool, "acme/legacy", chrono::Duration::hours(3)).await;
@@ -726,6 +734,21 @@ async fn test_data_movement_stalled_end_to_end() {
     assert!(
         resolved_at.is_some(),
         "alert_history.resolved_at should be set"
+    );
+
+    // A freshly-provisioned tenant gets a seeded tenant-prefix config, so a
+    // task older than the seeded 12h threshold fires with no other rows.
+    harness.setup_tenant("newco").await;
+    insert_capture_for_controller(&pool, "newco/seeded", chrono::Duration::hours(13)).await;
+    harness.run_pending_controller("newco/seeded").await;
+    let seeded = harness.get_controller_state("newco/seeded").await;
+    let seeded_alert = current_alerts(&seeded)
+        .get(&AlertType::DataMovementStalled)
+        .expect("DataMovementStalled should fire from the seeded tenant config");
+    assert_eq!(
+        seeded_alert.extra.get("evaluation_interval").unwrap(),
+        "12h",
+        "seeded tenant threshold is 12h"
     );
 }
 

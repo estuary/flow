@@ -247,6 +247,10 @@ mod test {
             -- Expect an alert subscription was created.
             select json_build_object('catalog_prefix', s.catalog_prefix, 'email', s.email)
                 from alert_subscriptions s where s.catalog_prefix = 'AcmeTenant/'
+            union all
+            -- Expect a tenant-prefix alert config was created.
+            select json_build_object('alertConfigPrefix', c.catalog_prefix_or_name, 'alertConfig', c.config)
+                from alert_configs c where c.catalog_prefix_or_name = 'AcmeTenant/'
             "#,
         )
         .fetch_all(&harness.pool)
@@ -310,6 +314,17 @@ mod test {
           {
             "catalog_prefix": "AcmeTenant/",
             "email": "new@example.com"
+          },
+          {
+            "alertConfig": {
+              "dataMovementStalled": {
+                "condition": {
+                  "stalledFor": "12h"
+                },
+                "enabled": true
+              }
+            },
+            "alertConfigPrefix": "AcmeTenant/"
           }
         ]
         "###);
