@@ -16,13 +16,16 @@ pub struct PrefixFilter {
     /// Match values that start with this prefix — a subtree match, e.g.
     /// `acmeCo/` matches `acmeCo/`, `acmeCo/team/`, and so on.
     pub starts_with: Option<String>,
-    /// Match values exactly equal to any entry in this set. When provided the
-    /// set must be non-empty; an empty `in` is rejected during input
-    /// validation rather than silently matching nothing (or everything).
+    /// Match values exactly equal to any entry in this set. The set must hold
+    /// between 1 and 100 entries: an empty `in` is rejected during input
+    /// validation rather than silently matching nothing (or everything), and
+    /// the upper bound keeps this caller-controlled set from driving unbounded
+    /// work — every entry is narrowed against the caller's authorized prefixes
+    /// in memory and bound into a SQL `= ANY(...)` on each request.
     /// `startsWith` and `in` are mutually exclusive: a resolver rejects a
     /// filter that sets both, so a prefix scope is always either a subtree
     /// (`startsWith`) or an exact set (`in`), never a mix.
-    #[graphql(validator(min_items = 1))]
+    #[graphql(validator(min_items = 1, max_items = 100))]
     pub r#in: Option<Vec<String>>,
 }
 

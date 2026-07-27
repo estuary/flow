@@ -665,9 +665,8 @@ mod test {
         .await;
         assert_eq!(subtree, vec!["aliceCo/team/"]);
 
-        // `in` matches an exact set. Alice can read two prefixes, so this also
-        // exercises the retain() that narrows the authorized set down before
-        // the MAX_PREFIXES guard.
+        // `in` matches an exact set: only the requested prefix is returned,
+        // even though Alice can also read `aliceCo/team/`.
         let exact_one = names(
             &server,
             &alice_token,
@@ -727,5 +726,126 @@ mod test {
                 .is_some_and(|errors| !errors.is_empty()),
             "empty `in` should be rejected: {empty_in}"
         );
+
+        // An `in` set larger than the 100-entry cap is rejected at input
+        // validation, bounding the caller-controlled side of the work.
+        let over_cap: Vec<String> = (0..101).map(|n| format!("aliceCo/{n}/")).collect();
+        let too_many: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query($in: [String!]) {
+                        alertConfigs(filter: { catalogPrefixOrName: { in: $in } }) {
+                            edges { node { catalogPrefixOrName } }
+                        }
+                    }"#,
+                    "variables": { "in": over_cap },
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            too_many["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "`in` over the 100-entry cap should be rejected: {too_many}"
+        );
+    }
+
+    // Regression coverage for the reason `narrow_to_exact_set` runs before the
+    // `MAX_PREFIXES` guard: a caller who can read more than `MAX_PREFIXES`
+    // prefixes is refused an unfiltered listing, but an `in` filter narrows the
+    // authorized set back under the cap so the same caller succeeds.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes"))
+    )]
+    async fn test_alert_configs_in_narrows_past_max_prefixes(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        // Grant Bob read on `MAX_PREFIXES + 5` non-overlapping prefixes, each
+        // with a config row. None is a prefix of another, so parent-pruning
+        // leaves the full set and the count exceeds the guard.
+        let bob_uid = uuid::Uuid::from_bytes([0x22; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'bob@example.test')")
+            .bind(bob_uid)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for n in 0..(MAX_PREFIXES + 5) {
+            let prefix = format!("tenant{n:02}/");
+            sqlx::query(
+                "INSERT INTO public.user_grants (user_id, object_role, capability) VALUES ($1, $2, 'read')",
+            )
+            .bind(bob_uid)
+            .bind(&prefix)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("INSERT INTO alert_configs (catalog_prefix_or_name, config) VALUES ($1, '{}'::jsonb)")
+                .bind(&prefix)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), false).await,
+        )
+        .await;
+        let bob_token = server.make_access_token(bob_uid, Some("bob@example.test"));
+
+        // Unfiltered: the readable set exceeds `MAX_PREFIXES`, so the resolver
+        // refuses rather than scanning all of them.
+        let unfiltered: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        alertConfigs { edges { node { catalogPrefixOrName } } }
+                    }"#
+                }),
+                Some(&bob_token),
+            )
+            .await;
+        assert!(
+            unfiltered["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "unfiltered query over MAX_PREFIXES should be rejected: {unfiltered}"
+        );
+
+        // `in` narrows the authorized set below the cap, so the same caller now
+        // gets a successful, exact-set result.
+        let narrowed: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        alertConfigs(filter: { catalogPrefixOrName: { in: ["tenant00/", "tenant01/", "tenant02/"] } }) {
+                            edges { node { catalogPrefixOrName } }
+                        }
+                    }"#
+                }),
+                Some(&bob_token),
+            )
+            .await;
+        assert!(
+            narrowed.get("errors").is_none(),
+            "narrowed query should succeed: {narrowed}"
+        );
+        let names: Vec<String> = narrowed["data"]["alertConfigs"]["edges"]
+            .as_array()
+            .expect("edges array")
+            .iter()
+            .map(|edge| {
+                edge["node"]["catalogPrefixOrName"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(names, vec!["tenant00/", "tenant01/", "tenant02/"]);
     }
 }
