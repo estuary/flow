@@ -62,6 +62,17 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/name`** | Data resource | Name of the data resource. | string | Required |
 | `/interval` | Interval | Interval between data syncs | string | PT5M |
 | `/schedule` | Backfill schedule | The schedule for automatically backfilling this binding. Accepts a cron expression. For example, a schedule of `0 20 * * 5` means the binding will initiate a new backfill at 20:00 UTC every Friday. If left empty, the binding will not automatically backfill. | string | |
+| `/concurrency` | Concurrency | Maximum number of concurrent requests used to fetch this stream. Only affects streams fetched via concurrent pagination or batching. Lower this if Braintree reports elevated errors or throttles requests. | integer | Varies by stream |
+
+:::note
+The default `concurrency` differs per stream, and is set when the binding is discovered:
+
+* **20** for the Credit Card Verifications, Customers, Subscriptions, and Transactions incremental streams.
+* **5** for the Disputes incremental stream. Each Disputes request re-runs the full search on Braintree's side, so these requests are more expensive than those of other streams.
+* **1** for the full refresh streams, which don't fetch pages concurrently.
+
+Bindings that don't specify `concurrency` use 20.
+:::
 
 ### Sample
 
@@ -84,45 +95,50 @@ captures:
       - resource:
           name: add_ons
           interval: PT5M
+          concurrency: 1
         target: ${PREFIX}/add_ons
       - resource:
           name: credit_card_verifications
           interval: PT5M
           schedule: "0 20 * * 5"
+          concurrency: 20
         target: ${PREFIX}/credit_card_verifications
       - resource:
           name: customers
           interval: PT5M
           schedule: "0 20 * * 5"
+          concurrency: 20
         target: ${PREFIX}/customers
       - resource:
           name: discounts
           interval: PT5M
+          concurrency: 1
         target: ${PREFIX}/discounts
       - resource:
           name: disputes
           interval: PT5M
+          concurrency: 5
         target: ${PREFIX}/disputes
       - resource:
           name: merchant_accounts
           interval: PT5M
-        target: ${PREFIX}/merchant_accounts
-      - resource:
-          name: merchant_accounts
-          interval: PT5M
+          concurrency: 1
         target: ${PREFIX}/merchant_accounts
       - resource:
           name: plans
           interval: PT5M
+          concurrency: 1
         target: ${PREFIX}/plans
       - resource:
           name: subscriptions
           interval: PT5M
           schedule: "0 20 * * 5"
+          concurrency: 20
         target: ${PREFIX}/subscriptions
       - resource:
           name: transactions
           interval: PT5M
+          concurrency: 20
         target: ${PREFIX}/transactions
       {...}
 ```
