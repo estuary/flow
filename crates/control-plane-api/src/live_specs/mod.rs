@@ -142,3 +142,240 @@ pub async fn get_connected_live_specs(
     }
     Ok(live)
 }
+
+/// Both fetchers apply authorization in-process against a `Snapshot` rather than
+/// in SQL. Because the Snapshot lags Postgres, a denial is only trusted once the
+/// Snapshot is authoritative for the spec being denied; otherwise the caller gets
+/// a retryable `AuthorizationSnapshotStale` rather than a silently-dropped spec.
+/// These tests pin that three-way outcome — included / dropped / retryable — and
+/// the exact instant the last two swap over.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // From `fixtures/authz_specs.sql`. Carol is admin of `carolCo/`; Dan holds no
+    // grants at all and so models an unauthorized caller.
+    const CAROL: uuid::Uuid = uuid::uuid!("33333333-3333-3333-3333-333333333333");
+    const DAN: uuid::Uuid = uuid::uuid!("44444444-4444-4444-4444-444444444444");
+    const COLLECTION: &str = "carolCo/data/foo";
+    const CAPTURE: &str = "carolCo/in/capture-foo";
+
+    /// Staleness compares the Snapshot's `taken` against the timestamp embedded
+    /// in a spec's `last_pub_id`, so read that back rather than recomputing it —
+    /// `flowid` is `macaddr8`, which silently widens short literals.
+    async fn published_at(pool: &sqlx::PgPool) -> tokens::DateTime {
+        sqlx::query_scalar!(
+            r#"select last_pub_id as "last_pub_id: models::Id"
+            from live_specs where catalog_name = $1"#,
+            COLLECTION,
+        )
+        .fetch_one(pool)
+        .await
+        .expect("fixture collection should exist")
+        .timestamp()
+    }
+
+    /// A Snapshot holding the fixture's real grants, stamped `offset` away from
+    /// the instant the fixture's specs were published.
+    async fn snapshot_offset(pool: &sqlx::PgPool, offset: chrono::TimeDelta) -> crate::Snapshot {
+        let mut decrypted_hmac_keys = std::collections::HashMap::new();
+        let data = crate::snapshot::try_fetch(pool, &mut decrypted_hmac_keys)
+            .await
+            .expect("failed to fetch snapshot");
+        crate::Snapshot::new(published_at(pool).await + offset, data)
+    }
+
+    /// Taken clear of the publication plus `TEMPORAL_SKEW`: denials are definitive.
+    async fn authoritative(pool: &sqlx::PgPool) -> crate::Snapshot {
+        snapshot_offset(pool, crate::Snapshot::TEMPORAL_SKEW * 4).await
+    }
+
+    /// Taken before the publication it would judge: denials are retryable.
+    async fn stale(pool: &sqlx::PgPool) -> crate::Snapshot {
+        snapshot_offset(pool, -crate::Snapshot::TEMPORAL_SKEW * 4).await
+    }
+
+    fn assert_stale_for(err: anyhow::Error, catalog_name: &str) {
+        assert!(
+            validation::is_authz_snapshot_stale(&err),
+            "expected a retryable stale-snapshot error, got: {err:#}"
+        );
+        assert!(
+            err.to_string().contains(catalog_name),
+            "stale error should name the offending spec, got: {err:#}"
+        );
+    }
+
+    /// With no capability filter the Snapshot is never consulted, so even a
+    /// wholly unauthorized caller reading against a stale Snapshot gets the spec.
+    /// This is the path controllers and other system callers take.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_get_live_specs_unfiltered_never_stale(pool: sqlx::PgPool) {
+        let snapshot = stale(&pool).await;
+        let live = get_live_specs(DAN, &[COLLECTION.to_string()], None, &pool, &snapshot)
+            .await
+            .expect("an unfiltered fetch should not consult the Snapshot");
+
+        assert_eq!(1, live.collections.len());
+        assert_eq!(COLLECTION, live.collections[0].collection.as_str());
+    }
+
+    /// An authorized caller gets the spec no matter how old the Snapshot is:
+    /// staleness only ever converts a *denial* into a retry.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_get_live_specs_authorized_is_included(pool: sqlx::PgPool) {
+        for snapshot in [stale(&pool).await, authoritative(&pool).await] {
+            let live = get_live_specs(
+                CAROL,
+                &[COLLECTION.to_string()],
+                Some(Capability::Read),
+                &pool,
+                &snapshot,
+            )
+            .await
+            .expect("carol is admin of carolCo/");
+
+            assert_eq!(1, live.collections.len());
+        }
+    }
+
+    /// An authoritative denial keeps the pre-existing behavior: the spec is
+    /// silently omitted rather than raising.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_get_live_specs_authoritative_denial_is_dropped(pool: sqlx::PgPool) {
+        let snapshot = authoritative(&pool).await;
+        let live = get_live_specs(
+            DAN,
+            &[COLLECTION.to_string()],
+            Some(Capability::Read),
+            &pool,
+            &snapshot,
+        )
+        .await
+        .expect("an authoritative denial is not an error");
+
+        assert!(
+            live.collections.is_empty(),
+            "an unauthorized spec should be omitted"
+        );
+    }
+
+    /// The new behavior: the same denial, judged by a Snapshot that predates the
+    /// spec, is retryable instead — the grant that would allow it may simply not
+    /// have propagated into this Snapshot yet.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_get_live_specs_stale_denial_is_retryable(pool: sqlx::PgPool) {
+        let snapshot = stale(&pool).await;
+        let err = get_live_specs(
+            DAN,
+            &[COLLECTION.to_string()],
+            Some(Capability::Read),
+            &pool,
+            &snapshot,
+        )
+        .await
+        .expect_err("a denial against a stale Snapshot should be retryable");
+
+        assert_stale_for(err, COLLECTION);
+    }
+
+    /// The changeover is governed by `Snapshot::taken_after`, whose skew
+    /// allowance is exclusive. Pin both sides of that boundary so a change to the
+    /// comparison can't quietly turn retryable denials into hard ones.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_get_live_specs_staleness_boundary(pool: sqlx::PgPool) {
+        let at_skew = snapshot_offset(&pool, crate::Snapshot::TEMPORAL_SKEW).await;
+        let err = get_live_specs(
+            DAN,
+            &[COLLECTION.to_string()],
+            Some(Capability::Read),
+            &pool,
+            &at_skew,
+        )
+        .await
+        .expect_err("exactly TEMPORAL_SKEW past publication is still stale");
+        assert_stale_for(err, COLLECTION);
+
+        let past_skew = snapshot_offset(
+            &pool,
+            crate::Snapshot::TEMPORAL_SKEW + chrono::TimeDelta::milliseconds(1),
+        )
+        .await;
+        let live = get_live_specs(
+            DAN,
+            &[COLLECTION.to_string()],
+            Some(Capability::Read),
+            &pool,
+            &past_skew,
+        )
+        .await
+        .expect("one millisecond later the denial is authoritative");
+        assert!(live.collections.is_empty());
+    }
+
+    /// `get_connected_live_specs` reaches specs by graph traversal rather than by
+    /// name, but applies the identical rule. The fixture's capture writes to the
+    /// collection, so it is reachable from it.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_get_connected_live_specs_staleness(pool: sqlx::PgPool) {
+        // Exclude the collection itself, leaving just the capture that writes it.
+        async fn connected(
+            pool: &sqlx::PgPool,
+            user: uuid::Uuid,
+            snapshot: &crate::Snapshot,
+            filter: Option<Capability>,
+        ) -> anyhow::Result<tables::LiveCatalog> {
+            get_connected_live_specs(user, &[COLLECTION], &[COLLECTION], filter, pool, snapshot)
+                .await
+        }
+
+        let live = connected(
+            &pool,
+            CAROL,
+            &authoritative(&pool).await,
+            Some(Capability::Read),
+        )
+        .await
+        .expect("carol is authorized");
+        assert_eq!(1, live.captures.len());
+        assert_eq!(CAPTURE, live.captures[0].capture.as_str());
+
+        let live = connected(
+            &pool,
+            DAN,
+            &authoritative(&pool).await,
+            Some(Capability::Read),
+        )
+        .await
+        .expect("an authoritative denial is not an error");
+        assert!(live.captures.is_empty());
+
+        let err = connected(&pool, DAN, &stale(&pool).await, Some(Capability::Read))
+            .await
+            .expect_err("a denial against a stale Snapshot should be retryable");
+        assert_stale_for(err, CAPTURE);
+
+        let live = connected(&pool, DAN, &stale(&pool).await, None)
+            .await
+            .expect("an unfiltered traversal should not consult the Snapshot");
+        assert_eq!(1, live.captures.len());
+    }
+}

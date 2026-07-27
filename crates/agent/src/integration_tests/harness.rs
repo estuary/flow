@@ -625,8 +625,46 @@ impl TestHarness {
     /// grant-mutating helpers call this explicitly to push the fresh state into
     /// `snapshot_watch`.
     pub async fn refresh_snapshot(&self) {
-        let snapshot = Self::fetch_snapshot(&self.pool).await;
+        self.refresh_snapshot_at(tokens::now()).await
+    }
+
+    /// Re-fetches current authorization state from Postgres but stamps the
+    /// Snapshot with a caller-chosen `taken`, which is what decides staleness.
+    /// Use `refresh_snapshot_authoritative` / `refresh_snapshot_stale` unless a
+    /// test needs an exact instant.
+    pub async fn refresh_snapshot_at(&self, taken: tokens::DateTime) {
+        let snapshot = Self::fetch_snapshot_at(&self.pool, taken).await;
         (self.set_snapshot)(snapshot);
+    }
+
+    /// Refreshes the Snapshot and stamps it far enough into the future that it is
+    /// authoritative for everything written up to now — i.e. any denial it
+    /// produces is definitive rather than retryable.
+    ///
+    /// Staleness is decided by `Snapshot::taken_after`, which requires `taken` to
+    /// exceed an event's timestamp by `Snapshot::TEMPORAL_SKEW` (250ms). In
+    /// production a refresh lands seconds after the write it must observe, so
+    /// that margin is free. Tests compress the same sequence into a few
+    /// milliseconds, where a `taken = now()` Snapshot still reads as *stale* for a
+    /// row written moments earlier — hence the explicit push.
+    pub async fn refresh_snapshot_authoritative(&self) {
+        self.refresh_snapshot_at(tokens::now() + Self::snapshot_settle())
+            .await
+    }
+
+    /// The inverse of `refresh_snapshot_authoritative`: current grant state,
+    /// stamped in the past so that any denial it produces is treated as
+    /// potentially spurious and retried. Models production's window where a
+    /// write has landed in Postgres but the in-memory Snapshot predates it.
+    pub async fn refresh_snapshot_stale(&self) {
+        self.refresh_snapshot_at(tokens::now() - Self::snapshot_settle())
+            .await
+    }
+
+    /// Margin used to push a Snapshot's `taken` clear of `TEMPORAL_SKEW` in
+    /// either direction. Any multiple > 1 works; 4 leaves obvious headroom.
+    fn snapshot_settle() -> chrono::TimeDelta {
+        control_plane_api::Snapshot::TEMPORAL_SKEW * 4
     }
 
     /// Setup a new tenant with the given name, and return the id of the user
@@ -651,6 +689,22 @@ impl TestHarness {
     }
 
     pub async fn add_role_grant(&mut self, subject: &str, object: &str, capability: Capability) {
+        self.add_role_grant_unobserved(subject, object, capability)
+            .await;
+        // Re-sync the authorization Snapshot with the new grant.
+        self.refresh_snapshot().await;
+    }
+
+    /// Writes a role grant to Postgres *without* re-syncing the authorization
+    /// Snapshot, modelling production's window between a grant landing in the
+    /// database and the next Snapshot refresh observing it. Authorization run
+    /// during that window sees the pre-grant world.
+    pub async fn add_role_grant_unobserved(
+        &mut self,
+        subject: &str,
+        object: &str,
+        capability: Capability,
+    ) {
         sqlx::query!(
             r#"
                 insert into role_grants (subject_role, object_role, capability)
@@ -663,11 +717,22 @@ impl TestHarness {
         .execute(&self.pool)
         .await
         .unwrap();
+    }
+
+    pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
+        self.add_user_grant_unobserved(user_id, role, capability)
+            .await;
         // Re-sync the authorization Snapshot with the new grant.
         self.refresh_snapshot().await;
     }
 
-    pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
+    /// The `add_role_grant_unobserved` counterpart for user grants.
+    pub async fn add_user_grant_unobserved(
+        &mut self,
+        user_id: Uuid,
+        role: &str,
+        capability: Capability,
+    ) {
         let mut txn = self.pool.begin().await.unwrap();
         control_plane_api::grants::upsert_user_grant(
             user_id,
@@ -679,8 +744,6 @@ impl TestHarness {
         .await
         .unwrap();
         txn.commit().await.unwrap();
-        // Re-sync the authorization Snapshot with the new grant.
-        self.refresh_snapshot().await;
     }
 
     pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
@@ -1325,6 +1388,51 @@ impl TestHarness {
         UserDiscoverResult::load(disco_id, &self.pool).await
     }
 
+    /// Registers an additional data-plane beyond the `ops/dp/public/test` one
+    /// that `setup_test_connectors` creates. Tests use this when they need a
+    /// plane that *exists* but that a given user has no grant to read, which is
+    /// the only way to distinguish an authorization denial from a missing plane.
+    pub async fn add_data_plane(&self, data_plane_name: &str) {
+        sqlx::query!(
+            r##"insert into data_planes (
+                data_plane_name,
+                data_plane_fqdn,
+                ops_logs_name,
+                ops_stats_name,
+                ops_l1_inferred_name,
+                ops_l1_stats_name,
+                ops_l1_events_name,
+                ops_l2_inferred_transform,
+                ops_l2_stats_transform,
+                ops_l2_events_transform,
+                broker_address,
+                reactor_address,
+                hmac_keys,
+                enable_l2
+            ) values (
+                $1,
+                $2,
+                'ops/logs',
+                'ops/stats',
+                'ops/L1/inferred',
+                'ops/L1/stats',
+                'ops/L1/events',
+                'from-L1-inferred',
+                'from-L1-stats',
+                'from-L1-events',
+                'broker:address',
+                'reactor:address',
+                '{secret-key}',
+                false
+            );"##,
+            data_plane_name as &str,
+            format!("{}.dp.estuary-data.com", data_plane_name.replace('/', "-")) as String,
+        )
+        .execute(&self.pool)
+        .await
+        .expect("failed to insert data-plane");
+    }
+
     /// Inserts a queued `discovers` row for a caller-chosen `data_plane_name`
     /// and returns its id, without running it. Unlike `user_discover`, the
     /// data-plane is a parameter so tests can drive authorization outcomes
@@ -1443,12 +1551,16 @@ impl TestHarness {
     /// waiting for the publications handler to process it. Returns
     /// a `ScenarioResult` (a hold over from the old publications tests, which
     /// were ported over) describing the results of the publication.
-    async fn async_publication(
+    /// Inserts a queued `publications` row (creating the draft if one wasn't
+    /// supplied) and returns its id, *without* running it. `async_publication`
+    /// runs the task to completion; tests that need to control what the
+    /// authorization Snapshot looks like between polls drive it themselves.
+    pub async fn queue_publication(
         &mut self,
         user_id: Uuid,
         detail: impl Into<String>,
         draft: Either<tables::DraftCatalog, Id>,
-    ) -> ScenarioResult {
+    ) -> Id {
         let detail = detail.into();
         let draft_id = match draft {
             Either::L(catalog) => self.create_draft(user_id, detail.clone(), catalog).await,
@@ -1463,12 +1575,36 @@ impl TestHarness {
             &mut txn,
             user_id,
             draft_id,
-            detail.clone(),
+            detail,
             "ops/dp/public/test".to_string(),
         )
         .await
         .expect("failed to create publication");
         txn.commit().await.expect("failed to commit transaction");
+        pub_id
+    }
+
+    /// Runs exactly one poll of the publications task `pub_id` and returns the
+    /// resulting `ScenarioResult`. A result whose status is still `Queued` means
+    /// the executor rescheduled rather than resolving — today that happens only
+    /// for a stale authorization Snapshot.
+    pub async fn poll_publication_once(&mut self, pub_id: Id) -> ScenarioResult {
+        let task_id = self
+            .run_automation_task(automations::task_types::PUBLICATIONS)
+            .await
+            .expect("expected a publication task to have run");
+        assert_eq!(task_id, pub_id, "an unexpected publication task ran");
+        self.get_publication_result(pub_id.into()).await
+    }
+
+    async fn async_publication(
+        &mut self,
+        user_id: Uuid,
+        detail: impl Into<String>,
+        draft: Either<tables::DraftCatalog, Id>,
+    ) -> ScenarioResult {
+        let detail = detail.into();
+        let pub_id = self.queue_publication(user_id, detail, draft).await;
 
         // A publication whose authorization was evaluated against a stale
         // Snapshot reschedules (Action::Sleep) instead of resolving. Production
@@ -1498,15 +1634,10 @@ impl TestHarness {
             );
             // Production reschedules a stale-snapshot publication and, by the time
             // it re-runs, the background watch has produced a Snapshot taken well
-            // after the referenced specs' last publication. Staleness is gated by
-            // `Snapshot::taken_after`, which requires `taken` to exceed a spec's
-            // last-publication time by `Snapshot::TEMPORAL_SKEW`. Compressed test
-            // time never advances that far on its own, so stamp the refreshed
-            // Snapshot with a `taken` pushed comfortably past that window to model
-            // the elapsed wait. Grows each attempt because `tokens::now()` advances.
-            let taken = tokens::now() + control_plane_api::Snapshot::TEMPORAL_SKEW * 4;
-            let snapshot = Self::fetch_snapshot_at(&self.pool, taken).await;
-            (self.set_snapshot)(snapshot);
+            // after the referenced specs' last publication. Compressed test time
+            // never advances that far on its own, so model the elapsed wait
+            // explicitly. Grows each attempt because `tokens::now()` advances.
+            self.refresh_snapshot_authoritative().await;
             self.set_min_task_wake_at(pub_id).await;
         };
         pub_result
@@ -2396,7 +2527,7 @@ impl ControlPlane for TestControlPlane {
     }
 }
 
-enum Either<L, R> {
+pub enum Either<L, R> {
     L(L),
     R(R),
 }

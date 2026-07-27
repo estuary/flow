@@ -1,9 +1,10 @@
 use super::harness::{
-    TestHarness, draft_catalog, get_collection_generation_id, mock_inferred_schema, set_of,
+    Either, TestHarness, draft_catalog, get_collection_generation_id, mock_inferred_schema, set_of,
 };
 use crate::{
     ControlPlane, controllers::ControllerState, integration_tests::harness::InjectBuildError,
 };
+use control_plane_api::publications;
 use models::{Capability, CatalogType, Id, status::AlertType};
 
 #[tokio::test]
@@ -426,6 +427,206 @@ async fn successful_user_publication_clears_background_publication_failed_alert(
         ],
     );
     harness.assert_alert_resolved(fired_alert.alert.id).await;
+}
+
+/// A draft that materializes `cats/noms`, which `dogs` may only publish once it
+/// holds both a user grant and a role grant to `cats/`.
+fn dogs_materialize_cats_draft() -> tables::DraftCatalog {
+    draft_catalog(serde_json::json!({
+        "materializations": {
+            "dogs/materialize": {
+                "endpoint": {
+                    "connector": {
+                        "image": "materialize/test:test",
+                        "config": {}
+                    }
+                },
+                "bindings": [
+                    {
+                        "resource": { "table": "dog_noms" },
+                        "source": "cats/noms"
+                    }
+                ]
+            }
+        }
+    }))
+}
+
+/// Publishes `cats/noms` and returns the `dogs` user id. Shared setup for the
+/// stale-authorization publication tests below.
+async fn setup_cross_tenant_publication(harness: &mut TestHarness) -> uuid::Uuid {
+    let cats_user = harness.setup_tenant("cats").await;
+
+    // The capture isn't incidental: a draft holding only a collection with no
+    // writer builds to zero specs and is reported as an empty draft.
+    let result = harness
+        .user_publication(
+            cats_user,
+            "publish cats/noms",
+            draft_catalog(serde_json::json!({
+                "collections": {
+                    "cats/noms": {
+                        "schema": {
+                            "type": "object",
+                            "properties": { "id": { "type": "string" } }
+                        },
+                        "key": ["/id"]
+                    }
+                },
+                "captures": {
+                    "cats/capture": {
+                        "endpoint": {
+                            "connector": {
+                                "image": "source/test:test",
+                                "config": {}
+                            }
+                        },
+                        "bindings": [
+                            {
+                                "resource": { "id": "noms" },
+                                "target": "cats/noms"
+                            }
+                        ]
+                    }
+                }
+            })),
+        )
+        .await;
+    assert!(
+        result.status.is_success(),
+        "setup publication failed: {:?} {:?}",
+        result.status,
+        result.errors
+    );
+
+    harness.setup_tenant("dogs").await
+}
+
+/// The race this whole mechanism exists for: the grants that authorize a
+/// publication land in Postgres *before* the publication runs, but the
+/// authorization Snapshot still holds the pre-grant world. The publication must
+/// reschedule rather than report a (wrong) authorization failure, and must then
+/// succeed once the Snapshot catches up.
+#[tokio::test]
+async fn test_publication_succeeds_after_late_grant() {
+    let mut harness = TestHarness::init("test_publication_succeeds_after_late_grant").await;
+    let dogs_user = setup_cross_tenant_publication(&mut harness).await;
+
+    // Snapshot the pre-grant world, stamped old enough that any denial it
+    // produces is treated as possibly-spurious, then write the grants without
+    // letting the Snapshot observe them.
+    harness.refresh_snapshot_stale().await;
+    harness
+        .add_user_grant_unobserved(dogs_user, "cats/", Capability::Read)
+        .await;
+    harness
+        .add_role_grant_unobserved("dogs/", "cats/", Capability::Read)
+        .await;
+
+    let pub_id = harness
+        .queue_publication(
+            dogs_user,
+            "late grant",
+            Either::L(dogs_materialize_cats_draft()),
+        )
+        .await;
+
+    let first = harness.poll_publication_once(pub_id).await;
+    assert_eq!(
+        publications::StatusType::Queued,
+        first.status.r#type,
+        "publication should reschedule while the grants are unobserved, got: {:?}",
+        first.errors
+    );
+
+    // The background watch would refresh here; drive it explicitly.
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(pub_id).await;
+
+    let second = harness.poll_publication_once(pub_id).await;
+    assert!(
+        second.status.is_success(),
+        "publication should succeed once the grants are observed, got: {:?}",
+        second.errors
+    );
+}
+
+/// The guard on the test above: a genuinely unauthorized publication must not be
+/// hidden by the reschedule path. It reschedules only while the Snapshot is
+/// inconclusive, then fails with the same authorization errors as before.
+#[tokio::test]
+async fn test_publication_stale_then_authoritative_denial() {
+    let mut harness = TestHarness::init("test_publication_stale_denial").await;
+    let dogs_user = setup_cross_tenant_publication(&mut harness).await;
+
+    // No grants are ever added — only the Snapshot's age changes.
+    harness.refresh_snapshot_stale().await;
+    let pub_id = harness
+        .queue_publication(
+            dogs_user,
+            "never authorized",
+            Either::L(dogs_materialize_cats_draft()),
+        )
+        .await;
+
+    let first = harness.poll_publication_once(pub_id).await;
+    assert_eq!(
+        publications::StatusType::Queued,
+        first.status.r#type,
+        "an inconclusive denial should reschedule, got: {:?}",
+        first.errors
+    );
+
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(pub_id).await;
+
+    let second = harness.poll_publication_once(pub_id).await;
+    assert!(!second.status.is_success());
+    insta::assert_debug_snapshot!(second.errors, @r#"
+    [
+        (
+            "flow://unauthorized/cats/noms",
+            "User is not authorized to read this catalog name",
+        ),
+        (
+            "flow://materialization/dogs/materialize",
+            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+        ),
+    ]
+    "#);
+}
+
+/// Rescheduling alone isn't enough: the raising site must also cancel the
+/// Snapshot's `revoke` token, which is what asks the background watch to refresh
+/// ahead of its normal interval. Without it a stale publication would sleep
+/// against an unchanged Snapshot until the next scheduled refresh.
+#[tokio::test]
+async fn test_publication_requests_snapshot_refresh() {
+    let mut harness = TestHarness::init("test_publication_requests_refresh").await;
+    let dogs_user = setup_cross_tenant_publication(&mut harness).await;
+
+    harness.refresh_snapshot_stale().await;
+    let token = harness.snapshot_watch.token();
+    let snapshot = token.result().expect("snapshot should be ready");
+    assert!(
+        !snapshot.revoke.is_cancelled(),
+        "a freshly-published Snapshot should not already be revoked"
+    );
+
+    let pub_id = harness
+        .queue_publication(
+            dogs_user,
+            "requests refresh",
+            Either::L(dogs_materialize_cats_draft()),
+        )
+        .await;
+    let result = harness.poll_publication_once(pub_id).await;
+    assert_eq!(publications::StatusType::Queued, result.status.r#type);
+
+    assert!(
+        snapshot.revoke.is_cancelled(),
+        "a stale-snapshot publication must request an early Snapshot refresh"
+    );
 }
 
 async fn assert_publication_included(

@@ -867,4 +867,126 @@ mod tests {
             chrono::DateTime::from_timestamp(300_000, 0).unwrap()
         );
     }
+
+    /// `taken_after` is the single definition of "this Snapshot is authoritative
+    /// for that instant", and every authorization-staleness decision routes
+    /// through it. The `TEMPORAL_SKEW` allowance and the strictness of the
+    /// comparison are therefore load-bearing, so pin both.
+    #[test]
+    fn test_taken_after_allows_for_temporal_skew() {
+        let started = chrono::DateTime::from_timestamp(1_000_000, 0).unwrap();
+        let at = |offset: chrono::TimeDelta| Snapshot {
+            taken: started + offset,
+            ..Snapshot::empty()
+        };
+
+        assert!(
+            !at(chrono::TimeDelta::zero()).taken_after(started),
+            "a Snapshot taken at the same instant is not authoritative"
+        );
+        assert!(
+            !at(-Snapshot::TEMPORAL_SKEW).taken_after(started),
+            "a Snapshot taken before the event is not authoritative"
+        );
+        assert!(
+            !at(Snapshot::TEMPORAL_SKEW).taken_after(started),
+            "the skew allowance is exclusive: exactly TEMPORAL_SKEW later is still not authoritative"
+        );
+        assert!(
+            at(Snapshot::TEMPORAL_SKEW + chrono::TimeDelta::milliseconds(1)).taken_after(started),
+            "one millisecond past the skew allowance is authoritative"
+        );
+    }
+
+    /// `spec_capabilities` replaced a SQL-computed `spec_capabilities` column and
+    /// now renders the "Available grants are:" list in publication authorization
+    /// errors. It answers "what may a spec named X do, by virtue of its own
+    /// name?", which is a prefix match on `subject_role` — not on `object_role`,
+    /// and not scoped to any user.
+    #[test]
+    fn test_spec_capabilities() {
+        let snapshot = Snapshot::build_fixture(None);
+        let subjects = |name: &str| {
+            snapshot
+                .spec_capabilities(name)
+                .into_iter()
+                .map(|g| {
+                    (
+                        g.subject_role.to_string(),
+                        g.object_role.to_string(),
+                        g.capability,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // A name under a granted prefix picks up every grant whose subject_role
+        // is a prefix of it — here both the tenant-wide grants and the more
+        // specific `bobCo/tires/` one.
+        insta::assert_debug_snapshot!(subjects("bobCo/tires/source-tread"), @r#"
+        [
+            (
+                "bobCo/",
+                "bobCo/",
+                Write,
+            ),
+            (
+                "bobCo/",
+                "ops/dp/public/",
+                Read,
+            ),
+            (
+                "bobCo/tires/",
+                "acmeCo/shared/",
+                Read,
+            ),
+        ]
+        "#);
+
+        // A sibling prefix under the same tenant sees only the tenant-wide grants.
+        insta::assert_debug_snapshot!(subjects("bobCo/widgets/source-squash"), @r#"
+        [
+            (
+                "bobCo/",
+                "bobCo/",
+                Write,
+            ),
+            (
+                "bobCo/",
+                "ops/dp/public/",
+                Read,
+            ),
+        ]
+        "#);
+
+        // `subject_role` is matched as a prefix of the name, so the role itself
+        // qualifies.
+        assert_eq!(
+            vec![(
+                "bobCo/tires/".to_string(),
+                "acmeCo/shared/".to_string(),
+                models::Capability::Read
+            )],
+            subjects("bobCo/tires/")
+                .into_iter()
+                .filter(|(s, _, _)| s == "bobCo/tires/")
+                .collect::<Vec<_>>(),
+        );
+
+        // Grants are not matched by their object_role: `acmeCo/shared/` is
+        // reachable *from* `bobCo/tires/`, but a spec named `acmeCo/shared/x`
+        // holds only `acmeCo/`'s own grants.
+        insta::assert_debug_snapshot!(subjects("acmeCo/shared/thing"), @r#"
+        [
+            (
+                "acmeCo/",
+                "acmeCo/",
+                Write,
+            ),
+        ]
+        "#);
+
+        // A name under no granted prefix holds nothing.
+        assert!(subjects("unknownCo/thing").is_empty());
+    }
 }

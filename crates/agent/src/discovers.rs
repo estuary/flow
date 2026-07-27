@@ -206,9 +206,11 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         );
         if !is_authorized {
             tracing::warn!(data_plane_name = ?row.data_plane_name, "user may not be authorized to read data plane");
-            if snapshot.taken > row.updated_at {
+            if snapshot.taken_after(row.updated_at) {
                 // The snapshot reflects the world after this discover was
-                // queued, so the denial is authoritative.
+                // queued, so the denial is authoritative. `taken_after` is the
+                // control plane's single definition of that relation, and it
+                // allows for `Snapshot::TEMPORAL_SKEW`.
                 return Ok(precheck_failed(JobStatus::NotAuthorized));
             } else {
                 // The snapshot predates this discover's row, so a grant that
