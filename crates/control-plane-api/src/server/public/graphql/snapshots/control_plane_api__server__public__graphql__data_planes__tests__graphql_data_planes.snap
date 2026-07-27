@@ -1,6 +1,5 @@
 ---
 source: crates/control-plane-api/src/server/public/graphql/data_planes.rs
-assertion_line: 364
 expression: response
 ---
 {
@@ -19,7 +18,7 @@ expression: response
             "cloudProvider": "AWS",
             "fqdn": "dp.one",
             "gcpServiceAccountEmail": "test-gcp-one@estuary-test.iam.gserviceaccount.com",
-            "id": "0000111111111111",
+            "id": "111111fffe111111",
             "isPublic": true,
             "name": "ops/dp/public/aws-us-west-2-c1",
             "reactorAddress": "reactor.dp.one",
@@ -39,7 +38,7 @@ expression: response
             "cloudProvider": "GCP",
             "fqdn": "dp.two",
             "gcpServiceAccountEmail": "test-gcp-two@estuary-test.iam.gserviceaccount.com",
-            "id": "0000222222222222",
+            "id": "222222fffe222222",
             "isPublic": true,
             "name": "ops/dp/public/gcp-us-central1-c2",
             "reactorAddress": "reactor.dp.two",
