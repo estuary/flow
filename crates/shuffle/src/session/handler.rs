@@ -76,22 +76,23 @@ where
         "received Open from Coordinator"
     );
 
-    // Concurrently Open a Slice RPC with every shard.
-    let open_results =
-        futures::future::join_all((0..shards.len()).into_iter().map(|shard_index| {
+    // Concurrently Open a Slice RPC with every shard, racing the fan-out
+    // against the coordinator's request stream. `try_join_all` short-circuits
+    // the instant any Slice open errors, dropping the sibling open futures —
+    // which drops their per-Slice request channels and cascades EOF teardown
+    // down to those Slices and their Logs. Racing the request stream catches
+    // the coordinator (or its RPC) going away mid-open, which we treat the same
+    // way. This is the open-phase counterpart to the running-phase EOF cascade
+    // (see the crate README "Shutdown" notes).
+    let (slice_request_tx, response_rx): (Vec<_>, Vec<_>) = tokio::select! {
+        result = futures::future::try_join_all((0..shards.len()).map(|shard_index| {
             open_slice_rpc(&service, session_id, &task, &shards, shard_index as u32)
-        }))
-        .await;
+        })) => result?.into_iter().unzip(),
 
-    // Walk results and partition into Senders and receiver Streams.
-    let mut slice_request_tx = Vec::with_capacity(shards.len());
-    let mut response_rx = Vec::with_capacity(shards.len());
-
-    for result in open_results {
-        let (tx, rx) = result?;
-        slice_request_tx.push(tx);
-        response_rx.push(rx);
-    }
+        msg = request_rx.next() => {
+            return Err(crate::opening_aborted("Session", "coordinator", msg));
+        }
+    };
 
     tracing::info!(
         session_id,

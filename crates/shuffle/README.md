@@ -91,6 +91,32 @@ consumed, a coordinator does it only once it will request no further checkpoints
 then calls `SessionClient::close()` (which blocks until the Session→Slice→Log
 topology has fully drained).
 
+#### Teardown during the opening phase
+
+The opening phase participates in the same EOF cascade. Each handler opens its
+downstream peers and races that fan-out against its own request stream. It
+short-circuits if any downstream open errors — dropping the sibling open futures,
+which drops their request channels and cascades EOF down to those peers and
+their peers in turn. Racing the request stream catches the *upstream* going
+away mid-open.
+
+The Log rendezvous is the subtle case. `M` Slices connect to each Log shard; the
+invocation that connects last runs the `LogActor`, while the earlier `M-1` park.
+A parked invocation must remain cancel-observant, so it selects its own
+completion signal against `response_tx.closed()` (fired when its Slice
+client drops its receiver) and reaps *only its own* slot under the `log_joins`
+mutex (dropping the whole entry when it removed the last live slot),
+so a stale partial rendezvous can't wedge the map or poison
+a retry.
+
+#### No deadlines, by design
+
+There are deliberately **no** open-phase deadlines. Every transient failure
+surfaces as an error that self-heals via `try_join_all` and the Go retry loop,
+so a timeout would add flapping that would only paper over a true regression,
+and makes the ensemble more difficult to debug (a stable wedge is far easier
+to inspect).
+
 ### Authorization
 
 When the `Service` is built with a `proto_grpc::Signer` (the sidecar; `None` in

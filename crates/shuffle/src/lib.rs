@@ -54,6 +54,8 @@ mod session;
 pub mod slice;
 
 #[cfg(test)]
+mod open_deadlock_tests;
+#[cfg(test)]
 pub(crate) mod testing;
 
 /// Document passed JSON Schema validation.
@@ -114,6 +116,27 @@ fn verify_send<T>(tx: &mpsc::Sender<T>, value: T) -> anyhow::Result<()> {
         Err(mpsc::error::TrySendError::Full(_)) => {
             anyhow::bail!("verify_send: channel full; capacity invariant violated")
         }
+    }
+}
+
+/// Build the error for a request stream that closed or spoke out of turn while
+/// a handler was still opening. No legitimate request arrives before a handler
+/// emits its `Opened` (the coordinator sends `resume_checkpoint`, and the
+/// Session sends `Start`, only after observing `Opened`). So EOF, an error, or
+/// any message means the client (or its RPC) went away: the handler aborts,
+/// dropping its downstream open fan-out so that EOF teardown cascades to peers.
+/// Deliberately involves no deadline — see the crate README "Shutdown" notes.
+fn opening_aborted<T>(source: &str, peer: &str, msg: Option<tonic::Result<T>>) -> anyhow::Error {
+    match msg {
+        None => {
+            anyhow::format_err!("{source} request stream from {peer} reached EOF during opening")
+        }
+        Some(Err(status)) => status_to_anyhow(status).context(format!(
+            "{source} request stream from {peer} errored during opening"
+        )),
+        Some(Ok(_)) => anyhow::format_err!(
+            "{source} received an unexpected request from {peer} during opening (before Opened was sent)"
+        ),
     }
 }
 

@@ -18,7 +18,7 @@ To use this connector, you'll need:
   Key](https://docs.pinecone.io/docs/quickstart#2-get-and-verify-your-pinecone-api-key) for
   authentication.
 * An [OpenAI](https://openai.com/) account with an [API
-  Key](https://platform.openai.com/docs/api-reference/authentication) for authentication.
+  Key](https://developers.openai.com/api/reference/overview#authentication) for authentication.
 * A [Pinecone Index](https://docs.pinecone.io/docs/indexes) created to store materialized vector
   embeddings. When using the embedding model `text-embedding-ada-002` (recommended), the index must
   have `Dimensions` set to 1536.

@@ -63,7 +63,7 @@ jobs:
             DPC_DATABASE_CA=/etc/db-ca.crt
             DPC_DATABASE_URL=postgresql://postgres@db.eyrcnmuzzyriypdajwdk.supabase.co:5432/postgres
             NO_COLOR=1
-            DPC_GIT_AUTH_MODE=ssh
+            DPC_GIT_AUTH_MODE=github-app
             DPC_GITHUB_APP_ID=4126016
             DPC_GITHUB_INSTALLATION_ID=148554392
 
