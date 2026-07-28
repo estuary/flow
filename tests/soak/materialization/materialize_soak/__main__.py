@@ -84,27 +84,44 @@ def handle_spec() -> models.Spec:
     )
 
 
-def constraints_for(collection: models.CollectionSpec) -> dict[str, models.Constraint]:
+def constraints_for(
+    collection: models.CollectionSpec,
+) -> list[models.ProjectionConstraint]:
     """Require the root document and every key field; offer all other projections.
 
     The full root document is required for BOTH binding modes: the standard binding
     reloads it to reduce, and the delta binding needs it to re-verify the oracle.
     Projections omitted from the map are implicitly forbidden, so we emit one per
     projection to keep the field selection maximal."""
-    out: dict[str, models.Constraint] = {}
+    out = []
     for p in collection.projections:
         if p.ptr == "":
-            out[p.field] = models.Constraint(
-                type="LOCATION_REQUIRED",
-                reason="The full document is materialized (and reloaded, for the standard binding).",
+            out.append(
+                models.ProjectionConstraint(
+                    field=p.field,
+                    constraint=models.Constraint(
+                        type="LOCATION_REQUIRED",
+                        reason="The full document is materialized (and reloaded, for the standard binding).",
+                    ),
+                )
             )
         elif p.isPrimaryKey:
-            out[p.field] = models.Constraint(
-                type="LOCATION_REQUIRED", reason="Key fields are required."
+            out.append(
+                models.ProjectionConstraint(
+                    field=p.field,
+                    constraint=models.Constraint(
+                        type="LOCATION_REQUIRED", reason="Key fields are required."
+                    ),
+                )
             )
         else:
-            out[p.field] = models.Constraint(
-                type="FIELD_OPTIONAL", reason="This field may be materialized."
+            out.append(
+                models.ProjectionConstraint(
+                    field=p.field,
+                    constraint=models.Constraint(
+                        type="FIELD_OPTIONAL", reason="This field may be materialized."
+                    ),
+                )
             )
     return out
 
@@ -113,7 +130,7 @@ def handle_validate(request: models.ValidateRequest) -> models.Validated:
     return models.Validated(
         bindings=[
             models.ValidatedBinding(
-                constraints=constraints_for(b.collection),
+                projectionConstraints=constraints_for(b.collection),
                 resourcePath=[b.resourceConfig.table],
                 deltaUpdates=b.resourceConfig.delta,
             )

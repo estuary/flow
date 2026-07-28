@@ -172,8 +172,13 @@ class Constraint(BaseModel):
     reason: str = ""
 
 
+class ProjectionConstraint(BaseModel):
+    field: str
+    constraint: Constraint
+
+
 class ValidatedBinding(BaseModel):
-    constraints: dict[str, Constraint]
+    projectionConstraints: list[ProjectionConstraint]
     resourcePath: list[str]
     deltaUpdates: bool = False
 
