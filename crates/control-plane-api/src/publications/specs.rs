@@ -1816,10 +1816,9 @@ mod resolve_tests {
         // authoritative relative to the request start time. The capture spec
         // lacks authorization, so we get a hard error, not a retry.
         assert!(!live.errors.is_empty(), "expected authorization denial");
+        let error = &live.errors.iter().next().unwrap().error;
         assert!(
-            !validation::is_authz_snapshot_stale(
-                &live.errors.iter().next().unwrap().error.as_ref().unwrap()
-            ),
+            !validation::is_authz_snapshot_stale(error),
             "error should not be stale-snapshot error"
         );
     }

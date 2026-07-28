@@ -6,6 +6,7 @@ use crate::{
 };
 use control_plane_api::publications;
 use models::{Capability, CatalogType, Id, status::AlertType};
+use std::sync::{Arc, Mutex};
 
 #[tokio::test]
 async fn test_user_publications() {
