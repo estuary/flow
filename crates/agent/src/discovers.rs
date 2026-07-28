@@ -240,6 +240,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             data_plane.clone(),
             pool,
             &snapshot,
+            Some(row.updated_at),
         )
         .await;
 
@@ -311,6 +312,7 @@ async fn prepare_discover(
     data_plane: tables::DataPlane,
     pool: &sqlx::PgPool,
     snapshot: &Snapshot,
+    started_at: Option<tokens::DateTime>,
 ) -> anyhow::Result<Discover> {
     let mut draft = draft::load_draft(draft_id, pool)
         .await
@@ -327,6 +329,8 @@ async fn prepare_discover(
     // running task does. It's empty for a task which doesn't exist yet.
     // Filter to only specs that the user can read. If they can't admin, then
     // wait until they try to publish to surface that error.
+    // Use request-relative staleness: authorization changes after the discover
+    // was queued should be observable (scenario 4).
     let name = &[capture_name.to_string()];
     let live = live_specs::get_live_specs(
         user_id,
@@ -334,6 +338,7 @@ async fn prepare_discover(
         Some(models::Capability::Read),
         pool,
         &snapshot,
+        started_at,
     )
     .await?;
     let live_capture = live.captures.into_iter().next();
@@ -489,6 +494,7 @@ mod test {
         harness.refresh_snapshot().await;
         let snapshot = harness.snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
+        let started_at = tokens::now();
         let result = super::prepare_discover(
             user_id,
             draft_id,
@@ -500,6 +506,7 @@ mod test {
             data_plane.clone(),
             &harness.pool,
             &snapshot,
+            Some(started_at),
         )
         .await
         .unwrap();

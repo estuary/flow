@@ -586,6 +586,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             None, // don't filter based on user capability
             &self.pool,
             &snapshot,
+            None,
         )
         .await?;
 

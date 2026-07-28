@@ -12,12 +12,18 @@ use uuid::Uuid;
 /// Fetches live specs, returning them as a `tables::LiveCatalog`. Optionally
 /// filters the specs based on user capability. If `filter_capability` is
 /// `None`, then no filtering will be done.
+///
+/// `started_at` anchors the staleness check to the given time (request-relative).
+/// When `None`, staleness is anchored to each spec's publication time (spec-relative).
+/// Request-relative staleness is used by discovers to ensure authorization changes
+/// after the discover was queued are observable.
 pub async fn get_live_specs(
     user_id: uuid::Uuid,
     names: &[String],
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
+    started_at: Option<tokens::DateTime>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let mut live = tables::LiveCatalog::default();
 
@@ -45,12 +51,15 @@ pub async fn get_live_specs(
                     min_capability,
                 ) {
                     // A denial evaluated against a snapshot that predates the
-                    // spec's own update may be spurious: a just-added grant may
+                    // anchoring time may be spurious: a just-added grant may
                     // not be reflected in this snapshot yet. Signal stale so the
                     // caller can refresh and retry. An authoritative denial
-                    // (snapshot taken after the spec's update) falls through to
-                    // today's silent drop.
-                    if !snapshot.taken_after(row.last_pub_id.timestamp()) {
+                    // (snapshot taken after the anchor) falls through to today's silent drop.
+                    //
+                    // For discovers, anchor to the discover request time (started_at).
+                    // For other callers, anchor to the spec's publication time.
+                    let anchor = started_at.unwrap_or_else(|| row.last_pub_id.timestamp());
+                    if !snapshot.taken_after(anchor) {
                         return Err(validation::Error::AuthorizationSnapshotStale {
                             catalog_name: row.catalog_name.clone(),
                         }
@@ -229,7 +238,7 @@ mod tests {
     )]
     async fn test_get_live_specs_unfiltered_never_stale(pool: sqlx::PgPool) {
         let snapshot = stale(&pool).await;
-        let live = get_live_specs(DAN, &[COLLECTION.to_string()], None, &pool, &snapshot)
+        let live = get_live_specs(DAN, &[COLLECTION.to_string()], None, &pool, &snapshot, None)
             .await
             .expect("an unfiltered fetch should not consult the Snapshot");
 
@@ -251,6 +260,7 @@ mod tests {
                 Some(Capability::Read),
                 &pool,
                 &snapshot,
+                None,
             )
             .await
             .expect("carol is admin of carolCo/");
@@ -273,6 +283,7 @@ mod tests {
             Some(Capability::Read),
             &pool,
             &snapshot,
+            None,
         )
         .await
         .expect("an authoritative denial is not an error");
@@ -298,6 +309,7 @@ mod tests {
             Some(Capability::Read),
             &pool,
             &snapshot,
+            None,
         )
         .await
         .expect_err("a denial against a stale Snapshot should be retryable");
@@ -320,6 +332,7 @@ mod tests {
             Some(Capability::Read),
             &pool,
             &at_skew,
+            None,
         )
         .await
         .expect_err("exactly TEMPORAL_SKEW past publication is still stale");
@@ -336,6 +349,7 @@ mod tests {
             Some(Capability::Read),
             &pool,
             &past_skew,
+            None,
         )
         .await
         .expect("one millisecond later the denial is authoritative");

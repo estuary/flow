@@ -322,6 +322,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             filter_user_authz.then_some(models::Capability::Read),
             db,
             snapshot,
+            None,
         )
         .await?;
 
