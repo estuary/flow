@@ -71,6 +71,15 @@ pub const X_GENERATION_ID: &str = "x-collection-generation-id";
 /// instrumentation fires periodically even when no other events arrive.
 pub(crate) const ACTOR_TICK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// A deadline far enough out to mean "never", for arming a hoisted `Sleep` which
+/// has no deadline or whose deadline was consumed.
+///
+/// Mirrors the private `tokio::time::Instant::far_future`, relying on the same
+/// `instant_to_tick` clamp to `MAX_SAFE_MILLIS_DURATION` (~2.2 years).
+pub(crate) fn far_future() -> tokio::time::Instant {
+    tokio::time::Instant::now() + std::time::Duration::from_secs(86400 * 365 * 30)
+}
+
 /// Lowest-priority `select!` arm of an actor event loop: park until `wake_after`
 /// elapses, re-using a `Sleep` hoisted out of the caller's loop.
 ///

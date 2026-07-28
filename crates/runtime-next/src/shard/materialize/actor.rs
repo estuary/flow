@@ -64,6 +64,7 @@ pub(super) struct Actor {
     // When Some, a deadline at which we ask the leader for a graceful session
     // stop, ahead of the expiry of IAM credentials injected into the connector
     // config. The session's restart re-runs the connector with fresh tokens.
+    // Consumed once at `serve` entry into a hoisted timer.
     token_restart_at: Option<tokio::time::Instant>,
 }
 
@@ -130,6 +131,13 @@ impl Actor {
 
         let mut ticker = tokio::time::interval(crate::ACTOR_TICK_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        // IAM token-restart deadline, consumed once at loop entry and hoisted out
+        // of the `select!` (which rebuilds its arms every iteration).
+        // `far_future` stands in for "no injected credentials, never restart".
+        let mut token_restart = std::pin::pin!(tokio::time::sleep_until(
+            self.token_restart_at.unwrap_or_else(crate::far_future)
+        ));
 
         loop {
             loop_count += 1;
@@ -265,7 +273,7 @@ impl Actor {
                 // Next, a graceful session restart ahead of IAM token expiry.
                 // The leader Stops at the next transaction boundary, and the
                 // restarted session mints fresh tokens for the connector.
-                _ = maybe_deadline(self.token_restart_at) => {
+                _ = token_restart.as_mut() => {
                     service_kit::event!(
                         tracing::Level::INFO,
                         "leader",
@@ -275,7 +283,9 @@ impl Actor {
                         stop: Some(proto::Stop {}),
                         ..Default::default()
                     });
-                    self.token_restart_at = None;
+                    // A fired `Sleep` stays Ready, so disarm to keep this arm
+                    // from winning every later iteration.
+                    token_restart.as_mut().reset(crate::far_future());
                 }
                 // Periodic tick ensures the iteration trace fires even when otherwise idle.
                 _ = ticker.tick() => {}
@@ -667,13 +677,6 @@ async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> T {
             *opt = None;
             result
         }
-        None => std::future::pending().await,
-    }
-}
-
-async fn maybe_deadline(deadline: Option<tokio::time::Instant>) {
-    match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline).await,
         None => std::future::pending().await,
     }
 }
