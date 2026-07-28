@@ -145,6 +145,26 @@ Forces destination tables to be dropped and recreated on every backfill instead 
   - See [Schema changes during backfill](/reference/backfilling-data/#schema-changes-during-backfill) for the full picture of when tables are dropped versus truncated.
 - **Applies to:** Relational SQL and warehouse materialization connectors (for example, PostgreSQL, MySQL, Snowflake, BigQuery, Redshift, Databricks). Connectors whose destinations don't support an in-place truncate — such as MongoDB, DynamoDB, Elasticsearch, and Iceberg — always drop and recreate on backfill regardless of this flag.
 
+### snowpipe_streaming_v2
+
+Streams rows to Snowflake with Snowflake's high-performance Snowpipe Streaming SDK, sending each row as it is materialized instead of staging it first.
+
+- **Default:** Disabled. Delta updates bindings use the older Snowpipe Streaming write path.
+- **Use case:** Higher throughput and lower latency for high-volume delta updates bindings.
+- **Requirements:**
+  - The binding uses delta updates, and the endpoint configuration uses key-pair (JWT) authentication.
+  - The task runs on Estuary's V2 materialization runtime, selected with the `enable-runtime-v2` shard flag (`shards.flags`). A task that sets this feature flag without the runtime flag is rejected.
+  - Snowpipe Streaming stays enabled. Setting `no_snowpipe_streaming` turns this write path off too.
+- **Caveats:**
+  - A binding can move onto this path at any time, and its existing table and rows are adopted with no backfill. Unfinished work from the previous write path is finished by the task's first transaction on this one. Only if that work cannot be finished does the task refuse to start — restore the previous path for one transaction, then enable the flag again.
+  - A binding can also leave this path at any time. If a transaction was interrupted before it committed, the rows Snowflake had already received from it are materialized again by the new path and remain as duplicates. Keep the task on the V2 runtime until its first transaction on the new path completes.
+  - Two tasks cannot stream into the same table. A task that tries fails when it first writes to the table.
+  - Rows can become visible in the destination table slightly before the Estuary transaction that produced them commits.
+  - Rows of a transaction that is interrupted before it commits remain in the table. Retrying the transaction does not duplicate them, and every transaction that commits is delivered exactly once, including across shard splits and joins.
+  - If the connector cannot establish which rows Snowflake already holds, it fails; backfilling the affected binding is the remedy. See [High-performance Snowpipe Streaming](/reference/Connectors/materialization-connectors/Snowflake/#high-performance-snowpipe-streaming) for details.
+  - A row Snowflake rejects outright — a null for a `NOT NULL` column, for instance — is discarded by Snowflake rather than failing the write. The connector detects this and fails the transaction, and because a discarded row cannot be re-sent, that failure also holds until the binding is backfilled.
+- **Applies to:** Snowflake
+
 ### datetime_keys_as_string
 
 Converts datetime columns used as collection keys to string representation instead of native datetime types.

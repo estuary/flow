@@ -290,6 +290,92 @@ because those rows will tend to live in the same micro-partitions, and Snowflake
 [Snowpipe Streaming](https://docs.snowflake.com/en/user-guide/data-load-snowpipe-streaming-overview) is the lowest-latency method to load data into Snowflake.
 Snowpipe Streaming is used by default for [delta updates](#delta-updates) bindings. This method of ingress writes rows directly to Snowflake tables and scales compute automatically based on load.
 
+### High-performance Snowpipe Streaming
+
+Snowflake's [high-performance Snowpipe Streaming architecture](https://docs.snowflake.com/en/user-guide/snowpipe-streaming/snowpipe-streaming-high-performance-overview)
+is available behind the `snowpipe_streaming_v2` [feature flag](/guides/advanced-usage/feature-flags). It uses Snowflake's official
+streaming SDK, and rows are sent to Snowflake as your collection documents are materialized rather than being staged first.
+Each shard of the task streams through four Snowflake channels, so a single shard can exceed the throughput limit that
+Snowflake places on one channel.
+
+To use it, all of the following must be true:
+
+* The binding uses [delta updates](#delta-updates).
+* The endpoint configuration uses [key-pair (JWT) authentication](#key-pair-authentication).
+* `snowpipe_streaming_v2` is set in the endpoint configuration's `advanced.feature_flags`. This write path builds on
+  Snowpipe Streaming, so setting `no_snowpipe_streaming` turns it off as well.
+* The task runs on Estuary's V2 materialization runtime, which is selected with the `enable-runtime-v2` shard flag:
+
+  ```yaml
+  materializations:
+    acmeCo/snowflake-materialization:
+      # ...
+      shards:
+        flags:
+          enable-runtime-v2: "true"
+  ```
+
+A task that sets the feature flag without the runtime flag is rejected, with an error that names the runtime flag.
+Contact [Estuary support](mailto:support@estuary.dev) before enabling this write path.
+
+A binding can move onto this write path at any time, and needs no backfill: the existing table is adopted, and the
+rows already in it are left alone. Work that the previous write path staged and did not finish — rows it had written
+but not yet registered with Snowflake — is finished by the task's first transaction on the new path, so nothing is
+lost. In the rare case that this work cannot be finished, because the previous write path can no longer open its
+channel on the table, the task refuses to start, naming the table and what is outstanding. Restore the write path the
+task was running, let it commit one transaction to finish that work, then move the binding onto this path again.
+Backfilling the binding also clears it, at the cost of materializing it again.
+
+A binding can also leave this write path at any time — by removing the feature flag, changing the binding away from
+delta updates, or changing the endpoint's authentication. When the task starts on the new path, it drops the
+binding's streaming channels. If a transaction was interrupted before it committed, the rows Snowflake had already
+received from it are materialized again by the new path, and because the binding uses delta updates, those duplicates
+remain in the table. The task must stay on the V2 runtime until that first transaction completes: removing the
+`enable-runtime-v2` shard flag at the same time is rejected.
+
+Two tasks cannot stream into the same table. A task that tries fails when it first writes to the table, with an
+error naming the channels of the task already streaming into it. If that other task was deleted or renamed, backfill the binding with the
+[`always_drop_tables_on_backfill`](/guides/advanced-usage/feature-flags#always_drop_tables_on_backfill) feature flag set, which drops the table
+together with the leftover streaming state.
+
+#### Delivery semantics
+
+Because rows are sent as they are materialized instead of being staged and applied at the end of a transaction,
+this write path has different delivery semantics than every other Snowflake write path:
+
+* **Rows can become visible in the destination table slightly before the Estuary transaction that produced them commits.**
+  A query run at exactly the wrong moment can therefore observe rows of a transaction that has not committed yet.
+* **Rows of a transaction that is interrupted before it commits remain in the table.** Nothing removes them.
+  When the interrupted transaction is retried, the connector establishes which rows Snowflake already holds and
+  sends only the remainder, so the retry does not duplicate them.
+* **Every transaction that commits is delivered exactly once**, including across task restarts, unclean shutdowns,
+  and splitting or joining the task's shards.
+
+If the connector cannot establish which rows Snowflake already holds, it fails rather than risk duplicating or dropping
+rows. This happens if Snowflake's record of a channel no longer matches the task's checkpoint — for example, because
+the destination lost data the connector had already committed — or if the task's shard key ranges were changed to
+boundaries that splitting and joining shards do not produce. In either case,
+[backfill](/reference/backfilling-data/#materialization-backfill) the affected binding to recover: this materializes the
+binding from the beginning and resets the connector's streaming state along with it.
+
+A backfill truncates the destination table, the same as on every other write path, and
+[`retain_existing_data_on_backfill`](/guides/advanced-usage/feature-flags#retain_existing_data_on_backfill) works the
+same way too.
+
+The connector also fails if Snowflake rejects a row outright — for example, a null value for a column the table
+declares `NOT NULL`. Snowflake discards such a row without failing the write, and reports it only in a count of
+rejected rows, which the connector checks as each transaction commits and again whenever it resumes writing to a
+table. Because a discarded row cannot be identified after the fact, it cannot be re-sent, so this failure also holds
+until you backfill the binding rather than letting a retry continue with the row missing. The connector marks a column
+`NOT NULL` only for a field your collection schema requires, and the runtime always supplies those, so this should not
+arise for a table the connector created and still manages.
+
+:::caution
+Streaming requires a destination that Snowflake can stream into — a table, not a view. Snowflake reports an
+incompatible destination asynchronously, so the connector surfaces it as a failure to commit the transaction
+(`ERR_PIPE_IN_INVALID_STATE`) a few seconds after the rows are sent, rather than as an error on a specific document.
+:::
+
 ## Timestamp Data Type Mapping
 
 The Snowflake materialization connector requires setting an expected timestamp type.
