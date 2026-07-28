@@ -117,6 +117,9 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let mut stopping = false;
         // Transactions completed in this task session, for preview harness limits.
         let mut transactions_completed = 0usize;
+        // Timer for the lowest-priority arm; `sleep_unless_zero` resets it
+        // before each await, so this initial deadline is never observed.
+        let mut wake_sleep = std::pin::pin!(tokio::time::sleep(Duration::ZERO));
 
         while !matches!(head, fsm::Head::Stop) {
             loop_count += 1;
@@ -312,7 +315,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 }
 
                 // Lowest priority.
-                _ = tokio::time::sleep(wake_after) => {}
+                _ = crate::sleep_unless_zero(wake_sleep.as_mut(), wake_after) => {}
             }
 
             if !wake_after.is_zero() {

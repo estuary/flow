@@ -71,6 +71,34 @@ pub const X_GENERATION_ID: &str = "x-collection-generation-id";
 /// instrumentation fires periodically even when no other events arrive.
 pub(crate) const ACTOR_TICK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Lowest-priority `select!` arm of an actor event loop: park until `wake_after`
+/// elapses, re-using a `Sleep` hoisted out of the caller's loop.
+///
+/// ZERO means the FSMs have synchronous work queued and want to be stepped
+/// again immediately, so return without touching a timer: `deadline_to_tick`
+/// rounds deadlines up to the end of the current millisecond, which would cap
+/// input-free FSM sequences (rotate, drain, persist) near 1000 steps/second.
+///
+/// Non-zero durations must not be collapsed, even far below that 1ms tick.
+/// They're deadline-driven — `leader::close_policy` reports time remaining until
+/// its nearest threshold, shrinking to microseconds as it nears — so returning
+/// early would spin re-evaluating a deadline that hasn't passed.
+///
+/// `reset` to a *later* deadline lands on `extend_expiration`'s lock-free CAS,
+/// so only a loop's first non-zero iteration takes the global timer-wheel mutex.
+pub(crate) async fn sleep_unless_zero(
+    mut sleep: std::pin::Pin<&mut tokio::time::Sleep>,
+    wake_after: std::time::Duration,
+) {
+    if wake_after.is_zero() {
+        return;
+    }
+    sleep
+        .as_mut()
+        .reset(tokio::time::Instant::now() + wake_after);
+    sleep.await
+}
+
 /// Describes the basic type of runtime protocol. Mirrors `runtime::RuntimeProtocol`
 /// so that connector image inspection (Phase F-ported `container::flow_runtime_protocol`)
 /// can return a type that's local to this crate.
