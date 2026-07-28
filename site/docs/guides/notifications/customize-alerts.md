@@ -58,8 +58,8 @@ flowctl alerts configs update --prefix acmeCo/dev/ --set shardFailed.enabled=fal
 Some alert configuration options are tunable **thresholds**.
 You can specify a certain number of failures or certain timeframe before an alert type fires.
 
-As an example, the [Task Failed](/reference/notifications/#task-failure-alerts) alert fires after a number of failures within a rolling window. The defaults are 3 failures within 8 hours.
-Both of these defaults are configurable.
+For example, the [Task Failed](/reference/notifications/#task-failure-alerts) alert fires after a number of failures within a rolling window (by default, 3 failures within 8 hours), and the [Data Movement Stalled](/reference/notifications/#data-movement-alerts) alert fires when a task receives no new data for a set timeframe.
+These thresholds are all configurable, as shown below.
 
 ```bash
 # Require 6 failures within 8 hours before alerting, for everything under acmeCo/
@@ -67,6 +67,9 @@ flowctl alerts configs update --prefix acmeCo/ --set shardFailed.condition.failu
 
 # Apply a higher tolerance to a development environment
 flowctl alerts configs update --prefix acmeCo/dev/ --set shardFailed.condition.failures=20
+
+# Alert when a task under acmeCo/ receives no new data for 2 hours
+flowctl alerts configs update --prefix acmeCo/ --set dataMovementStalled.condition.stalledFor=2h
 
 # View configured thresholds under a prefix
 flowctl alerts configs list --prefix acmeCo/
@@ -76,7 +79,7 @@ Available threshold configurations include:
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `dataMovementStalled.condition.stalledFor` | Timeframe where no new data has been received |  |
+| `dataMovementStalled.condition.stalledFor` | Timeframe with no new data before alerting, e.g. `2h` or `1d` |  |
 | `shardFailed.condition.failures` | Failures in the last configured length of time | `3` |
 | `shardFailed.condition.per` | Timeframe for task failures | `8h` |
 | `taskChronicallyFailing.condition.failingFor` | Timeframe a task has been repeatedly failing | `30d` |
