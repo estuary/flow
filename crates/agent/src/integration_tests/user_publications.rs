@@ -718,6 +718,81 @@ async fn assert_publication_excluded(
     }
 }
 
+async fn get_model_flag_capture(harness: &mut TestHarness, name: &str) -> Option<String> {
+    let state = harness.get_controller_state(name).await;
+    let models::AnySpec::Capture(model) = state.live_spec.as_ref().unwrap() else {
+        panic!("expected a capture model");
+    };
+    model
+        .shards
+        .flags
+        .get(&models::Token::new(models::ENABLE_RUNTIME_V2))
+        .map(|v| v.as_str().to_string())
+}
+
+fn get_built_v2_label_capture(spec: &proto_flow::AnyBuiltSpec) -> Option<String> {
+    let proto_flow::AnyBuiltSpec::Capture(capture) = spec else {
+        return None;
+    };
+    let set = capture.shard_template.as_ref()?.labels.as_ref()?;
+    labels::values(set, labels::RUNTIME_V2_FLAG)
+        .first()
+        .map(|l| l.value.clone())
+}
+
+async fn get_model_flag_materialization(harness: &mut TestHarness, name: &str) -> Option<String> {
+    let state = harness.get_controller_state(name).await;
+    let models::AnySpec::Materialization(model) = state.live_spec.as_ref().unwrap() else {
+        panic!("expected a materialization model");
+    };
+    model
+        .shards
+        .flags
+        .get(&models::Token::new(models::ENABLE_RUNTIME_V2))
+        .map(|v| v.as_str().to_string())
+}
+
+fn get_built_v2_label_materialization(spec: &proto_flow::AnyBuiltSpec) -> Option<String> {
+    let proto_flow::AnyBuiltSpec::Materialization(materialization) = spec else {
+        return None;
+    };
+    let set = materialization.shard_template.as_ref()?.labels.as_ref()?;
+    labels::values(set, labels::RUNTIME_V2_FLAG)
+        .first()
+        .map(|l| l.value.clone())
+}
+
+async fn get_model_flag_derivation(harness: &mut TestHarness, name: &str) -> Option<String> {
+    let state = harness.get_controller_state(name).await;
+    let models::AnySpec::Collection(model) = state.live_spec.as_ref().unwrap() else {
+        panic!("expected a collection model");
+    };
+    model
+        .derive
+        .as_ref()
+        .expect("expected a derived collection")
+        .shards
+        .flags
+        .get(&models::Token::new(models::ENABLE_RUNTIME_V2))
+        .map(|v| v.as_str().to_string())
+}
+
+fn get_built_v2_label_derivation(spec: &proto_flow::AnyBuiltSpec) -> Option<String> {
+    let proto_flow::AnyBuiltSpec::Collection(collection) = spec else {
+        return None;
+    };
+    let set = collection
+        .derivation
+        .as_ref()?
+        .shard_template
+        .as_ref()?
+        .labels
+        .as_ref()?;
+    labels::values(set, labels::RUNTIME_V2_FLAG)
+        .first()
+        .map(|l| l.value.clone())
+}
+
 /// The runtime-v2 capture rollout (`RuntimeV2Rollout` initializer) stamps
 /// `enable-runtime-v2: true` into the model of a *newly-created* capture when
 /// enabled. Covers: a capture created while it's off is untouched; a new capture
@@ -747,28 +822,6 @@ async fn test_runtime_v2_new_captures() {
             } ]
         })
     };
-    // The `enable-runtime-v2` value in a capture's committed model, if any.
-    async fn model_flag(harness: &mut TestHarness, name: &str) -> Option<String> {
-        let state = harness.get_controller_state(name).await;
-        let models::AnySpec::Capture(model) = state.live_spec.as_ref().unwrap() else {
-            panic!("expected a capture model");
-        };
-        model
-            .shards
-            .flags
-            .get(&models::Token::new(models::ENABLE_RUNTIME_V2))
-            .map(|v| v.as_str().to_string())
-    }
-    // The `enable-runtime-v2` value on a built capture's shard template, if any.
-    fn built_capture_v2_label(spec: &proto_flow::AnyBuiltSpec) -> Option<String> {
-        let proto_flow::AnyBuiltSpec::Capture(capture) = spec else {
-            return None;
-        };
-        let set = capture.shard_template.as_ref()?.labels.as_ref()?;
-        labels::values(set, labels::RUNTIME_V2_FLAG)
-            .first()
-            .map(|l| l.value.clone())
-    }
 
     // Rollout disabled: a capture created now is left on v1.
     harness.runtime_v2_new_captures = false;
@@ -785,7 +838,7 @@ async fn test_runtime_v2_new_captures() {
         result.errors
     );
     assert_eq!(
-        model_flag(&mut harness, "cats/early").await,
+        get_model_flag_capture(&mut harness, "cats/early").await,
         None,
         "a capture created while the rollout is off must be unflagged"
     );
@@ -812,20 +865,20 @@ async fn test_runtime_v2_new_captures() {
 
     // cats/auto: enabled in the committed model AND emitted as the built-spec label.
     assert_eq!(
-        model_flag(&mut harness, "cats/auto").await.as_deref(),
+        get_model_flag_capture(&mut harness, "cats/auto").await.as_deref(),
         Some("true"),
         "a new capture is enabled in the model"
     );
     let state = harness.get_controller_state("cats/auto").await;
     assert_eq!(
-        built_capture_v2_label(state.built_spec.as_ref().unwrap()).as_deref(),
+        get_built_v2_label_capture(state.built_spec.as_ref().unwrap()).as_deref(),
         Some("true"),
         "the flag is emitted as the built-spec shard label"
     );
 
     // cats/pinned: an explicit flag is never changed.
     assert_eq!(
-        model_flag(&mut harness, "cats/pinned").await.as_deref(),
+        get_model_flag_capture(&mut harness, "cats/pinned").await.as_deref(),
         Some("false"),
         "an explicit `false` is preserved"
     );
@@ -845,7 +898,7 @@ async fn test_runtime_v2_new_captures() {
         result.errors
     );
     assert_eq!(
-        model_flag(&mut harness, "cats/early").await,
+        get_model_flag_capture(&mut harness, "cats/early").await,
         None,
         "an existing capture must stay unflagged on republish"
     );
@@ -880,28 +933,6 @@ async fn test_runtime_v2_new_materializations() {
             } ]
         })
     };
-    // The `enable-runtime-v2` value in a materialization's committed model, if any.
-    async fn model_flag(harness: &mut TestHarness, name: &str) -> Option<String> {
-        let state = harness.get_controller_state(name).await;
-        let models::AnySpec::Materialization(model) = state.live_spec.as_ref().unwrap() else {
-            panic!("expected a materialization model");
-        };
-        model
-            .shards
-            .flags
-            .get(&models::Token::new(models::ENABLE_RUNTIME_V2))
-            .map(|v| v.as_str().to_string())
-    }
-    // The `enable-runtime-v2` value on a built materialization's shard template, if any.
-    fn built_materialization_v2_label(spec: &proto_flow::AnyBuiltSpec) -> Option<String> {
-        let proto_flow::AnyBuiltSpec::Materialization(materialization) = spec else {
-            return None;
-        };
-        let set = materialization.shard_template.as_ref()?.labels.as_ref()?;
-        labels::values(set, labels::RUNTIME_V2_FLAG)
-            .first()
-            .map(|l| l.value.clone())
-    }
 
     // Rollout disabled: a materialization created now is left on v1.
     harness.runtime_v2_new_materializations = false;
@@ -918,7 +949,7 @@ async fn test_runtime_v2_new_materializations() {
         result.errors
     );
     assert_eq!(
-        model_flag(&mut harness, "cats/early").await,
+        get_model_flag_materialization(&mut harness, "cats/early").await,
         None,
         "a materialization created while the rollout is off must be unflagged"
     );
@@ -948,20 +979,20 @@ async fn test_runtime_v2_new_materializations() {
 
     // cats/auto: enabled in the committed model AND emitted as the built-spec label.
     assert_eq!(
-        model_flag(&mut harness, "cats/auto").await.as_deref(),
+        get_model_flag_materialization(&mut harness, "cats/auto").await.as_deref(),
         Some("true"),
         "a new materialization is enabled in the model"
     );
     let state = harness.get_controller_state("cats/auto").await;
     assert_eq!(
-        built_materialization_v2_label(state.built_spec.as_ref().unwrap()).as_deref(),
+        get_built_v2_label_materialization(state.built_spec.as_ref().unwrap()).as_deref(),
         Some("true"),
         "the flag is emitted as the built-spec shard label"
     );
 
     // cats/pinned: an explicit flag is never changed.
     assert_eq!(
-        model_flag(&mut harness, "cats/pinned").await.as_deref(),
+        get_model_flag_materialization(&mut harness, "cats/pinned").await.as_deref(),
         Some("false"),
         "an explicit `false` is preserved"
     );
@@ -981,7 +1012,7 @@ async fn test_runtime_v2_new_materializations() {
         result.errors
     );
     assert_eq!(
-        model_flag(&mut harness, "cats/early").await,
+        get_model_flag_materialization(&mut harness, "cats/early").await,
         None,
         "an existing materialization must stay unflagged on republish"
     );
@@ -1018,37 +1049,6 @@ async fn test_runtime_v2_new_derivations() {
             }
         })
     };
-    // The `enable-runtime-v2` value in a derivation's committed model, if any.
-    async fn model_flag(harness: &mut TestHarness, name: &str) -> Option<String> {
-        let state = harness.get_controller_state(name).await;
-        let models::AnySpec::Collection(model) = state.live_spec.as_ref().unwrap() else {
-            panic!("expected a collection model");
-        };
-        model
-            .derive
-            .as_ref()
-            .expect("expected a derived collection")
-            .shards
-            .flags
-            .get(&models::Token::new(models::ENABLE_RUNTIME_V2))
-            .map(|v| v.as_str().to_string())
-    }
-    // The `enable-runtime-v2` value on a built derivation's shard template, if any.
-    fn built_derivation_v2_label(spec: &proto_flow::AnyBuiltSpec) -> Option<String> {
-        let proto_flow::AnyBuiltSpec::Collection(collection) = spec else {
-            return None;
-        };
-        let set = collection
-            .derivation
-            .as_ref()?
-            .shard_template
-            .as_ref()?
-            .labels
-            .as_ref()?;
-        labels::values(set, labels::RUNTIME_V2_FLAG)
-            .first()
-            .map(|l| l.value.clone())
-    }
 
     // Rollout disabled: a derivation created now is left on v1.
     harness.runtime_v2_new_derivations = false;
@@ -1067,7 +1067,7 @@ async fn test_runtime_v2_new_derivations() {
         result.errors
     );
     assert_eq!(
-        model_flag(&mut harness, "cats/early").await,
+        get_model_flag_derivation(&mut harness, "cats/early").await,
         None,
         "a derivation created while the rollout is off must be unflagged"
     );
@@ -1097,20 +1097,20 @@ async fn test_runtime_v2_new_derivations() {
 
     // cats/auto: enabled in the committed model AND emitted as the built-spec label.
     assert_eq!(
-        model_flag(&mut harness, "cats/auto").await.as_deref(),
+        get_model_flag_derivation(&mut harness, "cats/auto").await.as_deref(),
         Some("true"),
         "a new derivation is enabled in the model"
     );
     let state = harness.get_controller_state("cats/auto").await;
     assert_eq!(
-        built_derivation_v2_label(state.built_spec.as_ref().unwrap()).as_deref(),
+        get_built_v2_label_derivation(state.built_spec.as_ref().unwrap()).as_deref(),
         Some("true"),
         "the flag is emitted as the built-spec shard label"
     );
 
     // cats/pinned: an explicit flag is never changed.
     assert_eq!(
-        model_flag(&mut harness, "cats/pinned").await.as_deref(),
+        get_model_flag_derivation(&mut harness, "cats/pinned").await.as_deref(),
         Some("false"),
         "an explicit `false` is preserved"
     );
@@ -1143,7 +1143,7 @@ async fn test_runtime_v2_new_derivations() {
         result.errors
     );
     assert_eq!(
-        model_flag(&mut harness, "cats/early").await,
+        get_model_flag_derivation(&mut harness, "cats/early").await,
         None,
         "an existing derivation must stay unflagged on republish"
     );

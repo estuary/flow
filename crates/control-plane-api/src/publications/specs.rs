@@ -10,6 +10,13 @@ use sqlx::types::Uuid;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use tables::{BuiltRow, DraftRow, utils};
 
+fn return_if_stale(spec_stale: bool, catalog_name: &str) -> anyhow::Result<()> {
+    if spec_stale {
+        return Err(authz_snapshot_stale(catalog_name));
+    }
+    Ok(())
+}
+
 pub async fn persist_updates(
     uncommitted: &UncommittedBuild,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -867,9 +874,7 @@ pub async fn resolve_live_specs(
                     &source,
                     Capability::Read,
                 ) {
-                    if spec_stale {
-                        return Err(authz_snapshot_stale(catalog_name));
-                    }
+                    return_if_stale(spec_stale, catalog_name)?;
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
@@ -886,9 +891,7 @@ pub async fn resolve_live_specs(
                     &target,
                     Capability::Write,
                 ) {
-                    if spec_stale {
-                        return Err(authz_snapshot_stale(catalog_name));
-                    }
+                    return_if_stale(spec_stale, catalog_name)?;
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
@@ -915,9 +918,7 @@ pub async fn resolve_live_specs(
                     Capability::Read,
                 )
             {
-                if spec_stale {
-                    return Err(authz_snapshot_stale(catalog_name));
-                }
+                return_if_stale(spec_stale, catalog_name)?;
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {
                     scope,
