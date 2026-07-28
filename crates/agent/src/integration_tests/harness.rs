@@ -186,6 +186,10 @@ pub struct TestHarness {
     /// polling loop, which would otherwise impose a `MIN_REFRESH_INTERVAL`
     /// cool-off on every refresh.
     set_snapshot: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
+    /// Optional custom hook invoked when set_snapshot is called. Tests can set this
+    /// to observe or modify behavior around snapshot refreshes (e.g., scenario 3).
+    custom_snapshot_hook:
+        Arc<Mutex<Option<Box<dyn Fn(&control_plane_api::Snapshot) + Send + Sync>>>>,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
@@ -256,8 +260,15 @@ impl HarnessBuilder {
         // mutate grants (see `refresh_snapshot`), which avoids the source's
         // `MIN_REFRESH_INTERVAL` cool-off blocking the (real-time) test clock.
         let (snapshot_pending, snapshot_replace) = tokens::manual::<control_plane_api::Snapshot>();
+        let custom_snapshot_hook: Arc<
+            Mutex<Option<Box<dyn Fn(&control_plane_api::Snapshot) + Send + Sync>>>,
+        > = Arc::new(Mutex::new(None));
+        let custom_snapshot_hook_clone = custom_snapshot_hook.clone();
         let set_snapshot: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
             Arc::new(move |snapshot| {
+                if let Some(hook) = custom_snapshot_hook_clone.lock().unwrap().as_ref() {
+                    hook(&snapshot);
+                }
                 _ = snapshot_replace(Ok(snapshot));
             });
         set_snapshot(TestHarness::fetch_snapshot(&pool).await);
@@ -303,6 +314,7 @@ impl HarnessBuilder {
             publisher,
             snapshot_watch,
             set_snapshot,
+            custom_snapshot_hook,
             builds_root,
             discover_handler,
             control_plane,
@@ -332,6 +344,16 @@ impl TestHarness {
 
     pub fn builder(test_name: &str) -> HarnessBuilder {
         HarnessBuilder::new(test_name)
+    }
+
+    /// Set a custom hook that's called whenever a snapshot is set via set_snapshot.
+    /// This allows tests to observe or modify behavior around snapshot refreshes
+    /// (e.g., scenario 3 tests that verify consistent authorization across phases).
+    pub fn set_custom_snapshot_hook(
+        &mut self,
+        hook: Box<dyn Fn(&control_plane_api::Snapshot) + Send + Sync>,
+    ) {
+        *self.custom_snapshot_hook.lock().unwrap() = Some(hook);
     }
 
     async fn setup_test_connectors(&mut self) {
