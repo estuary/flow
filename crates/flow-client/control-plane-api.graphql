@@ -838,11 +838,6 @@ input DataPlanesFilter {
 	"""
 	id: IdFilter
 	"""
-	Narrow by data-plane name, either to a subtree with `startsWith` or to
-	an exact set with `in`.
-	"""
-	dataPlaneName: PrefixFilter
-	"""
 	Filter on the `closed` flag.
 	"""
 	closed: BoolFilter
