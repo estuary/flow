@@ -649,6 +649,47 @@ impl Frontier {
         (advanced, resolved)
     }
 
+    /// Clear causal hints of `self` which reference a producer commit that the
+    /// journal's cohort has already completed, as recorded in `completed`
+    /// (indexed by cohort, into which `binding_cohorts` maps each journal's
+    /// binding). Such a hint is stale — it's held by a journal reading from
+    /// behind the cohort's frontier, such as a re-enabled binding, which may
+    /// never observe the ACK that would resolve it on the forward path.
+    ///
+    /// A producer left with neither a hint nor a commit is dropped, as is a
+    /// journal left with no producers. `unresolved_hints` is decremented for
+    /// each cleared hint.
+    pub fn prune_hints(
+        &mut self,
+        binding_cohorts: &[u32],
+        completed: &[crate::ProducerMap<Clock>],
+    ) {
+        let mut cleared = 0usize;
+
+        self.journals.retain_mut(|jf| {
+            let completed = &completed[binding_cohorts[jf.binding as usize] as usize];
+
+            jf.producers.retain_mut(|pf| {
+                if pf.hinted_commit <= pf.last_commit {
+                    true // Hint is already resolved.
+                } else if let Some(&completed) = completed.get(&pf.producer)
+                    && pf.hinted_commit <= completed
+                {
+                    // Hint is stale. Retain only if we also saw a commit.
+                    pf.hinted_commit = Clock::zero();
+                    cleared += 1;
+                    pf.last_commit != Clock::zero()
+                } else {
+                    true // Hint is at the frontier.
+                }
+            });
+
+            !jf.producers.is_empty()
+        });
+
+        self.unresolved_hints -= cleared;
+    }
+
     /// Encode this Frontier as a proto `shuffle::Frontier`, including
     /// `flushed_lsn`. Journal names within the proto are delta-encoded —
     /// see `JournalFrontier::encode` for the layout.

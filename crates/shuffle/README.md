@@ -404,6 +404,12 @@ Once all hints resolve, the frontier promotes to `ready`. When the
 coordinator sends `NextCheckpoint` and `ready` is non-empty, the Session
 sends it as a single `Frontier` message.
 
+Hints can be cyclic: `unresolved` may resolve hints carried by `progressed`.
+Similarly, a re-enabled binding can re-visit hints which have long since
+been resolved. `progressed` is therefore pruned (`Frontier::prune_hints`)
+at promotion against `completed_clocks`, a per-cohort ledger of producer commits
+that reached `ready`.
+
 #### Idempotent recovery is a session of its own
 
 At startup, `resume_checkpoint` may contain unresolved hints from the

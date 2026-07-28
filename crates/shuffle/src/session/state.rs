@@ -270,6 +270,11 @@ pub struct CheckpointPipeline {
     /// Per-cohort map from Producer to the highest committed Clock observed
     /// when promoting unresolved → ready. Used to pre-resolve stale causal
     /// hints from re-enabled bindings whose journals are catching up.
+    ///
+    /// Gating writes on promotion is what makes this an authority on "this
+    /// commit is done": a frontier reaches `ready` only once its own causal
+    /// hints have resolved, so a clock recorded here is a commit whose
+    /// cross-journal extent was already confirmed.
     completed_clocks: Vec<crate::ProducerMap<uuid::Clock>>,
     /// Maps binding index → cohort index (from Binding::cohort).
     binding_cohorts: Vec<u32>,
@@ -424,7 +429,7 @@ impl CheckpointPipeline {
         shard_index: usize,
         proto: proto_flow::shuffle::Frontier,
     ) -> anyhow::Result<()> {
-        let mut progressed =
+        let progressed =
             crate::Frontier::decode(proto).context("validating Progressed frontier delta")?;
 
         let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
@@ -435,12 +440,6 @@ impl CheckpointPipeline {
         // any amount (toward but possibly below `hinted_commit`); `resolved_hints`
         // is the strict subset that reached `hinted_commit`.
         let (advanced_count, resolved_hints) = self.unresolved.resolve_hints(&progressed);
-
-        // Causal hints can have cyclic cycles, where journal A hints at B,
-        // and B hints at A, but are reported in distinct Progressed responses.
-        // `progressed` resolves hints in `unresolved`, but `unresolved` may also
-        // resolve hints in `progressed`.
-        let (_, _resolved_hints_progressed) = progressed.resolve_hints(&self.unresolved);
 
         service_kit::event!(
             tracing::Level::DEBUG,
@@ -560,34 +559,14 @@ impl CheckpointPipeline {
             return;
         }
 
-        // Remove causal hints of `progressed` that reference a commit the
-        // cohort frontier already completed. This disables stale hints from
-        // re-enabled bindings whose journals are catching up from behind the
-        // cohort's frontier. Track stale-hint clearings so we can keep
-        // `unresolved_hints` consistent without re-walking the journals.
-        let mut stale_cleared = 0usize;
-        self.progressed.journals.retain_mut(|jf| {
-            let cohort = self.binding_cohorts[jf.binding as usize];
-            let completed = &self.completed_clocks[cohort as usize];
-
-            jf.producers.retain_mut(|pf| {
-                if pf.hinted_commit <= pf.last_commit {
-                    true // Hint is already resolved.
-                } else if let Some(&completed) = completed.get(&pf.producer)
-                    && pf.hinted_commit <= completed
-                {
-                    // Hint is stale. Retain only if we also saw a commit.
-                    pf.hinted_commit = uuid::Clock::zero();
-                    stale_cleared += 1;
-                    pf.last_commit != uuid::Clock::zero()
-                } else {
-                    true // Hint is at the frontier
-                }
-            });
-
-            !jf.producers.is_empty()
-        });
-        self.progressed.unresolved_hints -= stale_cleared;
+        // Prune hints of the aggregate `progressed` — not merely of the delta
+        // that carried them — as a hint isn't stale on arrival but becomes so
+        // once its commit is completed elsewhere in the cohort, which happens
+        // while it sits here. This is also where cyclic hints clear (journal A
+        // hints at a commit on B while B hints at one on A, in distinct
+        // Progressed responses).
+        self.progressed
+            .prune_hints(&self.binding_cohorts, &self.completed_clocks);
 
         self.unresolved = std::mem::take(&mut self.progressed);
 
@@ -1891,6 +1870,47 @@ mod test {
             vec![],
         );
         insta::assert_debug_snapshot!("frontier_hint_not_filtered", pipeline_snapshot(&pipeline));
+    }
+
+    #[test]
+    fn test_hint_pruned_after_becoming_stale() {
+        let mut pipeline = test_pipeline();
+
+        // journal/A carries P1 progress through clock 75, plus a P2 hint at 200
+        // which blocks the `progressed → unresolved` handoff behind it.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf(
+                "journal/A",
+                0,
+                vec![pf(0x01, 75, 0, -500), pf(0x02, 100, 200, -500)],
+            )],
+            vec![],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1);
+
+        // A lagging binding hints P1 at clock 60. It's not stale on arrival:
+        // P1@75 is held in `unresolved` and not yet completed by the cohort.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/C", 1, vec![pf(0x01, 0, 60, -50)])],
+            vec![],
+        );
+        assert_eq!(pipeline.progressed.unresolved_hints, 1);
+
+        // P2's hint resolves, promoting `unresolved` → `ready` and completing
+        // P1@75. The hint parked in `progressed` is stale as of this promotion
+        // and must be pruned, even though this delta doesn't mention journal/C.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x02, 200, 0, -600)])],
+            vec![],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0);
+        insta::assert_debug_snapshot!(
+            "hint_pruned_after_becoming_stale",
+            pipeline_snapshot(&pipeline)
+        );
     }
 
     #[test]
