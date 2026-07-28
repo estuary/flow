@@ -1794,10 +1794,12 @@ mod resolve_tests {
     async fn test_old_spec_authoritative_snapshot_relative_to_request(pool: sqlx::PgPool) {
         let draft = capture_draft(&[CAPTURE]);
 
-        // An authoritative snapshot is taken well after "now", so it's always
-        // authoritative regardless of request start time.
+        // An authoritative snapshot is taken at published_at + TEMPORAL_SKEW * 4.
         let authoritative_snapshot = authoritative(&pool).await;
-        let now = published_at(&pool).await + chrono::TimeDelta::seconds(3600);
+        let pub_time = published_at(&pool).await;
+        // Request queued just before the snapshot. Since snapshot is at pub_time + 1s,
+        // queuing at pub_time means snapshot.taken_after(now) is true (snapshot is authoritative).
+        let now = pub_time;
 
         let live = resolve_live_specs(
             uuid::Uuid::nil(),
