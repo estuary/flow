@@ -243,6 +243,8 @@ To keep existing rows when a backfill is triggered, either:
 
 Both options skip the truncate step, but neither prevents the drop-and-recreate path: if the schema change requires a different table structure, the table is still dropped.
 
+To move a binding to a different materialization while keeping the destination table's existing data (for example, consolidating or splitting materializations), see [Moving a binding to a new materialization](/guides/advanced-usage/feature-flags#moving-a-binding-to-a-new-materialization).
+
 ### Backfill Selection
 
 Backfills can be a powerful tool to recover data, but can also result in unnecessary data costs if used incorrectly. This section will help you choose when to backfill and which backfill option to use.
