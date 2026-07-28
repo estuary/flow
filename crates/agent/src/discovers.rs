@@ -301,7 +301,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
 /// row, even if it differs from the endpoint on the drafted or live spec. All
 /// other specs in the given draft will be loaded as they are and used as the
 /// base for the merge after the discover completes.
-async fn prepare_discover(
+async fn prepare_discover<'a>(
     user_id: uuid::Uuid,
     draft_id: Id,
     capture_name: models::Capture,
@@ -310,10 +310,10 @@ async fn prepare_discover(
     logs_token: uuid::Uuid,
     image_composed: String,
     data_plane: tables::DataPlane,
-    pool: &sqlx::PgPool,
-    snapshot: &Snapshot,
+    pool: &'a sqlx::PgPool,
+    snapshot: &'a Snapshot,
     started_at: Option<tokens::DateTime>,
-) -> anyhow::Result<Discover> {
+) -> anyhow::Result<Discover<'a>> {
     let mut draft = draft::load_draft(draft_id, pool)
         .await
         .context("loading draft")?;
@@ -411,6 +411,7 @@ async fn prepare_discover(
         reset_on_key_change,
         logs_token,
         created_at,
+        snapshot,
     })
 }
 

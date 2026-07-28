@@ -14,7 +14,7 @@ pub use db::{Row, fetch_discover, resolve};
 
 /// Represents the desire to discover an endpoint. The discovered bindings will be merged with
 /// those in the `base_model`.
-pub struct Discover {
+pub struct Discover<'a> {
     /// The name of the capture, which _must_ exist within the `draft`.
     pub capture_name: models::Capture,
     /// The data plane to use for the discover. For an existing capture, this
@@ -41,6 +41,8 @@ pub struct Discover {
     /// from the live task's control-plane Id. Empty if the task doesn't exist
     /// yet: the connector assumes a current date for a new task's discover.
     pub created_at: String,
+    /// The instance of the snapshot that's used by all of the discover functions.
+    pub snapshot: &'a crate::Snapshot,
 }
 
 #[derive(Debug)]
@@ -165,7 +167,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         update_only = %req.update_only,
         image
     ))]
-    pub async fn discover(&self, db: &PgPool, req: Discover) -> anyhow::Result<DiscoverOutput> {
+    pub async fn discover(&self, db: &PgPool, req: Discover<'_>) -> anyhow::Result<DiscoverOutput> {
         let Discover {
             capture_name,
             data_plane,
@@ -176,6 +178,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             reset_on_key_change,
             mut draft,
             created_at,
+            snapshot,
         } = req;
 
         let Some(capture_def) = draft.captures.get_mut_by_key(&capture_name) else {
@@ -225,9 +228,6 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
                 return Ok(DiscoverOutput::failed(capture_name, err));
             }
         };
-
-        let snapshot = self.snapshot_watch.token();
-        let snapshot = snapshot.result().unwrap();
 
         let output = Self::build_merged_catalog(
             capture_name,
