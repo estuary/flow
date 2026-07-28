@@ -301,6 +301,8 @@ export class Derivation extends Types.IDerivation {"#
         draft,
         dry_run,
         detail: Some(format!("publication for updating L2 reporting")),
+        // A one-shot handler invocation, with no queued row to anchor on.
+        started_at: None,
         default_data_plane_name: if default_data_plane.trim().is_empty() {
             None
         } else {

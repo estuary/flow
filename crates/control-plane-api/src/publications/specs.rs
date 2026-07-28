@@ -728,7 +728,8 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
 }
 
 /// Builds the retryable `AuthorizationSnapshotStale` error returned when an
-/// authorization denial was evaluated against a snapshot older than the spec.
+/// authorization denial was evaluated against a snapshot that isn't yet
+/// authoritative for the operation being denied.
 fn authz_snapshot_stale(catalog_name: &str) -> anyhow::Error {
     validation::Error::AuthorizationSnapshotStale {
         catalog_name: catalog_name.to_string(),
@@ -736,6 +737,20 @@ fn authz_snapshot_stale(catalog_name: &str) -> anyhow::Error {
     .into()
 }
 
+/// Resolves the live specs which a draft drafts or references, authorizing each
+/// against `snapshot`.
+///
+/// `started` is the instant the publication was queued, and decides whether an
+/// authorization denial is terminal or merely not-yet-observed: a denial is
+/// authoritative only once `snapshot` was taken after it. It must therefore be
+/// durable across retries — a value re-stamped per attempt (`now()`) can never
+/// be overtaken by a snapshot, so denials would retry forever.
+///
+/// `None` is for callers with no such durable instant: controllers and ad-hoc
+/// system publications, which construct a fresh publication per attempt and
+/// carry their own retry/backoff. They fall back to anchoring on each denied
+/// spec's own last publication, which bounds the window in which grants could
+/// have been committed alongside the spec.
 pub async fn resolve_live_specs(
     user_id: uuid::Uuid,
     draft: &tables::DraftCatalog,
@@ -743,6 +758,7 @@ pub async fn resolve_live_specs(
     verify_user_authz: bool,
     explicit_plane_name: Option<&str>,
     snapshot: &crate::Snapshot,
+    started: Option<tokens::DateTime>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     // We're expecting to get a row for catalog name that's either drafted or referenced
     // by a drafted spec, even if the live spec does not exist. In that case, the row will
@@ -786,17 +802,33 @@ pub async fn resolve_live_specs(
         let catalog_name = spec_row.catalog_name.as_str();
         let n_errors = live.errors.len();
 
-        // An authorization denial evaluated against a snapshot older than this
-        // spec's own last update may be spurious — a concurrent change (e.g. a
-        // just-added grant) that this snapshot doesn't reflect yet. When that's
+        // An authorization denial may be spurious — a grant committed
+        // concurrently that this snapshot hasn't observed yet. When that's
         // possible we short-circuit with a retryable stale error so the
         // publication is retried against a fresher snapshot, rather than
         // reporting a hard (and possibly wrong) authorization failure.
+        //
+        // The reference instant is `started`, the moment the operation was
+        // queued: a grant committed before then is necessarily reflected in any
+        // snapshot taken after then, however old the denied spec happens to be.
+        // Anchoring on the spec instead would be unsound in both directions —
+        // a snapshot postdating an old spec still can't rule out a grant
+        // committed just before the request. This is the same test
+        // `envelope.rs` and `authorize_task.rs` apply to decide whether a
+        // denial is terminal or provisional.
+        //
+        // `started` must be durable across attempts for the retry to converge;
+        // see `resolve_live_specs`' contract for callers which have no such
+        // instant and fall back to the spec's own publication time.
+        //
         // `taken_after` (rather than a bare comparison) is deliberate: it is the
         // single definition of "this snapshot is authoritative for that instant"
         // used across the control plane, and it allows for `TEMPORAL_SKEW`
         // between the snapshot's clock and the ID generator's.
-        let spec_stale = !snapshot.taken_after(spec_row.last_pub_id.timestamp());
+        let spec_stale = match started {
+            Some(started) => !snapshot.taken_after(started),
+            None => !snapshot.taken_after(spec_row.last_pub_id.timestamp()),
+        };
 
         if drafted_names.contains(catalog_name) {
             // Get the metadata about the draft spec that matches this catalog name.
@@ -1220,6 +1252,9 @@ mod resolve_tests {
     // From `fixtures/authz_specs.sql`.
     const CAROL: uuid::Uuid = uuid::uuid!("33333333-3333-3333-3333-333333333333");
     const DAN: uuid::Uuid = uuid::uuid!("44444444-4444-4444-4444-444444444444");
+    // From `fixtures/attenuated_grants.sql`.
+    const ERIN: uuid::Uuid = uuid::uuid!("55555555-5555-5555-5555-555555555555");
+    const FRANK: uuid::Uuid = uuid::uuid!("66666666-6666-6666-6666-666666666666");
     const COLLECTION: &str = "carolCo/data/foo";
     const CAPTURE: &str = "carolCo/in/capture-foo";
     const MATERIALIZATION: &str = "carolCo/out/materialize-bar";
@@ -1331,14 +1366,22 @@ mod resolve_tests {
             }
         }));
 
-        let err = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await)
+        let err = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await, None)
             .await
             .expect_err("a denial against a stale Snapshot should be retryable");
         assert_stale_for(err, COLLECTION);
 
-        let live = resolve_live_specs(DAN, &draft, &pool, true, None, &authoritative(&pool).await)
-            .await
-            .expect("an authoritative denial is reported, not raised");
+        let live = resolve_live_specs(
+            DAN,
+            &draft,
+            &pool,
+            true,
+            None,
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("an authoritative denial is reported, not raised");
         insta::assert_debug_snapshot!(error_pairs(&live), @r#"
         [
             (
@@ -1359,7 +1402,7 @@ mod resolve_tests {
     async fn test_drafted_spec_reads_from_authz(pool: sqlx::PgPool) {
         let draft = materialization_draft(&[COLLECTION]);
 
-        let err = resolve_live_specs(CAROL, &draft, &pool, true, None, &stale(&pool).await)
+        let err = resolve_live_specs(CAROL, &draft, &pool, true, None, &stale(&pool).await, None)
             .await
             .expect_err("a denial against a stale Snapshot should be retryable");
         assert_stale_for(err, MATERIALIZATION);
@@ -1371,6 +1414,7 @@ mod resolve_tests {
             true,
             None,
             &authoritative(&pool).await,
+            None,
         )
         .await
         .expect("an authoritative denial is reported, not raised");
@@ -1395,7 +1439,7 @@ mod resolve_tests {
     async fn test_drafted_spec_writes_to_authz(pool: sqlx::PgPool) {
         let draft = capture_draft(&["carolCo/elsewhere/thing"]);
 
-        let err = resolve_live_specs(CAROL, &draft, &pool, true, None, &stale(&pool).await)
+        let err = resolve_live_specs(CAROL, &draft, &pool, true, None, &stale(&pool).await, None)
             .await
             .expect_err("a denial against a stale Snapshot should be retryable");
         assert_stale_for(err, CAPTURE);
@@ -1407,6 +1451,7 @@ mod resolve_tests {
             true,
             None,
             &authoritative(&pool).await,
+            None,
         )
         .await
         .expect("an authoritative denial is reported, not raised");
@@ -1430,7 +1475,7 @@ mod resolve_tests {
         let draft = capture_draft(&[COLLECTION]);
 
         for snapshot in [stale(&pool).await, authoritative(&pool).await] {
-            let live = resolve_live_specs(CAROL, &draft, &pool, true, Some(PLANE), &snapshot)
+            let live = resolve_live_specs(CAROL, &draft, &pool, true, Some(PLANE), &snapshot, None)
                 .await
                 .expect("an authorized draft resolves");
 
@@ -1468,14 +1513,22 @@ mod resolve_tests {
             }
         }));
 
-        let err = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await)
+        let err = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await, None)
             .await
             .expect_err("a denial against a stale Snapshot should be retryable");
         assert_stale_for(err, COLLECTION);
 
-        let live = resolve_live_specs(DAN, &draft, &pool, true, None, &authoritative(&pool).await)
-            .await
-            .expect("an authoritative denial is reported, not raised");
+        let live = resolve_live_specs(
+            DAN,
+            &draft,
+            &pool,
+            true,
+            None,
+            &authoritative(&pool).await,
+            None,
+        )
+        .await
+        .expect("an authoritative denial is reported, not raised");
         insta::assert_debug_snapshot!(error_pairs(&live), @r#"
         [
             (
@@ -1507,7 +1560,7 @@ mod resolve_tests {
             }
         }));
 
-        let live = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await)
+        let live = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await, None)
             .await
             .expect("a spec with no publication history cannot be stale");
         insta::assert_debug_snapshot!(error_pairs(&live), @r#"
@@ -1539,6 +1592,7 @@ mod resolve_tests {
             false, // verify_user_authz
             None,
             &stale(&pool).await,
+            None,
         )
         .await
         .expect_err("spec authorization is checked regardless of verify_user_authz");
@@ -1564,9 +1618,17 @@ mod resolve_tests {
         }));
 
         // Dan admins `danCo/` but was granted nothing on `ops/dp/public/`.
-        let live = resolve_live_specs(DAN, &draft, &pool, true, Some(PLANE), &stale(&pool).await)
-            .await
-            .expect("an unauthorized data-plane name is not an error");
+        let live = resolve_live_specs(
+            DAN,
+            &draft,
+            &pool,
+            true,
+            Some(PLANE),
+            &stale(&pool).await,
+            None,
+        )
+        .await
+        .expect("an unauthorized data-plane name is not an error");
         assert!(
             live.errors.is_empty(),
             "unexpected errors: {:?}",
@@ -1593,9 +1655,94 @@ mod resolve_tests {
             true,
             Some(PLANE),
             &stale(&pool).await,
+            None,
         )
         .await
         .expect("carol is authorized to the plane");
+        assert_eq!(1, live.data_planes.len());
+    }
+
+    /// The data-plane name filter must be decided by *effective* (attenuated)
+    /// authority, not the raw legacy capability of the edge which reached the
+    /// prefix. Erin and frank traverse the identical 2-hop path through
+    /// `sharedCo/` to a raw-`admin` grant on `ops/dp/public/`; only frank's
+    /// root grant delegates the Viewer bits, so only frank sees the plane. A
+    /// regression to raw-capability filtering makes the plane visible to erin.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(
+            path = "../fixtures",
+            scripts("data_planes", "authz_specs", "attenuated_grants")
+        )
+    )]
+    async fn test_attenuated_data_plane_grant_is_not_visible(pool: sqlx::PgPool) {
+        let snapshot = authoritative(&pool).await;
+
+        // The premise that makes this attenuation rather than simple absence:
+        // erin's raw reachable capability at the plane is Admin, and yet her
+        // effective authority does not satisfy Read.
+        assert_eq!(
+            Some(models::Capability::Admin),
+            tables::UserGrant::get_user_capability(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                ERIN,
+                PLANE,
+            ),
+        );
+        assert!(!tables::UserGrant::is_authorized(
+            &snapshot.role_grants,
+            &snapshot.user_grants,
+            ERIN,
+            PLANE,
+            models::Capability::Read,
+        ));
+
+        let erin_draft = draft_of(serde_json::json!({
+            "collections": {
+                "erinCo/thing": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+        let live = resolve_live_specs(ERIN, &erin_draft, &pool, true, Some(PLANE), &snapshot, None)
+            .await
+            .expect("an unauthorized data-plane name is not an error");
+        assert!(
+            live.errors.is_empty(),
+            "unexpected errors: {:?}",
+            error_pairs(&live)
+        );
+        assert!(
+            live.data_planes.is_empty(),
+            "a plane reached with raw admin but attenuated effective authority must not be visible"
+        );
+
+        let frank_draft = draft_of(serde_json::json!({
+            "collections": {
+                "frankCo/thing": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+        let live = resolve_live_specs(
+            FRANK,
+            &frank_draft,
+            &pool,
+            true,
+            Some(PLANE),
+            &snapshot,
+            None,
+        )
+        .await
+        .expect("frank is authorized to the plane");
+        assert!(
+            live.errors.is_empty(),
+            "unexpected errors: {:?}",
+            error_pairs(&live)
+        );
         assert_eq!(1, live.data_planes.len());
     }
 }

@@ -238,6 +238,8 @@ pub async fn create_data_plane(
         draft,
         dry_run: false,
         detail: Some(format!("publication for data-plane {base_name}")),
+        // A one-shot handler invocation, with no queued row to anchor on.
+        started_at: None,
         // We've already validated that the user can admin `ops/`,
         // so further authZ checks are unnecessary.
         verify_user_authz: false,

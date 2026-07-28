@@ -436,6 +436,7 @@ async fn test_source_capture_no_annotations() {
             false,
             0,
             snapshot,
+            None,
         )
         .await
         .expect("build failed");

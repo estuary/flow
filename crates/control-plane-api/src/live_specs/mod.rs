@@ -89,10 +89,12 @@ pub async fn get_connected_live_specs(
     filter_capability: Option<Capability>,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
+    started: Option<tokens::DateTime>,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let expanded_rows =
         db::fetch_expanded_live_specs(user_id, collection_names, exclude_names, db).await?;
     let mut live = tables::LiveCatalog::default();
+
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
             if !tables::UserGrant::is_authorized(
@@ -102,10 +104,20 @@ pub async fn get_connected_live_specs(
                 &exp.catalog_name,
                 minimum_capability,
             ) {
-                // As in `get_live_specs`, a denial evaluated against a snapshot
-                // that predates the spec's own update may be spurious. Signal
-                // stale so the caller can refresh and retry; otherwise drop.
-                if !snapshot.taken_after(exp.last_pub_id.timestamp()) {
+                // A denial is authoritative only when the snapshot postdates
+                // the operation which is asking: a grant committed before
+                // `started` is necessarily reflected in any snapshot taken
+                // after it, no matter how old the denied spec is. Callers
+                // without a durable request time — those which capture "now"
+                // anew on every attempt and retry on their own — instead
+                // anchor to the spec's last publication, which bounds the
+                // window in which grants could have been committed alongside
+                // the spec itself.
+                let denial_is_stale = match started {
+                    Some(started) => !snapshot.taken_after(started),
+                    None => !snapshot.taken_after(exp.last_pub_id.timestamp()),
+                };
+                if denial_is_stale {
                     return Err(validation::Error::AuthorizationSnapshotStale {
                         catalog_name: exp.catalog_name.clone(),
                     }
@@ -145,8 +157,10 @@ pub async fn get_connected_live_specs(
 
 /// Both fetchers apply authorization in-process against a `Snapshot` rather than
 /// in SQL. Because the Snapshot lags Postgres, a denial is only trusted once the
-/// Snapshot is authoritative for the spec being denied; otherwise the caller gets
-/// a retryable `AuthorizationSnapshotStale` rather than a silently-dropped spec.
+/// Snapshot is authoritative for the operation asking — its `started` request
+/// time when the caller has a durable one, or the denied spec's own last
+/// publication otherwise. Until then the caller gets a retryable
+/// `AuthorizationSnapshotStale` rather than a silently-dropped spec.
 /// These tests pin that three-way outcome — included / dropped / retryable — and
 /// the exact instant the last two swap over.
 #[cfg(test)]
@@ -342,9 +356,18 @@ mod tests {
             user: uuid::Uuid,
             snapshot: &crate::Snapshot,
             filter: Option<Capability>,
+            started: Option<tokens::DateTime>,
         ) -> anyhow::Result<tables::LiveCatalog> {
-            get_connected_live_specs(user, &[COLLECTION], &[COLLECTION], filter, pool, snapshot)
-                .await
+            get_connected_live_specs(
+                user,
+                &[COLLECTION],
+                &[COLLECTION],
+                filter,
+                pool,
+                snapshot,
+                started,
+            )
+            .await
         }
 
         let live = connected(
@@ -352,6 +375,7 @@ mod tests {
             CAROL,
             &authoritative(&pool).await,
             Some(Capability::Read),
+            None,
         )
         .await
         .expect("carol is authorized");
@@ -363,19 +387,73 @@ mod tests {
             DAN,
             &authoritative(&pool).await,
             Some(Capability::Read),
+            None,
         )
         .await
         .expect("an authoritative denial is not an error");
         assert!(live.captures.is_empty());
 
-        let err = connected(&pool, DAN, &stale(&pool).await, Some(Capability::Read))
-            .await
-            .expect_err("a denial against a stale Snapshot should be retryable");
+        let err = connected(
+            &pool,
+            DAN,
+            &stale(&pool).await,
+            Some(Capability::Read),
+            None,
+        )
+        .await
+        .expect_err("a denial against a stale Snapshot should be retryable");
         assert_stale_for(err, CAPTURE);
 
-        let live = connected(&pool, DAN, &stale(&pool).await, None)
+        let live = connected(&pool, DAN, &stale(&pool).await, None, None)
             .await
             .expect("an unfiltered traversal should not consult the Snapshot");
         assert_eq!(1, live.captures.len());
+    }
+
+    /// When the caller supplies a durable request time, staleness is judged
+    /// against *it*, displacing the spec's age entirely — in both directions.
+    /// A Snapshot which outlives the spec but predates the request cannot
+    /// rule out a grant committed just before the request (the late-grant,
+    /// old-spec race); a Snapshot which predates the spec but outlives the
+    /// request already reflects everything the request could rely upon.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_get_connected_live_specs_request_relative_staleness(pool: sqlx::PgPool) {
+        let spec_time = published_at(&pool).await;
+
+        // Snapshot outlives the spec, but the request is newer still.
+        let snapshot = authoritative(&pool).await;
+        let started = Some(spec_time + crate::Snapshot::TEMPORAL_SKEW * 8);
+        let err = get_connected_live_specs(
+            DAN,
+            &[COLLECTION],
+            &[COLLECTION],
+            Some(Capability::Read),
+            &pool,
+            &snapshot,
+            started,
+        )
+        .await
+        .expect_err("a Snapshot older than the request cannot make a denial authoritative");
+        assert_stale_for(err, CAPTURE);
+
+        // Snapshot predates the spec — stale by the spec-relative anchor —
+        // but it outlives the request, so the denial is authoritative.
+        let snapshot = stale(&pool).await;
+        let started = Some(spec_time - crate::Snapshot::TEMPORAL_SKEW * 8);
+        let live = get_connected_live_specs(
+            DAN,
+            &[COLLECTION],
+            &[COLLECTION],
+            Some(Capability::Read),
+            &pool,
+            &snapshot,
+            started,
+        )
+        .await
+        .expect("a Snapshot taken after the request is authoritative regardless of spec age");
+        assert!(live.captures.is_empty());
     }
 }

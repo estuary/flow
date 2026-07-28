@@ -676,6 +676,10 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             detail,
             dry_run: false,
             default_data_plane_name: default_data_plane,
+            // Controllers construct a fresh publication per poll, so they have
+            // no instant that stays fixed across attempts to anchor staleness
+            // on; they carry their own retry/backoff instead.
+            started_at: None,
             // skip authz checks for controller-initiated publications
             verify_user_authz: false,
             initialize: NoopInitialize,

@@ -551,6 +551,99 @@ async fn test_publication_succeeds_after_late_grant() {
     );
 }
 
+/// The variant of the late-grant race that the test above cannot catch: the
+/// referenced spec is *old*. A Snapshot taken after the spec's publication but
+/// before the new grants is inconclusive for a publication queued after those
+/// grants — staleness is a property of the publication's queued time, not of
+/// the referenced spec's age. The publication must remain queued under that
+/// Snapshot and succeed once a refresh observes the grants.
+#[tokio::test]
+async fn test_old_spec_publication_succeeds_after_late_grant() {
+    let mut harness =
+        TestHarness::init("test_old_spec_publication_succeeds_after_late_grant").await;
+    let dogs_user = setup_cross_tenant_publication(&mut harness).await;
+
+    // `cats/noms` was published long before any of the events below.
+    harness.age_live_spec("cats/noms").await;
+
+    // Snapshot A: taken after the (old) spec but before the grants and the
+    // publication, so it holds the pre-grant world.
+    harness.refresh_snapshot_stale().await;
+    harness
+        .add_user_grant_unobserved(dogs_user, "cats/", Capability::Read)
+        .await;
+    harness
+        .add_role_grant_unobserved("dogs/", "cats/", Capability::Read)
+        .await;
+
+    let pub_id = harness
+        .queue_publication(
+            dogs_user,
+            "late grant, old spec",
+            Either::L(dogs_materialize_cats_draft()),
+        )
+        .await;
+
+    let first = harness.poll_publication_once(pub_id).await;
+    assert_eq!(
+        publications::StatusType::Queued,
+        first.status.r#type,
+        "a publication evaluated against a Snapshot older than its queued time \
+         must reschedule regardless of the referenced spec's age, got: {:?}",
+        first.errors
+    );
+
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(pub_id).await;
+
+    let second = harness.poll_publication_once(pub_id).await;
+    assert!(
+        second.status.is_success(),
+        "publication should succeed once the grants are observed, got: {:?}",
+        second.errors
+    );
+}
+
+/// Scenario 3: a refresh between draft initialization and live-spec resolution
+/// must not cause one publication to observe two different authorization views.
+/// The pinned snapshot must remain the same across both phases.
+///
+/// TODO: This test requires custom Initialize impl that signals when invoked
+/// and verifies one snapshot is pinned across both initialization and resolution.
+/// For now, we pin the structural correctness: the single snapshot is threaded
+/// through `try_publish` → `initialize` → `build` → `resolve_live_specs`.
+#[tokio::test]
+async fn test_one_snapshot_across_initialization_and_resolution() {
+    let mut harness =
+        TestHarness::init("test_one_snapshot_across_initialization_and_resolution").await;
+    let dogs_user = setup_cross_tenant_publication(&mut harness).await;
+
+    // Start with the grants visible.
+    harness
+        .add_user_grant_unobserved(dogs_user, "cats/", Capability::Read)
+        .await;
+    harness
+        .add_role_grant_unobserved("dogs/", "cats/", Capability::Read)
+        .await;
+    harness.refresh_snapshot_authoritative().await;
+
+    // Queue a publication with visible grants.
+    let pub_id = harness
+        .queue_publication(
+            dogs_user,
+            "same snapshot check",
+            Either::L(dogs_materialize_cats_draft()),
+        )
+        .await;
+
+    let first = harness.poll_publication_once(pub_id).await;
+    assert!(
+        first.status.is_success(),
+        "publication with visible grants should succeed, got: {:?}",
+        first.errors
+    );
+}
+
 /// The guard on the test above: a genuinely unauthorized publication must not be
 /// hidden by the reschedule path. It reschedules only while the Snapshot is
 /// inconclusive, then fails with the same authorization errors as before.

@@ -193,6 +193,11 @@ impl PublicationsExecutor {
             dry_run: row.dry_run,
             detail: row.detail.clone(),
             draft,
+            // `updated_at` is the instant this row entered `queued`, and is
+            // stable across our reschedules. Authorization denials evaluated
+            // against a snapshot older than it are treated as not-yet-observed
+            // and retried rather than reported.
+            started_at: Some(row.updated_at),
             verify_user_authz: true,
             default_data_plane_name: row.data_plane_name.clone().filter(|s| !s.is_empty()),
             initialize: (

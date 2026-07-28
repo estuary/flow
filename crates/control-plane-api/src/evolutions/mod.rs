@@ -202,6 +202,9 @@ pub async fn evolve(
         capability_filter,
         db,
         snapshot,
+        // `evolve` is not handed the queued `evolutions` row, so it has no
+        // durable instant to anchor staleness on and falls back to per-spec.
+        None,
     )
     .await
     {

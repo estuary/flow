@@ -185,7 +185,7 @@ pub struct TestHarness {
     /// `refresh_snapshot`) rather than through `PgSnapshotSource`'s timer-gated
     /// polling loop, which would otherwise impose a `MIN_REFRESH_INTERVAL`
     /// cool-off on every refresh.
-    set_snapshot: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
+    set_snapshot: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
     pub discover_handler: DiscoverHandler<connectors::MockDiscoverConnectors>,
@@ -256,8 +256,8 @@ impl HarnessBuilder {
         // mutate grants (see `refresh_snapshot`), which avoids the source's
         // `MIN_REFRESH_INTERVAL` cool-off blocking the (real-time) test clock.
         let (snapshot_pending, snapshot_replace) = tokens::manual::<control_plane_api::Snapshot>();
-        let set_snapshot: Box<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
-            Box::new(move |snapshot| {
+        let set_snapshot: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
+            Arc::new(move |snapshot| {
                 _ = snapshot_replace(Ok(snapshot));
             });
         set_snapshot(TestHarness::fetch_snapshot(&pool).await);
@@ -744,6 +744,28 @@ impl TestHarness {
         .await
         .unwrap();
         txn.commit().await.unwrap();
+    }
+
+    /// Rewrites `catalog_name`'s `last_pub_id` so the spec reads as published
+    /// long before any event in the current test. Compressed test time means
+    /// everything is otherwise "just published", which sidesteps the common
+    /// production shape of an old spec whose *authorization* changes now. The
+    /// id sits a few days past the Estuary epoch — old, but non-zero, because
+    /// a zero id means "never published".
+    pub async fn age_live_spec(&self, catalog_name: &str) {
+        let updated = sqlx::query(
+            "update live_specs set last_pub_id = '00:08:00:00:00:00:00:00'::flowid
+            where catalog_name = $1",
+        )
+        .bind(catalog_name)
+        .execute(&self.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            1,
+            updated.rows_affected(),
+            "expected to age exactly one live spec named {catalog_name}"
+        );
     }
 
     pub async fn assert_specs_touched_since(&mut self, prev_specs: &tables::LiveCatalog) {
@@ -2449,6 +2471,8 @@ impl ControlPlane for TestControlPlane {
             logs_token,
             dry_run: false,
             default_data_plane_name: data_plane_name,
+            // Mirrors the production controller path, which has no queued row.
+            started_at: None,
             verify_user_authz: false,
             initialize: NoopInitialize,
             finalize,

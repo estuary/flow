@@ -43,6 +43,15 @@ pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPoli
     pub draft: tables::DraftCatalog,
     /// Detail message to associate with this publication.
     pub detail: Option<String>,
+    /// The instant this publication was queued, which decides whether an
+    /// authorization denial is terminal or merely not-yet-observed by the
+    /// snapshot: a denial counts only once the snapshot was taken after it.
+    ///
+    /// This is distinct from `UncommittedBuild::started_at`, which is stamped
+    /// per build attempt. It must be durable across attempts for the retry to
+    /// converge, so it comes from the queued `publications` row (`updated_at`).
+    /// `None` means "no durable instant" — see [`specs::resolve_live_specs`].
+    pub started_at: Option<tokens::DateTime>,
     /// Whether to check user permissions when publishing specs. If this is false, then all
     /// permission checks will be skipped, and the publication may modify any specs.
     pub verify_user_authz: bool,
@@ -323,6 +332,7 @@ impl Publisher {
             draft: raw_draft,
             verify_user_authz,
             detail,
+            started_at,
             default_data_plane_name,
             initialize,
             finalize,
@@ -334,7 +344,7 @@ impl Publisher {
         let snapshot = self.snapshot.token();
         let snapshot = snapshot.result().unwrap();
         initialize
-            .initialize(&self.db, *user_id, &mut draft, snapshot)
+            .initialize(&self.db, *user_id, &mut draft, snapshot, *started_at)
             .await
             .context("initializing draft")?;
         // It's important that we generate the pub id inside the retry loop so that we can
@@ -350,6 +360,7 @@ impl Publisher {
                 *verify_user_authz,
                 retry_count,
                 snapshot,
+                *started_at,
             )
             .await?;
         finalize.finalize(&mut built).context("finalizing build")?;
@@ -385,6 +396,7 @@ impl Publisher {
         verify_user_authz: bool,
         retry_count: u32,
         snapshot: &crate::Snapshot,
+        started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<UncommittedBuild> {
         let start_time = tokens::now();
         let build_id = self.id_gen.lock().unwrap().next();
@@ -431,6 +443,7 @@ impl Publisher {
             verify_user_authz,
             explicit_plane_name,
             snapshot,
+            started_at,
         )
         .await?;
 

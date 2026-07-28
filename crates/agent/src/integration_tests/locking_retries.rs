@@ -43,6 +43,7 @@ async fn test_publication_concurrent_commits() {
                 true,
                 0,
                 &snapshot,
+                None,
             )
             .await
             .unwrap();
@@ -58,6 +59,7 @@ async fn test_publication_concurrent_commits() {
                 true,
                 0,
                 &snapshot,
+                None,
             )
             .await
             .unwrap();
@@ -72,6 +74,7 @@ async fn test_publication_concurrent_commits() {
                 true,
                 0,
                 &snapshot,
+                None,
             )
             .await
             .unwrap();
@@ -131,6 +134,7 @@ async fn test_publication_optimistic_locking_failures() {
             true,
             0,
             &snapshot,
+            None,
         )
         .await
         .expect("build failed");
@@ -179,6 +183,7 @@ async fn test_publication_optimistic_locking_failures() {
             true,
             0,
             &snapshot,
+            None,
         )
         .await
         .expect("build a failed");
@@ -197,6 +202,7 @@ async fn test_publication_optimistic_locking_failures() {
             true,
             0,
             snapshot,
+            None,
         )
         .await
         .expect("build b failed");
@@ -253,6 +259,7 @@ async fn test_publication_optimistic_locking_failures() {
             true,
             0,
             snapshot,
+            None,
         )
         .await
         .expect("cheese build failed");
@@ -281,6 +288,7 @@ async fn test_publication_optimistic_locking_failures() {
             true,
             0,
             snapshot,
+            None,
         )
         .await
         .expect("seeds build failed");
@@ -433,6 +441,7 @@ async fn test_injected_ops_collections_are_not_locked() {
             true,
             0,
             snapshot,
+            None,
         )
         .await
         .expect("owls build failed");
@@ -532,6 +541,7 @@ async fn test_injected_ops_collections_are_not_locked() {
             true,
             0,
             snapshot,
+            None,
         )
         .await
         .expect("reader build failed");

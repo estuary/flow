@@ -56,6 +56,7 @@ async fn test_forbidden_connector() {
             true,
             0,
             snapshot,
+            None,
         )
         .await
         .expect("build failed");

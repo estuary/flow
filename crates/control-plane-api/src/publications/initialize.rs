@@ -5,6 +5,10 @@ use std::future::Future;
 use uuid::Uuid;
 
 /// Initialize a draft prior to build/validation. This may add additional specs to the draft.
+///
+/// `snapshot` and `started_at` are the publication's pinned authorization view
+/// and queued instant; both must be the same values the subsequent build uses,
+/// so that expansion and resolution cannot disagree about one publication.
 pub trait Initialize: Send + Sync {
     fn initialize(
         &self,
@@ -12,6 +16,7 @@ pub trait Initialize: Send + Sync {
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
         snapshot: &crate::Snapshot,
+        started_at: Option<tokens::DateTime>,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }
 
@@ -24,6 +29,7 @@ impl Initialize for NoopInitialize {
         _user_id: Uuid,
         _draft: &mut tables::DraftCatalog,
         _snapshot: &crate::Snapshot,
+        _started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -40,9 +46,14 @@ where
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
         snapshot: &crate::Snapshot,
+        started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<()> {
-        self.0.initialize(db, user_id, draft, snapshot).await?;
-        self.1.initialize(db, user_id, draft, snapshot).await?;
+        self.0
+            .initialize(db, user_id, draft, snapshot, started_at)
+            .await?;
+        self.1
+            .initialize(db, user_id, draft, snapshot, started_at)
+            .await?;
         Ok(())
     }
 }
@@ -69,6 +80,7 @@ impl Initialize for ExpandDraft {
         user_id: Uuid,
         draft: &mut tables::DraftCatalog,
         snapshot: &crate::Snapshot,
+        started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<()> {
         // Expand the set of drafted specs to include any tasks that read from or write to any of
         // the published collections. We do this so that validation can catch any inconsistencies
@@ -92,6 +104,7 @@ impl Initialize for ExpandDraft {
             capability_filter,
             db,
             snapshot,
+            started_at,
         )
         .await?;
         tracing::debug!(
@@ -122,6 +135,7 @@ impl Initialize for RuntimeV2Rollout {
         _user_id: Uuid,
         draft: &mut tables::DraftCatalog,
         _snapshot: &crate::Snapshot,
+        _started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<()> {
         let flag = models::Token::new(models::ENABLE_RUNTIME_V2);
 
