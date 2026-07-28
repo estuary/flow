@@ -1827,6 +1827,10 @@ type QueryRoot {
 	"""
 	alertConfigs(filter: AlertConfigsFilter, after: String, first: Int): AlertConfigEntryConnection!
 	"""
+	Resolves the effective alert config at a single prefix or catalog name.
+	"""
+	effectiveAlertConfig(catalogPrefixOrName: String!): EffectiveAlertConfig!
+	"""
 	Returns all possible alert types with their user-facing metadata.
 	"""
 	alertTypes: [AlertTypeInfo!]!
