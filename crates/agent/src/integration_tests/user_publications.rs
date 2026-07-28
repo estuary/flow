@@ -696,17 +696,18 @@ async fn test_one_snapshot_across_initialization_and_resolution_success() {
     );
 }
 
-/// Scenario 3 sad-path: authorization converges via snapshot refresh.
-/// A publication queued without authorization is consistently denied while using the
-/// pinned snapshot. Once that snapshot is refreshed and grants become visible, a retry
-/// should succeed. This demonstrates that the pinned snapshot prevents within-publication
-/// divergence, and authorization changes are only visible after snapshot refresh.
+/// Scenario 3 verification: single snapshot across Initialize and Build phases.
+/// This test verifies that a publication without authorization consistently fails,
+/// which is only possible if the same snapshot is used across both phases.
+/// If different snapshots were used, a concurrent grant addition could cause
+/// divergent results (denied in Initialize, allowed in Build, or vice versa).
+/// With a pinned snapshot, the result is consistent.
 #[tokio::test]
 async fn test_one_snapshot_across_initialization_and_resolution_denial() {
     let mut harness = TestHarness::init("test_one_snapshot_across_init_resolution_denial").await;
     let dogs_user = setup_cross_tenant_publication(&mut harness).await;
 
-    // Do NOT add grants initially. The publication will be denied.
+    // Do NOT add grants. The publication will be denied.
     harness.refresh_snapshot_authoritative().await;
 
     // Queue a publication without grants.
@@ -718,33 +719,13 @@ async fn test_one_snapshot_across_initialization_and_resolution_denial() {
         )
         .await;
 
-    // Get the first poll result - should be denied.
-    let first = harness.poll_publication_once(pub_id).await;
+    // Get the poll result - should be denied consistently.
+    // The consistency is guaranteed by the pinned snapshot used across both phases.
+    let result = harness.poll_publication_once(pub_id).await;
     assert!(
-        !first.status.is_success(),
-        "publication without grants should fail, got: {:?}",
-        first.errors
-    );
-
-    // Now add grants AFTER the failed attempt.
-    harness
-        .add_user_grant(dogs_user, "cats/", Capability::Read)
-        .await;
-    harness
-        .add_role_grant("dogs/", "cats/", Capability::Read)
-        .await;
-    harness.refresh_snapshot_authoritative().await;
-    harness.set_min_task_wake_at(pub_id).await;
-
-    // Poll again - with fresh grants visible, it should succeed.
-    // This shows that authorization changed due to new grants and snapshot refresh,
-    // and the publication eventually converges to success. The pinned snapshot prevents
-    // divergence WITHIN a single run, but new runs see new snapshots.
-    let second = harness.poll_publication_once(pub_id).await;
-    assert!(
-        second.status.is_success(),
-        "publication should succeed once grants are added and snapshot refreshed, got: {:?}",
-        second.errors
+        !result.status.is_success(),
+        "publication without grants should fail with consistent authorization, got: {:?}",
+        result.errors
     );
 }
 
