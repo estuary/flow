@@ -838,8 +838,8 @@ input DataPlanesFilter {
 	"""
 	id: IdFilter
 	"""
-	Narrow to data planes whose name starts with this prefix, e.g.
-	`ops/dp/private/<tenant>`.
+	Narrow by data-plane name, either to a subtree with `startsWith` or to
+	an exact set with `in`.
 	"""
 	dataPlaneName: PrefixFilter
 	"""

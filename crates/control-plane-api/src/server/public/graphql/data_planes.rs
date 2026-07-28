@@ -16,8 +16,8 @@ pub struct DataPlanesFilter {
     /// `dataPlaneId`. Ids the caller cannot read, and ids that match no data
     /// plane, are omitted rather than erroring.
     pub id: Option<filters::IdFilter>,
-    /// Narrow to data planes whose name starts with this prefix, e.g.
-    /// `ops/dp/private/<tenant>`.
+    /// Narrow by data-plane name, either to a subtree with `startsWith` or to
+    /// an exact set with `in`.
     pub data_plane_name: Option<filters::PrefixFilter>,
     /// Filter on the `closed` flag.
     pub closed: Option<filters::BoolFilter>,
@@ -492,18 +492,16 @@ impl DataPlanesQuery {
         let claims = env.claims()?;
         let snapshot = env.snapshot();
 
-        let closed_eq = filter
-            .as_ref()
-            .and_then(|f| f.closed.as_ref())
-            .and_then(|f| f.eq);
-        let id_in = filter
-            .as_ref()
-            .and_then(|f| f.id.as_ref())
-            .and_then(|f| f.r#in.as_deref());
-        let name_starts_with = filter
-            .as_ref()
-            .and_then(|f| f.data_plane_name.as_ref())
-            .and_then(|f| f.starts_with.as_deref());
+        let DataPlanesFilter {
+            id,
+            data_plane_name,
+            closed,
+        } = filter.unwrap_or_default();
+        let id_in = id.and_then(|f| f.r#in);
+        let (name_starts_with, name_in) = data_plane_name
+            .unwrap_or_default()
+            .into_parts("filter.dataPlaneName")?;
+        let closed_eq = closed.and_then(|f| f.eq);
 
         // Filter to only data planes the user can read and that have valid
         // names, sorted by data_plane_name for consistent pagination. Optional
@@ -517,13 +515,18 @@ impl DataPlanesQuery {
                     tracing::warn!(data_plane_name = %dp.data_plane_name, "skipping data plane with unparseable name");
                     return false;
                 }
-                if let Some(ids) = id_in {
+                if let Some(ids) = id_in.as_ref() {
                     if !ids.contains(&dp.control_id) {
                         return false;
                     }
                 }
-                if let Some(prefix) = name_starts_with {
+                if let Some(prefix) = name_starts_with.as_deref() {
                     if !dp.data_plane_name.starts_with(prefix) {
+                        return false;
+                    }
+                }
+                if let Some(names) = name_in.as_ref() {
+                    if !names.contains(&dp.data_plane_name) {
                         return false;
                     }
                 }
@@ -1016,7 +1019,58 @@ mod tests {
         .await;
         assert_eq!(
             by_prefix,
+            vec![(
+                gcp_id.clone(),
+                "ops/dp/public/gcp-us-central1-c2".to_string()
+            )],
+        );
+
+        // Exact-name filtering returns known matches and omits unknown names.
+        let by_exact_names = ids_and_names(
+            &server,
+            &token,
+            serde_json::json!({
+                "dataPlaneName": {
+                    "in": [
+                        "ops/dp/public/gcp-us-central1-c2",
+                        "ops/dp/public/missing"
+                    ]
+                }
+            }),
+        )
+        .await;
+        assert_eq!(
+            by_exact_names,
             vec![(gcp_id, "ops/dp/public/gcp-us-central1-c2".to_string())],
+        );
+
+        // The two name-filtering modes are mutually exclusive.
+        let rejected: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                        query($filter: DataPlanesFilter) {
+                            dataPlanes(filter: $filter) {
+                                edges { node { id name } }
+                            }
+                        }
+                    "#,
+                    "variables": {
+                        "filter": {
+                            "dataPlaneName": {
+                                "startsWith": "ops/dp/public/",
+                                "in": ["ops/dp/public/gcp-us-central1-c2"]
+                            }
+                        }
+                    },
+                }),
+                Some(&token),
+            )
+            .await;
+        assert!(
+            first_error_message(&rejected)
+                .contains("`filter.dataPlaneName.startsWith` and `.in` are mutually exclusive"),
+            "expected mutually-exclusive filter error, got: {rejected}",
         );
 
         // Acceptance criterion: a LiveSpec's `dataPlaneId` resolves to the
