@@ -1745,4 +1745,113 @@ mod resolve_tests {
         );
         assert_eq!(1, live.data_planes.len());
     }
+
+    /// Scenario 2: Request-relative staleness anchoring allows retries when the
+    /// snapshot predates the request, even if the spec is old. This is the
+    /// "old-spec late-grant" case: a grant might exist but arrive in the system
+    /// after the snapshot was taken but before the request was queued.
+    ///
+    /// This test shows that with request-relative anchoring, a denial is:
+    /// - Retried if snapshot.taken_before(request_start) (grant might exist but not in snapshot)
+    /// - Terminal if snapshot.taken_after(request_start) (grant would be in snapshot if it existed)
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("authz_specs"))
+    )]
+    async fn test_old_spec_stale_snapshot_relative_to_request(pool: sqlx::PgPool) {
+        let draft = capture_draft(&[CAPTURE]);
+
+        // A snapshot taken well before "now" is stale relative to any request
+        // queued around "now". This should trigger a retry even though the spec
+        // itself is old.
+        let stale_snapshot = stale(&pool).await;
+        let now = published_at(&pool).await + chrono::TimeDelta::seconds(3600);
+
+        let err = resolve_live_specs(
+            uuid::Uuid::nil(),
+            &draft,
+            &pool,
+            false,
+            None,
+            &stale_snapshot,
+            // Request was queued at `now`, well after the stale snapshot.
+            Some(now),
+        )
+        .await
+        .expect_err("spec authorization required even without user authz");
+
+        // The denial should be stale relative to the request time, so retryable.
+        assert_stale_for(err, CAPTURE);
+    }
+
+    /// When the snapshot is authoritative relative to the request start time,
+    /// an authorization denial is terminal (not retried), even for an old spec.
+    /// This shows the request-relative anchor is properly applied.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("authz_specs"))
+    )]
+    async fn test_old_spec_authoritative_snapshot_relative_to_request(pool: sqlx::PgPool) {
+        let draft = capture_draft(&[CAPTURE]);
+
+        // An authoritative snapshot is taken well after "now", so it's always
+        // authoritative regardless of request start time.
+        let authoritative_snapshot = authoritative(&pool).await;
+        let now = published_at(&pool).await + chrono::TimeDelta::seconds(3600);
+
+        let live = resolve_live_specs(
+            uuid::Uuid::nil(),
+            &draft,
+            &pool,
+            false,
+            None,
+            &authoritative_snapshot,
+            // Request was queued at `now`, before the authoritative snapshot.
+            Some(now),
+        )
+        .await
+        .expect("resolve should not error with authoritative snapshot");
+
+        // The denial should be terminal (not stale) because the snapshot is
+        // authoritative relative to the request start time. The capture spec
+        // lacks authorization, so we get a hard error, not a retry.
+        assert!(!live.errors.is_empty(), "expected authorization denial");
+        assert!(
+            !validation::is_authz_snapshot_stale(
+                &live.errors.iter().next().unwrap().error.as_ref().unwrap()
+            ),
+            "error should not be stale-snapshot error"
+        );
+    }
+
+    /// When `started` is None (no durable request queue time), the staleness
+    /// anchor falls back to the spec's own publication time. This is the
+    /// fallback path for operations like controllers that don't have a
+    /// queued row to anchor to.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("authz_specs"))
+    )]
+    async fn test_started_none_uses_spec_relative_anchor(pool: sqlx::PgPool) {
+        let draft = capture_draft(&[CAPTURE]);
+
+        // A snapshot taken before the spec's publication time.
+        let stale_snapshot = stale(&pool).await;
+
+        let err = resolve_live_specs(
+            uuid::Uuid::nil(),
+            &draft,
+            &pool,
+            false,
+            None,
+            &stale_snapshot,
+            // No started time provided: should fall back to spec-relative anchoring.
+            None,
+        )
+        .await
+        .expect_err("spec authorization required");
+
+        // Even with None, a truly stale snapshot (before spec) should be retried.
+        assert_stale_for(err, CAPTURE);
+    }
 }
