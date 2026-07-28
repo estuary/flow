@@ -35,7 +35,7 @@ If you haven't yet captured your data from its external source, start at the beg
 
 To configure your service account, complete the following steps.
 
-1. Log into the Google Cloud console and [create a service account](https://cloud.google.com/docs/authentication/getting-started#creating_a_service_account).
+1. Log into the Google Cloud console and [create a service account](https://docs.cloud.google.com/iam/docs/service-accounts-create).
 During account creation:
    1. Grant the user access to the project.
    2. Grant the user roles `roles/bigquery.dataEditor`, `roles/bigquery.jobUser`, `roles/bigquery.readSessionUser` and `roles/storage.objectAdmin`.

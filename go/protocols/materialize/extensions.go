@@ -84,16 +84,6 @@ func (m *Response_Validated) Validate() error {
 
 // Validate returns an error if the ValidateResponse_Binding isn't well-formed.
 func (m *Response_Validated_Binding) Validate() error {
-	for field, constraint := range m.Constraints {
-		if constraint == nil {
-			return pb.ExtendContext(
-				pb.NewValidationError("Constraint is missing"), "Constraints[%s]", field)
-		} else if _, ok := Response_Validated_Constraint_Type_name[int32(constraint.Type)]; !ok {
-			return pb.ExtendContext(
-				pb.NewValidationError("unknown Constraint Type %v", constraint),
-				"Constraints[%s]", field)
-		}
-	}
 	// Validate each ProjectionConstraint entry and collect the first folded_field
 	// seen for each field so we can enforce consistency across multiple entries.
 	firstFoldedField := make(map[string]string)

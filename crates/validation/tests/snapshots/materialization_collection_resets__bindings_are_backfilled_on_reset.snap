@@ -45,45 +45,63 @@ expression: outcome.built_materializations
             bindings: [
                 Binding {
                     case_insensitive_fields: false,
-                    constraints: {
-                        "flow_document": Constraint {
-                            r#type: FieldRequired,
-                            reason: "location required",
-                            folded_field: "",
-                        },
-                        "id": Constraint {
-                            r#type: FieldRequired,
-                            reason: "location required",
-                            folded_field: "",
-                        },
-                    },
                     resource_path: [
                         "a",
                     ],
                     delta_updates: false,
                     ser_policy: None,
-                    projection_constraints: [],
+                    projection_constraints: [
+                        ProjectionConstraint {
+                            field: "flow_document",
+                            constraint: Some(
+                                Constraint {
+                                    r#type: FieldRequired,
+                                    reason: "location required",
+                                    folded_field: "",
+                                },
+                            ),
+                        },
+                        ProjectionConstraint {
+                            field: "id",
+                            constraint: Some(
+                                Constraint {
+                                    r#type: FieldRequired,
+                                    reason: "location required",
+                                    folded_field: "",
+                                },
+                            ),
+                        },
+                    ],
                 },
                 Binding {
                     case_insensitive_fields: false,
-                    constraints: {
-                        "flow_document": Constraint {
-                            r#type: FieldRequired,
-                            reason: "location required",
-                            folded_field: "",
-                        },
-                        "id": Constraint {
-                            r#type: FieldRequired,
-                            reason: "location required",
-                            folded_field: "",
-                        },
-                    },
                     resource_path: [
                         "b",
                     ],
                     delta_updates: false,
                     ser_policy: None,
-                    projection_constraints: [],
+                    projection_constraints: [
+                        ProjectionConstraint {
+                            field: "flow_document",
+                            constraint: Some(
+                                Constraint {
+                                    r#type: FieldRequired,
+                                    reason: "location required",
+                                    folded_field: "",
+                                },
+                            ),
+                        },
+                        ProjectionConstraint {
+                            field: "id",
+                            constraint: Some(
+                                Constraint {
+                                    r#type: FieldRequired,
+                                    reason: "location required",
+                                    folded_field: "",
+                                },
+                            ),
+                        },
+                    ],
                 },
             ],
         },

@@ -1,0 +1,22 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_configs.rs
+assertion_line: 729
+expression: response
+---
+{
+  "data": null,
+  "errors": [
+    {
+      "locations": [
+        {
+          "column": 25,
+          "line": 3
+        }
+      ],
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/' with required capability CatalogRead",
+      "path": [
+        "effectiveAlertConfig"
+      ]
+    }
+  ]
+}

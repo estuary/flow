@@ -12,7 +12,9 @@ NAME="${FLOW_STACK_NAME}"
 
 # Agent env: this stack's API port, per-stack builds root and DB/bigtable ports,
 # plus the common build/runtime vars (CARGO_TARGET_DIR for the binary path,
-# FLOW_ROOT for the build step) and FLOW_PORT_DASHBOARD for --allow-origin.
+# FLOW_ROOT for the build step) and the two CORS origins the unit passes as
+# --allow-origin flags: the global FLOW_DASHBOARD_ORIGIN and the optional
+# per-stack UI at FLOW_PORT_DASHBOARD (base+5).
 {
     emit_common_vars
     cat <<EOF
@@ -21,6 +23,7 @@ NAME="${FLOW_STACK_NAME}"
 # SSL_CERT_FILE is required for calls made to brokers and reactors.
 
 API_PORT=${FLOW_PORT_AGENT}
+FLOW_DASHBOARD_ORIGIN=${FLOW_DASHBOARD_ORIGIN}
 FLOW_PORT_DASHBOARD=${FLOW_PORT_DASHBOARD}
 BUILDS_ROOT=file://${FLOW_STACK_DIR}/builds/
 CONTROL_PLANE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
@@ -92,7 +95,7 @@ if [ -f "${PROFILE_FILE}" ]; then
     jq \
         --arg agent_url "http://localhost:${FLOW_PORT_AGENT}/" \
         --arg pg_url "http://localhost:${FLOW_PORT_SUPABASE_API}/rest/v1" \
-        --arg dashboard_url "http://localhost:${FLOW_PORT_DASHBOARD}/" \
+        --arg dashboard_url "${FLOW_DASHBOARD_ORIGIN}/" \
         --arg config_encryption_url "http://localhost:${FLOW_PORT_CONFIG_ENC}/" \
         --arg pg_public_token "${PG_PUBLIC_TOKEN}" \
         '.agent_url = $agent_url
@@ -108,7 +111,7 @@ else
 {
   "agent_url": "http://localhost:${FLOW_PORT_AGENT}/",
   "pg_url": "http://localhost:${FLOW_PORT_SUPABASE_API}/rest/v1",
-  "dashboard_url": "http://localhost:${FLOW_PORT_DASHBOARD}/",
+  "dashboard_url": "${FLOW_DASHBOARD_ORIGIN}/",
   "config_encryption_url": "http://localhost:${FLOW_PORT_CONFIG_ENC}/",
   "pg_public_token": "${PG_PUBLIC_TOKEN}"
 }

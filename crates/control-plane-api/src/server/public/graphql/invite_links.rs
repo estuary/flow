@@ -41,6 +41,9 @@ pub type PaginatedInviteLinks = connection::Connection<
     connection::DisableNodesField,
 >;
 
+/// Composable filter for the `inviteLinks` query. Every field is optional and
+/// only narrows the result set; the caller's admin scope is enforced
+/// independently, so a filter can never widen what a caller may see.
 #[derive(Debug, Clone, Default, async_graphql::InputObject)]
 pub struct InviteLinksFilter {
     pub single_use: Option<filters::BoolFilter>,
@@ -58,7 +61,8 @@ impl InviteLinksQuery {
     /// List invite links the caller has admin access to.
     ///
     /// Returns invite links under all prefixes where the caller has admin
-    /// capability, optionally narrowed by a prefix filter.
+    /// capability, optionally narrowed by a prefix filter — a subtree
+    /// (`startsWith`) or an exact set (`in`), not both.
     async fn invite_links(
         &self,
         ctx: &Context<'_>,
@@ -72,17 +76,16 @@ impl InviteLinksQuery {
             .as_ref()
             .and_then(|f| f.single_use.as_ref())
             .and_then(|f| f.eq);
-        let prefix_starts_with = filter
-            .and_then(|f| f.catalog_prefix)
-            .and_then(|f| f.starts_with);
-
-        let admin_prefixes = super::authorized_prefixes::authorized_prefixes(
-            &env.snapshot().role_grants,
-            &env.snapshot().user_grants,
-            env.claims()?.sub,
-            models::Capability::Admin,
-            prefix_starts_with.as_deref(),
-        );
+        let snapshot = env.snapshot();
+        let (admin_prefixes, prefix_starts_with, prefix_in) =
+            super::authorized_prefixes::filtered_authorized_prefixes(
+                &snapshot.role_grants,
+                &snapshot.user_grants,
+                env.claims()?.sub,
+                models::Capability::Admin,
+                filter.and_then(|f| f.catalog_prefix),
+                "filter.catalogPrefix",
+            )?;
 
         if admin_prefixes.is_empty() {
             return Ok(PaginatedInviteLinks::new(false, false));
@@ -116,6 +119,7 @@ impl InviteLinksQuery {
                 LEFT JOIN tenants t ON il.catalog_prefix::text ^@ t.tenant
                 WHERE il.catalog_prefix::text ^@ ANY($1)
                   AND ($5::text IS NULL OR il.catalog_prefix::text ^@ $5)
+                  AND ($6::text[] IS NULL OR il.catalog_prefix::text = ANY($6))
                   AND ($4::bool IS NULL OR il.single_use = $4)
                   AND ($2::timestamptz IS NULL OR il.created_at < $2)
                 ORDER BY il.created_at DESC
@@ -126,6 +130,7 @@ impl InviteLinksQuery {
                     limit as i64,
                     single_use_eq,
                     prefix_starts_with.as_deref(),
+                    prefix_in.as_deref(),
                 )
                 .fetch_all(&env.pg_pool)
                 .await?;
@@ -441,6 +446,32 @@ async fn ensure_private_data_plane_grants(
     if tenant.is_empty() {
         return Ok(());
     }
+
+    // Only install these grants for tenants that actually own a private data
+    // plane. Provisioning gates the identical grants on `if let Some(private)`;
+    // without the same gate here, redeeming an admin invite for a tenant that
+    // never had a private data plane fabricates grants to `ops/dp/private/` and
+    // `ops/tasks/private/` prefixes that don't exist. Because the insert runs on
+    // every admin redeem with `ON CONFLICT DO NOTHING`, those zombie grants also
+    // reappear after being deleted. A private data plane is a `data_planes` row
+    // named `ops/dp/private/<tenant>/<region>`; match it with the `^@` prefix
+    // operator (not `LIKE`, since tenant names may contain `_`).
+    let private_dp_prefix = format!("ops/dp/private/{tenant}/");
+    let has_private_data_plane = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM data_planes WHERE data_plane_name ^@ $1
+        ) AS "exists!"
+        "#,
+        private_dp_prefix,
+    )
+    .fetch_one(&mut *txn)
+    .await?;
+
+    if !has_private_data_plane {
+        return Ok(());
+    }
+
     let grant_objects = vec![
         format!("ops/dp/private/{tenant}/"),
         format!("ops/tasks/private/{tenant}/"),
@@ -690,14 +721,19 @@ mod test {
         );
     }
 
-    // Regression test for #2848. Redeeming an admin invite for a sub-prefix
-    // must install explicit read grants with the sub-prefix as the subject —
-    // both to the tenant's private data plane prefix (for the publish-time
-    // filter in publications/specs.rs) and to the ops-tasks prefix (for any
-    // RLS-gated log/stats reads). Non-admin invites must not install grants.
+    // Regression test for #2848. When the tenant owns a private data plane,
+    // redeeming an admin invite for a sub-prefix must install explicit read
+    // grants with the sub-prefix as the subject — both to the tenant's private
+    // data plane prefix (for the publish-time filter in publications/specs.rs)
+    // and to the ops-tasks prefix (for any RLS-gated log/stats reads). Non-admin
+    // invites must not install grants. The `private_links` fixture is what gives
+    // `aliceCo` its private data plane.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
-        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+        fixtures(
+            path = "../../../fixtures",
+            scripts("data_planes", "alice", "private_links")
+        )
     )]
     async fn test_redeem_admin_invite_inserts_private_dp_grants(pool: sqlx::PgPool) {
         let _guard = test_server::init();
@@ -853,6 +889,91 @@ mod test {
         .await
         .unwrap();
         assert_eq!(count_after_second, 2);
+    }
+
+    // Zombie-grant regression. When the tenant does NOT own a private data
+    // plane, redeeming an admin invite must install no grants at all —
+    // otherwise every redeem fabricates read grants to `ops/dp/private/` and
+    // `ops/tasks/private/` prefixes that don't exist, and `ON CONFLICT DO
+    // NOTHING` re-creates them after they're deleted. This fixture omits
+    // `private_links`, so `aliceCo` has no private data plane.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_redeem_admin_invite_skips_grants_without_private_dp(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice_token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ('22222222-2222-2222-2222-222222222222', 'bob@example.test')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let bob_token =
+            server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), Some("bob@example.test"));
+
+        let admin_invite: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($prefix: Prefix!, $capability: Capability!) {
+                        createInviteLink(
+                            catalogPrefix: $prefix
+                            capability: $capability
+                            singleUse: false
+                        ) { token }
+                    }"#,
+                    "variables": {
+                        "prefix": "aliceCo/sub/",
+                        "capability": "admin"
+                    }
+                }),
+                Some(&alice_token),
+            )
+            .await;
+
+        let admin_token = admin_invite["data"]["createInviteLink"]["token"]
+            .as_str()
+            .unwrap();
+
+        let _: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    mutation($token: UUID!) {
+                        redeemInviteLink(token: $token) { catalogPrefix capability }
+                    }"#,
+                    "variables": { "token": admin_token }
+                }),
+                Some(&bob_token),
+            )
+            .await;
+
+        let zombie_grant_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM role_grants
+            WHERE subject_role = 'aliceCo/sub/'
+              AND object_role IN ('ops/dp/private/aliceCo/', 'ops/tasks/private/aliceCo/')
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            zombie_grant_count, 0,
+            "admin redeem must not install private DP grants for a tenant with no private data plane"
+        );
     }
 
     #[sqlx::test(
@@ -1396,6 +1517,111 @@ mod test {
             parent_filter_edges.len(),
             4,
             "parent prefix filter returns all invite links under the grant"
+        );
+
+        // `in` matches an exact set of prefixes. Helper: run an `in` filter and
+        // return the count of returned links, asserting no GraphQL errors.
+        async fn in_filter_count(
+            server: &test_server::TestServer,
+            token: &str,
+            prefixes: serde_json::Value,
+        ) -> usize {
+            let response: serde_json::Value = server
+                .graphql(
+                    &serde_json::json!({
+                        "query": r#"
+                        query($in: [String!]) {
+                            inviteLinks(filter: { catalogPrefix: { in: $in } }) {
+                                edges { node { catalogPrefix } }
+                            }
+                        }"#,
+                        "variables": { "in": prefixes },
+                    }),
+                    Some(token),
+                )
+                .await;
+            assert!(
+                response.get("errors").is_none(),
+                "unexpected errors: {response}"
+            );
+            response["data"]["inviteLinks"]["edges"]
+                .as_array()
+                .expect("should have edges")
+                .len()
+        }
+
+        // An exact `in` entry matches only links at exactly that prefix, not the
+        // whole subtree — the three links created at "aliceCo/", but not the one
+        // under "aliceCo/data/invite/".
+        assert_eq!(
+            in_filter_count(&server, &alice_token, serde_json::json!(["aliceCo/"])).await,
+            3,
+            "`in: [aliceCo/]` returns only the exact-prefix links"
+        );
+
+        // The sub-prefix entry is authorized because it descends from Alice's
+        // "aliceCo/" admin grant (the retain keeps that grant), and the SQL
+        // exact-match then selects just the one link under it.
+        assert_eq!(
+            in_filter_count(
+                &server,
+                &alice_token,
+                serde_json::json!(["aliceCo/data/invite/"])
+            )
+            .await,
+            1,
+            "`in` narrows to an exact sub-prefix authorized via a broader grant"
+        );
+
+        // A cross-tenant entry Alice cannot admin is dropped rather than
+        // widening scope, leaving no authorized prefixes and an empty result.
+        assert_eq!(
+            in_filter_count(&server, &alice_token, serde_json::json!(["otherCo/"])).await,
+            0,
+            "an unauthorized `in` entry is dropped, not honored"
+        );
+
+        // `startsWith` and `in` are mutually exclusive prefix-scoping modes;
+        // providing both is rejected rather than intersected.
+        let both: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        inviteLinks(filter: { catalogPrefix: { startsWith: "aliceCo/", in: ["aliceCo/"] } }) {
+                            edges { node { catalogPrefix } }
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            both["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "combining `startsWith` and `in` should be rejected: {both}"
+        );
+
+        // An empty `in` set is rejected at input validation.
+        let empty_in: serde_json::Value = server
+            .graphql(
+                &serde_json::json!({
+                    "query": r#"
+                    query {
+                        inviteLinks(filter: { catalogPrefix: { in: [] } }) {
+                            edges { node { catalogPrefix } }
+                        }
+                    }"#
+                }),
+                Some(&alice_token),
+            )
+            .await;
+        assert!(
+            empty_in["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "empty `in` should be rejected: {empty_in}"
         );
     }
 

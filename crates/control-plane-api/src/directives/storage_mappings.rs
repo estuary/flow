@@ -118,6 +118,21 @@ pub async fn fetch_storage_mappings(
 
 const COLLECTION_DATA_SUFFIX: &str = "collection-data/";
 
+/// Returns true if `prefix` ends with `collection-data/` as a distinct trailing
+/// path segment: either the prefix is exactly `collection-data/`, or the suffix
+/// is preceded by a `/` boundary.
+///
+/// A raw suffix match is not enough. A user-chosen prefix like
+/// `estuary-collection-data/` ends with the same characters but *not* on a
+/// segment boundary, and must be treated as an opaque prefix — appending must
+/// still add the segment, and stripping must leave it untouched.
+fn ends_with_collection_data_segment(prefix: &str) -> bool {
+    prefix == COLLECTION_DATA_SUFFIX
+        || prefix
+            .strip_suffix(COLLECTION_DATA_SUFFIX)
+            .is_some_and(|base| base.ends_with('/'))
+}
+
 /// Append "collection-data/" to each store's prefix in a StorageDef, if not already present.
 pub fn append_collection_data_suffix(storage: models::StorageDef) -> models::StorageDef {
     let models::StorageDef {
@@ -131,7 +146,7 @@ pub fn append_collection_data_suffix(storage: models::StorageDef) -> models::Sto
             .into_iter()
             .map(|mut store| {
                 let prefix = store.prefix_mut();
-                if !prefix.as_str().ends_with(COLLECTION_DATA_SUFFIX) {
+                if !ends_with_collection_data_segment(prefix.as_str()) {
                     *prefix = models::Prefix::new(format!("{prefix}{COLLECTION_DATA_SUFFIX}"));
                 }
                 store
@@ -156,7 +171,11 @@ pub fn strip_collection_data_suffix(storage: models::StorageDef) -> models::Stor
             .into_iter()
             .map(|mut store| {
                 let prefix = store.prefix_mut();
-                if let Some(base) = prefix.as_str().strip_suffix(COLLECTION_DATA_SUFFIX) {
+                if ends_with_collection_data_segment(prefix.as_str()) {
+                    let base = prefix
+                        .as_str()
+                        .strip_suffix(COLLECTION_DATA_SUFFIX)
+                        .expect("segment boundary implies the suffix is present");
                     *prefix = models::Prefix::new(base);
                 }
                 if prefix.as_str().is_empty() {
@@ -294,6 +313,63 @@ mod tests {
 
         assert_eq!(get_prefix(&collection.stores[0]), "collection-data/");
         assert_eq!(get_prefix(&recovery.stores[0]), "");
+    }
+
+    // A user-chosen prefix that ends with the characters "collection-data/"
+    // without a preceding "/" boundary is an opaque prefix, not the managed
+    // segment. The suffix must be appended to the collection spec and left
+    // intact on the recovery spec — never chopped mid-word (which previously
+    // mangled `estuary-collection-data/` into the invalid prefix `estuary-`).
+    #[test]
+    fn test_split_ignores_non_boundary_suffix_match() {
+        let spec = models::StorageDef {
+            data_planes: vec!["ops/dp/public/gcp-us-central1".to_string()],
+            stores: vec![gcs_store("my-bucket", "estuary-collection-data/")],
+        };
+
+        let (collection, recovery) = collection_and_recovery_spec_from(spec);
+
+        assert_eq!(
+            get_prefix(&collection.stores[0]),
+            "estuary-collection-data/collection-data/"
+        );
+        assert_eq!(get_prefix(&recovery.stores[0]), "estuary-collection-data/");
+    }
+
+    // The managed segment is only recognized on a "/" boundary, including when
+    // it is nested under a further prefix.
+    #[test]
+    fn test_split_strips_nested_boundary_suffix() {
+        let spec = models::StorageDef {
+            data_planes: vec![],
+            stores: vec![gcs_store("my-bucket", "tenant/nested/collection-data/")],
+        };
+
+        let (collection, recovery) = collection_and_recovery_spec_from(spec);
+
+        assert_eq!(
+            get_prefix(&collection.stores[0]),
+            "tenant/nested/collection-data/"
+        );
+        assert_eq!(get_prefix(&recovery.stores[0]), "tenant/nested/");
+    }
+
+    #[test]
+    fn test_ends_with_collection_data_segment() {
+        // Exactly the segment, and the segment on a "/" boundary.
+        assert!(ends_with_collection_data_segment("collection-data/"));
+        assert!(ends_with_collection_data_segment("tenant/collection-data/"));
+        assert!(ends_with_collection_data_segment(
+            "tenant/nested/collection-data/"
+        ));
+
+        // Same trailing characters, but not a distinct segment.
+        assert!(!ends_with_collection_data_segment(
+            "estuary-collection-data/"
+        ));
+        // No segment at all.
+        assert!(!ends_with_collection_data_segment("tenant/"));
+        assert!(!ends_with_collection_data_segment(""));
     }
 
     #[test]

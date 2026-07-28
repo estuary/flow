@@ -961,24 +961,30 @@ impl validation::Connectors for MockDriverCalls {
                     .iter()
                     .take(validate.bindings.len())
                     .map(|b| {
-                        let mut out = materialize::response::validated::Binding {
+                        let projection_constraints = b
+                            .constraints
+                            .iter()
+                            .map(|(field, constraint)| {
+                                let mut constraint = constraint.clone();
+                                // NOTE(johnny): clunky support for test_materialization_driver_unknown_constraints,
+                                // to work around serde deser not allowing parsing of invalid enum values.
+                                if constraint.r#type == 0 && b.type_override != 0 {
+                                    constraint.r#type = b.type_override;
+                                }
+                                materialize::response::validated::ProjectionConstraint {
+                                    field: field.clone(),
+                                    constraint: Some(constraint),
+                                }
+                            })
+                            .collect();
+
+                        materialize::response::validated::Binding {
                             case_insensitive_fields: b.case_insensitive_fields,
-                            constraints: b.constraints.clone(),
-                            projection_constraints: Vec::new(),
+                            projection_constraints,
                             delta_updates: call.delta_updates,
                             resource_path: b.resource_path.clone(),
                             ser_policy: None,
-                        };
-
-                        // NOTE(johnny): clunky support for test_materialization_driver_unknown_constraints,
-                        // to work around serde deser not allowing parsing of invalid enum values.
-                        for c in out.constraints.iter_mut() {
-                            if c.1.r#type == 0 && b.type_override != 0 {
-                                c.1.r#type = b.type_override;
-                            }
                         }
-
-                        out
                     })
                     .collect();
 

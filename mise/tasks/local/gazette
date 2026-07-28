@@ -37,8 +37,13 @@ for i in $(seq 0 $((COUNT - 1))); do
 
 # Gazette broker environment for ${INSTANCE}
 # Authorization keys are the base64-encoding of "key-${DATA_PLANE}".
+#
+# CORS allow-origins are NOT set here: gazette's BROKER_ALLOW_ORIGIN env var is
+# single-valued (no env-delim upstream), and we allow two origins — the global UI
+# at FLOW_DASHBOARD_ORIGIN and the optional per-stack UI at base+5. They are
+# therefore passed as repeated --broker.allow-origin flags in the unit ExecStart
+# (local/systemd/flow-gazette@.service), which reads the two vars below.
 
-BROKER_ALLOW_ORIGIN=http://localhost:${FLOW_PORT_DASHBOARD}
 BROKER_AUTH_KEYS=${HMAC_KEY}
 BROKER_AUTO_SUSPEND=true
 BROKER_FILE_ONLY=true
@@ -50,6 +55,8 @@ BROKER_SERVER_CERT_FILE=${FLOW_LOCAL}/server.crt
 BROKER_SERVER_CERT_KEY_FILE=${FLOW_LOCAL}/server.key
 ETCD_ADDRESS=http://etcd.flow.localhost:${FLOW_PORT_ETCD}
 ETCD_PREFIX=/gazette/${DATA_PLANE}
+FLOW_DASHBOARD_ORIGIN=${FLOW_DASHBOARD_ORIGIN}
+FLOW_PORT_DASHBOARD=${FLOW_PORT_DASHBOARD}
 LOG_LEVEL=info
 EOF
     } > "${FLOW_ENV_DIR}/gazette-${INSTANCE}.env"

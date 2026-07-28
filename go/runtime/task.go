@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -62,7 +63,10 @@ type taskTerm[TaskSpec pf.Task] struct {
 	ctx       context.Context    // Context for the task term.
 	labels    ops.ShardLabeling  // Shard labels of this task term.
 	shardSpec *pf.ShardSpec      // Term ShardSpec of the task.
-	taskSpec  TaskSpec           // Term TaskSpec of the task.
+	// Raw etcd value of shardSpec, which defines this term: it ends when these
+	// bytes change or the key is deleted, but not on a byte-identical re-PUT.
+	specBytes []byte
+	taskSpec  TaskSpec // Term TaskSpec of the task.
 }
 
 type taskReader[TaskSpec pf.Task] struct {
@@ -211,15 +215,34 @@ func newTaskTerm[TaskSpec pf.Task](
 	publisher *OpsPublisher,
 	shard consumer.Shard,
 ) (*taskTerm[TaskSpec], error) {
-	var shardSpec = shard.Spec()
+	var ks = host.service.State.KS
+	var key = shard.FQN()
+
+	// Read the decoded ShardSpec and its raw value from the same KeyValue under
+	// one lock, so a watch update can't tear them across revisions. Retaining
+	// Raw.Value without copying is safe: KeySpace replaces KeyValues wholesale
+	// rather than mutating value bytes in place.
+	var shardSpec *pf.ShardSpec
+	var specBytes []byte
+	ks.Mu.RLock()
+	if ind, ok := ks.Search(key); ok {
+		var kv = ks.KeyValues[ind]
+		shardSpec = kv.Decoded.(allocator.Item).ItemValue.(*pf.ShardSpec)
+		specBytes = kv.Raw.Value
+	}
+	ks.Mu.RUnlock()
+
+	if shardSpec == nil {
+		return nil, fmt.Errorf("shard %s is not present in the KeySpace (it's being deleted)", key)
+	}
 
 	// Create a term Context which is cancelled if:
 	// - The shard's Context is cancelled, or
-	// - The ShardSpec is updated.
+	// - The ShardSpec's etcd value bytes change (or the key is deleted).
 	// A cancellation of the term's Context doesn't invalidate the shard,
 	// but does mean the current task term is done and a new one should be started.
 	var termCtx, termCancel = context.WithCancel(shard.Context())
-	go signalOnSpecUpdate(termCtx, termCancel, host.service.State.KS, shard, shardSpec)
+	go signalOnSpecUpdate(termCtx, termCancel, ks, key, specBytes)
 
 	var labels, err = labels.ParseShardLabels(shardSpec.LabelSet)
 	if err != nil {
@@ -228,7 +251,10 @@ func newTaskTerm[TaskSpec pf.Task](
 
 	var taskSpec TaskSpec
 
-	if prev != nil && shardSpec == prev.shardSpec {
+	// Reuse the prior term's TaskSpec if the ShardSpec value is unchanged.
+	// Compare bytes rather than decoded-pointer identity: a no-op re-PUT
+	// re-mints the pointer mid-term, and would needlessly re-open the build DB.
+	if prev != nil && bytes.Equal(prev.specBytes, specBytes) {
 		taskSpec = prev.taskSpec
 	} else {
 		// The ShardSpec has changed. Pull its build and extract its TaskSpec.
@@ -254,6 +280,7 @@ func newTaskTerm[TaskSpec pf.Task](
 		ctx:       termCtx,
 		labels:    labels,
 		shardSpec: shardSpec,
+		specBytes: specBytes,
 		taskSpec:  taskSpec,
 	}, nil
 }
@@ -376,7 +403,7 @@ func (t *taskBase[TaskSpec]) heartbeatLoop(shard consumer.Shard) {
 // loop that periodically writes FSM hints between transactions. The consumer
 // transaction loop is bypassed in Runtime V2 shards, so this is currently
 // needed for hints to be written at any time other than graceful restarts.
-// 
+//
 // The loop body transcribes gazette's `<-hintsCh` handler of
 // consumer.runTransactions (consumer/transaction.go) and the unexported
 // consumer.storeRecordedHints it calls (consumer/recovery.go), rebuilt from
@@ -474,29 +501,29 @@ func intervalJitter(period time.Duration, name string) time.Duration {
 	return time.Duration(w.Sum32()%uint32(period.Seconds())) * time.Second
 }
 
+// signalOnSpecUpdate cancels a task term (via the deferred cb) when the shard's
+// ShardSpec value changes or its key is deleted. The term is bound to specBytes
+// rather than to a decoded pointer, which any re-decode re-mints: a re-PUT of
+// identical bytes -- as the control plane's activation path can emit -- must not
+// cancel an otherwise-healthy term.
 func signalOnSpecUpdate(
 	ctx context.Context,
 	cb func(),
 	ks *keyspace.KeySpace,
-	shard consumer.Shard,
-	spec *pf.ShardSpec,
+	key string,
+	specBytes []byte,
 ) {
 	defer cb()
-	var key = shard.FQN()
 
 	ks.Mu.RLock()
 	defer ks.Mu.RUnlock()
 
 	for {
-		// Pluck the ShardSpec out of the KeySpace, rather than using shard.Spec(),
-		// to avoid a re-entrant read lock.
-		var next *pf.ShardSpec
-		if ind, ok := ks.Search(key); ok {
-			next = ks.KeyValues[ind].Decoded.(allocator.Item).ItemValue.(*pf.ShardSpec)
-		}
-
-		if next != spec {
-			return
+		// Pluck the current raw value out of the KeySpace, rather than using
+		// shard.Spec(), to avoid a re-entrant read lock.
+		var ind, ok = ks.Search(key)
+		if !ok || !bytes.Equal(ks.KeyValues[ind].Raw.Value, specBytes) {
+			return // Key deleted, or its value changed.
 		} else if err := ks.WaitForRevision(ctx, ks.Header.Revision+1); err != nil {
 			return
 		}

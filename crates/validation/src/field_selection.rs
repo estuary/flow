@@ -5,33 +5,24 @@ use proto_flow::{flow, materialize};
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 
-/// Normalize the legacy `constraints` map and the new `projection_constraints`
-/// list into a canonical per-field vector. When `projection_constraints` is
-/// non-empty it is authoritative and the map is ignored. Multiple entries with
-/// the same field name are preserved so that compound signals (e.g.
-/// INCOMPATIBLE + LOCATION_REQUIRED) are visible to field selection.
+/// Normalize the `projection_constraints` list into a canonical per-field
+/// vector. Multiple entries with the same field name are preserved so that
+/// compound signals (e.g. INCOMPATIBLE + LOCATION_REQUIRED) are visible to
+/// field selection.
 pub fn normalize_constraints(
     binding: &materialize::response::validated::Binding,
 ) -> BTreeMap<String, Vec<materialize::response::validated::Constraint>> {
-    if !binding.projection_constraints.is_empty() {
-        let mut out: BTreeMap<String, Vec<_>> = BTreeMap::new();
-        for pc in &binding.projection_constraints {
-            // Entries with a missing constraint are skipped here;
-            // `walk_materialization` separately reports them as a connector
-            // error during validation.
-            let Some(c) = pc.constraint.as_ref() else {
-                continue;
-            };
-            out.entry(pc.field.clone()).or_default().push(c.clone());
-        }
-        out
-    } else {
-        binding
-            .constraints
-            .iter()
-            .map(|(f, c)| (f.clone(), vec![c.clone()]))
-            .collect()
+    let mut out: BTreeMap<String, Vec<_>> = BTreeMap::new();
+    for pc in &binding.projection_constraints {
+        // Entries with a missing constraint are skipped here;
+        // `walk_materialization` separately reports them as a connector
+        // error during validation.
+        let Some(c) = pc.constraint.as_ref() else {
+            continue;
+        };
+        out.entry(pc.field.clone()).or_default().push(c.clone());
     }
+    out
 }
 
 /// Select is a rationale for including a field in selection.

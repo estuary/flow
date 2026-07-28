@@ -7,6 +7,13 @@ Type=simple
 
 EnvironmentFile=%h/flow-local/env/bigtable-%i.env
 
+# Clear a container left holding this name. `--rm` cleans up on a normal exit, but
+# not when the unit loses track of a still-running container (a `systemd --user`
+# restart, for example): `docker run` then fails with a name conflict, and because
+# `Restart=on-failure` retries forever the unit never recovers on its own.
+# flow-dekaf-kafka@.service does the same thing for the same reason.
+ExecStartPre=-/usr/bin/docker rm -f flow-bigtable-%i
+
 # The emulator listens on the fixed container-internal 8086; the host-published
 # port is per-stack (FLOW_PORT_BIGTABLE), and the container name embeds %i so
 # stacks don't collide.

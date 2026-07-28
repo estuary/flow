@@ -81,9 +81,14 @@ where
         "received Open from Session",
     );
 
-    // Concurrently Open a Log RPC with every shard.
-    let open_results =
-        futures::future::join_all((0..shards.len()).into_iter().map(|log_shard_index| {
+    // Concurrently Open a Log RPC with every shard, racing the fan-out against
+    // our Slice request stream. `try_join_all` short-circuits on the first Log
+    // open error, dropping the sibling opens (and their Log request channels)
+    // so teardown cascades. `Start` arrives only after we send `Opened`, so any
+    // message here means the Session (or its RPC) went away: we abort likewise.
+    // This mirrors the Session handler's open-phase EOF cascade.
+    let (log_request_tx, log_response_rx): (Vec<_>, Vec<_>) = tokio::select! {
+        result = futures::future::try_join_all((0..shards.len()).map(|log_shard_index| {
             open_log_rpc(
                 &service,
                 session_id,
@@ -91,18 +96,12 @@ where
                 &shards,
                 log_shard_index as u32,
             )
-        }))
-        .await;
+        })) => result?.into_iter().unzip(),
 
-    // Walk results and partition into Senders and receiver Streams.
-    let mut log_request_tx = Vec::with_capacity(shards.len());
-    let mut log_response_rx = Vec::with_capacity(shards.len());
-
-    for result in open_results {
-        let (tx, rx) = result?;
-        log_request_tx.push(tx);
-        log_response_rx.push(rx);
-    }
+        msg = slice_request_rx.next() => {
+            return Err(crate::opening_aborted("Slice", "session", msg));
+        }
+    };
 
     tracing::info!(
         session_id,
