@@ -89,7 +89,7 @@ impl Invoice {
             .metadata
             .as_ref()
             .and_then(InvoiceMetadata::from_metadata_map)
-            .map_or(false, |m| m.invoice_type == InvoiceType::Manual)
+            .is_some_and(|m| m.invoice_type == InvoiceType::Manual)
     }
 
     pub fn period_start(&self) -> Option<String> {
