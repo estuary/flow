@@ -41,7 +41,11 @@ pub struct Discover<'a> {
     /// from the live task's control-plane Id. Empty if the task doesn't exist
     /// yet: the connector assumes a current date for a new task's discover.
     pub created_at: String,
-    /// The instance of the snapshot that's used by all of the discover functions.
+    /// The authorization Snapshot pinned by the caller for this entire
+    /// operation: preflight checks, the connector RPC window, and the
+    /// post-RPC merge all consult this same instance, so one discover
+    /// observes exactly one authorization view regardless of refreshes
+    /// landing mid-flight.
     pub snapshot: &'a crate::Snapshot,
     /// Time at which the discover was queued, when the caller has a durable
     /// one. Anchors authorization staleness of the merge's target collections:

@@ -30,8 +30,13 @@ pub async fn get_live_specs(
 ) -> anyhow::Result<tables::LiveCatalog> {
     let mut live = tables::LiveCatalog::default();
 
-    // Limit each individual query to 512 names to avoid statement timeouts
-    // when fetching a large number of specs.
+    // Fetch in batches of 512 names. The recursive per-name authorization
+    // work which originally motivated batching (see #1895) has moved
+    // in-process, but each returned row still carries unbounded `spec` and
+    // `built_spec` JSON documents, and a large discover can request thousands
+    // of names at once. Batching bounds each statement's execution and
+    // transfer time — keeping every statement clear of `statement_timeout`
+    // regardless of catalog size — at the cost of a round trip per batch.
     for names_chunk in names.chunks(512) {
         let rows = db::fetch_live_specs(names_chunk, db).await?;
         for row in rows {

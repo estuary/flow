@@ -49,15 +49,17 @@ impl automations::Executor for PublicationsExecutor {
         // A publication is normally `Done` at the end — we don't retry failures
         // because a user is likely waiting and can retry themselves. The one
         // exception is a stale authorization snapshot, where `handle_task`
-        // returns a `Sleep` so we re-poll once a fresher snapshot is observed.
+        // returns a `Sleep` and we re-poll until a fresher snapshot decides it.
         Ok(action)
     }
 }
 
 /// How long to wait before re-polling a publication whose authorization was
 /// evaluated against a snapshot that is not authoritative for the publication.
-/// A refresh was already requested; by the next poll a newer snapshot should be
-/// authoritative.
+/// A refresh was already requested, but the snapshot source enforces a minimum
+/// refresh interval that may exceed this backoff: each re-poll simply
+/// re-evaluates (and re-requests the refresh) until an authoritative snapshot
+/// lands.
 const PUBLICATION_STALE_SNAPSHOT_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
 
 impl PublicationsExecutor {

@@ -1583,14 +1583,17 @@ mod resolve_tests {
         "#);
     }
 
-    /// A brand-new spec has no `last_pub_id`, so nothing about it can be stale:
-    /// its denial is definitive even against the oldest possible Snapshot. This
-    /// keeps a first publication from looping instead of reporting its error.
+    /// Without a durable request timestamp (`started: None`), a brand-new spec
+    /// falls back to its zero `last_pub_id` as the freshness anchor, so its
+    /// denial is terminal against any Snapshot — this keeps such a first
+    /// publication from looping instead of reporting its error. This holds
+    /// only for the `None` fallback: a queued publication supplies `started`,
+    /// which replaces the anchor and can make the same denial retryable.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
     )]
-    async fn test_new_spec_denial_is_never_stale(pool: sqlx::PgPool) {
+    async fn test_new_spec_denial_without_started_is_terminal(pool: sqlx::PgPool) {
         let draft = draft_of(serde_json::json!({
             "collections": {
                 "carolCo/data/brand-new": {
@@ -1602,7 +1605,7 @@ mod resolve_tests {
 
         let live = resolve_live_specs(DAN, &draft, &pool, true, None, &stale(&pool).await, None)
             .await
-            .expect("a spec with no publication history cannot be stale");
+            .expect("without a request anchor, a spec with no publication history cannot be stale");
         insta::assert_debug_snapshot!(error_pairs(&live), @r#"
         [
             (

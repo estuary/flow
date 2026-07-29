@@ -925,7 +925,8 @@ mod tests {
         ]
         "#);
 
-        // A sibling prefix under the same tenant sees only the tenant-wide grants.
+        // The narrower `bobCo/tires/` grant must not leak to a sibling prefix:
+        // subject matching is by prefix of the *name*, not by shared tenancy.
         insta::assert_debug_snapshot!(subjects("bobCo/widgets/source-squash"), @r#"
         [
             (
@@ -968,7 +969,9 @@ mod tests {
         ]
         "#);
 
-        // A name under no granted prefix holds nothing.
-        assert!(subjects("unknownCo/thing").is_empty());
+        assert!(
+            subjects("unknownCo/thing").is_empty(),
+            "a name under no granted prefix holds nothing"
+        );
     }
 }

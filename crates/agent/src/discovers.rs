@@ -51,7 +51,6 @@ const STALE_SNAPSHOT_RETRY_BACKOFF: std::time::Duration = std::time::Duration::f
 
 /// Outcome of evaluating a discover in `DiscoverExecutor::process`.
 enum Processed {
-    /// A terminal status (success or failure) to be persisted and resolved.
     Resolved(JobStatus, ProcessResult),
     /// Control-plane state is not authoritative because the snapshot predates
     /// the discover row. A refresh has been requested; retry after a short delay.
@@ -59,7 +58,6 @@ enum Processed {
 }
 
 pub enum DiscoverOutcome {
-    /// The discover reached a terminal state and should be resolved.
     Resolved {
         id: Id,
         draft_id: Id,
@@ -83,8 +81,10 @@ impl automations::Outcome for DiscoverOutcome {
             status,
         } = self
         else {
-            // Leave the discover unresolved and re-poll after a short delay, by
-            // which point a refreshed snapshot should be authoritative.
+            // Leave the discover unresolved and re-poll after a short delay.
+            // The refresh may not have landed by then — the snapshot source
+            // enforces a minimum refresh interval — in which case the poll
+            // re-requests it and reschedules again.
             return Ok(automations::Action::Sleep(STALE_SNAPSHOT_RETRY_BACKOFF));
         };
 

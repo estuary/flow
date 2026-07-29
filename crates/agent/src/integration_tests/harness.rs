@@ -195,14 +195,10 @@ pub struct TestHarness {
     pub test_name: String,
     pub pool: sqlx::PgPool,
     pub publisher: Publisher,
-    /// Live authorization Snapshot watch, retained so tests can force it to
-    /// re-fetch from Postgres after mutating grants. See `refresh_snapshot`.
+    /// Live authorization Snapshot watch. See the Snapshot testing model
+    /// documented above `fetch_snapshot`.
     pub snapshot_watch: Arc<dyn tokens::Watch<control_plane_api::Snapshot>>,
-    /// Write handle for `snapshot_watch`: pushes a freshly-fetched Snapshot into
-    /// the same watch. The harness drives Snapshot refreshes explicitly (see
-    /// `refresh_snapshot`) rather than through `PgSnapshotSource`'s timer-gated
-    /// polling loop, which would otherwise impose a `MIN_REFRESH_INTERVAL`
-    /// cool-off on every refresh.
+    /// Manual write handle backing `snapshot_watch`; same reference.
     set_snapshot: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
     #[allow(dead_code)] // only here so we don't drop it until the harness is dropped
     pub builds_root: tempfile::TempDir,
@@ -268,11 +264,8 @@ impl HarnessBuilder {
             eprintln!("end of PUB-LOG");
         });
 
-        // Back the authorization Snapshot with a manually-driven watch rather
-        // than `PgSnapshotSource`'s polling loop. Tests never refresh on a timer;
-        // they push a freshly-fetched Snapshot via `set_snapshot` whenever they
-        // mutate grants (see `refresh_snapshot`), which avoids the source's
-        // `MIN_REFRESH_INTERVAL` cool-off blocking the (real-time) test clock.
+        // Back the authorization Snapshot with a manually-driven watch (see
+        // the Snapshot testing model documented above `fetch_snapshot`).
         let (snapshot_pending, snapshot_replace) = tokens::manual::<control_plane_api::Snapshot>();
         let set_snapshot: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync> =
             Arc::new(move |snapshot| {
@@ -611,20 +604,36 @@ impl TestHarness {
         &mut self.control_plane
     }
 
-    /// Fetches the current authorization state from Postgres and builds a
-    /// Snapshot from it. This performs the same query `PgSnapshotSource` runs,
-    /// but without its `MIN_REFRESH_INTERVAL` cool-off, so the harness can
-    /// refresh synchronously and deterministically.
+    // The harness's Snapshot testing model:
+    //
+    // Production refreshes the authorization Snapshot through
+    // `PgSnapshotSource`'s timer-gated polling loop. The harness backs the
+    // same watch with a manual writer (`set_snapshot`) instead:
+    //
+    // - Refreshes are explicit. Nothing refreshes on a timer, and
+    //   `MIN_REFRESH_INTERVAL` never gates a test. Grant-mutating helpers
+    //   either refresh the watch (`add_role_grant`) or deliberately leave it
+    //   holding the pre-grant world (`add_role_grant_unobserved`).
+    //
+    // - Observed *state* and the authoritative *timestamp* are controlled
+    //   separately. A refresh always fetches current Postgres state, but
+    //   stamps it with a caller-chosen `taken`. Staleness compares `taken`
+    //   against an operation's freshness anchor (`Snapshot::taken_after`,
+    //   allowing `TEMPORAL_SKEW`), and tests compress wall-clock time into
+    //   milliseconds — a `taken = now()` Snapshot still reads as stale for a
+    //   row written moments earlier. `refresh_snapshot_authoritative` /
+    //   `refresh_snapshot_stale` push `taken` clear of the skew in either
+    //   direction.
+    //
+    // Individual helpers below document only how they differ.
+
+    // Current Postgres state, stamped `taken = now()`.
     async fn fetch_snapshot(pool: &sqlx::PgPool) -> control_plane_api::Snapshot {
         Self::fetch_snapshot_at(pool, tokens::now()).await
     }
 
-    /// Like `fetch_snapshot`, but stamps the returned Snapshot with an explicit
-    /// `taken` time. Authorization staleness is decided by comparing `taken` to
-    /// the operation's freshness anchor (`Snapshot::taken_after` also allows for
-    /// `Snapshot::TEMPORAL_SKEW`). Tests compress wall-clock time into a few
-    /// milliseconds, so callers that need an authoritative Snapshot push `taken`
-    /// forward here.
+    // Current Postgres state with a caller-chosen `taken` — the same query
+    // `PgSnapshotSource` runs, minus its cool-off.
     async fn fetch_snapshot_at(
         pool: &sqlx::PgPool,
         taken: tokens::DateTime,
@@ -636,19 +645,14 @@ impl TestHarness {
         control_plane_api::Snapshot::new(taken, data)
     }
 
-    /// Forces the in-memory authorization Snapshot to re-fetch from Postgres, so
-    /// that grant changes written directly to the DB become visible to publication
-    /// authorization. Tests never refresh the Snapshot on a timer, so
-    /// grant-mutating helpers call this explicitly to push the fresh state into
-    /// `snapshot_watch`.
+    /// Re-fetches the Snapshot at `taken = now()`, making grant changes
+    /// written directly to Postgres visible.
     pub async fn refresh_snapshot(&self) {
         self.refresh_snapshot_at(tokens::now()).await
     }
 
-    /// Re-fetches current authorization state from Postgres but stamps the
-    /// Snapshot with a caller-chosen `taken`, which is what decides staleness.
-    /// Use `refresh_snapshot_authoritative` / `refresh_snapshot_stale` unless a
-    /// test needs an exact instant.
+    /// Refreshes with an exact `taken`. Prefer `refresh_snapshot_authoritative`
+    /// / `refresh_snapshot_stale` unless a test needs a precise instant.
     pub async fn refresh_snapshot_at(&self, taken: tokens::DateTime) {
         let snapshot = Self::fetch_snapshot_at(&self.pool, taken).await;
         (self.set_snapshot)(snapshot);
@@ -664,32 +668,24 @@ impl TestHarness {
         }
     }
 
-    /// Refreshes the Snapshot and stamps it far enough into the future that it is
-    /// authoritative for everything written up to now — i.e. any denial it
-    /// produces is definitive rather than retryable.
-    ///
-    /// Staleness is decided by `Snapshot::taken_after`, which requires `taken` to
-    /// exceed an event's timestamp by `Snapshot::TEMPORAL_SKEW` (250ms). In
-    /// production a refresh lands seconds after the write it must observe, so
-    /// that margin is free. Tests compress the same sequence into a few
-    /// milliseconds, where a `taken = now()` Snapshot still reads as *stale* for a
-    /// row written moments earlier — hence the explicit push.
+    /// Refreshes with `taken` pushed far enough forward to be authoritative
+    /// for everything written up to now: any denial it produces is definitive
+    /// rather than retryable.
     pub async fn refresh_snapshot_authoritative(&self) {
         self.refresh_snapshot_at(tokens::now() + Self::snapshot_settle())
             .await
     }
 
-    /// The inverse of `refresh_snapshot_authoritative`: current grant state,
-    /// stamped in the past so that any denial it produces is treated as
-    /// potentially spurious and retried. Models production's window where a
-    /// write has landed in Postgres but the in-memory Snapshot predates it.
+    /// The inverse: current grant state stamped in the past, so any denial it
+    /// produces reads as provisional and retries. Models production's window
+    /// where a write has landed in Postgres but the Snapshot predates it.
     pub async fn refresh_snapshot_stale(&self) {
         self.refresh_snapshot_at(tokens::now() - Self::snapshot_settle())
             .await
     }
 
-    /// Margin used to push a Snapshot's `taken` clear of `TEMPORAL_SKEW` in
-    /// either direction. Any multiple > 1 works; 4 leaves obvious headroom.
+    // Margin pushing `taken` clear of `TEMPORAL_SKEW` in either direction.
+    // Any multiple > 1 works; 4 leaves obvious headroom.
     fn snapshot_settle() -> chrono::TimeDelta {
         control_plane_api::Snapshot::TEMPORAL_SKEW * 4
     }
@@ -1529,7 +1525,6 @@ impl TestHarness {
         disco.id
     }
 
-    /// Returns the current `job_status` of a `discovers` row.
     pub async fn discover_job_status(&self, discover_id: Id) -> crate::discovers::JobStatus {
         let row = sqlx::query!(
             r#"select job_status as "job_status: TextJson<discovers::JobStatus>"
@@ -1655,11 +1650,9 @@ impl TestHarness {
         let detail = detail.into();
         let pub_id = self.queue_publication(user_id, detail, draft).await;
 
-        // A publication whose authorization was evaluated against a stale
-        // Snapshot reschedules (Action::Sleep) instead of resolving. Production
-        // re-polls it once the background watch refreshes; here we mimic that by
-        // refreshing the Snapshot and forcing the task due, bounded so a genuine
-        // failure to converge still surfaces.
+        // A stale-Snapshot publication reschedules (Action::Sleep) rather
+        // than resolving. Mimic production's re-poll-after-refresh loop,
+        // bounded so a genuine failure to converge still surfaces.
         let mut attempts = 0;
         let pub_result = loop {
             let task_id = self
@@ -1681,11 +1674,9 @@ impl TestHarness {
                 attempts < 5,
                 "publication kept rescheduling on a stale authorization snapshot"
             );
-            // Production reschedules a stale-snapshot publication and, by the time
-            // it re-runs, the background watch has produced a Snapshot authoritative
-            // for the operation. Compressed test time never advances that far on its
-            // own, so model the elapsed wait explicitly. Grows each attempt because
-            // `tokens::now()` advances.
+            // Compressed test time never advances past the skew on its own,
+            // so model production's elapsed wait explicitly (see the Snapshot
+            // testing model above `fetch_snapshot`).
             self.refresh_snapshot_authoritative().await;
             self.set_min_task_wake_at(pub_id).await;
         };
