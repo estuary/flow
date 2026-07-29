@@ -1596,10 +1596,6 @@ impl TestHarness {
             .await
     }
 
-    /// Runs a publication by inserting into the `publications` table and
-    /// waiting for the publications handler to process it. Returns
-    /// a `ScenarioResult` (a hold over from the old publications tests, which
-    /// were ported over) describing the results of the publication.
     /// Inserts a queued `publications` row (creating the draft if one wasn't
     /// supplied) and returns its id, *without* running it. `async_publication`
     /// runs the task to completion; tests that need to control what the
@@ -1646,6 +1642,10 @@ impl TestHarness {
         self.get_publication_result(pub_id.into()).await
     }
 
+    /// Runs a publication by inserting into the `publications` table and
+    /// waiting for the publications handler to process it. Returns a
+    /// `ScenarioResult` (a hold over from the old publications tests, which
+    /// were ported over) describing the results of the publication.
     async fn async_publication(
         &mut self,
         user_id: Uuid,
