@@ -214,8 +214,11 @@ fn get_harness() -> &'static SharedHarness {
 
         let (data_plane, service, materialization_spec, capture_spec, log_dir, server_handle) =
             runtime.block_on(async {
-                let source =
-                    build::arg_source_to_url("./tests/shuffle_fuzz.flow.yaml", false).unwrap();
+                let source = build::arg_source_to_url(
+                    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/shuffle_fuzz.flow.yaml"),
+                    false,
+                )
+                .unwrap();
                 let build_output = Arc::new(
                     build::for_local_test(&source, true)
                         .await
