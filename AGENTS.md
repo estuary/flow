@@ -42,15 +42,19 @@ mise run ci:catalog-test
 mise run local:supabase
 # Reset with current migrations as needed
 supabase db reset
-# Interact directly with dev DB ($FLOW_PG_URL is ambient inside the checkout)
-psql "$FLOW_PG_URL" -c 'SELECT 1;'
+# Interact directly with dev DB. $FLOW_PG_URL comes from stack-env, so it is set
+# only UNDER mise; in a plain shell it is empty. Single-quote so mise (not your shell) expands it.
+mise exec -- bash -c 'psql "$FLOW_PG_URL" -c "SELECT 1;"'
+# Or make it ambient for the rest of an interactive shell:
+#   eval "$(mise run local:stack-env)"
 
-# Start a complete local stack (see local/README.md)
+# Start a complete local stack (see local/README.md). Blocks until every service
+# accepts connections; `mise run local:stack-wait` re-checks that on demand.
 mise run local:stack
-# CLI for interacting with the platform (FLOWCTL_PROFILE is ambient; no flag).
-cargo run -p flowctl -- --help
+# CLI for interacting with the platform (FLOWCTL_PROFILE is ambient under mise; no --profile flag).
+mise exec -- cargo run -p flowctl -- --help
 # ...or the built binary once the stack is up:
-flowctl catalog list
+mise exec -- flowctl catalog list
 
 # Run after changing Rust files to ensure consistent formatting
 cargo fmt
