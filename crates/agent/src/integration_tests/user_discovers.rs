@@ -546,6 +546,227 @@ async fn test_discover_reschedules_on_stale_live_spec_authz() {
     );
 }
 
+/// A collection which a capture binding targets across tenant lines. Its owner
+/// (`dogs`) publishes it with a user-set projection; the discovering user
+/// (`cats`) needs a read grant to it for the merge to see it.
+const SHARED_COLLECTION: &str = "dogs/shared/data";
+
+/// Publishes `SHARED_COLLECTION` under `dogs`, ages it so its publication time
+/// cannot mask request-relative staleness, and drafts a `cats` capture whose
+/// binding targets it. Returns the draft id for `queue_discover`.
+async fn setup_shared_collection_discover(
+    harness: &mut TestHarness,
+    cats_user: Uuid,
+    dogs_user: Uuid,
+    capture_name: &str,
+) -> Id {
+    // The writer capture isn't incidental: a draft holding only a collection
+    // with no writer builds to zero specs and is reported as an empty draft.
+    let pub_result = harness
+        .user_publication(
+            dogs_user,
+            "publish shared collection",
+            draft_catalog(serde_json::json!({
+                "collections": {
+                    SHARED_COLLECTION: {
+                        // Wrapped as a connector-managed schema: the merge
+                        // refuses to update collections whose schemas
+                        // auto-discover doesn't manage.
+                        "schema": wrap_connector_schema(serde_json::json!({
+                            "type": "object",
+                            "properties": { "id": { "type": "string" } },
+                            "required": ["id"]
+                        })),
+                        "key": ["/id"],
+                        "projections": { "id_projection": "/id" }
+                    }
+                },
+                "captures": {
+                    "dogs/shared/writer": {
+                        "endpoint": {
+                            "connector": { "image": "source/test:test", "config": {} }
+                        },
+                        "bindings": [
+                            { "resource": { "id": "data" }, "target": SHARED_COLLECTION }
+                        ]
+                    }
+                },
+            })),
+        )
+        .await;
+    assert!(
+        pub_result.status.is_success(),
+        "setup publication failed: {:?} {:?}",
+        pub_result.status,
+        pub_result.errors
+    );
+    harness.age_live_spec(SHARED_COLLECTION).await;
+
+    harness
+        .create_draft(
+            cats_user,
+            "shared collection discover",
+            draft_catalog(serde_json::json!({
+                "captures": {
+                    capture_name: {
+                        "endpoint": {
+                            "connector": { "image": "source/test:test", "config": {} }
+                        },
+                        "bindings": [
+                            { "resource": { "id": "data" }, "target": SHARED_COLLECTION }
+                        ],
+                    }
+                },
+            })),
+        )
+        .await
+}
+
+/// Asserts the drafted `SHARED_COLLECTION` was merged *from the live
+/// collection*: it expects the live, nonzero publication id and keeps the
+/// owner's projection. A collection drafted from scratch — what a silently
+/// dropped authorization produces — has `expect_pub_id: zero` and no
+/// projections, so each assertion is discriminating on its own.
+fn assert_live_collection_preserved(draft: &tables::DraftCatalog) {
+    let drafted = draft
+        .collections
+        .get_by_key(&models::Collection::new(SHARED_COLLECTION))
+        .expect("the target collection should be drafted");
+    assert!(
+        drafted.expect_pub_id.is_some_and(|id| !id.is_zero()),
+        "the drafted collection should expect the live publication id, got: {:?}",
+        drafted.expect_pub_id,
+    );
+    let model = drafted.model.as_ref().expect("drafted collection model");
+    assert!(
+        model
+            .projections
+            .contains_key(&models::Field::new("id_projection")),
+        "the live collection's projection should be preserved, got: {:?}",
+        model.projections,
+    );
+}
+
+/// The merge phase fetches the capture's target collections with the user's
+/// read capability, and its staleness anchor must be the discover request —
+/// not the target collection's own age. This is the late-grant race for a
+/// *collection*: the grant to `dogs/shared/` lands after the discover is
+/// queued and is unobserved by the Snapshot. Judged spec-relatively the
+/// (aged) collection makes the denial authoritative, and it is silently
+/// dropped: the discover "succeeds", re-drafting the collection from scratch
+/// with a zeroed publication id. Judged request-relatively the discover
+/// reschedules, and succeeds with the live collection intact once the
+/// Snapshot catches up.
+#[tokio::test]
+async fn test_discover_reschedules_on_stale_collection_authz() {
+    let mut harness = TestHarness::init("test_discover_stale_collection_authz").await;
+    let cats_user = harness.setup_tenant("cats").await;
+    let dogs_user = harness.setup_tenant("dogs").await;
+
+    let capture_name = "cats/capture-shared";
+    let draft_id =
+        setup_shared_collection_discover(&mut harness, cats_user, dogs_user, capture_name).await;
+    let disco_id = harness
+        .queue_discover(
+            "source/test",
+            ":test",
+            capture_name,
+            draft_id,
+            "ops/dp/public/test",
+        )
+        .await;
+    harness.discover_handler.connectors.mock_discover(
+        capture_name,
+        Ok((spec_fixture(), single_binding_response("data"))),
+    );
+
+    // The Snapshot holds the pre-grant world, stamped before the discover row.
+    harness.refresh_snapshot_stale().await;
+    harness
+        .add_role_grant_unobserved("cats/", "dogs/shared/", models::Capability::Read)
+        .await;
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+    assert!(
+        matches!(
+            harness.discover_job_status(disco_id).await,
+            JobStatus::Queued
+        ),
+        "a stale denial of the binding's target collection should reschedule, got: {:?}",
+        harness.discover_job_status(disco_id).await,
+    );
+
+    // The Snapshot catches up, observing the grant: the discover completes and
+    // the merge is based on the live collection.
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(disco_id).await;
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+
+    let result = UserDiscoverResult::load(disco_id, &harness.pool).await;
+    assert!(
+        result.job_status.is_success(),
+        "discover should succeed once the grant is observed, got: {:?} with errors: {:?}",
+        result.job_status,
+        result.errors,
+    );
+    assert_live_collection_preserved(&result.draft);
+}
+
+/// The authorized baseline for the case above: with the read grant already
+/// observed, the same discover succeeds on its first poll and the merge
+/// preserves the live collection. This pins the preservation observable
+/// independently of any staleness handling, so the retry test can't pass
+/// vacuously.
+#[tokio::test]
+async fn test_discover_preserves_authorized_live_collection() {
+    let mut harness = TestHarness::init("test_discover_authorized_collection").await;
+    let cats_user = harness.setup_tenant("cats").await;
+    let dogs_user = harness.setup_tenant("dogs").await;
+
+    let capture_name = "cats/capture-shared";
+    let draft_id =
+        setup_shared_collection_discover(&mut harness, cats_user, dogs_user, capture_name).await;
+    harness
+        .add_role_grant("cats/", "dogs/shared/", models::Capability::Read)
+        .await;
+
+    let disco_id = harness
+        .queue_discover(
+            "source/test",
+            ":test",
+            capture_name,
+            draft_id,
+            "ops/dp/public/test",
+        )
+        .await;
+    harness.discover_handler.connectors.mock_discover(
+        capture_name,
+        Ok((spec_fixture(), single_binding_response("data"))),
+    );
+    harness.refresh_snapshot_authoritative().await;
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+
+    let result = UserDiscoverResult::load(disco_id, &harness.pool).await;
+    assert!(
+        result.job_status.is_success(),
+        "an authorized discover should succeed, got: {:?} with errors: {:?}",
+        result.job_status,
+        result.errors,
+    );
+    assert_live_collection_preserved(&result.draft);
+}
+
 /// Authorization and existence used to be one SQL query, so a missing data-plane
 /// and an unauthorized one were indistinguishable. They are now separate checks:
 /// an authorized-but-unregistered plane must still be `NoDataPlane`, and must not

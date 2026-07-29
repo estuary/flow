@@ -129,7 +129,7 @@ pub struct UserDiscoverResult {
 }
 
 impl UserDiscoverResult {
-    async fn load(discover_id: Id, db: &sqlx::PgPool) -> UserDiscoverResult {
+    pub async fn load(discover_id: Id, db: &sqlx::PgPool) -> UserDiscoverResult {
         let discover = sqlx::query!(
             r#"select
                 draft_id as "draft_id: Id",

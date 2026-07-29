@@ -865,7 +865,9 @@ async fn test_runtime_v2_new_captures() {
 
     // cats/auto: enabled in the committed model AND emitted as the built-spec label.
     assert_eq!(
-        get_model_flag_capture(&mut harness, "cats/auto").await.as_deref(),
+        get_model_flag_capture(&mut harness, "cats/auto")
+            .await
+            .as_deref(),
         Some("true"),
         "a new capture is enabled in the model"
     );
@@ -878,7 +880,9 @@ async fn test_runtime_v2_new_captures() {
 
     // cats/pinned: an explicit flag is never changed.
     assert_eq!(
-        get_model_flag_capture(&mut harness, "cats/pinned").await.as_deref(),
+        get_model_flag_capture(&mut harness, "cats/pinned")
+            .await
+            .as_deref(),
         Some("false"),
         "an explicit `false` is preserved"
     );
@@ -979,7 +983,9 @@ async fn test_runtime_v2_new_materializations() {
 
     // cats/auto: enabled in the committed model AND emitted as the built-spec label.
     assert_eq!(
-        get_model_flag_materialization(&mut harness, "cats/auto").await.as_deref(),
+        get_model_flag_materialization(&mut harness, "cats/auto")
+            .await
+            .as_deref(),
         Some("true"),
         "a new materialization is enabled in the model"
     );
@@ -992,7 +998,9 @@ async fn test_runtime_v2_new_materializations() {
 
     // cats/pinned: an explicit flag is never changed.
     assert_eq!(
-        get_model_flag_materialization(&mut harness, "cats/pinned").await.as_deref(),
+        get_model_flag_materialization(&mut harness, "cats/pinned")
+            .await
+            .as_deref(),
         Some("false"),
         "an explicit `false` is preserved"
     );
@@ -1097,7 +1105,9 @@ async fn test_runtime_v2_new_derivations() {
 
     // cats/auto: enabled in the committed model AND emitted as the built-spec label.
     assert_eq!(
-        get_model_flag_derivation(&mut harness, "cats/auto").await.as_deref(),
+        get_model_flag_derivation(&mut harness, "cats/auto")
+            .await
+            .as_deref(),
         Some("true"),
         "a new derivation is enabled in the model"
     );
@@ -1110,7 +1120,9 @@ async fn test_runtime_v2_new_derivations() {
 
     // cats/pinned: an explicit flag is never changed.
     assert_eq!(
-        get_model_flag_derivation(&mut harness, "cats/pinned").await.as_deref(),
+        get_model_flag_derivation(&mut harness, "cats/pinned")
+            .await
+            .as_deref(),
         Some("false"),
         "an explicit `false` is preserved"
     );

@@ -43,6 +43,11 @@ pub struct Discover<'a> {
     pub created_at: String,
     /// The instance of the snapshot that's used by all of the discover functions.
     pub snapshot: &'a crate::Snapshot,
+    /// Time at which the discover was queued, when the caller has a durable
+    /// one. Anchors authorization staleness of the merge's target collections
+    /// to the discover request, so a grant committed after queuing yields a
+    /// retryable denial rather than silently dropping the live collection.
+    pub started_at: Option<tokens::DateTime>,
 }
 
 #[derive(Debug)]
@@ -179,6 +184,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             mut draft,
             created_at,
             snapshot,
+            started_at,
         } = req;
 
         let Some(capture_def) = draft.captures.get_mut_by_key(&capture_name) else {
@@ -240,6 +246,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             db,
             reset_on_key_change,
             snapshot,
+            started_at,
         )
         .await?;
 
@@ -269,6 +276,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
         db: &PgPool,
         reset_on_key_change: bool,
         snapshot: &Snapshot,
+        started_at: Option<tokens::DateTime>,
     ) -> anyhow::Result<DiscoverOutput> {
         let discovered_bindings = match specs::parse_response(discovered)
             .context("converting connector discovery response into specs")
@@ -322,7 +330,7 @@ impl<C: DiscoverConnectors> DiscoverHandler<C> {
             filter_user_authz.then_some(models::Capability::Read),
             db,
             snapshot,
-            None,
+            started_at,
         )
         .await?;
 

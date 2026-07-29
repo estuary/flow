@@ -660,6 +660,8 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             data_plane: data_plane.clone(),
             created_at,
             snapshot,
+            // `filter_user_authz` is false, so no staleness anchor is consulted.
+            started_at: None,
         };
         discovers_handler.discover(pool, req).await
     }

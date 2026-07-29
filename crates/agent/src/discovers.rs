@@ -412,6 +412,7 @@ async fn prepare_discover<'a>(
         logs_token,
         created_at,
         snapshot,
+        started_at,
     })
 }
 
