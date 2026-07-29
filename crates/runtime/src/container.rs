@@ -425,7 +425,12 @@ async fn docker_pull(image: &str) -> anyhow::Result<()> {
         let is_transient = err_str.contains("TLS handshake timeout")
             || err_str.contains("connection reset")
             || err_str.contains("i/o timeout")
-            || err_str.contains("unexpected EOF");
+            || err_str.contains("unexpected EOF")
+            // Docker's registry client gives up on a slow registry with
+            // `request canceled (Client.Timeout exceeded while awaiting
+            // headers)`, which reads as a client-side error but is really the
+            // registry being slow to answer.
+            || err_str.contains("Client.Timeout exceeded");
 
         if is_transient && attempt < MAX_RETRIES {
             tracing::warn!(
