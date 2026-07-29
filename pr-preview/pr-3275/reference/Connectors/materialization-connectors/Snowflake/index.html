@@ -5,8 +5,8 @@
 <script>window.dataLayer=window.dataLayer||[]</script>
 <script>!function(e,t,a,n){e[n]=e[n]||[],e[n].push({"gtm.start":(new Date).getTime(),event:"gtm.js"});var g=t.getElementsByTagName(a)[0],m=t.createElement(a);m.async=!0,m.src="https://www.googletagmanager.com/gtm.js?id=GTM-WK8SB2L",g.parentNode.insertBefore(m,g)}(window,document,"script","dataLayer")</script>
 <script id="ai-widget-script" async="" src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="349e5b72-3e5a-4c19-8b7a-27c7b90caa0f" data-project-name="Estuary" data-modal-title="Estuary AI Assistant" data-project-color="#5072EB" data-button-text-color="#F2F2F2" data-project-logo="https://docs.estuary.dev/img/estuary-new.png" data-modal-example-questions-title="Try asking me..." data-modal-disclaimer="This AI assistant answers questions using Estuary's [documentation](https://docs.estuary.dev/), [blogs](https://estuary.dev/blog/), and additional resources. If you can't find your answer, join us on [Slack](https://go.estuary.dev/slack) or [send an email](https://estuary.dev/contact-us)." data-modal-example-questions="How does CDC work in Estuary?,How can I deploy to a private cloud?,How do I connect to PostgreSQL?,Is Estuary scalable?" data-uncertain-answer-callout="I may not have all of the information on that topic. I bet someone can answer it in [Slack](https://go.estuary.dev/slack)." data-mcp-enabled="true" data-mcp-server-url="https://estuary.mcp.kapa.ai"></script><link rel="stylesheet" href="/pr-preview/pr-3275/assets/css/styles.ce924ef5.css">
-<script src="/pr-preview/pr-3275/assets/js/runtime~main.0fa686f7.js" defer="defer"></script>
-<script src="/pr-preview/pr-3275/assets/js/main.4f5f115f.js" defer="defer"></script>
+<script src="/pr-preview/pr-3275/assets/js/runtime~main.e3e1e6d9.js" defer="defer"></script>
+<script src="/pr-preview/pr-3275/assets/js/main.054ac99e.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -158,6 +158,13 @@ rows. This happens if the destination lost data the connector had already commit
 different number of shards while an interrupted transaction's rows were outstanding. In either case,
 <a class="" href="/pr-preview/pr-3275/reference/backfilling-data/#materialization-backfill">backfill</a> the affected binding to recover: this materializes the
 binding from the beginning and resets the connector's streaming state along with it.</p>
+<p>The connector also fails if Snowflake rejects a row outright — for example, a null value for a column the table
+declares <code>NOT NULL</code>. Snowflake discards such a row without failing the write, and reports it only in a count of
+rejected rows, which the connector checks as each transaction commits and again whenever it resumes writing to a
+table. Because a discarded row cannot be identified after the fact, it cannot be re-sent, so this failure also holds
+until you backfill the binding rather than letting a retry continue with the row missing. The connector marks a column
+<code>NOT NULL</code> only for a field your collection schema requires, and the runtime always supplies those, so this should not
+arise for a table the connector created and still manages.</p>
 <div class="theme-admonition theme-admonition-caution admonition_xJq3 alert alert--warning"><div class="admonitionHeading_Gvgb"><span class="admonitionIcon_Rf37"><svg viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8.893 1.5c-.183-.31-.52-.5-.887-.5s-.703.19-.886.5L.138 13.499a.98.98 0 0 0 0 1.001c.193.31.53.501.886.501h13.964c.367 0 .704-.19.877-.5a1.03 1.03 0 0 0 .01-1.002L8.893 1.5zm.133 11.497H6.987v-2.003h2.039v2.003zm0-3.004H6.987V5.987h2.039v4.006z"></path></svg></span>caution</div><div class="admonitionContent_BuS1"><p>Streaming requires a destination that Snowflake can stream into — a table, not a view. Snowflake reports an
 incompatible destination asynchronously, so the connector surfaces it as a failure to commit the transaction
 (<code>ERR_PIPE_IN_INVALID_STATE</code>) a few seconds after the rows are sent, rather than as an error on a specific document.</p></div></div>
