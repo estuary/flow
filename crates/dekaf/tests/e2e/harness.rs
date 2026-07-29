@@ -204,15 +204,10 @@ impl DekafTestEnv {
         }
     }
 
-    /// Inject documents into a collection via HTTP ingest.
-    pub async fn inject_documents(
-        &self,
-        path: &str,
-        docs: impl IntoIterator<Item = serde_json::Value>,
-    ) -> anyhow::Result<()> {
+    /// Resolve the HTTP-ingest URL of the fixture's capture shard.
+    async fn ingest_url(&self, path: &str) -> anyhow::Result<String> {
         let capture = self.capture_name().context("no capture in fixture")?;
 
-        // Get shard endpoint from flowctl
         let output = async_process::output(flowctl_command()?.args([
             "raw",
             "list-shards",
@@ -221,6 +216,13 @@ impl DekafTestEnv {
             "-ojson",
         ]))
         .await?;
+
+        if !output.status.success() {
+            anyhow::bail!(
+                "list-shards for {capture} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
 
         let shard: proto_gazette::consumer::list_response::Shard =
             serde_json::from_slice(&output.stdout)?;
@@ -244,7 +246,27 @@ impl DekafTestEnv {
             .context("no port label")?;
 
         let base = endpoint.replace("https://", "");
-        let url = format!("https://{hostname}-{port}.{base}/{path}");
+        Ok(format!("https://{hostname}-{port}.{base}/{path}"))
+    }
+
+    /// Inject documents into a collection via HTTP ingest.
+    ///
+    /// A shard reports PRIMARY as soon as its store is ready, which is before
+    /// its connector container is necessarily running — so `wait_for_primary`
+    /// returning is not a guarantee that the ingest endpoint accepts requests
+    /// yet. In that window the data-plane proxy fails to dial the container and
+    /// its `ReverseProxy` error handler synthesizes a 503 (see
+    /// `go/network/frontend.go`). That happens before any request bytes are
+    /// forwarded, so a 503 means nothing was ingested and the POST is safe to
+    /// replay — which is why only 503 is retried here, and not, say, a
+    /// transport error that could have cut off mid-body.
+    pub async fn inject_documents(
+        &self,
+        path: &str,
+        docs: impl IntoIterator<Item = serde_json::Value>,
+    ) -> anyhow::Result<()> {
+        const RETRY_TIMEOUT: Duration = Duration::from_secs(60);
+        const RETRY_DELAY: Duration = Duration::from_secs(1);
 
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
@@ -253,20 +275,41 @@ impl DekafTestEnv {
         let docs: Vec<_> = docs.into_iter().collect();
         tracing::info!(count = docs.len(), %path, "Injecting documents");
 
-        for doc in docs {
-            let resp = client
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .json(&doc)
-                .send()
-                .await?;
+        // Re-resolved on each retry: a container that isn't running may also
+        // mean the shard is being re-assigned to a different reactor.
+        let mut url = self.ingest_url(path).await?;
 
-            if !resp.status().is_success() {
-                anyhow::bail!(
-                    "inject failed: {} {}",
-                    resp.status(),
-                    resp.text().await.unwrap_or_default()
-                );
+        for doc in docs {
+            let deadline = std::time::Instant::now() + RETRY_TIMEOUT;
+
+            loop {
+                let resp = client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .json(&doc)
+                    .send()
+                    .await?;
+
+                let status = resp.status();
+
+                if status.is_success() {
+                    break;
+                }
+
+                let body = resp.text().await.unwrap_or_default();
+
+                if status != reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                    anyhow::bail!("inject failed: {status} {body}");
+                }
+                if std::time::Instant::now() > deadline {
+                    anyhow::bail!("inject still unavailable after {RETRY_TIMEOUT:?}: {body}");
+                }
+
+                // Logged at warn because this used to fail the test outright:
+                // its frequency in CI is worth being able to see.
+                tracing::warn!(%status, %body, "ingest endpoint not ready; retrying");
+                tokio::time::sleep(RETRY_DELAY).await;
+                url = self.ingest_url(path).await?;
             }
         }
 
