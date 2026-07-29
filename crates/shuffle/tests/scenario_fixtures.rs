@@ -175,7 +175,11 @@ fn collect_read_entries(
 #[tokio::test]
 async fn shuffle_scenarios() {
     // Build the catalog fixture.
-    let source = build::arg_source_to_url("./tests/shuffle.flow.yaml", false).unwrap();
+    let source = build::arg_source_to_url(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/shuffle.flow.yaml"),
+        false,
+    )
+    .unwrap();
     let build_output = Arc::new(
         build::for_local_test(&source, true)
             .await
