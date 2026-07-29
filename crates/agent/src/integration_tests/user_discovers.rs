@@ -2,9 +2,17 @@ use super::{spec_fixture, wrap_connector_schema};
 use crate::{
     ControlPlane,
     discovers::JobStatus,
-    integration_tests::harness::{TestHarness, UserDiscoverResult, draft_catalog, set_of},
+    integration_tests::harness::{
+        SnapshotRefresher, TestHarness, UserDiscoverResult, connectors::MockDiscoverConnectors,
+        draft_catalog, set_of,
+    },
+};
+use control_plane_api::{
+    discovers::{Discover, DiscoverHandler},
+    proxy_connectors::DiscoverConnectors,
 };
 use models::Id;
+use proto_flow::capture;
 use proto_flow::capture::response::{Discovered, discovered::Binding};
 use uuid::Uuid;
 
@@ -765,6 +773,175 @@ async fn test_discover_preserves_authorized_live_collection() {
         result.errors,
     );
     assert_live_collection_preserved(&result.draft);
+}
+
+/// A `DiscoverConnectors` which revokes the grant authorizing the discover's
+/// target collection — and pushes a refreshed, authoritative Snapshot into
+/// the watch — while the connector RPC is in flight, before answering with
+/// the underlying mock. This is production's shape: connector RPCs run for
+/// seconds, and grant changes and Snapshot refreshes land freely within them.
+#[derive(Clone)]
+struct RevokeMidRpc {
+    pool: sqlx::PgPool,
+    refresher: SnapshotRefresher,
+    inner: MockDiscoverConnectors,
+}
+
+impl DiscoverConnectors for RevokeMidRpc {
+    async fn discover<'a>(
+        &'a self,
+        data_plane: &'a tables::DataPlane,
+        task: &'a models::Capture,
+        logs_token: Uuid,
+        request: capture::Request,
+    ) -> anyhow::Result<(capture::response::Spec, capture::response::Discovered)> {
+        sqlx::query(
+            "delete from role_grants where subject_role = 'cats/' and object_role = 'dogs/shared/'",
+        )
+        .execute(&self.pool)
+        .await?;
+        self.refresher.refresh_authoritative().await;
+        self.inner
+            .discover(data_plane, task, logs_token, request)
+            .await
+    }
+}
+
+/// One discover must evaluate authorization against exactly one Snapshot: the
+/// executor pins the watch's Snapshot once, and it rides the `Discover`
+/// through the connector RPC into the merge. A grant change landing while the
+/// RPC is in flight must not cause the capture baseline (resolved before the
+/// RPC) and the collection baselines (resolved after it) to come from
+/// different views.
+///
+/// `RevokeMidRpc` deletes the authorizing grant and refreshes the watch from
+/// inside the RPC. The merge still resolves `SHARED_COLLECTION` under the
+/// pinned pre-revocation Snapshot, so the discover succeeds and preserves the
+/// live collection. The guard discover then pins the post-revocation Snapshot
+/// and shows the same merge silently drops the collection — so the first
+/// result is attributable to pinning alone.
+#[tokio::test]
+async fn test_discover_uses_one_snapshot_across_connector_rpc() {
+    let mut harness = TestHarness::init("test_discover_one_snapshot_across_rpc").await;
+    let cats_user = harness.setup_tenant("cats").await;
+    let dogs_user = harness.setup_tenant("dogs").await;
+
+    let capture_name = "cats/capture-shared";
+    let draft_id =
+        setup_shared_collection_discover(&mut harness, cats_user, dogs_user, capture_name).await;
+    // Snapshot A: the grant written and observed, stamped authoritative.
+    harness
+        .add_role_grant("cats/", "dogs/shared/", models::Capability::Read)
+        .await;
+    harness.refresh_snapshot_authoritative().await;
+
+    let mut mock = MockDiscoverConnectors::default();
+    mock.mock_discover(
+        capture_name,
+        Ok((spec_fixture(), single_binding_response("data"))),
+    );
+    let handler = DiscoverHandler::new(
+        RevokeMidRpc {
+            pool: harness.pool.clone(),
+            refresher: harness.snapshot_refresher(),
+            inner: mock,
+        },
+        harness.snapshot_watch.clone(),
+    );
+
+    // Pin Snapshot A and assemble the request, as `DiscoverExecutor::process`
+    // and `prepare_discover` do.
+    let draft = control_plane_api::draft::load_draft(draft_id, &harness.pool)
+        .await
+        .unwrap();
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
+    let data_plane = snapshot
+        .data_plane_by_catalog_name("ops/dp/public/test")
+        .expect("test data-plane exists")
+        .clone();
+    let output = handler
+        .discover(
+            &harness.pool,
+            Discover {
+                capture_name: models::Capture::new(capture_name),
+                data_plane,
+                logs_token: Uuid::new_v4(),
+                user_id: cats_user,
+                filter_user_authz: true,
+                update_only: false,
+                reset_on_key_change: false,
+                draft,
+                created_at: String::new(),
+                snapshot,
+                started_at: Some(tokens::now()),
+            },
+        )
+        .await
+        .expect("discover should not error");
+    assert!(
+        output.is_success(),
+        "the pinned pre-revocation Snapshot should authorize the merge, got: {:?}",
+        output.draft.errors,
+    );
+    assert_live_collection_preserved(&output.draft);
+
+    // Guard: the same discover pinning the post-revocation Snapshot cannot see
+    // the live collection: the merge silently drops it and re-drafts it from
+    // scratch. The extra refresh stamps the Snapshot authoritative for this
+    // discover's `started_at`, making the denial terminal rather than stale.
+    let started_at = tokens::now();
+    harness.refresh_snapshot_authoritative().await;
+
+    let mut mock = MockDiscoverConnectors::default();
+    mock.mock_discover(
+        capture_name,
+        Ok((spec_fixture(), single_binding_response("data"))),
+    );
+    let handler = DiscoverHandler::new(mock, harness.snapshot_watch.clone());
+    let draft = control_plane_api::draft::load_draft(draft_id, &harness.pool)
+        .await
+        .unwrap();
+    let snapshot = harness.snapshot_watch.token();
+    let snapshot = snapshot.result().unwrap();
+    let data_plane = snapshot
+        .data_plane_by_catalog_name("ops/dp/public/test")
+        .expect("test data-plane exists")
+        .clone();
+    let output = handler
+        .discover(
+            &harness.pool,
+            Discover {
+                capture_name: models::Capture::new(capture_name),
+                data_plane,
+                logs_token: Uuid::new_v4(),
+                user_id: cats_user,
+                filter_user_authz: true,
+                update_only: false,
+                reset_on_key_change: false,
+                draft,
+                created_at: String::new(),
+                snapshot,
+                started_at: Some(started_at),
+            },
+        )
+        .await
+        .expect("guard discover should not error");
+    assert!(
+        output.is_success(),
+        "an authoritative denial silently drops the collection, got: {:?}",
+        output.draft.errors,
+    );
+    let drafted = output
+        .draft
+        .collections
+        .get_by_key(&models::Collection::new(SHARED_COLLECTION))
+        .expect("the target collection should be drafted");
+    assert_eq!(
+        Some(models::Id::zero()),
+        drafted.expect_pub_id,
+        "under the revoked view the live collection is invisible and re-drafted from scratch",
+    );
 }
 
 /// Authorization and existence used to be one SQL query, so a missing data-plane

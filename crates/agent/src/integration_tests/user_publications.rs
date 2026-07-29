@@ -604,6 +604,135 @@ async fn test_old_spec_publication_succeeds_after_late_grant() {
     );
 }
 
+/// An `Initialize` stage which revokes the grants that authorize the test's
+/// publication and pushes a refreshed, authoritative Snapshot into the watch —
+/// exactly what a background refresh landing between draft initialization and
+/// live-spec resolution does in production. Composed as the final Initialize
+/// stage, it runs after `ExpandDraft` and before `build`, squarely on the
+/// phase boundary that snapshot pinning exists to protect.
+struct RevokeMidPublication<'h> {
+    harness: &'h TestHarness,
+    dogs_user: uuid::Uuid,
+}
+
+impl publications::Initialize for RevokeMidPublication<'_> {
+    async fn initialize(
+        &self,
+        db: &sqlx::PgPool,
+        _user_id: uuid::Uuid,
+        _draft: &mut tables::DraftCatalog,
+        _snapshot: &control_plane_api::Snapshot,
+        _started_at: Option<tokens::DateTime>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "delete from role_grants where subject_role = 'dogs/' and object_role = 'cats/'",
+        )
+        .execute(db)
+        .await?;
+        sqlx::query("delete from user_grants where user_id = $1 and object_role = 'cats/'")
+            .bind(self.dogs_user)
+            .execute(db)
+            .await?;
+        self.harness.refresh_snapshot_authoritative().await;
+        Ok(())
+    }
+}
+
+/// One publication must evaluate authorization against exactly one Snapshot:
+/// `try_publish` resolves the watch once and threads that Snapshot through
+/// both draft initialization and live-spec resolution. A refresh landing
+/// between those phases must not swap the view mid-flight.
+///
+/// `RevokeMidPublication` deletes the authorizing grants and refreshes the
+/// watch after expansion. Resolution still authorizes under the pinned
+/// pre-revocation Snapshot, so the publication succeeds; if it consulted the
+/// watch anew it would see the revoked world and deny. The guard publication
+/// then proves the refreshed watch really does deny the same draft, so the
+/// first result is attributable to pinning alone.
+#[tokio::test]
+async fn test_publication_uses_one_snapshot_across_phases() {
+    let mut harness = TestHarness::init("test_publication_one_snapshot_across_phases").await;
+    let dogs_user = setup_cross_tenant_publication(&mut harness).await;
+
+    // Snapshot A: grants written and observed, stamped authoritative.
+    harness
+        .add_user_grant(dogs_user, "cats/", Capability::Read)
+        .await;
+    harness
+        .add_role_grant("dogs/", "cats/", Capability::Read)
+        .await;
+    harness.refresh_snapshot_authoritative().await;
+
+    let publication = publications::DraftPublication {
+        user_id: dogs_user,
+        logs_token: uuid::Uuid::new_v4(),
+        dry_run: true,
+        detail: Some("one snapshot across phases".to_string()),
+        draft: dogs_materialize_cats_draft(),
+        started_at: Some(tokens::now()),
+        verify_user_authz: true,
+        default_data_plane_name: Some("ops/dp/public/test".to_string()),
+        initialize: (
+            publications::ExpandDraft {
+                filter_user_has_admin: true,
+            },
+            RevokeMidPublication {
+                harness: &harness,
+                dogs_user,
+            },
+        ),
+        finalize: publications::PruneUnboundCollections,
+        retry: publications::DoNotRetry,
+        with_commit: publications::NoopWithCommit,
+    };
+    let result = harness
+        .publisher
+        .publish(publication)
+        .await
+        .expect("publish should not error");
+    assert!(
+        result.status.is_success(),
+        "the pinned pre-revocation Snapshot should authorize both phases, got: {:?} draft: {:?} live: {:?} built: {:?}",
+        result.status,
+        result.draft.errors,
+        result.live.errors,
+        result.built.errors,
+    );
+
+    // Guard: the same draft judged against the refreshed watch is denied —
+    // the revocation above is real, and the success was due to pinning. The
+    // extra refresh stamps the Snapshot authoritative for this publication's
+    // `started_at`, making the denial terminal rather than a stale retry.
+    let started_at = tokens::now();
+    harness.refresh_snapshot_authoritative().await;
+    let guard = publications::DraftPublication {
+        user_id: dogs_user,
+        logs_token: uuid::Uuid::new_v4(),
+        dry_run: true,
+        detail: Some("post-revocation guard".to_string()),
+        draft: dogs_materialize_cats_draft(),
+        started_at: Some(started_at),
+        verify_user_authz: true,
+        default_data_plane_name: Some("ops/dp/public/test".to_string()),
+        initialize: publications::ExpandDraft {
+            filter_user_has_admin: true,
+        },
+        finalize: publications::PruneUnboundCollections,
+        retry: publications::DoNotRetry,
+        with_commit: publications::NoopWithCommit,
+    };
+    let denied = harness
+        .publisher
+        .publish(guard)
+        .await
+        .expect("guard publish should not error");
+    assert!(
+        !denied.status.is_success(),
+        "the revoked, authoritative Snapshot must deny the same draft, got: {:?}",
+        denied.status,
+    );
+}
+
 /// The guard on the test above: a genuinely unauthorized publication must not be
 /// hidden by the reschedule path. It reschedules only while the Snapshot is
 /// inconclusive, then fails with the same authorization errors as before.

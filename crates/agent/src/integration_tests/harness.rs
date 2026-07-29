@@ -167,6 +167,24 @@ async fn load_draft_errors(draft_id: Id, db: &sqlx::PgPool) -> Vec<(String, Stri
     .collect::<Vec<(String, String)>>()
 }
 
+/// Owned counterpart of `TestHarness::refresh_snapshot_authoritative`, handed
+/// out by `TestHarness::snapshot_refresher` to `'static` test fixtures which
+/// cannot borrow the harness.
+#[derive(Clone)]
+pub struct SnapshotRefresher {
+    pool: sqlx::PgPool,
+    set_snapshot: Arc<dyn Fn(control_plane_api::Snapshot) + Send + Sync>,
+}
+
+impl SnapshotRefresher {
+    /// See `TestHarness::refresh_snapshot_authoritative`.
+    pub async fn refresh_authoritative(&self) {
+        let taken = tokens::now() + TestHarness::snapshot_settle();
+        let snapshot = TestHarness::fetch_snapshot_at(&self.pool, taken).await;
+        (self.set_snapshot)(snapshot);
+    }
+}
+
 /// Facilitates writing integration tests.
 /// **Note:** integration tests require exclusive access to the database,
 /// so it's required to serialize test runs (see .config/nextest.toml).
@@ -635,6 +653,16 @@ impl TestHarness {
     pub async fn refresh_snapshot_at(&self, taken: tokens::DateTime) {
         let snapshot = Self::fetch_snapshot_at(&self.pool, taken).await;
         (self.set_snapshot)(snapshot);
+    }
+
+    /// An owned handle which performs `refresh_snapshot_authoritative`, for
+    /// injecting a refresh from within `'static` test fixtures — such as a
+    /// `DiscoverConnectors` impl — which cannot borrow the harness.
+    pub fn snapshot_refresher(&self) -> SnapshotRefresher {
+        SnapshotRefresher {
+            pool: self.pool.clone(),
+            set_snapshot: self.set_snapshot.clone(),
+        }
     }
 
     /// Refreshes the Snapshot and stamps it far enough into the future that it is
