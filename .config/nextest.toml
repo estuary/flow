@@ -11,6 +11,11 @@ default-filter = 'not binary_id(/dekaf::e2e/)'
 [profile.dekaf-e2e]
 # Migration tests excluded due to 8-minute timeout.
 default-filter = 'binary_id(/dekaf::e2e/) and not test(/migration/)'
+# These tests publish specs, wait for shards, and consume through Dekaf, so
+# they're routinely slower than the default 30s/120s. Under CI load the slowest
+# have been observed at ~80s, which is close enough to the inherited 120s
+# terminate-after to become its own source of flakiness.
+slow-timeout = { period = "60s", terminate-after = 5 }
 
 [[profile.default.overrides]]
 filter = 'package(agent) and (test(discovers::) + test(directives::) + test(integration_tests::))'
