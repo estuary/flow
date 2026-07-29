@@ -42,8 +42,8 @@ impl JobStatus {
 
 type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error>>;
 
-/// How long to wait before re-polling a discover whose authorization could not
-/// be determined because the snapshot predated the discover row (see
+/// How long to wait before re-polling a discover whose control-plane state
+/// cannot be determined because the snapshot predates the discover row (see
 /// `Processed::RetryStale`). A short backoff favors responsiveness; if the
 /// refresh hasn't landed yet the task simply re-polls (and re-requests the
 /// refresh) until it does.
@@ -53,8 +53,8 @@ const STALE_SNAPSHOT_RETRY_BACKOFF: std::time::Duration = std::time::Duration::f
 enum Processed {
     /// A terminal status (success or failure) to be persisted and resolved.
     Resolved(JobStatus, ProcessResult),
-    /// Authorization could not be determined because the snapshot predated the
-    /// discover row. A refresh has been requested; retry after a short delay.
+    /// Control-plane state is not authoritative because the snapshot predates
+    /// the discover row. A refresh has been requested; retry after a short delay.
     RetryStale,
 }
 
@@ -66,8 +66,8 @@ pub enum DiscoverOutcome {
         result: ProcessResult,
         status: JobStatus,
     },
-    /// The authorization snapshot was stale; the discover is left queued and
-    /// re-polled once a refreshed snapshot should be authoritative.
+    /// The control-plane snapshot was stale; the discover is left queued and
+    /// re-polled once refreshed state should be authoritative.
     RetryStale,
 }
 
@@ -156,7 +156,7 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
             Processed::RetryStale => {
                 tracing::info!(
                     id=%task_id, %time_queued,
-                    "authorization snapshot is stale; rescheduling discover after refresh"
+                    "control-plane snapshot is stale; rescheduling discover after refresh"
                 );
                 Ok(DiscoverOutcome::RetryStale)
             }
@@ -197,6 +197,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
 
+        let snapshot_is_authoritative = snapshot.taken_after(row.updated_at);
         let is_authorized = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
@@ -206,7 +207,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         );
         if !is_authorized {
             tracing::warn!(data_plane_name = ?row.data_plane_name, "user may not be authorized to read data plane");
-            if snapshot.taken_after(row.updated_at) {
+            if snapshot_is_authoritative {
                 // The snapshot reflects the world after this discover was
                 // queued, so the denial is authoritative. `taken_after` is the
                 // control plane's single definition of that relation, and it
@@ -224,7 +225,13 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
         let data_plane = snapshot.data_plane_by_catalog_name(&row.data_plane_name);
 
         let Some(data_plane) = data_plane else {
-            tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found or user may not be authorized");
+            tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found in control-plane snapshot");
+            if !snapshot_is_authoritative {
+                // A plane registered after this Snapshot may already exist.
+                // Request an early refresh before making the absence terminal.
+                snapshot.revoke.cancel();
+                return Ok(Processed::RetryStale);
+            }
             return Ok(precheck_failed(JobStatus::NoDataPlane));
         };
 

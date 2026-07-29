@@ -1097,17 +1097,90 @@ async fn test_discover_uses_one_snapshot_across_connector_rpc() {
     );
 }
 
-/// Authorization and existence used to be one SQL query, so a missing data-plane
-/// and an unauthorized one were indistinguishable. They are now separate checks:
-/// an authorized-but-unregistered plane must still be `NoDataPlane`, and must not
-/// be mistaken for a stale-authorization reschedule.
+/// A data-plane registration that lands after the current Snapshot must be
+/// observable to a discover queued afterward. Until the Snapshot catches up,
+/// the missing plane is provisional: the discover stays queued and requests an
+/// early refresh. It proceeds once an authoritative Snapshot includes the
+/// registration.
 #[tokio::test]
-async fn test_discover_missing_data_plane_is_terminal() {
+async fn test_discover_succeeds_after_late_data_plane_registration() {
+    let mut harness = TestHarness::init("test_discover_late_data_plane_registration").await;
+    let user_id = harness.setup_tenant("cats").await;
+    let data_plane_name = "ops/dp/public/late-registration";
+    let capture_name = "cats/capture-late-data-plane";
+
+    // Snapshot A includes the tenant's grant to `ops/dp/public/`, but not the
+    // concrete plane which is registered immediately afterward.
+    harness.refresh_snapshot_stale().await;
+    let token = harness.snapshot_watch.token();
+    let snapshot = token.result().expect("snapshot should be ready");
+    assert!(
+        !snapshot.revoke.is_cancelled(),
+        "a freshly-published Snapshot should not already be revoked"
+    );
+    harness.add_data_plane(data_plane_name).await;
+
+    let draft_id = harness
+        .create_draft(user_id, "late data-plane discover", Default::default())
+        .await;
+    let disco_id = harness
+        .queue_discover(
+            "source/test",
+            ":test",
+            capture_name,
+            draft_id,
+            data_plane_name,
+        )
+        .await;
+    harness.discover_handler.connectors.mock_discover(
+        capture_name,
+        Ok((spec_fixture(), single_binding_response("acorns"))),
+    );
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+    assert!(
+        matches!(
+            harness.discover_job_status(disco_id).await,
+            JobStatus::Queued
+        ),
+        "a plane missing from a stale Snapshot should reschedule, got: {:?}",
+        harness.discover_job_status(disco_id).await,
+    );
+    assert!(
+        snapshot.revoke.is_cancelled(),
+        "a stale missing-plane decision must request an early Snapshot refresh"
+    );
+
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(disco_id).await;
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+    let status = harness.discover_job_status(disco_id).await;
+    assert!(
+        matches!(status, JobStatus::Success { .. }),
+        "discover should succeed once the plane is observed, got: {status:?}",
+    );
+}
+
+/// An authorized plane that remains absent after an authoritative refresh must
+/// resolve as `NoDataPlane`. The stale first poll is provisional, while the
+/// authoritative second poll is terminal; neither may invoke the connector.
+#[tokio::test]
+async fn test_discover_missing_data_plane_is_terminal_after_refresh() {
     let mut harness = TestHarness::init("test_discover_missing_data_plane").await;
     let user_id = harness.setup_tenant("cats").await;
+    let capture_name = "cats/capture-missing-dp";
+    let data_plane_name = "ops/dp/public/does-not-exist";
 
     // `setup_tenant` grants `cats/ -> ops/dp/public/ read`, so this name passes
-    // authorization; it simply has no `data_planes` row.
+    // authorization; Snapshot A and Postgres both lack the concrete plane.
+    harness.refresh_snapshot_stale().await;
     let draft_id = harness
         .create_draft(user_id, "missing dp discover", Default::default())
         .await;
@@ -1115,12 +1188,35 @@ async fn test_discover_missing_data_plane_is_terminal() {
         .queue_discover(
             "source/test",
             ":test",
-            "cats/capture-missing-dp",
+            capture_name,
             draft_id,
-            "ops/dp/public/does-not-exist",
+            data_plane_name,
         )
         .await;
-    harness.refresh_snapshot_stale().await;
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+    assert!(
+        matches!(
+            harness.discover_job_status(disco_id).await,
+            JobStatus::Queued
+        ),
+        "a plane missing from a stale Snapshot should reschedule, got: {:?}",
+        harness.discover_job_status(disco_id).await,
+    );
+    assert!(
+        harness
+            .discover_handler
+            .connectors
+            .last_discover_request(capture_name)
+            .is_none(),
+        "the connector must not be invoked while plane existence is unknown"
+    );
+
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(disco_id).await;
 
     let ran = harness
         .run_automation_task(automations::task_types::DISCOVERS)
@@ -1131,8 +1227,16 @@ async fn test_discover_missing_data_plane_is_terminal() {
             harness.discover_job_status(disco_id).await,
             JobStatus::NoDataPlane
         ),
-        "an authorized but unregistered data-plane should be NoDataPlane even against a stale Snapshot, got: {:?}",
+        "a plane missing from an authoritative Snapshot should be NoDataPlane, got: {:?}",
         harness.discover_job_status(disco_id).await,
+    );
+    assert!(
+        harness
+            .discover_handler
+            .connectors
+            .last_discover_request(capture_name)
+            .is_none(),
+        "the connector must not be invoked for a missing plane"
     );
 }
 
