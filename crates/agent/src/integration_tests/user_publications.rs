@@ -807,6 +807,9 @@ async fn test_publication_uses_one_snapshot_across_phases() {
 /// The guard on the test above: a genuinely unauthorized publication must not be
 /// hidden by the reschedule path. It reschedules only while the Snapshot is
 /// inconclusive, then fails with the same authorization errors as before.
+/// This also pins the anchor's other boundary: changes committed after the
+/// queued publication carry no observation guarantee, so an authoritative
+/// denial is terminal regardless of what commits later.
 #[tokio::test]
 async fn test_publication_stale_then_authoritative_denial() {
     let mut harness = TestHarness::init("test_publication_stale_denial").await;

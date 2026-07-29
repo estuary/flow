@@ -44,9 +44,11 @@ pub struct Discover<'a> {
     /// The instance of the snapshot that's used by all of the discover functions.
     pub snapshot: &'a crate::Snapshot,
     /// Time at which the discover was queued, when the caller has a durable
-    /// one. Anchors authorization staleness of the merge's target collections
-    /// to the discover request, so a grant committed after queuing yields a
-    /// retryable denial rather than silently dropping the live collection.
+    /// one. Anchors authorization staleness of the merge's target collections:
+    /// a denial from a Snapshot older than this instant is provisional —
+    /// authority committed before queuing may be missing from it — and
+    /// reschedules the discover rather than silently dropping the live
+    /// collection. A Snapshot taken after this instant is authoritative.
     pub started_at: Option<tokens::DateTime>,
 }
 

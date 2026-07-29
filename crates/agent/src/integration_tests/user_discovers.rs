@@ -389,6 +389,9 @@ async fn test_discover_reschedules_on_stale_data_plane_authz() {
 
 /// The converse: once the Snapshot is authoritative for the discover row, the
 /// same denial is definitive and resolves terminally rather than looping.
+/// This is the anchor's other boundary: changes committed after the queued
+/// discover carry no observation guarantee, so an authoritative denial is
+/// terminal regardless of what commits later.
 #[tokio::test]
 async fn test_discover_unauthorized_data_plane_is_terminal() {
     let mut harness = TestHarness::init("test_discover_unauthorized_data_plane").await;
@@ -417,14 +420,27 @@ async fn test_discover_unauthorized_data_plane_is_terminal() {
 }
 
 /// The motivating race, end to end: the grant that authorizes the data-plane
-/// lands in Postgres *after* the discover is queued and is not yet reflected in
-/// the Snapshot. The first poll must reschedule rather than emit a spurious
-/// `NotAuthorized`, and the discover must succeed once the Snapshot catches up.
+/// commits before the discover is queued, but the Snapshot predates both and
+/// holds the pre-grant world. The denial is provisional until a Snapshot
+/// postdating the queued discover is consulted, so the first poll must
+/// reschedule rather than resolve `NotAuthorized` — and any such refreshed
+/// Snapshot is guaranteed to include the pre-queue grant, so the discover
+/// then succeeds.
 #[tokio::test]
 async fn test_discover_succeeds_after_late_data_plane_grant() {
     let mut harness = TestHarness::init("test_discover_late_data_plane_grant").await;
     let user_id = harness.setup_tenant("cats").await;
     harness.add_data_plane(FOREIGN_DATA_PLANE).await;
+
+    // Take the Snapshot *before* the grant is written and the discover is
+    // queued, so it holds the pre-grant world — exactly as in production
+    // between a `role_grants` insert and the next Snapshot refresh. Stamping
+    // it in the past makes the denial of the later-queued discover
+    // provisional rather than definitive.
+    harness.refresh_snapshot_stale().await;
+    harness
+        .add_role_grant_unobserved("cats/", "dogs/dp/private/", models::Capability::Read)
+        .await;
 
     let capture_name = "cats/capture-late-grant";
     let disco_id = queue_foreign_dp_discover(&mut harness, user_id, capture_name).await;
@@ -432,15 +448,6 @@ async fn test_discover_succeeds_after_late_data_plane_grant() {
         capture_name,
         Ok((spec_fixture(), single_binding_response("acorns"))),
     );
-
-    // Take the Snapshot *before* the grant is written, so it holds the pre-grant
-    // world — exactly as in production between a `role_grants` insert and the
-    // next Snapshot refresh. Stamping it in the past makes the resulting denial
-    // retryable rather than definitive.
-    harness.refresh_snapshot_stale().await;
-    harness
-        .add_role_grant_unobserved("cats/", "dogs/dp/private/", models::Capability::Read)
-        .await;
 
     let ran = harness
         .run_automation_task(automations::task_types::DISCOVERS)
@@ -657,14 +664,14 @@ fn assert_live_collection_preserved(draft: &tables::DraftCatalog) {
 
 /// The merge phase fetches the capture's target collections with the user's
 /// read capability, and its staleness anchor must be the discover request —
-/// not the target collection's own age. This is the late-grant race for a
-/// *collection*: the grant to `dogs/shared/` lands after the discover is
-/// queued and is unobserved by the Snapshot. Judged spec-relatively the
-/// (aged) collection makes the denial authoritative, and it is silently
-/// dropped: the discover "succeeds", re-drafting the collection from scratch
-/// with a zeroed publication id. Judged request-relatively the discover
-/// reschedules, and succeeds with the live collection intact once the
-/// Snapshot catches up.
+/// not the target collection's own age. This is the late-observation race for
+/// a *collection*: the grant to `dogs/shared/` commits before the discover is
+/// queued, but the Snapshot predates both. Judged spec-relatively the (aged)
+/// collection makes the denial authoritative, and it is silently dropped: the
+/// discover "succeeds", re-drafting the collection from scratch with a zeroed
+/// publication id. Judged request-relatively the denial is provisional, the
+/// discover reschedules, and a refreshed Snapshot — guaranteed to include the
+/// pre-queue grant — preserves the live collection.
 #[tokio::test]
 async fn test_discover_reschedules_on_stale_collection_authz() {
     let mut harness = TestHarness::init("test_discover_stale_collection_authz").await;
@@ -674,6 +681,14 @@ async fn test_discover_reschedules_on_stale_collection_authz() {
     let capture_name = "cats/capture-shared";
     let draft_id =
         setup_shared_collection_discover(&mut harness, cats_user, dogs_user, capture_name).await;
+
+    // The Snapshot holds the pre-grant world; the grant and the discover row
+    // both come after it, in that order.
+    harness.refresh_snapshot_stale().await;
+    harness
+        .add_role_grant_unobserved("cats/", "dogs/shared/", models::Capability::Read)
+        .await;
+
     let disco_id = harness
         .queue_discover(
             "source/test",
@@ -687,12 +702,6 @@ async fn test_discover_reschedules_on_stale_collection_authz() {
         capture_name,
         Ok((spec_fixture(), single_binding_response("data"))),
     );
-
-    // The Snapshot holds the pre-grant world, stamped before the discover row.
-    harness.refresh_snapshot_stale().await;
-    harness
-        .add_role_grant_unobserved("cats/", "dogs/shared/", models::Capability::Read)
-        .await;
 
     let ran = harness
         .run_automation_task(automations::task_types::DISCOVERS)
@@ -776,16 +785,17 @@ async fn test_discover_preserves_authorized_live_collection() {
 }
 
 /// The complement of `test_discover_reschedules_on_stale_live_spec_authz`,
-/// and the reported scenario end to end: an *existing* capture with non-default
-/// bindings and settings, whose reader gains access only after the discover is
-/// queued. The capture is aged, so a spec-relative staleness anchor would call
-/// the stale denial authoritative, silently filter the live capture, and
-/// "succeed" with a starter baseline — `expect_pub_id: 0`, no bindings,
-/// default settings. Anchored to the discover request, the first poll
-/// reschedules instead, and once the Snapshot observes the grant the draft
-/// preserves the live capture: its nonzero publication id, its binding, and
-/// its non-default interval. Each assertion is discriminating on its own,
-/// because the starter baseline has none of them.
+/// and the reported scenario end to end: an *existing* capture with
+/// non-default bindings and settings, whose reader is granted access just
+/// before queuing a re-discover — after the Snapshot was taken. The capture
+/// is aged, so a spec-relative staleness anchor would call the stale denial
+/// authoritative, silently filter the live capture, and "succeed" with a
+/// starter baseline — `expect_pub_id: 0`, no bindings, default settings.
+/// Anchored to the discover request the denial is provisional: the first
+/// poll reschedules, and a refreshed Snapshot — guaranteed to include the
+/// pre-queue grant — preserves the live capture: its nonzero publication id,
+/// its binding, and its non-default interval. Each assertion is
+/// discriminating on its own, because the starter baseline has none of them.
 #[tokio::test]
 async fn test_discover_preserves_live_capture_after_late_grant() {
     let mut harness = TestHarness::init("test_discover_capture_late_grant").await;
@@ -848,6 +858,14 @@ async fn test_discover_preserves_live_capture_after_late_grant() {
     let draft_id = harness
         .create_draft(dogs_user, "late-grant re-discover", Default::default())
         .await;
+
+    // The Snapshot observes the collection grant but not the capture's,
+    // which commits after it and just before the discover is queued.
+    harness.refresh_snapshot_stale().await;
+    harness
+        .add_role_grant_unobserved("dogs/", "cats/in/", models::Capability::Read)
+        .await;
+
     let disco_id = harness
         .queue_discover(
             "source/test",
@@ -861,13 +879,6 @@ async fn test_discover_preserves_live_capture_after_late_grant() {
         capture_name,
         Ok((spec_fixture(), single_binding_response("noms"))),
     );
-
-    // The Snapshot holds the pre-grant world, stamped before the discover
-    // row: it observes the collection grant but not the capture's.
-    harness.refresh_snapshot_stale().await;
-    harness
-        .add_role_grant_unobserved("dogs/", "cats/in/", models::Capability::Read)
-        .await;
 
     let ran = harness
         .run_automation_task(automations::task_types::DISCOVERS)

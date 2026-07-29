@@ -15,8 +15,11 @@ use uuid::Uuid;
 ///
 /// `started_at` anchors the staleness check to the given time (request-relative).
 /// When `None`, staleness is anchored to each spec's publication time (spec-relative).
-/// Request-relative staleness is used by discovers to ensure authorization changes
-/// after the discover was queued are observable.
+/// A denial from a snapshot older than the anchor is provisional — authority
+/// committed before the anchor may be missing from it — and surfaces as a
+/// retryable error. A snapshot taken after the anchor is authoritative: it is
+/// guaranteed to reflect everything committed before the anchor, but not
+/// necessarily changes committed after it.
 pub async fn get_live_specs(
     user_id: uuid::Uuid,
     names: &[String],

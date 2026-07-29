@@ -336,8 +336,9 @@ async fn prepare_discover<'a>(
     // running task does. It's empty for a task which doesn't exist yet.
     // Filter to only specs that the user can read. If they can't admin, then
     // wait until they try to publish to surface that error.
-    // Use request-relative staleness: authorization changes after the discover
-    // was queued should be observable (scenario 4).
+    // Use request-relative staleness: a denial from a Snapshot older than the
+    // queued discover is provisional, because a grant committed before queuing
+    // may be missing from it.
     let name = &[capture_name.to_string()];
     let live = live_specs::get_live_specs(
         user_id,
