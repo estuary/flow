@@ -223,10 +223,13 @@ but you can also use absolute URLs to a third-party schema like
 
 ## Write and read schemas
 
-In some cases, you may want to impose different constraints to data that is being added (_written_) to the collection
-and data that is exiting (_read from_) the collection.
+Most collections benefit from separate write and read schemas, and it's the pattern Estuary recommends
+by default rather than a special case. The write schema validates documents as they're captured; the read
+schema validates documents as they're consumed by derivations and materializations. Keeping them separate
+lets the read schema evolve safely over time, for example as [continuous schema inference](#continuous-schema-inference)
+learns more about your data, without ever risking a rejected document at capture time.
 
-For example, you may need to start capturing data _now_ from a source system; say, a pub-sub system with short-lived
+One common example: you may need to start capturing data _now_ from a source system; say, a pub-sub system with short-lived
 historical data support or an HTTP endpoint, but don't know or don't control the endpoint's schema.
 You can capture the data with a permissive write schema, and impose a stricter read schema on the data
 as you need to perform a derivation or materialization.
@@ -238,15 +241,15 @@ Make sure that the field used as the collection key is defined in both schemas.
 You can either perform this manually, or use Estuary's **Schema Inference** tool to infer a read schema.
 Schema Inference is available in the web app when you [edit a capture or materialization](/guides/edit-data-flows) and [create a materialization](../guides/create-dataflow.md#create-a-materialization).
 
-**Before separating your write and read schemas, have the following in mind:**
+**Keep the following in mind when working with write and read schemas:**
 
 * The write schema comes from the capture connector that produced the collection and shouldn't be modified.
   Always apply your schema changes to the _read_ schema.
 
-* Separate read and write schemas are typically useful for collections that come from a source system with a flat or loosely
-  defined data structure, such as cloud storage or pub-sub systems.
-  Collections sourced from databases and most SaaS systems come with an explicitly defined data structure and shouldn't
-  need a different read schema.
+* Even collections sourced from databases and SaaS systems with a well-defined structure benefit from the split:
+  it's what lets [continuous schema inference](#continuous-schema-inference) and
+  [`autoDiscover`](./captures.md#automatically-update-captures) evolve the read schema automatically as the
+  source changes, rather than failing captures or requiring manual schema edits.
 
 * If you're using standard [projections](./advanced/projections.md), you must only define them in the read schema.
   However, if your projections are [logical partitions](./advanced/projections.md#logical-partitions), you must define them in both schemas.
