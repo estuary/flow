@@ -47,7 +47,7 @@ expression: email.body
                 You can <a href="http://dashboard.estuary.test/captures/details/overview?catalogName=acmeCo/test/capture" target="_blank" rel="noopener">view your task</a> to confirm everything is working as expected, or update your alerting settings.
             </p>
             <p class="body-text">
-                We are here to help ensure your data pipelines run smoothly.
+                We're here to help your data pipelines run smoothly.
             </p>            <div class="signature">
                 Thanks,<br>
                 Estuary Team
