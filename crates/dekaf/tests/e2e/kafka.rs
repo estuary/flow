@@ -22,6 +22,38 @@ pub struct DecodedRecord {
     pub value: serde_json::Value,
 }
 
+/// Is this a condition librdkafka recovers from on its own?
+///
+/// librdkafka surfaces such conditions on the consumer stream even though it is
+/// already reconnecting or re-discovering the coordinator underneath. A Dekaf
+/// session that drops — because the task's authorization is being refreshed, or
+/// because the session is torn down and re-established — arrives as
+/// `BrokerTransportFailure`, and the client is usable again a moment later.
+/// Real consumers poll straight through these, so tests must too: treating them
+/// as fatal makes every consuming test flaky for reasons unrelated to what it
+/// asserts. Fatal conditions (bad credentials, unknown topic) are deliberately
+/// excluded so they still fail fast.
+fn is_transient(err: &rdkafka::error::KafkaError) -> bool {
+    use rdkafka::types::RDKafkaErrorCode;
+
+    let rdkafka::error::KafkaError::MessageConsumption(code) = err else {
+        return false;
+    };
+
+    matches!(
+        code,
+        RDKafkaErrorCode::BrokerTransportFailure
+            | RDKafkaErrorCode::AllBrokersDown
+            | RDKafkaErrorCode::RequestTimedOut
+            | RDKafkaErrorCode::LeaderNotAvailable
+            | RDKafkaErrorCode::NotLeaderForPartition
+            | RDKafkaErrorCode::CoordinatorLoadInProgress
+            | RDKafkaErrorCode::CoordinatorNotAvailable
+            | RDKafkaErrorCode::NotCoordinator
+            | RDKafkaErrorCode::RebalanceInProgress
+    )
+}
+
 impl KafkaConsumer {
     pub fn new(broker: &str, registry: &str, username: &str, password: &str) -> Self {
         Self::with_group_id(
@@ -73,7 +105,13 @@ impl KafkaConsumer {
     /// Fetch all available records until no more arrive within the timeout.
     pub async fn fetch(&self) -> anyhow::Result<Vec<DecodedRecord>> {
         const TIMEOUT: Duration = Duration::from_secs(10);
+        // Transient errors reset the idle window, so bound the whole call as
+        // well: if the broker never settles we must fail rather than spin.
+        // Kept well under the profile's terminate-after, since tests call this
+        // more than once.
+        const DEADLINE: Duration = Duration::from_secs(60);
 
+        let deadline = std::time::Instant::now() + DEADLINE;
         let mut records = Vec::new();
         let mut stream = self.consumer.stream();
 
@@ -98,6 +136,12 @@ impl KafkaConsumer {
                         key: apache_avro::from_value(&key.value)?,
                         value: apache_avro::from_value(&value.value)?,
                     });
+                }
+                Ok(Some(Err(e))) if is_transient(&e) => {
+                    if std::time::Instant::now() > deadline {
+                        return Err(e).context("consumer did not recover from transient error");
+                    }
+                    tracing::warn!(error = %e, "transient consumer error; continuing to poll");
                 }
                 Ok(Some(Err(e))) => return Err(e.into()),
                 Ok(None) => break,
@@ -145,6 +189,9 @@ impl KafkaConsumer {
                     self.consumer
                         .commit_message(&msg, rdkafka::consumer::CommitMode::Sync)
                         .context("failed to commit")?;
+                }
+                Ok(Some(Err(e))) if is_transient(&e) => {
+                    tracing::warn!(error = %e, "transient consumer error; continuing to poll");
                 }
                 Ok(Some(Err(e))) => return Err(e.into()),
                 Ok(None) => break,
@@ -195,6 +242,9 @@ impl KafkaConsumer {
                         key: apache_avro::from_value(&key.value)?,
                         value: apache_avro::from_value(&value.value)?,
                     });
+                }
+                Ok(Some(Err(e))) if is_transient(&e) => {
+                    tracing::warn!(error = %e, "transient consumer error; continuing to poll");
                 }
                 Ok(Some(Err(e))) => return Err(e.into()),
                 Ok(None) => break,
