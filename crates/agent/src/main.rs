@@ -333,7 +333,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let logs_sink = control_plane_api::logs::serve_sink(pg_pool.clone(), logs_rx);
     let logs_sink = async move { anyhow::Result::Ok(logs_sink.await?) };
     let connectors = DataPlaneConnectors::new(logs_tx.clone());
-    let discover_handler = DiscoverHandler::new(connectors.clone(), snapshot_watch.clone());
+    let discover_handler = DiscoverHandler::new(connectors.clone());
 
     let builder = control_plane_api::publications::builds::new_builder(connectors);
     let mut publisher = Publisher::new(

@@ -27,10 +27,8 @@ pub async fn get_live_specs(
 ) -> anyhow::Result<tables::LiveCatalog> {
     let mut live = tables::LiveCatalog::default();
 
-    // The query that's used by `fetch_live_specs` can be pretty slow because of how
-    // it queries authZ capabilities for each name, even if it doesn't exist.
-    // Limit each individual query to 512 names to avoid statement timeouts when
-    // fetching a large number of specs when `filter_capability` is `Some`.
+    // Limit each individual query to 512 names to avoid statement timeouts
+    // when fetching a large number of specs.
     for names_chunk in names.chunks(512) {
         let rows = db::fetch_live_specs(names_chunk, db).await?;
         for row in rows {
@@ -100,8 +98,7 @@ pub async fn get_connected_live_specs(
     snapshot: &crate::Snapshot,
     started: Option<tokens::DateTime>,
 ) -> anyhow::Result<tables::LiveCatalog> {
-    let expanded_rows =
-        db::fetch_expanded_live_specs(user_id, collection_names, exclude_names, db).await?;
+    let expanded_rows = db::fetch_expanded_live_specs(collection_names, exclude_names, db).await?;
     let mut live = tables::LiveCatalog::default();
 
     for exp in expanded_rows {

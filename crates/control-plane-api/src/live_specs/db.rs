@@ -1,7 +1,7 @@
 use crate::TextJson;
-use models::{Capability, CatalogType, Id};
+use models::{CatalogType, Id};
 use serde_json::value::RawValue;
-use sqlx::types::{Json, Uuid};
+use sqlx::types::Json;
 
 /// Deletes the given live spec row, along with the corresponding `controller_jobs` row.
 pub async fn hard_delete_live_spec(id: Id, txn: &mut sqlx::PgConnection) -> sqlx::Result<()> {
@@ -32,13 +32,7 @@ pub struct LiveSpec {
     pub spec: Option<TextJson<Box<RawValue>>>,
     pub built_spec: Option<TextJson<Box<RawValue>>>,
     pub inferred_schema_md5: Option<String>,
-    // User's capability to the specification `catalog_name`.
-    pub user_capability: Option<Capability>,
     pub dependency_hash: Option<String>,
-    // When the live spec row was last updated. `None` when no live spec exists
-    // yet for `catalog_name` (the outer join yielded no row). Used to detect an
-    // authorization snapshot that predates a concurrent change to the spec.
-    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Returns a `LiveSpec` row for each of the given `names`. This will always return a row for each
@@ -60,9 +54,7 @@ pub async fn fetch_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            null as "user_capability: Capability",
-            ls.dependency_hash,
-            ls.updated_at as "updated_at?: chrono::DateTime<chrono::Utc>"
+            ls.dependency_hash
         from unnest($1::text[]) names
         left outer join live_specs ls on ls.catalog_name = names
         "#,
@@ -102,7 +94,6 @@ pub async fn fetch_inferred_schemas(
 /// Queries for all non-deleted `live_specs` that are connected to the given `collection_names` via
 /// `live_spec_flows`.
 pub async fn fetch_expanded_live_specs(
-    user_id: Uuid,
     collection_names: &[&str],
     exclude_names: &[&str],
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
@@ -112,7 +103,7 @@ pub async fn fetch_expanded_live_specs(
         r#"
         with collections(id) as (
             select ls.id
-            from unnest($2::text[]) as names(catalog_name)
+            from unnest($1::text[]) as names(catalog_name)
             join live_specs ls on ls.catalog_name = names.catalog_name
         ),
         exp(id) as (
@@ -134,17 +125,11 @@ pub async fn fetch_expanded_live_specs(
             ls.spec as "spec: TextJson<Box<RawValue>>",
             ls.built_spec as "built_spec: TextJson<Box<RawValue>>",
             ls.inferred_schema_md5,
-            (
-                select max(capability) from internal.user_roles($1) r
-                where starts_with(ls.catalog_name, r.role_prefix)
-            ) as "user_capability: Capability",
-            ls.dependency_hash,
-            ls.updated_at as "updated_at?: chrono::DateTime<chrono::Utc>"
+            ls.dependency_hash
         from exp
         join live_specs ls on ls.id = exp.id
-        where ls.spec is not null and not ls.catalog_name = any($3);
+        where ls.spec is not null and not ls.catalog_name = any($2);
         "#,
-        user_id,
         collection_names as &[&str],
         exclude_names as &[&str],
     )

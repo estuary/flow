@@ -775,6 +775,162 @@ async fn test_discover_preserves_authorized_live_collection() {
     assert_live_collection_preserved(&result.draft);
 }
 
+/// The complement of `test_discover_reschedules_on_stale_live_spec_authz`,
+/// and the reported scenario end to end: an *existing* capture with non-default
+/// bindings and settings, whose reader gains access only after the discover is
+/// queued. The capture is aged, so a spec-relative staleness anchor would call
+/// the stale denial authoritative, silently filter the live capture, and
+/// "succeed" with a starter baseline — `expect_pub_id: 0`, no bindings,
+/// default settings. Anchored to the discover request, the first poll
+/// reschedules instead, and once the Snapshot observes the grant the draft
+/// preserves the live capture: its nonzero publication id, its binding, and
+/// its non-default interval. Each assertion is discriminating on its own,
+/// because the starter baseline has none of them.
+#[tokio::test]
+async fn test_discover_preserves_live_capture_after_late_grant() {
+    let mut harness = TestHarness::init("test_discover_capture_late_grant").await;
+    let cats_user = harness.setup_tenant("cats").await;
+    let dogs_user = harness.setup_tenant("dogs").await;
+
+    // Publish a capture owned by `cats` with distinctive, non-default
+    // properties: a bound collection and a 42-minute interval. The collection
+    // schema is connector-managed so a re-discover may merge into it. The
+    // capture and collection live under *different* sub-prefixes: `dogs` gets
+    // an observed grant to the collection below, so that only the capture's
+    // own authorization rides on the late grant — otherwise the (correctly
+    // request-anchored) collection check would also reschedule and mask a
+    // regression of the capture anchor.
+    let capture_name = "cats/in/capture-owned";
+    let pub_result = harness
+        .user_publication(
+            cats_user,
+            "publish cats capture",
+            draft_catalog(serde_json::json!({
+                "collections": {
+                    "cats/data/noms": {
+                        "schema": wrap_connector_schema(serde_json::json!({
+                            "type": "object",
+                            "properties": { "id": { "type": "string" } },
+                            "required": ["id"]
+                        })),
+                        "key": ["/id"]
+                    }
+                },
+                "captures": {
+                    capture_name: {
+                        "endpoint": {
+                            "connector": { "image": "source/test:test", "config": {} }
+                        },
+                        "bindings": [
+                            { "resource": { "id": "noms" }, "target": "cats/data/noms" }
+                        ],
+                        "interval": "42m"
+                    }
+                },
+            })),
+        )
+        .await;
+    assert!(
+        pub_result.status.is_success(),
+        "setup publication failed: {:?} {:?}",
+        pub_result.status,
+        pub_result.errors
+    );
+    // Age the capture: a spec-relative anchor would now judge any recent
+    // Snapshot authoritative for it, which is exactly the regression this
+    // test discriminates against.
+    harness.age_live_spec(capture_name).await;
+    // The collection grant is observed from the start.
+    harness
+        .add_role_grant("dogs/", "cats/data/", models::Capability::Read)
+        .await;
+
+    let draft_id = harness
+        .create_draft(dogs_user, "late-grant re-discover", Default::default())
+        .await;
+    let disco_id = harness
+        .queue_discover(
+            "source/test",
+            ":test",
+            capture_name,
+            draft_id,
+            "ops/dp/public/test",
+        )
+        .await;
+    harness.discover_handler.connectors.mock_discover(
+        capture_name,
+        Ok((spec_fixture(), single_binding_response("noms"))),
+    );
+
+    // The Snapshot holds the pre-grant world, stamped before the discover
+    // row: it observes the collection grant but not the capture's.
+    harness.refresh_snapshot_stale().await;
+    harness
+        .add_role_grant_unobserved("dogs/", "cats/in/", models::Capability::Read)
+        .await;
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+    assert!(
+        matches!(
+            harness.discover_job_status(disco_id).await,
+            JobStatus::Queued
+        ),
+        "a stale denial of the existing capture should reschedule, got: {:?}",
+        harness.discover_job_status(disco_id).await,
+    );
+
+    // The Snapshot observes the grant; the discover completes against the
+    // live capture rather than a starter baseline.
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(disco_id).await;
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+
+    let result = UserDiscoverResult::load(disco_id, &harness.pool).await;
+    assert!(
+        result.job_status.is_success(),
+        "discover should succeed once the grant is observed, got: {:?} with errors: {:?}",
+        result.job_status,
+        result.errors,
+    );
+
+    let drafted = result
+        .draft
+        .captures
+        .get_by_key(&models::Capture::new(capture_name))
+        .expect("the capture should be drafted");
+    assert!(
+        drafted.expect_pub_id.is_some_and(|id| !id.is_zero()),
+        "the drafted capture should expect the live publication id, got: {:?}",
+        drafted.expect_pub_id,
+    );
+    let model = drafted.model.as_ref().expect("drafted capture model");
+    assert_eq!(
+        vec!["cats/data/noms"],
+        model
+            .bindings
+            .iter()
+            .map(|b| b.target.as_str())
+            .collect::<Vec<_>>(),
+        "the live capture's binding should be preserved",
+    );
+    assert_eq!(
+        std::time::Duration::from_secs(42 * 60),
+        model.interval,
+        "the live capture's non-default interval should be preserved",
+    );
+    assert!(
+        model.auto_discover.is_none(),
+        "a preserved live capture must not gain the starter's auto_discover",
+    );
+}
+
 /// A `DiscoverConnectors` which revokes the grant authorizing the discover's
 /// target collection — and pushes a refreshed, authoritative Snapshot into
 /// the watch — while the connector RPC is in flight, before answering with
@@ -840,14 +996,11 @@ async fn test_discover_uses_one_snapshot_across_connector_rpc() {
         capture_name,
         Ok((spec_fixture(), single_binding_response("data"))),
     );
-    let handler = DiscoverHandler::new(
-        RevokeMidRpc {
-            pool: harness.pool.clone(),
-            refresher: harness.snapshot_refresher(),
-            inner: mock,
-        },
-        harness.snapshot_watch.clone(),
-    );
+    let handler = DiscoverHandler::new(RevokeMidRpc {
+        pool: harness.pool.clone(),
+        refresher: harness.snapshot_refresher(),
+        inner: mock,
+    });
 
     // Pin Snapshot A and assemble the request, as `DiscoverExecutor::process`
     // and `prepare_discover` do.
@@ -898,7 +1051,7 @@ async fn test_discover_uses_one_snapshot_across_connector_rpc() {
         capture_name,
         Ok((spec_fixture(), single_binding_response("data"))),
     );
-    let handler = DiscoverHandler::new(mock, harness.snapshot_watch.clone());
+    let handler = DiscoverHandler::new(mock);
     let draft = control_plane_api::draft::load_draft(draft_id, &harness.pool)
         .await
         .unwrap();

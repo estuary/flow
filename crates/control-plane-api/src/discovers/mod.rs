@@ -7,7 +7,7 @@ use anyhow::Context;
 use models::discovers::{Changed, Changes};
 use proto_flow::{capture, flow::capture_spec};
 use sqlx::{PgPool, types::Uuid};
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 
 // Re-export key types and functions that executors will need
 pub use db::{Row, fetch_discover, resolve};
@@ -152,15 +152,11 @@ impl DiscoverOutput {
 #[derive(Clone)]
 pub struct DiscoverHandler<C> {
     pub connectors: C,
-    pub snapshot_watch: Arc<dyn tokens::Watch<Snapshot>>,
 }
 
 impl<C: DiscoverConnectors> DiscoverHandler<C> {
-    pub fn new(connectors: C, snapshot_watch: Arc<dyn tokens::Watch<Snapshot>>) -> Self {
-        Self {
-            connectors,
-            snapshot_watch,
-        }
+    pub fn new(connectors: C) -> Self {
+        Self { connectors }
     }
 }
 
