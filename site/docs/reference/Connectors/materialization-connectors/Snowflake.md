@@ -333,6 +333,14 @@ different number of shards while an interrupted transaction's rows were outstand
 [backfill](/reference/backfilling-data/#materialization-backfill) the affected binding to recover: this materializes the
 binding from the beginning and resets the connector's streaming state along with it.
 
+The connector also fails if Snowflake rejects a row outright — for example, a null value for a column the table
+declares `NOT NULL`. Snowflake discards such a row without failing the write, and reports it only in a count of
+rejected rows, which the connector checks as each transaction commits and again whenever it resumes writing to a
+table. Because a discarded row cannot be identified after the fact, it cannot be re-sent, so this failure also holds
+until you backfill the binding rather than letting a retry continue with the row missing. The connector marks a column
+`NOT NULL` only for a field your collection schema requires, and the runtime always supplies those, so this should not
+arise for a table the connector created and still manages.
+
 :::caution
 Streaming requires a destination that Snowflake can stream into — a table, not a view. Snowflake reports an
 incompatible destination asynchronously, so the connector surfaces it as a failure to commit the transaction

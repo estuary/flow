@@ -159,6 +159,7 @@ Streams rows to Snowflake with Snowflake's high-performance Snowpipe Streaming S
   - Rows can become visible in the destination table slightly before the Estuary transaction that produced them commits.
   - Rows of a transaction that is interrupted before it commits remain in the table. Retrying the transaction does not duplicate them, and every transaction that commits is delivered exactly once.
   - If the connector cannot establish which rows Snowflake already holds, it fails; backfilling the affected binding is the remedy. See [High-performance Snowpipe Streaming](/reference/Connectors/materialization-connectors/Snowflake/#high-performance-snowpipe-streaming) for details.
+  - A row Snowflake rejects outright — a null for a `NOT NULL` column, for instance — is discarded by Snowflake rather than failing the write. The connector detects this and fails the transaction, and because a discarded row cannot be re-sent, that failure also holds until the binding is backfilled.
 - **Applies to:** Snowflake
 
 ### datetime_keys_as_string
