@@ -620,11 +620,11 @@ impl TestHarness {
     }
 
     /// Like `fetch_snapshot`, but stamps the returned Snapshot with an explicit
-    /// `taken` time. Authorization staleness is decided by comparing `taken`
-    /// against a spec's own last-publication time (`Snapshot::taken_after`, which
-    /// also allows for `Snapshot::TEMPORAL_SKEW`). Tests compress wall-clock time
-    /// into a few milliseconds, so callers that need a Snapshot which is
-    /// authoritative for just-published specs push `taken` forward here.
+    /// `taken` time. Authorization staleness is decided by comparing `taken` to
+    /// the operation's freshness anchor (`Snapshot::taken_after` also allows for
+    /// `Snapshot::TEMPORAL_SKEW`). Tests compress wall-clock time into a few
+    /// milliseconds, so callers that need an authoritative Snapshot push `taken`
+    /// forward here.
     async fn fetch_snapshot_at(
         pool: &sqlx::PgPool,
         taken: tokens::DateTime,
@@ -1682,10 +1682,10 @@ impl TestHarness {
                 "publication kept rescheduling on a stale authorization snapshot"
             );
             // Production reschedules a stale-snapshot publication and, by the time
-            // it re-runs, the background watch has produced a Snapshot taken well
-            // after the referenced specs' last publication. Compressed test time
-            // never advances that far on its own, so model the elapsed wait
-            // explicitly. Grows each attempt because `tokens::now()` advances.
+            // it re-runs, the background watch has produced a Snapshot authoritative
+            // for the operation. Compressed test time never advances that far on its
+            // own, so model the elapsed wait explicitly. Grows each attempt because
+            // `tokens::now()` advances.
             self.refresh_snapshot_authoritative().await;
             self.set_min_task_wake_at(pub_id).await;
         };

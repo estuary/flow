@@ -55,8 +55,9 @@ impl automations::Executor for PublicationsExecutor {
 }
 
 /// How long to wait before re-polling a publication whose authorization was
-/// evaluated against a snapshot older than a referenced spec. A refresh was
-/// already requested; by the next poll a newer snapshot should be authoritative.
+/// evaluated against a snapshot that is not authoritative for the publication.
+/// A refresh was already requested; by the next poll a newer snapshot should be
+/// authoritative.
 const PUBLICATION_STALE_SNAPSHOT_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
 
 impl PublicationsExecutor {
@@ -103,10 +104,11 @@ impl PublicationsExecutor {
                 (result.status, errors, final_id)
             }
             Err(error) if validation::is_authz_snapshot_stale(&error) => {
-                // A referenced spec was denied by an authorization snapshot older
-                // than that spec. `Publisher::publish` already requested an early
-                // refresh; leave the publication queued and reschedule so a retry
-                // observes a fresher snapshot rather than reporting a failure.
+                // An authorization denial was evaluated against a Snapshot that
+                // isn't authoritative for this publication. `Publisher::publish`
+                // already requested an early refresh; leave the publication queued
+                // and reschedule so a retry observes a fresher Snapshot rather than
+                // reporting a failure.
                 tracing::info!(
                     pub_id = %id, %time_queued,
                     "publication authorization snapshot is stale; rescheduling"

@@ -300,7 +300,7 @@ pub enum Error {
         larger_id: models::Id,
     },
     #[error(
-        "authorization for {catalog_name} was evaluated against a control-plane snapshot older than the spec; please retry the operation"
+        "authorization for {catalog_name} was evaluated against a control-plane snapshot that is not authoritative for this operation; please retry the operation"
     )]
     AuthorizationSnapshotStale { catalog_name: String },
     #[error(
@@ -409,8 +409,9 @@ impl Error {
 
 /// Returns true if `err` is (or wraps) an [`Error::AuthorizationSnapshotStale`].
 /// This classifies a *retryable* authorization failure: the decision was made
-/// against a control-plane snapshot older than the spec, so it should be retried
-/// against a fresher snapshot rather than surfaced as a terminal error.
+/// against a control-plane snapshot that is not authoritative for the operation,
+/// so it should be retried against a fresher snapshot rather than surfaced as a
+/// terminal error.
 pub fn is_authz_snapshot_stale(err: &anyhow::Error) -> bool {
     matches!(
         err.downcast_ref::<Error>(),

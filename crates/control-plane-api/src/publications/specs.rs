@@ -10,11 +10,25 @@ use sqlx::types::Uuid;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use tables::{BuiltRow, DraftRow, utils};
 
-fn return_if_stale(spec_stale: bool, catalog_name: &str) -> anyhow::Result<()> {
-    if spec_stale {
+/// Resolves a snapshot-backed authorization decision.
+///
+/// A grant is accepted regardless of snapshot age. A denial is retryable only
+/// when there is a durable freshness anchor and the snapshot is not yet
+/// authoritative for it. Callers without an anchor preserve terminal-denial
+/// behavior.
+fn resolve_authorization(
+    authorized: bool,
+    catalog_name: &str,
+    snapshot: &crate::Snapshot,
+    freshness_anchor: Option<tokens::DateTime>,
+) -> anyhow::Result<bool> {
+    if authorized {
+        return Ok(true);
+    }
+    if freshness_anchor.is_some_and(|anchor| !snapshot.taken_after(anchor)) {
         return Err(authz_snapshot_stale(catalog_name));
     }
-    Ok(())
+    Ok(false)
 }
 
 pub async fn persist_updates(
@@ -757,7 +771,11 @@ fn authz_snapshot_stale(catalog_name: &str) -> anyhow::Error {
 /// system publications, which construct a fresh publication per attempt and
 /// carry their own retry/backoff. They fall back to anchoring on each denied
 /// spec's own last publication, which bounds the window in which grants could
-/// have been committed alongside the spec.
+/// have been committed alongside the spec. Named data planes have no equivalent
+/// fallback timestamp, so their denials remain terminal omissions.
+///
+/// `verify_user_authz` skips only user-to-catalog authorization. Specification
+/// `RoleGrant` checks remain mandatory.
 pub async fn resolve_live_specs(
     user_id: uuid::Uuid,
     draft: &tables::DraftCatalog,
@@ -832,10 +850,7 @@ pub async fn resolve_live_specs(
         // single definition of "this snapshot is authoritative for that instant"
         // used across the control plane, and it allows for `TEMPORAL_SKEW`
         // between the snapshot's clock and the ID generator's.
-        let spec_stale = match started {
-            Some(started) => !snapshot.taken_after(started),
-            None => !snapshot.taken_after(spec_row.last_pub_id.timestamp()),
-        };
+        let freshness_anchor = Some(started.unwrap_or_else(|| spec_row.last_pub_id.timestamp()));
 
         if drafted_names.contains(catalog_name) {
             // Get the metadata about the draft spec that matches this catalog name.
@@ -845,17 +860,19 @@ pub async fn resolve_live_specs(
 
             // If the spec is included in the draft, then the user must have admin capability to it.
             if verify_user_authz
-                && !tables::UserGrant::is_authorized(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    user_id,
-                    &spec_row.catalog_name,
-                    models::Capability::Admin,
-                )
+                && !resolve_authorization(
+                    tables::UserGrant::is_authorized(
+                        &snapshot.role_grants,
+                        &snapshot.user_grants,
+                        user_id,
+                        &spec_row.catalog_name,
+                        models::Capability::Admin,
+                    ),
+                    catalog_name,
+                    snapshot,
+                    freshness_anchor,
+                )?
             {
-                if spec_stale {
-                    return Err(authz_snapshot_stale(catalog_name));
-                }
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
                     error: anyhow::anyhow!(
@@ -868,13 +885,17 @@ pub async fn resolve_live_specs(
             }
             // Spec authz must always be checked, even if we're not checking user authz
             for source in reads_from {
-                if !tables::RoleGrant::is_authorized(
-                    &snapshot.role_grants,
-                    &spec_row.catalog_name,
-                    &source,
-                    Capability::Read,
-                ) {
-                    return_if_stale(spec_stale, catalog_name)?;
+                if !resolve_authorization(
+                    tables::RoleGrant::is_authorized(
+                        &snapshot.role_grants,
+                        &spec_row.catalog_name,
+                        &source,
+                        Capability::Read,
+                    ),
+                    catalog_name,
+                    snapshot,
+                    freshness_anchor,
+                )? {
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
@@ -885,13 +906,17 @@ pub async fn resolve_live_specs(
                 }
             }
             for target in writes_to {
-                if !tables::RoleGrant::is_authorized(
-                    &snapshot.role_grants,
-                    &spec_row.catalog_name,
-                    &target,
-                    Capability::Write,
-                ) {
-                    return_if_stale(spec_stale, catalog_name)?;
+                if !resolve_authorization(
+                    tables::RoleGrant::is_authorized(
+                        &snapshot.role_grants,
+                        &spec_row.catalog_name,
+                        &target,
+                        Capability::Write,
+                    ),
+                    catalog_name,
+                    snapshot,
+                    freshness_anchor,
+                )? {
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
@@ -910,15 +935,19 @@ pub async fn resolve_live_specs(
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
-                && !tables::UserGrant::is_authorized(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    user_id,
-                    &spec_row.catalog_name,
-                    Capability::Read,
-                )
+                && !resolve_authorization(
+                    tables::UserGrant::is_authorized(
+                        &snapshot.role_grants,
+                        &snapshot.user_grants,
+                        user_id,
+                        &spec_row.catalog_name,
+                        Capability::Read,
+                    ),
+                    catalog_name,
+                    snapshot,
+                    freshness_anchor,
+                )?
             {
-                return_if_stale(spec_stale, catalog_name)?;
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {
                     scope,
@@ -988,7 +1017,7 @@ pub async fn resolve_live_specs(
 
     // Fetch data planes that are referenced by live specs (`data_plane_ids`),
     // or by storage mappings (`data_plane_names`), or by `explicit_plane_name`.
-    let data_plane_names: Vec<&str> = live
+    let candidate_data_plane_names: Vec<&str> = live
         .storage_mappings
         .iter()
         .flat_map(|m| m.data_planes.iter().map(String::as_str))
@@ -997,19 +1026,28 @@ pub async fn resolve_live_specs(
         .dedup()
         .collect();
 
-    let data_plane_names: Vec<&str> = data_plane_names
-        .into_iter()
-        .filter(|name| {
-            tables::UserGrant::is_authorized(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                user_id,
-                *name,
-                models::Capability::Read,
-            )
-        })
-        .collect();
+    let mut data_plane_names = Vec::with_capacity(candidate_data_plane_names.len());
+    for name in candidate_data_plane_names {
+        if !verify_user_authz
+            || resolve_authorization(
+                tables::UserGrant::is_authorized(
+                    &snapshot.role_grants,
+                    &snapshot.user_grants,
+                    user_id,
+                    name,
+                    models::Capability::Read,
+                ),
+                name,
+                snapshot,
+                started,
+            )?
+        {
+            data_plane_names.push(name);
+        }
+    }
 
+    // IDs preserve the assignments of live specs already accepted above. They
+    // are not user-selected plane names and intentionally bypass this user check.
     data_plane_ids.sort();
     data_plane_ids.dedup();
 
@@ -1022,7 +1060,7 @@ pub async fn resolve_live_specs(
             FROM UNNEST($1::flowid[]) AS t(id)
         ),
         data_plane_names AS (
-            -- Names are pre-filtered to those the user is read-authorized to,
+            -- Names have already passed the caller's user-authorization policy,
             -- so no in-SQL authorization check is needed here.
             SELECT name
             FROM UNNEST($2::text[]) AS t(name)
@@ -1240,9 +1278,10 @@ mod test {
 /// `resolve_live_specs` makes four independent authorization decisions per row —
 /// the drafter must admin a drafted spec; a drafted spec must itself be
 /// read-authorized to each source and write-authorized to each target; and the
-/// user must be able to read any *referenced* spec. Each of those denials is now
-/// evaluated against a `Snapshot`, and each short-circuits with a retryable
-/// `AuthorizationSnapshotStale` when that Snapshot predates the spec it denies.
+/// user must be able to read any *referenced* spec. Named data planes add another
+/// user-authorization decision. Each denial is evaluated against a `Snapshot`
+/// and short-circuits with retryable `AuthorizationSnapshotStale` when that
+/// Snapshot is not authoritative for the operation.
 ///
 /// These tests pin both halves of every branch: what a stale Snapshot returns,
 /// and the (unchanged) error text an authoritative one reports.
@@ -1600,16 +1639,15 @@ mod resolve_tests {
         assert_stale_for(err, CAPTURE);
     }
 
-    /// The data-plane name filter is the one snapshot-backed authorization check
-    /// here with *no* staleness gate: an unauthorized (or not-yet-granted) plane
-    /// is silently dropped rather than retried. Pinned as current behavior so a
-    /// future change to it is a deliberate one.
+    /// Named data planes use the publication's durable `started` timestamp as
+    /// their freshness anchor. Grants win regardless of Snapshot age, while a
+    /// denial is retryable only until the Snapshot becomes authoritative.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
     )]
-    async fn test_unauthorized_data_plane_name_is_silently_dropped(pool: sqlx::PgPool) {
-        let draft = draft_of(serde_json::json!({
+    async fn test_data_plane_name_authorization_freshness(pool: sqlx::PgPool) {
+        let dan_draft = draft_of(serde_json::json!({
             "collections": {
                 "danCo/thing": {
                     "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
@@ -1617,19 +1655,38 @@ mod resolve_tests {
                 }
             }
         }));
+        let started = published_at(&pool).await;
+        let stale_snapshot = stale(&pool).await;
 
         // Dan admins `danCo/` but was granted nothing on `ops/dp/public/`.
-        let live = resolve_live_specs(
+        // Because this Snapshot is not authoritative for `started`, its denial
+        // is provisional and names the plane which triggered it.
+        let err = resolve_live_specs(
             DAN,
-            &draft,
+            &dan_draft,
             &pool,
             true,
             Some(PLANE),
-            &stale(&pool).await,
-            None,
+            &stale_snapshot,
+            Some(started),
         )
         .await
-        .expect("an unauthorized data-plane name is not an error");
+        .expect_err("a stale data-plane denial should be retryable");
+        assert_stale_for(err, PLANE);
+
+        // Once the Snapshot is authoritative, the same denial preserves the
+        // existing non-disclosure behavior and silently omits the plane.
+        let live = resolve_live_specs(
+            DAN,
+            &dan_draft,
+            &pool,
+            true,
+            Some(PLANE),
+            &authoritative(&pool).await,
+            Some(started),
+        )
+        .await
+        .expect("an authoritative data-plane denial is terminal omission");
         assert!(
             live.errors.is_empty(),
             "unexpected errors: {:?}",
@@ -1637,10 +1694,11 @@ mod resolve_tests {
         );
         assert!(
             live.data_planes.is_empty(),
-            "an unauthorized data-plane should be dropped, not retried"
+            "an authoritatively denied data-plane should be omitted"
         );
 
-        // Carol holds `carolCo/ -> ops/dp/public/ read`, so the same plane resolves.
+        // Carol holds `carolCo/ -> ops/dp/public/ read`, so the same plane is
+        // included even though the Snapshot is too old to make denials final.
         let carol_draft = draft_of(serde_json::json!({
             "collections": {
                 "carolCo/thing": {
@@ -1655,12 +1713,82 @@ mod resolve_tests {
             &pool,
             true,
             Some(PLANE),
-            &stale(&pool).await,
+            &stale_snapshot,
+            Some(started),
+        )
+        .await
+        .expect("an observed grant wins regardless of Snapshot age");
+        assert_eq!(1, live.data_planes.len());
+
+        // System publications skip user authorization for named planes as well
+        // as catalog specs. Spec-to-spec RoleGrant checks remain mandatory.
+        let live = resolve_live_specs(
+            DAN,
+            &dan_draft,
+            &pool,
+            false,
+            Some(PLANE),
+            &stale_snapshot,
+            Some(started),
+        )
+        .await
+        .expect("verify_user_authz=false should include the named plane");
+        assert_eq!(1, live.data_planes.len());
+
+        // Callers without a durable operation timestamp must not invent one:
+        // their denials preserve the prior terminal omission behavior.
+        let live = resolve_live_specs(
+            DAN,
+            &dan_draft,
+            &pool,
+            true,
+            Some(PLANE),
+            &stale_snapshot,
             None,
         )
         .await
-        .expect("carol is authorized to the plane");
-        assert_eq!(1, live.data_planes.len());
+        .expect("a plane denial without a freshness anchor is terminal");
+        assert!(live.data_planes.is_empty());
+    }
+
+    /// Storage-mapping plane names follow the same freshness policy even when
+    /// there is no explicit/default plane name in the publication.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
+    )]
+    async fn test_storage_mapping_data_plane_authorization_freshness(pool: sqlx::PgPool) {
+        let mapping = crate::TextJson(models::StorageDef {
+            data_planes: vec![PLANE.to_string()],
+            stores: vec![models::Store::example()],
+        });
+        sqlx::query("insert into storage_mappings (catalog_prefix, spec) values ($1, $2)")
+            .bind("danCo/")
+            .bind(&mapping)
+            .execute(&pool)
+            .await
+            .expect("failed to insert test storage mapping");
+
+        let draft = draft_of(serde_json::json!({
+            "collections": {
+                "danCo/thing": {
+                    "schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+                    "key": ["/id"]
+                }
+            }
+        }));
+        let err = resolve_live_specs(
+            DAN,
+            &draft,
+            &pool,
+            true,
+            None,
+            &stale(&pool).await,
+            Some(published_at(&pool).await),
+        )
+        .await
+        .expect_err("a stale storage-mapping plane denial should be retryable");
+        assert_stale_for(err, PLANE);
     }
 
     /// The data-plane name filter must be decided by *effective* (attenuated)

@@ -270,9 +270,9 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
                 ))
             }
             Err(err) if validation::is_authz_snapshot_stale(&err) => {
-                // A referenced spec was denied against a snapshot that predates
-                // it. Request an early refresh and retry, rather than reporting a
-                // spurious DiscoverFailed.
+                // An authorization denial was evaluated against a Snapshot that
+                // isn't authoritative for this discover. Request an early refresh
+                // and retry, rather than reporting a spurious DiscoverFailed.
                 snapshot.revoke.cancel();
                 Ok(Processed::RetryStale)
             }

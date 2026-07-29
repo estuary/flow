@@ -502,6 +502,77 @@ async fn setup_cross_tenant_publication(harness: &mut TestHarness) -> uuid::Uuid
     harness.setup_tenant("dogs").await
 }
 
+/// A publication must reschedule when its selected data plane is denied by a
+/// Snapshot which predates the queued publication. This is the concrete race:
+/// the grant is restored in Postgres before the publication is queued, but the
+/// in-memory Snapshot still reflects the brief revocation.
+#[tokio::test]
+async fn test_publication_reschedules_on_stale_data_plane_authz() {
+    let mut harness = TestHarness::init("test_publication_stale_data_plane_authz").await;
+    let cats_user = harness.setup_tenant("cats").await;
+
+    let deleted = sqlx::query(
+        "delete from role_grants
+         where subject_role = 'cats/' and object_role = 'ops/dp/public/'",
+    )
+    .execute(&harness.pool)
+    .await
+    .expect("failed to remove the tenant's public-plane grant");
+    assert_eq!(1, deleted.rows_affected());
+
+    // Snapshot A observes the revocation. Restore the grant without refreshing,
+    // then queue the publication so A is not authoritative for its denial.
+    harness.refresh_snapshot().await;
+    harness
+        .add_role_grant_unobserved("cats/", "ops/dp/public/", Capability::Read)
+        .await;
+    let pub_id = harness
+        .queue_publication(
+            cats_user,
+            "public-plane grant awaiting Snapshot refresh",
+            Either::L(draft_catalog(serde_json::json!({
+                "collections": {
+                    "cats/noms": {
+                        "schema": {
+                            "type": "object",
+                            "properties": { "id": { "type": "string" } }
+                        },
+                        "key": ["/id"]
+                    }
+                },
+                "captures": {
+                    "cats/capture": {
+                        "endpoint": {
+                            "connector": { "image": "source/test:test", "config": {} }
+                        },
+                        "bindings": [
+                            { "resource": { "id": "noms" }, "target": "cats/noms" }
+                        ]
+                    }
+                }
+            }))),
+        )
+        .await;
+
+    let first = harness.poll_publication_once(pub_id).await;
+    assert_eq!(
+        publications::StatusType::Queued,
+        first.status.r#type,
+        "publication should reschedule while the restored plane grant is unobserved, got: {:?}",
+        first.errors
+    );
+
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(pub_id).await;
+
+    let second = harness.poll_publication_once(pub_id).await;
+    assert!(
+        second.status.is_success(),
+        "publication should succeed once the plane grant is observed, got: {:?}",
+        second.errors
+    );
+}
+
 /// The race this whole mechanism exists for: the grants that authorize a
 /// publication land in Postgres *before* the publication runs, but the
 /// authorization Snapshot still holds the pre-grant world. The publication must
