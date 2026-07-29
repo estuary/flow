@@ -2,7 +2,7 @@
 //!
 //! On restart, a `(binding, journal)` read starts at the furthest journal
 //! position justified by its checkpoint: the maximum offset magnitude `M`
-//! across producer entries. An uncommitted producer span whose begin offset
+//! across producer entries. A producer's open span whose begin offset
 //! `F` falls before `M` is *gapped*: the main read skips `[F, M)` and the
 //! producer is frozen until it resolves. A gapped entry is marked in-memory by
 //! the non-zero `max_continue == last_commit` sentinel (`ProducerState::is_gapped`);
@@ -11,12 +11,12 @@
 //! replay trigger (the first newer CONTINUE or ACK), a clean rollback, or a
 //! deep rollback. An OUTSIDE_TXN is *not* a trigger: the sentinel is a real
 //! (if unread) open span, and `uuid::sequence` rejects an OUTSIDE while a span
-//! is pending with `OutsideWithPrecedingContinue`.
+//! is open with `OutsideWithPrecedingContinue`.
 //!
 //! Upon a triggering document, the actor:
 //!
 //! 1. reconstructs the recovered open span directly into the read's ordinary
-//!    `pending` map as `{last_commit, max_continue: 0, offset: F}` — this both
+//!    `unreported` map as `{last_commit, max_continue: 0, offset: F}` — this both
 //!    installs the span and overwrites the sentinel. Re-sequencing the span's
 //!    own documents drives `max_continue` to zero or strictly above `last_commit`,
 //!    never back onto the `{L, L, F}` sentinel, so the replay cannot re-trigger
@@ -30,8 +30,8 @@
 //!    clock-delay gate, its preceding documents must also by construction.
 //!
 //! This is durably safe because `max_continue` is NOT persisted in
-//! `ProducerFrontier`, and the checkpoint's `F` is by definition the first pending
-//! CONTINUE's begin offset, so a recovering `ContinueBeginSpan` re-derives
+//! `ProducerFrontier`, and the checkpoint's `F` is by definition the `+begin` of
+//! the open span, so a recovering `ContinueBeginSpan` re-derives
 //! `offset = F`. An interim flush mid-replay therefore carries exactly the
 //! `(last_commit, F)` the durable checkpoint already records; a crash mid-replay
 //! recovers the unchanged positive `F` and re-gaps idempotently. (On fragment loss
@@ -48,15 +48,15 @@ use proto_flow::shuffle;
 use proto_gazette::{broker, uuid};
 use tokio::sync::mpsc;
 
-/// All live state for the single active replay of a gapped producer's pending
-/// transaction, owned by the actor in `SliceActor::replay`.
+/// All live state for the single active replay of a gapped producer's open
+/// span, owned by the actor in `SliceActor::replay`.
 pub struct Replay {
     /// ID of `SliceActor::reads` whose gapped producer triggered this replay.
     pub read_id: usize,
     /// The gapped producer whose newer document triggered this replay.
     pub target: uuid::Producer,
     /// Inclusive begin offset of the replay; the producer's `offset`
-    /// which begins its uncommitted span.
+    /// which begins its open span.
     pub begin_offset: i64,
     /// Exclusive end offset of the replay; the begin offset of the document
     /// which triggered the replay.
@@ -143,7 +143,9 @@ impl SliceActor {
         // Clear the `max_continue` sentinel, marking the producer as no longer
         // gapped, so it begins to sequence normally against replay documents.
         producer_state.max_continue = uuid::Clock::zero();
-        _ = read_state.pending.insert(trigger.producer, producer_state);
+        _ = read_state
+            .unreported
+            .insert(trigger.producer, producer_state);
 
         // Observability: track as event + metric.
         let trigger_kind = if trigger.flags.is_ack() {
@@ -204,7 +206,7 @@ impl SliceActor {
                     &ready_read.meta,
                 )?;
 
-                // We should not see an ACK within this uncommitted span.
+                // We should not see an ACK within this open span.
                 if sequenced.is_commit {
                     anyhow::bail!(
                         "replay of journal {} (binding {}) producer {producer:?} \
@@ -263,7 +265,7 @@ impl SliceActor {
         };
 
         // On the way out, persist updated `producer_state` and return the `replay`.
-        _ = read_state.pending.insert(replay.target, producer_state);
+        _ = read_state.unreported.insert(replay.target, producer_state);
         self.replay = Some(replay);
 
         Ok(maybe_tx)

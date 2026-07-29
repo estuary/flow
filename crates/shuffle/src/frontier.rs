@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 /// a producer hinted at Clock H is "gapped" on recovery:
 ///
 /// Case 1 - {offset: 0, last_commit: 1, hinted_commit: H}
-/// This producer wrote a literal CONTINUE_TXN at offset zero which is still
-/// an open span (has not committed or rolled back). If we start reading from
+/// This producer wrote a literal CONTINUE_TXN at offset zero which still has an
+/// open span (no committing close or rollback yet). If we start reading from
 /// offset M > 0, this producer is considered gapped and must replay from zero.
 ///
 /// Case 2 - {offset: 0, last_commit: 0, hinted_commit: H}
@@ -25,15 +25,17 @@ pub(crate) const OBSERVED_COMMIT_FLOOR: u64 = 1;
 #[derive(Debug, Clone)]
 pub struct ProducerFrontier {
     pub producer: Producer,
-    /// Clock of the last committing ACK_TXN or OUTSIDE_TXN, or
-    /// [`OBSERVED_COMMIT_FLOOR`] if the producer has an open CONTINUE_TXN
-    /// span but has never committed.
+    /// Clock of the last committing close (an ACK_TXN or OUTSIDE_TXN), or
+    /// [`OBSERVED_COMMIT_FLOOR`] if the producer has an open span but has
+    /// never committed.
     pub last_commit: Clock,
     /// Clock of a hinted (causal) commit, or zero if no hint.
     pub hinted_commit: Clock,
-    /// `offset` encodes journal position using positive/negative sign convention:
-    /// - Non-negative: begin offset of first pending CONTINUE_TXN.
-    /// - Negative: negation of the end offset of last committing ACK_TXN / OUTSIDE_TXN.
+    /// `offset` encodes journal position with a sign convention which is also a
+    /// direct readout of whether the producer is open or closed at the cut:
+    /// - Non-negative: `+begin` of the open span ⇔ open.
+    /// - Negative: negation of the end offset of the last committing close
+    ///   (an ACK_TXN or OUTSIDE_TXN) ⇔ closed.
     pub offset: i64,
 }
 
@@ -42,7 +44,7 @@ impl ProducerFrontier {
     ///
     /// Maximizes `last_commit` and `hinted_commit`. Takes `offset` with the
     /// largest absolute value, because the sign encodes semantics (negative =
-    /// committed end, non-negative = uncommitted begin) and the magnitude
+    /// closed end, non-negative = open `+begin`) and the magnitude
     /// represents how far into the journal we've read.
     pub fn reduce(self, other: Self) -> Self {
         // We cannot simply take the offset from whichever side has the larger
@@ -54,7 +56,7 @@ impl ProducerFrontier {
         // replacing it with a greater hinted-and-resolved `last_commit` having
         // a lesser, conservative `offset`.
         //
-        // On equal magnitude, prefer the non-negative (uncommitted begin) side.
+        // On equal magnitude, prefer the non-negative (open `+begin`) side.
         // A producer's next span begins exactly at its previous transaction's
         // committed end offset whenever no other producer appended in between,
         // so a `+F` span begin routinely ties with the prior committed `-O`
@@ -143,16 +145,16 @@ impl JournalFrontier {
     /// `offset` is conservatively updated on resolution: when `last_commit` is
     /// capped at `hinted_commit` but `other.last_commit` is past it,
     /// `other.offset` corresponds to a journal position that overshoots
-    /// where our claimed `last_commit` actually sits. At the same time, hinted
+    /// where the resolved `last_commit` actually sits. At the same time, hinted
     /// resolution implies a producer's formerly-open span is now closed, and we
     /// don't want it to recover as gapped (which would trigger a replay).
     ///
-    /// Define `M` as the maximum offset of any producer of this journal. We bump
-    /// resolved producers to `-M`, marking them as having committed through this
-    /// progress. This behavior rests on the invariant that all of self's entries
-    /// are consistent with one continuous read through (at least) `M`, and a
-    /// hint advancement implies a committing ACK after `M`, so any span below
-    /// `M` is already settled and a re-read would suppress it.
+    /// So resolved producers are bumped to `-M`, the negated cut floor of `self`,
+    /// marking them as closed through this progress. This is sound by clause 1
+    /// of the Frontier invariant (see [`crate::Frontier`]): self's entries
+    /// describe one continuous read through at least `M`, and a hint advancement
+    /// implies a committing ACK *above* `M`, so every close of this producer
+    /// below `M` is already covered and a re-read would suppress it.
     ///
     /// Returns `(advanced, resolved)`:
     /// - `advanced`: producers whose `last_commit` advanced by any amount.
@@ -289,14 +291,67 @@ impl JournalFrontier {
 
 /// Frontier tracks journal progress including causal hints.
 ///
-/// A Frontier may represent either a cumulative checkpoint (full state of all
-/// journals and producers) or a checkpoint delta (only journals and producers
-/// that progressed since the last checkpoint). The `reduce` method merges a
-/// delta into a cumulative base: new journals from the delta are added, base
-/// journals absent from the delta are preserved, and matching entries are
-/// reduced by maximizing clocks.
+/// A Frontier is either *cumulative* — the complete reduction of every delta
+/// since genesis, leaving out nothing which progressed — or a *delta*, carrying
+/// only the journals and producers which progressed since the last checkpoint.
+/// `reduce` merges a delta into a cumulative base: new journals from the delta
+/// are added, base journals absent from the delta are preserved, and matching
+/// entries are reduced by maximizing clocks. Durable resume checkpoints are
+/// cumulative, while emitted `ready` frontiers and peeks are deltas which the
+/// client is expected to reduce into a cumulative base.
 ///
 /// See session::CheckpointPipeline for details of how Frontier deltas are built.
+///
+/// # The Frontier invariant
+///
+/// Every cumulative Frontier *has* this property; it is not a condition to be
+/// checked. It is scoped to the journal and producer entries — the Frontier's
+/// read state. (`flushed_lsn` and the backfill clocks carry their own,
+/// separate documentation.)
+///
+/// A journal's **cut** is the offset it was read through to produce the
+/// Frontier. A cut is never represented explicitly: it is bounded from below
+/// only by the **cut floor** `M = max|offset|` across the journal's producer
+/// entries. Per journal, then:
+///
+/// 1. The entries jointly describe one continuous read of the journal through
+///    (at least) `M`; and
+/// 2. they account for every producer sequencing event in journal content below
+///    `M` (content since removed by journal retention owes no account). Each
+///    **committing close** is covered by its producer's `last_commit`, and each
+///    open span's `+begin` is carried by its producer's entry.
+///
+/// The consequence is that resuming the read at `M` loses nothing, which is
+/// what makes a Frontier a resumption point at all. Below `M`, a re-read
+/// document sequences as a duplicate of a covered close; a re-read rollback
+/// re-discards; and an open span is recovered from its `+begin` by gap-replay,
+/// triggered by its producer's next activity (see `slice/replay.rs`).
+///
+/// The closed/open asymmetry follows from what is owed downstream. A committing
+/// close's documents are owed even if the producer then goes silent forever, so
+/// the close must be covered. An open span's documents are owed to no one yet,
+/// and its eventual close is itself the replay trigger. A rolled-back span's
+/// documents are owed to no one, ever.
+///
+/// The invariant reads inductively: the empty Frontier satisfies it trivially,
+/// and reducing in the next delta of a continuous read preserves it — which is
+/// what proper reduction entails.
+///
+/// It is agnostic to hint state. An unresolved `hinted_commit` by construction
+/// references an ACK beyond the cut, so hints govern transactional visibility
+/// and never resumption soundness: the invariant holds equally of resume
+/// checkpoints, and delta `ready` emissions & peeks (once accumulated).
+///
+/// A delta carries the invariant only relative to the baseline it reduces into.
+/// An entry which did not advance is nonetheless still current at the delta's
+/// cut — its producer not progressing is precisely the absence of any event of
+/// theirs since. This is what makes the union of durable frontier rows written
+/// at differing cuts coherent.
+///
+/// One deliberate, bounded deviation exists: shard recovery prunes ancient,
+/// closed, far-behind producers, forgetting their coverage. See
+/// `runtime_next::shard::recovery::prune_committed_frontier`, which documents
+/// why the resulting double-processing risk is bounded and accepted.
 #[derive(Debug, Clone, Default)]
 pub struct Frontier {
     /// Journals which constitute the frontier.
@@ -769,7 +824,7 @@ mod test {
             ((100, 0, -300), (100, 0, 50), (100, 0, -300)),
             // Default offset=0 (e.g. from hint) does not override meaningful offset.
             ((200, 0, -800), (0, 500, 0), (200, 500, -800)),
-            // Equal magnitude: the uncommitted (non-negative) span begin wins,
+            // Equal magnitude: the open (non-negative) span begin wins,
             // in either argument order. A producer's next span begins exactly
             // at its previous committed end offset, so this tie is routine —
             // and preferring the committed side would erase the open span from

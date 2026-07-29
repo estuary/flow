@@ -71,8 +71,8 @@ impl Arbitrary for TestCase {
         let num_producers = 1 + usize::arbitrary(g) % MAX_PRODUCERS;
         let num_rounds = 1 + usize::arbitrary(g) % MAX_ROUNDS;
         let mut retired: HashSet<ProducerId> = HashSet::new();
-        // Producers with an uncommitted span opened by a prior ContinueOnly.
-        // They must not write OUTSIDE (which would error against a pending
+        // Producers with an open span opened by a prior ContinueOnly.
+        // They must not write OUTSIDE (which would error against an open
         // span); they may keep the span open, commit it, or roll it back.
         let mut open: HashSet<ProducerId> = HashSet::new();
         let mut rounds = Vec::with_capacity(num_rounds);
@@ -704,7 +704,7 @@ fn record_oracle_with_counters(
                 }
             }
             Action::CommitOpen => {
-                // Commits the pending span accumulated by a prior ContinueOnly.
+                // Commits the open span accumulated by a prior ContinueOnly.
                 oracle.record_ack_commit(prod_id);
             }
         }
@@ -1188,7 +1188,7 @@ async fn run_test_case_inner(
 /// were found by fuzz sweeps while ratifying the last-commit floor and
 /// hint-fidelity changes, and specifically stress crash recovery of commits
 /// that project no causal hint (single-journal and OUTSIDE commits) alongside
-/// uncommitted spans at journal offset zero (the last-commit floor).
+/// open spans at journal offset zero (the last-commit floor).
 fn regression_cases() -> Vec<TestCase> {
     fn round(actions: Vec<(ProducerId, Action)>, crash: bool) -> Round {
         Round {
