@@ -250,6 +250,9 @@ async fn update_collection_methods(
     let pb = ProgressBar::new(invoices.len() as u64);
     pb.set_message("updating collection method");
     pb.set_style(ProgressStyle::with_template(PROGRESS_BAR_TEMPLATE).unwrap());
+    // Continue past per-invoice failures: the following invoice table shows the
+    // true state of every draft (failed switches stay flagged as missing a
+    // payment method) before the finalize prompt, so the operator can abort.
     for inv in invoices {
         let res: Result<stripe::Invoice, _> = stripe_client
             .post_form(
@@ -262,7 +265,7 @@ async fn update_collection_methods(
             .await;
         match res {
             Ok(_) => {
-                inv.collection_method = Some(method.clone());
+                inv.collection_method = Some(method);
             }
             Err(e) => {
                 pb.println(format!(

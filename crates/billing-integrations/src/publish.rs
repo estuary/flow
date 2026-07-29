@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::Postgres;
 use sqlx::{Pool, postgres::PgPoolOptions, types::chrono::NaiveDate};
 use std::collections::HashMap;
-use stripe::InvoiceStatus;
 
 const CREATED_BY_BILLING_AUTOMATION: &str = "estuary.dev/created_by_automation";
 
@@ -40,7 +39,8 @@ pub struct PublishInvoice {
     /// The month to generate invoices for, in format "YYYY-MM-DD"
     #[clap(long, value_parser = parse_date)]
     month: NaiveDate,
-    /// Whether to delete and recreate finalized invoices
+    /// Whether to recreate existing invoices: drafts are deleted and open
+    /// invoices are voided before the replacement is created.
     #[clap(long)]
     recreate_finalized: bool,
     /// Stop execution after first failure
@@ -60,6 +60,11 @@ pub struct PublishInvoice {
     pub clean_up: bool,
     /// Run in read-only mode: classify all invoices and report what would
     /// happen, without creating or modifying anything in Stripe.
+    ///
+    /// The preview checks that each invoice could be issued (a billing email is
+    /// resolvable), but it cannot reconcile the final invoice total against
+    /// Stripe, since that requires actually creating the invoice and its line
+    /// items.
     #[clap(long, default_value_t = false)]
     pub dry_run: bool,
 }
@@ -89,6 +94,7 @@ struct LineItem {
 enum InvoiceResult {
     Created(PaymentProvider),
     Updated,
+    Replaced,
     LessThanMinimum,
     FreeTier,
     FutureTrialStart,
@@ -120,6 +126,13 @@ impl InvoiceResult {
                     "Updated existing invoice".to_string()
                 }
             }
+            InvoiceResult::Replaced => {
+                if dry_run {
+                    "Would void/delete and replace existing invoice".to_string()
+                } else {
+                    "Replaced existing invoice".to_string()
+                }
+            }
             InvoiceResult::LessThanMinimum => {
                 "Skipping invoice for less than the minimum chargable amount ($0.50)".to_string()
             }
@@ -136,7 +149,13 @@ impl InvoiceResult {
             InvoiceResult::AlreadyProcessed => {
                 "Skipping invoice already processed in a previous billing run".to_string()
             }
-            InvoiceResult::Error => "Error publishing invoices".to_string(),
+            InvoiceResult::Error => {
+                if dry_run {
+                    "Would fail to publish invoices".to_string()
+                } else {
+                    "Error publishing invoices".to_string()
+                }
+            }
         }
     }
 }
@@ -150,12 +169,31 @@ enum InvoiceAction {
         customer: Option<stripe::Customer>,
     },
     /// Create a new invoice. `replace` is set when --recreate-finalized
-    /// requires deleting an existing invoice first.
-    Create { replace: Option<stripe::InvoiceId> },
-    /// Update an existing draft invoice's line items.
+    /// requires deleting an existing invoice first. `customer` is the customer
+    /// found during classification, or None when none exists yet (execute then
+    /// creates one).
+    Create {
+        replace: Option<stripe::InvoiceId>,
+        customer: Option<stripe::Customer>,
+    },
+    /// Update an existing draft invoice's line items. `customer` is the invoice's
+    /// owner, already found during classification.
     Update {
         existing_invoice_id: stripe::InvoiceId,
+        customer: stripe::Customer,
     },
+}
+
+impl InvoiceAction {
+    /// The customer located during classification, if one exists in Stripe.
+    fn customer(&self) -> Option<&stripe::Customer> {
+        match self {
+            InvoiceAction::Skip { customer, .. } | InvoiceAction::Create { customer, .. } => {
+                customer.as_ref()
+            }
+            InvoiceAction::Update { customer, .. } => Some(customer),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, sqlx::FromRow)]
@@ -167,7 +205,6 @@ struct Invoice {
     billed_prefix: String,
     invoice_type: InvoiceType,
     extra: Option<sqlx::types::Json<Option<Extra>>>,
-    has_payment_method: Option<bool>,
     has_full_pipeline: bool,
     payment_provider: PaymentProvider,
     tenant_trial_start: Option<NaiveDate>,
@@ -200,7 +237,19 @@ impl Invoice {
         .await
         .context("Searching for an invoice")?;
 
-        Ok(invoice_search.into_iter().next())
+        // Prefer a live invoice over a voided one: after --recreate-finalized
+        // voids and recreates an invoice, both match this search, and
+        // classification should act on the replacement. A voided invoice is
+        // still returned when it's the only match, so that a voided manual
+        // invoice classifies as AlreadyProcessed rather than being recreated.
+        let mut voided = None;
+        for invoice in invoice_search {
+            if invoice.status != Some(stripe::InvoiceStatus::Void) {
+                return Ok(Some(invoice));
+            }
+            voided.get_or_insert(invoice);
+        }
+        Ok(voided)
     }
 
     /// Read-only classification: determines what action should be taken for this
@@ -211,8 +260,6 @@ impl Invoice {
         client: &stripe::Client,
         recreate_finalized: bool,
     ) -> anyhow::Result<InvoiceAction> {
-        // --- Phase 1: Cheap local checks (no Stripe calls) ---
-
         match (&self.invoice_type, &self.extra) {
             (InvoiceType::Preview, _) => {
                 bail!("Should not create Stripe invoices for preview invoices")
@@ -248,84 +295,88 @@ impl Invoice {
             });
         }
 
-        // --- Phase 2: Stripe calls (only for invoices that survived Phase 1) ---
-
-        // For Final invoices, verify the payment method state with Stripe.
-        // The DB capture has been known to be unreliable, so Stripe is the
-        // source of truth. If the tenant has no payment method, skip on
-        // NoDataMoved / NoFullPipeline.
-        let mut found_customer: Option<Option<stripe::Customer>> = None;
+        // Reuse this lookup for payment-method checks, invoice search, and execution.
+        let customer = find_customer(client, &self.billed_prefix).await?;
 
         if let (InvoiceType::Final, Some(extra)) = (&self.invoice_type, &self.extra) {
-            let validated_has_payment_method =
-                if let Some(has_payment_method) = self.has_payment_method {
-                    let customer = find_customer(client, &self.billed_prefix).await?;
-                    let real_has_pm = customer
-                        .as_ref()
-                        .and_then(|c| c.invoice_settings.as_ref())
-                        .and_then(|i| i.default_payment_method.as_ref())
-                        .is_some();
-
-                    if has_payment_method != real_has_pm {
-                        tracing::warn!(
-                            ?has_payment_method,
-                            stripe_payment_method = real_has_pm,
-                            "Inconsistent payment method state"
-                        );
-                    }
-
-                    found_customer = Some(customer);
-                    real_has_pm
-                } else {
-                    false
-                };
-
-            if !validated_has_payment_method {
-                let unwrapped_extra = extra.clone().0.expect(
-                    "This is just a sqlx quirk, if the outer Option is Some then this will be Some",
+            // If the outer Option is Some the inner should be too; treat a
+            // null inner as a data error rather than panicking and aborting
+            // the whole run.
+            let Some(unwrapped_extra) = extra.0.as_ref() else {
+                bail!(
+                    "Final invoice for {tenant} has a null `extra` payload",
+                    tenant = self.billed_prefix
                 );
+            };
 
+            let has_payment_method = customer
+                .as_ref()
+                .and_then(|c| c.invoice_settings.as_ref())
+                .and_then(|i| i.default_payment_method.as_ref())
+                .is_some();
+
+            if !has_payment_method {
                 if unwrapped_extra.processed_data_gb.unwrap_or_default() == 0.0 {
                     return Ok(InvoiceAction::Skip {
                         result: InvoiceResult::NoDataMoved,
-                        customer: found_customer.flatten(),
+                        customer,
                     });
                 }
 
                 if !self.has_full_pipeline {
                     return Ok(InvoiceAction::Skip {
                         result: InvoiceResult::NoFullPipeline,
-                        customer: found_customer.flatten(),
+                        customer,
                     });
                 }
             }
         }
 
-        // Look up customer (reuse if already fetched during payment method validation)
-        let customer = match found_customer {
-            Some(c) => c,
-            None => find_customer(client, &self.billed_prefix).await?,
-        };
-
         let customer = match customer {
             Some(c) => c,
             // No customer in Stripe means no existing invoice is possible
-            None => return Ok(InvoiceAction::Create { replace: None }),
+            None => {
+                return Ok(InvoiceAction::Create {
+                    replace: None,
+                    customer: None,
+                });
+            }
         };
 
         let customer_id = customer.id.to_string();
 
-        // Search for an existing invoice in Stripe
         if let Some(invoice) = self
             .get_stripe_invoice(client, customer_id.as_str())
             .await?
         {
             match invoice.status {
+                // Manual invoices are excluded from --recreate-finalized: an
+                // already-sent (open) manual invoice must not be voided and
+                // reissued, and a manual draft is refreshed via the Update arm below.
                 Some(stripe::InvoiceStatus::Open | stripe::InvoiceStatus::Draft)
-                    if recreate_finalized =>
+                    if recreate_finalized && !matches!(self.invoice_type, InvoiceType::Manual) =>
                 {
                     Ok(InvoiceAction::Create {
                         replace: Some(invoice.id),
+                        customer: Some(customer),
+                    })
+                }
+                // A voided invoice can be neither deleted nor updated, so treat
+                // it as absent and create a fresh replacement. This also
+                // recovers a --recreate-finalized run that voided an open
+                // invoice but failed before creating its replacement. Without
+                // the flag, the unsupported-state error below keeps a voided
+                // invoice loud rather than silently re-billing the tenant.
+                Some(stripe::InvoiceStatus::Void)
+                    if recreate_finalized && !matches!(self.invoice_type, InvoiceType::Manual) =>
+                {
+                    tracing::warn!(
+                        "Found voided invoice {id}; treating it as absent",
+                        id = invoice.id.to_string()
+                    );
+                    Ok(InvoiceAction::Create {
+                        replace: None,
+                        customer: Some(customer),
                     })
                 }
                 Some(stripe::InvoiceStatus::Draft) => {
@@ -335,6 +386,7 @@ impl Invoice {
                     );
                     Ok(InvoiceAction::Update {
                         existing_invoice_id: invoice.id,
+                        customer,
                     })
                 }
                 Some(stripe::InvoiceStatus::Open)
@@ -351,7 +403,7 @@ impl Invoice {
                 }
                 Some(stripe::InvoiceStatus::Open) => {
                     bail!(
-                        "Found open invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.",
+                        "Found open invoice {id}. Pass --recreate-finalized to void and recreate this invoice.",
                         id = invoice.id.to_string()
                     )
                 }
@@ -385,7 +437,10 @@ impl Invoice {
                 }
             }
         } else {
-            Ok(InvoiceAction::Create { replace: None })
+            Ok(InvoiceAction::Create {
+                replace: None,
+                customer: Some(customer),
+            })
         }
     }
 
@@ -399,18 +454,21 @@ impl Invoice {
         action: InvoiceAction,
         mode: ChargeType,
     ) -> anyhow::Result<InvoiceResult> {
-        let (is_update, replace, existing_invoice_id) = match action {
-            InvoiceAction::Skip { result, .. } => return Ok(result),
-            InvoiceAction::Create { replace, .. } => (false, replace, None),
+        let (replace, existing_invoice_id, found_customer) = match action {
+            InvoiceAction::Skip { .. } => {
+                unreachable!("Skip actions are resolved by the caller and never executed")
+            }
+            InvoiceAction::Create { replace, customer } => (replace, None, customer),
             InvoiceAction::Update {
                 existing_invoice_id,
-                ..
-            } => (true, None, Some(existing_invoice_id)),
+                customer,
+            } => (None, Some(existing_invoice_id), Some(customer)),
         };
+        let is_update = existing_invoice_id.is_some();
 
-        // Ensure customer exists and has an email (required for invoicing)
         let customer =
-            ensure_customer_for_invoicing(client, db_client, &self.billed_prefix).await?;
+            ensure_customer_for_invoicing(client, db_client, &self.billed_prefix, found_customer)
+                .await?;
 
         // Anything before 12:00:00 renders as the previous day in Stripe
         let date_start_secs = self
@@ -436,22 +494,30 @@ impl Invoice {
         let date_start_repr = self.date_start.format("%F").to_string();
         let date_end_repr = self.date_end.format("%F").to_string();
 
-        // Delete existing invoice if --recreate-finalized was used
+        // Remove the existing invoice if --recreate-finalized was used
         if let Some(ref replace_id) = replace {
-            // Re-verify the invoice status before deleting (guard against race conditions)
+            // Re-verify the invoice status before removing it (guard against race conditions)
             let existing = stripe::Invoice::retrieve(client, replace_id, &[]).await?;
             match existing.status {
-                Some(state @ (stripe::InvoiceStatus::Open | stripe::InvoiceStatus::Draft)) => {
+                Some(stripe::InvoiceStatus::Draft) => {
                     tracing::warn!(
-                        "Found invoice {id} in state {state}, deleting and recreating",
+                        "Found draft invoice {id}, deleting and recreating",
                         id = replace_id.to_string(),
-                        state = state
                     );
                     stripe::Invoice::delete(client, replace_id).await?;
                 }
+                // Stripe only permits deleting drafts; a finalized invoice
+                // must be voided instead.
+                Some(stripe::InvoiceStatus::Open) => {
+                    tracing::warn!(
+                        "Found open invoice {id}, voiding and recreating",
+                        id = replace_id.to_string(),
+                    );
+                    stripe::Invoice::void(client, replace_id).await?;
+                }
                 Some(status) => {
                     bail!(
-                        "Invoice {id} changed to state {status} since classification, cannot delete.",
+                        "Invoice {id} changed to state {status} since classification, cannot replace.",
                         id = replace_id.to_string(),
                         status = status
                     );
@@ -465,7 +531,6 @@ impl Invoice {
             }
         }
 
-        // Create or reuse the invoice
         // Manual invoices should always be sent as invoices rather than
         // charged to the customer's payment method.
         let mode = if self.invoice_type == InvoiceType::Manual {
@@ -473,13 +538,78 @@ impl Invoice {
         } else {
             mode
         };
+        let collection_method = match mode {
+            ChargeType::AutoCharge => stripe::CollectionMethod::ChargeAutomatically,
+            ChargeType::SendInvoice => stripe::CollectionMethod::SendInvoice,
+        };
+        // `send_invoice` requires a due date; `charge_automatically` must not carry one.
+        let due_date = match mode {
+            ChargeType::SendInvoice => Some((Utc::now() + Duration::days(30)).timestamp()),
+            ChargeType::AutoCharge => None,
+        };
 
         let invoice = if let Some(existing_id) = existing_invoice_id {
             tracing::debug!(
                 "Updating existing invoice {id}",
                 id = existing_id.to_string()
             );
-            stripe::Invoice::retrieve(client, &existing_id, &[]).await?
+            let existing = stripe::Invoice::retrieve(client, &existing_id, &[]).await?;
+
+            // Re-verify the invoice is still an updatable draft. It was a draft at
+            // classification time, but a concurrent run or a human finalizing /
+            // paying / voiding it in Stripe could have changed that; mutating a
+            // finalized invoice's line items would otherwise fail with an opaque
+            // Stripe error. Mirrors the guard on the delete/recreate path above.
+            match existing.status {
+                Some(stripe::InvoiceStatus::Draft) => {}
+                Some(status) => {
+                    bail!(
+                        "Invoice {id} changed to state {status} since classification, cannot update.",
+                        id = existing_id.to_string(),
+                        status = status
+                    );
+                }
+                None => {
+                    bail!(
+                        "Unexpected missing status from invoice {id}",
+                        id = existing_id.to_string()
+                    );
+                }
+            }
+
+            // The create path sets the collection method from `mode`, but the update
+            // path reuses whatever the invoice was originally created with. Reconcile
+            // toward `send_invoice` only, so a manual invoice previously stored as
+            // `charge_automatically` stops silently auto-charging the card. The
+            // reverse direction is deliberately not applied: it would undo the send
+            // workflow's switch to `send_invoice` for tenants without a payment
+            // method on file.
+            if collection_method == stripe::CollectionMethod::SendInvoice
+                && existing.collection_method != Some(collection_method)
+            {
+                #[derive(serde::Serialize)]
+                struct UpdateInvoice {
+                    collection_method: stripe::CollectionMethod,
+                    due_date: i64,
+                }
+                tracing::debug!(
+                    "Reconciling collection method of invoice {id} to {collection_method:?}",
+                    id = existing_id.to_string()
+                );
+                let updated: stripe::Invoice = client
+                    .post_form(
+                        &format!("/invoices/{existing_id}"),
+                        UpdateInvoice {
+                            collection_method,
+                            due_date: due_date.expect("send_invoice mode always sets a due date"),
+                        },
+                    )
+                    .await
+                    .context("Reconciling collection method of existing invoice")?;
+                updated
+            } else {
+                existing
+            }
         } else {
             let description_text = format!(
                 "Your Flow bill for the billing period between {date_start_human} - {date_end_human}. Tenant: {tenant}",
@@ -489,17 +619,9 @@ impl Invoice {
                 client,
                 stripe::CreateInvoice {
                     customer: Some(customer.id.to_owned()),
-                    due_date: match mode {
-                        ChargeType::SendInvoice => {
-                            Some((Utc::now() + Duration::days(30)).timestamp())
-                        }
-                        ChargeType::AutoCharge => None,
-                    },
+                    due_date,
                     description: Some(description_text.as_str()),
-                    collection_method: Some(match mode {
-                        ChargeType::AutoCharge => stripe::CollectionMethod::ChargeAutomatically,
-                        ChargeType::SendInvoice => stripe::CollectionMethod::SendInvoice,
-                    }),
+                    collection_method: Some(collection_method),
                     auto_advance: Some(false),
                     custom_fields: Some(vec![
                         stripe::CreateInvoiceCustomFields {
@@ -596,6 +718,8 @@ impl Invoice {
 
         if is_update {
             Ok(InvoiceResult::Updated)
+        } else if replace.is_some() {
+            Ok(InvoiceResult::Replaced)
         } else {
             Ok(InvoiceResult::Created(self.payment_provider))
         }
@@ -635,18 +759,11 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
                     subtotal::bigint as "subtotal!",
                     extra as "extra: sqlx::types::Json<Option<Extra>>",
-                    customer.has_payment_method as has_payment_method,
                     coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
                     tenants.payment_provider as "payment_provider!: PaymentProvider",
                     tenants.trial_start as tenant_trial_start
                 from invoices_ext
                 left join tenants on tenants.tenant = billed_prefix
-                left join lateral(
-                	select bool_or("invoice_settings/default_payment_method" is not null) as has_payment_method
-                	from stripe.customers
-                	where customers.metadata->>'estuary.dev/tenant_name' = billed_prefix
-                	group by billed_prefix
-                ) as customer on true
                 left join lateral(
                 	select
                 		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') > 0
@@ -686,18 +803,11 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                     line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
                     subtotal::bigint as "subtotal!",
                     extra as "extra: sqlx::types::Json<Option<Extra>>",
-                    customer.has_payment_method as has_payment_method,
                     coalesce(dataflow.has_full_pipeline, false) as "has_full_pipeline!",
                     tenants.payment_provider as "payment_provider!: PaymentProvider",
                     tenants.trial_start as tenant_trial_start
                 from invoices_ext
                 left join tenants on tenants.tenant = billed_prefix
-                left join lateral(
-                	select bool_or("invoice_settings/default_payment_method" is not null) as has_payment_method
-                	from stripe.customers
-                	where customers.metadata->>'estuary.dev/tenant_name' = billed_prefix
-                	group by billed_prefix
-                ) as customer on true
                 left join lateral(
                 	select
                 		sum(catalog_stats_monthly.usage_seconds) filter (where live_specs.spec_type = 'capture') > 0
@@ -732,25 +842,19 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             .or_default() += 1;
     });
 
+    let usage = invoice_type_counter
+        .remove(&InvoiceType::Final)
+        .unwrap_or_default();
+    let manual = invoice_type_counter
+        .remove(&InvoiceType::Manual)
+        .unwrap_or_default();
     if cmd.dry_run {
         tracing::info!(
-            "[DRY RUN] Classifying {usage} usage-based invoices and {manual} manually-entered invoices without making any changes to Stripe.",
-            usage = invoice_type_counter
-                .remove(&InvoiceType::Final)
-                .unwrap_or_default(),
-            manual = invoice_type_counter
-                .remove(&InvoiceType::Manual)
-                .unwrap_or_default(),
+            "[dry-run] Classifying {usage} usage-based invoices and {manual} manually-entered invoices without making any changes to Stripe."
         );
     } else {
         tracing::info!(
-            "Processing {usage} usage-based invoices, and {manual} manually-entered invoices.",
-            usage = invoice_type_counter
-                .remove(&InvoiceType::Final)
-                .unwrap_or_default(),
-            manual = invoice_type_counter
-                .remove(&InvoiceType::Manual)
-                .unwrap_or_default(),
+            "Processing {usage} usage-based invoices, and {manual} manually-entered invoices."
         );
     }
 
@@ -760,127 +864,14 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             let client = stripe_client.clone();
             let db_pool = db_pool.clone();
 
-            let annotation = match response.invoice_type {
-                InvoiceType::Manual => Some(format!(
-                    "[manual: {} - {}]",
-                    response.date_start.format("%Y-%m-%d"),
-                    response.date_end.format("%Y-%m-%d")
-                )),
-                _ => None,
-            };
-
             async move {
-                let action = response
-                    .classify(&client, cmd.recreate_finalized)
-                    .await;
-
-                match action {
-                    Err(err) => {
-                        let formatted = format!(
-                            "Error classifying {invoice_type:?} invoice for {tenant}",
-                            tenant = response.billed_prefix,
-                            invoice_type = response.invoice_type
-                        );
-                        Err(anyhow::anyhow!("{formatted}: {err:#}"))
-                    }
-                    Ok(InvoiceAction::Skip { result, customer }) => {
-                        tracing::debug!(
-                            tenant = response.billed_prefix,
-                            invoice_type = format!("{:?}", response.invoice_type),
-                            subtotal = format!("${:.2}", response.subtotal as f64 / 100.0),
-                            "{}",
-                            result.message(cmd.dry_run)
-                        );
-
-                        if cmd.clean_up {
-                            let task_res: Result<(), anyhow::Error> = async {
-                                let customer = match customer {
-                                    Some(c) => c,
-                                    None => return Ok(()),
-                                };
-                                let customer_id = customer.id.to_string();
-
-                                if let Some(invoice) =
-                                    response.get_stripe_invoice(&client, &customer_id).await?
-                                {
-                                    if let Some(InvoiceStatus::Draft) = invoice.status {
-                                        if cmd.dry_run {
-                                            tracing::warn!(
-                                                tenant = response.billed_prefix.to_string(),
-                                                "[dry-run] Would delete stale draft invoice {}",
-                                                invoice.id
-                                            );
-                                        } else {
-                                            tracing::warn!(
-                                                tenant = response.billed_prefix.to_string(),
-                                                "Deleting draft invoice!"
-                                            );
-                                            stripe::Invoice::delete(&client, &invoice.id).await?;
-                                        }
-                                    }
-                                }
-                                Ok(())
-                            }
-                            .await;
-
-                            if let Err(e) = task_res {
-                                tracing::warn!("Failed to check for or clear potential leaked draft invoices for {}, this is probably not a problem: {e:#}", response.billed_prefix.to_owned());
-                            }
-                        }
-
-                        Ok((result, response.subtotal, response.billed_prefix.to_owned(), annotation))
-                    }
-                    Ok(action) if cmd.dry_run => {
-                        let result = match &action {
-                            InvoiceAction::Create { replace: Some(id), .. } => {
-                                tracing::info!(
-                                    tenant = response.billed_prefix,
-                                    "[dry-run] Would delete existing invoice {} and recreate",
-                                    id
-                                );
-                                InvoiceResult::Created(response.payment_provider)
-                            }
-                            InvoiceAction::Create { .. } => {
-                                InvoiceResult::Created(response.payment_provider)
-                            }
-                            InvoiceAction::Update { .. } => InvoiceResult::Updated,
-                            InvoiceAction::Skip { .. } => unreachable!(),
-                        };
-                        tracing::debug!(
-                            tenant = response.billed_prefix,
-                            invoice_type = format!("{:?}", response.invoice_type),
-                            subtotal = format!("${:.2}", response.subtotal as f64 / 100.0),
-                            "[dry-run] {}",
-                            result.message(cmd.dry_run)
-                        );
-                        Ok((result, response.subtotal, response.billed_prefix.to_owned(), annotation))
-                    }
-                    Ok(action) => {
-                        let res = response
-                            .execute(&client, &db_pool, action, cmd.charge_type)
-                            .await;
-                        match res {
-                            Err(err) => {
-                                let formatted = format!(
-                                    "Error publishing {invoice_type:?} invoice for {tenant}",
-                                    tenant = response.billed_prefix,
-                                    invoice_type = response.invoice_type
-                                );
-                                Err(anyhow::anyhow!("{formatted}: {err:#}"))
-                            }
-                            Ok(res) => {
-                                tracing::debug!(
-                                    tenant = response.billed_prefix,
-                                    invoice_type = format!("{:?}", response.invoice_type),
-                                    subtotal = format!("${:.2}", response.subtotal as f64 / 100.0),
-                                    "{}",
-                                    res.message(cmd.dry_run)
-                                );
-                                Ok((res, response.subtotal, response.billed_prefix.to_owned(), annotation))
-                            }
-                        }
-                    }
-                }
+                let result = process_invoice(cmd, &client, &db_pool, response).await?;
+                anyhow::Ok((
+                    result,
+                    response.subtotal,
+                    response.billed_prefix.to_owned(),
+                    manual_annotation(response),
+                ))
             }
             .boxed()
             .map_err(|e| (e, response.clone()))
@@ -895,7 +886,8 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             .or_else(|(err, invoice)| async move {
                 if !cmd.fail_fast {
                     tracing::error!("[{}]: {err:#}", invoice.billed_prefix);
-                    Ok((InvoiceResult::Error, 0, invoice.billed_prefix, None))
+                    let annotation = manual_annotation(&invoice);
+                    Ok((InvoiceResult::Error, 0, invoice.billed_prefix, annotation))
                 } else {
                     Err(err)
                 }
@@ -926,7 +918,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             *subtotal_agg as f64 / 100.0
         );
         let limit = match status {
-            InvoiceResult::Created(_) | InvoiceResult::Updated => 9999,
+            InvoiceResult::Created(_) | InvoiceResult::Updated | InvoiceResult::Replaced => 9999,
             InvoiceResult::NoDataMoved
             | InvoiceResult::NoFullPipeline
             | InvoiceResult::LessThanMinimum
@@ -957,13 +949,162 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Process a single invoice end-to-end: classify it, then execute the action
+/// (or preview it under --dry-run), returning the summary bucket for the run
+/// report. Skips optionally clean up a stale draft left behind in Stripe.
+async fn process_invoice(
+    cmd: &PublishInvoice,
+    client: &stripe::Client,
+    db_pool: &Pool<Postgres>,
+    invoice: &Invoice,
+) -> anyhow::Result<InvoiceResult> {
+    let action = invoice
+        .classify(client, cmd.recreate_finalized)
+        .await
+        .with_context(|| {
+            format!(
+                "Error classifying {invoice_type:?} invoice for {tenant}",
+                tenant = invoice.billed_prefix,
+                invoice_type = invoice.invoice_type
+            )
+        })?;
+
+    // A real run resolves a billing email inside execute(), which bails when
+    // none can be found. Mirror that read-only so the preview reports such
+    // tenants as errors instead of claiming the invoice would be published.
+    // (The invoice total cannot be reconciled without creating the invoice in
+    // Stripe, so that check is necessarily skipped.)
+    if cmd.dry_run && !matches!(action, InvoiceAction::Skip { .. }) {
+        if !billing_email_available(db_pool, action.customer(), &invoice.billed_prefix).await? {
+            let reason = "no customer email, tenants.billing_email, or admin user to invoice";
+            tracing::warn!(
+                tenant = invoice.billed_prefix,
+                "[dry-run] Would fail: {reason}"
+            );
+            if cmd.fail_fast {
+                bail!(
+                    "[dry-run] Would fail to publish invoice for {tenant}: {reason}",
+                    tenant = invoice.billed_prefix
+                );
+            }
+            return Ok(InvoiceResult::Error);
+        }
+    }
+
+    let result = match (action, cmd.dry_run) {
+        (InvoiceAction::Skip { result, customer }, _) => {
+            if cmd.clean_up {
+                clean_up_stale_draft(client, invoice, customer, cmd.dry_run).await;
+            }
+            result
+        }
+        (
+            InvoiceAction::Create {
+                replace: Some(id), ..
+            },
+            true,
+        ) => {
+            tracing::info!(
+                tenant = invoice.billed_prefix,
+                "[dry-run] Would replace existing invoice {}",
+                id
+            );
+            InvoiceResult::Replaced
+        }
+        (InvoiceAction::Create { .. }, true) => InvoiceResult::Created(invoice.payment_provider),
+        (InvoiceAction::Update { .. }, true) => InvoiceResult::Updated,
+        (action, false) => invoice
+            .execute(client, db_pool, action, cmd.charge_type)
+            .await
+            .with_context(|| {
+                format!(
+                    "Error publishing {invoice_type:?} invoice for {tenant}",
+                    tenant = invoice.billed_prefix,
+                    invoice_type = invoice.invoice_type
+                )
+            })?,
+    };
+
+    tracing::debug!(
+        tenant = invoice.billed_prefix,
+        invoice_type = format!("{:?}", invoice.invoice_type),
+        subtotal = format!("${:.2}", invoice.subtotal as f64 / 100.0),
+        "{}",
+        result.message(cmd.dry_run)
+    );
+    Ok(result)
+}
+
+/// Best-effort removal of a stale draft invoice for a bill that was skipped:
+/// checks Stripe for a matching draft and deletes it (or reports it under
+/// --dry-run). Failures are logged rather than failing the run.
+async fn clean_up_stale_draft(
+    client: &stripe::Client,
+    invoice: &Invoice,
+    customer: Option<stripe::Customer>,
+    dry_run: bool,
+) {
+    let task_res: anyhow::Result<()> = async {
+        // Locally resolved skips do not carry a Stripe customer, so find it
+        // here when cleaning up stale drafts.
+        let customer = match customer {
+            Some(c) => c,
+            None => match find_customer(client, &invoice.billed_prefix).await? {
+                Some(c) => c,
+                None => return Ok(()),
+            },
+        };
+        let customer_id = customer.id.to_string();
+
+        if let Some(stripe_invoice) = invoice.get_stripe_invoice(client, &customer_id).await? {
+            if let Some(stripe::InvoiceStatus::Draft) = stripe_invoice.status {
+                if dry_run {
+                    tracing::warn!(
+                        tenant = invoice.billed_prefix.to_string(),
+                        "[dry-run] Would delete stale draft invoice {}",
+                        stripe_invoice.id
+                    );
+                } else {
+                    tracing::warn!(
+                        tenant = invoice.billed_prefix.to_string(),
+                        "Deleting draft invoice!"
+                    );
+                    stripe::Invoice::delete(client, &stripe_invoice.id).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+    .await;
+
+    if let Err(e) = task_res {
+        tracing::warn!(
+            "Failed to check for or clear potential leaked draft invoices for {}, this is probably not a problem: {e:#}",
+            invoice.billed_prefix.to_owned()
+        );
+    }
+}
+
+/// Display tag distinguishing a manually-entered invoice (and its period) in the
+/// run summary; usage invoices get no tag.
+fn manual_annotation(invoice: &Invoice) -> Option<String> {
+    match invoice.invoice_type {
+        InvoiceType::Manual => Some(format!(
+            "[manual: {} - {}]",
+            invoice.date_start.format("%Y-%m-%d"),
+            invoice.date_end.format("%Y-%m-%d")
+        )),
+        _ => None,
+    }
+}
+
 /// Read-only: search Stripe for an existing customer by tenant metadata.
 #[tracing::instrument(skip(client))]
 async fn find_customer(
     client: &stripe::Client,
     tenant: &str,
 ) -> anyhow::Result<Option<stripe::Customer>> {
-    let customers: Vec<stripe::Customer> = stripe_search(
+    let mut customers: Vec<stripe::Customer> = stripe_search(
         client,
         "customers",
         SearchParams {
@@ -974,7 +1115,7 @@ async fn find_customer(
     .await
     .context(format!("Searching for tenant {tenant}"))?;
 
-    if let Some(customer) = customers.into_iter().next() {
+    if let Some(customer) = customers.drain(..).next() {
         tracing::debug!("Found existing customer {id}", id = customer.id.to_string());
         Ok(Some(customer))
     } else {
@@ -983,22 +1124,24 @@ async fn find_customer(
 }
 
 /// Ensures a Stripe customer exists for this tenant and is ready for invoicing.
-/// Finds an existing customer or creates a new one, then ensures the customer
-/// has an email set (looking up the earliest admin on the tenant if needed).
-#[tracing::instrument(skip(client, db_client))]
+/// Uses `found` (the customer located during classification) when present,
+/// otherwise finds an existing customer or creates a new one (carrying the
+/// tenant's billing email and address from the control-plane DB), then ensures
+/// the customer has an email set (falling back to the earliest admin on the
+/// tenant if needed).
+#[tracing::instrument(skip(client, db_client, found))]
 async fn ensure_customer_for_invoicing(
     client: &stripe::Client,
     db_client: &Pool<Postgres>,
     tenant: &str,
+    found: Option<stripe::Customer>,
 ) -> anyhow::Result<stripe::Customer> {
-    let billing_row = sqlx::query!(
-        r#"SELECT billing_email, billing_address FROM tenants WHERE tenant = $1"#,
-        tenant,
-    )
-    .fetch_optional(db_client)
-    .await?;
+    let existing = match found {
+        Some(customer) => Some(customer),
+        None => find_customer(client, tenant).await?,
+    };
 
-    let customer = if let Some(customer) = find_customer(client, tenant).await? {
+    let customer = if let Some(customer) = existing {
         customer
     } else {
         tracing::debug!("Creating new customer");
@@ -1011,6 +1154,7 @@ async fn ensure_customer_for_invoicing(
                 customer_create_idempotency_key(tenant),
             ));
 
+        let billing_row = tenant_billing_row(db_client, tenant).await?;
         let billing_email = billing_row
             .as_ref()
             .and_then(|r| r.billing_email.as_deref());
@@ -1051,22 +1195,71 @@ async fn ensure_customer_for_invoicing(
     };
 
     if customer.email.is_none() {
-        let db_email = billing_row.as_ref().and_then(|r| r.billing_email.clone());
+        let db_email = tenant_billing_row(db_client, tenant)
+            .await?
+            .and_then(|r| r.billing_email);
 
-        if let Some(email) = db_email {
-            tracing::info!("Using billing_email from tenants table: {email}");
-            stripe::Customer::update(
-                client,
-                &customer.id,
-                stripe::UpdateCustomer {
-                    email: Some(&email),
-                    ..Default::default()
-                },
-            )
-            .await?;
-        } else {
-            let responses = sqlx::query!(
-                r#"
+        let email = match db_email {
+            Some(email) => {
+                tracing::info!("Using billing_email from tenants table: {email}");
+                email
+            }
+            None => match earliest_admin_email(db_client, tenant).await? {
+                Some(email) => {
+                    tracing::warn!(
+                        "Stripe customer object is missing an email. Going with {email}, an admin on that tenant."
+                    );
+                    email
+                }
+                None => bail!(
+                    "Stripe customer object is missing an email. No admins found for tenant {tenant}, unable to create invoice without email. Skipping"
+                ),
+            },
+        };
+
+        stripe::Customer::update(
+            client,
+            &customer.id,
+            stripe::UpdateCustomer {
+                email: Some(&email),
+                ..Default::default()
+            },
+        )
+        .await?;
+    }
+    Ok(customer)
+}
+
+/// A tenant's billing contact info from the control-plane DB.
+struct TenantBillingRow {
+    billing_email: Option<String>,
+    billing_address: Option<serde_json::Value>,
+}
+
+/// Read-only: the tenant's billing contact row, if the tenant exists.
+async fn tenant_billing_row(
+    db_client: &Pool<Postgres>,
+    tenant: &str,
+) -> anyhow::Result<Option<TenantBillingRow>> {
+    Ok(sqlx::query_as!(
+        TenantBillingRow,
+        r#"SELECT billing_email, billing_address FROM tenants WHERE tenant = $1"#,
+        tenant,
+    )
+    .fetch_optional(db_client)
+    .await?)
+}
+
+/// Read-only: the email of the earliest-created admin user on the tenant, if any.
+async fn earliest_admin_email(
+    db_client: &Pool<Postgres>,
+    tenant: &str,
+) -> anyhow::Result<Option<String>> {
+    // NOTE: the SQL text below is intentionally indented to stay byte-identical
+    // to the query this was extracted from, so it keeps hitting the same
+    // offline sqlx cache entry.
+    let responses = sqlx::query!(
+        r#"
                     select users.email as email
                     from user_grants
                     join auth.users as users on user_grants.user_id = users.id
@@ -1079,35 +1272,35 @@ async fn ensure_customer_for_invoicing(
                     )
                     order by users.created_at asc
                 "#,
-                tenant
-            )
-            .fetch_all(db_client)
-            .await?;
+        tenant
+    )
+    .fetch_all(db_client)
+    .await?;
 
-            if let Some(email) = responses
-                .iter()
-                .find_map(|response| response.email.to_owned())
-            {
-                tracing::warn!(
-                    "Stripe customer object is missing an email. Going with {email}, an admin on that tenant."
-                );
-                stripe::Customer::update(
-                    client,
-                    &customer.id,
-                    stripe::UpdateCustomer {
-                        email: Some(&email),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-            } else {
-                bail!(
-                    "Stripe customer object is missing an email. No admins found for tenant {tenant}, unable to create invoice without email. Found users: {found:?} Skipping",
-                    found = responses,
-                    tenant = tenant
-                );
-            }
-        }
+    Ok(responses.into_iter().find_map(|r| r.email))
+}
+
+/// Read-only mirror of the email requirement enforced by
+/// `ensure_customer_for_invoicing`: the classified customer's email, else
+/// `tenants.billing_email`, else the earliest tenant admin. Returns whether an
+/// email could be resolved without performing any writes, so --dry-run can
+/// report tenants that would fail to invoice rather than over-reporting success.
+async fn billing_email_available(
+    db_client: &Pool<Postgres>,
+    customer: Option<&stripe::Customer>,
+    tenant: &str,
+) -> anyhow::Result<bool> {
+    if customer.is_some_and(|c| c.email.is_some()) {
+        return Ok(true);
     }
-    Ok(customer)
+
+    if tenant_billing_row(db_client, tenant)
+        .await?
+        .and_then(|r| r.billing_email)
+        .is_some()
+    {
+        return Ok(true);
+    }
+
+    Ok(earliest_admin_email(db_client, tenant).await?.is_some())
 }
