@@ -1928,9 +1928,9 @@ fn scrub_measures(frontier: &shuffle::Frontier) -> shuffle::Frontier {
 ///
 /// Phase 3 (resumed): resuming from the cumulative checkpoint recovers P1
 /// committed (negative offset) — NOT gapped — so the apples read starts at M
-/// with no replay and never re-reads the settled span `[O, M)`. The
+/// with no replay and never re-reads the closed span `[O, M)`. The
 /// withheld bananas ACK is written before the resume, so T2 resolves and
-/// delivers its bananas document exactly once; nothing of P1's settled apples
+/// delivers its bananas document exactly once; nothing of P1's closed apples
 /// span is re-delivered.
 async fn hint_elevated_offset_flip(
     materialization_spec: &flow::MaterializationSpec,
@@ -2175,7 +2175,7 @@ async fn hint_elevated_offset_flip(
 
     // Resume from the cumulative checkpoint. P1's apples entry {H1, H1, -M}
     // recovers committed — NOT gapped — so the read starts at M, skips the
-    // settled span [O, M) without a replay, and treats apples' recovery ACK
+    // closed span [O, M) without a replay, and treats apples' recovery ACK
     // as an empty commit. Only T2's bananas document is newly delivered.
     let mut resumed = shuffle::SessionClient::open(
         service,
@@ -2195,7 +2195,7 @@ async fn hint_elevated_offset_flip(
             .map(|e| e.doc["id"].as_str().unwrap())
             .collect::<Vec<_>>(),
         vec!["he-p1-b2"],
-        "only T2's bananas document is delivered; the settled apples span is never re-read",
+        "only T2's bananas document is delivered; the closed apples span is never re-read",
     );
     insta::assert_debug_snapshot!(
         "hint_elevated_offset_resumed",
@@ -2212,13 +2212,13 @@ async fn hint_elevated_offset_flip(
 /// real (if unread) open span, and an OUTSIDE_TXN with no intervening rollback
 /// ACK cannot sequence against it. The session must fail-fast with
 /// `OutsideWithPrecedingContinue` — identical to a non-gapped producer carrying a
-/// genuine pending span.
+/// genuine open span.
 ///
 /// P2 opens a CONTINUE span at F = 0; P1 commits an OUTSIDE advancing M past F;
 /// session 1 captures the checkpoint. P2 then violates the producer protocol by
 /// writing an OUTSIDE without first rolling back its open span. On resume P2 is
 /// gapped, and the main read reaches P2's OUTSIDE: `uuid::sequence` rejects it
-/// against the pending sentinel and the session tears down with the sequencing
+/// against the open-span sentinel and the session tears down with the sequencing
 /// error. No replay is attempted — an OUTSIDE never triggers one.
 async fn gapped_outside_violation(
     materialization_spec: &flow::MaterializationSpec,

@@ -32,12 +32,13 @@ pub struct ReadState {
     /// Truncation boundary of the latest `BackfillComplete` folded from a
     /// committing ACK on this journal, awaiting the next flush (zero = none).
     pub backfill_complete: uuid::Clock,
-    /// Producers whose state is settled: either from the initial checkpoint
-    /// or drained from `pending` at the start of a flush cycle.
-    pub settled: ProducerMap<ProducerState>,
+    /// Producers whose state has been reported in a flush frontier: either from
+    /// the initial checkpoint or drained from `unreported` at the start of a
+    /// flush cycle.
+    pub reported: ProducerMap<ProducerState>,
     /// Producers updated since the last flush cycle started.
-    /// Drained into `settled` at the start of each flush.
-    pub pending: ProducerMap<ProducerState>,
+    /// Drained into `reported` at the start of each flush.
+    pub unreported: ProducerMap<ProducerState>,
     /// End offset of most recently processed document.
     pub read_offset: i64,
     /// Read offset as of last flush (baseline for bytes_read_delta).
@@ -49,13 +50,13 @@ pub struct ReadState {
 }
 
 impl ReadState {
-    /// Construct a `ReadState` for a read with `settled` producers recovered
+    /// Construct a `ReadState` for a read with `reported` producers recovered
     /// from its checkpoint.
     pub fn recovered(
         binding_index: u16,
         journal: Box<str>,
         truncated_at: uuid::Clock,
-        settled: ProducerMap<ProducerState>,
+        reported: ProducerMap<ProducerState>,
     ) -> Self {
         Self {
             binding_index,
@@ -63,8 +64,8 @@ impl ReadState {
             truncated_at,
             backfill_begin: uuid::Clock::zero(),
             backfill_complete: uuid::Clock::zero(),
-            settled,
-            pending: Default::default(),
+            reported,
+            unreported: Default::default(),
             read_offset: 0,
             prev_read_offset: 0,
             write_head: 0,
@@ -92,8 +93,8 @@ impl ReadState {
 
     /// Retrieve the latest state of a Producer.
     pub fn producer_state(&self, producer: uuid::Producer) -> ProducerState {
-        (self.pending.get(&producer))
-            .or_else(|| self.settled.get(&producer))
+        (self.unreported.get(&producer))
+            .or_else(|| self.reported.get(&producer))
             .cloned()
             .unwrap_or_default()
     }

@@ -102,7 +102,7 @@ pub const FRONTIER_PRUNE_CLOCK_HORIZON: std::time::Duration =
 /// Minimum journal byte distance between a committed-frontier producer's read
 /// offset and the furthest-along read offset of the same `(journal, state_key)`
 /// before the stale producer becomes a pruning candidate. Byte distance is the
-/// real operational cost of keeping an old pending span replayable: a retained
+/// real operational cost of keeping an old open span replayable: a retained
 /// positive-offset entry forces the next session to re-read from that offset.
 /// See [`prune_committed_frontier`].
 pub const FRONTIER_PRUNE_BYTE_HORIZON: i64 = 8 * 1024 * 1024 * 1024;
@@ -752,17 +752,28 @@ fn decode_frontier_entry(
 /// issue the matching RocksDB deletes. `JournalFrontier`s left without any
 /// producers are removed from `committed`.
 ///
+/// This prune is a deliberate, bounded relaxation of the Frontier invariant
+/// (canonically stated on `shuffle::Frontier`): a pruned producer's committing
+/// closes below the journal's cut floor lose their coverage, so a re-read of
+/// that content would sequence its documents afresh rather than as duplicates.
+/// The accepted risk is bounded double-processing, and the conditions below are
+/// what bound it.
+///
 /// Pruning is conservative: within a `(journal, binding)` group — equivalently a
 /// `(journal, state_key)` group, since each state_key maps to a single binding —
 /// a producer `P` is pruned only when **all** of:
 ///
 /// 1. No `FH:` (hinted) entry exists for the same `(journal, binding, producer)`
-///    — a hinted producer's committed entry is its idempotent-replay baseline
-///    and must be retained.
+///    — a hinted producer's committed entry is its idempotent-replay baseline,
+///    where coverage is load-bearing, and must be retained.
 /// 2. `P.last_commit` trails the group's newest `last_commit` by at least
 ///    [`FRONTIER_PRUNE_CLOCK_HORIZON`].
 /// 3. `P`'s read offset (`offset.abs()`) trails the group's furthest-along read
 ///    offset by at least [`FRONTIER_PRUNE_BYTE_HORIZON`].
+///
+/// Conditions 2 and 3 are the clock and byte horizons which bound the deviation:
+/// a producer is forgotten only once it is both ancient and far behind, so its
+/// forgotten content is overwhelmingly likely to never be re-read.
 ///
 /// `committed` and `hinted` are the per-`(journal, binding)` chunks collected by
 /// [`decode_recover_key_value`]; both are grouped (consecutive RocksDB key

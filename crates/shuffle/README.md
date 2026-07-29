@@ -130,19 +130,71 @@ for AuthN and AuthZ scoping to the requested task topology.
 (key_hash, r_clock) space. Shards tile the full `[0, 0xFFFFFFFF]` range
 in both dimensions. Each shard runs one Slice RPC actor and one Log RPC actor.
 
+**Span**: A single run of CONTINUE_TXN documents by one producer in one journal,
+without an interleaving ACK. The producer's first CONTINUE_TXN *opens* a span and
+further CONTINUEs extend it. It *closes* either by a committing ACK_TXN /
+OUTSIDE_TXN — a **committing close**, of which an empty ACK is the degenerate case,
+closing an empty span — or by a rollback, which closes by **discarding**. At most
+one span is open per producer at any offset. Sequencing lives in `slice/producer.rs`.
+
+**Cut**: The offset a journal was read through to produce a Frontier. It's never
+represented explicitly, and is bounded from below only by the **cut floor**
+`M = max|offset|` across the journal's producer entries.
+
+**Open / Closed**: A producer's state at a cut: *open* if it has an open span at
+the cut, else *closed*. The `offset` sign encoding of `frontier.rs` is a direct
+readout — non-negative (`+begin` of the open span) ⇔ open; negative (the negated
+end of the last committing close) ⇔ closed.
+
+**Covered by**: The relation between a committing close — or any re-read
+document — and a `last_commit` at-or-above its clock. A close covered by
+`last_commit` is one already accounted for downstream, and a re-read covered by
+`last_commit` sequences as a duplicate. Rollback closes need no coverage: a
+re-read rollback re-discards, owing nothing downstream.
+
+**Accounts for**: The umbrella over both arms of the Frontier invariant — an
+entry accounts for its producer's history via covered committing closes plus a
+located open span.
+
+**Gapped**: A producer recovered *open* whose span's `+begin` lies below the
+offset its journal read resumed from. The skipped range `[begin, resume)` is
+recovered by a single bounded replay, triggered lazily by the producer's next
+document (`slice/replay.rs`).
+
+**Cumulative vs delta Frontier**: A *delta* carries only the journals and
+producers which progressed since the last checkpoint. A *cumulative* Frontier
+holds the complete reduction of every delta since genesis, leaving out nothing
+which progressed. Durable resume checkpoints are cumulative, emitted `ready`
+frontiers and peeks are deltas.
+
+**The Frontier invariant**: A cumulative Frontier's entries always describe one
+continuous read through its cut floor and account for every committing close and
+open span below it — which is what makes it sound to resume from. Canonically
+stated on `Frontier` in `frontier.rs`.
+
 **Causal Hints**: ACKs are documents written to journals by a producer, and contain
-a clock that acknowledges or rolls back preceding lesser-clock documents from that
-same producer, in that same journal. They don't commit documents in _other_ journals.
-However, producers frequently write multi-journal transactions, and ACKs can contain
-"causal hints" that tell a reader that the ACK correlates with related ACKs in specific
-journals. To support end-to-end multi journal transactions, this implementation delays
-checkpoint visibility until correlated ACKs across read journals of the same cohort
-have all been read through.
+a clock which closes that producer's open span of preceding lesser-clock documents,
+in that same journal — a committing close or a rollback. An ACK closes nothing
+in _other_ journals. However, producers frequently write multi-journal transactions,
+and ACKs can contain "causal hints" that tell a reader that the ACK correlates with
+related ACKs in specific journals. To support end-to-end multi journal transactions,
+this implementation delays checkpoint visibility until the correlated committing
+closes across read journals of the same cohort have all been read through.
 
 **Cohorts**: Journals having the same priority and read-delay are grouped together
-into cohorts, which is the unit of transaction visibility coordination: causal hints
-are only tracked within a cohort, allowing different cohorts to make progress independently.
-For example, a binding read with an explicit delay cannot gate a binding read in real time.
+into cohorts, which is the unit of transaction visibility coordination: a hint's
+correlated committing closes are only tracked within a cohort, allowing different
+cohorts to make progress independently. For example, a binding read with an
+explicit delay cannot gate a binding read in real time.
+
+#### Terms to avoid
+
+- *claim / claimed* — invokes confusing agency (claimed by whom?). Say "covered
+  by", or a plain verb like "reported" or "took".
+- *subsume / subsumable* — the same confusion. Say "covered by".
+- *settle / settled / settling* — was used for both span closure and flush
+  accounting. Say "close" / "closing document" for spans, "reported" for flush
+  accounting.
 
 ## Comparison with legacy shuffle implementation (`go/shuffle/`)
 
@@ -153,13 +205,13 @@ this crate:
 optimistically from the latest journal offset, so when an uncommitted
 transaction later commits it must perform bounded "replay reads" to re-read
 that data — a routine, high-latency part of steady-state reading. This
-implementation reads forward and stages uncommitted spans into the log inline,
+implementation reads forward and stages open spans into the log inline,
 so steady-state reading never replays. Replay is confined to restart recovery:
-a `(binding, journal)` read resumes from the furthest offset its checkpoint
-justifies (the maximum offset magnitude across producer entries), and a
-producer whose uncommitted span begins before that offset is *gapped* — its
-skipped range is recovered by a single bounded historical replay, triggered
-lazily by the producer's first newer document (see `slice/replay.rs`).
+a `(binding, journal)` read resumes from its checkpoint's cut floor
+(`M = max|offset|` across producer entries), and a producer whose open span
+begins before `M` is *gapped* — its skipped range is recovered by a single
+bounded historical replay, triggered lazily by the producer's first newer
+document (see `slice/replay.rs`).
 
 **Per-shard RPCs → shared streams**: The legacy system starts an RPC per
 (shard, journal) pair, which doesn't scale: at M=10 shards with N=100k
@@ -231,10 +283,10 @@ target Slice.
 ### 4. Journal Reading
 
 The Slice receives `StartRead`, resolves the checkpoint into per-producer
-state and a start offset (the maximum offset magnitude across producer
-entries), and initiates a Gazette streaming read. A recovered producer whose
-uncommitted span begins before that start offset is marked *gapped* and its
-skipped range is recovered later by a bounded replay (see `slice/replay.rs`).
+state and a start offset (the checkpoint's cut floor, `M = max|offset|` across
+producer entries), and initiates a Gazette streaming read. A recovered producer
+whose open span begins before `M` is marked *gapped* and its skipped range is
+recovered later by a bounded replay (see `slice/replay.rs`).
 It first probes the journal write head to determine whether the read is already
 tailing (caught up).
 
@@ -270,14 +322,16 @@ cross-transform ordering guarantees.
 The top document is sequenced against per-producer state using
 `uuid::sequence()`, which classifies it as one of:
 
-- **ContinueBeginSpan / ContinueExtendSpan**: Part of an uncommitted transaction.
-  Appended to a log, and no flush cycle is triggered.
-- **OutsideCommit**: A single-document transaction.
-  Appended to a log and triggers a flush.
-- **AckCommit / AckCleanRollback / AckDeepRollback**: Transaction boundary.
+- **ContinueBeginSpan / ContinueExtendSpan**: Opens or extends the producer's
+  open span. Appended to a log, and no flush cycle is triggered.
+- **OutsideCommit**: A single-document transaction — a committing close of an
+  otherwise-empty span. Appended to a log and triggers a flush.
+- **AckCommit / AckCleanRollback / AckDeepRollback**: Closes the producer's span:
+  AckCommit is a committing close, while the rollbacks close by discarding.
   Not appended to a log, but triggers a flush.
   For ACK_TXN documents, causal hints are extracted.
-- **Duplicates**: Already-seen documents. Silently dropped.
+- **Duplicates**: Already-seen documents, covered by the producer's `last_commit`.
+  Silently dropped.
 
 `notBefore` / `notAfter` bounds suppress log appends but not flush cycles and progress reporting.
 
@@ -311,8 +365,8 @@ When the Slice observes a commit (ACK or OUTSIDE_TXN), it marks the
 flush as ready. On the next event loop iteration (if no flush is already
 in-flight), the Slice:
 
-1. Builds a `Frontier` from pending producer state and accumulated
-   causal hints, then drains pending into settled.
+1. Builds a `Frontier` from unreported producer state and accumulated
+   causal hints, then drains `unreported` into `reported`.
 2. Sends `Flush { cycle }` to all Log shards.
 3. Each Log performs its durability IO and responds `Flushed { cycle }`.
 4. When all Logs respond, the flush cycle completes and the frontier
@@ -402,6 +456,7 @@ next one.
 - `Frontier` / `JournalFrontier` / `ProducerFrontier` (`frontier.rs`):
   Sorted, reducible representation of per-journal, per-producer progress.
   Supports causal hint resolution, chunked encode/decode, and draining.
+  `Frontier` carries the canonical statement of the Frontier invariant.
 
 - `SessionClient` (`client.rs`): Client wrapper for the Session RPC,
   providing structured open/next_checkpoint/close methods.

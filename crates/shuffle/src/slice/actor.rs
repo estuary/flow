@@ -56,7 +56,7 @@ pub struct SliceActor {
     pub parser: simd_doc::SimdParser,
     /// Ordered heap of reads with ready documents.
     pub ready_read_heap: ReadyReadHeap,
-    /// A replay of a gapped producer's pending transaction, if any.
+    /// A replay of a gapped producer's open span, if any.
     /// A Slice has at most one replay, which stalls all other reads.
     pub replay: Option<Replay>,
     /// Per-task metrics counters and gauges.
@@ -857,7 +857,7 @@ impl SliceActor {
                 .backfill_complete
                 .max(sequenced.backfill_complete);
             _ = read_state
-                .pending
+                .unreported
                 .insert(producer, sequenced.producer_state);
 
             // Copy so the `binding` borrow ends here, freeing &mut self for re-borrow.
@@ -908,8 +908,8 @@ impl SliceActor {
             permits.push(permit);
         }
 
-        // Build the frontier from pending producers and causal hints,
-        // draining pending→settled and resetting byte accumulators.
+        // Build the frontier from unreported producers and causal hints,
+        // draining unreported→reported and resetting byte accumulators.
         let frontier = super::producer::build_flush_frontier(
             &mut self.reads,
             self.causal_hints.drain(),

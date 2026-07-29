@@ -152,8 +152,12 @@ impl Topology {
         let journal_name = spec.as_ref().map(|s| s.name.as_str()).unwrap();
 
         // Take the checkpoint producers for this journal from `resume_checkpoint`.
-        // Using `take` ensures that a second `build_start_read` for the same journal
-        // (e.g. after un-suspension) starts from offset 0 instead of a stale checkpoint.
+        // Note `take` implies that a second `build_start_read` for the same
+        // journal (e.g. after un-suspension) starts from an empty checkpoint.
+        // That's acceptable: the contract for suspension is that its former
+        // content / producers are entirely gone, and upon resume its first
+        // written offset is at-or-above its offset at time of suspension
+        // (a read from nominal zero immediately seeks to this resume offset).
         let checkpoint = self
             .resume_checkpoint
             .find_journal(journal_name, binding.index)
