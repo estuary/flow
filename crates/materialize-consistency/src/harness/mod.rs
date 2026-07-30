@@ -379,9 +379,8 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
 /// Nudge a failed shard back into service until it is committing again.
 ///
 /// Polled rather than done once: the unassign has to land *after* the shard has
-/// reached FAILED, and a fault fires a moment before that. Unassigning a shard
-/// that is running is harmless — `--only-failed` makes it a no-op — so retrying is
-/// simpler and more robust than trying to observe the transition.
+/// reached FAILED, and a fault fires a moment before that. Retrying is simpler and
+/// more robust than trying to observe that transition.
 async fn recover(
     stack: &stack::Stack,
     task: &str,
@@ -395,7 +394,7 @@ async fn recover(
         if count_commits(run)? >= target {
             return Ok(());
         }
-        if let Err(err) = stack.unassign_failed_shards(task).await {
+        if let Err(err) = stack.unassign_shards(task).await {
             tracing::debug!(%err, %task, "unassign did not apply");
         }
 

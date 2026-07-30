@@ -292,18 +292,24 @@ impl Stack {
         }
     }
 
-    /// Unassign a task's failed shards so the allocator can schedule them again.
+    /// Unassign a task's shards so the allocator can schedule them again.
     ///
     /// This is how a crash scenario recovers, and it is not a workaround: a shard
     /// whose processing loop fails is marked FAILED and *stays* failed — the
     /// allocator will not reschedule it on its own. In production something
-    /// eventually re-activates the task, which unassigns as a side effect; the
-    /// suite does the unassigning directly, so recovery is immediate and does not
-    /// perturb the specification of the task under test.
-    pub async fn unassign_failed_shards(&self, task: &str) -> anyhow::Result<()> {
-        self.run(&["raw", "unassign-shards", "--task", task])
+    /// eventually re-activates the task, which unassigns as a side effect; the suite
+    /// does the unassigning directly, so recovery is immediate and does not perturb
+    /// the specification of the task under test.
+    ///
+    /// Unconditionally, not `--only-failed`: gazette declines to unassign a shard
+    /// whose *primary* has failed under that filter, which is exactly the case here —
+    /// it reports zero shards unassigned and the task stays down. Unassigning a
+    /// healthy shard costs a brief reassignment, and the harness only calls this
+    /// while it is already waiting for a task that is not making progress.
+    pub async fn unassign_shards(&self, task: &str) -> anyhow::Result<()> {
+        self.run(&["raw", "unassign-shards", "--task", task, "--all"])
             .await
-            .with_context(|| format!("unassigning failed shards of {task}"))?;
+            .with_context(|| format!("unassigning shards of {task}"))?;
         Ok(())
     }
 
