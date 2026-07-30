@@ -173,6 +173,54 @@ into one leave no single range that contained the result, so a join falls back t
 the recovery log. The `join-after-split` scenario therefore asserts only on the
 destination, never on which checkpoint the connector chose.
 
+### Only shard zero may propose a runtime checkpoint
+
+The first thing the shard-split scenarios found, once they could run at all, is a
+V2 contract rule that a destination-authoritative connector has to respect and
+which nothing had previously forced anyone to discover:
+
+Under V2 the non-zero shards of a leaderful task are **stateless** — they have no
+recovery log and acquire everything through the leader protocol. The leader
+therefore *refuses* an `Opened` from a non-zero shard that carries a runtime
+checkpoint, and the whole task fails with `expected Opened` during its fan-in.
+
+So however authoritative a destination is for the *data*, a connector must gate its
+checkpoint on being shard zero. The reference connector's `remoteAuthoritative`
+class returned its stored checkpoint from every shard, which worked perfectly on a
+single-shard task and took the task down the moment it was split. That is exactly
+the class of latent defect the suite exists to surface, and it surfaced here in the
+suite's own reference connector before any production one.
+
+It is also a good argument for the shard-reconfiguration scenarios being part of the
+default set rather than an optional extra: nothing about a single-shard run can
+reveal it.
+
+### The reference destination is genuinely shared, and that has teeth
+
+SQLite was chosen so that "commits during `StartCommit`" and "commits during
+`Store`" are really different behaviours, and so that a zombie's stale write is
+refused by the *destination* rather than by a check the connector performs on
+itself. That means one file is written by several processes at once: two shards of a
+split task, or a live instance and its zombie.
+
+Getting that wrong cost three attempts, all recorded in the history because the
+wrong ones are instructive:
+
+1. `PRAGMA journal_mode = WAL` needs a brief exclusive lock and SQLite fails it
+   outright rather than consulting the busy handler. Set the mode only when the file
+   is not already in it — it is a durable property, so the process that creates the
+   file sets it uncontended.
+2. A busy timeout does not cover a **deferred** transaction upgrading from read to
+   write: in WAL mode that returns `SQLITE_BUSY_SNAPSHOT` immediately. Every
+   read-then-write transaction must be `BEGIN IMMEDIATE`.
+3. Only then does the busy timeout do what it looks like it does.
+
+The lesson that generalises past SQLite: **a scenario author debugging a shard
+failure should read the task's connector logs before believing where the error
+points.** All three of these presented as `Materialize error (expected leader
+message) from leader / receiving Opened fan-in` — a leader-protocol failure two
+layers above the actual fault, which was a connector exiting during `Open`.
+
 ### Recovering a crashed shard is part of the scenario
 
 A crash fault is only half of crash-and-replay. The other half turned out to need

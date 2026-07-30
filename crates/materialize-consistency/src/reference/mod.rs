@@ -482,8 +482,22 @@ fn open_session(
         stored: 0,
     };
 
+    // Only shard zero may propose a runtime checkpoint.
+    //
+    // Under V2 the non-zero shards of a leaderful task are *stateless*: they have no
+    // recovery log and acquire everything through the leader protocol, so the leader
+    // refuses an `Opened` from one that carries a checkpoint — it fails the whole
+    // task with `expected Opened` during its fan-in. A destination-authoritative
+    // connector therefore has to gate its checkpoint on being shard zero, however
+    // authoritative its destination is for the *data*.
+    //
+    // Tested against the range the runtime sent, not the one `ignore-key-range` may
+    // have substituted: which shard this is, is not the connector's to decide.
+    let shard_zero = range.key_begin == 0 && range.r_clock_begin == 0;
+
     let runtime_checkpoint = match session.class {
-        Class::RemoteAuthoritative => decode_checkpoint(checkpoint.as_deref())?,
+        Class::RemoteAuthoritative if shard_zero => decode_checkpoint(checkpoint.as_deref())?,
+        Class::RemoteAuthoritative => None,
         Class::PostCommitApply => {
             // Staging beyond the last committed transaction belongs to a
             // transaction the recovery log never committed. It must never become
