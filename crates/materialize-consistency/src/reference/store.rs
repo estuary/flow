@@ -52,12 +52,19 @@ impl Store {
         // would report a connector failure where the behaviour under test is a
         // fence rejection.
         //
-        // `journal_mode` is set through a query rather than the batch below because
-        // it *returns* the mode it settled on, which `execute_batch` refuses.
-        conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
-            .context("enabling WAL journaling")?;
+        // The busy timeout goes first, and that ordering is the whole point:
+        // switching journal mode takes a brief exclusive lock, so setting WAL while
+        // a sibling shard holds the file fails outright with "database is locked"
+        // unless the connection has already been told to wait. Getting this backwards
+        // made every shard-split scenario fail — the second child died during `Open`
+        // and the leader reported an unexpected EOF from its fan-in.
         conn.busy_timeout(std::time::Duration::from_secs(30))
             .context("setting the busy timeout")?;
+
+        // Set through a query rather than the batch below because it *returns* the
+        // mode it settled on, which `execute_batch` refuses.
+        conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
+            .context("enabling WAL journaling")?;
 
         conn.execute_batch(
             "PRAGMA synchronous = FULL;
