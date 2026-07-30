@@ -367,23 +367,26 @@ a snapshot would add a stale artifact without adding information.
 
 Two scenarios do not yet pass, and they are leads rather than chores.
 
-**`split-during-commit` — a split landing mid-commit mis-reduces the merged
-binding.** The clean build reports oracle-agreement failures in *both* directions
-over ~1800 documents: `account 9: reduced balance 496 but the collection sums to
-480` alongside `account 10: reduced balance -66 but the collection sums to 19`.
-Over- and under-counting together is the signature of a torn reduction rather than a
-simple replay: the standard binding upserts a *reduced* document, so a child that
-replays input after the parent's stalled transaction committed can reduce from a
-loaded value that already includes the parent's contribution, or from one that does
-not.
+**`split-during-commit` is flaky, and the evidence points at the harness rather than
+the connector.** It fails intermittently with oracle-agreement violations —
+`account 9: reduced balance 496 but the collection sums to 480` alongside
+`account 10: reduced balance -66 but the collection sums to 19` — each account off
+by roughly one transaction's worth, in either direction. The mixed direction is *not*
+evidence of a torn reduction, which was the first reading: a balance is signed, so
+duplicating a debit and duplicating a credit move the sum opposite ways. (There is a
+unit test making exactly that point, `duplicate_detection_does_not_depend_on_the_sign_of_the_balance`.)
 
-That is exactly the rule this scenario is named for — a transaction prepared under
-one shard split must be replayed under that same split before a membership change
-takes effect — and the finding says it was not upheld. Whether the fault is the
-runtime's or the reference connector's post-commit-apply staging is not yet
-established, and it should be established before either is changed. Note that the
-sibling `split-during-store`, which splits without stalling a commit, passes both
-ways over ~1550 documents, which narrows it to the mid-commit window.
+What implicates the harness is the timing. Passing runs finish in ~75s; every failing
+run took 199–240s, i.e. spent its time against deadlines. `drain` stops when the
+destination has gone unchanged for three polls *or* the deadline passes, and then
+judges whatever it has — but a task recovering from a membership change can plateau
+for longer than that while it restarts, so the runner can call an incomplete
+destination settled and report the shortfall as a violation.
+
+The fix is to make settling conditional on the task being healthy and idle rather than
+merely unchanged, and to be more patient after a reconfiguration. Until that is done
+the scenario cannot distinguish a real defect from its own impatience, which is worse
+than it failing.
 
 **`join-after-split` — the task does not resume committing after the join.** The
 join itself applies correctly (verified by hand: two shards collapse to one covering
