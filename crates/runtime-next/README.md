@@ -181,6 +181,17 @@ key. An authoritative (unmarked) checkpoint implies no V2 transaction has
 committed, so clearing `FC:` loses no V2 state. The transaction loop then
 only ever writes `FC:` deltas.
 
+## Committed-frontier pruning
+
+The startup scan also drops ancient, closed, far-behind `FC:` producers
+(`shard::recovery::prune_committed_frontier`), bounding the frontier a shard
+carries forever. This deliberately relaxes the Frontier invariant, and both
+horizons it uses are load-bearing: `FRONTIER_PRUNE_BYTE_HORIZON` is local, but
+the *clock* horizon is `shuffle::PRODUCER_STALENESS_HORIZON`, shared with the
+session's `shuffle::Completed`. Pruning forgets a producer, so only the
+session's matching horizon rule can still discharge a later backfill's causal
+hints naming it. Read both doc comments before touching either.
+
 ## Idempotent recovery (materialize)
 
 A leader whose startup scan finds a hinted-but-uncommitted transaction opens

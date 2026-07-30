@@ -8,8 +8,8 @@
 //! folding singleton state directly into a `proto::Recover` while collecting
 //! frontier entries separately for final sort and proto encoding.
 //! [`prune_committed_frontier`] then drops stale `FC:` entries (conservatively;
-//! see [`FRONTIER_PRUNE_CLOCK_HORIZON`] / [`FRONTIER_PRUNE_BYTE_HORIZON`]) so
-//! `shard::rocksdb` can delete them from the DB before returning `Recover`.
+//! see [`shuffle::PRODUCER_STALENESS_HORIZON`] / [`FRONTIER_PRUNE_BYTE_HORIZON`])
+//! so `shard::rocksdb` can delete them from the DB before returning `Recover`.
 //!
 //! `{state_key}` below is the binding-stable `state_key` field of
 //! `flow::MaterializationSpec.Binding` — distinct from `journal_read_suffix`,
@@ -89,15 +89,6 @@ pub const KEY_HINTED_CLOSE: &[u8] = b"hinted-close";
 pub const KEY_LAST_APPLIED: &[u8] = b"last-applied";
 /// Trigger parameters (JSON `models::TriggerVariables`).
 pub const KEY_TRIGGER_PARAMS: &[u8] = b"trigger-params";
-
-/// Minimum clock distance between a committed-frontier producer and the most
-/// recent committing producer of the same `(journal, state_key)` before the
-/// stale producer becomes a pruning candidate. Time protects high-volume
-/// journals from eager cleanup: when one producer quickly writes far ahead of
-/// another, the byte-distance horizon alone would prune the laggard even though
-/// little wall-clock time has actually passed. See [`prune_committed_frontier`].
-pub const FRONTIER_PRUNE_CLOCK_HORIZON: std::time::Duration =
-    std::time::Duration::from_secs(48 * 60 * 60);
 
 /// Minimum journal byte distance between a committed-frontier producer's read
 /// offset and the furthest-along read offset of the same `(journal, state_key)`
@@ -767,13 +758,29 @@ fn decode_frontier_entry(
 ///    — a hinted producer's committed entry is its idempotent-replay baseline,
 ///    where coverage is load-bearing, and must be retained.
 /// 2. `P.last_commit` trails the group's newest `last_commit` by at least
-///    [`FRONTIER_PRUNE_CLOCK_HORIZON`].
+///    [`shuffle::PRODUCER_STALENESS_HORIZON`].
 /// 3. `P`'s read offset (`offset.abs()`) trails the group's furthest-along read
 ///    offset by at least [`FRONTIER_PRUNE_BYTE_HORIZON`].
 ///
 /// Conditions 2 and 3 are the clock and byte horizons which bound the deviation:
 /// a producer is forgotten only once it is both ancient and far behind, so its
 /// forgotten content is overwhelmingly likely to never be re-read.
+///
+/// Condition 2's horizon is *shared* with the session, and that sharing is
+/// load-bearing for liveness rather than merely tidy. A pruned producer can be
+/// the target of a future backfill's causal hints: a re-read of an old ACK
+/// re-extracts a hint naming `P` in a sibling binding's journal, which is being
+/// read at its head and will never emit another `P` commit. `shuffle::Completed`
+/// is what keeps such a hint dischargeable — it deems any clock at least
+/// [`shuffle::PRODUCER_STALENESS_HORIZON`] older than a binding's promoted
+/// progress to be completed for that binding — and it can only do so because
+/// this prune uses the same horizon. A hint naming `P` is bounded by
+/// `P.last_commit`, which condition 2 placed a full horizon behind the group's
+/// newest commit, itself a *retained* producer and hence part of the binding's
+/// promoted progress. Pruning with a smaller clock horizon than hint completion
+/// would therefore strand those hints until the session's
+/// causal-hint-resolution timeout, restart, and strand them again; sharing one
+/// constant makes that impossible by construction.
 ///
 /// `committed` and `hinted` are the per-`(journal, binding)` chunks collected by
 /// [`decode_recover_key_value`]; both are grouped (consecutive RocksDB key
@@ -810,7 +817,8 @@ pub fn prune_committed_frontier(
 
         jf.producers.retain(|p| {
             let stale = !protected.contains(&(jf.journal.as_ref(), jf.binding, p.producer))
-                && uuid::Clock::delta(group_clock, p.last_commit) >= FRONTIER_PRUNE_CLOCK_HORIZON
+                && uuid::Clock::delta(group_clock, p.last_commit)
+                    >= shuffle::PRODUCER_STALENESS_HORIZON
                 && group_offset.saturating_sub(p.offset.unsigned_abs())
                     >= FRONTIER_PRUNE_BYTE_HORIZON as u64;
 
@@ -1637,6 +1645,120 @@ mod test {
 
         // Pruning an already-pruned frontier is a no-op.
         assert!(prune_committed_frontier(&mut committed, &hinted).is_empty());
+    }
+
+    // INVARIANT GUARD for the duality between this crate's committed-frontier
+    // prune and the shuffle session's horizon-based hint completion. Pruning
+    // durably forgets a producer, so nothing can ever resolve a later backfill's
+    // causal hint naming it; `shuffle::Completed` must therefore be able to clear
+    // every such hint, and the only reason it can is that both sides key off the
+    // one `shuffle::PRODUCER_STALENESS_HORIZON`.
+    //
+    // The assertion is the strongest form available: for EVERY pruned producer, a
+    // hint at its `last_commit` — the largest clock any hint naming it can carry —
+    // is discharged by accounting seeded exactly as `CheckpointPipeline::new`
+    // seeds it, from the POST-prune retained frontier. If this test fails, the two
+    // horizons have diverged and the session will crash-loop in production.
+    #[test]
+    fn prune_and_hint_completion_are_dual() {
+        let horizon = shuffle::PRODUCER_STALENESS_HORIZON.as_secs();
+
+        // Bindings 0 and 1 sit in distinct cohorts, so a producer retained under
+        // one binding cannot vouch for the same producer pruned under the other:
+        // the horizon is the sole authority in play.
+        let binding_cohorts = vec![0u32, 1];
+        let mut committed = vec![
+            jf(
+                "j/one",
+                0,
+                vec![
+                    pf(0xff, 1_000_000, -20 * GIB), // Group clock & offset leader.
+                    pf(0xaa, 1_000_000 - horizon, -2 * GIB), // Exactly at the horizon.
+                    pf(0xbb, 500_000, -GIB),        // Far past it.
+                    pf(0xcc, 900_000, -3 * GIB),    // Inside it: retained.
+                ],
+            ),
+            jf(
+                "j/two",
+                1,
+                vec![
+                    pf(0xff, 2_000_000, -30 * GIB), // Group clock & offset leader.
+                    pf(0xdd, 1_800_000, -9 * GIB),  // Past the horizon.
+                ],
+            ),
+        ];
+
+        // Every producer's pre-prune commit, so a pruned one's maximal hint can be
+        // reconstructed after its entry is gone.
+        let commits: std::collections::HashMap<_, _> = committed
+            .iter()
+            .flat_map(|jf| {
+                jf.producers
+                    .iter()
+                    .map(move |p| ((jf.journal.clone(), jf.binding, p.producer), p.last_commit))
+            })
+            .collect();
+
+        let pruned = prune_committed_frontier(&mut committed, &[]);
+        assert_eq!(pruned.len(), 3, "0xaa, 0xbb and 0xdd are pruned");
+
+        // Seed accounting from the retained frontier the way the session does.
+        let mut completed = shuffle::Completed::new(binding_cohorts);
+        completed.update(&shuffle::Frontier {
+            journals: committed.clone(),
+            ..Default::default()
+        });
+
+        let hint_frontier = |journal: &str, binding: u16, producer, clock| shuffle::Frontier {
+            journals: vec![jf(
+                journal,
+                binding,
+                vec![shuffle::ProducerFrontier {
+                    producer,
+                    last_commit: uuid::Clock::zero(),
+                    hinted_commit: clock,
+                    offset: 0,
+                }],
+            )],
+            unresolved_hints: 1,
+            ..Default::default()
+        };
+
+        for (journal, binding, producer) in &pruned {
+            let clock = commits[&(journal.clone(), *binding, *producer)];
+            let mut f = hint_frontier(journal, *binding, *producer, clock);
+
+            let (by_clock, by_horizon) = f.prune_hints(&completed);
+            assert_eq!(
+                (by_clock, by_horizon),
+                (0, 1),
+                "pruned {journal} binding={binding} producer={producer:?} \
+                 must be horizon-cleared",
+            );
+            assert_eq!(f.unresolved_hints, 0);
+            assert!(f.journals.is_empty(), "the hint-only entry is dropped");
+
+            // The ratchet's judgment agrees: such a hint is accounted, so it can
+            // neither freeze the ratchet nor enter a transactional boundary.
+            let f = hint_frontier(journal, *binding, *producer, clock);
+            assert!(
+                shuffle::Frontier::default()
+                    .first_unaccounted(&f, &completed)
+                    .is_none()
+            );
+        }
+
+        // The guard is not vacuous: a live hint of a RETAINED producer — one above
+        // its completed clock yet well inside the horizon — is untouched, which is
+        // what makes ordinary causal-hint sequencing work at all.
+        let mut f = hint_frontier(
+            &committed[0].journal,
+            0,
+            uuid::Producer::from_bytes(producer_id(0xcc)),
+            uuid::Clock::from_unix(950_000, 0),
+        );
+        assert_eq!(f.prune_hints(&completed), (0, 0));
+        assert_eq!(f.unresolved_hints, 1);
     }
 
     // Apply a KeyOp to an in-memory sorted store, respecting DeleteRange.
