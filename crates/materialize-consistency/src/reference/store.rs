@@ -52,19 +52,32 @@ impl Store {
         // would report a connector failure where the behaviour under test is a
         // fence rejection.
         //
-        // The busy timeout goes first, and that ordering is the whole point:
-        // switching journal mode takes a brief exclusive lock, so setting WAL while
-        // a sibling shard holds the file fails outright with "database is locked"
-        // unless the connection has already been told to wait. Getting this backwards
-        // made every shard-split scenario fail — the second child died during `Open`
-        // and the leader reported an unexpected EOF from its fan-in.
         conn.busy_timeout(std::time::Duration::from_secs(30))
             .context("setting the busy timeout")?;
 
-        // Set through a query rather than the batch below because it *returns* the
-        // mode it settled on, which `execute_batch` refuses.
-        conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
-            .context("enabling WAL journaling")?;
+        // Switch to WAL only if the file is not already in it.
+        //
+        // Changing journal mode needs a brief exclusive lock, and SQLite fails that
+        // outright rather than consulting the busy handler — so an unconditional
+        // `PRAGMA journal_mode = WAL` dies with "database is locked" whenever a
+        // sibling shard has the destination open. That took down every shard-split
+        // scenario: the second child of a split failed during `Open`, and the leader
+        // reported it two layers up as an unexpected EOF from its fan-in.
+        //
+        // Journal mode is a durable property of the file, so the first opener sets it
+        // — uncontended, because it is also the one creating the file — and everyone
+        // after reads `wal` and leaves it alone. Reading takes no exclusive lock.
+        //
+        // Both statements go through `query_row` rather than the batch below because
+        // they *return* the mode, which `execute_batch` refuses.
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .context("reading the journal mode")?;
+
+        if !mode.eq_ignore_ascii_case("wal") {
+            conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
+                .context("enabling WAL journaling")?;
+        }
 
         conn.execute_batch(
             "PRAGMA synchronous = FULL;
