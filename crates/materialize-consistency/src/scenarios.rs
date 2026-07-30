@@ -1,0 +1,456 @@
+//! The scenarios, and the defects they must catch.
+//!
+//! Two rules govern everything here, and they are the reason the suite can be
+//! trusted:
+//!
+//! 1. **A scenario is keyed on protocol events, never on document identity.**
+//!    Which documents land in which transaction varies between runs — transaction
+//!    boundaries are shaped by the runtime's duration policy and a rate-paced
+//!    capture, not by a document count the spec can set — so an assertion that
+//!    depended on it would be a flake. This costs nothing because verification is
+//!    invariant-based rather than snapshot-based.
+//!
+//! 2. **A scenario without a paired defect is not finished.** Every scenario
+//!    declares a `defect` it provably catches, and the suite runs it both ways:
+//!    clean, where it must pass, and defective, where it must fail. A checker that
+//!    later goes blind through refactoring is then itself a test failure, rather
+//!    than a green result that means nothing.
+
+use crate::harness::Exemption;
+use crate::invariants::Invariant;
+use crate::protocol::{Action, FaultRule, Trigger};
+use crate::reference::{Class, Defect};
+
+/// The connector under test.
+pub struct Subject {
+    /// The connector binary and its arguments, as the shim will `exec` it.
+    pub connector: Vec<String>,
+    /// Endpoint configuration. The harness overwrites `path` with the run's own
+    /// destination.
+    pub config: serde_json::Value,
+}
+
+pub struct Scenario {
+    pub name: &'static str,
+    /// The invariant this scenario exists to verify, in one line. Reported on
+    /// failure so the result names the property rather than the mechanism.
+    pub verifies: &'static str,
+    /// Class the subject must implement for the scenario to mean anything.
+    pub class: Class,
+    pub faults: Vec<FaultRule>,
+    /// The defect this scenario must catch. `None` only for the baseline, whose
+    /// job is to fail when the harness itself is miswired — it has no defect to
+    /// pair with because it injects nothing.
+    pub defect: Option<Defect>,
+    /// Split every shard of the task in two, after the warmup.
+    pub split_shards: bool,
+    /// Committed transactions to observe before perturbing anything.
+    pub warmup_commits: u64,
+    /// Committed transactions to observe after the fault, proving the task
+    /// recovered rather than merely stopped.
+    pub settle_commits: u64,
+    /// Invariants this scenario does not hold the subject to.
+    pub exempt: Vec<Exemption>,
+}
+
+impl Scenario {
+    fn new(name: &'static str, verifies: &'static str, class: Class) -> Self {
+        Self {
+            name,
+            verifies,
+            class,
+            faults: Vec::new(),
+            defect: None,
+            split_shards: false,
+            warmup_commits: 3,
+            settle_commits: 3,
+            exempt: Vec::new(),
+        }
+    }
+
+    fn fault(mut self, rule: FaultRule) -> Self {
+        self.faults.push(rule);
+        self
+    }
+
+    fn catches(mut self, defect: Defect) -> Self {
+        self.defect = Some(defect);
+        self
+    }
+
+    /// A subject built from the reference connector for this scenario's class,
+    /// optionally with the paired defect enabled.
+    ///
+    /// `defective` is what makes the suite prove itself: the same scenario, the
+    /// same faults, the same checkers, and an outcome that must flip.
+    pub fn subject(&self, connector: &std::path::Path, defective: bool) -> Subject {
+        let defects: Vec<Defect> = match (defective, self.defect) {
+            (true, Some(defect)) => vec![defect],
+            _ => Vec::new(),
+        };
+
+        Subject {
+            connector: vec![connector.to_string_lossy().to_string()],
+            config: serde_json::json!({
+                // Replaced by the harness with this run's destination.
+                "path": "",
+                "class": self.class,
+                "defects": defects,
+            }),
+        }
+    }
+}
+
+/// Every scenario the suite runs.
+pub fn all() -> Vec<Scenario> {
+    vec![
+        baseline(),
+        crash_between_commits(),
+        replayed_acknowledge_is_a_no_op(),
+        crash_mid_store(),
+        crash_at_flush(),
+        split_during_store(),
+        split_during_commit(),
+        zombie_at_start_commit(),
+        counter_resumes_from_the_destination(),
+        counter_reconciles_rather_than_trusting_its_checkpoint(),
+        delta_replay_is_deduplicated(),
+        at_least_once_never_loses(),
+    ]
+}
+
+/// A no-fault run. Its job is to fail when the harness is miswired: a scenario
+/// suite that cannot see a wiring problem would report every other scenario as a
+/// pass for the wrong reason.
+fn baseline() -> Scenario {
+    Scenario::new(
+        "baseline",
+        "an unperturbed materialization upholds every invariant",
+        Class::RemoteAuthoritative,
+    )
+}
+
+/// The window the Snowpipe Streaming v2 work verified by hand in production: the
+/// connector's work is durable and the recovery log has committed, but the process
+/// dies before the two are reconciled.
+///
+/// The crash is keyed on the `Acknowledged` *response*, which is the only point
+/// where the connector has finished applying a transaction and the shim can still
+/// kill it. Restarting there replays the same `Acknowledge`, and only an idempotent
+/// one leaves the destination unchanged.
+fn crash_between_commits() -> Scenario {
+    Scenario::new(
+        "crash-between-commits",
+        "a crash after applying a committed transaction replays its Acknowledge \
+         without applying it twice",
+        Class::PostCommitApply,
+    )
+    .fault(FaultRule::crash_at(Trigger::Acknowledged, 4))
+    .catches(Defect::NonIdempotentAcknowledge)
+}
+
+/// The runtime is free to retry `Acknowledge` as many times as it needs, so every
+/// replay after the first must be a no-op — with no crash involved at all.
+fn replayed_acknowledge_is_a_no_op() -> Scenario {
+    Scenario::new(
+        "replayed-acknowledge",
+        "Acknowledge replayed repeatedly with no crash is a no-op after the first",
+        Class::PostCommitApply,
+    )
+    .fault(FaultRule {
+        on: Trigger::Acknowledge,
+        nth: 4,
+        arm_after: 0,
+        action: Action::Replay { times: 3 },
+    })
+    .catches(Defect::NonIdempotentAcknowledge)
+}
+
+/// A transaction that never reached `StartCommit` never happened. Anything it left
+/// in the destination must not be applied a second time by the replay.
+///
+/// Armed after two commits so the crash lands in a transaction of a task that has
+/// established a rhythm, rather than in its first.
+fn crash_mid_store() -> Scenario {
+    Scenario::new(
+        "crash-mid-store",
+        "a crash mid-Store, before StartCommit, leaves nothing behind that \
+         double-applies on replay",
+        Class::RemoteAuthoritative,
+    )
+    .fault(FaultRule::crash_at(Trigger::Store, 25).armed_after(2))
+    .catches(Defect::CommitDuringStore)
+}
+
+/// A crash at the boundary between the load and store phases: loads are done,
+/// stores have not started, and the reductions the next transaction computes must
+/// be unaffected.
+///
+/// Paired with document-dropping rather than a commit-timing defect, because at
+/// this point in a transaction there is nothing yet staged for a commit-timing
+/// defect to mishandle — the property under test is that the interruption costs no
+/// data.
+fn crash_at_flush() -> Scenario {
+    Scenario::new(
+        "crash-at-flush",
+        "a crash between the load and store phases does not corrupt subsequent \
+         reductions or lose documents",
+        Class::RemoteAuthoritative,
+    )
+    .fault(FaultRule::crash_at(Trigger::Flush, 4))
+    .catches(Defect::DropDocuments)
+}
+
+/// Scale-out during the store phase. A split also manufactures a zombie by design:
+/// the runtime fences the source shard's primary off its recovery log during the
+/// children's recovery and then unassigns it, so this exercises the runtime's
+/// fencing alongside the connector's.
+fn split_during_store() -> Scenario {
+    let mut scenario = Scenario::new(
+        "split-during-store",
+        "splitting a task's shards mid-transaction preserves exactly-once semantics",
+        Class::RemoteAuthoritative,
+    )
+    .catches(Defect::IgnoreKeyRange);
+    scenario.split_shards = true;
+    scenario.settle_commits = 5;
+    scenario
+}
+
+/// The same, with the split landing while a transaction is being committed rather
+/// than accumulated — the rule the scale-out design depends on.
+fn split_during_commit() -> Scenario {
+    let mut scenario = Scenario::new(
+        "split-during-commit",
+        "a transaction prepared under one shard split is replayed under that same \
+         split before a membership change takes effect",
+        Class::PostCommitApply,
+    )
+    .fault(FaultRule {
+        on: Trigger::StartCommit,
+        nth: 4,
+        arm_after: 0,
+        action: Action::Stall { millis: 4_000 },
+    })
+    .catches(Defect::IgnoreKeyRange);
+    scenario.split_shards = true;
+    scenario.settle_commits = 5;
+    scenario
+}
+
+/// Fencing under real concurrency rather than in isolation: two real connector
+/// processes, both handling real runtime messages, the older one thawed after the
+/// newer has committed.
+fn zombie_at_start_commit() -> Scenario {
+    Scenario::new(
+        "zombie-at-start-commit",
+        "a zombie instance racing the active one at StartCommit cannot corrupt the \
+         destination",
+        Class::RemoteAuthoritative,
+    )
+    .fault(FaultRule {
+        on: Trigger::Store,
+        nth: 10,
+        arm_after: 1,
+        action: Action::Zombie {
+            thaw_after_commits: 2,
+        },
+    })
+    .catches(Defect::SkipFenceCheck)
+}
+
+/// The document-counter class's central claim, and the reason it can offer
+/// exactly-once at all: the destination's channel advanced without a recovery-log
+/// commit, so recovery must skip exactly what the destination already holds.
+///
+/// The crash is at `StartedCommit` — the connector has appended and reported its
+/// count, and the recovery log has *not* committed — so the runtime replays that
+/// transaction's documents into a destination that already holds them.
+fn counter_resumes_from_the_destination() -> Scenario {
+    Scenario::new(
+        "counter-resumes-from-destination",
+        "a destination ahead of the connector's checkpoint counter causes recovery \
+         to skip exactly what it already holds",
+        Class::DocumentCounter,
+    )
+    .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
+    .catches(Defect::DropDocumentCounter)
+    .declaring(
+        Invariant::Monotonicity,
+        "This class appends during Store, so rows of a transaction that never \
+         commits are visible until recovery skips past them. Delivery order at the \
+         sink across that boundary is therefore not guaranteed to advance \
+         monotonically, though the contents of a committed transaction are still \
+         exactly-once.",
+    )
+}
+
+/// The same interruption, against a connector that trusts its own checkpoint
+/// instead of reconciling it with the destination.
+///
+/// Note what this does *not* cover: a destination genuinely *behind* the
+/// checkpoint, which a correct connector refuses rather than guesses at. No fault
+/// the shim can inject produces that state — it needs the destination tampered with
+/// from outside — so the refusal path is implemented and unexercised. See the
+/// design document.
+fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
+    Scenario::new(
+        "counter-reconciles-with-destination",
+        "recovery reconciles the destination's committed count against the \
+         checkpoint rather than trusting the checkpoint alone",
+        Class::DocumentCounter,
+    )
+    .fault(FaultRule::crash_at(Trigger::StartedCommit, 5))
+    .catches(Defect::ResetCounterOnOpen)
+    .declaring(
+        Invariant::Monotonicity,
+        "Same cause as counter-resumes-from-destination: this class makes rows of an \
+         uncommitted transaction visible, so sink delivery order across a recovery \
+         boundary may not advance monotonically.",
+    )
+}
+
+/// Delta-updates bindings are where duplication is directly visible, as an extra
+/// row. A connector claiming exactly-once has to deduplicate.
+fn delta_replay_is_deduplicated() -> Scenario {
+    Scenario::new(
+        "delta-replay-deduplicated",
+        "a replayed transaction does not duplicate rows of a delta-updates binding",
+        Class::PostCommitApply,
+    )
+    .fault(FaultRule {
+        on: Trigger::Acknowledge,
+        nth: 3,
+        arm_after: 0,
+        action: Action::Replay { times: 2 },
+    })
+    .catches(Defect::NonIdempotentAcknowledge)
+}
+
+/// A connector that makes a weaker guarantee is still held to the guarantee it does
+/// make. The exemptions are the whole point: declared, justified, and narrow — and
+/// loss is not among them.
+///
+/// The crash is at `StartedCommit`, before the recovery log commits, so the
+/// transaction *is* replayed and this class *does* duplicate. A clean run therefore
+/// exercises the exemptions rather than passing because nothing happened.
+fn at_least_once_never_loses() -> Scenario {
+    Scenario::new(
+        "at-least-once-never-loses",
+        "an at-least-once connector never loses data, though it may duplicate",
+        Class::AtLeastOnce,
+    )
+    .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
+    .catches(Defect::DropDocuments)
+    .declaring(
+        Invariant::NoDuplicates,
+        "At-least-once by construction: this class commits during Store with no \
+         record of what it applied, so an interrupted transaction is re-applied on \
+         replay. Declared rather than fixed, because the weaker guarantee is the one \
+         the connector offers.",
+    )
+    .declaring(
+        Invariant::Conservation,
+        "Conservation is arithmetic over delivered documents, so a duplicate breaks \
+         it as surely as a loss would. Exempt for the same cause as duplication \
+         itself.",
+    )
+    .declaring(
+        Invariant::OracleAgreement,
+        "A duplicated document leaves the reduced balance disagreeing with its own \
+         oracle. Same cause as the duplication exemption above.",
+    )
+    .declaring(
+        Invariant::StandardDeltaAgreement,
+        "A duplicate applied to one binding and not the other leaves the two views \
+         of the collection disagreeing. Same cause as the duplication exemption \
+         above.",
+    )
+    .declaring(
+        Invariant::Monotonicity,
+        "Re-applying an interrupted transaction re-delivers sequences the sink has \
+         already seen. Same cause as the duplication exemption above.",
+    )
+}
+
+impl Scenario {
+    /// Declare an invariant this scenario's subject is not held to, with the
+    /// reasoning. The justification is a required argument rather than an optional
+    /// field, so an exemption cannot be added without stating why.
+    fn declaring(mut self, invariant: Invariant, justification: &str) -> Self {
+        self.exempt.push(Exemption {
+            invariant,
+            justification: justification.to_string(),
+            scope: crate::harness::Scope::Connector,
+        });
+        self
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// The operative rule of the whole suite, enforced mechanically so coverage
+    /// cannot quietly erode as scenarios are added.
+    #[test]
+    fn every_scenario_but_the_baseline_pairs_with_a_defect() {
+        for scenario in all() {
+            if scenario.name == "baseline" {
+                assert!(scenario.defect.is_none(), "the baseline injects nothing");
+                continue;
+            }
+            assert!(
+                scenario.defect.is_some(),
+                "scenario {} has no paired defect, so it is not finished",
+                scenario.name,
+            );
+        }
+    }
+
+    #[test]
+    fn every_scenario_either_injects_a_fault_or_reconfigures_shards() {
+        for scenario in all() {
+            if scenario.name == "baseline" {
+                continue;
+            }
+            assert!(
+                !scenario.faults.is_empty() || scenario.split_shards,
+                "scenario {} perturbs nothing",
+                scenario.name,
+            );
+        }
+    }
+
+    #[test]
+    fn scenario_names_are_unique() {
+        let mut names: Vec<_> = all().iter().map(|s| s.name).collect();
+        let count = names.len();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), count, "duplicate scenario names");
+    }
+
+    /// Every defect the reference connector implements is reachable by some
+    /// scenario. An unpaired defect is dead code that suggests coverage the suite
+    /// does not have.
+    #[test]
+    fn every_defect_is_paired_with_a_scenario() {
+        let paired: Vec<Defect> = all().iter().filter_map(|s| s.defect).collect();
+
+        for defect in [
+            Defect::NonIdempotentAcknowledge,
+            Defect::CommitDuringStore,
+            Defect::IgnoreKeyRange,
+            Defect::SkipFenceCheck,
+            Defect::DropDocumentCounter,
+            Defect::ResetCounterOnOpen,
+            Defect::DropDocuments,
+        ] {
+            assert!(
+                paired.contains(&defect),
+                "no scenario catches {defect:?}",
+            );
+        }
+    }
+}
