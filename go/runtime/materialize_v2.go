@@ -165,10 +165,12 @@ func (m *materializeAppV2) StartReadingMessages(shard consumer.Shard, _ pc.Check
 //  4. Run the steady-state select loop until term cancellation, shard
 //     cancellation, or a stream error.
 //
-// On term cancellation (spec update) we send Stop and wait for Stopped, then
-// return nil so the framework loops back through RestoreCheckpoint. Any
-// non-nil return is forwarded onto `ch` by the deferred sentinel before
-// the channel is closed.
+// Term cancellation (a spec update, per the term contract in task.go) is always
+// a graceful in-process restart, never a shard failure, both before and after
+// Opened: pre-Opened we return nil directly, and post-Opened we first send Stop
+// and wait for Stopped. Either way the framework loops back through
+// RestoreCheckpoint with a fresh term. Any non-nil return is forwarded onto
+// `ch` by the deferred sentinel before the channel is closed.
 func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consumer.EnvelopeOrError) (err error) {
 	defer func() {
 		if err != nil {
@@ -190,6 +192,15 @@ func (m *materializeAppV2) runOneSession(shard consumer.Shard, ch chan<- consume
 		err = ks.WaitForRevision(m.term.ctx, waitForRevision)
 		ks.Mu.RUnlock()
 		if err != nil {
+			// A term cancellation is a spec update, not a failure. The Rust
+			// session loop is still parked awaiting a Join, so returning nil
+			// restarts the session in-process. Only a shard-context
+			// cancellation is a genuine shutdown.
+			if shard.Context().Err() == nil {
+				logrus.WithField("shardId", shard.Spec().Id).
+					Info("task term ended during Join-wait; restarting session")
+				return nil
+			}
 			return fmt.Errorf("awaiting Etcd revision %d: %w", waitForRevision, err)
 		}
 

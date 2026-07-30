@@ -282,8 +282,9 @@ impl Publisher {
     /// - Otherwise, build an ephemeral client. This supports recovered ACK
     ///   intents that may reference journals no longer bound to the current
     ///   task (e.g. from a prior published task). For this class of journals,
-    ///   a `NotFound` status is tolerated and handled by discarding the ACK
-    ///   (it was intentionally deleted, for example due to a data reset)
+    ///   `NotFound` is tolerated and handled by discarding the ACK (the journal
+    ///   was intentionally deleted, for example due to a data reset), and so is
+    ///   `PermissionDenied` (the task's grant to that collection was revoked).
     ///
     /// On Ok return, all ACKs have been durably appended (no need to flush).
     pub async fn write_intents<I>(&mut self, journal_intents: I) -> tonic::Result<()>
@@ -322,6 +323,25 @@ impl Publisher {
         self.appenders.flush().await?;
         self.appenders.sweep();
 
+        // Ephemeral appenders may fail-open, discarding their ACK.
+        //
+        // Only *recovered* intents reach this path: a live transaction's
+        // intents are keyed on journals it just wrote, and every such journal
+        // came from a binding. An ephemeral journal is therefore always one
+        // this task published to under an earlier specification.
+        //
+        // Fail-open is the only terminating choice for these. Nothing clears an
+        // intent but writing it, so failing isn't merely noisy: the session
+        // fails, recovers the identical intent, and fails again, forever. Nor
+        // can the task heal itself, because updating it to no longer publish to
+        // the journal is precisely what stranded the intent. We knowingly
+        // trade the documents behind a discarded ACK — which remain PENDING
+        // and are never released to readers — against a permanently dead task.
+        //
+        // `PermissionDenied` alone, because it alone denies *this object*: the
+        // task is known and its request well-formed, but its grant to that
+        // collection is gone (revoked, or left behind by a data-plane
+        // migration).
         let ephemeral_flushes = ephemeral
             .active_set()
             .map(|(journal, appender)| async move {
@@ -329,6 +349,10 @@ impl Publisher {
                     Ok(()) => Ok(()),
                     Err(status) if status.code() == tonic::Code::NotFound => {
                         tracing::warn!(%journal, "discarding journal ACK-intent (not found)");
+                        Ok(())
+                    }
+                    Err(status) if status.code() == tonic::Code::PermissionDenied => {
+                        tracing::warn!(%journal, %status, "discarding journal ACK-intent (not authorized)");
                         Ok(())
                     }
                     Err(status) => Err(status),
@@ -708,5 +732,67 @@ mod test {
                 case.name
             );
         }
+    }
+
+    /// Publisher over a single Fixed binding, whose every journal Client denies
+    /// authorization. The denial is raised while acquiring the append token, so
+    /// no broker is contacted.
+    fn denied_publisher(binding_journal: &str) -> Publisher {
+        let factory: gazette::journal::ClientFactory = std::sync::Arc::new(|_sub, obj| {
+            gazette::journal::Client::new_with_tokens(
+                |_token: &()| unreachable!("extract is not called for an errored token"),
+                gazette::journal::Client::new_fragment_client(),
+                gazette::Router::new("test-zone"),
+                tokens::fixed(Err(tonic::Status::permission_denied(format!(
+                    "task shard is not authorized to {obj} for Write"
+                )))),
+            )
+        });
+
+        Publisher::new(
+            "shard-id".to_string(),
+            vec![crate::Binding::for_fixed_journal(binding_journal)],
+            factory,
+            uuid::Producer::from_bytes([0x01, 0, 0, 0, 0, 0x01]),
+            uuid::Clock::UNIX_EPOCH,
+        )
+    }
+
+    // ACK intents are NDJSON, and `write_intents` validates the shape.
+    const ACK: &[u8] = b"{\"_meta\":{\"uuid\":\"whatever\"}}\n";
+
+    /// A recovered intent naming a journal outside every binding is discarded
+    /// rather than failing the session: nothing but writing it can clear the
+    /// intent, so failing here would crash-loop the task forever.
+    #[tokio::test]
+    async fn test_write_intents_discards_unauthorized_ephemeral() {
+        let mut publisher = denied_publisher("ops/current/stats/pivot=00");
+
+        let result = publisher
+            .write_intents([(
+                "ops/prior-data-plane/stats/pivot=00".to_string(),
+                bytes::Bytes::from_static(ACK),
+            )])
+            .await;
+
+        assert!(result.is_ok(), "unexpected error: {result:?}");
+    }
+
+    /// The tolerance is scoped to the ephemeral path. A journal the task still
+    /// binds is a live write, and losing authorization to it must fail loudly:
+    /// the task is actively publishing there and cannot make correct progress.
+    #[tokio::test]
+    async fn test_write_intents_fails_unauthorized_binding() {
+        let mut publisher = denied_publisher("ops/current/stats/pivot=00");
+
+        let status = publisher
+            .write_intents([(
+                "ops/current/stats/pivot=00".to_string(),
+                bytes::Bytes::from_static(ACK),
+            )])
+            .await
+            .expect_err("a bound journal must not fail-open");
+
+        assert_eq!(status.code(), tonic::Code::PermissionDenied);
     }
 }

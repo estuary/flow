@@ -278,8 +278,8 @@ go.etcd.io/etcd/client/pkg/v3 v3.6.5 h1:Duz9fAzIZFhYWgRjp/FgNq2gO1jId9Yae/rLn3Rr
 go.etcd.io/etcd/client/pkg/v3 v3.6.5/go.mod h1:8Wx3eGRPiy0qOFMZT/hfvdos+DjEaPxdIDiCDUv/FQk=
 go.etcd.io/etcd/client/v3 v3.6.5 h1:yRwZNFBx/35VKHTcLDeO7XVLbCBFbPi+XV4OC3QJf2U=
 go.etcd.io/etcd/client/v3 v3.6.5/go.mod h1:ZqwG/7TAFZ0BJ0jXRPoJjKQJtbFo/9NIY8uoFFKcCyo=
-go.gazette.dev/core v0.103.1-0.20260715211535-42c2cc160b2c h1:6oRaNmlNhFD4IaAkXSfOgXUxayPskHBTndhuNG7VSyw=
-go.gazette.dev/core v0.103.1-0.20260715211535-42c2cc160b2c/go.mod h1:fbzVmqkkTxqOnpcvdXuSWJ28XoMMm08ovNaATv1Zuas=
+go.gazette.dev/core v0.103.1-0.20260722193110-e54beb5c6e64 h1:YX2MhHISLxvz1xoS+YQntf4FMZ24Q02+97nmTHImrYI=
+go.gazette.dev/core v0.103.1-0.20260722193110-e54beb5c6e64/go.mod h1:fbzVmqkkTxqOnpcvdXuSWJ28XoMMm08ovNaATv1Zuas=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/contrib/detectors/gcp v1.39.0 h1:kWRNZMsfBHZ+uHjiH4y7Etn2FK26LAGkNFw7RHv1DhE=

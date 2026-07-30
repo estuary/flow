@@ -37,17 +37,6 @@ expression: json_test(msg)
     "bindings": [
       {
         "caseInsensitiveFields": true,
-        "constraints": {
-          "opt_field": {
-            "type": "FIELD_OPTIONAL",
-            "reason": "is optional"
-          },
-          "req_field": {
-            "type": "FIELD_REQUIRED",
-            "reason": "is required",
-            "foldedField": "REQ_FIELD"
-          }
-        },
         "resourcePath": [
           "some",
           "path"

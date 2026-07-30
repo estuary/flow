@@ -48,6 +48,7 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // Per-session metrics counters.
     metrics: super::Metrics,
     // When Some, a deadline at which we begin a graceful session stop.
+    // Consumed once at `serve` entry into a hoisted timer.
     token_restart_at: Option<tokio::time::Instant>,
     // Logger of task-centric state changes and events.
     logger: L,
@@ -183,6 +184,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         let mut stopping = false;
         // Transactions completed in this task session, for preview harness limits.
         let mut transactions_completed = 0usize;
+        // Timer for the lowest-priority arm; `sleep_unless_zero` resets it
+        // before each await, so this initial deadline is never observed.
+        let mut wake_sleep = std::pin::pin!(tokio::time::sleep(Duration::ZERO));
+        // IAM token-restart deadline, consumed once at loop entry and hoisted out
+        // of the `select!` (which rebuilds its arms every iteration).
+        // `far_future` stands in for "no injected credentials, never restart".
+        let mut token_restart = std::pin::pin!(tokio::time::sleep_until(
+            self.token_restart_at.unwrap_or_else(crate::far_future)
+        ));
 
         while !matches!(head, fsm::Head::Stop) {
             loop_count += 1;
@@ -361,18 +371,20 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     self.on_connector_rx(&mut ready_connector_rx, msg)?;
                 }
                 // Next, a graceful session restart ahead of IAM token expiry
-                _ = maybe_deadline(self.token_restart_at) => {
+                _ = token_restart.as_mut() => {
                     service_kit::event!(
                         tracing::Level::INFO,
                         "shard",
                         "injected IAM credentials expire soon; stopping session gracefully",
                     );
                     stopping = true;
-                    self.token_restart_at = None;
+                    // A fired `Sleep` stays Ready, so disarm to keep this arm
+                    // from winning every later iteration.
+                    token_restart.as_mut().reset(crate::far_future());
                 }
 
                 // Lowest priority.
-                _ = tokio::time::sleep(wake_after) => {}
+                _ = crate::sleep_unless_zero(wake_sleep.as_mut(), wake_after) => {}
             }
 
             if !wake_after.is_zero() {
@@ -854,14 +866,6 @@ fn now_clock() -> uuid::Clock {
 async fn maybe_fut<T>(opt: &mut Option<BoxFuture<'static, T>>) -> Option<T> {
     match opt.as_mut() {
         Some(fut) => Some(fut.await),
-        None => std::future::pending().await,
-    }
-}
-
-/// Sleep until the deadline, or park forever when there isn't one.
-async fn maybe_deadline(deadline: Option<tokio::time::Instant>) {
-    match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline).await,
         None => std::future::pending().await,
     }
 }

@@ -43,13 +43,18 @@ for i in $(seq 0 $((COUNT - 1))); do
 
 # Reactor environment for ${INSTANCE}
 # Authorization keys are the base64-encoding of "key-${DATA_PLANE}".
+#
+# CORS allow-origins are NOT set here: CONSUMER_ALLOW_ORIGIN is single-valued (no
+# env-delim upstream), and we allow two origins — the global UI at
+# FLOW_DASHBOARD_ORIGIN and the optional per-stack UI at base+5. They are passed
+# as repeated --consumer.allow-origin flags in the unit ExecStart
+# (local/systemd/flow-reactor@.service), which reads the two FLOW_* vars below.
 
 BROKER_ADDRESS=https://broker-${DATA_PLANE}.flow.localhost:${BROKER_PORT}
 BROKER_AUTH_KEYS=${HMAC_KEY}
 BROKER_CACHE_SIZE=128
 BROKER_FILE_ROOT=${FLOW_STACK_DIR}/fragments/
 BROKER_TRUSTED_CA_FILE=${FLOW_LOCAL}/ca.crt
-CONSUMER_ALLOW_ORIGIN=http://localhost:${FLOW_PORT_DASHBOARD}
 CONSUMER_AUTH_KEYS=${HMAC_KEY}
 CONSUMER_HOST=reactor-${DATA_PLANE}.flow.localhost
 CONSUMER_LIMIT=1024
@@ -63,9 +68,11 @@ ETCD_PREFIX=/flow/${DATA_PLANE}
 FLOW_ALLOW_LOCAL=true
 FLOW_BUILDS_ROOT=file://${FLOW_STACK_DIR}/builds/
 FLOW_CONTROL_API=http://agent.flow.localhost:${FLOW_PORT_AGENT}
-FLOW_DASHBOARD=http://localhost:${FLOW_PORT_DASHBOARD}
+FLOW_DASHBOARD=${FLOW_DASHBOARD_ORIGIN}
+FLOW_DASHBOARD_ORIGIN=${FLOW_DASHBOARD_ORIGIN}
 FLOW_DATA_PLANE_FQDN=${DATA_PLANE}.dp.estuary-data.com
 FLOW_NETWORK=${FLOW_NETWORK}
+FLOW_PORT_DASHBOARD=${FLOW_PORT_DASHBOARD}
 FLOW_SIDECAR_PORT=${SIDECAR_PORT}
 LOG_LEVEL=info
 SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt

@@ -23,6 +23,44 @@ echo "${USER}:admin" | sudo chpasswd
 sudo usermod -aG docker ${USER}
 sudo usermod -aG systemd-journal ${USER}
 
+# `usermod` only edits /etc/group; running processes keep the groups they started
+# with. `systemd --user` is already up, so every unit it later spawns inherits the
+# old set and the local stack's units fail with EACCES on the docker socket, while
+# an interactive shell looks correct. Restarting the manager from the *system*
+# manager re-resolves credentials in a fresh process, so it gains the new groups.
+#
+# `loginctl terminate-user` also recycles it, but destroys the session it arrives
+# on along with /run/user/$UID, leaving logind wedged and `systemctl --user`
+# unusable. This restarts only the manager and leaves the session intact.
+# Only recycle it when the manager is actually missing one of the groups added
+# above, so re-running create-post on a healthy VM does not tear down a running
+# stack along with the manager.
+#
+# The pattern deliberately does not pin systemd's install path: matching
+# `-x /usr/lib/systemd/systemd --user` finds nothing wherever it lives elsewhere
+# (Debian's /lib/systemd), and an empty PID here means an empty group list, which
+# reads as "stale" and restarts unconditionally. That is the teardown this guard
+# exists to avoid, so the failure has to not be silent.
+MANAGER_PID="$(pgrep -u "$(id -u)" -f 'systemd --user' | head -1 || true)"
+MANAGER_GIDS=""
+if [ -n "${MANAGER_PID}" ]; then
+    MANAGER_GIDS="$(sed -n 's/^Groups:[[:space:]]*//p' "/proc/${MANAGER_PID}/status" 2>/dev/null || true)"
+fi
+
+NEEDS_RESTART=false
+for group in docker systemd-journal; do
+    gid="$(getent group "${group}" 2>/dev/null | cut -d: -f3 || true)"
+    [ -n "${gid}" ] || continue
+    case " ${MANAGER_GIDS} " in
+        *" ${gid} "*) ;; # already present
+        *) NEEDS_RESTART=true ;;
+    esac
+done
+
+if [ "${NEEDS_RESTART}" = true ]; then
+    sudo systemctl restart "user@$(id -u).service"
+fi
+
 # Add additional .bashrc configuration if not already present.
 if ! grep -q "mise" "${HOME}/.bashrc"; then
     cat >> "${HOME}/.bashrc" << EOF
@@ -34,10 +72,22 @@ EOF
 fi
 
 # Create and enable a swapfile.
-sudo fallocate -l 8G /swapfile.img
-sudo chmod 600 /swapfile.img
-sudo mkswap /swapfile.img
-sudo swapon /swapfile.img
+#
+# Guarded so create-post survives a second run. On an already-provisioned VM the
+# swapfile is active, and `fallocate` then fails with "Text file busy" (ETXTBSY),
+# aborting the whole task under `set -e`. `mkswap` and `swapon` would likewise
+# refuse an in-use device. Re-running create-post is the documented way to
+# diagnose a bad first boot, so it has to be re-runnable.
+# No pipe into `grep -q`: it exits on its first match, the writer can then die of
+# SIGPIPE, and `set -o pipefail` turns that into a non-zero pipeline that `if !`
+# inverts, running `fallocate` on the active swapfile after all. `-F` because the
+# `.` in the name is otherwise a regex metacharacter.
+if ! grep -qxF /swapfile.img <<<"$(swapon --show=NAME --noheadings)"; then
+    sudo fallocate -l 8G /swapfile.img
+    sudo chmod 600 /swapfile.img
+    sudo mkswap /swapfile.img
+    sudo swapon /swapfile.img
+fi
 
 # Add swapfile to fstab for persistence across reboots.
 if ! grep -q "/swapfile.img" /etc/fstab; then

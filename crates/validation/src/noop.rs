@@ -109,27 +109,27 @@ impl Connectors for NoOpConnectors {
                             .map(|(i, binding)| {
                                 // Return FIELD_OPTIONAL for every collection projection
                                 // so that field selection validation succeeds.
-                                let constraints = binding
+                                let projection_constraints = binding
                                     .collection
                                     .as_ref()
                                     .map(|c| &c.projections)
                                     .into_iter()
                                     .flatten()
                                     .map(|p| {
-                                        (
-                                            p.field.clone(),
-                                            materialize::response::validated::Constraint {
+                                        materialize::response::validated::ProjectionConstraint {
+                                            field: p.field.clone(),
+                                            constraint: Some(materialize::response::validated::Constraint {
                                                 r#type: materialize::response::validated::constraint::Type::FieldOptional as i32,
                                                 reason: String::new(),
                                                 folded_field: String::new(),
-                                            },
-                                        )
+                                            }),
+                                        }
                                     })
                                     .collect();
 
                                 materialize::response::validated::Binding {
                                     resource_path: vec![format!("binding-{i}")],
-                                    constraints,
+                                    projection_constraints,
                                     ..Default::default()
                                 }
                             })

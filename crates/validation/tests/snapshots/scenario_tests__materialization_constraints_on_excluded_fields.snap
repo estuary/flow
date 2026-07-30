@@ -327,34 +327,53 @@ Outcome {
                 bindings: [
                     Binding {
                         case_insensitive_fields: false,
-                        constraints: {
-                            "flow_document": Constraint {
-                                r#type: FieldRequired,
-                                reason: "location required",
-                                folded_field: "",
-                            },
-                            "id": Constraint {
-                                r#type: FieldRequired,
-                                reason: "location required",
-                                folded_field: "",
-                            },
-                            "naughty_f": Constraint {
-                                r#type: FieldForbidden,
-                                reason: "field forbidden",
-                                folded_field: "",
-                            },
-                            "naughty_u": Constraint {
-                                r#type: Incompatible,
-                                reason: "field incompatible",
-                                folded_field: "",
-                            },
-                        },
                         resource_path: [
                             "anything",
                         ],
                         delta_updates: false,
                         ser_policy: None,
-                        projection_constraints: [],
+                        projection_constraints: [
+                            ProjectionConstraint {
+                                field: "flow_document",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: FieldRequired,
+                                        reason: "location required",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                            ProjectionConstraint {
+                                field: "id",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: FieldRequired,
+                                        reason: "location required",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                            ProjectionConstraint {
+                                field: "naughty_f",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: FieldForbidden,
+                                        reason: "field forbidden",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                            ProjectionConstraint {
+                                field: "naughty_u",
+                                constraint: Some(
+                                    Constraint {
+                                        r#type: Incompatible,
+                                        reason: "field incompatible",
+                                        folded_field: "",
+                                    },
+                                ),
+                            },
+                        ],
                     },
                 ],
             },

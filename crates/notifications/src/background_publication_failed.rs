@@ -9,7 +9,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &fired_subject,
-            r#"Estuary Flow: Automated background publication failed for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Automated background publication failed for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering background_publication_failed-fired-subject template")?;
 
@@ -21,10 +21,10 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
 </p>
 <ul>
     <li><a href="{{> spec_dashboard_overview_url}}" target="_blank" rel="noopener">Visit the task status and logs</a> for more information about the error</li>
-    <li>If you need help please reach out to our team via Slack (#support and #ask-ai) or reply to this email.</li>
+    <li>If you need help, please reach out to our team via <a href="https://go.estuary.dev/slack">Slack</a> (#support and #ask-ai) or reply to this email</li>
 </ul>
 <p class="body-text">
-    We are here to help ensure your data pipelines run smoothly.
+    We're here to help your data pipelines run smoothly.
 </p>"#,
         )
         .context("registering background_publication_failed-fired-body template")?;
@@ -34,7 +34,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &resolved_subject,
-            r#"Estuary Flow: Automated background publication alert resolved for {{arguments.spec_type}} {{catalog_name}}"#,
+            r#"Estuary: Automated background publication alert resolved for {{arguments.spec_type}} {{catalog_name}}"#,
         )
         .context("registering background_publication_failed-resolved-subject template")?;
 
@@ -48,7 +48,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     You can <a href="{{> spec_dashboard_overview_url}}" target="_blank" rel="noopener">view your task</a> to confirm everything is working as expected, or update your alerting settings.
 </p>
 <p class="body-text">
-    We are here to help ensure your data pipelines run smoothly.
+    We're here to help your data pipelines run smoothly.
 </p>"#,
         )
         .context("registering background_publication_failed-resolved-body template")?;

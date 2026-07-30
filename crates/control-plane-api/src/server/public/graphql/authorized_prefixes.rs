@@ -40,9 +40,44 @@ pub(super) fn authorized_prefixes(
     pruned
 }
 
+/// Resolves the caller's prefixes for `min_capability`, narrowed by an optional
+/// `PrefixFilter`, and returns them with the filter's decomposed
+/// `startsWith`/`in` parts (which callers bind into their own SQL). `field`
+/// names the GraphQL input field for the mutual-exclusion error.
+///
+/// This chains the three steps every prefix-scoped list query repeats —
+/// `PrefixFilter::into_parts`, `authorized_prefixes`, and
+/// `PrefixFilter::narrow_to_exact_set` — so the narrow-only invariant (a filter
+/// can only remove authorized prefixes, never add them) has a single owner.
+pub(super) fn filtered_authorized_prefixes(
+    role_grants: &tables::RoleGrants,
+    user_grants: &tables::UserGrants,
+    user_id: uuid::Uuid,
+    min_capability: impl Into<models::authz::CapabilitySet>,
+    filter: Option<super::filters::PrefixFilter>,
+    field: &str,
+) -> async_graphql::Result<(Vec<String>, Option<String>, Option<Vec<String>>)> {
+    let (starts_with, r#in) = match filter {
+        Some(cp) => cp.into_parts(field)?,
+        None => (None, None),
+    };
+    let mut prefixes = authorized_prefixes(
+        role_grants,
+        user_grants,
+        user_id,
+        min_capability,
+        starts_with.as_deref(),
+    );
+    if let Some(exact) = r#in.as_deref() {
+        super::filters::PrefixFilter::narrow_to_exact_set(&mut prefixes, exact);
+    }
+    Ok((prefixes, starts_with, r#in))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::authorized_prefixes;
+    use super::super::filters::PrefixFilter;
+    use super::{authorized_prefixes, filtered_authorized_prefixes};
     use models::Capability::{Admin, Read, Write};
 
     fn make_grants(
@@ -279,5 +314,87 @@ mod tests {
         // min=Write: both qualify on their own bits; parent prunes child.
         let result = authorized_prefixes(&rg, &ug, ALICE, Write, None);
         assert_eq!(result, vec!["acmeCo/"]);
+    }
+
+    #[test]
+    fn filtered_no_filter_returns_all_prefixes_and_no_parts() {
+        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
+
+        let (prefixes, starts_with, r#in) =
+            filtered_authorized_prefixes(&rg, &ug, ALICE, Admin, None, "filter.catalogPrefix")
+                .unwrap();
+        assert_eq!(prefixes, vec!["acmeCo/", "beta/"]);
+        assert_eq!(starts_with, None);
+        assert_eq!(r#in, None);
+    }
+
+    #[test]
+    fn filtered_starts_with_narrows_by_subtree_and_returns_part() {
+        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
+
+        let filter = PrefixFilter {
+            starts_with: Some("acmeCo/".to_string()),
+            r#in: None,
+        };
+        let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
+            &rg,
+            &ug,
+            ALICE,
+            Admin,
+            Some(filter),
+            "filter.catalogPrefix",
+        )
+        .unwrap();
+        assert_eq!(prefixes, vec!["acmeCo/"]);
+        assert_eq!(starts_with.as_deref(), Some("acmeCo/"));
+        assert_eq!(r#in, None);
+    }
+
+    #[test]
+    fn filtered_in_narrows_to_exact_set_and_returns_part() {
+        // `authorized_prefixes` runs with no subtree filter (startsWith is None
+        // when `in` is set), so both grants come back; `narrow_to_exact_set`
+        // then drops everything not overlapping the `in` set.
+        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
+
+        let filter = PrefixFilter {
+            starts_with: None,
+            r#in: Some(vec!["acmeCo/".to_string()]),
+        };
+        let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
+            &rg,
+            &ug,
+            ALICE,
+            Admin,
+            Some(filter),
+            "filter.catalogPrefix",
+        )
+        .unwrap();
+        assert_eq!(prefixes, vec!["acmeCo/"]);
+        assert_eq!(starts_with, None);
+        assert_eq!(r#in, Some(vec!["acmeCo/".to_string()]));
+    }
+
+    #[test]
+    fn filtered_propagates_mutual_exclusion_error() {
+        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
+
+        let filter = PrefixFilter {
+            starts_with: Some("acmeCo/".to_string()),
+            r#in: Some(vec!["acmeCo/".to_string()]),
+        };
+        let err = filtered_authorized_prefixes(
+            &rg,
+            &ug,
+            ALICE,
+            Admin,
+            Some(filter),
+            "filter.catalogPrefix",
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.message,
+            "`filter.catalogPrefix.startsWith` and `.in` are mutually exclusive; provide only one"
+        );
     }
 }

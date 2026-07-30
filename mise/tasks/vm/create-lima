@@ -34,29 +34,49 @@ else
 fi
 MEMORY="${usage_memory:-16}"
 
-# make sure .ssh/config exists before we check to see if it needs modification
+# Point ssh(1) at Lima's generated per-VM configs, so `ssh lima-<name>` resolves.
+#
+# The Include MUST precede the first Host or Match line. ssh scopes every
+# directive after a Host stanza to that stanza, so an Include further down applies
+# only when connecting to that one host, and `ssh lima-<name>` then fails with a
+# resolve error. Blank lines and comments do NOT close a stanza.
+#
+# The guard here used to be `grep -q lima`, which matches that string anywhere in
+# the file. Once a copy existed in the wrong position, the guard passed forever and
+# this block never repaired it. It only ever prepended when absent, so it could not
+# move one that had ended up mis-scoped (which happens as soon as anything is added
+# above it). Instead: strip any copy we previously wrote, wherever it sits, then
+# prepend. That converges from any prior state and cannot duplicate.
+# We use a temp file for portability across macOS and Linux.
+TMP_SSH_CONFIG=$(mktemp)
+cat > "${TMP_SSH_CONFIG}" <<EOF
+# Include Lima VM SSH configurations.
+Include ~/.lima/*/ssh.config
+
+EOF
 if [[ -f ~/.ssh/config ]]; then
-  # Add additional ssh configuration if not already present.
-  if ! grep -q lima ~/.ssh/config; then
-      # Prepend to ssh config file, as it's sensitive to Host or Match directives.
-      # We use a temp file for portability across macOS and Linux.
-      TMP_SSH_CONFIG=$(mktemp)
-      cat > "${TMP_SSH_CONFIG}" <<EOF
-# Include Lima VM SSH configurations.
-Include ~/.lima/*/ssh.config
-
-EOF
-      cat ~/.ssh/config >> "${TMP_SSH_CONFIG}"
-      mv "${TMP_SSH_CONFIG}" ~/.ssh/config
-  fi
-else
-  # if config doesn't exist yet, create it with our default content
-  cat > ~/.ssh/config <<EOF
-# Include Lima VM SSH configurations.
-Include ~/.lima/*/ssh.config
-
-EOF
+    # `|| true` because `grep -v` exits 1 when it selects nothing, which happens for
+    # an empty config or one holding only this block. Under `set -o pipefail` that
+    # status aborts the task before the config is written, so no VM is created and
+    # nothing is reported. `sed '/./,$!d'` drops leading blank lines from what
+    # remains, so the blank line written above does not accumulate one per run.
+    { grep -vxE '# Include Lima VM SSH configurations\.|[[:space:]]*Include[[:space:]]+~/\.lima/\*/ssh\.config[[:space:]]*' \
+        ~/.ssh/config || true; } | sed '/./,$!d' >> "${TMP_SSH_CONFIG}"
 fi
+
+# Write only when the content actually changes, and write *through* the existing
+# file rather than moving one in over it. Now that the old `grep -q lima` guard is
+# gone this runs on every invocation, and `mv` from /tmp would each time: relabel
+# the file under SELinux (mktemp gives it `user_tmp_t`, policy wants `ssh_home_t`),
+# replace a dotfile-managed symlink with a regular file, reset its mode, and make
+# two concurrent runs last-writer-wins. Converged content means there is nothing
+# to do at all, which is the overwhelmingly common case.
+if [[ ! -f ~/.ssh/config ]] || ! cmp -s "${TMP_SSH_CONFIG}" ~/.ssh/config; then
+    mkdir -p ~/.ssh
+    cat "${TMP_SSH_CONFIG}" > ~/.ssh/config
+    chmod 600 ~/.ssh/config
+fi
+rm -f "${TMP_SSH_CONFIG}"
 
 TEMP_CONFIG=$(mktemp /tmp/lima-config-yaml-XXXXXX)
 
@@ -92,11 +112,13 @@ EOF
 fi
 
 if [[ "$OS" == "linux" ]]; then
+    # No `networks:` entry. The only option on Linux is `lima: user-v2`, which
+    # *replaces* Lima's built-in NIC rather than adding to it, and buys only
+    # VM-to-VM connectivity that the vz branch above forgoes as well. Keeping the
+    # two at parity is deliberate. Enabling it has also caused QEMU to abort under
+    # sustained transfer; check git log before reaching for it.
     cat >> "${TEMP_CONFIG}" << EOF
 vmType: qemu
-
-networks:
-  - lima: user-v2  # User-space proxy, allows VM <=> VM
 
 EOF
 fi

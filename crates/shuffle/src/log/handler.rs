@@ -1,9 +1,23 @@
-use super::{LogJoin, state, writer::Writer};
+use super::{LogJoin, LogJoinSlot, state, writer::Writer};
 use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::shuffle;
 use tokio::sync::mpsc;
 use tracing::Instrument;
+
+/// Outcome of registering a Slice connection into a Log rendezvous.
+enum Rendezvous {
+    /// This invocation completed the rendezvous: it owns every slot and runs
+    /// the LogActor.
+    Complete(Vec<Option<LogJoinSlot>>),
+    /// This invocation registered its slot and must park until the rendezvous
+    /// completes (released via `complete_rx`) or its Slice client goes away
+    /// (`response_tx.closed()`), in which case it reaps its own slot.
+    Park {
+        complete_rx: tokio::sync::oneshot::Receiver<()>,
+        response_tx: mpsc::Sender<tonic::Result<shuffle::LogResponse>>,
+    },
+}
 
 pub(crate) async fn serve_log<R>(
     service: crate::Service,
@@ -83,10 +97,14 @@ where
         directory = directory.clone(),
         "received Open from Slice",
     );
-    let join_key = (directory.clone(), log_shard_index);
+    let join_key = (directory.clone(), session_id, log_shard_index);
 
-    // Scope `guard` to prove it's not held across await points.
-    let connections = {
+    // Register this Slice's connection into the rendezvous. Either we complete
+    // it (own all slots and run the LogActor) or we must park until released —
+    // scope `guard` so the std Mutex is never held across the await that
+    // follows. The clone of `response_tx` lets a parked handler observe its
+    // Slice client going away (`closed()`) without moving the slot's own sender.
+    let rendezvous = {
         let mut guard = service.log_joins.lock().unwrap();
 
         let join = guard.entry(join_key.clone()).or_insert_with(|| LogJoin {
@@ -110,7 +128,14 @@ where
                 "Log shard_index {log_shard_index} directory {directory} in session {session_id} received duplicate Slice connection from {slice_shard_index}",
             );
         }
-        join.shards[slice_shard_index as usize] = Some((request_rx.boxed(), response_tx));
+
+        let (complete_tx, complete_rx) = tokio::sync::oneshot::channel();
+        let response_tx_clone = response_tx.clone();
+        join.shards[slice_shard_index as usize] = Some(LogJoinSlot {
+            request_rx: request_rx.boxed(),
+            response_tx,
+            complete_tx,
+        });
 
         let connected = join.shards.iter().filter(|s| s.is_some()).count();
 
@@ -125,24 +150,71 @@ where
 
         // Are there still more Slices that need to connect?
         if connected != shards.len() as usize {
-            // This invocation only contributed its streams to the rendezvous;
-            // the invocation that completes it runs the LogActor.
-            handler.finish_ok();
-            return Ok(());
+            Rendezvous::Park {
+                complete_rx,
+                response_tx: response_tx_clone,
+            }
+        } else {
+            // All Slices have connected to this Log.
+            Rendezvous::Complete(guard.remove(&join_key).unwrap().shards)
         }
-        // All Slices have connected to this Log.
-        let LogJoin { shards } = guard.remove(&join_key).unwrap();
-        shards
     };
 
-    // Walk `connections` and partition into Senders and receiver Streams.
+    let connections = match rendezvous {
+        Rendezvous::Park {
+            complete_rx,
+            response_tx,
+        } => {
+            // We only contributed our streams to the rendezvous; the invocation
+            // that completes it runs the LogActor. Park until either happens:
+            tokio::select! {
+                // Released by the completing invocation.
+                _ = complete_rx => {
+                    handler.finish_ok();
+                    return Ok(());
+                }
+                // Our Slice client's response receiver dropped: it aborted its
+                // open (Session/Slice EOF cascade), or the remote disconnected
+                // (tonic surfaces both as `closed()`). Reap our own slot so a
+                // stale partial rendezvous can't poison a retry, resolving the
+                // race with a concurrent completer under the mutex: if the entry
+                // or our slot is already gone, the rendezvous completed and we
+                // just exit. Drop the whole entry only when we removed its last
+                // live slot — each sibling reaps its own slot as its abort lands.
+                _ = response_tx.closed() => {
+                    let mut guard = service.log_joins.lock().unwrap();
+                    if let Some(join) = guard.get_mut(&join_key) {
+                        join.shards[slice_shard_index as usize] = None;
+                        if join.shards.iter().all(Option::is_none) {
+                            guard.remove(&join_key);
+                        }
+                    }
+                    handler.finish_ok();
+                    return Ok(());
+                }
+            }
+        }
+        Rendezvous::Complete(connections) => connections,
+    };
+
+    // Walk `connections` and partition into Senders and receiver Streams,
+    // releasing each slot's parked sibling as we take ownership.
     let mut log_response_tx = Vec::with_capacity(shards.len());
     let mut log_request_rx = Vec::with_capacity(shards.len());
 
     for connection in connections {
-        let (rx, tx) = connection.unwrap();
-        log_response_tx.push(tx);
-        log_request_rx.push(rx);
+        let LogJoinSlot {
+            request_rx,
+            response_tx,
+            complete_tx,
+        } = connection.unwrap();
+
+        // Release the parked sibling holding this slot. Its receiver may already
+        // be gone (it aborted, or this is our own unused slot) — ignore that.
+        let _ = complete_tx.send(());
+
+        log_response_tx.push(response_tx);
+        log_request_rx.push(request_rx);
     }
 
     // Send Opened response to all Slices.
