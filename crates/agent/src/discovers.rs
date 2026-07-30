@@ -49,9 +49,9 @@ pub struct DiscoverState {
     /// The instant a Snapshot must postdate (per `Snapshot::taken_after`)
     /// before this discover is retried: the queued time its prior attempt
     /// anchored authorization staleness on. While set, polls defer — without
-    /// prechecks or connector work — until the local Snapshot satisfies it
-    /// (see `Snapshot::defer_stale_retry`). Optional so that reschedules for
-    /// other, future reasons aren't bound to this check.
+    /// prechecks or connector work — until the local Snapshot satisfies it.
+    /// Optional so that reschedules for other, future reasons aren't bound to
+    /// this check.
     #[serde(default)]
     pub awaiting_snapshot_after: Option<tokens::DateTime>,
 }
@@ -88,9 +88,9 @@ impl automations::Outcome for DiscoverOutcome {
             status,
         } = self
         else {
-            // Leave the discover unresolved and re-poll once the requested
-            // refresh could have landed. If it hasn't by then, the poll
-            // defers again (see `Snapshot::defer_stale_retry`).
+            // Leave the discover unresolved and re-poll once a refresh could
+            // have landed. If the Snapshot is still not authoritative by
+            // then, the poll defers again (see `Snapshot::taken_after`).
             return Ok(automations::Action::Sleep(
                 Snapshot::STALE_RETRY_WAKE
                     .to_std()
@@ -161,7 +161,7 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
         // without pre-flight checks or connector work — until this instance's
         // Snapshot is authoritative for the recorded instant.
         if let Some(anchor) = state.as_ref().and_then(|s| s.awaiting_snapshot_after) {
-            if snapshot.defer_stale_retry(anchor) {
+            if !snapshot.taken_after(anchor) {
                 inbox.clear();
                 return Ok(DiscoverOutcome::RetryStale);
             }

@@ -18,7 +18,7 @@ pub struct PublicationsExecutor {
     pub pg_pool: sqlx::PgPool,
     /// Authorization Snapshot watch. Each poll pins one Snapshot from this
     /// watch: first to cheaply defer while it remains stale for a queued
-    /// publication (see `Snapshot::defer_stale_retry`), and then to serve
+    /// publication (see `Snapshot::taken_after`), and then to serve
     /// every authorization decision of the publication itself.
     pub snapshot_watch: std::sync::Arc<dyn tokens::Watch<Snapshot>>,
     /// When true, newly-created captures are published onto runtime v2; see [`RuntimeV2Rollout`].
@@ -36,9 +36,9 @@ pub struct PublicationState {
     /// The instant a Snapshot must postdate (per `Snapshot::taken_after`)
     /// before this publication is retried: the queued time its prior attempt
     /// anchored authorization staleness on. While set, polls defer — without
-    /// loading or building the draft — until the local Snapshot satisfies it
-    /// (see `Snapshot::defer_stale_retry`). Optional so that reschedules for
-    /// other, future reasons aren't bound to this check.
+    /// loading or building the draft — until the local Snapshot satisfies it.
+    /// Optional so that reschedules for other, future reasons aren't bound to
+    /// this check.
     #[serde(default)]
     pub awaiting_snapshot_after: Option<tokens::DateTime>,
 }
@@ -113,7 +113,7 @@ impl PublicationsExecutor {
         // building the draft — until this instance's Snapshot is, at which
         // point the retry is guaranteed to classify deterministically.
         if let Some(anchor) = state.as_ref().and_then(|s| s.awaiting_snapshot_after) {
-            if snapshot.defer_stale_retry(anchor) {
+            if !snapshot.taken_after(anchor) {
                 return Ok(automations::Action::Sleep(
                     Snapshot::STALE_RETRY_WAKE
                         .to_std()

@@ -236,47 +236,6 @@ impl Snapshot {
         }
     }
 
-    /// Should a queued task, whose prior attempt hit an authorization denial
-    /// under a stale Snapshot, defer its retry under this Snapshot?
-    ///
-    /// Returns false once this Snapshot is authoritative for `queued_at`: a
-    /// retry is then guaranteed to classify deterministically — authorized or
-    /// authoritatively denied — because task executors anchor every check on
-    /// the queued time. Until then it returns true, after requesting an early
-    /// refresh, and the caller should reschedule on `STALE_RETRY_WAKE` without
-    /// attempting.
-    ///
-    /// Deferral is abandoned once `MAX_REFRESH_INTERVAL`, plus two wake cycles
-    /// of scheduling slack, has elapsed since `queued_at`. Every healthy
-    /// instance refreshes within `MAX_REFRESH_INTERVAL`, so a Snapshot which
-    /// is still not authoritative past that means refreshes are failing; the
-    /// retry proceeds (and re-classifies stale, keeping the task queued)
-    /// rather than gating on a refresh that isn't coming.
-    ///
-    /// The predicate is safe to evaluate on any agent instance: `queued_at`
-    /// is Postgres-stamped shared state, while `taken` is local to whichever
-    /// instance holds this Snapshot, so each instance defers or proceeds based
-    /// on its own view.
-    pub fn defer_stale_retry(&self, queued_at: tokens::DateTime) -> bool {
-        if self.taken_after(queued_at) {
-            return false;
-        }
-        // This Snapshot remains stale for the task; request an early refresh
-        // (idempotent) whether or not we continue to defer.
-        self.revoke.cancel();
-
-        let max_wait = Self::MAX_REFRESH_INTERVAL + Self::STALE_RETRY_WAKE * 2;
-        if tokens::now() - queued_at >= max_wait {
-            tracing::warn!(
-                %queued_at,
-                taken = %self.taken,
-                "snapshot is still stale after MAX_REFRESH_INTERVAL; proceeding without an authoritative snapshot"
-            );
-            return false;
-        }
-        true
-    }
-
     // Retrieve all tasks whose names start with the given `prefix`.
     pub fn tasks_by_prefix<'s>(
         &'s self,
@@ -452,10 +411,10 @@ impl Snapshot {
     // Minimal interval between Snapshot refreshes.
     // We will postpone a requested refresh prior to this interval.
     pub const MIN_REFRESH_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::seconds(20);
-    /// Re-poll cadence for a queued task which is deferring on a stale
-    /// Snapshot (see `defer_stale_retry`). This equals `MIN_REFRESH_INTERVAL`
-    /// because that's the soonest the requested refresh can land: waking
-    /// sooner burns polls, waking later delays the task.
+    /// Re-poll cadence for a queued task which is deferring until its
+    /// Snapshot is authoritative (see `taken_after`). This equals
+    /// `MIN_REFRESH_INTERVAL` because that's the soonest a refresh can land:
+    /// waking sooner burns polls, waking later delays the task.
     pub const STALE_RETRY_WAKE: chrono::TimeDelta = Self::MIN_REFRESH_INTERVAL;
     // Maximum interval between Snapshot refreshes.
     // We will refresh an older Snapshot in the background.
@@ -979,43 +938,6 @@ mod tests {
             at(Snapshot::TEMPORAL_SKEW + chrono::TimeDelta::milliseconds(1)).taken_after(started),
             "one millisecond past the skew allowance is authoritative"
         );
-    }
-
-    /// `defer_stale_retry` gates the re-poll of a task whose prior attempt was
-    /// denied under a stale Snapshot: defer (and request a refresh) until the
-    /// Snapshot is authoritative for the task's queued time, but never past
-    /// `MAX_REFRESH_INTERVAL` plus two wake cycles of slack — beyond that,
-    /// refreshes are failing and the retry must proceed rather than gate on a
-    /// refresh that isn't coming.
-    #[test]
-    fn test_defer_stale_retry() {
-        let now = tokens::now();
-        let taken_at = |taken: tokens::DateTime| Snapshot {
-            taken,
-            ..Snapshot::empty()
-        };
-
-        // An authoritative Snapshot never defers, and requests no refresh.
-        let snapshot = taken_at(now);
-        assert!(!snapshot.defer_stale_retry(now - chrono::TimeDelta::seconds(10)));
-        assert!(!snapshot.revoke.is_cancelled());
-
-        // A stale Snapshot defers a recently-queued task, requesting a refresh.
-        let snapshot = taken_at(now - chrono::TimeDelta::seconds(1));
-        assert!(snapshot.defer_stale_retry(now));
-        assert!(snapshot.revoke.is_cancelled());
-
-        // A task queued longer ago than the deferral ceiling proceeds even
-        // under a stale Snapshot, while still requesting a refresh.
-        let ceiling = Snapshot::MAX_REFRESH_INTERVAL + Snapshot::STALE_RETRY_WAKE * 2;
-        let queued_at = now - ceiling;
-        let snapshot = taken_at(queued_at);
-        assert!(!snapshot.defer_stale_retry(queued_at));
-        assert!(snapshot.revoke.is_cancelled());
-
-        // One wake cycle inside the ceiling still defers.
-        let queued_at = now - ceiling + Snapshot::STALE_RETRY_WAKE;
-        assert!(taken_at(queued_at).defer_stale_retry(queued_at));
     }
 
     /// `resolve_authorization` is the shared three-way classifier behind every
