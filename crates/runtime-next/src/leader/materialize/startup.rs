@@ -1299,15 +1299,17 @@ mod tests {
         assert!(idempotent_replay, "session 1 replays");
         assert_eq!(resume.journals[0].producers[0].offset, -1_000);
 
-        // The replay resolves the hint, and its recovery checkpoint covers
-        // T200 at the cut floor it resumed from. Both the hinted (Flush) and
-        // committed (commit) Persists of the replay transaction write that
-        // frontier, and the commit persists its ACK intents — which the
+        // The replay resolves the hint, and its recovery checkpoint covers T200
+        // at the cut the replay actually read through — offset 6_000, ratcheted
+        // forward from the 1_000 it resumed at, because every re-read commit was
+        // one the recovery checkpoint already accounted for. Both the hinted
+        // (Flush) and committed (commit) Persists of the replay transaction write
+        // that frontier, and the commit persists its ACK intents — which the
         // session exits without writing.
         let replayed = frontier(
             "j/one",
             0,
-            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -1_000)],
+            vec![pf(0xbb, clk(200), uuid::Clock::zero(), -6_000)],
         );
         let session_2 = baseline(
             clk(200),
@@ -1325,8 +1327,9 @@ mod tests {
         );
         assert_eq!(resume.unresolved_hints, 0);
         assert_eq!(
-            resume.journals[0].producers[0].offset, -1_000,
-            "session 2 resumes from the frontier the replay committed",
+            resume.journals[0].producers[0].offset, -6_000,
+            "session 2 resumes from the ratcheted frontier the replay committed, \
+             not the -1_000 floor session 1 replayed from",
         );
         assert_eq!(
             session_2.ack_intents.len(),

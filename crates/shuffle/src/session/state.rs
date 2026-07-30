@@ -225,18 +225,46 @@ impl Topology {
 /// at all (see `recovery_session` docs), so it emits exactly one checkpoint —
 /// the recovery checkpoint — and then quiesces.
 ///
-/// Why hold `progressed` back behind `unresolved`? Newer progress can introduce
-/// fresh causal hints. If we let `progressed` clobber `unresolved` whenever
+/// Why hold unaccounted `progressed` back behind `unresolved`? Newer progress
+/// can introduce fresh causal hints. If we let it clobber `unresolved` whenever
 /// `unresolved` partially resolved, an unlucky stream of new hints could
-/// indefinitely starve the client of a fully-resolved frontier.
-/// Holding back `progressed` guarantees forward progress.
+/// indefinitely starve the client of a fully-resolved frontier. Holding back
+/// unaccounted progress guarantees forward progress.
 ///
 /// `take_ready()` may also emit a *peek* of `unresolved` when `ready` is
 /// unavailable but `unresolved` has advanced since the last request.
 /// Peeks let the client begin processing (e.g. release log
 /// segments) without waiting for full transactional resolution.
+///
+/// # The accounted-progress ratchet
+///
+/// A pending `unresolved` frontier defines a transactional boundary: its
+/// committed clocks, its causal hints, and the commits its cohorts have
+/// completed jointly bound the producer events that boundary accounts for. Each
+/// delta is judged against that bound before `unresolved` is touched, by
+/// `Frontier::first_unaccounted` — which carries the soundness argument:
+///
+/// - An **accounted** delta is evidence of the current boundary rather than
+///   progress of a later one, so it reduces into `unresolved` wholesale.
+///   `unresolved` thereby adopts the read's true offsets — including open spans'
+///   `+begin`s — along with its byte deltas and backfill clocks, and resolves
+///   hints by max-merge; `resolve_hints` isn't called at all, as reduce subsumes
+///   it. Hints made stale by `completed_clocks` are pruned first, here rather
+///   than in `try_promote`, because the delta bypasses `progressed` entirely.
+/// - The first unaccounted delta **freezes** the ratchet (`ratchet_frozen`) for
+///   the current `unresolved` generation, logging the entry which froze it. It
+///   and every delta after it take the conservative path through `progressed`,
+///   whose `-M` bump now lands at the ratcheted floor. Promoting the next
+///   generation resets the freeze.
+///
+/// Idempotent recovery is the primary use case. Its `unresolved` generation may
+/// replay ~100 GB from an old cut and is the session's only generation, so
+/// adoption is the only way its checkpoint retains the replay's true offsets for
+/// the next session — and its freeze is consequently sticky. The freeze is
+/// distinct from the recovery Slice's read *park* (`slice::read::Park`): park
+/// bounds what the recovery reads, the freeze how far its checkpoint follows.
 pub struct CheckpointPipeline {
-    /// Raw accumulated and reduced Progressed responses.
+    /// Raw accumulated and reduced unaccounted Progressed responses.
     /// Promoted to `unresolved` when a) non-empty and b) `unresolved` is empty,
     /// or promoted directly to `ready` if it contains no unresolved hints.
     progressed: crate::Frontier,
@@ -267,6 +295,9 @@ pub struct CheckpointPipeline {
     /// True for the whole life of an idempotent-recovery session, which is
     /// one-shot and parks at recovery completion until torn down by the leader.
     recovery_session: bool,
+    /// Set when the accounted-progress ratchet has stopped adopting deltas for
+    /// the current `unresolved`. Reset on promotion.
+    ratchet_frozen: bool,
     /// Per-cohort map from Producer to the highest committed Clock observed
     /// when promoting unresolved → ready. Used to pre-resolve stale causal
     /// hints from re-enabled bindings whose journals are catching up.
@@ -322,6 +353,7 @@ impl CheckpointPipeline {
             ready: Default::default(),
             requested: false,
             recovery_session,
+            ratchet_frozen: false,
             completed_clocks,
             binding_cohorts,
             emitted_flushed_lsn: Vec::new(),
@@ -435,12 +467,6 @@ impl CheckpointPipeline {
         let (journals, journal_producers, bytes_read_delta, bytes_behind_delta) =
             progressed.measures();
 
-        // Resolve causal hints in `unresolved` using the incoming progress.
-        // `advanced_count` includes producers whose `last_commit` advanced by
-        // any amount (toward but possibly below `hinted_commit`); `resolved_hints`
-        // is the strict subset that reached `hinted_commit`.
-        let (advanced_count, resolved_hints) = self.unresolved.resolve_hints(&progressed);
-
         service_kit::event!(
             tracing::Level::DEBUG,
             "slice",
@@ -451,6 +477,41 @@ impl CheckpointPipeline {
             journals,
             "received Progressed response",
         );
+
+        // If the ratchet is not yet frozen, determine if `unresolved` accounts
+        // for all progress in `progressed` (and if so, adopt it).
+        if !self.ratchet_frozen && self.unresolved.unresolved_hints != 0 {
+            let Some(unaccounted) = self.unresolved.first_unaccounted(
+                &progressed,
+                &self.binding_cohorts,
+                &self.completed_clocks,
+            ) else {
+                self.ratchet(progressed);
+                return Ok(());
+            };
+            self.ratchet_frozen = true;
+
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
+                journal = unaccounted.journal.to_string(),
+                binding = unaccounted.binding,
+                producer = service_kit::event::debug(unaccounted.producer),
+                kind = service_kit::event::debug(unaccounted.kind),
+                // Debug-rendered: the diagnostic is the comparison of these two
+                // clocks, which wants full precision.
+                delta_clock = service_kit::event::debug(unaccounted.clock),
+                ceiling = service_kit::event::debug(unaccounted.ceiling),
+                recovery_session = self.recovery_session,
+                "accounted-progress ratchet froze at first unaccounted delta",
+            );
+        }
+
+        // Conservatively resolve hints in `unresolved` using `progressed`
+        // without changing its cut. `advanced_count` includes producers whose
+        // `last_commit` advanced by any amount toward `hinted_commit`.
+        // `resolved_hints` is the strict subset that reached `hinted_commit`.
+        let (advanced_count, resolved_hints) = self.unresolved.resolve_hints(&progressed);
 
         // Was there any progress against `unresolved` (partial or full)?
         if advanced_count != 0 {
@@ -478,13 +539,7 @@ impl CheckpointPipeline {
                 resolved_hints,
                 "promoting `unresolved` to `ready` (all hints resolved)"
             );
-            let resolved = std::mem::take(&mut self.unresolved);
-
-            // With `unresolved` emptied there is nothing left to peek at.
-            self.unresolved_peek_progress = false;
-
-            update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
-            self.ready = std::mem::take(&mut self.ready).reduce(resolved);
+            self.promote_unresolved();
         } else if advanced_count != 0 {
             service_kit::event!(
                 tracing::Level::DEBUG,
@@ -502,6 +557,54 @@ impl CheckpointPipeline {
         self.try_promote();
 
         Ok(())
+    }
+
+    /// Adopt an accounted `progressed` into `unresolved`, ratcheting its cut.
+    /// The delta is consumed entirely here and never reaches `self.progressed`:
+    /// it's merged into the current transaction boundary, not the next one.
+    fn ratchet(&mut self, mut progressed: crate::Frontier) {
+        // Remove hints which `completed_clocks` alone accounted for. Every hint
+        // this leaves is covered by a matching entry of `unresolved`, so the
+        // reduce below cannot raise its hint count.
+        progressed.prune_hints(&self.binding_cohorts, &self.completed_clocks);
+
+        // A delta left with no journals still carries its `flushed_lsn` into
+        // `unresolved` through reduce, but is not itself progress.
+        if !progressed.journals.is_empty() {
+            self.unresolved_stalled_ticks = 0;
+            self.unresolved_peek_progress = true;
+        }
+        self.unresolved = std::mem::take(&mut self.unresolved).reduce(progressed);
+
+        if self.unresolved.unresolved_hints != 0 {
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
+                recovery_session = self.recovery_session,
+                unresolved_hints = self.unresolved.unresolved_hints,
+                "ratcheted an accounted delta into `unresolved`"
+            );
+        } else {
+            service_kit::event!(
+                tracing::Level::DEBUG,
+                "pipeline",
+                recovery_session = self.recovery_session,
+                "promoting ratcheted `unresolved` to `ready` (all hints resolved)"
+            );
+            self.promote_unresolved();
+            assert!(self.progressed.journals.is_empty()); // Needs no promotion.
+        }
+    }
+
+    /// Move a fully-resolved `unresolved` into `ready`, recording its commits
+    /// as completed for their cohorts. With `unresolved` emptied there is also
+    /// nothing left to peek at.
+    fn promote_unresolved(&mut self) {
+        let resolved = std::mem::take(&mut self.unresolved);
+        self.unresolved_peek_progress = false;
+
+        update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
+        self.ready = std::mem::take(&mut self.ready).reduce(resolved);
     }
 
     /// Called on each actor tick to detect stalled causal hint resolution.
@@ -569,6 +672,7 @@ impl CheckpointPipeline {
             .prune_hints(&self.binding_cohorts, &self.completed_clocks);
 
         self.unresolved = std::mem::take(&mut self.progressed);
+        self.ratchet_frozen = false;
 
         // Promoting to `unresolved` is itself progress: it resets
         // the stall counter and may enable the peek path.
@@ -581,10 +685,7 @@ impl CheckpointPipeline {
                 "pipeline",
                 "promoted `progressed` directly to `ready`"
             );
-            let resolved = std::mem::take(&mut self.unresolved);
-
-            update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
-            self.ready = std::mem::take(&mut self.ready).reduce(resolved);
+            self.promote_unresolved();
         } else {
             service_kit::event!(
                 tracing::Level::DEBUG,
@@ -630,6 +731,7 @@ impl std::fmt::Debug for CheckpointPipeline {
             .field("ready", &self.ready.journals.len())
             .field("requested", &self.requested)
             .field("recovery_session", &self.recovery_session)
+            .field("ratchet_frozen", &self.ratchet_frozen)
             .finish()
     }
 }
@@ -760,7 +862,8 @@ pub fn range_span(shards: &[shuffle::Shard], begin: u32, end: u32) -> (usize, us
 mod test {
     use super::*;
     use crate::testing::{
-        jf, jf_with_bytes, pf, test_binding, test_journal_spec, test_listing_added, test_shards_3,
+        jf, jf_with_bytes, pf, pf_tuple, test_binding, test_journal_spec, test_listing_added,
+        test_shards_3,
     };
     use proto_flow::flow;
 
@@ -988,7 +1091,9 @@ mod test {
             vec![jf("journal/A", 0, vec![pf(0x01, 5, 30, -100)])],
             vec![],
         );
-        // Second batch arrives while unresolved is occupied.
+        // A delta for journal/B arrives while unresolved is occupied. P3@10 is
+        // accounted by the cohort-completed P3@20 from case 1, so it belongs to
+        // the current boundary and ratchets directly into unresolved.
         ingest_progressed(
             &mut pipeline,
             vec![jf("journal/B", 0, vec![pf(0x03, 10, 0, -300)])],
@@ -1001,12 +1106,12 @@ mod test {
         );
         assert_eq!(
             pipeline.unresolved.journals.len(),
-            1,
+            2,
             "case: second_batch_while_unresolved_blocked: unresolved"
         );
         assert_eq!(
             pipeline.progressed.journals.len(),
-            1,
+            0,
             "case: second_batch_while_unresolved_blocked: progressed"
         );
         assert_eq!(
@@ -1021,8 +1126,8 @@ mod test {
             vec![jf("journal/A", 0, vec![pf(0x01, 35, 0, -800)])],
             vec![],
         );
-        // Hint resolved → unresolved promoted to ready.
-        // Then progressed (journal/B) also promotes through.
+        // Hint resolved → both ratcheted journals promote to ready. The
+        // unaccounted resolving delta then promotes through separately.
         assert_eq!(
             pipeline.ready.journals.len(),
             2,
@@ -1277,8 +1382,13 @@ mod test {
         // Recovery is the load-bearing case: a resume frontier with an
         // unresolved hint that may take a long time to resolve. Peeks let
         // the client observe partial advancement during that window, while
-        // byte deltas (queued in self.progressed) surface exactly once on
-        // the post-recovery ready.
+        // byte deltas surface exactly once — on the recovery `ready`.
+        //
+        // Both deltas below are *accounted* (their `last_commit` stays at-or-below
+        // P1's hint at 100s), so the accounted-progress ratchet adopts them into
+        // `unresolved` and the recovery checkpoint carries their true offsets and
+        // their bytes. `take_ready`'s peek path zeroing bytes in the peek clone —
+        // leaving them on `unresolved` — is what makes that "exactly once" hold.
         let mut pipeline = CheckpointPipeline::new(
             &crate::Frontier {
                 journals: vec![jf("journal/A", 0, vec![pf(0x01, 10, 100, -50)])],
@@ -1296,8 +1406,9 @@ mod test {
         assert!(pipeline.take_ready().is_none(), "no progress, no peek");
         assert!(pipeline.requested, "request still pending after empty take");
 
-        // Partial advance with byte deltas. resolve_hints advances unresolved's
-        // last_commit but leaves bytes on self.progressed (the queue).
+        // Partial advance with byte deltas: an accounted delta, so `unresolved`
+        // adopts its `last_commit`, its true offset (-200, not the conservative
+        // `-M` of -50), and its bytes.
         ingest_progressed(
             &mut pipeline,
             vec![jf_with_bytes(
@@ -1319,6 +1430,10 @@ mod test {
         );
         assert_eq!(peek.journals[0].producers[0].last_commit.to_unix().0, 60);
         assert_eq!(peek.journals[0].producers[0].hinted_commit.to_unix().0, 100);
+        assert_eq!(
+            peek.journals[0].producers[0].offset, -200,
+            "the ratchet adopted the delta's true offset",
+        );
         assert_eq!(peek.journals[0].bytes_read_delta, 0, "peek zeros bytes");
         assert_eq!(peek.journals[0].bytes_behind_delta, 0);
 
@@ -1333,9 +1448,9 @@ mod test {
         pipeline.request().unwrap();
         assert!(pipeline.take_ready().is_none(), "no peek without progress");
 
-        // Full resolution: unresolved → ready (carries no bytes — bytes are
-        // queued in self.progressed). take_ready returns the recovery
-        // checkpoint, which is this session's one and only checkpoint.
+        // Full resolution: `unresolved` → `ready`. take_ready returns the recovery
+        // checkpoint, this session's one and only, now carrying the ratcheted
+        // offset and the byte deltas of the span it durably covers.
         ingest_progressed(
             &mut pipeline,
             vec![jf("journal/A", 0, vec![pf(0x01, 100, 0, -300)])],
@@ -1347,16 +1462,25 @@ mod test {
             recovery.journals[0].producers[0].last_commit.to_unix().0,
             100
         );
-        assert_eq!(recovery.journals[0].bytes_read_delta, 0);
+        assert_eq!(
+            recovery.journals[0].producers[0].offset, -300,
+            "the next session resumes from the replay's own cut",
+        );
+        assert_eq!(
+            recovery.journals[0].bytes_read_delta, 400,
+            "bytes of the ratcheted deltas, delivered exactly once",
+        );
+        assert_eq!(recovery.journals[0].bytes_behind_delta, 1000);
         assert!(pipeline.recovery_session, "recovery is sticky");
 
-        // The session now quiesces: the held-back byte deltas are never promoted.
+        // The session now quiesces. Nothing was ever queued in `progressed`:
+        // a ratcheted delta is consumed entirely into `unresolved`.
         pipeline.request().unwrap();
         assert!(
             pipeline.take_ready().is_none(),
             "no second checkpoint after recovery",
         );
-        assert_eq!(pipeline.progressed.journals[0].bytes_read_delta, 400);
+        assert!(pipeline.progressed.journals.is_empty());
     }
 
     /// Snapshot-friendly view of the checkpoint pipeline state.
@@ -1413,6 +1537,12 @@ mod test {
         // Progressed resolves the hint AND contains extra progress (journal/B).
         // Carries flushed_lsn which should be folded into `unresolved` because
         // this progress resolved a causal hint.
+        //
+        // The accounted-progress ratchet does not engage: P1 commits at 250s,
+        // above its ceiling (the 200s hint), and P3 of journal/B is unknown to
+        // both the resume checkpoint and its completed clocks. This delta is
+        // unaccounted, so it freezes the ratchet and takes the conservative
+        // path which the rest of this test exercises.
         ingest_progressed(
             &mut pipeline,
             vec![
@@ -1464,6 +1594,381 @@ mod test {
             "recovery is one-shot: no second checkpoint",
         );
         insta::assert_debug_snapshot!("after_quiesced", pipeline_snapshot(&pipeline));
+    }
+
+    /// Build a recovery pipeline resuming from `journals`. Bindings 0 and 1 both
+    /// map to cohort 0, and `Frontier::new` computes the hint count which makes
+    /// the pipeline a recovery session.
+    fn test_recovery_pipeline_resuming(
+        journals: Vec<crate::JournalFrontier>,
+    ) -> CheckpointPipeline {
+        let resume = crate::Frontier::new(journals, vec![]).unwrap();
+        let pipeline = CheckpointPipeline::new(&resume, vec![0, 0]);
+        assert!(pipeline.recovery_session, "fixture must be a recovery");
+        pipeline
+    }
+
+    /// Compact readout of a frontier: per journal, its producers as
+    /// (last_commit_seconds, hinted_commit_seconds, offset) plus byte deltas.
+    fn frontier_readout(f: &crate::Frontier) -> Vec<(&str, u16, Vec<(u64, u64, i64)>, i64, i64)> {
+        f.journals
+            .iter()
+            .map(|jf| {
+                (
+                    &*jf.journal,
+                    jf.binding,
+                    jf.producers
+                        .iter()
+                        .map(crate::testing::pf_tuple)
+                        .collect::<Vec<_>>(),
+                    jf.bytes_read_delta,
+                    jf.bytes_behind_delta,
+                )
+            })
+            .collect()
+    }
+
+    // The ratchet's happy path: a recovery session whose replay is entirely
+    // accounted for by the resume checkpoint plus its hints. Each delta is
+    // adopted wholesale, so the emitted recovery checkpoint carries the replay's
+    // TRUE offsets — not the conservative `-M` of the cut it resumed from — and
+    // the next session re-reads nothing it doesn't have to.
+    #[test]
+    fn test_accounted_ratchet_recovery_adopts_deltas() {
+        let mut pipeline = test_recovery_pipeline_resuming(vec![
+            // P1 is hinted at 200s; both journals resume from a 1_000-byte cut.
+            jf("journal/A", 0, vec![pf(0x01, 50, 200, -1_000)]),
+            jf("journal/B", 0, vec![pf(0x01, 50, 200, -1_000)]),
+        ]);
+
+        // Delta 1: duplicate content, well within the hint. Adopted, advancing
+        // both journals' cuts by 4_000 bytes and both hints part-way.
+        ingest_progressed(
+            &mut pipeline,
+            vec![
+                jf_with_bytes("journal/A", 0, vec![pf(0x01, 120, 0, -5_000)], 4_000, 100),
+                jf_with_bytes("journal/B", 0, vec![pf(0x01, 120, 0, -5_000)], 4_000, 100),
+            ],
+            vec![7],
+        );
+        assert_eq!(
+            pipeline.unresolved.unresolved_hints, 2,
+            "partial advancement: both hints still open at 200s",
+        );
+        insta::assert_debug_snapshot!(
+            "ratchet_after_first_accounted_delta",
+            frontier_readout(&pipeline.unresolved)
+        );
+
+        // Delta 2: journal/A reaches the hinted commit and journal/B's read
+        // continues, leaving an OPEN span (`+9_000`) which rides along as part of
+        // the adopted cut. journal/B's hint is still open, so no promotion yet.
+        ingest_progressed(
+            &mut pipeline,
+            vec![
+                jf_with_bytes("journal/A", 0, vec![pf(0x01, 200, 0, -8_000)], 3_000, 50),
+                jf_with_bytes("journal/B", 0, vec![pf(0x01, 150, 0, 9_000)], 4_000, 50),
+            ],
+            vec![9],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1, "journal/B's hint");
+
+        // Delta 3 resolves journal/B, promoting the recovery checkpoint.
+        ingest_progressed_with_backfill(
+            &mut pipeline,
+            vec![jf_with_bytes(
+                "journal/B",
+                0,
+                vec![pf(0x01, 200, 0, -12_000)],
+                3_000,
+                -200,
+            )],
+            &[(0, 77)],
+            &[],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0);
+        assert!(pipeline.progressed.journals.is_empty(), "nothing held back");
+
+        pipeline.request().unwrap();
+        let recovery = pipeline.take_ready().expect("recovery checkpoint");
+
+        // Offsets are the replay's own, byte deltas are summed across the
+        // ratcheted deltas, and the backfill marker rode through reduce.
+        insta::assert_debug_snapshot!("ratchet_recovery_checkpoint", frontier_readout(&recovery));
+        assert_eq!(recovery.unresolved_hints, 0);
+        assert_eq!(
+            recovery.latest_backfill_begin.get(&0),
+            Some(&uuid::Clock::from_u64(77)),
+        );
+        assert_eq!(recovery.flushed_lsn, vec![crate::log::Lsn::from_u64(9)]);
+
+        // One checkpoint only: recovery remains one-shot.
+        pipeline.request().unwrap();
+        assert!(pipeline.take_ready().is_none());
+    }
+
+    // An unresolved accounted hint is either bounded by the active unresolved
+    // frontier or by a cohort-completed commit. The former is safe to max-reduce
+    // as-is; the latter is stale and must be pruned locally because accounted
+    // deltas bypass `progressed`.
+    #[test]
+    fn test_accounted_ratchet_recovery_prunes_stale_hints() {
+        let mut pipeline = test_recovery_pipeline_resuming(vec![
+            jf(
+                "journal/A",
+                0,
+                vec![pf(0x01, 50, 200, -500), pf(0x03, 300, 0, -500)],
+            ),
+            jf("journal/Z", 0, vec![pf(0x05, 300, 0, -500)]),
+        ]);
+
+        // An accounted delta regenerates hints three ways: the pending P1 hint
+        // already in `unresolved`, a stale P3 hint on a read-derived entry, and
+        // a stale hint-only P5 entry for journal/Z — a journal this recovery
+        // session never reads. P3 and P5 are covered by cohort-completed clocks
+        // from the full resume checkpoint.
+        ingest_progressed(
+            &mut pipeline,
+            vec![
+                jf(
+                    "journal/A",
+                    0,
+                    vec![pf(0x01, 120, 200, -900), pf(0x03, 100, 200, -900)],
+                ),
+                jf("journal/Z", 0, vec![pf(0x05, 0, 200, 0)]),
+            ],
+            vec![],
+        );
+
+        // The P1 hint remains pending exactly as before, P3's stale hint is
+        // cleared while its read progress is retained, and P5's hint-only entry
+        // is removed with its now-empty journal.
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1);
+        insta::assert_debug_snapshot!(
+            "ratchet_prunes_stale_hints",
+            frontier_readout(&pipeline.unresolved)
+        );
+    }
+
+    // A producer absent from the recovery checkpoint but known to its cohort's
+    // completed clocks is accounted through those clocks — the commit is done
+    // cohort-wide, so re-reading it is a duplicate. Adoption may then raise a
+    // producer's `last_commit` past its own `hinted_commit`, which is fine: the
+    // hint counts as resolved by reduce's recompute.
+    #[test]
+    fn test_accounted_ratchet_recovery_uses_completed_clocks() {
+        // `CheckpointPipeline::new` seeds completed_clocks from the FULL resume
+        // checkpoint — including journal/A, which carries no hint and which a
+        // recovery session therefore never reads. P3 is completed at 500s and P1
+        // at 300s, both above the 250s hint P1 carries on journal/B.
+        let mut pipeline = test_recovery_pipeline_resuming(vec![
+            jf(
+                "journal/A",
+                0,
+                vec![pf(0x01, 300, 0, -700), pf(0x03, 500, 0, -700)],
+            ),
+            jf("journal/B", 1, vec![pf(0x01, 100, 250, -400)]),
+        ]);
+        assert_eq!(pipeline.unresolved.journals.len(), 1, "journal/B only");
+
+        // P3 is unknown to `unresolved` yet accounted at 400s <= its completed
+        // 500s, and P1 commits at 290s — above its 250s hint, below its completed
+        // 300s. The delta is accounted and adopted whole.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf(
+                "journal/B",
+                1,
+                vec![pf(0x01, 290, 0, -900), pf(0x03, 400, 0, -900)],
+            )],
+            vec![],
+        );
+        assert_eq!(
+            pipeline.unresolved.unresolved_hints, 0,
+            "P1's hint is resolved by adoption past it",
+        );
+        pipeline.request().unwrap();
+        let recovery = pipeline.take_ready().expect("recovery checkpoint");
+        insta::assert_debug_snapshot!(
+            "ratchet_ceiling_from_completed_clocks",
+            frontier_readout(&recovery)
+        );
+    }
+
+    // Judgment is per DELTA, not per journal entry: one unaccounted entry
+    // rejects the whole delta. A novel event's offset is at-or-above the cut
+    // already adopted for its journal, so a partial adoption could cover it.
+    //
+    // Which entries are unaccounted is `Frontier::first_unaccounted`'s business,
+    // exhaustively pinned by its own `test_first_unaccounted`. This is the
+    // pipeline consequence, so one representative rejection suffices.
+    #[test]
+    fn test_accounted_ratchet_recovery_rejects_whole_delta() {
+        let mut pipeline = test_recovery_pipeline_resuming(vec![
+            jf("journal/A", 0, vec![pf(0x01, 50, 200, -500)]),
+            jf("journal/B", 0, vec![pf(0x01, 50, 200, -500)]),
+        ]);
+
+        // journal/A's entry is accounted (120s <= its 200s hint); journal/B's is
+        // not (P7 is named by neither the resume checkpoint nor its cohort's
+        // completed clocks, so its ceiling is zero). No cut is adopted:
+        // journal/A's P1 keeps the -500 offset it resumed from, its `last_commit`
+        // advancing to 120s only through ordinary (conservative) hint resolution.
+        ingest_progressed(
+            &mut pipeline,
+            vec![
+                jf_with_bytes("journal/A", 0, vec![pf(0x01, 120, 0, -900)], 400, 0),
+                jf_with_bytes("journal/B", 0, vec![pf(0x07, 30, 0, -900)], 400, 0),
+            ],
+            vec![],
+        );
+        assert!(pipeline.ratchet_frozen);
+        insta::assert_debug_snapshot!(
+            "ratchet_rejects_whole_delta",
+            frontier_readout(&pipeline.unresolved)
+        );
+        assert_eq!(
+            pipeline.progressed.journals.len(),
+            2,
+            "the rejected delta queued in `progressed`, as it always did",
+        );
+    }
+
+    // The freeze is permanent for the session: later deltas which WOULD test
+    // accounted are not adopted, and conservative resolution bumps land at the
+    // ratcheted floor — `-M` computed from `unresolved`'s own offsets, which the
+    // ratchet already advanced. That floor is the freeze point.
+    #[test]
+    fn test_accounted_ratchet_recovery_freeze_is_sticky() {
+        let mut pipeline =
+            test_recovery_pipeline_resuming(vec![jf("journal/A", 0, vec![pf(0x01, 10, 100, -50)])]);
+
+        // Accounted: adopt the true cut at 2_000 bytes.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 60, 0, -2_000)])],
+            vec![],
+        );
+        assert_eq!(
+            pf_tuple(&pipeline.unresolved.journals[0].producers[0]).2,
+            -2_000
+        );
+
+        // Unaccounted (P9 is unknown), and it freezes. P1's advancement to 80s
+        // now flips its offset to `-M` — which is the ratcheted -2_000, not the
+        // -50 the session resumed from.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf(
+                "journal/A",
+                0,
+                vec![pf(0x01, 80, 0, -6_000), pf(0x09, 30, 0, -6_000)],
+            )],
+            vec![],
+        );
+        assert!(pipeline.ratchet_frozen);
+        assert_eq!(
+            pf_tuple(&pipeline.unresolved.journals[0].producers[0]),
+            (80, 100, -2_000),
+            "conservative bump lands at the ratcheted floor",
+        );
+
+        // A subsequent delta which would test accounted (100s == P1's hint) is
+        // NOT adopted: it resolves the hint conservatively, leaving the frozen
+        // floor as the recovery checkpoint's cut.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf_with_bytes(
+                "journal/A",
+                0,
+                vec![pf(0x01, 100, 0, -9_000)],
+                500,
+                0,
+            )],
+            vec![],
+        );
+        pipeline.request().unwrap();
+        let recovery = pipeline.take_ready().expect("recovery checkpoint");
+        insta::assert_debug_snapshot!(
+            "ratchet_frozen_floor_checkpoint",
+            frontier_readout(&recovery)
+        );
+        assert_eq!(
+            pipeline.progressed.journals[0].bytes_read_delta, 500,
+            "post-freeze bytes die with the session, as they always did",
+        );
+    }
+
+    // The ratchet belongs to every unresolved generation, not specifically to
+    // recovery. An ordinary generation adopts accounted progress and resets its
+    // freeze when that generation resolves, allowing the next one to ratchet too.
+    #[test]
+    fn test_ratchet_ordinary_unresolved_generations() {
+        let mut pipeline = test_pipeline();
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/A", 0, vec![pf(0x01, 10, 100, -50)])],
+            vec![],
+        );
+        assert!(!pipeline.recovery_session);
+
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf_with_bytes(
+                "journal/A",
+                0,
+                vec![pf(0x01, 60, 0, -2_000)],
+                400,
+                0,
+            )],
+            vec![],
+        );
+        assert_eq!(
+            pf_tuple(&pipeline.unresolved.journals[0].producers[0]),
+            (60, 100, -2_000),
+            "the ordinary unresolved generation adopts the true cut",
+        );
+        assert_eq!(
+            pipeline.unresolved.journals[0].bytes_read_delta, 400,
+            "the accounted delta belongs to the current boundary",
+        );
+        assert!(pipeline.progressed.journals.is_empty());
+
+        // One whole delta contains the accounted resolving commit plus a novel
+        // producer. The novel entry freezes this generation, so the delta takes
+        // the conservative path and then forms the next ready boundary.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf(
+                "journal/A",
+                0,
+                vec![pf(0x01, 100, 0, -3_000), pf(0x09, 10, 0, -3_000)],
+            )],
+            vec![],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0);
+        assert!(
+            !pipeline.ratchet_frozen,
+            "promoting the next unresolved generation resets its freeze",
+        );
+
+        // A later unresolved generation ratchets independently.
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x03, 20, 200, -100)])],
+            vec![],
+        );
+        assert_eq!(pipeline.unresolved.unresolved_hints, 1);
+        ingest_progressed(
+            &mut pipeline,
+            vec![jf("journal/B", 0, vec![pf(0x03, 120, 0, -4_000)])],
+            vec![],
+        );
+        assert_eq!(
+            pf_tuple(&pipeline.unresolved.journals[0].producers[0]),
+            (120, 200, -4_000),
+            "the next generation has a fresh ratchet",
+        );
     }
 
     #[test]

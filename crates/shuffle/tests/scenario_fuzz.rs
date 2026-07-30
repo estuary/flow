@@ -186,6 +186,13 @@ struct SharedHarness {
 
 static HARNESS: std::sync::OnceLock<SharedHarness> = std::sync::OnceLock::new();
 
+/// Idempotent-replay sessions run across the whole sweep, and how many exercise
+/// the accounted-progress ratchet's primary recovery use case by advancing the
+/// emitted checkpoint beyond the frontier the replay resumed from. Sweep-wide
+/// coverage counters, checked once by `fuzz_shuffle_pipeline`.
+static HINTED_RECOVERIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RATCHET_ADVANCED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn get_harness() -> &'static SharedHarness {
     HARNESS.get_or_init(|| {
         // Initialize tracing globally (before DataPlane, which uses set_default
@@ -725,6 +732,23 @@ fn polling_complete(
         .all(|(&prod_id, &clock)| commit_visible(frontier, prod_id, clock))
 }
 
+/// Offset of `(journal, binding, producer)` within `frontier`, or None if it
+/// carries no such entry. Used to compare a recovery checkpoint's cut against
+/// the one its replay resumed from.
+fn producer_offset(
+    frontier: &shuffle::Frontier,
+    journal: &str,
+    binding: u16,
+    producer: uuid::Producer,
+) -> Option<i64> {
+    let index = frontier.find_journal(journal, binding)?;
+    frontier.journals[index]
+        .producers
+        .iter()
+        .find(|pf| pf.producer == producer)
+        .map(|pf| pf.offset)
+}
+
 /// Does `frontier` show `prod_id` committed at-or-past `expected_clock`?
 fn commit_visible(
     frontier: &shuffle::Frontier,
@@ -1163,6 +1187,37 @@ async fn run_test_case_inner(
                         break;
                     }
                 }
+                // The accounted-progress ratchet (see `CheckpointPipeline`) only
+                // ever moves a cut forward: every producer the recovery
+                // checkpoint reports sits at-or-beyond the offset magnitude the
+                // replay resumed from. When the replay was purely accounted it
+                // sits strictly beyond, which is the point of the ratchet — the
+                // restarted session below then re-reads only the novel tail, not
+                // the whole hinted span.
+                let mut ratchet_advanced = false;
+                for jf in &round_frontier.journals {
+                    for pf in &jf.producers {
+                        let Some(resumed) =
+                            producer_offset(&recovery, &jf.journal, jf.binding, pf.producer)
+                        else {
+                            continue;
+                        };
+                        if pf.offset.abs() < resumed.abs() {
+                            return Err(format!(
+                                "recovery checkpoint cut regressed in {:?} binding {} \
+                                 producer {:?}: {} resumed from {resumed}\n  Test case: \
+                                 {test_case:?}",
+                                jf.journal, jf.binding, pf.producer, pf.offset,
+                            ));
+                        }
+                        ratchet_advanced |= pf.offset.abs() > resumed.abs();
+                    }
+                }
+                HINTED_RECOVERIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if ratchet_advanced {
+                    RATCHET_ADVANCED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+
                 recovered_scan =
                     collect_scanned_entries(&round_frontier, log_dir, &mut shard_state);
 
@@ -1377,7 +1432,25 @@ fn fuzz_shuffle_pipeline() {
                 "deterministic regression case {idx} failed",
             );
         }
-        quickcheck::QuickCheck::new().quickcheck(prop as fn(TestCase) -> quickcheck::TestResult)
+        quickcheck::QuickCheck::new().quickcheck(prop as fn(TestCase) -> quickcheck::TestResult);
+
+        // Coverage of the ratchet's primary recovery use case across the sweep.
+        // A replay whose content is entirely accounted for by the recovery
+        // checkpoint ratchets its cut forward; one which re-reads an un-hinted
+        // commit of the crash round (an OUTSIDE or single-journal ACK, which no
+        // hint covers) freezes the ratchet instead. Both shapes occur here, and
+        // the assertion pins the one a regression would silence.
+        let hinted = HINTED_RECOVERIES.load(std::sync::atomic::Ordering::Relaxed);
+        let advanced = RATCHET_ADVANCED.load(std::sync::atomic::Ordering::Relaxed);
+        eprintln!("idempotent replays: {hinted}, of which ratcheted forward: {advanced}");
+        assert!(
+            hinted != 0,
+            "the sweep did not exercise an idempotent replay",
+        );
+        assert!(
+            advanced != 0,
+            "{hinted} idempotent replay(s) ran and none ratcheted its cut forward",
+        );
     });
 
     // Tear down the data plane gracefully (OnceLock statics are never dropped).
