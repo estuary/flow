@@ -477,6 +477,78 @@ async fn test_discover_succeeds_after_late_data_plane_grant() {
     );
 }
 
+/// After a stale-Snapshot denial, the discover executor persists the instant
+/// an authoritative Snapshot must postdate (in `internal.tasks`, so whichever
+/// agent instance dequeues the next poll applies the same criterion) and
+/// defers re-polls without pre-flight checks or connector work. Once the
+/// local Snapshot postdates that instant, the retry proceeds and succeeds.
+#[tokio::test]
+async fn test_discover_defers_polls_until_authoritative_snapshot() {
+    let mut harness = TestHarness::init("test_discover_defers_polls").await;
+    let user_id = harness.setup_tenant("cats").await;
+    harness.add_data_plane(FOREIGN_DATA_PLANE).await;
+
+    harness.refresh_snapshot_stale().await;
+    harness
+        .add_role_grant_unobserved("cats/", "dogs/dp/private/", models::Capability::Read)
+        .await;
+
+    let capture_name = "cats/capture-deferred";
+    let disco_id = queue_foreign_dp_discover(&mut harness, user_id, capture_name).await;
+    harness.discover_handler.connectors.mock_discover(
+        capture_name,
+        Ok((spec_fixture(), single_binding_response("acorns"))),
+    );
+
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+    assert!(
+        matches!(
+            harness.discover_job_status(disco_id).await,
+            JobStatus::Queued
+        ),
+        "discover should reschedule while the grant is unobserved, got: {:?}",
+        harness.discover_job_status(disco_id).await,
+    );
+
+    let state: serde_json::Value = harness.get_task_state(disco_id).await;
+    assert!(
+        state
+            .get("awaiting_snapshot_after")
+            .is_some_and(|v| v.is_string()),
+        "the executor should record the instant a Snapshot must postdate, got: {state}"
+    );
+
+    // A re-poll under the still-stale Snapshot defers, leaving the row queued.
+    harness.set_min_task_wake_at(disco_id).await;
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+    assert!(
+        matches!(
+            harness.discover_job_status(disco_id).await,
+            JobStatus::Queued
+        ),
+        "a re-poll under a still-stale Snapshot should defer, got: {:?}",
+        harness.discover_job_status(disco_id).await,
+    );
+
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(disco_id).await;
+    let ran = harness
+        .run_automation_task(automations::task_types::DISCOVERS)
+        .await;
+    assert_eq!(Some(disco_id), ran);
+    let status = harness.discover_job_status(disco_id).await;
+    assert!(
+        matches!(status, JobStatus::Success { .. }),
+        "discover should succeed once the Snapshot postdates the anchor, got: {status:?}",
+    );
+}
+
 /// The second, independent stale path through `DiscoverExecutor::process`: the
 /// data-plane check passes, but `prepare_discover`'s `get_live_specs` denies the
 /// discover's own capture against a Snapshot older than that capture. The error

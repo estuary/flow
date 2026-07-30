@@ -1,4 +1,5 @@
 use anyhow::Context;
+use control_plane_api::Snapshot;
 use control_plane_api::publications::{Row, fetch_publication};
 use models::draft_error;
 use tracing::info;
@@ -15,6 +16,11 @@ use control_plane_api::{
 pub struct PublicationsExecutor {
     pub publisher: Publisher,
     pub pg_pool: sqlx::PgPool,
+    /// Authorization Snapshot watch. Each poll pins one Snapshot from this
+    /// watch: first to cheaply defer while it remains stale for a queued
+    /// publication (see `Snapshot::defer_stale_retry`), and then to serve
+    /// every authorization decision of the publication itself.
+    pub snapshot_watch: std::sync::Arc<dyn tokens::Watch<Snapshot>>,
     /// When true, newly-created captures are published onto runtime v2; see [`RuntimeV2Rollout`].
     pub runtime_v2_new_captures: bool,
     /// When true, newly-created materializations are published onto runtime v2; see [`RuntimeV2Rollout`].
@@ -23,13 +29,30 @@ pub struct PublicationsExecutor {
     pub runtime_v2_new_derivations: bool,
 }
 
+/// Poll state persisted to `internal.tasks` between polls, and therefore
+/// shared with whichever agent instance dequeues the next poll.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct PublicationState {
+    /// The instant a Snapshot must postdate (per `Snapshot::taken_after`)
+    /// before this publication is retried: the queued time its prior attempt
+    /// anchored authorization staleness on. While set, polls defer — without
+    /// loading or building the draft — until the local Snapshot satisfies it
+    /// (see `Snapshot::defer_stale_retry`). Optional so that reschedules for
+    /// other, future reasons aren't bound to this check.
+    #[serde(default)]
+    pub awaiting_snapshot_after: Option<tokens::DateTime>,
+}
+
 impl automations::Executor for PublicationsExecutor {
     const TASK_TYPE: automations::TaskType = automations::task_types::PUBLICATIONS;
 
     /// We don't do anything with the inbox except log it, so this is just a
     /// generic JSON value.
     type Receive = serde_json::Value;
-    type State = ();
+    /// `None` — the common, never-deferred case — round-trips as the JSON
+    /// `null` that stateless polls have always persisted, keeping in-flight
+    /// tasks readable across a deploy in either direction.
+    type State = Option<PublicationState>;
     type Outcome = automations::Action;
 
     async fn poll<'s>(
@@ -37,12 +60,12 @@ impl automations::Executor for PublicationsExecutor {
         pool: &'s sqlx::PgPool,
         task_id: models::Id,
         _parent_id: Option<models::Id>,
-        _state: &'s mut Self::State,
+        state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
         tracing::debug!(?inbox, "starting publication task");
         let row = fetch_publication(task_id, pool).await?;
-        let action = self.handle_task(row).await?;
+        let action = self.handle_task(row, state).await?;
 
         // Always clear inbox, or else we'll get re-polled.
         inbox.clear();
@@ -54,16 +77,12 @@ impl automations::Executor for PublicationsExecutor {
     }
 }
 
-/// How long to wait before re-polling a publication whose authorization was
-/// evaluated against a snapshot that is not authoritative for the publication.
-/// A refresh was already requested, but the snapshot source enforces a minimum
-/// refresh interval that may exceed this backoff: each re-poll simply
-/// re-evaluates (and re-requests the refresh) until an authoritative snapshot
-/// lands.
-const PUBLICATION_STALE_SNAPSHOT_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
-
 impl PublicationsExecutor {
-    async fn handle_task(&self, row: Row) -> anyhow::Result<automations::Action> {
+    async fn handle_task(
+        &self,
+        row: Row,
+        state: &mut Option<PublicationState>,
+    ) -> anyhow::Result<automations::Action> {
         let id = row.id;
 
         // First ensure that the publication status is queued. Otherwise,
@@ -84,12 +103,32 @@ impl PublicationsExecutor {
             }
         }
 
+        // Pin one Snapshot for this poll: the deferral decision and every
+        // authorization decision of the publication observe the same view.
+        let snapshot = self.snapshot_watch.token();
+        let snapshot = snapshot.result().unwrap();
+
+        // A prior attempt was denied under a Snapshot that was not
+        // authoritative for this publication. Defer — without loading or
+        // building the draft — until this instance's Snapshot is, at which
+        // point the retry is guaranteed to classify deterministically.
+        if let Some(anchor) = state.as_ref().and_then(|s| s.awaiting_snapshot_after) {
+            if snapshot.defer_stale_retry(anchor) {
+                return Ok(automations::Action::Sleep(
+                    Snapshot::STALE_RETRY_WAKE
+                        .to_std()
+                        .expect("wake interval is positive"),
+                ));
+            }
+        }
+
         let dry_run = row.dry_run;
         let draft_id = row.draft_id;
+        let queued_at = row.updated_at;
 
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
 
-        let (status, draft_errors, final_pub_id) = match self.process(row).await {
+        let (status, draft_errors, final_pub_id) = match self.process(row, snapshot).await {
             Ok(result) => {
                 if dry_run {
                     specs::add_built_specs_to_draft_specs(draft_id, &result.built, &self.pg_pool)
@@ -108,15 +147,19 @@ impl PublicationsExecutor {
             Err(error) if validation::is_authz_snapshot_stale(&error) => {
                 // An authorization denial was evaluated against a Snapshot that
                 // isn't authoritative for this publication. `Publisher::publish`
-                // already requested an early refresh; leave the publication queued
-                // and reschedule so a retry observes a fresher Snapshot rather than
-                // reporting a failure.
+                // already requested an early refresh; record the instant an
+                // authoritative Snapshot must postdate and reschedule, so that
+                // re-polls defer cheaply until one lands rather than reporting
+                // a failure.
                 tracing::info!(
                     pub_id = %id, %time_queued,
                     "publication authorization snapshot is stale; rescheduling"
                 );
+                state.get_or_insert_default().awaiting_snapshot_after = Some(queued_at);
                 return Ok(automations::Action::Sleep(
-                    PUBLICATION_STALE_SNAPSHOT_BACKOFF,
+                    Snapshot::STALE_RETRY_WAKE
+                        .to_std()
+                        .expect("wake interval is positive"),
                 ));
             }
             Err(error) => {
@@ -160,7 +203,7 @@ impl PublicationsExecutor {
         %row.dry_run,
         %row.user_id,
     ))]
-    async fn process(&self, row: Row) -> anyhow::Result<PublicationResult> {
+    async fn process(&self, row: Row, snapshot: &Snapshot) -> anyhow::Result<PublicationResult> {
         info!(
             %row.logs_token,
             %row.created_at,
@@ -202,6 +245,7 @@ impl PublicationsExecutor {
             // against a snapshot older than it are treated as not-yet-observed
             // and retried rather than reported.
             started_at: Some(row.updated_at),
+            snapshot,
             verify_user_authz: true,
             default_data_plane_name: row.data_plane_name.clone().filter(|s| !s.is_empty()),
             initialize: (

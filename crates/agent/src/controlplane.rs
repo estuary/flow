@@ -673,6 +673,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
         draft: tables::DraftCatalog,
         default_data_plane: Option<String>,
     ) -> anyhow::Result<PublicationResult> {
+        let snapshot = self.snapshot_watch.token();
         let publication = DraftPublication {
             user_id: self.system_user_id,
             logs_token,
@@ -684,6 +685,9 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             // no instant that stays fixed across attempts to anchor staleness
             // on; they carry their own retry/backoff instead.
             started_at: None,
+            snapshot: snapshot
+                .result()
+                .expect("authorization snapshot is not ready"),
             // skip authz checks for controller-initiated publications
             verify_user_authz: false,
             initialize: NoopInitialize,

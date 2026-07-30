@@ -622,6 +622,68 @@ async fn test_publication_succeeds_after_late_grant() {
     );
 }
 
+/// After a stale-Snapshot denial, the executor persists the instant an
+/// authoritative Snapshot must postdate (in `internal.tasks`, so whichever
+/// agent instance dequeues the next poll applies the same criterion) and
+/// defers re-polls without loading or building the draft. Once the local
+/// Snapshot postdates that instant, the retry proceeds and succeeds.
+#[tokio::test]
+async fn test_publication_defers_polls_until_authoritative_snapshot() {
+    let mut harness = TestHarness::init("test_publication_defers_polls").await;
+    let dogs_user = setup_cross_tenant_publication(&mut harness).await;
+
+    harness.refresh_snapshot_stale().await;
+    harness
+        .add_user_grant_unobserved(dogs_user, "cats/", Capability::Read)
+        .await;
+    harness
+        .add_role_grant_unobserved("dogs/", "cats/", Capability::Read)
+        .await;
+
+    let pub_id = harness
+        .queue_publication(
+            dogs_user,
+            "deferred until authoritative",
+            Either::L(dogs_materialize_cats_draft()),
+        )
+        .await;
+
+    let first = harness.poll_publication_once(pub_id).await;
+    assert_eq!(
+        publications::StatusType::Queued,
+        first.status.r#type,
+        "publication should reschedule while the grants are unobserved, got: {:?}",
+        first.errors
+    );
+
+    let state: serde_json::Value = harness.get_task_state(pub_id).await;
+    assert!(
+        state
+            .get("awaiting_snapshot_after")
+            .is_some_and(|v| v.is_string()),
+        "the executor should record the instant a Snapshot must postdate, got: {state}"
+    );
+
+    // A re-poll under the still-stale Snapshot defers, leaving the row queued.
+    harness.set_min_task_wake_at(pub_id).await;
+    let deferred = harness.poll_publication_once(pub_id).await;
+    assert_eq!(
+        publications::StatusType::Queued,
+        deferred.status.r#type,
+        "a re-poll under a still-stale Snapshot should defer, got: {:?}",
+        deferred.errors
+    );
+
+    harness.refresh_snapshot_authoritative().await;
+    harness.set_min_task_wake_at(pub_id).await;
+    let resolved = harness.poll_publication_once(pub_id).await;
+    assert!(
+        resolved.status.is_success(),
+        "publication should succeed once the Snapshot postdates the anchor, got: {:?}",
+        resolved.errors
+    );
+}
+
 /// The variant of the late-grant race that the test above cannot catch: the
 /// referenced spec is *old*. A Snapshot taken after the spec's publication but
 /// before the new grants is inconclusive for a publication queued after those
@@ -734,6 +796,9 @@ async fn test_publication_uses_one_snapshot_across_phases() {
         .await;
     harness.refresh_snapshot_authoritative().await;
 
+    // Pin the pre-revocation Snapshot which the whole publication evaluates
+    // against; the mid-publication refresh below must not displace it.
+    let refresh = harness.snapshot_watch.token();
     let publication = publications::DraftPublication {
         user_id: dogs_user,
         logs_token: uuid::Uuid::new_v4(),
@@ -741,6 +806,9 @@ async fn test_publication_uses_one_snapshot_across_phases() {
         detail: Some("one snapshot across phases".to_string()),
         draft: dogs_materialize_cats_draft(),
         started_at: Some(tokens::now()),
+        snapshot: refresh
+            .result()
+            .expect("authorization snapshot is not ready"),
         verify_user_authz: true,
         default_data_plane_name: Some("ops/dp/public/test".to_string()),
         initialize: (
@@ -776,6 +844,7 @@ async fn test_publication_uses_one_snapshot_across_phases() {
     // `started_at`, making the denial terminal rather than a stale retry.
     let started_at = tokens::now();
     harness.refresh_snapshot_authoritative().await;
+    let guard_refresh = harness.snapshot_watch.token();
     let guard = publications::DraftPublication {
         user_id: dogs_user,
         logs_token: uuid::Uuid::new_v4(),
@@ -783,6 +852,9 @@ async fn test_publication_uses_one_snapshot_across_phases() {
         detail: Some("post-revocation guard".to_string()),
         draft: dogs_materialize_cats_draft(),
         started_at: Some(started_at),
+        snapshot: guard_refresh
+            .result()
+            .expect("authorization snapshot is not ready"),
         verify_user_authz: true,
         default_data_plane_name: Some("ops/dp/public/test".to_string()),
         initialize: publications::ExpandDraft {

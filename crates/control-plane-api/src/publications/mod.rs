@@ -5,7 +5,6 @@ use chrono::{DateTime, Utc};
 use rand::Rng;
 use sqlx::Executor;
 use sqlx::types::Uuid;
-use std::sync::Arc;
 use std::u32;
 use tables::BuiltRow;
 
@@ -30,7 +29,13 @@ use models::draft_error;
 
 /// Represents a desire to publish the given `draft`, along with associated metadata and behavior
 /// for handling draft initialization, build finalizing, and retrying failures.
-pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit> {
+pub struct DraftPublication<
+    's,
+    Init: Initialize,
+    Fin: FinalizeBuild,
+    Ret: RetryPolicy,
+    C: WithCommit,
+> {
     /// The id of the user that is publishing the draft.
     pub user_id: Uuid,
     /// Write logs to `internal.log_lines` using this token.
@@ -52,6 +57,11 @@ pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPoli
     /// converge, so it comes from the queued `publications` row (`updated_at`).
     /// `None` means "no durable instant" — see [`specs::resolve_live_specs`].
     pub started_at: Option<tokens::DateTime>,
+    /// The authorization Snapshot to evaluate this publication against. One
+    /// pinned Snapshot serves every phase and internal retry of this
+    /// publication; its freshness relative to `started_at` decides whether a
+    /// denial is terminal or retryable (see [`specs::resolve_live_specs`]).
+    pub snapshot: &'s Snapshot,
     /// Whether to verify that `user_id` is authorized to the drafted and
     /// referenced catalog names, and to the selected data plane. Set `false`
     /// by system-initiated publications (controllers, data-plane creation)
@@ -165,7 +175,6 @@ pub struct Publisher {
     builder: std::sync::Arc<Box<dyn builds::Builder>>,
     skip_tests: bool,
     skip_connector_table_check: bool,
-    snapshot: Arc<dyn tokens::Watch<Snapshot>>,
 }
 
 pub struct UncommittedBuild {
@@ -243,7 +252,6 @@ impl Publisher {
         pool: sqlx::PgPool,
         build_id_gen: models::IdGenerator,
         builder: Box<dyn builds::Builder>,
-        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
     ) -> Self {
         Self {
             flowctl_go,
@@ -255,7 +263,6 @@ impl Publisher {
             builder: std::sync::Arc::new(builder),
             skip_tests: false,
             skip_connector_table_check: false,
-            snapshot,
         }
     }
 
@@ -286,7 +293,7 @@ impl Publisher {
     ))]
     pub async fn publish<Ini: Initialize, Fin: FinalizeBuild, Ret: RetryPolicy, C: WithCommit>(
         &self,
-        publication: DraftPublication<Ini, Fin, Ret, C>,
+        publication: DraftPublication<'_, Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut retry_count = 0u32;
         loop {
@@ -305,9 +312,7 @@ impl Publisher {
                     // surface the retryable error, rather than failing. Callers
                     // that run within a task poll (the `PublicationsExecutor`)
                     // reschedule and retry once a newer snapshot is observed.
-                    if let Ok(snapshot) = self.snapshot.token().result() {
-                        snapshot.revoke.cancel();
-                    }
+                    publication.snapshot.revoke.cancel();
                     return Err(err);
                 }
                 Err(err) => return Err(err),
@@ -336,16 +341,16 @@ impl Publisher {
             verify_user_authz,
             detail,
             started_at,
+            snapshot,
             default_data_plane_name,
             initialize,
             finalize,
             retry: _,
             with_commit,
-        }: &DraftPublication<Ini, Fin, Ret, C>,
+        }: &DraftPublication<'_, Ini, Fin, Ret, C>,
     ) -> anyhow::Result<PublicationResult> {
         let mut draft = raw_draft.clone_specs();
-        let snapshot = self.snapshot.token();
-        let snapshot = snapshot.result().unwrap();
+        let snapshot = *snapshot;
         initialize
             .initialize(&self.db, *user_id, &mut draft, snapshot, *started_at)
             .await

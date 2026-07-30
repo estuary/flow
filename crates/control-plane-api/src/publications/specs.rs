@@ -10,27 +10,6 @@ use sqlx::types::Uuid;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use tables::{BuiltRow, DraftRow, utils};
 
-/// Resolves a snapshot-backed authorization decision.
-///
-/// A grant is accepted regardless of snapshot age. A denial is retryable only
-/// when there is a durable freshness anchor and the snapshot is not yet
-/// authoritative for it. Callers without an anchor preserve terminal-denial
-/// behavior.
-fn resolve_authorization(
-    authorized: bool,
-    catalog_name: &str,
-    snapshot: &crate::Snapshot,
-    freshness_anchor: Option<tokens::DateTime>,
-) -> anyhow::Result<bool> {
-    if authorized {
-        return Ok(true);
-    }
-    if freshness_anchor.is_some_and(|anchor| !snapshot.taken_after(anchor)) {
-        return Err(authz_snapshot_stale(catalog_name));
-    }
-    Ok(false)
-}
-
 pub async fn persist_updates(
     uncommitted: &UncommittedBuild,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -751,13 +730,6 @@ pub fn get_ops_collection_names() -> BTreeSet<String> {
 /// Builds the retryable `AuthorizationSnapshotStale` error returned when an
 /// authorization denial was evaluated against a snapshot that isn't yet
 /// authoritative for the operation being denied.
-fn authz_snapshot_stale(catalog_name: &str) -> anyhow::Error {
-    validation::Error::AuthorizationSnapshotStale {
-        catalog_name: catalog_name.to_string(),
-    }
-    .into()
-}
-
 /// Resolves the live specs which a draft drafts or references, authorizing each
 /// against `snapshot`.
 ///
@@ -860,18 +832,18 @@ pub async fn resolve_live_specs(
 
             // If the spec is included in the draft, then the user must have admin capability to it.
             if verify_user_authz
-                && !resolve_authorization(
-                    tables::UserGrant::is_authorized(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        user_id,
-                        &spec_row.catalog_name,
-                        models::Capability::Admin,
-                    ),
-                    catalog_name,
-                    snapshot,
-                    freshness_anchor,
-                )?
+                && !snapshot
+                    .resolve_authorization(
+                        tables::UserGrant::is_authorized(
+                            &snapshot.role_grants,
+                            &snapshot.user_grants,
+                            user_id,
+                            &spec_row.catalog_name,
+                            models::Capability::Admin,
+                        ),
+                        freshness_anchor,
+                    )
+                    .ok_or_stale(catalog_name)?
             {
                 live.errors.push(tables::Error {
                     scope: scope.clone(),
@@ -885,17 +857,18 @@ pub async fn resolve_live_specs(
             }
             // Spec authz must always be checked, even if we're not checking user authz
             for source in reads_from {
-                if !resolve_authorization(
-                    tables::RoleGrant::is_authorized(
-                        &snapshot.role_grants,
-                        &spec_row.catalog_name,
-                        &source,
-                        Capability::Read,
-                    ),
-                    catalog_name,
-                    snapshot,
-                    freshness_anchor,
-                )? {
+                if !snapshot
+                    .resolve_authorization(
+                        tables::RoleGrant::is_authorized(
+                            &snapshot.role_grants,
+                            &spec_row.catalog_name,
+                            &source,
+                            Capability::Read,
+                        ),
+                        freshness_anchor,
+                    )
+                    .ok_or_stale(catalog_name)?
+                {
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
@@ -906,17 +879,18 @@ pub async fn resolve_live_specs(
                 }
             }
             for target in writes_to {
-                if !resolve_authorization(
-                    tables::RoleGrant::is_authorized(
-                        &snapshot.role_grants,
-                        &spec_row.catalog_name,
-                        &target,
-                        Capability::Write,
-                    ),
-                    catalog_name,
-                    snapshot,
-                    freshness_anchor,
-                )? {
+                if !snapshot
+                    .resolve_authorization(
+                        tables::RoleGrant::is_authorized(
+                            &snapshot.role_grants,
+                            &spec_row.catalog_name,
+                            &target,
+                            Capability::Write,
+                        ),
+                        freshness_anchor,
+                    )
+                    .ok_or_stale(catalog_name)?
+                {
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
                         error: anyhow::anyhow!(
@@ -935,18 +909,18 @@ pub async fn resolve_live_specs(
             // the _spec_ is authorized to do what it needs. The user just needs to be allowed to
             // know it exists.
             if verify_user_authz
-                && !resolve_authorization(
-                    tables::UserGrant::is_authorized(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        user_id,
-                        &spec_row.catalog_name,
-                        Capability::Read,
-                    ),
-                    catalog_name,
-                    snapshot,
-                    freshness_anchor,
-                )?
+                && !snapshot
+                    .resolve_authorization(
+                        tables::UserGrant::is_authorized(
+                            &snapshot.role_grants,
+                            &snapshot.user_grants,
+                            user_id,
+                            &spec_row.catalog_name,
+                            Capability::Read,
+                        ),
+                        freshness_anchor,
+                    )
+                    .ok_or_stale(catalog_name)?
             {
                 let scope = tables::synthetic_scope("unauthorized", &spec_row.catalog_name);
                 live.errors.push(tables::Error {
@@ -1029,18 +1003,18 @@ pub async fn resolve_live_specs(
     let mut data_plane_names = Vec::with_capacity(candidate_data_plane_names.len());
     for name in candidate_data_plane_names {
         if !verify_user_authz
-            || resolve_authorization(
-                tables::UserGrant::is_authorized(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    user_id,
-                    name,
-                    models::Capability::Read,
-                ),
-                name,
-                snapshot,
-                started,
-            )?
+            || snapshot
+                .resolve_authorization(
+                    tables::UserGrant::is_authorized(
+                        &snapshot.role_grants,
+                        &snapshot.user_grants,
+                        user_id,
+                        name,
+                        models::Capability::Read,
+                    ),
+                    started,
+                )
+                .ok_or_stale(name)?
         {
             data_plane_names.push(name);
         }

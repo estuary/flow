@@ -1,6 +1,6 @@
 use anyhow::Context;
 use control_plane_api::{
-    Snapshot, connector_tags,
+    Authorization, Snapshot, connector_tags,
     discovers::{Discover, DiscoverHandler, Row, fetch_discover},
     draft, live_specs,
     proxy_connectors::DiscoverConnectors,
@@ -42,12 +42,19 @@ impl JobStatus {
 
 type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error>>;
 
-/// How long to wait before re-polling a discover whose control-plane state
-/// cannot be determined because the snapshot predates the discover row (see
-/// `Processed::RetryStale`). A short backoff favors responsiveness; if the
-/// refresh hasn't landed yet the task simply re-polls (and re-requests the
-/// refresh) until it does.
-const STALE_SNAPSHOT_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(15);
+/// Poll state persisted to `internal.tasks` between polls, and therefore
+/// shared with whichever agent instance dequeues the next poll.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct DiscoverState {
+    /// The instant a Snapshot must postdate (per `Snapshot::taken_after`)
+    /// before this discover is retried: the queued time its prior attempt
+    /// anchored authorization staleness on. While set, polls defer — without
+    /// prechecks or connector work — until the local Snapshot satisfies it
+    /// (see `Snapshot::defer_stale_retry`). Optional so that reschedules for
+    /// other, future reasons aren't bound to this check.
+    #[serde(default)]
+    pub awaiting_snapshot_after: Option<tokens::DateTime>,
+}
 
 /// Outcome of evaluating a discover in `DiscoverExecutor::process`.
 enum Processed {
@@ -81,11 +88,14 @@ impl automations::Outcome for DiscoverOutcome {
             status,
         } = self
         else {
-            // Leave the discover unresolved and re-poll after a short delay.
-            // The refresh may not have landed by then — the snapshot source
-            // enforces a minimum refresh interval — in which case the poll
-            // re-requests it and reschedules again.
-            return Ok(automations::Action::Sleep(STALE_SNAPSHOT_RETRY_BACKOFF));
+            // Leave the discover unresolved and re-poll once the requested
+            // refresh could have landed. If it hasn't by then, the poll
+            // defers again (see `Snapshot::defer_stale_retry`).
+            return Ok(automations::Action::Sleep(
+                Snapshot::STALE_RETRY_WAKE
+                    .to_std()
+                    .expect("wake interval is positive"),
+            ));
         };
 
         control_plane_api::draft::delete_errors(draft_id, txn)
@@ -120,7 +130,10 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
 
     type Receive = serde_json::Value;
 
-    type State = ();
+    /// `None` — the common, never-deferred case — round-trips as the JSON
+    /// `null` that stateless polls have always persisted, keeping in-flight
+    /// tasks readable across a deploy in either direction.
+    type State = Option<DiscoverState>;
 
     type Outcome = DiscoverOutcome;
 
@@ -129,17 +142,30 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
         pool: &'s sqlx::PgPool,
         task_id: models::Id,
         _parent_id: Option<models::Id>,
-        _state: &'s mut Self::State,
+        state: &'s mut Self::State,
         inbox: &'s mut std::collections::VecDeque<(models::Id, Option<Self::Receive>)>,
     ) -> anyhow::Result<Self::Outcome> {
         tracing::debug!(?inbox, %task_id, "executing discover task");
         let row = fetch_discover(task_id, pool).await?;
         let draft_id = row.draft_id;
         assert_eq!(row.id, task_id);
+        let queued_at = row.updated_at;
         let time_queued = chrono::Utc::now().signed_duration_since(row.updated_at);
 
+        // Pin one Snapshot for this poll: the deferral decision and every
+        // authorization decision of the discover observe the same view.
         let snapshot = self.snapshot_watch.token();
         let snapshot = snapshot.result().unwrap();
+
+        // A prior attempt could not classify under a stale Snapshot. Defer —
+        // without pre-flight checks or connector work — until this instance's
+        // Snapshot is authoritative for the recorded instant.
+        if let Some(anchor) = state.as_ref().and_then(|s| s.awaiting_snapshot_after) {
+            if snapshot.defer_stale_retry(anchor) {
+                inbox.clear();
+                return Ok(DiscoverOutcome::RetryStale);
+            }
+        }
 
         let processed = self.process(row, pool, &snapshot).await?;
         inbox.clear();
@@ -158,6 +184,7 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
                     id=%task_id, %time_queued,
                     "control-plane snapshot is stale; rescheduling discover after refresh"
                 );
+                state.get_or_insert_default().awaiting_snapshot_after = Some(queued_at);
                 Ok(DiscoverOutcome::RetryStale)
             }
         }
@@ -197,7 +224,6 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
 
-        let snapshot_is_authoritative = snapshot.taken_after(row.updated_at);
         let is_authorized = tables::UserGrant::is_authorized(
             &snapshot.role_grants,
             &snapshot.user_grants,
@@ -205,19 +231,20 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             &row.data_plane_name,
             models::Capability::Read,
         );
-        if !is_authorized {
-            tracing::warn!(data_plane_name = ?row.data_plane_name, "user may not be authorized to read data plane");
-            if snapshot_is_authoritative {
+        match snapshot.resolve_authorization(is_authorized, Some(row.updated_at)) {
+            Authorization::Authorized => (),
+            Authorization::Denied => {
                 // The snapshot reflects the world after this discover was
-                // queued, so the denial is authoritative. `taken_after` is the
-                // control plane's single definition of that relation, and it
-                // allows for `Snapshot::TEMPORAL_SKEW`.
+                // queued, so the denial is authoritative.
+                tracing::warn!(data_plane_name = ?row.data_plane_name, "user is not authorized to read data plane");
                 return Ok(precheck_failed(JobStatus::NotAuthorized));
-            } else {
+            }
+            Authorization::Stale => {
                 // The snapshot predates this discover's row, so a grant that
                 // would authorize the read may not be reflected yet. Request an
                 // early refresh and retry, rather than emitting a spurious
                 // NotAuthorized/NoDataPlane.
+                tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane read denied under a stale snapshot");
                 snapshot.revoke.cancel();
                 return Ok(Processed::RetryStale);
             }
@@ -226,7 +253,7 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
 
         let Some(data_plane) = data_plane else {
             tracing::warn!(data_plane_name = ?row.data_plane_name, "data-plane not found in control-plane snapshot");
-            if !snapshot_is_authoritative {
+            if !snapshot.taken_after(row.updated_at) {
                 // A plane registered after this Snapshot may already exist.
                 // Request an early refresh before making the absence terminal.
                 snapshot.revoke.cancel();

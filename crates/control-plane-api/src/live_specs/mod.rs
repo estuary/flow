@@ -49,28 +49,22 @@ pub async fn get_live_specs(
                 continue;
             };
             if let Some(min_capability) = filter_capability {
-                if !tables::UserGrant::is_authorized(
+                let authorized = tables::UserGrant::is_authorized(
                     &snapshot.role_grants,
                     &snapshot.user_grants,
                     user_id,
                     &row.catalog_name,
                     min_capability,
-                ) {
-                    // A denial evaluated against a snapshot that predates the
-                    // anchoring time may be spurious: a just-added grant may
-                    // not be reflected in this snapshot yet. Signal stale so the
-                    // caller can refresh and retry. An authoritative denial
-                    // (snapshot taken after the anchor) falls through to today's silent drop.
-                    //
-                    // For discovers, anchor to the discover request time (started_at).
-                    // For other callers, anchor to the spec's publication time.
-                    let anchor = started_at.unwrap_or_else(|| row.last_pub_id.timestamp());
-                    if !snapshot.taken_after(anchor) {
-                        return Err(validation::Error::AuthorizationSnapshotStale {
-                            catalog_name: row.catalog_name.clone(),
-                        }
-                        .into());
-                    }
+                );
+                // For discovers, anchor to the discover request time (started_at).
+                // For other callers, anchor to the spec's publication time.
+                // An authoritative denial is today's silent drop; a provisional
+                // one surfaces as a retryable stale error.
+                let anchor = started_at.unwrap_or_else(|| row.last_pub_id.timestamp());
+                if !snapshot
+                    .resolve_authorization(authorized, Some(anchor))
+                    .ok_or_stale(&row.catalog_name)?
+                {
                     continue;
                 }
             }
@@ -111,32 +105,22 @@ pub async fn get_connected_live_specs(
 
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
-            if !tables::UserGrant::is_authorized(
+            let authorized = tables::UserGrant::is_authorized(
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 user_id,
                 &exp.catalog_name,
                 minimum_capability,
-            ) {
-                // A denial is authoritative only when the snapshot postdates
-                // the operation which is asking: a grant committed before
-                // `started` is necessarily reflected in any snapshot taken
-                // after it, no matter how old the denied spec is. Callers
-                // without a durable request time — those which capture "now"
-                // anew on every attempt and retry on their own — instead
-                // anchor to the spec's last publication, which bounds the
-                // window in which grants could have been committed alongside
-                // the spec itself.
-                let denial_is_stale = match started {
-                    Some(started) => !snapshot.taken_after(started),
-                    None => !snapshot.taken_after(exp.last_pub_id.timestamp()),
-                };
-                if denial_is_stale {
-                    return Err(validation::Error::AuthorizationSnapshotStale {
-                        catalog_name: exp.catalog_name.clone(),
-                    }
-                    .into());
-                }
+            );
+            // Callers without a durable request time — those which capture
+            // "now" anew on every attempt and retry on their own — anchor to
+            // the spec's last publication, which bounds the window in which
+            // grants could have been committed alongside the spec itself.
+            let anchor = started.unwrap_or_else(|| exp.last_pub_id.timestamp());
+            if !snapshot
+                .resolve_authorization(authorized, Some(anchor))
+                .ok_or_stale(&exp.catalog_name)?
+            {
                 continue;
             }
         }

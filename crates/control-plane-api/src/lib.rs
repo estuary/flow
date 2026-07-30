@@ -54,7 +54,7 @@ pub use envelope::{Envelope, Locale, MaybeControlClaims};
 pub(crate) use server::evaluate_names_authorization;
 pub use server::{
     ApiError, App, AuthZRetry, build_router,
-    snapshot::{self, Snapshot},
+    snapshot::{self, Authorization, Snapshot},
 };
 
 // Re-export the GraphQL schema SDL function for flow-client build script

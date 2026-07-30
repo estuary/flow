@@ -286,7 +286,6 @@ impl HarnessBuilder {
             pool.clone(),
             models::IdGenerator::new(1),
             builder,
-            snapshot_watch.clone(),
         )
         .with_skip_all_tests();
 
@@ -1321,6 +1320,7 @@ impl TestHarness {
             task_types::PUBLICATIONS => Server::new().register(PublicationsExecutor {
                 publisher: self.publisher.clone(),
                 pg_pool: self.pool.clone(),
+                snapshot_watch: self.snapshot_watch.clone(),
                 runtime_v2_new_captures: self.runtime_v2_new_captures,
                 runtime_v2_new_materializations: self.runtime_v2_new_materializations,
                 runtime_v2_new_derivations: self.runtime_v2_new_derivations,
@@ -2482,6 +2482,7 @@ impl ControlPlane for TestControlPlane {
             let mocks = self.mocks.lock().unwrap();
             mocks.build_failures.clone()
         };
+        let snapshot = self.inner.snapshot_watch.token();
         let publication = DraftPublication {
             user_id: self.inner.system_user_id,
             detail,
@@ -2491,6 +2492,9 @@ impl ControlPlane for TestControlPlane {
             default_data_plane_name: data_plane_name,
             // Mirrors the production controller path, which has no queued row.
             started_at: None,
+            snapshot: snapshot
+                .result()
+                .expect("authorization snapshot is not ready"),
             verify_user_authz: false,
             initialize: NoopInitialize,
             finalize,

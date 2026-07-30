@@ -232,6 +232,7 @@ pub async fn create_data_plane(
         .unwrap()
         .into();
 
+    let snapshot = app.snapshot_watch.token();
     let publication = DraftPublication {
         user_id: *user_id,
         logs_token: insert.logs_token,
@@ -240,6 +241,9 @@ pub async fn create_data_plane(
         detail: Some(format!("publication for data-plane {base_name}")),
         // A one-shot handler invocation, with no queued row to anchor on.
         started_at: None,
+        snapshot: snapshot
+            .result()
+            .expect("authorization snapshot is not ready"),
         // We've already validated that the user can admin `ops/`,
         // so further authZ checks are unnecessary.
         verify_user_authz: false,
