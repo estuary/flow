@@ -16,21 +16,7 @@ Checkpoint {
                         offset: -362,
                     },
                 ],
-                bytes_read_delta: 362,
-                bytes_behind_delta: 0,
-            },
-            JournalFrontier {
-                journal: "testing/bananas/2020202020202020/category=alpha/pivot=00",
-                binding: 1,
-                producers: [
-                    ProducerFrontier {
-                        producer: Producer(01:00:00:00:00:01),
-                        last_commit: Clock(0s 3000ns),
-                        hinted_commit: Clock(0s 0ns),
-                        offset: 0,
-                    },
-                ],
-                bytes_read_delta: 257,
+                bytes_read_delta: 105,
                 bytes_behind_delta: 0,
             },
         ],

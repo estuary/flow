@@ -373,6 +373,29 @@ pub struct Frontier {
     pub unresolved_hints: usize,
 }
 
+/// The producer entry which made a delta unaccounted, as returned by
+/// [`Frontier::first_unaccounted`]. It's the diagnostic detail of an
+/// accounted-progress ratchet freeze.
+#[derive(Debug)]
+pub struct Unaccounted {
+    pub journal: Box<str>,
+    pub binding: u16,
+    pub producer: Producer,
+    /// Whether a read-derived commit or a causal hint exceeded the ceiling.
+    pub kind: UnaccountedKind,
+    /// The delta clock which exceeds `ceiling`.
+    pub clock: Clock,
+    /// Highest commit of this producer which the pending checkpoint, its hints,
+    /// or its cohort's completed clocks can account for.
+    pub ceiling: Clock,
+}
+
+#[derive(Debug)]
+pub enum UnaccountedKind {
+    Commit,
+    Hint,
+}
+
 /// Error returned by `Frontier::new` when its validation invariants fail.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -688,6 +711,87 @@ impl Frontier {
         });
 
         self.unresolved_hints -= cleared;
+    }
+
+    /// Judge whether `delta` is *accounted* for by `self` — an unresolved pending
+    /// checkpoint — together with the commits its cohorts have already completed,
+    /// recorded in `completed` (indexed by cohort, into which `binding_cohorts`
+    /// maps each journal's binding).
+    ///
+    /// A delta is accounted iff every producer entry of every journal reports
+    /// clocks — both read-derived commits and causal hints — no higher than its
+    /// **ceiling**: the maximum of that producer's `last_commit` and
+    /// `hinted_commit` in `self`, and of the clock its cohort has completed. A
+    /// producer named by neither source has a zero ceiling, so any clock
+    /// reported for it is unaccounted.
+    ///
+    /// Returns the first unaccounted entry in `(journal, binding, producer)`
+    /// order, or None if `delta` is accounted.
+    ///
+    /// # Soundness
+    ///
+    /// Every commit and causal reference an accounted delta reports is already
+    /// covered by the checkpoint's `last_commit`, by a `hinted_commit` which
+    /// defines its transactional boundary, or by a commit the producer's cohort
+    /// has completed — so adopting it adds nothing the pending checkpoint plus
+    /// its hints cannot account for.
+    ///
+    /// Open spans ride along as `+begin`s, as clause 2 of the Frontier
+    /// invariant prescribes. So the delta's entries jointly satisfy clauses 1
+    /// and 2 at the delta's own cut, and reducing them in preserves the invariant
+    /// with the true read offsets in place of the conservative `-M` bump. The
+    /// first commit or hint the checkpoint cannot account for freezes the
+    /// ratchet. For a commit, rejecting its whole delta leaves the cut at the
+    /// prior accounted delta and therefore strictly below that commit's offset;
+    /// for a hint, rejection keeps its novel causal extent out of the pending
+    /// boundary.
+    pub fn first_unaccounted(
+        &self,
+        delta: &Frontier,
+        binding_cohorts: &[u32],
+        completed: &[crate::ProducerMap<Clock>],
+    ) -> Option<Unaccounted> {
+        for delta_jf in &delta.journals {
+            // The pending checkpoint may not carry this journal at all:
+            // a read can report journals it never had.
+            let base_producers = self
+                .find_journal(&delta_jf.journal, delta_jf.binding)
+                .map_or(&[][..], |index| self.journals[index].producers.as_slice());
+
+            let completed = &completed[binding_cohorts[delta_jf.binding as usize] as usize];
+
+            for delta_p in &delta_jf.producers {
+                let mut ceiling = Clock::zero();
+
+                if let Ok(index) =
+                    base_producers.binary_search_by(|base_p| base_p.producer.cmp(&delta_p.producer))
+                {
+                    let base_p = &base_producers[index];
+                    ceiling = ceiling.max(base_p.last_commit).max(base_p.hinted_commit);
+                }
+                if let Some(&completed) = completed.get(&delta_p.producer) {
+                    ceiling = ceiling.max(completed);
+                }
+
+                let (kind, clock) = if delta_p.last_commit > ceiling {
+                    (UnaccountedKind::Commit, delta_p.last_commit)
+                } else if delta_p.hinted_commit > ceiling {
+                    (UnaccountedKind::Hint, delta_p.hinted_commit)
+                } else {
+                    continue;
+                };
+                return Some(Unaccounted {
+                    journal: delta_jf.journal.clone(),
+                    binding: delta_jf.binding,
+                    producer: delta_p.producer,
+                    kind,
+                    clock,
+                    ceiling,
+                });
+            }
+        }
+
+        None
     }
 
     /// Encode this Frontier as a proto `shuffle::Frontier`, including
@@ -1609,6 +1713,111 @@ mod test {
         ]);
         let err = Frontier::decode(proto).unwrap_err();
         assert!(format!("{err}").contains("not ordered"));
+    }
+
+    #[test]
+    fn test_first_unaccounted() {
+        // Base: an active pending checkpoint. journal/B sits between the two
+        // journals the deltas below name, and no delta reports it.
+        let base = Frontier {
+            journals: vec![
+                jf(
+                    "journal/A",
+                    0,
+                    vec![pf(0x01, 50, 200, -100), pf(0x05, 300, 0, -100)],
+                ),
+                jf("journal/B", 0, vec![pf(0x01, 900, 0, -100)]),
+                jf("journal/C", 1, vec![pf(0x03, 10, 400, -100)]),
+            ],
+            flushed_lsn: vec![],
+            unresolved_hints: 2,
+            ..Default::default()
+        };
+        // Cohort 0 serves binding 0; cohort 1 serves binding 1 and has completed
+        // producer 0x07 at 600s.
+        let binding_cohorts = vec![0u32, 1];
+        let completed = vec![
+            crate::ProducerMap::default(),
+            crate::ProducerMap::from_iter([(
+                crate::testing::producer(0x07),
+                Clock::from_unix(600, 0),
+            )]),
+        ];
+        let judge = |delta: Vec<JournalFrontier>| {
+            let delta = Frontier::new(delta, vec![]).unwrap();
+            base.first_unaccounted(&delta, &binding_cohorts, &completed)
+                .map(|u| {
+                    (
+                        u.journal.to_string(),
+                        match u.kind {
+                            UnaccountedKind::Commit => "commit",
+                            UnaccountedKind::Hint => "hint",
+                        },
+                        u.clock.to_unix().0,
+                        u.ceiling.to_unix().0,
+                    )
+                })
+        };
+
+        // Accounted: at the hint (journal/A P1), at a durable last_commit
+        // (journal/A P5), and at a cohort-completed clock for a producer the base
+        // never names (journal/C P7). Hints are also accounted when the pending
+        // frontier or completed clocks already cover them.
+        assert_eq!(
+            judge(vec![
+                jf(
+                    "journal/A",
+                    0,
+                    vec![pf(0x01, 200, 150, -700), pf(0x05, 300, 0, -700)],
+                ),
+                jf(
+                    "journal/C",
+                    1,
+                    vec![pf(0x03, 0, 400, 0), pf(0x07, 600, 600, -700)],
+                ),
+            ]),
+            None,
+        );
+
+        // Unaccounted: one clock tick above the hint.
+        assert_eq!(
+            judge(vec![jf("journal/A", 0, vec![pf(0x01, 201, 0, -700)])]),
+            Some(("journal/A".to_string(), "commit", 201, 200)),
+        );
+        // Unaccounted: a producer named by neither the base nor its cohort's
+        // completed clocks, so its ceiling is zero. Reported in (journal,
+        // binding, producer) order, after the accounted journal/A entry.
+        assert_eq!(
+            judge(vec![
+                jf("journal/A", 0, vec![pf(0x01, 200, 0, -700)]),
+                jf("journal/C", 1, vec![pf(0x09, 5, 0, -700)]),
+            ]),
+            Some(("journal/C".to_string(), "commit", 5, 0)),
+        );
+        // The cohort ledger is per-cohort: 0x07's completion in cohort 1 says
+        // nothing about binding 0's cohort.
+        assert_eq!(
+            judge(vec![jf("journal/A", 0, vec![pf(0x07, 600, 0, -700)])]),
+            Some(("journal/A".to_string(), "commit", 600, 0)),
+        );
+        // Binding is part of the key: journal/C under binding 0 does not match
+        // the base's journal/C under binding 1.
+        assert_eq!(
+            judge(vec![jf("journal/C", 0, vec![pf(0x03, 10, 0, -700)])]),
+            Some(("journal/C".to_string(), "commit", 10, 0)),
+        );
+        // A novel causal hint also makes the whole delta unaccounted, including a
+        // hint-only producer which has no read-derived commit of its own.
+        assert_eq!(
+            judge(vec![jf("journal/Z", 0, vec![pf(0x09, 0, 999, 0)])]),
+            Some(("journal/Z".to_string(), "hint", 999, 0)),
+        );
+        assert_eq!(
+            judge(vec![jf("journal/A", 0, vec![pf(0x01, 200, 201, -700)])]),
+            Some(("journal/A".to_string(), "hint", 201, 200)),
+        );
+        // An empty delta is trivially accounted.
+        assert_eq!(judge(vec![]), None);
     }
 
     #[test]

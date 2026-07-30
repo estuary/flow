@@ -395,10 +395,9 @@ Progress stays in `unresolved` until all hinted journals confirm the
 producer committed — this prevents the checkpoint from advancing past
 transactions that are only partially visible.
 
-`progressed` is held back behind `unresolved` (rather than reducing
-directly) so that newer progress — which may itself add fresh hints —
-can't indefinitely starve `unresolved` from fully resolving. Sequencing
-guarantees forward progress.
+Unaccounted `progressed` is held back behind `unresolved` so that newer
+progress — which may itself add fresh hints — can't indefinitely starve
+`unresolved` from fully resolving. Sequencing guarantees forward progress.
 
 Once all hints resolve, the frontier promotes to `ready`. When the
 coordinator sends `NextCheckpoint` and `ready` is non-empty, the Session
@@ -409,6 +408,16 @@ Similarly, a re-enabled binding can re-visit hints which have long since
 been resolved. `progressed` is therefore pruned (`Frontier::prune_hints`)
 at promotion against `completed_clocks`, a per-cohort ledger of producer commits
 that reached `ready`.
+
+#### Accounted-progress ratchet
+
+While a checkpoint is held unresolved, each incoming delta is judged
+(`Frontier::first_unaccounted`) against the boundary that checkpoint
+defines. A delta is **accounted** when every producer commit and causal
+hint it reports is already covered, either by the pending frontier's own
+clocks or by a commit the producer's cohort has completed. Accounted
+progress folds into the unresolved boundary, adopting the read's true
+offsets; unaccounted progress is held back for the next boundary.
 
 #### Idempotent recovery is a session of its own
 
@@ -440,9 +449,13 @@ term, tailing past the hinted frontier while a lower-priority cohort
 still resolves, is gone, so the replay fits within the same
 `estuary.dev/shuffle-disk-limit` the crashed session ran under.
 
-The restart is not yet *cheap*: the recovery checkpoint's producer
-offsets sit at the old cut floor the replay started from, so the next
-session re-reads the whole hinted span before it makes new progress.
+Recovery is the ratchet's primary use case. Without it, the one-shot
+recovery session would discard every true replay offset in `progressed`,
+leaving its checkpoint at the old cut floor so that the next session
+re-reads the whole hinted span. Recovery has just one unresolved
+generation, so its first unaccounted delta freezes the ratchet for the
+rest of the session; conservative hint resolution then lands at the
+ratcheted floor, and the next session re-reads only the novel tail.
 
 #### Peeks of partial progress
 

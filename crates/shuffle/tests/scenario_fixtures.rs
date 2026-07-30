@@ -878,6 +878,10 @@ async fn resume_from_checkpoint(
     .expect("SessionClient::open phase 2");
 
     // The recovery checkpoint: the replay resolves both hints and stops there.
+    // The whole replay is *accounted* — every commit it re-reads is one the
+    // resume frontier hints at — so the accounted-progress ratchet adopts it:
+    // checkpoint's offsets are the replay's own (-257, not the zero it resumed
+    // from) and carry the bytes it read.
     let recovery_frontier =
         next_resolved_checkpoint(&mut session, "phase 2 recovery checkpoint").await;
     let mut phase2_shard_state: ShardState = (0..1).map(|_| None).collect();
@@ -904,6 +908,10 @@ async fn resume_from_checkpoint(
     session.close().await.expect("close phase 2");
 
     // ---- Phase 3: the restart, which does the ordinary work. ----
+    // It resumes from the ratcheted recovery checkpoint, so it re-reads none of
+    // the replayed span: the apples journal reports only the 105 novel bytes of
+    // "r-apple2", and the bananas journal — whose every byte the replay
+    // accounted for — reports nothing at all.
     let mut session = shuffle::SessionClient::open(
         service,
         build_task(materialization_spec),

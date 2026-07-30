@@ -1,0 +1,32 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: frontier_readout(&pipeline.unresolved)
+---
+[
+    (
+        "journal/A",
+        0,
+        [
+            (
+                120,
+                200,
+                -5000,
+            ),
+        ],
+        4000,
+        100,
+    ),
+    (
+        "journal/B",
+        0,
+        [
+            (
+                120,
+                200,
+                -5000,
+            ),
+        ],
+        4000,
+        100,
+    ),
+]
