@@ -23,21 +23,20 @@ See the [script below](#setup) for details.
 
 To set up a user account and warehouse for use with the Snowflake CDC connector,
 copy and paste the following script into the Snowflake SQL editor. Modify the
-variable declarations in the first few lines to set the password and optionally
-customize the names involved.
+variable declarations in the first few lines to optionally customize the names
+involved.
 
 ```sql
 set database_name = 'SOURCE_DB';         -- The database to capture from
 set warehouse_name = 'ESTUARY_WH';       -- The warehouse to execute queries in
 set estuary_user = 'ESTUARY_USER';       -- The name of the capture user
-set estuary_password = 'secret';         -- The password of the capture user
 set estuary_role = 'ESTUARY_ROLE';       -- A role for the capture user's permissions
 
 -- Create a role and user for Estuary
 create role if not exists identifier($estuary_role);
 grant role identifier($estuary_role) to role SYSADMIN;
 create user if not exists identifier($estuary_user)
-  password = $estuary_password
+  type = service
   default_role = $estuary_role
   default_warehouse = $warehouse_name;
 grant role identifier($estuary_role) to user identifier($estuary_user);
