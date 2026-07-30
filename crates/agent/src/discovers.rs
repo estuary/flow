@@ -47,7 +47,7 @@ type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error
 /// `Processed::RetryStale`). A short backoff favors responsiveness; if the
 /// refresh hasn't landed yet the task simply re-polls (and re-requests the
 /// refresh) until it does.
-const STALE_SNAPSHOT_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
+const STALE_SNAPSHOT_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Outcome of evaluating a discover in `DiscoverExecutor::process`.
 enum Processed {

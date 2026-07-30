@@ -52,8 +52,11 @@ pub struct DraftPublication<Init: Initialize, Fin: FinalizeBuild, Ret: RetryPoli
     /// converge, so it comes from the queued `publications` row (`updated_at`).
     /// `None` means "no durable instant" — see [`specs::resolve_live_specs`].
     pub started_at: Option<tokens::DateTime>,
-    /// Whether to check user permissions when publishing specs. If this is false, then all
-    /// permission checks will be skipped, and the publication may modify any specs.
+    /// Whether to verify that `user_id` is authorized to the drafted and
+    /// referenced catalog names, and to the selected data plane. Set `false`
+    /// by system-initiated publications (controllers, data-plane creation)
+    /// which are pre-authorized and may touch any spec. Spec-to-spec
+    /// `RoleGrant` checks are enforced regardless of this setting.
     pub verify_user_authz: bool,
     /// Default data plane to use for publishing new specs. This is optional only when the
     /// publication _only_ updates and/or deletes existing live specs.
