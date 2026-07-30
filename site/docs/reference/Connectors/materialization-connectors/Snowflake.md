@@ -60,23 +60,24 @@ use database identifier($database_name);
 create schema if not exists identifier($estuary_schema);
 -- create a user for Estuary
 create user if not exists identifier($estuary_user)
-default_role = $estuary_role
-default_warehouse = $warehouse_name;
+  type = service
+  default_role = $estuary_role
+  default_warehouse = $warehouse_name;
 grant role identifier($estuary_role) to user identifier($estuary_user);
 -- Estuary requires case-sensitive quoted identifiers (e.g. "_meta/op").
 alter user identifier($estuary_user) set QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE;
 grant all on schema identifier($estuary_schema) to identifier($estuary_role);
 -- create a warehouse for estuary
 create warehouse if not exists identifier($warehouse_name)
-warehouse_size = xsmall
-warehouse_type = standard
-auto_suspend = 60
-auto_resume = true
-initially_suspended = true;
+  warehouse_size = xsmall
+  warehouse_type = standard
+  auto_suspend = 60
+  auto_resume = true
+  initially_suspended = true;
 -- grant Estuary role access to warehouse
 grant USAGE
-on warehouse identifier($warehouse_name)
-to role identifier($estuary_role);
+  on warehouse identifier($warehouse_name)
+  to role identifier($estuary_role);
 -- grant Estuary access to database
 grant CREATE SCHEMA, MONITOR, USAGE on database identifier($database_name) to role identifier($estuary_role);
 -- change role to ACCOUNTADMIN for STORAGE INTEGRATION support to Estuary (only needed for Snowflake on GCP)
