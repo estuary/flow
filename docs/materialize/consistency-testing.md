@@ -363,6 +363,36 @@ a snapshot would add a stale artifact without adding information.
 | Workload published once per stack | Workload published per run | The spec's model leaves no quiescent moment to read, and per-run is strictly more isolated |
 | Link `gazette`/`labels` to drive splits | Shell out to `flowctl raw split-shards`, and a new `join-shards` | Splitting already existed as a subcommand that refuses non-V2 tasks and returns a status rather than text to parse. Joining did not exist, and was added beside it rather than reimplemented here — see below |
 
+## Open leads
+
+Two scenarios do not yet pass, and they are leads rather than chores.
+
+**`split-during-commit` — a split landing mid-commit mis-reduces the merged
+binding.** The clean build reports oracle-agreement failures in *both* directions
+over ~1800 documents: `account 9: reduced balance 496 but the collection sums to
+480` alongside `account 10: reduced balance -66 but the collection sums to 19`.
+Over- and under-counting together is the signature of a torn reduction rather than a
+simple replay: the standard binding upserts a *reduced* document, so a child that
+replays input after the parent's stalled transaction committed can reduce from a
+loaded value that already includes the parent's contribution, or from one that does
+not.
+
+That is exactly the rule this scenario is named for — a transaction prepared under
+one shard split must be replayed under that same split before a membership change
+takes effect — and the finding says it was not upheld. Whether the fault is the
+runtime's or the reference connector's post-commit-apply staging is not yet
+established, and it should be established before either is changed. Note that the
+sibling `split-during-store`, which splits without stalling a commit, passes both
+ways over ~1550 documents, which narrows it to the mid-commit window.
+
+**`join-after-split` — the task does not resume committing after the join.** The
+join itself applies correctly (verified by hand: two shards collapse to one covering
+the full range, and the survivor keeps its ID). What is unresolved is recovery
+afterwards: the runner's unassign-until-progress loop times out. A join deletes a
+shard while the survivor widens, so the likely candidates are the departing shard's
+assignment lingering, or the survivor needing to re-open before it will commit under
+its new range.
+
 ## Deferred
 
 **The `Apply`-drains-pending-work scenario.** The connector implements the drain,
