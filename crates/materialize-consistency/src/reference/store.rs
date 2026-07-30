@@ -51,7 +51,6 @@ impl Store {
         // file. Without these, contention surfaces as SQLITE_BUSY and the suite
         // would report a connector failure where the behaviour under test is a
         // fence rejection.
-        //
         conn.busy_timeout(std::time::Duration::from_secs(30))
             .context("setting the busy timeout")?;
 
@@ -124,6 +123,23 @@ impl Store {
         Ok(Self { conn })
     }
 
+    /// Begin a write transaction, taking the write lock up front.
+    ///
+    /// `BEGIN IMMEDIATE`, not the default `DEFERRED`, and that distinction is the
+    /// difference between the split scenarios working and not. Every transaction here
+    /// reads and then writes; a deferred transaction takes only a read lock at the
+    /// SELECT and tries to upgrade at the UPDATE — and in WAL mode, upgrading after
+    /// another connection has written returns SQLITE_BUSY_SNAPSHOT *immediately*,
+    /// without consulting the busy handler. So the busy timeout is no help and the
+    /// loser of the race just fails: the second child of a split died fencing during
+    /// `Open`, which the leader reported as an unexpected EOF from its fan-in.
+    ///
+    /// Taking the write lock at `BEGIN` means contention waits out the busy timeout
+    /// instead, which is what a destination shared by two shards needs.
+    fn write_txn(&self) -> rusqlite::Result<rusqlite::Transaction<'_>> {
+        rusqlite::Transaction::new_unchecked(&self.conn, rusqlite::TransactionBehavior::Immediate)
+    }
+
     /// Claim `[key_begin, key_end)`, returning the nonce this session holds and
     /// the runtime checkpoint it should resume from.
     ///
@@ -141,7 +157,7 @@ impl Store {
     /// real and is why the join scenarios assert only on the destination, never
     /// on which checkpoint the connector chose.
     pub fn fence(&self, key_begin: u32, key_end: u32) -> anyhow::Result<(i64, Option<Vec<u8>>)> {
-        let txn = self.conn.unchecked_transaction()?;
+        let txn = self.write_txn()?;
 
         let overlapping: Vec<(u32, u32, i64, Option<Vec<u8>>)> = {
             let mut stmt = txn.prepare(
@@ -240,7 +256,7 @@ impl Store {
         rows: &[(Table, Row)],
         check_fence: bool,
     ) -> anyhow::Result<()> {
-        let txn = self.conn.unchecked_transaction()?;
+        let txn = self.write_txn()?;
 
         if check_fence {
             let current: Option<i64> = txn
@@ -272,7 +288,7 @@ impl Store {
     /// Durably stage `rows` against `txn_id` without making them visible in the
     /// destination tables. The post-commit-apply class's `Store` path.
     pub fn stage(&self, shard: u32, txn_id: i64, rows: &[(Table, Row)]) -> anyhow::Result<()> {
-        let txn = self.conn.unchecked_transaction()?;
+        let txn = self.write_txn()?;
         {
             let mut stmt = txn.prepare(
                 "INSERT INTO _flow_staged (txn, shard, tbl, delta, key, doc, del)
@@ -307,7 +323,7 @@ impl Store {
     /// the real-world shape of it — staged files that the connector forgets to
     /// retire — rather than a contrived one.
     pub fn apply_staged(&self, shard: u32, txn_id: i64, idempotent: bool) -> anyhow::Result<bool> {
-        let txn = self.conn.unchecked_transaction()?;
+        let txn = self.write_txn()?;
 
         if idempotent {
             let claimed = txn.execute(
@@ -396,7 +412,7 @@ impl Store {
     /// `Store` path: rows become visible immediately, and the count is the
     /// destination's own record of how far it got.
     pub fn append_counted(&self, shard: u32, rows: &[(Table, Row)]) -> anyhow::Result<()> {
-        let txn = self.conn.unchecked_transaction()?;
+        let txn = self.write_txn()?;
 
         write_rows(&txn, rows)?;
 
