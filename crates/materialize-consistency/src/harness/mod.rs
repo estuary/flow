@@ -259,18 +259,18 @@ async fn execute(
             .context("the subject names no connector binary")?,
     );
 
-    // Wait for the captures to be *gone*, not merely told to stop: a capture keeps
-    // producing until its deactivation is applied, and an expectation read before
-    // its last document lands would report the materialization as having duplicated
-    // something it merely delivered on time. Once the shards are gone the
-    // collections are final, so they are read exactly once.
-    stack
-        .await_shards_stopped(&names.source_merged, deadline)
-        .await?;
-    stack.await_shards_stopped(&names.source_log, deadline).await?;
-
-    let merged_expected = Expectation::from_documents(stack.read_collection(&names.merged).await?);
-    let log_expected = Expectation::from_documents(stack.read_collection(&names.log).await?);
+    // Read each collection until it stops growing. A capture keeps producing for a
+    // while after the publication that disables it, and an expectation read one
+    // document early would report the materialization as having duplicated
+    // something it merely delivered on time.
+    let merged_expected = Expectation::from_documents(
+        stack
+            .read_collection_when_final(&names.merged, deadline)
+            .await?,
+    );
+    let log_expected = Expectation::from_documents(
+        stack.read_collection_when_final(&names.log, deadline).await?,
+    );
 
     let destination = drain(
         stack,

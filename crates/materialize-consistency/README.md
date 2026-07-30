@@ -10,7 +10,8 @@ implementation forced.
 
 ```bash
 mise run ci:consistency                      # the whole suite
-mise run ci:consistency --filter zombie      # one scenario
+mise run ci:consistency --filter zombie      # one scenario (a nextest filter,
+                                             #   so `/a|b/` for a regex)
 mise run ci:consistency --debug              # with the trace on stderr
 ```
 

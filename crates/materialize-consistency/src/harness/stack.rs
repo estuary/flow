@@ -259,31 +259,36 @@ impl Stack {
         Ok(events)
     }
 
-    /// Await a task having no shards, which is what a disabled task looks like once
-    /// its deactivation has been applied.
+    /// Read a collection repeatedly until its contents stop growing, and return
+    /// them.
     ///
-    /// This is how the harness knows a collection is *final*: while a capture's
-    /// shards still exist it may yet write another document, and an expectation read
-    /// before that document lands would report the materialization as having
-    /// duplicated something it merely delivered on time.
-    pub async fn await_shards_stopped(
+    /// This is how the harness knows a collection is *final*, and it observes that
+    /// directly rather than inferring it from the capture's lifecycle: disabling a
+    /// capture does not promptly remove its shards, and a task that still has shards
+    /// may or may not still be producing. What matters is only that no new document
+    /// is arriving — and an expectation read one document early would report the
+    /// materialization as having duplicated something it merely delivered on time.
+    pub async fn read_collection_when_final(
         &self,
-        task: &str,
+        collection: &str,
         timeout: std::time::Duration,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<Event>> {
         let deadline = std::time::Instant::now() + timeout;
+        let mut previous = usize::MAX;
 
         loop {
-            // A listing that errors means the task is gone from the data plane,
-            // which is at least as stopped as having no shards.
-            if self.shards(task).await.map(|s| s.is_empty()).unwrap_or(true) {
-                return Ok(());
+            let documents = self.read_collection(collection).await?;
+
+            if documents.len() == previous {
+                return Ok(documents);
             }
             anyhow::ensure!(
                 std::time::Instant::now() < deadline,
-                "timed out waiting for {task} to stop",
+                "collection {collection} was still growing after {timeout:?} ({} documents)",
+                documents.len(),
             );
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            previous = documents.len();
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         }
     }
 
