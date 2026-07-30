@@ -19,6 +19,7 @@ mod preview_next;
 mod shards;
 mod spec;
 mod split_shards;
+mod unassign_shards;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -75,6 +76,8 @@ pub enum Command {
     ListShards(TaskSelector),
     /// Split each shard of a task on either shuffled key or rotated clock.
     SplitShards(split_shards::Split),
+    /// Unassign a task's failed shards, so they can be scheduled again.
+    UnassignShards(unassign_shards::Unassign),
     /// Print environment variables for working with a given data-plane
     /// and prefix using Gazette's `gazctl`.
     GazctlEnv(GazctlEnv),
@@ -232,6 +235,9 @@ impl Advanced {
             Command::BearerLogs(bearer_logs) => bearer_logs.run(ctx).await,
             Command::ListShards(selector) => shards::do_list_shards(ctx, selector).await,
             Command::SplitShards(split) => split_shards::do_split(ctx, split).await,
+            Command::UnassignShards(unassign) => {
+                unassign_shards::do_unassign(ctx, unassign).await
+            }
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
             Command::PreviewNext(preview) => preview.run(ctx).await,
         }
