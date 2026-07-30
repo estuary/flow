@@ -23,13 +23,32 @@ pub struct PublicationsExecutor {
     pub runtime_v2_new_derivations: bool,
 }
 
+/// Poll state persisted to `internal.tasks` between polls, and therefore
+/// shared with whichever agent instance dequeues the next poll.
+///
+/// This deploy doesn't yet read or write this state: it's carried so that
+/// state persisted by the upcoming stale-snapshot deferral changes remains
+/// decodable by this version during a deploy or rollback.
+#[allow(dead_code)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct PublicationState {
+    /// The instant a Snapshot must postdate (per `Snapshot::taken_after`)
+    /// before this publication is retried: the queued time its prior attempt
+    /// anchored authorization staleness on.
+    #[serde(default)]
+    pub awaiting_snapshot_after: Option<tokens::DateTime>,
+}
+
 impl automations::Executor for PublicationsExecutor {
     const TASK_TYPE: automations::TaskType = automations::task_types::PUBLICATIONS;
 
     /// We don't do anything with the inbox except log it, so this is just a
     /// generic JSON value.
     type Receive = serde_json::Value;
-    type State = ();
+    /// `None` — the common, never-deferred case — round-trips as the JSON
+    /// `null` that stateless polls have always persisted, keeping in-flight
+    /// tasks readable across a deploy in either direction.
+    type State = Option<PublicationState>;
     type Outcome = automations::Action;
 
     async fn poll<'s>(
