@@ -68,8 +68,35 @@ pub const FLAGS_SCHEMA_VALID: u16 = 0x8000;
 
 pub use binding::Binding;
 pub use client::SessionClient;
-pub use frontier::{Frontier, JournalFrontier, ProducerFrontier};
+pub use frontier::{Completed, Frontier, JournalFrontier, ProducerFrontier};
 pub use service::{DEFAULT_SHUFFLE_DISK_LIMIT_BYTES, Service};
+
+/// Clock distance at which a producer's commits become ancient history.
+/// The constant has a DUAL role, and that duality is its contract:
+///
+/// - The runtime may **prune** — durably forget — a producer of a shard's
+///   committed frontier only once that producer trails its journal group's
+///   newest commit by at least this horizon. See
+///   `runtime_next::shard::recovery::prune_committed_frontier`.
+/// - The session may deem a Clock **completed** for a binding once that
+///   binding's promoted read progress carries a commit at least this horizon
+///   newer, whatever producer the clock names. See [`frontier::Completed`].
+///
+/// One constant for both is what makes them sound together: the runtime forgets
+/// only what the session can horizon-clear. A pruned producer `P` is gone from
+/// the completed-clock ledger forever, so a binding which is later backfilled
+/// and re-extracts a causal hint targeting `P` can neither resolve that hint by
+/// observing `P`'s ACK (P's journal is read at its head, and P is retired) nor
+/// clear it by per-producer completion (`P` is unknown). Only the horizon rule
+/// discharges such a hint — and it always can, because the hint is bounded by
+/// `P.last_commit`, which the prune's own clock condition placed at least this
+/// horizon behind the group's newest commit, itself a retained producer and so
+/// part of the binding's promoted progress. Were the prune horizon the smaller
+/// of the two, such hints would instead stall until
+/// [`CAUSAL_HINT_RESOLUTION_TIMEOUT`] tore the session down — and the next
+/// session would resume before the hinting ACK and repeat, forever.
+pub const PRODUCER_STALENESS_HORIZON: std::time::Duration =
+    std::time::Duration::from_secs(48 * 60 * 60);
 
 /// Return the current wall-clock time as a `uuid::Clock`.
 ///

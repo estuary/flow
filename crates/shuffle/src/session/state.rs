@@ -1,6 +1,5 @@
 use anyhow::Context;
 use proto_flow::shuffle;
-use proto_gazette::uuid;
 
 /// Immutable session configuration: topology, bindings, and the checkpoint
 /// from which reads resume. Provides journal routing and StartRead construction.
@@ -239,8 +238,8 @@ impl Topology {
 /// # The accounted-progress ratchet
 ///
 /// A pending `unresolved` frontier defines a transactional boundary: its
-/// committed clocks, its causal hints, and the commits its cohorts have
-/// completed jointly bound the producer events that boundary accounts for. Each
+/// committed clocks, its causal hints, and the `Completed` accounting of its
+/// bindings jointly bound the producer events that boundary accounts for. Each
 /// delta is judged against that bound before `unresolved` is touched, by
 /// `Frontier::first_unaccounted` — which carries the soundness argument:
 ///
@@ -249,7 +248,7 @@ impl Topology {
 ///   `unresolved` thereby adopts the read's true offsets — including open spans'
 ///   `+begin`s — along with its byte deltas and backfill clocks, and resolves
 ///   hints by max-merge; `resolve_hints` isn't called at all, as reduce subsumes
-///   it. Hints made stale by `completed_clocks` are pruned first, here rather
+///   it. Hints which `completed` accounts for are pruned first, here rather
 ///   than in `try_promote`, because the delta bypasses `progressed` entirely.
 /// - The first unaccounted delta **freezes** the ratchet (`ratchet_frozen`) for
 ///   the current `unresolved` generation, logging the entry which froze it. It
@@ -298,17 +297,15 @@ pub struct CheckpointPipeline {
     /// Set when the accounted-progress ratchet has stopped adopting deltas for
     /// the current `unresolved`. Reset on promotion.
     ratchet_frozen: bool,
-    /// Per-cohort map from Producer to the highest committed Clock observed
-    /// when promoting unresolved → ready. Used to pre-resolve stale causal
-    /// hints from re-enabled bindings whose journals are catching up.
+    /// Accounting of commits observed when promoting unresolved → ready. Used to
+    /// pre-resolve stale causal hints from re-enabled bindings whose journals are
+    /// catching up, and to judge incoming deltas against the pending boundary.
     ///
     /// Gating writes on promotion is what makes this an authority on "this
     /// commit is done": a frontier reaches `ready` only once its own causal
     /// hints have resolved, so a clock recorded here is a commit whose
     /// cross-journal extent was already confirmed.
-    completed_clocks: Vec<crate::ProducerMap<uuid::Clock>>,
-    /// Maps binding index → cohort index (from Binding::cohort).
-    binding_cohorts: Vec<u32>,
+    completed: crate::frontier::Completed,
     /// Monotonic floor of every per-shard `flushed_lsn` emitted to the client.
     /// Different Slices observe Log `flushed_lsn` at different times, so
     /// without this floor a ready or peek'd checkpoint can carry a lower LSN
@@ -324,26 +321,22 @@ impl CheckpointPipeline {
         // hinted_commit > last_commit represent transactions that were prepared
         // but not yet committed during the previous session.
         let unresolved = resume_checkpoint.project_unresolved_hints();
-
-        let num_cohorts = binding_cohorts
-            .iter()
-            .copied()
-            .max()
-            .map_or(0, |m| m as usize + 1);
-
         let recovery_session = unresolved.unresolved_hints != 0;
+
+        // Seed from the FULL resume checkpoint, not the projection: its
+        // hint-free journals are precisely the commits this session must not
+        // wait on again.
+        let mut completed = crate::frontier::Completed::new(binding_cohorts);
+        completed.update(resume_checkpoint);
 
         service_kit::event!(
             tracing::Level::DEBUG,
             "pipeline",
-            num_cohorts,
+            num_cohorts = completed.num_cohorts(),
             recovery_session,
             unresolved_hints = unresolved.unresolved_hints,
             "CheckpointPipeline initialized",
         );
-
-        let mut completed_clocks = vec![crate::ProducerMap::default(); num_cohorts];
-        update_completed_clocks(&mut completed_clocks, &binding_cohorts, resume_checkpoint);
 
         Self {
             progressed: Default::default(),
@@ -354,8 +347,7 @@ impl CheckpointPipeline {
             requested: false,
             recovery_session,
             ratchet_frozen: false,
-            completed_clocks,
-            binding_cohorts,
+            completed,
             emitted_flushed_lsn: Vec::new(),
         }
     }
@@ -481,11 +473,10 @@ impl CheckpointPipeline {
         // If the ratchet is not yet frozen, determine if `unresolved` accounts
         // for all progress in `progressed` (and if so, adopt it).
         if !self.ratchet_frozen && self.unresolved.unresolved_hints != 0 {
-            let Some(unaccounted) = self.unresolved.first_unaccounted(
-                &progressed,
-                &self.binding_cohorts,
-                &self.completed_clocks,
-            ) else {
+            let Some(unaccounted) = self
+                .unresolved
+                .first_unaccounted(&progressed, &self.completed)
+            else {
                 self.ratchet(progressed);
                 return Ok(());
             };
@@ -563,10 +554,11 @@ impl CheckpointPipeline {
     /// The delta is consumed entirely here and never reaches `self.progressed`:
     /// it's merged into the current transaction boundary, not the next one.
     fn ratchet(&mut self, mut progressed: crate::Frontier) {
-        // Remove hints which `completed_clocks` alone accounted for. Every hint
-        // this leaves is covered by a matching entry of `unresolved`, so the
-        // reduce below cannot raise its hint count.
-        progressed.prune_hints(&self.binding_cohorts, &self.completed_clocks);
+        // Remove hints which `completed` alone accounted for. Every hint this
+        // leaves is covered by a matching entry of `unresolved`, so the reduce
+        // below cannot raise its hint count.
+        let (hints_cleared_by_clock, hints_cleared_by_horizon) =
+            progressed.prune_hints(&self.completed);
 
         // A delta left with no journals still carries its `flushed_lsn` into
         // `unresolved` through reduce, but is not itself progress.
@@ -580,6 +572,8 @@ impl CheckpointPipeline {
             service_kit::event!(
                 tracing::Level::DEBUG,
                 "pipeline",
+                hints_cleared_by_clock,
+                hints_cleared_by_horizon,
                 recovery_session = self.recovery_session,
                 unresolved_hints = self.unresolved.unresolved_hints,
                 "ratcheted an accounted delta into `unresolved`"
@@ -588,6 +582,8 @@ impl CheckpointPipeline {
             service_kit::event!(
                 tracing::Level::DEBUG,
                 "pipeline",
+                hints_cleared_by_clock,
+                hints_cleared_by_horizon,
                 recovery_session = self.recovery_session,
                 "promoting ratcheted `unresolved` to `ready` (all hints resolved)"
             );
@@ -603,7 +599,7 @@ impl CheckpointPipeline {
         let resolved = std::mem::take(&mut self.unresolved);
         self.unresolved_peek_progress = false;
 
-        update_completed_clocks(&mut self.completed_clocks, &self.binding_cohorts, &resolved);
+        self.completed.update(&resolved);
         self.ready = std::mem::take(&mut self.ready).reduce(resolved);
     }
 
@@ -668,8 +664,8 @@ impl CheckpointPipeline {
         // while it sits here. This is also where cyclic hints clear (journal A
         // hints at a commit on B while B hints at one on A, in distinct
         // Progressed responses).
-        self.progressed
-            .prune_hints(&self.binding_cohorts, &self.completed_clocks);
+        let (hints_cleared_by_clock, hints_cleared_by_horizon) =
+            self.progressed.prune_hints(&self.completed);
 
         self.unresolved = std::mem::take(&mut self.progressed);
         self.ratchet_frozen = false;
@@ -683,6 +679,8 @@ impl CheckpointPipeline {
             service_kit::event!(
                 tracing::Level::DEBUG,
                 "pipeline",
+                hints_cleared_by_clock,
+                hints_cleared_by_horizon,
                 "promoted `progressed` directly to `ready`"
             );
             self.promote_unresolved();
@@ -690,32 +688,11 @@ impl CheckpointPipeline {
             service_kit::event!(
                 tracing::Level::DEBUG,
                 "pipeline",
+                hints_cleared_by_clock,
+                hints_cleared_by_horizon,
                 unresolved_hints = self.unresolved.unresolved_hints,
                 "promoted `progressed` to `unresolved`"
             );
-        }
-    }
-}
-
-/// Update per-cohort completed clocks from a frontier that is about to be
-/// promoted to `ready`. For each producer in each journal, record the highest
-/// committed clock the cohort has observed.
-fn update_completed_clocks(
-    completed_clocks: &mut [crate::ProducerMap<uuid::Clock>],
-    binding_cohorts: &[u32],
-    frontier: &crate::Frontier,
-) {
-    for jf in &frontier.journals {
-        let cohort = binding_cohorts[jf.binding as usize];
-        let completed = &mut completed_clocks[cohort as usize];
-
-        for pf in &jf.producers {
-            completed
-                .entry(pf.producer)
-                .and_modify(|c| {
-                    c.update(pf.last_commit);
-                })
-                .or_insert(pf.last_commit);
         }
     }
 }
@@ -866,6 +843,7 @@ mod test {
         test_shards_3,
     };
     use proto_flow::flow;
+    use proto_gazette::uuid;
 
     /// Build a Topology with sensible defaults for testing.
     fn test_topology(shards: Vec<shuffle::Shard>, bindings: Vec<crate::Binding>) -> Topology {
@@ -1757,7 +1735,7 @@ mod test {
     // hint counts as resolved by reduce's recompute.
     #[test]
     fn test_accounted_ratchet_recovery_uses_completed_clocks() {
-        // `CheckpointPipeline::new` seeds completed_clocks from the FULL resume
+        // `CheckpointPipeline::new` seeds `completed` from the FULL resume
         // checkpoint — including journal/A, which carries no hint and which a
         // recovery session therefore never reads. P3 is completed at 500s and P1
         // at 300s, both above the 250s hint P1 carries on journal/B.
@@ -2490,6 +2468,63 @@ mod test {
         );
         assert_eq!(pipeline.unresolved.unresolved_hints, 0, "hint resolved");
         assert!(!pipeline.ready.journals.is_empty(), "promoted to ready");
+    }
+
+    // The permanent-crash-loop regression. A binding being backfilled re-extracts
+    // a causal hint from an ancient ACK, naming a producer of a sibling binding's
+    // journal which shard recovery has since pruned from the committed frontier.
+    // The producer is absent from the completed-clock ledger, and the sibling
+    // journal is read at its head, so neither `resolve_hints` nor per-producer
+    // completion can ever discharge the hint. Only the staleness horizon can —
+    // and must, or the session dies on `CAUSAL_HINT_RESOLUTION_TIMEOUT` and its
+    // successor resumes before the hinting ACK and repeats, forever.
+    #[test]
+    fn test_pruned_producer_hint_cleared_by_horizon() {
+        // Binding 1, the sibling collection, is caught up at `head`. The pruned
+        // producer's ancient commit — the most that a re-extracted hint naming it
+        // can possibly reference — sits exactly a horizon behind.
+        let head = crate::PRODUCER_STALENESS_HORIZON.as_secs() + 500_000;
+        let pruned_commit = head - crate::PRODUCER_STALENESS_HORIZON.as_secs();
+
+        // A post-prune resume checkpoint: binding 1's retained producers are all
+        // recent, and pruned producer 0x09 appears nowhere. No unresolved hints,
+        // so this is an ordinary session rather than a recovery.
+        let resume = crate::Frontier::new(
+            vec![
+                jf("journal/A", 0, vec![pf(0x01, head, 0, -100)]),
+                jf("journal/B", 1, vec![pf(0x01, head, 0, -100)]),
+            ],
+            vec![],
+        )
+        .unwrap();
+        let mut pipeline = CheckpointPipeline::new(&resume, vec![0, 0]);
+        assert!(!pipeline.recovery_session);
+
+        // Binding 0's backfill re-reads an old ACK whose causal hints name
+        // producer 0x09 in binding 1's journal.
+        ingest_progressed(
+            &mut pipeline,
+            vec![
+                jf("journal/A", 0, vec![pf(0x01, head, 0, -900)]),
+                jf("journal/B", 1, vec![pf(0x09, 0, pruned_commit, 0)]),
+            ],
+            vec![],
+        );
+
+        // The horizon discharged the hint at promotion, so the pipeline advances.
+        assert_eq!(pipeline.unresolved.unresolved_hints, 0);
+        pipeline.request().unwrap();
+        let ready = pipeline.take_ready().expect("promoted to `ready`");
+        assert_eq!(ready.unresolved_hints, 0);
+        assert_eq!(ready.journals.len(), 1, "the hint-only journal was dropped");
+        assert_eq!(&*ready.journals[0].journal, "journal/A");
+
+        // And no tick ever trips the stall timeout.
+        let ticks_to_timeout = (crate::CAUSAL_HINT_RESOLUTION_TIMEOUT.as_secs()
+            / crate::ACTOR_TICKER_INTERVAL.as_secs()) as u32;
+        for _ in 0..ticks_to_timeout + 1 {
+            pipeline.on_tick().unwrap();
+        }
     }
 
     // A backfill marker broadcast to journals A and B: reading A's ACK commits A

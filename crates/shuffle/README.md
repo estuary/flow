@@ -406,18 +406,25 @@ sends it as a single `Frontier` message.
 Hints can be cyclic: `unresolved` may resolve hints carried by `progressed`.
 Similarly, a re-enabled binding can re-visit hints which have long since
 been resolved. `progressed` is therefore pruned (`Frontier::prune_hints`)
-at promotion against `completed_clocks`, a per-cohort ledger of producer commits
-that reached `ready`.
+at promotion against `frontier::Completed` — the pipeline's accounting of
+what is already done, written only on promotion to `ready`. It holds a
+per-cohort ledger of producer commits, plus a per-binding maximum of
+promoted progress which deems any clock at least
+`PRODUCER_STALENESS_HORIZON` older to be completed. That horizon rule is the
+dual of `runtime-next`'s committed-frontier prune, which forgets producers by
+the same constant: it is what keeps a hint naming a forgotten producer
+dischargeable at all.
 
 #### Accounted-progress ratchet
 
 While a checkpoint is held unresolved, each incoming delta is judged
 (`Frontier::first_unaccounted`) against the boundary that checkpoint
 defines. A delta is **accounted** when every producer commit and causal
-hint it reports is already covered, either by the pending frontier's own
-clocks or by a commit the producer's cohort has completed. Accounted
-progress folds into the unresolved boundary, adopting the read's true
-offsets; unaccounted progress is held back for the next boundary.
+hint it reports is already covered by one of the three authorities: the
+pending frontier's own clocks and hints, a commit the producer's cohort
+has completed, or the staleness horizon. Accounted progress folds into the
+unresolved boundary, adopting the read's true offsets; unaccounted progress
+is held back for the next boundary.
 
 #### Idempotent recovery is a session of its own
 
