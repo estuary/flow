@@ -67,6 +67,10 @@ pub(crate) fn api_v1_router(
             "/api/graphql",
             axum::routing::post(graphql::graphql_handler),
         )
+        .route(
+            "/api/v1/graphql/schema.graphql",
+            axum::routing::get(graphql::graphql_schema_handler),
+        )
         .route("/graphiql", axum::routing::get(graphql::graphql_graphiql))
         // Stripe webhook receiver. Registered as a plain route (not `.api_route`)
         // because it isn't part of our documented public API and authenticates

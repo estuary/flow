@@ -18,7 +18,9 @@ pub enum Capability {
     SpecEdit,
     CreateGrant,
     DeleteGrant,
+    QueryInviteLinks,
     CreateInviteLink,
+    DeleteInviteLink,
     // `ViewDataPlanePrivateNetworking` permits reading per-data-plane
     // private-networking configuration (such as the `private_links`
     // column).
@@ -124,7 +126,9 @@ impl CapabilityBundle {
             Self::TeamAdmin => {
                 CreateGrant
                     | DeleteGrant
+                    | QueryInviteLinks
                     | CreateInviteLink
+                    | DeleteInviteLink
                     | Self::ManageServiceAccounts.capabilities()
             }
             Self::ManageDataPlane => {

@@ -395,7 +395,9 @@ enum CapabilityBit {
 	SpecEdit
 	CreateGrant
 	DeleteGrant
+	QueryInviteLinks
 	CreateInviteLink
+	DeleteInviteLink
 	ViewDataPlanePrivateNetworking
 	ModifyDataPlanePrivateNetworking
 	ViewBilling
@@ -406,6 +408,21 @@ enum CapabilityBit {
 	RevokeApiKey
 	Delegate
 	Assume
+}
+
+"""
+Where an operation obtains the catalog prefix over which its capabilities
+are evaluated.
+"""
+input CapabilityTarget @oneOf {
+	"""
+	The name of the GraphQL field argument carrying the catalog prefix.
+	"""
+	argument: String
+	"""
+	A stable description of how the resolver derives the catalog prefix.
+	"""
+	derived: String
 }
 
 type CardPaymentMethodDetails {
@@ -1312,10 +1329,9 @@ type MutationRoot {
 	"""
 	Create an invite link that grants access to a catalog prefix.
 	
-	The caller must have admin capability on the catalog prefix.
 	Share the returned token with the intended recipient out-of-band.
 	"""
-	createInviteLink(catalogPrefix: Prefix!, capability: Capability!, singleUse: Boolean! = true, detail: String): InviteLink!
+	createInviteLink(catalogPrefix: Prefix!, capability: Capability!, singleUse: Boolean! = true, detail: String): InviteLink! @requiresCapabilities(allOf: [CreateInviteLink], target: {argument: "catalogPrefix"})
 	"""
 	Redeem an invite link token, granting the caller access to the associated
 	catalog prefix with the specified capability.
@@ -1323,10 +1339,8 @@ type MutationRoot {
 	redeemInviteLink(token: UUID!): RedeemInviteLinkResult!
 	"""
 	Delete an invite link, revoking it so it can no longer be redeemed.
-	
-	The caller must have admin capability on the invite link's catalog prefix.
 	"""
-	deleteInviteLink(token: UUID!): Boolean!
+	deleteInviteLink(token: UUID!): Boolean! @requiresCapabilities(allOf: [DeleteInviteLink], target: {derived: "the invite link's catalogPrefix"})
 	"""
 	Adds a private link to a private data plane. The data-plane controller
 	converges to provision it on its next poll; the returned link starts
@@ -1870,13 +1884,13 @@ type QueryRoot {
 	"""
 	publicDataPlanes(after: String, before: String, first: Int, last: Int): PublicDataPlaneConnection!
 	"""
-	List invite links the caller has admin access to.
+	List invite links visible to the caller.
 	
-	Returns invite links under all prefixes where the caller has admin
-	capability, optionally narrowed by a prefix filter — a subtree
-	(`startsWith`) or an exact set (`in`), not both.
+	Returns invite links under the caller's authorized prefixes, optionally
+	narrowed by a prefix filter — a subtree (`startsWith`) or an exact set
+	(`in`), not both.
 	"""
-	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection!
+	inviteLinks(filter: InviteLinksFilter, after: String, first: Int): InviteLinkConnection! @scopedByCapabilities(allOf: [QueryInviteLinks])
 	"""
 	Resolve the spec for a full OCI image name (e.g.
 	"ghcr.io/estuary/source-postgres:v1"). If the requested tag is not
@@ -2511,6 +2525,18 @@ directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
 Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one of its field be provided)
 """
 directive @oneOf on INPUT_OBJECT
+"""
+Hard precondition: the caller must hold every listed capability bit on the
+catalog prefix identified by `target`, or this field errors with
+`permission_denied`.
+"""
+directive @requiresCapabilities(allOf: [CapabilityBit!]!, target: CapabilityTarget!) on FIELD_DEFINITION
+"""
+Visibility scoping: this field resolves the records under catalog prefixes
+where the caller holds every listed capability bit. It never errors on
+authorization, and prefix filter arguments only narrow the scope.
+"""
+directive @scopedByCapabilities(allOf: [CapabilityBit!]!) on FIELD_DEFINITION
 """
 Directs the executor to skip this field or fragment when the `if` argument is true.
 """

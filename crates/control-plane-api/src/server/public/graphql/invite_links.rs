@@ -58,11 +58,16 @@ const MAX_PREFIXES: usize = 20;
 
 #[async_graphql::Object]
 impl InviteLinksQuery {
-    /// List invite links the caller has admin access to.
+    /// List invite links visible to the caller.
     ///
-    /// Returns invite links under all prefixes where the caller has admin
-    /// capability, optionally narrowed by a prefix filter — a subtree
-    /// (`startsWith`) or an exact set (`in`), not both.
+    /// Returns invite links under the caller's authorized prefixes, optionally
+    /// narrowed by a prefix filter — a subtree (`startsWith`) or an exact set
+    /// (`in`), not both.
+    #[graphql(
+        directive = super::capability::scoped_by_capabilities::apply(vec![
+            models::authz::Capability::QueryInviteLinks
+        ])
+    )]
     async fn invite_links(
         &self,
         ctx: &Context<'_>,
@@ -82,7 +87,7 @@ impl InviteLinksQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 env.claims()?.sub,
-                models::Capability::Admin,
+                models::authz::Capability::QueryInviteLinks,
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",
             )?;
@@ -172,8 +177,17 @@ pub struct InviteLinksMutation;
 impl InviteLinksMutation {
     /// Create an invite link that grants access to a catalog prefix.
     ///
-    /// The caller must have admin capability on the catalog prefix.
     /// Share the returned token with the intended recipient out-of-band.
+    #[graphql(
+        guard = "super::capability::CapabilityGuard::new(
+            catalog_prefix.as_str(),
+            models::authz::Capability::CreateInviteLink,
+        )",
+        directive = super::capability::requires_capabilities::apply(
+            vec![models::authz::Capability::CreateInviteLink],
+            super::capability::CapabilityTarget::Argument("catalogPrefix".to_string()),
+        )
+    )]
     pub async fn create_invite_link(
         &self,
         ctx: &Context<'_>,
@@ -196,8 +210,6 @@ impl InviteLinksMutation {
                 "invalid catalog prefix: {err}"
             )));
         }
-
-        super::verify_authorization(env, &catalog_prefix, models::Capability::Admin).await?;
 
         let row = sqlx::query!(
             r#"
@@ -356,8 +368,14 @@ impl InviteLinksMutation {
     }
 
     /// Delete an invite link, revoking it so it can no longer be redeemed.
-    ///
-    /// The caller must have admin capability on the invite link's catalog prefix.
+    #[graphql(
+        directive = super::capability::requires_capabilities::apply(
+            vec![models::authz::Capability::DeleteInviteLink],
+            super::capability::CapabilityTarget::Derived(
+                "the invite link's catalogPrefix".to_string()
+            ),
+        )
+    )]
     pub async fn delete_invite_link(
         &self,
         ctx: &Context<'_>,
@@ -386,7 +404,12 @@ impl InviteLinksMutation {
             None => return Err(async_graphql::Error::new("Invalid invite link")),
         };
 
-        super::verify_authorization(env, &invite.catalog_prefix, models::Capability::Admin).await?;
+        super::verify_authorization(
+            env,
+            &invite.catalog_prefix,
+            models::authz::Capability::DeleteInviteLink,
+        )
+        .await?;
 
         sqlx::query!("DELETE FROM internal.invite_links WHERE token = $1", token,)
             .execute(&mut *txn)

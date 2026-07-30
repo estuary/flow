@@ -27,6 +27,7 @@ mod alert_types;
 mod alerts;
 mod authorized_prefixes;
 pub(crate) mod billing;
+mod capability;
 mod data_planes;
 mod filters;
 pub(crate) use data_planes::parse_data_plane_name;
@@ -155,6 +156,20 @@ pub fn create_schema(alert_config_defaults: models::AlertConfig) -> GraphQLSchem
 pub fn schema_sdl() -> String {
     let schema = create_schema(models::AlertConfig::default());
     schema.sdl()
+}
+
+/// Serves the exact SDL of the executing GraphQL schema.
+pub(super) async fn graphql_schema_handler(
+    axum::Extension(schema): axum::Extension<GraphQLSchema>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    let mut response = schema.sdl().into_response();
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/graphql; charset=utf-8"),
+    );
+    response
 }
 
 #[axum::debug_handler(state=std::sync::Arc<crate::App>)]
