@@ -218,7 +218,17 @@ fn split_during_store() -> Scenario {
         "splitting a task's shards mid-transaction preserves exactly-once semantics",
         Class::RemoteAuthoritative,
     )
-    .catches(Defect::IgnoreKeyRange);
+    .catches(Defect::IgnoreKeyRange)
+    .declaring(
+        Invariant::Monotonicity,
+        "A membership change does not preserve delivery *order* at the sink, only \
+         exactly-once delivery of the set. A split child resumes from its inherited \
+         checkpoint and may deliver a sequence the departing parent had already \
+         raced past, so an id's rows can land out of order while remaining exactly \
+         one row per document. The set-based checks — no-loss, no-duplicates, \
+         conservation and oracle agreement — carry the exactly-once claim here and \
+         are NOT exempt.",
+    );
     scenario.split_shards = true;
     scenario.settle_commits = 5;
     scenario
@@ -239,7 +249,17 @@ fn split_during_commit() -> Scenario {
         arm_after: 0,
         action: Action::Stall { millis: 4_000 },
     })
-    .catches(Defect::IgnoreKeyRange);
+    .catches(Defect::IgnoreKeyRange)
+    .declaring(
+        Invariant::Monotonicity,
+        "A membership change does not preserve delivery *order* at the sink, only \
+         exactly-once delivery of the set. A split child resumes from its inherited \
+         checkpoint and may deliver a sequence the departing parent had already \
+         raced past, so an id's rows can land out of order while remaining exactly \
+         one row per document. The set-based checks — no-loss, no-duplicates, \
+         conservation and oracle agreement — carry the exactly-once claim here and \
+         are NOT exempt.",
+    );
     scenario.split_shards = true;
     scenario.settle_commits = 5;
     scenario
@@ -261,7 +281,17 @@ fn join_after_split() -> Scenario {
         "joining a task's shards back together preserves exactly-once semantics",
         Class::RemoteAuthoritative,
     )
-    .catches(Defect::IgnoreKeyRange);
+    .catches(Defect::IgnoreKeyRange)
+    .declaring(
+        Invariant::Monotonicity,
+        "A membership change does not preserve delivery *order* at the sink, only \
+         exactly-once delivery of the set. A split child resumes from its inherited \
+         checkpoint and may deliver a sequence the departing parent had already \
+         raced past, so an id's rows can land out of order while remaining exactly \
+         one row per document. The set-based checks — no-loss, no-duplicates, \
+         conservation and oracle agreement — carry the exactly-once claim here and \
+         are NOT exempt.",
+    );
 
     scenario.split_shards = true;
     scenario.join_shards = true;

@@ -173,6 +173,29 @@ into one leave no single range that contained the result, so a join falls back t
 the recovery log. The `join-after-split` scenario therefore asserts only on the
 destination, never on which checkpoint the connector chose.
 
+### Monotonicity is not a membership-change-safe invariant
+
+The second finding from the shard-split scenarios, and the one that shaped the
+invariant set: **a membership change preserves exactly-once delivery of the *set*,
+but not delivery *order* at the sink.**
+
+A split child resumes from its inherited checkpoint and may deliver a sequence that
+the departing parent had already raced past, so an id's rows can land out of order
+while remaining exactly one row per document. The suite observed precisely that:
+1513 documents, no loss, no duplicates, conservation intact, oracle agreement
+intact — and 78 monotonicity complaints.
+
+So the reconfiguration scenarios declare a monotonicity exemption, with the
+set-based checks explicitly *not* exempt. Those four carry the exactly-once claim,
+and they are the ones a split has to keep.
+
+This is the compliance model earning its keep in the direction it was designed for:
+the weaker property is declared and justified in one place, and the connector is
+still held to everything else. The document-counter class needed the same exemption
+for a different reason — rows of an uncommitted transaction stay visible until
+recovery skips past them — which is a hint that sink ordering is simply not a
+property the runtime offers whenever sessions can overlap.
+
 ### Only shard zero may propose a runtime checkpoint
 
 The first thing the shard-split scenarios found, once they could run at all, is a
