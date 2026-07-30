@@ -146,10 +146,6 @@ data.
   suite, not forced into these abstractions.
 - **CI gating.** Connectors CI has no flow checkout and no control plane. Runs on
   demand on a dev VM until per-connector runtime is known.
-- **Shard joins.** Splits are driven by `flowctl raw split-shards`, which already
-  exists. There is no `join-shards` counterpart, and adding one belongs in
-  `flowctl` beside its sibling rather than as a second copy of the data-plane auth
-  plumbing here. See the design document.
 - **Real connectors.** The subject is an input — a binary, a config, and a class —
   so onboarding one is adding a `Subject`, not changing the harness. Their
   catalogs and exemption files live in the connectors repository.

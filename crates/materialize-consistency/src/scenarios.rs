@@ -44,6 +44,11 @@ pub struct Scenario {
     pub defect: Option<Defect>,
     /// Split every shard of the task in two, after the warmup.
     pub split_shards: bool,
+    /// Join the task's shards pairwise, after the split has settled.
+    ///
+    /// Only meaningful together with `split_shards`: a task starts with one shard,
+    /// so there is nothing to join until it has been split.
+    pub join_shards: bool,
     /// Committed transactions to observe before perturbing anything.
     pub warmup_commits: u64,
     /// Committed transactions to observe after the fault, proving the task
@@ -62,6 +67,7 @@ impl Scenario {
             faults: Vec::new(),
             defect: None,
             split_shards: false,
+            join_shards: false,
             warmup_commits: 3,
             settle_commits: 3,
             exempt: Vec::new(),
@@ -111,6 +117,7 @@ pub fn all() -> Vec<Scenario> {
         crash_at_flush(),
         split_during_store(),
         split_during_commit(),
+        join_after_split(),
         zombie_at_start_commit(),
         counter_resumes_from_the_destination(),
         counter_reconciles_rather_than_trusting_its_checkpoint(),
@@ -235,6 +242,32 @@ fn split_during_commit() -> Scenario {
     .catches(Defect::IgnoreKeyRange);
     scenario.split_shards = true;
     scenario.settle_commits = 5;
+    scenario
+}
+
+/// Scaling back down. A join is not a split run backwards: one shard absorbs
+/// another's key range and the other is deleted, so every key the departing shard
+/// still owed work for has to be picked up by the survivor — and the survivor's
+/// destination state was accumulated under a narrower range than it now owns.
+///
+/// The connector cannot inherit a checkpoint for the widened range, because two
+/// ranges collapsing into one leaves no single range that contained it; recovery
+/// falls back to the recovery log. That asymmetry with a split is real, which is
+/// why this asserts only on the destination and never on which checkpoint the
+/// connector chose.
+fn join_after_split() -> Scenario {
+    let mut scenario = Scenario::new(
+        "join-after-split",
+        "joining a task's shards back together preserves exactly-once semantics",
+        Class::RemoteAuthoritative,
+    )
+    .catches(Defect::IgnoreKeyRange);
+
+    scenario.split_shards = true;
+    scenario.join_shards = true;
+    // Longer than the split scenarios: this one waits out a split, then a join, and
+    // each membership change costs the task a recovery.
+    scenario.settle_commits = 8;
     scenario
 }
 
@@ -415,10 +448,24 @@ mod test {
                 continue;
             }
             assert!(
-                !scenario.faults.is_empty() || scenario.split_shards,
+                !scenario.faults.is_empty() || scenario.split_shards || scenario.join_shards,
                 "scenario {} perturbs nothing",
                 scenario.name,
             );
+        }
+    }
+
+    /// A join needs more than one shard, and a task starts with one.
+    #[test]
+    fn a_join_scenario_splits_first() {
+        for scenario in all() {
+            if scenario.join_shards {
+                assert!(
+                    scenario.split_shards,
+                    "scenario {} joins without splitting, so it has nothing to join",
+                    scenario.name,
+                );
+            }
         }
     }
 

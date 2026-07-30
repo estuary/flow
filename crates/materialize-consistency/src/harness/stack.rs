@@ -327,6 +327,19 @@ impl Stack {
         Ok(())
     }
 
+    /// Join every pair of a task's shards, halving their number.
+    ///
+    /// The inverse of `split_shards`, and the other half of verifying that scaling
+    /// is safe: a survivor absorbs its partner's key range and the partner is
+    /// deleted, so any key the departing shard still owed work for has to be picked
+    /// up by the one that remains.
+    pub async fn join_shards(&self, task: &str) -> anyhow::Result<()> {
+        self.run(&["raw", "join-shards", "--task", task])
+            .await
+            .with_context(|| format!("joining shards of {task}"))?;
+        Ok(())
+    }
+
     /// Read a materialized resource back through the connector binary.
     ///
     /// Reading through the connector rather than reaching into the destination is

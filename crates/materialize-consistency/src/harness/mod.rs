@@ -225,6 +225,20 @@ async fn execute(
         stack.split_shards(&names.sink).await?;
         // Both children must come up before the run can continue; a split that
         // wedges is itself a finding.
+        recover(stack, &names.sink, &trace, count_commits(&trace)? + 1, deadline).await?;
+        stack.await_primary(&names.sink, deadline).await?;
+    }
+
+    if scenario.join_shards {
+        // Let the split's children each commit before collapsing them, so the join
+        // has real per-shard state to reconcile rather than two shards that have
+        // done nothing yet.
+        let after_split = count_commits(&trace)? + 2;
+        recover(stack, &names.sink, &trace, after_split, deadline).await?;
+
+        tracing::info!(task = %names.sink, "joining shards");
+        stack.join_shards(&names.sink).await?;
+        recover(stack, &names.sink, &trace, count_commits(&trace)? + 1, deadline).await?;
         stack.await_primary(&names.sink, deadline).await?;
     }
 

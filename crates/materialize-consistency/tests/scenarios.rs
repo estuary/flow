@@ -134,6 +134,11 @@ async fn split_during_commit() {
 }
 
 #[tokio::test]
+async fn join_after_split() {
+    both_ways("join-after-split").await
+}
+
+#[tokio::test]
 async fn zombie_at_start_commit() {
     both_ways("zombie-at-start-commit").await
 }

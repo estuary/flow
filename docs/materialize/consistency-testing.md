@@ -138,6 +138,41 @@ instead bounds the data volume, makes quiescence reachable, and is *more* isolat
 not less. It respects the rule that matters — a scenario touches only its own
 tasks, never anything stack-wide.
 
+### Joining shards needed a new subcommand
+
+Splitting was already a `flowctl` subcommand. Joining was not, and the spec assumed
+the harness would drive both by linking `gazette` and `labels` directly. It drives
+neither: the data-plane admin authorization both need lives inside `flowctl` and is
+not exported, so a second copy here would be an untested duplicate of the
+fiddliest part of the platform's auth.
+
+So `activate` gained `map_shards_to_join`, the inverse of its existing
+`map_shard_to_split`, and `flowctl raw join-shards` sits beside `split-shards`.
+The mechanism is the one an operator would use by hand with `gazctl shards
+list -o yaml` / `apply`: widen the surviving shard's key range to cover its
+partner's, and mark the partner deleted.
+
+Two properties make it safe, and both are why the *lower* shard of each pair is the
+survivor:
+
+- **The survivor keeps its identity.** A shard's ID derives from its range
+  *begin*, and merging into the lower shard leaves that unchanged — so it keeps its
+  ID, its recovery log, and its accumulated state. Only its `end` widens.
+- **No key is ever unowned.** `activate::apply_changes` already orders changes so
+  that shard upserts land before shard deletions, and those before journal
+  deletions. The survivor therefore owns the widened range before its partner
+  goes away.
+
+A join is refused unless the pair is genuinely adjacent on exactly one axis — two
+shards from the same split. A gap would silently drop the keys inside it and an
+overlap would deliver them twice, so guessing is worse than failing.
+
+The asymmetry with a split is real and is recorded in the scenario: a split child
+inherits its checkpoint from the range that contained it, but two ranges collapsing
+into one leave no single range that contained the result, so a join falls back to
+the recovery log. The `join-after-split` scenario therefore asserts only on the
+destination, never on which checkpoint the connector chose.
+
 ### Recovering a crashed shard is part of the scenario
 
 A crash fault is only half of crash-and-replay. The other half turned out to need
@@ -255,8 +290,7 @@ a snapshot would add a stale artifact without adding information.
 | --- | --- | --- |
 | One capture, several collections | Two single-binding captures | `source-soak` partitions documents across bindings, which would make conservation and standard/delta agreement uncheckable per collection |
 | Workload published once per stack | Workload published per run | The spec's model leaves no quiescent moment to read, and per-run is strictly more isolated |
-| Link `gazette`/`labels` to drive splits | Shell out to `flowctl raw split-shards` | That subcommand already exists, already refuses non-V2 tasks, and returns a status rather than text to parse. The spec's concern was parsing CLI text, which does not apply |
-| Shard joins covered | Not implemented | There is no `join-shards` counterpart to `split-shards`, and the data-plane auth it needs is private to `flowctl`. Belongs there as a sibling subcommand, not as a second copy here |
+| Link `gazette`/`labels` to drive splits | Shell out to `flowctl raw split-shards`, and a new `join-shards` | Splitting already existed as a subcommand that refuses non-V2 tasks and returns a status rather than text to parse. Joining did not exist, and was added beside it rather than reimplemented here — see below |
 
 ## Deferred
 
@@ -277,13 +311,6 @@ implemented — and unexercised. No fault the shim can inject produces it: it ne
 the destination tampered with from outside the connector's protocol stream, which
 is the one thing the shim deliberately cannot do. A scenario would need a harness
 hook that mutates the destination between sessions.
-
-**Shard joins.** The one specified scenario family that is not implemented.
-`activate::task_changes` already computes deletions when handed fewer desired
-shards than exist, so a join is expressible — but it needs an authorized shard
-client, and `flowctl::dataplane::user_task_admin` is private. The right move is a
-`flowctl raw join-shards` beside `split-shards`, after which the harness gains a
-`join_shards` flag mirroring `split_shards`.
 
 **Multi-shard coordination scenarios.** Coordinator-crashes-with-peers-alive and
 its converse need a task that is multi-shard from the start plus a fault targeted
