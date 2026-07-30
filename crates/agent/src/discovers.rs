@@ -41,6 +41,22 @@ impl JobStatus {
 
 type ProcessResult = Result<tables::DraftCatalog, Vec<models::draft_error::Error>>;
 
+/// Poll state persisted to `internal.tasks` between polls, and therefore
+/// shared with whichever agent instance dequeues the next poll.
+///
+/// This deploy doesn't yet read or write this state: it's carried so that
+/// state persisted by the upcoming stale-snapshot deferral changes remains
+/// decodable by this version during a deploy or rollback.
+#[allow(dead_code)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct DiscoverState {
+    /// The instant a Snapshot must postdate (per `Snapshot::taken_after`)
+    /// before this discover is retried: the queued time its prior attempt
+    /// anchored authorization staleness on.
+    #[serde(default)]
+    pub awaiting_snapshot_after: Option<tokens::DateTime>,
+}
+
 pub struct DiscoverOutcome {
     id: Id,
     draft_id: Id,
@@ -91,7 +107,10 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
 
     type Receive = serde_json::Value;
 
-    type State = ();
+    /// `None` — the common, never-deferred case — round-trips as the JSON
+    /// `null` that stateless polls have always persisted, keeping in-flight
+    /// tasks readable across a deploy in either direction.
+    type State = Option<DiscoverState>;
 
     type Outcome = DiscoverOutcome;
 
