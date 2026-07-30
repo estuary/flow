@@ -1,4 +1,6 @@
+use async_graphql::ErrorExtensions;
 use models::authz::{Capability, CapabilitySet};
+use std::{fmt, sync::Arc};
 
 /// Capabilities that must all be held to satisfy an authorization requirement.
 #[derive(Clone, Copy, Debug)]
@@ -11,6 +13,31 @@ impl RequiredCapabilities {
 
     pub(super) fn capabilities(self) -> CapabilitySet {
         self.0
+    }
+
+    fn names(self) -> Vec<String> {
+        self.0
+            .iter()
+            .map(|capability| capability.to_string())
+            .collect()
+    }
+}
+
+impl fmt::Display for RequiredCapabilities {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, capability) in self.0.iter().enumerate() {
+            if index != 0 {
+                f.write_str(" & ")?;
+            }
+            capability.fmt(f)?;
+        }
+        Ok(())
+    }
+}
+
+impl From<RequiredCapabilities> for CapabilitySet {
+    fn from(required: RequiredCapabilities) -> Self {
+        required.capabilities()
     }
 }
 
@@ -37,6 +64,74 @@ impl AuthorizationScope {
                 .collect(),
         }
     }
+}
+
+/// A runtime authorization requirement used both to evaluate access and to
+/// describe a terminal denial to GraphQL clients.
+pub(super) struct AuthorizationRequirement<'a> {
+    all_of: RequiredCapabilities,
+    catalog_prefixes: Vec<&'a str>,
+}
+
+impl<'a> AuthorizationRequirement<'a> {
+    pub(super) fn for_catalog_prefix(
+        all_of: impl Into<CapabilitySet>,
+        catalog_prefix: &'a str,
+    ) -> Self {
+        Self {
+            all_of: RequiredCapabilities::new(all_of),
+            catalog_prefixes: vec![catalog_prefix],
+        }
+    }
+
+    pub(super) async fn verify(self, env: &crate::Envelope) -> async_graphql::Result<()> {
+        let policy_result = crate::server::evaluate_names_authorization(
+            env.snapshot(),
+            env.claims()?,
+            self.all_of,
+            self.catalog_prefixes.iter().copied(),
+        );
+
+        match env.authorization_outcome(policy_result).await {
+            Ok((_expiry, ())) => Ok(()),
+            Err(api_error) if is_terminal_permission_denial(&api_error) => {
+                Err(self.permission_denied_error(api_error))
+            }
+            Err(api_error) => Err(api_error.into()),
+        }
+    }
+
+    fn permission_denied_error(self, api_error: crate::ApiError) -> async_graphql::Error {
+        let message = match &api_error {
+            crate::ApiError::Status(status) => {
+                format!("{:?}: {}", status.code(), status.message())
+            }
+            crate::ApiError::AuthZRetry(_) => unreachable!("a retry is not a terminal denial"),
+        };
+        let authorization = async_graphql::Value::from_json(serde_json::json!({
+            "requirements": [{
+                "allOf": self.all_of.names(),
+                "catalogPrefixes": self.catalog_prefixes,
+            }]
+        }))
+        .expect("authorization requirements are valid GraphQL values");
+
+        let mut error = async_graphql::Error::new(message).extend_with(|_, extensions| {
+            extensions.set("code", "PERMISSION_DENIED");
+            extensions.set("authorization", authorization);
+        });
+        // The handler identifies authorization retries through this source, and
+        // other resolvers downcast ApiError to selectively hide denials.
+        error.source = Some(Arc::new(api_error));
+        error
+    }
+}
+
+fn is_terminal_permission_denial(error: &crate::ApiError) -> bool {
+    matches!(
+        error,
+        crate::ApiError::Status(status) if status.code() == tonic::Code::PermissionDenied
+    )
 }
 
 /// Intersects already-authorized prefixes with a prefix filter so one exact
@@ -79,7 +174,7 @@ pub(super) fn effective_catalog_prefixes(
 
 #[cfg(test)]
 mod tests {
-    use super::effective_catalog_prefixes;
+    use super::{AuthorizationRequirement, effective_catalog_prefixes};
 
     #[test]
     fn effective_prefixes_intersect_authorization_with_filter() {
@@ -110,6 +205,36 @@ mod tests {
                 Some(&["acmeCo/".to_string()]),
             ),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn terminal_denial_has_a_machine_readable_requirement() {
+        let error = AuthorizationRequirement::for_catalog_prefix(
+            models::authz::Capability::CreateInviteLink,
+            "acmeCo/",
+        )
+        .permission_denied_error(crate::ApiError::Status(
+            tonic::Status::permission_denied("not authorized"),
+        ));
+        assert!(error.source.is_some());
+        let extensions = error.extensions.expect("extensions");
+
+        assert_eq!(
+            extensions.get("code"),
+            Some(&async_graphql::Value::from("PERMISSION_DENIED"))
+        );
+        assert_eq!(
+            extensions.get("authorization"),
+            Some(
+                &async_graphql::Value::from_json(serde_json::json!({
+                    "requirements": [{
+                        "allOf": ["CreateInviteLink"],
+                        "catalogPrefixes": ["acmeCo/"],
+                    }]
+                }))
+                .unwrap()
+            )
         );
     }
 }
