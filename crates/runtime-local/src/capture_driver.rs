@@ -12,25 +12,26 @@
 //! interpreting the output as a workload signal requires a range-partitioning
 //! connector.
 
-use crate::raw::preview_next::Controls;
-use crate::raw::preview_next::services::Run;
-use anyhow::Context;
+use crate::Controls;
+use crate::services::Run;
 use prost::Message;
 use proto_flow::{flow, runtime as cruntime};
 use runtime_next::proto;
+use runtime_next::{LoggerFactory, PublisherFactory};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 
-pub async fn run_sessions(
+/// Returns shard zero's final reduced connector state when
+/// [`Controls::report_final_state`] asked for it, else `None`.
+pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
     run: &Run,
     spec: &flow::CaptureSpec,
     session_targets: Vec<u32>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
-) -> anyhow::Result<()> {
-    let join_shards =
-        crate::raw::preview_next::shards::build_capture_join_shards(run.n_shards, spec)?;
+) -> anyhow::Result<Option<bytes::Bytes>> {
+    let join_shards = crate::shards::build_capture_join_shards(run.n_shards, spec)?;
     // Encode the spec once; each shard's Task carries a cheap refcount clone of
     // these bytes rather than deep-cloning and re-encoding the spec per shard.
     let spec_bytes: bytes::Bytes = spec.encode_to_vec().into();
@@ -38,13 +39,10 @@ pub async fn run_sessions(
     let mut handles = Vec::with_capacity(run.n_shards as usize);
     for i in 0..run.n_shards {
         let run_handle = RunHandle {
-            // Shard 0 uses the Run's tracked tempdir so it's surfaced in the
-            // startup log and observable post-run. Shards >=1 each get their
-            // own auto-managed tempdir via RocksDB::open(None).
-            rocksdb_path: (i == 0).then(|| run.rocksdb_path.clone()),
             network: run.network.clone(),
             registry: run.registry.clone(),
         };
+        let task_name = spec.name.clone();
         let spec_bytes = spec_bytes.clone();
         let join_shard = join_shards[i as usize].clone();
         let session_targets = session_targets.clone();
@@ -54,6 +52,7 @@ pub async fn run_sessions(
         handles.push(tokio::spawn(async move {
             drive_one_shard(
                 run_handle,
+                task_name,
                 spec_bytes,
                 i,
                 join_shard,
@@ -65,48 +64,26 @@ pub async fn run_sessions(
         }));
     }
 
-    // First error wins; remaining shards observe their request channel dropping
-    // on handle drop and tear down naturally.
-    let mut first_err: Option<anyhow::Error> = None;
-    for handle in handles {
-        match handle.await {
-            Ok(Ok(())) => (),
-            Ok(Err(e)) if first_err.is_none() => first_err = Some(e),
-            Ok(Err(e)) => tracing::warn!(error = ?e, "secondary capture shard driver error"),
-            Err(panic) => {
-                if first_err.is_none() {
-                    first_err = Some(anyhow::anyhow!("capture driver panic: {panic}"));
-                } else {
-                    tracing::warn!(?panic, "secondary capture driver panic");
-                }
-            }
-        }
-    }
-    if let Some(e) = first_err {
-        return Err(e);
-    }
-    Ok(())
+    crate::join_shard_drivers(handles, "capture").await
 }
 
 /// `Run` fields a single capture shard driver needs. Cheaper to clone than
 /// `&Run` so we can move it into a spawned task without lifetime gymnastics.
 struct RunHandle {
-    rocksdb_path: Option<String>,
     network: String,
     registry: service_kit::Registry,
 }
 
-async fn drive_one_shard(
+async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
     run: RunHandle,
+    task_name: String,
     spec_bytes: bytes::Bytes,
     shard_index: u32,
     join_shard: proto::join::Shard,
     session_targets: Vec<u32>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
-) -> anyhow::Result<()> {
-    let task_name = format!("preview-capture-{shard_index:03}");
-
+) -> anyhow::Result<Option<bytes::Bytes>> {
     let shard_svc = runtime_next::shard::Service::new(
         cruntime::Plane::Local,
         run.network,
@@ -121,99 +98,90 @@ async fn drive_one_shard(
     let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
     let mut response_rx = shard_svc.spawn_capture(UnboundedReceiverStream::new(request_rx));
 
-    // Seed shard zero's RocksDB with any `--initial-state` before the runtime
-    // opens it at SessionLoop, so it recovers the state on its first scan.
-    // Only shard zero carries a tracked `rocksdb_path`.
-    if let Some(rocksdb_path) = &run.rocksdb_path {
-        if !controls.initial_state_json.is_empty() {
-            super::seed_preview_state(
-                cruntime::RocksDbDescriptor {
-                    rocksdb_path: rocksdb_path.clone(),
-                    rocksdb_env_memptr: 0,
-                },
-                &controls.initial_state_json,
+    let session_loop = controls.session_loop(shard_index);
+    let report_final_state = session_loop.report_final_state;
+    let mut final_state = report_final_state.then(|| controls.initial_state_json.clone());
+
+    // Every fallible step from here on lives inside this one block, so that a
+    // failure anywhere in it — including partway through the session loop —
+    // falls through to the single teardown below.
+    let result = async {
+        request_tx
+            .send(Ok(proto::Capture {
+                session_loop: Some(session_loop),
+                ..Default::default()
+            }))
+            .map_err(|_| anyhow::anyhow!("serve task closed before SessionLoop"))?;
+
+        for (idx, target_txns) in session_targets.into_iter().enumerate() {
+            if stop_token.is_cancelled() {
+                break;
+            }
+            let session_index = idx + 1;
+
+            request_tx
+                .send(Ok(proto::Capture {
+                    join: Some(proto::Join {
+                        etcd_mod_revision: session_index as i64,
+                        shards: vec![join_shard.clone()],
+                        shard_index: 0,
+                        // Captures have no shuffle or leader; the handler ignores these.
+                        shuffle_directory: String::new(),
+                        shuffle_endpoint: String::new(),
+                        leader_endpoint: String::new(),
+                    }),
+                    ..Default::default()
+                }))
+                .map_err(|_| anyhow::anyhow!("serve task closed before Join"))?;
+
+            tracing::info!(
+                shard_index,
+                session = session_index,
+                target_txns,
+                "starting preview capture session",
+            );
+
+            request_tx
+                .send(Ok(proto::Capture {
+                    task: Some(proto::Task {
+                        spec: spec_bytes.clone(),
+                        max_transactions: target_txns,
+                        sqlite_vfs_uri: String::new(),
+                        publisher_id: Default::default(),
+                    }),
+                    ..Default::default()
+                }))
+                .map_err(|_| anyhow::anyhow!("serve task closed before Task"))?;
+
+            let stopped_state = drive_session_responses(
+                &request_tx,
+                &mut response_rx,
+                shard_index,
+                session_index,
+                &stop_token,
             )
-            .await
-            .context("seeding --initial-state into shard-zero RocksDB")?;
+            .await?;
+
+            if report_final_state {
+                final_state = Some(stopped_state);
+            }
         }
+        anyhow::Ok(())
     }
+    .await;
 
-    let rocksdb_descriptor = run.rocksdb_path.map(|p| cruntime::RocksDbDescriptor {
-        rocksdb_path: p,
-        rocksdb_env_memptr: 0,
-    });
-    request_tx
-        .send(Ok(proto::Capture {
-            session_loop: Some(proto::SessionLoop { rocksdb_descriptor }),
-            ..Default::default()
-        }))
-        .map_err(|_| anyhow::anyhow!("serve task closed before SessionLoop"))?;
-
-    for (idx, target_txns) in session_targets.into_iter().enumerate() {
-        if stop_token.is_cancelled() {
-            break;
-        }
-        let session_index = idx + 1;
-
-        request_tx
-            .send(Ok(proto::Capture {
-                join: Some(proto::Join {
-                    etcd_mod_revision: session_index as i64,
-                    shards: vec![join_shard.clone()],
-                    shard_index: 0,
-                    // Captures have no shuffle or leader; the handler ignores these.
-                    shuffle_directory: String::new(),
-                    shuffle_endpoint: String::new(),
-                    leader_endpoint: String::new(),
-                }),
-                ..Default::default()
-            }))
-            .map_err(|_| anyhow::anyhow!("serve task closed before Join"))?;
-
-        tracing::info!(
-            shard_index,
-            session = session_index,
-            target_txns,
-            "starting preview capture session",
-        );
-
-        request_tx
-            .send(Ok(proto::Capture {
-                task: Some(proto::Task {
-                    spec: spec_bytes.clone(),
-                    max_transactions: target_txns,
-                    sqlite_vfs_uri: String::new(),
-                    publisher_id: Default::default(),
-                }),
-                ..Default::default()
-            }))
-            .map_err(|_| anyhow::anyhow!("serve task closed before Task"))?;
-
-        drive_session_responses(
-            &request_tx,
-            &mut response_rx,
-            shard_index,
-            session_index,
-            &stop_token,
-        )
-        .await?;
-    }
-
-    drop(request_tx);
-    while let Some(msg) = response_rx.recv().await {
-        let _msg = msg.map_err(runtime_next::status_to_anyhow)?;
-    }
-
-    Ok(())
+    crate::teardown_shard_stream(request_tx, response_rx, result, final_state).await
 }
 
+/// Drive one session to its `Stopped`, returning that message's connector state
+/// (empty unless this stream's SessionLoop set `report_final_state`).
 async fn drive_session_responses(
     request_tx: &mpsc::UnboundedSender<tonic::Result<proto::Capture>>,
     response_rx: &mut mpsc::UnboundedReceiver<tonic::Result<proto::Capture>>,
     shard_index: u32,
     session_index: usize,
     stop_token: &CancellationToken,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bytes::Bytes> {
     let verify = runtime_next::verify("Capture", "Joined, Opened, or Stopped", "shard");
 
     let mut requested_stop = false;
@@ -241,9 +209,9 @@ async fn drive_session_responses(
                     tracing::debug!(shard_index, session_index, "capture session joined");
                 } else if let Some(proto::capture::Opened { container }) = &msg.opened {
                     tracing::debug!(shard_index, session_index, ?container, "capture session opened");
-                } else if let Some(proto::Stopped {}) = msg.stopped {
+                } else if let Some(stopped) = msg.stopped {
                     tracing::debug!(shard_index, session_index, "capture session stopped");
-                    return Ok(());
+                    return Ok(stopped.connector_state_json);
                 } else {
                     return Err(verify.fail_msg(msg));
                 }

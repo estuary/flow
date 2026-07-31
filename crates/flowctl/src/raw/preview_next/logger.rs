@@ -170,8 +170,8 @@ fn connector_state_kv(updated_json: &[u8], merge_patch: bool) -> Vec<u8> {
 /// Emit the run's final reduced connector state as the legacy `--output-state`
 /// final line: `["connectorState",{"updated":<state>}]` (`mergePatch:false`,
 /// since this is the whole reduced document, not a patch). An empty / absent
-/// final state renders as `["connectorState",{}]`. Called once at run end, after
-/// the session loop closes the runtime's RocksDB and flowctl re-reads it.
+/// final state renders as `["connectorState",{}]`. Called once at run end, with
+/// the state shard zero attached to its last `Stopped`.
 pub fn emit_final_state(state_json: &[u8]) {
     write_line(&connector_state_kv(state_json, false));
 }

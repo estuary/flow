@@ -421,9 +421,8 @@ fn missing_uuid_placeholder(uuid_ptr: &json::Pointer) -> tonic::Status {
 }
 
 /// Test [`Publisher`] which records what it was asked to publish.
-#[cfg(test)]
 #[derive(Clone, Default)]
-pub(crate) struct RecordingPublisher {
+pub struct RecordingPublisher {
     /// Each published document as `(task binding index, serialized document)`.
     pub docs: std::sync::Arc<std::sync::Mutex<Vec<(usize, String)>>>,
     pub stats: std::sync::Arc<std::sync::Mutex<Vec<ops::proto::Stats>>>,
@@ -433,11 +432,9 @@ pub(crate) struct RecordingPublisher {
 /// need to stand up a whole `Service` rather than an actor. Each `open` yields
 /// a fresh publisher, so this is for tests that never inspect what was
 /// published — those build a `RecordingPublisher` directly.
-#[cfg(test)]
 #[derive(Clone)]
-pub(crate) struct RecordingPublisherFactory;
+pub struct RecordingPublisherFactory;
 
-#[cfg(test)]
 impl PublisherFactory for RecordingPublisherFactory {
     type Publisher = RecordingPublisher;
 
@@ -453,7 +450,6 @@ impl PublisherFactory for RecordingPublisherFactory {
     }
 }
 
-#[cfg(test)]
 impl RecordingPublisher {
     pub fn take_docs(&self) -> Vec<(usize, String)> {
         std::mem::take(&mut *self.docs.lock().unwrap())
@@ -464,7 +460,6 @@ impl RecordingPublisher {
     }
 }
 
-#[cfg(test)]
 impl Publisher for RecordingPublisher {
     fn update_clock(&mut self) {}
 
