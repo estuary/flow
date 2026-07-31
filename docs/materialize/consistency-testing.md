@@ -430,8 +430,15 @@ and it is the single most useful measurement in this whole investigation: **comp
 the connector was asked to store against what the destination holds before theorising
 about either side.**
 
-With the fix the append-only binding is exactly right: 730 expected, 730 delivered, none
-missing, none duplicated, where before it lost 18-23 in three runs of five.
+This is a real bug and the fix is correct by inspection — `Apply` already looped over
+`staged_txns` for exactly this reason, and a unit test pins it. But **it did not close the
+log shortfall.** One run afterwards delivered 730 of 730 with no duplicates; two of the
+next four were still 18 short (`log="752/770"`, healthy and quiescent). Against a pre-fix
+rate of three failures in five, that is indistinguishable.
+
+So: a genuine defect removed, and the symptom it was expected to explain still present.
+Whatever strands those documents is either a second path into the same staging leak or
+something else, and the open item below is the likelier candidate.
 
 ### Open: an ancestor's *uncommitted* staging is visible to a child
 
