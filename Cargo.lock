@@ -1668,6 +1668,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "catalog-tests"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "insta",
+ "proto-flow",
+ "proto-gazette",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cbindgen"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
