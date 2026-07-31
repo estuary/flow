@@ -174,6 +174,7 @@ pub async fn run(scenario: &Scenario, subject: &Subject) -> anyhow::Result<Outco
         run_dir: &run_dir,
         faults: &scenario.faults,
         workload: &workload,
+        standard_binding: scenario.standard_binding,
     };
 
     tracing::info!(scenario = scenario.name, %run_id, verifies = scenario.verifies, "publishing");
@@ -292,6 +293,7 @@ async fn execute(
         &plan.subject.config,
         &names.sink,
         (&merged_expected, &log_expected),
+        plan.standard_binding,
         deadline,
     )
     .await?;
@@ -537,7 +539,7 @@ fn trace_failures(run: &RunDir) -> String {
 }
 
 struct Contents {
-    standard: Vec<invariants::Event>,
+    standard: Option<Vec<invariants::Event>>,
     merged_delta: Vec<invariants::Event>,
     log: Vec<invariants::Event>,
 }
@@ -560,6 +562,7 @@ async fn drain(
     config: &serde_json::Value,
     task: &str,
     (merged_expected, log_expected): (&Expectation, &Expectation),
+    standard_binding: bool,
     timeout: std::time::Duration,
 ) -> anyhow::Result<Contents> {
     let deadline = std::time::Instant::now() + timeout;
@@ -575,10 +578,17 @@ async fn drain(
     const QUIET_POLLS: usize = 5;
 
     loop {
+        let standard = match standard_binding {
+            true => Some(
+                stack
+                    .read_destination(connector, config, catalog::TABLE_STANDARD, false)
+                    .await?,
+            ),
+            false => None,
+        };
+
         let contents = Contents {
-            standard: stack
-                .read_destination(connector, config, catalog::TABLE_STANDARD, false)
-                .await?,
+            standard,
             merged_delta: stack
                 .read_destination(connector, config, catalog::TABLE_MERGED_DELTA, true)
                 .await?,
@@ -587,11 +597,22 @@ async fn drain(
                 .await?,
         };
 
-        let merged_delivered: usize = contents
-            .standard
-            .iter()
-            .map(|row| (row.seq + 1).max(0) as usize)
-            .sum();
+        // Documents reduced into the merged bindings, per the highest sequence reached
+        // for each account. Taken from the standard binding when there is one, and
+        // otherwise from the delta binding's latest row per account — the same measure
+        // of *progress*, since `seq` is last-write-wins and a duplicate cannot inflate
+        // it.
+        let merged_delivered: usize = match &contents.standard {
+            Some(rows) => rows.iter().map(|r| (r.seq + 1).max(0) as usize).sum(),
+            None => {
+                let mut highest: std::collections::BTreeMap<i64, i64> = Default::default();
+                for row in &contents.merged_delta {
+                    let seen = highest.entry(row.id).or_insert(row.seq);
+                    *seen = (*seen).max(row.seq);
+                }
+                highest.values().map(|s| (s + 1).max(0) as usize).sum()
+            }
+        };
 
         if contents.log.len() >= log_expected.documents()
             && merged_delivered >= merged_expected.documents()

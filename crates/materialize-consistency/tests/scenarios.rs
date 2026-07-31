@@ -25,6 +25,48 @@ fn init_tracing() {
         .try_init();
 }
 
+/// Every scenario reached by a test in this file.
+///
+/// Duplicating the list is the price of one test function per scenario, which is what
+/// gives each its own pass/fail line and lets one be run alone. The test below makes
+/// the duplication safe: a scenario added to the table without a test here does not
+/// silently never run.
+const COVERED: &[&str] = &[
+    "baseline",
+    "crash-between-commits",
+    "replayed-acknowledge",
+    "crash-mid-store",
+    "crash-at-flush",
+    "split-during-store",
+    "split-during-commit",
+    "join-after-split",
+    "zombie-at-start-commit",
+    "counter-resumes-from-destination",
+    "counter-reconciles-with-destination",
+    "counter-survives-a-split",
+    "delta-replay-deduplicated",
+    "at-least-once-never-loses",
+];
+
+/// A scenario nobody runs is worse than a missing scenario: the table says it is
+/// covered. This is how `counter-survives-a-split` was caught having no test.
+#[test]
+fn every_scenario_is_reached_by_a_test() {
+    for scenario in scenarios::all() {
+        assert!(
+            COVERED.contains(&scenario.name),
+            "scenario {} has no test in this file, so it never runs",
+            scenario.name,
+        );
+    }
+    for name in COVERED {
+        assert!(
+            scenarios::all().iter().any(|s| &s.name == name),
+            "{name} is listed as covered but is not a scenario",
+        );
+    }
+}
+
 fn scenario(name: &str) -> Scenario {
     scenarios::all()
         .into_iter()
@@ -151,6 +193,11 @@ async fn counter_resumes_from_destination() {
 #[tokio::test]
 async fn counter_reconciles_with_destination() {
     both_ways("counter-reconciles-with-destination").await
+}
+
+#[tokio::test]
+async fn counter_survives_a_split() {
+    both_ways("counter-survives-a-split").await
 }
 
 #[tokio::test]

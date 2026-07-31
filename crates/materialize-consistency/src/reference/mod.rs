@@ -161,8 +161,6 @@ pub struct Session {
     /// Documents still to be skipped on this session's first transaction,
     /// per binding (document-counter).
     skip: Vec<i64>,
-    /// This session's running append counts, per binding (document-counter).
-    appended: Vec<i64>,
     /// Documents this session has been asked to store, for the `drop-documents`
     /// defect to count against.
     stored: u64,
@@ -486,7 +484,6 @@ fn open_session(
         staging_txn: shard_state.txn + 1,
         committed_txn: shard_state.txn,
         skip: Vec::new(),
-        appended: Vec::new(),
         stored: 0,
     };
 
@@ -576,7 +573,6 @@ fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Res
     }
 
     session.skip = Vec::with_capacity(session.bindings.len());
-    session.appended = Vec::with_capacity(session.bindings.len());
 
     for binding in &session.bindings {
         let destination = session
@@ -608,7 +604,6 @@ fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Res
         };
 
         session.skip.push(skip);
-        session.appended.push(destination);
     }
     Ok(())
 }
@@ -759,12 +754,6 @@ fn store_document(
                 session
                     .store
                     .append_counted(session.key_begin, session.key_end, &batch)?;
-                for (table, _) in &batch {
-                    if let Some(i) = session.bindings.iter().position(|b| b.table.name == table.name)
-                    {
-                        session.appended[i] += 1;
-                    }
-                }
             }
         }
 
@@ -830,26 +819,36 @@ fn start_commit_txn(
                 session
                     .store
                     .append_counted(session.key_begin, session.key_end, &rows)?;
-                for (table, _) in &rows {
-                    if let Some(i) = session.bindings.iter().position(|b| b.table.name == table.name)
-                    {
-                        session.appended[i] += 1;
-                    }
-                }
             }
 
-            // Recording the count transactionally with the recovery log is what
-            // lets the next session compute what to skip. Dropping it is the
-            // `drop-document-counter` defect.
+            // Read each channel's offset back *from the destination* rather than
+            // reporting a count the connector kept itself.
+            //
+            // The destination is the authority: it increments the offset atomically
+            // with accepting the row, and recovery works by comparing that offset
+            // against the one this checkpoint records. A connector-side mirror of it
+            // would be a second copy of the only number that matters, and its drift
+            // is invisible precisely in the situation the class exists to survive —
+            // a process that died between accepting a row and noting that it had.
+            //
+            // Recording it here is what makes it trustworthy: this state rides in
+            // `StartedCommit` and so commits atomically with the recovery log.
+            // Dropping it is the `drop-document-counter` defect.
             let appended = if session.has(Defect::DropDocumentCounter) {
                 BTreeMap::new()
             } else {
-                session
-                    .bindings
-                    .iter()
-                    .zip(&session.appended)
-                    .map(|(b, n)| (b.table.name.clone(), *n))
-                    .collect()
+                let mut offsets = BTreeMap::new();
+                for binding in &session.bindings {
+                    offsets.insert(
+                        binding.table.name.clone(),
+                        session.store.appended(
+                            session.key_begin,
+                            session.key_end,
+                            &binding.table.name,
+                        )?,
+                    );
+                }
+                offsets
             };
 
             Some(shard_patch(

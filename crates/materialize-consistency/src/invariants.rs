@@ -144,9 +144,10 @@ pub struct Bindings {
     pub merged_expected: Expectation,
     /// Expectation for the `[/id, /seq]`-keyed append-only collection.
     pub log_expected: Expectation,
-    /// The merged collection materialized with standard (merge) semantics: one
-    /// row per account.
-    pub standard: Vec<Event>,
+    /// The merged collection materialized with standard (merge) semantics: one row
+    /// per account — or `None` when the scenario's subject cannot take a standard
+    /// binding at all, as the document-counter class cannot.
+    pub standard: Option<Vec<Event>>,
     /// The merged collection materialized with delta-updates: one row per account
     /// per transaction, in delivery order.
     pub merged_delta: Vec<Event>,
@@ -166,10 +167,17 @@ pub fn check(b: &Bindings) -> Vec<Violation> {
 
     check_workload(&b.merged_expected, &mut violations);
     check_workload(&b.log_expected, &mut violations);
-    check_standard(&b.merged_expected, &b.standard, &mut violations);
     check_merged_delta(&b.merged_expected, &b.merged_delta, &mut violations);
     check_log(&b.log_expected, &b.log, &mut violations);
-    check_standard_delta_agreement(&b.standard, &b.merged_delta, &mut violations);
+
+    // A subject with no standard binding is not thereby excused anything: the two
+    // delta bindings still carry per-document cardinality, the running-sum-against-
+    // oracle check and monotonicity, which are the sharpest checks in the suite.
+    // Only the two that need a reduced row are skipped.
+    if let Some(standard) = &b.standard {
+        check_standard(&b.merged_expected, standard, &mut violations);
+        check_standard_delta_agreement(standard, &b.merged_delta, &mut violations);
+    }
 
     violations
 }
@@ -492,7 +500,7 @@ mod test {
         Bindings {
             merged_expected: Expectation::from_documents(documents.clone()),
             log_expected: Expectation::from_documents(documents.clone()),
-            standard: vec![event(1, 1, -8, -8), event(2, 1, 8, 8)],
+            standard: Some(vec![event(1, 1, -8, -8), event(2, 1, 8, 8)]),
             merged_delta: documents.clone(),
             log: documents,
         }
@@ -538,7 +546,7 @@ mod test {
     #[test]
     fn a_replayed_transaction_shows_in_the_summed_binding() {
         let mut bindings = fixture();
-        bindings.standard = vec![event(1, 1, -11, -8), event(2, 1, 8, 8)];
+        bindings.standard = Some(vec![event(1, 1, -11, -8), event(2, 1, 8, 8)]);
         bindings.merged_delta.insert(2, event(1, 1, -3, -8));
 
         let kinds = kinds(&bindings);
@@ -553,12 +561,26 @@ mod test {
     #[test]
     fn duplicate_detection_does_not_depend_on_the_sign_of_the_balance() {
         let mut bindings = fixture();
-        bindings.standard = vec![event(1, 1, -8, -8), event(2, 1, 11, 8)];
+        bindings.standard = Some(vec![event(1, 1, -8, -8), event(2, 1, 11, 8)]);
         bindings.merged_delta.push(event(2, 1, 3, 8));
 
         let kinds = kinds(&bindings);
         assert!(kinds.contains(&Invariant::NoDuplicates), "{kinds:?}");
         assert!(!kinds.contains(&Invariant::NoLoss), "{kinds:?}");
+    }
+
+    /// A subject with no standard binding still gets the delta-binding checks, which
+    /// is what makes the document-counter class — Snowpipe's shape, delta-only — worth
+    /// testing at all.
+    #[test]
+    fn a_delta_only_subject_is_still_held_to_the_delta_checks() {
+        let mut bindings = fixture();
+        bindings.standard = None;
+        assert!(check(&bindings).is_empty());
+
+        bindings.log.push(event(1, 1, -3, -8));
+        let kinds = kinds(&bindings);
+        assert!(kinds.contains(&Invariant::NoDuplicates), "{kinds:?}");
     }
 
     #[test]
@@ -578,7 +600,7 @@ mod test {
         let mut bindings = fixture();
         bindings.log.retain(|e| e.seq == 0);
         bindings.merged_delta.retain(|e| e.seq == 0);
-        bindings.standard = vec![event(1, 0, -5, -5), event(2, 0, 5, 5)];
+        bindings.standard = Some(vec![event(1, 0, -5, -5), event(2, 0, 5, 5)]);
 
         let kinds = kinds(&bindings);
         assert!(kinds.contains(&Invariant::NoLoss), "{kinds:?}");

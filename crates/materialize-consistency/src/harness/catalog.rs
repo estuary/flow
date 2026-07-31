@@ -120,6 +120,9 @@ pub struct Plan<'a> {
     pub run_dir: &'a std::path::Path,
     pub faults: &'a [FaultRule],
     pub workload: &'a Workload,
+    /// Whether to materialize the merged collection with standard (merge) semantics
+    /// in addition to the two delta bindings. See `Scenario::standard_binding`.
+    pub standard_binding: bool,
 }
 
 /// Build the whole catalog of a run.
@@ -315,11 +318,15 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
             env,
             protobuf: false,
         }),
-        bindings: vec![
-            binding(&plan.names.merged, TABLE_STANDARD, false),
-            binding(&plan.names.merged, TABLE_MERGED_DELTA, true),
-            binding(&plan.names.log, TABLE_LOG, true),
-        ],
+        bindings: plan
+            .standard_binding
+            .then(|| binding(&plan.names.merged, TABLE_STANDARD, false))
+            .into_iter()
+            .chain([
+                binding(&plan.names.merged, TABLE_MERGED_DELTA, true),
+                binding(&plan.names.log, TABLE_LOG, true),
+            ])
+            .collect(),
         shards: models::ShardTemplate {
             log_level: Some("info".to_string()),
             min_txn_duration: Some(plan.workload.min_txn),

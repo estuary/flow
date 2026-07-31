@@ -37,6 +37,14 @@ pub struct Scenario {
     pub verifies: &'static str,
     /// Class the subject must implement for the scenario to mean anything.
     pub class: Class,
+    /// Whether the task materializes a standard (merge) binding as well as the two
+    /// delta ones.
+    ///
+    /// The document-counter class cannot take one: a counted channel's offset is a
+    /// count of rows the destination *accepted*, which says nothing about an upsert.
+    /// Snowpipe Streaming v2 handles delta-updates bindings only, and folding a merge
+    /// binding into that model would emulate something no such connector does.
+    pub standard_binding: bool,
     pub faults: Vec<FaultRule>,
     /// The defect this scenario must catch. `None` only for the baseline, whose
     /// job is to fail when the harness itself is miswired — it has no defect to
@@ -64,6 +72,7 @@ impl Scenario {
             name,
             verifies,
             class,
+            standard_binding: !matches!(class, Class::DocumentCounter),
             faults: Vec::new(),
             defect: None,
             split_shards: false,
@@ -121,6 +130,7 @@ pub fn all() -> Vec<Scenario> {
         zombie_at_start_commit(),
         counter_resumes_from_the_destination(),
         counter_reconciles_rather_than_trusting_its_checkpoint(),
+        counter_survives_a_split(),
         delta_replay_is_deduplicated(),
         at_least_once_never_loses(),
     ]
@@ -373,6 +383,39 @@ fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
     )
 }
 
+/// The one membership-change scenario whose class can actually survive it.
+///
+/// A counted channel resumes by asking the *destination* how far it got, so a shard
+/// that has just been created — with a fresh channel and therefore a zero offset —
+/// needs no inherited state at all. That is the property post-commit-apply staging
+/// cannot have (see the design document: a child inheriting staged work cannot tell
+/// whether its own resume point precedes it), and it is why Snowpipe Streaming v2
+/// uses a channel rather than staged files.
+///
+/// It also exercises the part of the model a single-shard run never reaches: one
+/// channel per binding *per shard*, several of them appending to one destination
+/// table, each with its own independent offset.
+fn counter_survives_a_split() -> Scenario {
+    let mut scenario = Scenario::new(
+        "counter-survives-a-split",
+        "a counted-channel connector keeps exactly-once across a shard split, resuming \
+         each new channel from the destination's own offset",
+        Class::DocumentCounter,
+    )
+    .catches(Defect::DropDocumentCounter)
+    .declaring(
+        Invariant::Monotonicity,
+        "This class appends during Store, so rows of a transaction that never commits \
+         stay visible until recovery skips past them, and a membership change re-opens \
+         channels at offsets the sink has already passed. Delivery order at the sink is \
+         therefore not guaranteed to advance monotonically; the set-based checks carry \
+         the exactly-once claim and are NOT exempt.",
+    );
+    scenario.split_shards = true;
+    scenario.settle_commits = 5;
+    scenario
+}
+
 /// Delta-updates bindings are where duplication is directly visible, as an extra
 /// row. A connector claiming exactly-once has to deduplicate.
 fn delta_replay_is_deduplicated() -> Scenario {
@@ -493,6 +536,21 @@ mod test {
                 assert!(
                     scenario.split_shards,
                     "scenario {} joins without splitting, so it has nothing to join",
+                    scenario.name,
+                );
+            }
+        }
+    }
+
+    /// The document-counter class models a connector that handles delta-updates
+    /// bindings only, so no scenario may hand it a merge binding.
+    #[test]
+    fn the_counter_class_never_takes_a_standard_binding() {
+        for scenario in all() {
+            if scenario.class == Class::DocumentCounter {
+                assert!(
+                    !scenario.standard_binding,
+                    "scenario {} gives the counted-channel class a merge binding",
                     scenario.name,
                 );
             }
