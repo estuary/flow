@@ -8,16 +8,12 @@
 //! as in production.
 use crate::local_specs;
 use anyhow::Context;
-use runtime_next::shard::rocksdb;
+use runtime_local::{capture_driver, derive_driver, materialize_driver, services};
 
-mod capture_driver;
-mod derive_driver;
-mod driver;
 mod fixture;
 mod logger;
 mod publish;
-mod services;
-mod shards;
+mod shuffle_source;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -116,18 +112,16 @@ pub struct Preview {
     debug_port: Option<u16>,
 }
 
-/// Harness controls threaded into each driver: the `--initial-state` seed (used
-/// to pre-seed shard zero's RocksDB), the output-capturing publisher factory,
+/// Harness controls threaded into each driver: the `--initial-state` seed and
+/// `--output-state` final-state request (both carried on shard zero's
+/// SessionLoop), the output-capturing publisher factory,
 /// and the preview-rendering logger factory installed on the shard (and, for
 /// materializations / derivations, the leader) Service. The logger carries the
 /// `--output-state` / `--output-apply` behavior the legacy `flowctl preview`
 /// flags expressed; the publisher captures captured / derived documents.
-#[derive(Clone)]
-struct Controls {
-    initial_state_json: bytes::Bytes,
-    publisher_factory: publish::PreviewPublisherFactory,
-    logger_factory: logger::PreviewLoggerFactory,
-}
+/// `runtime-local` controls, bound to preview's publisher and logger.
+type Controls =
+    runtime_local::Controls<publish::PreviewPublisherFactory, logger::PreviewLoggerFactory>;
 
 /// Resolved task selected from the source specifications.
 enum TaskSpec {
@@ -183,6 +177,7 @@ impl Preview {
         };
         let controls = Controls {
             initial_state_json,
+            report_final_state: *output_state,
             publisher_factory: publish::PreviewPublisherFactory,
             logger_factory: logger::PreviewLoggerFactory::new(
                 log_handler,
@@ -227,7 +222,7 @@ impl Preview {
                     "--fixture is only supported for derivations and materializations",
                 );
                 if let Some(delay) = delay {
-                    set_min_txn_duration(spec.shard_template.as_mut(), delay);
+                    runtime_local::set_min_txn_duration(spec.shard_template.as_mut(), delay);
                 }
                 let run = services::Run::start_capture(
                     network.clone(),
@@ -245,18 +240,28 @@ impl Preview {
                 );
                 tokio::pin!(session_loop);
                 let result = run_with_timeout(session_loop, timeout, &stop_token).await;
-                finish_output_state(&run, *output_state, result).await
+                finish_run(result)
             }
             TaskSpec::Materialization(mut spec) => {
+                let mut frontier_tx = None;
+                let registry = ctx.registry.clone();
                 let run = services::Run::start_with_shuffle_leader(
-                    ctx,
                     network.clone(),
                     *shards,
                     *debug_port,
-                    ctx.registry.clone(),
-                    fixture.is_some(),
+                    registry.clone(),
                     controls.publisher_factory.clone(),
                     controls.logger_factory.clone(),
+                    |peer_endpoint| {
+                        let (factory, svc, tx) = shuffle_source::build(
+                            ctx,
+                            fixture.is_some(),
+                            &registry,
+                            peer_endpoint,
+                        )?;
+                        frontier_tx = tx;
+                        Ok((factory, svc))
+                    },
                 )
                 .await?;
 
@@ -265,6 +270,7 @@ impl Preview {
                 let (session_targets, fixture_dirs, session_stop, fixture_keepalive) =
                     prepare_sessions(
                         &run,
+                        frontier_tx,
                         &mut spec,
                         |spec| spec.shard_template.as_mut(),
                         |spec| shuffle::proto::Task {
@@ -276,7 +282,7 @@ impl Preview {
                         &stop_token,
                     )?;
 
-                let session_loop = driver::run_sessions(
+                let session_loop = materialize_driver::run_sessions(
                     &run,
                     &spec,
                     session_targets,
@@ -288,24 +294,35 @@ impl Preview {
                     with_fixture_feeder(session_loop, fixture_keepalive, &session_stop);
                 tokio::pin!(session_loop);
                 let result = run_with_timeout(session_loop, timeout, &stop_token).await;
-                finish_output_state(&run, *output_state, result).await
+                finish_run(result)
             }
             TaskSpec::Derivation(mut spec) => {
+                let mut frontier_tx = None;
+                let registry = ctx.registry.clone();
                 let run = services::Run::start_with_shuffle_leader(
-                    ctx,
                     network.clone(),
                     *shards,
                     *debug_port,
-                    ctx.registry.clone(),
-                    fixture.is_some(),
+                    registry.clone(),
                     controls.publisher_factory.clone(),
                     controls.logger_factory.clone(),
+                    |peer_endpoint| {
+                        let (factory, svc, tx) = shuffle_source::build(
+                            ctx,
+                            fixture.is_some(),
+                            &registry,
+                            peer_endpoint,
+                        )?;
+                        frontier_tx = tx;
+                        Ok((factory, svc))
+                    },
                 )
                 .await?;
 
                 let (session_targets, fixture_dirs, session_stop, fixture_keepalive) =
                     prepare_sessions(
                         &run,
+                        frontier_tx,
                         &mut spec,
                         |spec| {
                             spec.derivation
@@ -333,12 +350,10 @@ impl Preview {
                     with_fixture_feeder(session_loop, fixture_keepalive, &session_stop);
                 tokio::pin!(session_loop);
                 let result = run_with_timeout(session_loop, timeout, &stop_token).await;
-                finish_output_state(&run, *output_state, result).await
+                finish_run(result)
             }
         };
 
-        // `run` drops here, aborting the tonic server and removing the
-        // RocksDB / shuffle-log tempdirs.
         result
     }
 }
@@ -371,6 +386,7 @@ enum FixtureKeepalive {
 /// reads into fewer, larger transactions.
 fn prepare_sessions<S>(
     run: &services::Run,
+    frontier_tx: Option<tokio::sync::mpsc::UnboundedSender<runtime_local::segments::FixtureItem>>,
     spec: &mut S,
     shard_template: impl FnOnce(&mut S) -> Option<&mut proto_gazette::consumer::ShardSpec>,
     build_task: impl FnOnce(&S) -> shuffle::proto::Task,
@@ -386,24 +402,20 @@ fn prepare_sessions<S>(
 )> {
     let Some(path) = fixture else {
         if let Some(delay) = delay {
-            set_min_txn_duration(shard_template(spec), delay);
+            runtime_local::set_min_txn_duration(shard_template(spec), delay);
         }
         return Ok((session_targets, Vec::new(), stop_token.clone(), None));
     };
 
-    force_single_transaction(shard_template(spec));
+    runtime_local::force_single_transaction(shard_template(spec));
     let task = build_task(spec);
+    let frontier_tx = frontier_tx.expect("fixture run was started with a frontier sender");
 
     if is_streaming_fixture(path)? {
         anyhow::ensure!(
             session_targets == [0],
             "a streaming --fixture (FIFO or stdin) runs exactly one unbounded session; omit --sessions or pass `--sessions -1`",
         );
-        let frontier_tx = run
-            .frontier_tx
-            .clone()
-            .expect("fixture run was started with a frontier sender");
-
         let session_stop = stop_token.child_token();
         let hold = tokio_util::sync::CancellationToken::new();
         let source = (path != "-").then(|| std::path::PathBuf::from(path));
@@ -429,7 +441,7 @@ fn prepare_sessions<S>(
         ));
     }
 
-    let (targets, dirs, plan) = start_fixtures(run, task, path, session_targets)?;
+    let (targets, dirs, plan) = start_fixtures(run, frontier_tx, task, path, session_targets)?;
     Ok((
         targets,
         dirs,
@@ -475,9 +487,9 @@ async fn with_fixture_feeder<F>(
     session_loop: F,
     keepalive: Option<FixtureKeepalive>,
     session_stop: &tokio_util::sync::CancellationToken,
-) -> anyhow::Result<()>
+) -> anyhow::Result<Option<bytes::Bytes>>
 where
-    F: std::future::Future<Output = anyhow::Result<()>>,
+    F: std::future::Future<Output = anyhow::Result<Option<bytes::Bytes>>>,
 {
     // An eager fixture (or no fixture) has no feeder; `keepalive` still holds
     // its segments for the loop's lifetime.
@@ -489,7 +501,8 @@ where
     tokio::select! {
         result = &mut session_loop => {
             drop(_hold); // Cancels the feeder's hold token.
-            result.and(feeder_result((&mut feeder).await))
+            let feeder = feeder_result((&mut feeder).await);
+            result.and_then(|state| feeder.map(|()| state))
         }
         joined = &mut feeder => {
             tracing::error!("fixture feeder ended before end-of-stream; stopping active session");
@@ -508,114 +521,17 @@ fn feeder_result(joined: Result<anyhow::Result<()>, tokio::task::JoinError>) -> 
     joined.unwrap_or_else(|panic| Err(anyhow::anyhow!("fixture feeder panic: {panic}")))
 }
 
-/// On a successful `--output-state` run, emit the final reduced connector state.
-/// A successful session result is replaced by a final-state read error; a failed
-/// session result passes through unchanged (skip the final-state read).
-async fn finish_output_state(
-    run: &services::Run,
-    output_state: bool,
-    result: anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    if !output_state || result.is_err() {
-        return result;
-    }
-    emit_final_connector_state(run).await?;
-    result
-}
-
-/// Re-open shard zero's RocksDB and emit its final reduced connector state as a
-/// `--output-state` line. Safe to open directly: the runtime's shard serve loop
-/// drops its `RocksDB` handle (releasing the exclusive lock) when its request
-/// stream ends, which is strictly before its response stream reaches EOF — and
-/// the session loop only returns once the driver has drained that EOF.
-async fn emit_final_connector_state(run: &services::Run) -> anyhow::Result<()> {
-    let state = read_preview_state(proto_flow::runtime::RocksDbDescriptor {
-        rocksdb_path: run.rocksdb_path.clone(),
-        rocksdb_env_memptr: 0,
-    })
-    .await
-    .context("reading final connector state for --output-state")?;
-
-    logger::emit_final_state(&state);
-    Ok(())
-}
-
-/// Seed shard zero's RocksDB at `descriptor` with `initial_state_json` as the
-/// connector-state base, then close it. Called for `--initial-state` before the
-/// runtime opens the same path via its SessionLoop, so the runtime recovers the
-/// seeded state on its first scan exactly as if a prior connector session had
-/// persisted it. Production has no equivalent: the runtime seeds `{}` itself.
-async fn seed_preview_state(
-    descriptor: proto_flow::runtime::RocksDbDescriptor,
-    initial_state_json: &[u8],
-) -> anyhow::Result<()> {
-    let db = rocksdb::RocksDB::open(Some(descriptor)).await?;
-    _ = db.put_connector_state_base(initial_state_json).await?;
-    Ok(())
-}
-
-/// Re-open shard zero's RocksDB at `descriptor` and return its reduced connector
-/// state — the exact `Recover.connector_state_json` the runtime itself would
-/// recover (empty if none was ever persisted). Called for `--output-state` after
-/// the session loop has closed the runtime's own handle. Reuses the recovery
-/// `scan`, so it stays consistent with how the runtime reads state.
-async fn read_preview_state(
-    descriptor: proto_flow::runtime::RocksDbDescriptor,
-) -> anyhow::Result<bytes::Bytes> {
-    let db = rocksdb::RocksDB::open(Some(descriptor)).await?;
-    let (_db, recover) = db.scan(std::iter::empty::<&str>()).await?;
-    Ok(recover.connector_state_json)
-}
-
-/// Apply `--delay` to a live preview by raising the task's minimum transaction
-/// duration: the leader holds each transaction open for at least `delay`,
-/// batching source output into fewer, larger transactions. This is the
-/// runtime-next analog of legacy preview's sleep between transaction polls.
-fn set_min_txn_duration(
-    shard_template: Option<&mut proto_gazette::consumer::ShardSpec>,
-    delay: std::time::Duration,
-) {
-    let Some(shard_template) = shard_template else {
-        return;
-    };
-    let min = pbjson_types::Duration {
-        seconds: delay.as_secs() as i64,
-        nanos: delay.subsec_nanos() as i32,
-    };
-    // Keep the close-policy band well-formed if the template's configured
-    // maximum is below the requested minimum.
-    if shard_template
-        .max_txn_duration
-        .as_ref()
-        .map_or(true, |max| {
-            (max.seconds, max.nanos) < (min.seconds, min.nanos)
-        })
-    {
-        shard_template.max_txn_duration = Some(min.clone());
-    }
-    shard_template.min_txn_duration = Some(min);
-}
-
-/// Force one-transaction-per-checkpoint in the leader by collapsing the task's
-/// transaction-duration window, so each fixture transaction commits as exactly
-/// one runtime transaction (legacy fixture preview's 1:1 boundaries).
+/// Emit the run's final reduced connector state, if the run reported one.
 ///
-/// A literal `max_txn_duration` of zero would deadlock the leader: `HeadIdle`
-/// gates the first checkpoint load on `open_age < max_txn_duration`, and a fresh
-/// transaction's `open_age` is zero. The smallest positive duration loads one
-/// checkpoint, after which the Load round's IO advances the clock past the bound
-/// and the transaction closes. Applied only to fixture preview.
-fn force_single_transaction(shard_template: Option<&mut proto_gazette::consumer::ShardSpec>) {
-    if let Some(shard_template) = shard_template {
-        shard_template.min_txn_duration = Some(pbjson_types::Duration {
-            seconds: 0,
-            nanos: 0,
-        });
-        shard_template.max_txn_duration = Some(pbjson_types::Duration {
-            seconds: 0,
-            nanos: 1,
-        });
+/// A driver returns a state only when `--output-state` set `report_final_state`
+/// on shard zero's SessionLoop, so a `Some` here is both the request and its
+/// answer: the last `Stopped`'s state, or the `--initial-state` seed when the
+/// run stopped before any session reported one.
+fn finish_run(result: anyhow::Result<Option<bytes::Bytes>>) -> anyhow::Result<()> {
+    if let Ok(Some(state)) = &result {
+        logger::emit_final_state(state);
     }
+    result.map(|_state| ())
 }
 
 /// Materialize a fixture into per-session shuffle log segments and spawn the
@@ -624,6 +540,7 @@ fn force_single_transaction(shard_template: Option<&mut proto_gazette::consumer:
 /// (for the drivers' `Join`s), and the plan to keep alive for the run.
 fn start_fixtures(
     run: &services::Run,
+    frontier_tx: tokio::sync::mpsc::UnboundedSender<runtime_local::segments::FixtureItem>,
     task: shuffle::proto::Task,
     fixture_path: &str,
     requested_targets: Vec<u32>,
@@ -639,11 +556,6 @@ fn start_fixtures(
     let session_dirs = plan.session_dirs.clone();
     let session_frontiers = std::mem::take(&mut plan.session_frontiers);
 
-    let frontier_tx = run
-        .frontier_tx
-        .clone()
-        .expect("fixture run was started with a frontier sender");
-
     // Feed each session its frontiers, then a Boundary marker. The marker
     // bounds a session's consumption so a stopping leader's speculative
     // checkpoint consumes the marker rather than stealing the next session's
@@ -652,21 +564,21 @@ fn start_fixtures(
         for frontiers in session_frontiers {
             for frontier in frontiers {
                 if frontier_tx
-                    .send(fixture::FixtureItem::Frontier(frontier))
+                    .send(runtime_local::segments::FixtureItem::Frontier(frontier))
                     .is_err()
                 {
                     return; // The consumer went away.
                 }
             }
             if frontier_tx
-                .send(fixture::FixtureItem::Boundary { reached: None })
+                .send(runtime_local::segments::FixtureItem::Boundary { reached: None })
                 .is_err()
             {
                 return;
             }
         }
         // Dropping `frontier_tx` here signals end-of-fixtures to the replay
-        // Session (relevant only once `run.frontier_tx` is also dropped).
+        // Session.
     });
 
     Ok((session_targets, session_dirs, plan))
@@ -676,9 +588,9 @@ async fn run_with_timeout<F>(
     mut session_loop: std::pin::Pin<&mut F>,
     timeout: Option<std::time::Duration>,
     stop_token: &tokio_util::sync::CancellationToken,
-) -> anyhow::Result<()>
+) -> anyhow::Result<Option<bytes::Bytes>>
 where
-    F: std::future::Future<Output = anyhow::Result<()>>,
+    F: std::future::Future<Output = anyhow::Result<Option<bytes::Bytes>>>,
 {
     let timeout = timeout.unwrap_or_else(|| std::time::Duration::MAX);
 
@@ -785,7 +697,7 @@ mod test {
         let stop = session_stop.clone();
         let session_loop = async move {
             stop.cancelled().await;
-            Ok(())
+            Ok(None)
         };
 
         let run = with_fixture_feeder(session_loop, keepalive, &session_stop);
@@ -822,28 +734,5 @@ mod test {
             );
             assert!(is_streaming_fixture(fifo.to_str().unwrap()).unwrap());
         }
-    }
-
-    #[test]
-    fn test_set_min_txn_duration() {
-        let dur = |seconds, nanos| pbjson_types::Duration { seconds, nanos };
-
-        // An unset maximum is raised alongside the minimum.
-        let mut template = proto_gazette::consumer::ShardSpec::default();
-        set_min_txn_duration(Some(&mut template), std::time::Duration::from_secs(10));
-        assert_eq!(template.min_txn_duration, Some(dur(10, 0)));
-        assert_eq!(template.max_txn_duration, Some(dur(10, 0)));
-
-        // A maximum above the delay is left alone.
-        template.max_txn_duration = Some(dur(30, 0));
-        set_min_txn_duration(Some(&mut template), std::time::Duration::from_secs(10));
-        assert_eq!(template.min_txn_duration, Some(dur(10, 0)));
-        assert_eq!(template.max_txn_duration, Some(dur(30, 0)));
-
-        // A maximum below the delay is raised to keep the band well-formed.
-        template.max_txn_duration = Some(dur(5, 0));
-        set_min_txn_duration(Some(&mut template), std::time::Duration::from_secs(10));
-        assert_eq!(template.min_txn_duration, Some(dur(10, 0)));
-        assert_eq!(template.max_txn_duration, Some(dur(10, 0)));
     }
 }

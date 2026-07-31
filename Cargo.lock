@@ -3439,6 +3439,7 @@ dependencies = [
  "rand 0.9.2",
  "reqwest 0.12.23",
  "runtime",
+ "runtime-local",
  "runtime-next",
  "rusqlite",
  "rustls 0.23.32",
@@ -7352,6 +7353,37 @@ dependencies = [
  "uuid",
  "xxhash-rust",
  "zeroize",
+]
+
+[[package]]
+name = "runtime-local"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "assemble",
+ "build",
+ "bytes",
+ "doc",
+ "json",
+ "labels",
+ "models",
+ "ops",
+ "pbjson-types",
+ "prost",
+ "proto-flow",
+ "proto-gazette",
+ "runtime-next",
+ "rustls 0.23.32",
+ "serde_json",
+ "service-kit",
+ "shuffle",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

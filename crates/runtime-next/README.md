@@ -63,7 +63,7 @@ src/
 ├── publish.rs         # Publisher / PublisherFactory traits + JournalPublisher
 │                       #   (journal-IO) impls; leader & shard are monomorphized over
 │                       #   the factory (preview installs its own from flowctl, so this
-│                       #   crate is preview-agnostic)
+│                       #   crate is preview-agnostic); RecordingPublisher for tests.
 ├── logger.rs          # Logger / LoggerFactory traits: the task's log + event stream
 │                       #   (connector log sink + structured Events — persist / applied /
 │                       #   spec-update / inferred-schema / container lifecycle — which

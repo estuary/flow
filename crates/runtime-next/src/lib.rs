@@ -49,7 +49,8 @@ pub use logger::{
     FnLogger, FnLoggerFactory, LogEvent, Logger, LoggerFactory, TracingLogger, TracingLoggerFactory,
 };
 pub use publish::{
-    JournalPublisher, JournalPublisherFactory, Publisher, PublisherFactory, new_producer,
+    JournalPublisher, JournalPublisherFactory, Publisher, PublisherFactory, RecordingPublisher,
+    RecordingPublisherFactory, new_producer,
 };
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
