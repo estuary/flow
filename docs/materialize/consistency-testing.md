@@ -440,7 +440,41 @@ So: a genuine defect removed, and the symptom it was expected to explain still p
 Whatever strands those documents is either a second path into the same staging leak or
 something else, and the open item below is the likelier candidate.
 
-### Found, and it is a design limit: staged work cannot be inherited across a split
+### The counted channel, and why it is the class that survives a split
+
+The document-counter class emulates Snowpipe Streaming v2, and getting it faithful took a
+correction worth recording, because the whole point of the class turns on it.
+
+**The offset belongs to the destination.** One channel is opened per (binding, shard);
+several channels of one binding append to the same destination table, each with its own
+offset. As each write lands the *destination* increments that offset, atomically with
+accepting the row. The connector keeps the offset in its checkpoint too — committed with
+the recovery log — and on restart compares the two: `skip = destination − checkpointed`
+tells it how many documents of the replayed transaction the destination already holds. A
+destination *behind* the checkpoint is impossible and is refused rather than guessed at.
+
+The reference connector originally reported a connector-side *mirror* of that offset,
+incremented as it wrote, instead of reading the destination back. That is wrong in itself —
+a second copy of the only number that matters — and wrong in a way this class cannot
+tolerate, since the mirror's drift is invisible in exactly the case the design exists for:
+a process dying between the destination accepting a row and the connector noting it.
+
+It also has to be **delta-updates only**. An offset counts rows the destination accepted,
+which says nothing about an upsert; Snowpipe v2 supports only delta bindings, so the
+reference class refuses a merge binding rather than emulating something no such connector
+does. Scenarios therefore choose their binding set, and a subject without a standard
+binding is still held to per-document cardinality, running-sum-against-oracle and
+monotonicity — the sharpest checks here.
+
+**Why this is the class that survives a membership change.** A counted channel resumes by
+asking the destination how far it got, so a newly created shard needs no inherited state:
+a fresh channel simply starts at offset zero. Compare the post-commit-apply dead end
+below — a child inheriting staged work cannot tell whether its own resume point precedes
+it, so it must either duplicate or lose. The counted channel never asks that question.
+`counter-survives-a-split` verifies it directly, and it is the scenario that most closely
+mirrors what the Snowpipe path actually relies on in production.
+
+### The post-commit-apply limit: staged work cannot be inherited across a split
 
 Range-pair keying (below) removed the ambiguity between an ancestor and a sibling, and
 produced the first fully-correct run — the clean build upheld every invariant over 1913
