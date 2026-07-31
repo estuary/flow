@@ -354,10 +354,10 @@ pub mod response {
     pub mod validated {
         /// ProjectionConstraint pairs a projection field name with a single Constraint.
         /// A repeated list of ProjectionConstraint allows multiple constraints to be
-        /// expressed for the same field simultaneously.
-        /// For example, INCOMPATIBLE and LOCATION_REQUIRED on the same field signals that
-        /// the field is required but the existing destination column has an incompatible
-        /// type, and a backfill is needed.
+        /// expressed for the same field simultaneously. For example, INCOMPATIBLE and
+        /// LOCATION_REQUIRED on the same field signals that the field is required but
+        /// the existing destination column has an incompatible type, and a backfill is
+        /// needed.
         #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
         pub struct ProjectionConstraint {
             #[prost(string, tag = "1")]

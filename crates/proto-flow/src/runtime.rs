@@ -779,6 +779,29 @@ pub struct Stop {}
 /// controller and EOFs.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Stopped {}
+/// Reset is a test-only signal which asks a shard's connector to reset its
+/// internal state to an as-just-initialized condition, mapping to the connector
+/// protocol's `Request.Reset`. Containers are not cycled and read progress is
+/// not cleared. It is used by the catalog-test harness between test cases.
+///
+/// Unlike Stop, Reset is shard-local: it is sent Controller → Shard and the
+/// leader is not in its path. Coordinating a common transaction boundary across
+/// shards is the caller's concern, and the catalog-test harness has that already
+/// — it drives exactly one transaction per stat() and awaits its commit, so it
+/// only ever sends Reset while the session is quiescent.
+///
+/// Only Derive sessions implement Reset today.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Reset {}
+/// ResetDone confirms that a shard has forwarded the reset to its connector.
+///
+/// It is required despite per-stream ordering: transaction messages reach a
+/// shard from its *leader* while Reset arrives from its *controller*, so
+/// ordering within either stream alone cannot establish that the connector saw
+/// the reset before the next transaction's reads. Callers must await ResetDone
+/// from every shard before advancing the dataflow.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ResetDone {}
 /// SessionLoop is sent as the first message of a session-loop stream on
 /// the Shard service. It carries process-level configuration that
 /// outlives the cycle of leader sessions on this stream. The Leader
@@ -1247,6 +1270,13 @@ pub struct Derive {
     /// each leg.
     #[prost(message, optional, tag = "61")]
     pub stopped: ::core::option::Option<Stopped>,
+    /// Controller → Shard. Asks the shard to reset its connector's state.
+    /// The leader is not in this path; see `Reset`.
+    #[prost(message, optional, tag = "62")]
+    pub reset: ::core::option::Option<Reset>,
+    /// Shard → Controller. The connector reset has been sent.
+    #[prost(message, optional, tag = "63")]
+    pub reset_done: ::core::option::Option<ResetDone>,
 }
 /// Nested message and enum types in `Derive`.
 pub mod derive {
