@@ -22,9 +22,16 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Append-only protocol trace, shared by every connector process of a run.
 ///
-/// Opened in append mode and written a line at a time under a lock: concurrent
-/// processes — a live instance and its zombie, or a crashed instance and its
-/// replacement — interleave whole lines rather than corrupting each other.
+/// Concurrent processes — a live instance and its zombie, or a crashed instance and
+/// its replacement — must interleave whole lines rather than corrupting each other.
+/// The mutex is not what buys that: it is per-process, and these are separate
+/// processes. What buys it is `O_APPEND` plus **one** `write` syscall per line, which
+/// the kernel serialises against the file's end.
+///
+/// `writeln!` does not give one syscall. It is `write_fmt`, which issues a write per
+/// format fragment — the line, then the newline — so two processes could interleave
+/// between them, and one did: a trace came back with `Extra data: line 1 column 99`,
+/// two records spliced into one line. Hence the explicit newline and `write_all`.
 pub struct Trace {
     file: Mutex<std::fs::File>,
 }
@@ -46,17 +53,17 @@ impl Trace {
     }
 
     pub fn log(&self, event: Event) {
-        let line = serde_json::to_string(&TraceEvent {
+        let mut line = serde_json::to_string(&TraceEvent {
             pid: std::process::id(),
             event,
         })
         .expect("trace events serialize");
+        line.push('\n');
 
         let mut file = self.file.lock().unwrap();
         // A failed trace write is not worth failing the connector over: the
         // harness times out waiting for the event and reports that instead.
-        let _ = writeln!(file, "{line}");
-        let _ = file.flush();
+        let _ = file.write_all(line.as_bytes());
     }
 }
 

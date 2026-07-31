@@ -175,11 +175,34 @@ impl Store {
 
         let nonce = 1 + overlapping.iter().map(|(_, _, n, _)| *n).max().unwrap_or(0);
 
-        let checkpoint = overlapping
-            .iter()
-            .filter(|(kb, ke, _, _)| *kb <= key_begin && *ke >= key_end)
-            .min_by_key(|(kb, ke, _, _)| (*ke as u64) - (*kb as u64))
-            .and_then(|(_, _, _, cp)| cp.clone());
+        // The survivor of a join must adopt nothing, and this is not a nicety: its
+        // range key was last used by the *pre-split parent*, whose row is still here
+        // with a checkpoint from before the split. Adopting it hands the runtime a
+        // close-clock from a superseded history, which recovery rejects outright —
+        // `connector_checkpoint has clock ... which doesn't match Recover's
+        // committed_close or hinted_close` — and the shard then crash-loops rather
+        // than resuming. Falling back to the recovery log is the correct resume point,
+        // because two ranges collapsing into one leaves no single range that contained
+        // the result.
+        //
+        // A strictly narrower overlapping row is what identifies a join: those are the
+        // split's children, whose work is more recent than anything filed under this
+        // shard's own range.
+        let joined = overlapping.iter().any(|(kb, ke, _, _)| {
+            *kb >= key_begin && *ke <= key_end && (*kb > key_begin || *ke < key_end)
+        });
+
+        // A split's child, by contrast, inherits from the narrowest range that
+        // strictly contains it: that ancestor's checkpoint *is* its resume point.
+        let checkpoint = (!joined)
+            .then(|| {
+                overlapping
+                    .iter()
+                    .filter(|(kb, ke, _, _)| *kb <= key_begin && *ke >= key_end)
+                    .min_by_key(|(kb, ke, _, _)| (*ke as u64) - (*kb as u64))
+                    .and_then(|(_, _, _, cp)| cp.clone())
+            })
+            .flatten();
 
         for (kb, ke, _, _) in &overlapping {
             txn.execute(
@@ -936,5 +959,41 @@ mod test {
             "the parent must be fenced by its children"
         );
         assert!(high >= low);
+    }
+
+    /// A join's survivor must adopt no checkpoint, even though a row for its exact
+    /// range exists — that row belongs to the pre-split parent and its close-clock
+    /// comes from a history the split superseded. Handing it to the runtime is
+    /// rejected as `connector_checkpoint has clock ... which doesn't match Recover's
+    /// committed_close or hinted_close`, and the shard crash-loops instead of
+    /// resuming. This is what wedged `join-after-split` for 33 restarts.
+    #[test]
+    fn a_join_survivor_adopts_no_checkpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
+
+        // A parent commits, then splits, and each child commits for itself.
+        let (parent_nonce, _) = store.fence(0, u32::MAX).unwrap();
+        store
+            .commit(0, u32::MAX, parent_nonce, Some(b"parent"), &[], true)
+            .unwrap();
+
+        let mid = u32::MAX / 2;
+        let (low_nonce, _) = store.fence(0, mid).unwrap();
+        store
+            .commit(0, mid, low_nonce, Some(b"low"), &[], true)
+            .unwrap();
+        let (high_nonce, _) = store.fence(mid + 1, u32::MAX).unwrap();
+        store
+            .commit(mid + 1, u32::MAX, high_nonce, Some(b"high"), &[], true)
+            .unwrap();
+
+        // The survivor re-widens to the parent's exact range.
+        let (survivor, checkpoint) = store.fence(0, u32::MAX).unwrap();
+        assert_eq!(
+            checkpoint, None,
+            "the survivor must not adopt the pre-split parent's stale checkpoint",
+        );
+        assert!(survivor > high_nonce, "the survivor fences both children");
     }
 }

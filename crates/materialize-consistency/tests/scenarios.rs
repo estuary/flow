@@ -97,23 +97,23 @@ async fn both_ways(name: &str) {
     for exempt in &scenario.exempt {
         eprintln!("exempt: [{}] {}", exempt.invariant, exempt.justification);
     }
-    // A scenario blocked on the runtime reports its result and stops. Failing the suite
-    // for it would be asking a connector author to fix something outside a connector's
-    // reach; the defect pairing below is skipped too, because a subject that cannot pass
-    // clean tells us nothing about whether its defect would have been caught.
+    // A scenario blocked on the runtime is an *expected failure*: it fails, loudly and
+    // with its violation count, and stays failing until the runtime closes the gap. It
+    // is not silenced, because a silenced scenario is one nobody looks at again — the
+    // violations it reports are the measurement of the gap, and they belong in the
+    // output rather than behind a marker.
+    //
+    // The defect pairing is skipped: a subject that cannot uphold the invariant clean
+    // tells us nothing about whether its defect would have been caught.
     if let Some(limitation) = scenario.known_limitation {
-        // Deliberately not asserted in either direction. Not `passed()`, because that
-        // would ask a connector author to fix the runtime; not `!passed()` either,
-        // because whether the limitation bites depends on where the fault lands relative
-        // to the split — `split-during-commit` upheld everything on 1 run in 5 — and a
-        // scenario that flakes red while claiming "the runtime is fixed" is worse than no
-        // signal at all. The line below is the signal: if it starts reading "upheld" every
-        // run, the marker has outlived the limitation.
-        eprintln!(
-            "blocked on the runtime: {}\n  {limitation}",
+        panic!(
+            "EXPECTED FAILURE — blocked on a runtime gap, not a connector defect.\n\
+             {}\n\n\
+             {limitation}\n\n\
+             Remove `blocked_on_runtime` from this scenario once the runtime upholds \
+             the guarantee above, and it becomes an ordinary passing scenario.",
             clean.summary(),
         );
-        return;
     }
 
     assert!(

@@ -7,6 +7,7 @@ use crate::invariants::{self, Expectation, Invariant, Violation};
 use crate::protocol::{Event, RunDir, TraceEvent, Trigger};
 use crate::scenarios::{Scenario, Subject};
 use anyhow::Context;
+use std::collections::BTreeMap;
 use std::io::BufRead;
 
 /// An invariant a connector is not held to, and why.
@@ -238,11 +239,12 @@ async fn execute(
     }
 
     if scenario.join_shards {
-        // Let the split's children each commit before collapsing them, so the join
-        // has real per-shard state to reconcile rather than two shards that have
-        // done nothing yet.
-        let after_split = count_commits(&trace)? + 2;
-        recover(stack, &names.sink, &trace, after_split, deadline).await?;
+        // Every child must commit *for itself* before the join, not merely two commits
+        // between them. The survivor keeps its recovery log through the join, and if it
+        // has not yet written a checkpoint of its own, that log still holds the
+        // parent's — whose clock predates the log's close, which recovery refuses. That
+        // is what wedged this scenario in a 33-restart loop.
+        await_commits_each_shard(&trace, 2, 2, deadline).await?;
 
         tracing::info!(task = %names.sink, "joining shards");
         stack.join_shards(&names.sink).await?;
@@ -453,6 +455,79 @@ fn read_trace(run: &RunDir) -> anyhow::Result<Vec<TraceEvent>> {
         }
     }
     Ok(events)
+}
+
+/// Commits made by each shard a split produced, keyed by its range.
+///
+/// `count_commits` sums over the whole task, which is the wrong gate before a join:
+/// two commits can both come from one child while the other has committed none. The
+/// survivor of a join is then widened while its recovery log still holds the *parent's*
+/// connector checkpoint, and recovery refuses it — `connector_checkpoint has clock ...
+/// which doesn't match Recover's committed_close or hinted_close`, 26 times in a
+/// restart loop, because the checkpoint predates the log's close.
+///
+/// Restarts are folded together: a shard that crashed and came back is one shard, and
+/// the commits of both its processes count towards its total.
+fn commits_per_split_shard(run: &RunDir) -> anyhow::Result<BTreeMap<(u32, u32), u64>> {
+    let events = read_trace(run)?;
+
+    let mut range_of: BTreeMap<u32, (u32, u32)> = BTreeMap::new();
+    for event in &events {
+        if let Event::Opened {
+            key_begin, key_end, ..
+        } = event.event
+        {
+            range_of.insert(event.pid, (key_begin, key_end));
+        }
+    }
+
+    let mut commits: BTreeMap<(u32, u32), u64> = BTreeMap::new();
+    for event in &events {
+        let Event::Phase {
+            trigger: Trigger::StartedCommit,
+            ..
+        } = event.event
+        else {
+            continue;
+        };
+        let Some(&range) = range_of.get(&event.pid) else {
+            continue; // A commit before this process's Open cannot happen.
+        };
+        // The unsplit parent is not a shard the join will touch.
+        if range == (0, u32::MAX) {
+            continue;
+        }
+        *commits.entry(range).or_default() += 1;
+    }
+    Ok(commits)
+}
+
+/// Wait until every shard a split produced has committed `each` transactions of its
+/// own. See [`commits_per_split_shard`] for why a task-wide count will not do.
+async fn await_commits_each_shard(
+    run: &RunDir,
+    shards: usize,
+    each: u64,
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        let commits = commits_per_split_shard(run)?;
+        let ready = commits.len() >= shards && commits.values().all(|&n| n >= each);
+
+        if ready {
+            tracing::info!(?commits, "every split shard has committed for itself");
+            return Ok(());
+        }
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {shards} shards to commit {each} transactions each; \
+             saw {commits:?}{}",
+            trace_failures(run),
+        );
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
 }
 
 fn count_commits(run: &RunDir) -> anyhow::Result<u64> {

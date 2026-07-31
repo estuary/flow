@@ -77,10 +77,11 @@ pub struct Scenario {
     /// currently expected to expose, and which no connector can work around.
     ///
     /// Set only where the runtime is known to violate a guarantee a correct connector
-    /// depends on. The scenario still runs, and its result is still reported, but it
-    /// does not fail the suite: there is nothing a connector author could change to
-    /// make it green. When the runtime is fixed, the scenario starts upholding its
-    /// invariant and the suite says so, loudly, so this marker can be removed.
+    /// depends on. Such a scenario is an *expected failure*: it runs, and it fails with
+    /// its violation count, which is the measurement of the gap. It is deliberately not
+    /// silenced — a scenario excused from failing is one nobody reads again — and the
+    /// marker is removed once the runtime closes the gap, at which point it becomes an
+    /// ordinary passing scenario.
     pub known_limitation: Option<&'static str>,
 }
 
