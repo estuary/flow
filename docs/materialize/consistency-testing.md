@@ -363,38 +363,50 @@ a snapshot would add a stale artifact without adding information.
 | Workload published once per stack | Workload published per run | The spec's model leaves no quiescent moment to read, and per-run is strictly more isolated |
 | Link `gazette`/`labels` to drive splits | Shell out to `flowctl raw split-shards`, and a new `join-shards` | Splitting already existed as a subcommand that refuses non-V2 tasks and returns a status rather than text to parse. Joining did not exist, and was added beside it rather than reimplemented here — see below |
 
-## Open leads
+## Findings from the reconfiguration scenarios
 
-Two scenarios do not yet pass, and they are leads rather than chores.
+The shard-split and join scenarios were the last to work, and getting them to run
+surfaced more than they were written to check. One lead remains open at the bottom.
 
-**`split-during-commit` is flaky, and the evidence points at the harness rather than
-the connector.** It fails intermittently with oracle-agreement violations —
-`account 9: reduced balance 496 but the collection sums to 480` alongside
-`account 10: reduced balance -66 but the collection sums to 19` — each account off
-by roughly one transaction's worth, in either direction. The mixed direction is *not*
-evidence of a torn reduction, which was the first reading: a balance is signed, so
-duplicating a debit and duplicating a credit move the sum opposite ways. (There is a
-unit test making exactly that point, `duplicate_detection_does_not_depend_on_the_sign_of_the_balance`.)
+**`split-during-commit` — root cause found: a `Load` must see staged writes.** It
+failed roughly one run in three with oracle-agreement violations, each account off by
+about one transaction's worth, in either direction. Two causes stacked up, and only the
+second is interesting.
 
-What implicates the harness is its own log line, immediately before the verdict:
+The first was the harness: `drain` gave up after three quiet polls, and a shard
+restarting after a split stops writing for longer than that, so an incomplete
+destination read as settled. Its own log said so — `the destination stopped short of
+the collections log="722/740"` — and settling is now gated on the task having a primary
+on every shard.
 
-```
-WARN the destination stopped short of the collections log="722/740" merged="740/738"
-71 violation(s) over 1478 documents
-```
+The second is a real requirement on the post-commit-apply class, and it is the root
+cause. **A connector must answer `Load` consistently with everything it has been asked
+to `Store` in a committed transaction, whether or not it has physically applied it
+yet.** That class stages during `Store` and applies during `Acknowledge`; between those
+points its rows are durable and *invisible*. The reference connector's `load()` read
+only the destination table, so a Load landing in that window returned a document
+missing that transaction's contribution — and the runtime reduced from that stale base
+and stored the result.
 
-Eighteen documents were still undelivered, and that run took 41s — it gave up *early*,
-on the three-quiet-polls heuristic, rather than exhausting a deadline. `drain` stops
-when the destination has gone unchanged for three polls or the deadline passes, and
-then judges whatever it has. A task restarting after a membership change stops writing
-for longer than three polls, so the runner calls an incomplete destination settled and
-reports its own impatience as loss. Measured rate before the fix: one failure in
-three runs.
+Three details make the symptoms line up exactly:
 
-The fix is to make settling conditional on the task being healthy and idle rather than
-merely unchanged, and to be more patient after a reconfiguration. Until that is done
-the scenario cannot distinguish a real defect from its own impatience, which is worse
-than it failing.
+- **Why it needs a split.** The runtime re-uses documents it cached from prior
+  transactions, so a long-lived session rarely issues a real `Load` for a key it just
+  stored — the bug is unreachable. A split gives its children cold caches, and they
+  issue real Loads.
+- **Why it is intermittent.** A Load has to land inside the staged-but-unapplied
+  window. This scenario stalls `StartCommit` by four seconds, which widens that window
+  enormously; `split-during-store`, which does not stall, passes.
+- **Why it looked like a torn reduction.** A balance is signed, so a contribution
+  missed once and re-applied once move the sum in opposite directions. Mixed over- and
+  under-counting is the signature of a *wrong base*, not of tearing. (I read it as
+  tearing first, despite a unit test in this repository making precisely that point.)
+
+The lesson generalises past this connector: **if you stage writes, your Load path has
+to see your staging.** Any connector that defers application — staged files, a
+post-commit merge, a queued batch — owes the runtime a read-your-writes view over
+committed transactions, and a single-shard test cannot detect its absence because the
+runtime's cache hides it.
 
 **`join-after-split` — the task does not resume committing after the join.** The
 join itself applies correctly (verified by hand: two shards collapse to one covering
