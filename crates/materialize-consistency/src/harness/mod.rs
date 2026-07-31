@@ -216,6 +216,16 @@ async fn execute(
 
     let trace = RunDir::new(run_dir);
 
+    // Past this point nothing waits on shard *status*. A crashed shard is expected —
+    // it is what most scenarios inject — and `recover` is the gate that matters,
+    // because a task that is committing again is by definition being served. A
+    // standalone `await_primary` between perturbing and recovering only adds a way to
+    // fail before recovery is attempted: it caught the crash this scenario had just
+    // injected and timed out, with the unassign that would have cleared it never tried.
+    //
+    // The three calls above stay: they run before anything is perturbed, so a shard that
+    // is not primary there means the task never started.
+
     // Let the task establish a rhythm before perturbing it. Without this a fault
     // keyed on the third StartCommit could fire while the first binding is still
     // being applied, and the scenario would be testing startup rather than what it
@@ -229,13 +239,13 @@ async fn execute(
         // wedges is itself a finding.
         recover(
             stack,
+            plan,
             &names.sink,
             &trace,
             count_commits(&trace)? + 1,
             deadline,
         )
         .await?;
-        stack.await_primary(&names.sink, deadline).await?;
     }
 
     if scenario.join_shards {
@@ -250,13 +260,13 @@ async fn execute(
         stack.join_shards(&names.sink).await?;
         recover(
             stack,
+            plan,
             &names.sink,
             &trace,
             count_commits(&trace)? + 1,
             deadline,
         )
         .await?;
-        stack.await_primary(&names.sink, deadline).await?;
     }
 
     // The fault must actually have fired, or the scenario is vacuous.
@@ -273,12 +283,8 @@ async fn execute(
     // split can fail a shard too, and unassigning a healthy one is a no-op, so
     // there is nothing to gain by predicting which perturbations need it.
     let after = count_commits(&trace)? + scenario.settle_commits;
-    if scenario.restart_after_fault {
-        restart_task(stack, plan, &names.sink).await?;
-    }
-    recover(stack, &names.sink, &trace, after, deadline).await?;
+    recover(stack, plan, &names.sink, &trace, after, deadline).await?;
     await_commits(&trace, after, deadline).await?;
-    stack.await_primary(&names.sink, deadline).await?;
 
     // Stop the workload and let the materialization drain. Only this run's own
     // captures are touched; scenarios never disable or restart anything
@@ -581,14 +587,32 @@ async fn restart_task(
     Ok(())
 }
 
+/// Nudge the task back into service until it is committing again, escalating if it will
+/// not come back.
+///
+/// Two remedies, in order of cost. Unassigning a FAILED shard is enough for most faults:
+/// the allocator will not reschedule a shard it has given up on, and unassigning clears
+/// that. But some do not come back that way — a crash in either shard of a split task
+/// fails the whole task, and even a single-shard crash sometimes sat FAILED for the full
+/// deadline — so after a third of the budget this republishes the task, disabled then
+/// enabled, which tears the shards down and rebuilds them from the recovery log.
+///
+/// The escalation lives here rather than behind a per-scenario flag because it is not a
+/// property of the scenario: any crash can land a shard somewhere unassigning will not
+/// lift it from, and a scenario author cannot predict which. Cheap remedy first means a
+/// task that recovers on its own never pays for the expensive one.
 async fn recover(
     stack: &stack::Stack,
+    plan: &catalog::Plan<'_>,
     task: &str,
     run: &RunDir,
     target: u64,
     timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
-    let deadline = std::time::Instant::now() + timeout;
+    let started = std::time::Instant::now();
+    let deadline = started + timeout;
+    let escalate_after = timeout / 3;
+    let mut restarted = false;
 
     loop {
         if count_commits(run)? >= target {
@@ -596,6 +620,17 @@ async fn recover(
         }
         if let Err(err) = stack.unassign_shards(task).await {
             tracing::debug!(%err, %task, "unassign did not apply");
+        }
+        if !restarted && started.elapsed() > escalate_after {
+            restarted = true;
+            tracing::warn!(
+                %task,
+                elapsed_secs = started.elapsed().as_secs(),
+                "unassigning has not restored the task; republishing it",
+            );
+            if let Err(err) = restart_task(stack, plan, task).await {
+                tracing::warn!(%err, %task, "the republish did not apply");
+            }
         }
 
         anyhow::ensure!(

@@ -64,15 +64,6 @@ pub struct Scenario {
     pub settle_commits: u64,
     /// Invariants this scenario does not hold the subject to.
     pub exempt: Vec<Exemption>,
-    /// Restart the whole task after the fault, rather than only unassigning its
-    /// failed shards.
-    ///
-    /// Needed where the fault fails the *task* rather than one shard. A crash in
-    /// either shard of a split V2 task does this: whichever one died, the survivor
-    /// reports `expected leader message ... unexpected EOF`, and repeatedly
-    /// unassigning does not reliably bring the task back. See
-    /// `harness::restart_task`.
-    pub restart_after_fault: bool,
     /// A limitation of the *runtime* — not of the subject — that this scenario is
     /// currently expected to expose, and which no connector can work around.
     ///
@@ -99,7 +90,6 @@ impl Scenario {
             warmup_commits: 3,
             settle_commits: 3,
             exempt: Vec::new(),
-            restart_after_fault: false,
             known_limitation: None,
         }
     }
@@ -474,12 +464,6 @@ fn counter_crash_in_split_leader() -> Scenario {
     );
     scenario.split_shards = true;
     scenario.settle_commits = 5;
-    // Crashing the leader fails the task too, not just its own shard: the surviving
-    // non-zero shard loses the leader it takes state from and reports `expected leader
-    // message ... unexpected EOF`. Measured — the crash fired in `00000000-7fffffff`
-    // and the run still timed out waiting for a primary. So this needs the same
-    // whole-task restart as its non-leader counterpart.
-    scenario.restart_after_fault = true;
     scenario
 }
 
@@ -514,11 +498,6 @@ fn counter_crash_in_split_non_leader() -> Scenario {
     );
     scenario.split_shards = true;
     scenario.settle_commits = 5;
-    // The crash takes the leader down with it, so recovery here is a whole-task
-    // restart rather than one shard being rescheduled. It needs longer than a
-    // single-shard crash, and it needs the harness to republish rather than only
-    // unassign — see `harness::restart_task`.
-    scenario.restart_after_fault = true;
     scenario
 }
 

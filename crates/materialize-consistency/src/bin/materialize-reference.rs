@@ -32,7 +32,29 @@ enum Command {
     },
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(err) => {
+            // As one structured line, because the reactor parses a connector's stderr
+            // as logs and discards anything that is not — so an `anyhow` chain printed
+            // plainly reaches nobody, and the failure surfaces two layers up as
+            // "connector exited with no log output". That is how 21 restarts of this
+            // connector were observed without ever seeing why it died.
+            let line = serde_json::json!({
+                "level": "error",
+                "msg": "the reference connector failed",
+                "fields": {
+                    "error": format!("{err:#}"),
+                },
+            });
+            eprintln!("{line}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> anyhow::Result<()> {
     let args = Args::parse();
 
     match args.command {
