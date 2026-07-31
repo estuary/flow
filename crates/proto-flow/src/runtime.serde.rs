@@ -2919,6 +2919,12 @@ impl serde::Serialize for Derive {
         if self.stopped.is_some() {
             len += 1;
         }
+        if self.reset.is_some() {
+            len += 1;
+        }
+        if self.reset_done.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Derive", len)?;
         if let Some(v) = self.spec.as_ref() {
             struct_ser.serialize_field("spec", v)?;
@@ -2997,6 +3003,12 @@ impl serde::Serialize for Derive {
         if let Some(v) = self.stopped.as_ref() {
             struct_ser.serialize_field("stopped", v)?;
         }
+        if let Some(v) = self.reset.as_ref() {
+            struct_ser.serialize_field("reset", v)?;
+        }
+        if let Some(v) = self.reset_done.as_ref() {
+            struct_ser.serialize_field("resetDone", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -3038,6 +3050,9 @@ impl<'de> serde::Deserialize<'de> for Derive {
             "closeNow",
             "stop",
             "stopped",
+            "reset",
+            "reset_done",
+            "resetDone",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3067,6 +3082,8 @@ impl<'de> serde::Deserialize<'de> for Derive {
             CloseNow,
             Stop,
             Stopped,
+            Reset,
+            ResetDone,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3114,6 +3131,8 @@ impl<'de> serde::Deserialize<'de> for Derive {
                             "closeNow" | "close_now" => Ok(GeneratedField::CloseNow),
                             "stop" => Ok(GeneratedField::Stop),
                             "stopped" => Ok(GeneratedField::Stopped),
+                            "reset" => Ok(GeneratedField::Reset),
+                            "resetDone" | "reset_done" => Ok(GeneratedField::ResetDone),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3158,6 +3177,8 @@ impl<'de> serde::Deserialize<'de> for Derive {
                 let mut close_now__ = None;
                 let mut stop__ = None;
                 let mut stopped__ = None;
+                let mut reset__ = None;
+                let mut reset_done__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Spec => {
@@ -3310,6 +3331,18 @@ impl<'de> serde::Deserialize<'de> for Derive {
                             }
                             stopped__ = map_.next_value()?;
                         }
+                        GeneratedField::Reset => {
+                            if reset__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reset"));
+                            }
+                            reset__ = map_.next_value()?;
+                        }
+                        GeneratedField::ResetDone => {
+                            if reset_done__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("resetDone"));
+                            }
+                            reset_done__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3341,6 +3374,8 @@ impl<'de> serde::Deserialize<'de> for Derive {
                     close_now: close_now__,
                     stop: stop__,
                     stopped: stopped__,
+                    reset: reset__,
+                    reset_done: reset_done__,
                 })
             }
         }
@@ -9707,6 +9742,150 @@ impl<'de> serde::Deserialize<'de> for Recover {
             }
         }
         deserializer.deserialize_struct("runtime.Recover", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for Reset {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("runtime.Reset", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Reset {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                            Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Reset;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.Reset")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Reset, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(Reset {
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.Reset", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ResetDone {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("runtime.ResetDone", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ResetDone {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                            Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ResetDone;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.ResetDone")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ResetDone, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(ResetDone {
+                })
+            }
+        }
+        deserializer.deserialize_struct("runtime.ResetDone", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RocksDbDescriptor {
