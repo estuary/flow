@@ -2123,6 +2123,7 @@ dependencies = [
  "billing-types",
  "build",
  "bytes",
+ "catalog-tests",
  "chrono",
  "clap",
  "colored_json",
