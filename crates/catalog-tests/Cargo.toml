@@ -11,6 +11,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+build = { path = "../build" }
 doc = { path = "../doc", features = ["combine"] }
 extractors = { path = "../extractors" }
 json = { path = "../json" }
@@ -24,26 +25,24 @@ runtime-local = { path = "../runtime-local" }
 runtime-next = { path = "../runtime-next" }
 service-kit = { path = "../service-kit" }
 shuffle = { path = "../shuffle" }
+tables = { path = "../tables" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 prost = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-# `for_local_test` builds the inline test catalogs; commit 7 promotes this to a
-# regular dependency for `for_catalog_test`.
-build = { path = "../build" }
 derive-sqlite = { path = "../derive-sqlite" }
 insta = { workspace = true }
 # The runtime-next loopback stack dials over rustls 0.23; a direct dev-dep lets
 # tests install the process crypto provider (as `flowctl` main does).
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
-tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true }

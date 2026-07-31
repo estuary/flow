@@ -22,7 +22,9 @@
 //! - [`runner`] — [`runner::DerivationRunner`], one derivation held resident as a
 //!   runtime-next session for the whole run, driving one transaction per stat.
 //!
-//! A later commit adds test-case execution and the `run_tests` entry point.
+//! - [`steps`] — the INGEST and VERIFY steps, each combining by collection key.
+//! - [`run`] — [`run::run_tests`], the entry point: start the runners, then run
+//!   every test case with a Reset between them.
 
 pub mod action;
 pub mod clock;
@@ -31,7 +33,9 @@ pub mod graph;
 pub mod logger;
 pub mod partitions;
 pub mod publish;
+pub mod run;
 pub mod runner;
+pub mod steps;
 pub mod store;
 
 pub use action::{Driver, run_test_case};
@@ -39,5 +43,6 @@ pub use clock::{Clock, Journal, contains_clock, max_clock, min_clock};
 pub use diff::{Mismatch, compare_documents, mask_uuid, superset_match};
 pub use graph::{Collection, Graph, PendingStat, TaskName, TestTime, Transform};
 pub use logger::LogHandler;
+pub use run::{Options, TestOutcome, TestResults, run_tests};
 pub use runner::DerivationRunner;
 pub use store::{CollectionStore, StoredDoc};
