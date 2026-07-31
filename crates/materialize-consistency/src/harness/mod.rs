@@ -723,6 +723,23 @@ struct Contents {
 /// are contiguous from zero, so that counts the documents reduced into it — and it
 /// counts *progress* rather than correctness, since `seq` is last-write-wins and a
 /// duplicate does not inflate it.
+/// The highest sequence delivered for an account, from the standard binding when the
+/// task has one and the merged delta binding otherwise.
+///
+/// `seq` is last-write-wins in the merged collection, so the highest delivered value is
+/// a sound measure of progress that no duplicate can inflate.
+fn delivered_max_seq(contents: &Contents, id: i64) -> Option<i64> {
+    if let Some(rows) = &contents.standard {
+        return rows.iter().find(|r| r.id == id).map(|r| r.seq);
+    }
+    contents
+        .merged_delta
+        .iter()
+        .filter(|r| r.id == id)
+        .map(|r| r.seq)
+        .max()
+}
+
 async fn drain(
     stack: &stack::Stack,
     connector: &std::path::Path,
@@ -782,20 +799,24 @@ async fn drain(
             }
         };
 
-        // Completion is counted from the *delta* binding over the merged collection,
-        // one row per document delivered, exactly as for the log binding.
+        // The two collections need different completion measures, because they are
+        // keyed differently.
         //
-        // Not from `merged_delivered`: that derives progress from each account's highest
-        // `seq`, which assumes sequences arrive contiguously. After a fault they do not —
-        // an account's latest document can land before earlier ones — so the proxy reads
-        // as complete while the summed balance is still short. The drain then stops and
-        // the checker reports the shortfall as data loss: `replayed-acknowledge` failed
-        // with 88 oracle-agreement violations whose log binding was perfect at 570 of 570
-        // rows, no losses and no duplicates. `merged_delivered` stays as the plateau
-        // measure below, where an upper bound is harmless.
-        if contents.log.len() >= log_expected.documents()
-            && contents.merged_delta.len() >= merged_expected.documents()
-        {
+        // `log` is keyed [/id, /seq], so every document is its own key and arrives as
+        // its own row: a row count is exact.
+        //
+        // `merged` is keyed [/id] and reduced, so the runtime delivers one document per
+        // key per *transaction* — several source documents for one account combine into
+        // one delivered row. Its row count is therefore always below the collection's
+        // document count and a row-count gate can never be met: the unperturbed baseline
+        // sat at 349 of 400 forever. Completion there is per-account instead — every
+        // account must have reached its highest expected `seq`, which is exact because
+        // `seq` is last-write-wins and no duplicate can push it past the collection's.
+        let merged_complete = merged_expected.accounts.iter().all(|(id, account)| {
+            delivered_max_seq(&contents, *id).is_some_and(|seq| seq >= account.max_seq)
+        });
+
+        if contents.log.len() >= log_expected.documents() && merged_complete {
             return Ok(contents);
         }
 
@@ -831,12 +852,34 @@ async fn drain(
             // delta binding held 768 of 997, which is precisely the shortfall being
             // reported. A warning that hides what it is warning about is worse than
             // none.
+            let behind: Vec<String> = merged_expected
+                .accounts
+                .iter()
+                .filter_map(|(id, account)| {
+                    let seq = delivered_max_seq(&contents, *id);
+                    match seq {
+                        Some(seq) if seq >= account.max_seq => None,
+                        Some(seq) => Some(format!("{id}@{seq}<{}", account.max_seq)),
+                        None => Some(format!("{id}@absent<{}", account.max_seq)),
+                    }
+                })
+                .collect();
+
             let short = format!(
-                "log {}/{}, mergedDelta {}/{}",
+                "log {}/{}, merged accounts behind {} of {}{}",
                 contents.log.len(),
                 log_expected.documents(),
-                contents.merged_delta.len(),
-                merged_expected.documents(),
+                behind.len(),
+                merged_expected.accounts.len(),
+                match behind.is_empty() {
+                    true => String::new(),
+                    // Bounded: a stalled task leaves every account behind, and a few
+                    // name the shape as well as forty would.
+                    false => format!(
+                        " [{}]",
+                        behind.iter().take(6).cloned().collect::<Vec<_>>().join(" ")
+                    ),
+                },
             );
 
             // An `Err`, not a short destination handed to the checkers. Whether those
