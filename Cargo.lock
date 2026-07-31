@@ -1672,12 +1672,33 @@ name = "catalog-tests"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "build",
+ "bytes",
+ "derive-sqlite",
+ "doc",
+ "extractors",
+ "futures",
  "insta",
+ "json",
+ "labels",
+ "models",
+ "ops",
+ "prost",
  "proto-flow",
  "proto-gazette",
+ "publisher",
+ "runtime-local",
+ "runtime-next",
+ "rustls 0.23.32",
  "serde_json",
+ "service-kit",
+ "shuffle",
+ "tempfile",
  "tokio",
+ "tokio-stream",
+ "tonic",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -16,18 +16,28 @@
 //!   Verify and the segment feeder read.
 //! - [`diff`] — the Verify comparator: superset match, scaled-epsilon float
 //!   compare, and UUID masking.
+//! - [`publish`] / [`logger`] / [`partitions`] — the `runtime-next` host seams.
+//!   The publisher appends derived documents to the store and is also where the
+//!   runner observes each transaction commit; the logger only sinks logs.
+//! - [`runner`] — [`runner::DerivationRunner`], one derivation held resident as a
+//!   runtime-next session for the whole run, driving one transaction per stat.
 //!
-//! Later commits add the seam implementations (publisher / logger), the
-//! resident-session runner, and the `run_tests` entry point.
+//! A later commit adds test-case execution and the `run_tests` entry point.
 
 pub mod action;
 pub mod clock;
 pub mod diff;
 pub mod graph;
+pub mod logger;
+pub mod partitions;
+pub mod publish;
+pub mod runner;
 pub mod store;
 
 pub use action::{Driver, run_test_case};
 pub use clock::{Clock, Journal, contains_clock, max_clock, min_clock};
 pub use diff::{Mismatch, compare_documents, mask_uuid, superset_match};
 pub use graph::{Collection, Graph, PendingStat, TaskName, TestTime, Transform};
+pub use logger::LogHandler;
+pub use runner::DerivationRunner;
 pub use store::{CollectionStore, StoredDoc};
