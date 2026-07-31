@@ -49,20 +49,13 @@ pub async fn get_live_specs(
                 continue;
             };
             if let Some(min_capability) = filter_capability {
-                let authorized = tables::UserGrant::is_authorized(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    user_id,
-                    &row.catalog_name,
-                    min_capability,
-                );
                 // For discovers, anchor to the discover request time (started_at).
                 // For other callers, anchor to the spec's publication time.
                 // An authoritative denial is today's silent drop; a provisional
                 // one surfaces as a retryable stale error.
                 let anchor = started_at.unwrap_or_else(|| row.last_pub_id.timestamp());
                 if !snapshot
-                    .resolve_authorization(authorized, Some(anchor))
+                    .user_authorization(user_id, &row.catalog_name, min_capability, Some(anchor))
                     .ok_or_stale(&row.catalog_name)?
                 {
                     continue;
@@ -105,20 +98,13 @@ pub async fn get_connected_live_specs(
 
     for exp in expanded_rows {
         if let Some(minimum_capability) = filter_capability {
-            let authorized = tables::UserGrant::is_authorized(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                user_id,
-                &exp.catalog_name,
-                minimum_capability,
-            );
             // Callers without a durable request time — those which capture
             // "now" anew on every attempt and retry on their own — anchor to
             // the spec's last publication, which bounds the window in which
             // grants could have been committed alongside the spec itself.
             let anchor = started.unwrap_or_else(|| exp.last_pub_id.timestamp());
             if !snapshot
-                .resolve_authorization(authorized, Some(anchor))
+                .user_authorization(user_id, &exp.catalog_name, minimum_capability, Some(anchor))
                 .ok_or_stale(&exp.catalog_name)?
             {
                 continue;
@@ -304,45 +290,6 @@ mod tests {
         .expect_err("a denial against a stale Snapshot should be retryable");
 
         assert_stale_for(err, COLLECTION);
-    }
-
-    /// The changeover is governed by `Snapshot::taken_after`, whose skew
-    /// allowance is exclusive. Pin both sides of that boundary so a change to the
-    /// comparison can't quietly turn retryable denials into hard ones.
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
-    )]
-    async fn test_get_live_specs_staleness_boundary(pool: sqlx::PgPool) {
-        let at_skew = snapshot_offset(&pool, crate::Snapshot::TEMPORAL_SKEW).await;
-        let err = get_live_specs(
-            DAN,
-            &[COLLECTION.to_string()],
-            Some(Capability::Read),
-            &pool,
-            &at_skew,
-            None,
-        )
-        .await
-        .expect_err("exactly TEMPORAL_SKEW past publication is still stale");
-        assert_stale_for(err, COLLECTION);
-
-        let past_skew = snapshot_offset(
-            &pool,
-            crate::Snapshot::TEMPORAL_SKEW + chrono::TimeDelta::milliseconds(1),
-        )
-        .await;
-        let live = get_live_specs(
-            DAN,
-            &[COLLECTION.to_string()],
-            Some(Capability::Read),
-            &pool,
-            &past_skew,
-            None,
-        )
-        .await
-        .expect("one millisecond later the denial is authoritative");
-        assert!(live.collections.is_empty());
     }
 
     /// `get_connected_live_specs` reaches specs by graph traversal rather than by

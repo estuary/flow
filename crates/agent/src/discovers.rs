@@ -162,6 +162,7 @@ impl<C: DiscoverConnectors> automations::Executor for DiscoverExecutor<C> {
         // Snapshot is authoritative for the recorded instant.
         if let Some(anchor) = state.as_ref().and_then(|s| s.awaiting_snapshot_after) {
             if !snapshot.taken_after(anchor) {
+                snapshot.revoke.cancel();
                 inbox.clear();
                 return Ok(DiscoverOutcome::RetryStale);
             }
@@ -224,14 +225,12 @@ impl<C: DiscoverConnectors> DiscoverExecutor<C> {
             return Ok(precheck_failed(JobStatus::ImageForbidden));
         }
 
-        let is_authorized = tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
+        match snapshot.user_authorization(
             row.user_id,
             &row.data_plane_name,
             models::Capability::Read,
-        );
-        match snapshot.resolve_authorization(is_authorized, Some(row.updated_at)) {
+            Some(row.updated_at),
+        ) {
             Authorization::Authorized => (),
             Authorization::Denied => {
                 // The snapshot reflects the world after this discover was

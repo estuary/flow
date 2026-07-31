@@ -306,12 +306,10 @@ impl Publisher {
             {
                 Ok(result) => result,
                 Err(err) if validation::is_authz_snapshot_stale(&err) => {
-                    // The draft referenced a spec that was denied by an
-                    // authorization snapshot older than that spec — a grant may
-                    // simply not be reflected yet. Request an early refresh and
-                    // surface the retryable error, rather than failing. Callers
-                    // that run within a task poll (the `PublicationsExecutor`)
-                    // reschedule and retry once a newer snapshot is observed.
+                    // The draft was denied by a Snapshot older than the denial
+                    // freshness anchor, so the required grant may not be reflected
+                    // yet. Request an early refresh and return the retryable error;
+                    // task-based callers reschedule it against a newer Snapshot.
                     publication.snapshot.revoke.cancel();
                     return Err(err);
                 }

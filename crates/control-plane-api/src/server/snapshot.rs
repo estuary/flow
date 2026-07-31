@@ -236,6 +236,44 @@ impl Snapshot {
         }
     }
 
+    /// Evaluate whether `user_id` holds `capability` to `name` under this
+    /// Snapshot's grants, classified against `anchor` freshness
+    /// (see `resolve_authorization`).
+    pub fn user_authorization(
+        &self,
+        user_id: uuid::Uuid,
+        name: &str,
+        capability: models::Capability,
+        anchor: Option<tokens::DateTime>,
+    ) -> Authorization {
+        self.resolve_authorization(
+            tables::UserGrant::is_authorized(
+                &self.role_grants,
+                &self.user_grants,
+                user_id,
+                name,
+                capability,
+            ),
+            anchor,
+        )
+    }
+
+    /// Evaluate whether `subject` (a catalog spec acting as a role) holds
+    /// `capability` to `object` under this Snapshot's role grants, classified
+    /// against `anchor` freshness (see `resolve_authorization`).
+    pub fn role_authorization(
+        &self,
+        subject: &str,
+        object: &str,
+        capability: models::Capability,
+        anchor: Option<tokens::DateTime>,
+    ) -> Authorization {
+        self.resolve_authorization(
+            tables::RoleGrant::is_authorized(&self.role_grants, subject, object, capability),
+            anchor,
+        )
+    }
+
     // Retrieve all tasks whose names start with the given `prefix`.
     pub fn tasks_by_prefix<'s>(
         &'s self,

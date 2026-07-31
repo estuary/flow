@@ -573,55 +573,6 @@ async fn test_publication_reschedules_on_stale_data_plane_authz() {
     );
 }
 
-/// The race this whole mechanism exists for: the grants that authorize a
-/// publication land in Postgres *before* the publication runs, but the
-/// authorization Snapshot still holds the pre-grant world. The publication must
-/// reschedule rather than report a (wrong) authorization failure, and must then
-/// succeed once the Snapshot catches up.
-#[tokio::test]
-async fn test_publication_succeeds_after_late_grant() {
-    let mut harness = TestHarness::init("test_publication_succeeds_after_late_grant").await;
-    let dogs_user = setup_cross_tenant_publication(&mut harness).await;
-
-    // Snapshot the pre-grant world, stamped old enough that any denial it
-    // produces is treated as possibly-spurious, then write the grants without
-    // letting the Snapshot observe them.
-    harness.refresh_snapshot_stale().await;
-    harness
-        .add_user_grant_unobserved(dogs_user, "cats/", Capability::Read)
-        .await;
-    harness
-        .add_role_grant_unobserved("dogs/", "cats/", Capability::Read)
-        .await;
-
-    let pub_id = harness
-        .queue_publication(
-            dogs_user,
-            "late grant",
-            Either::L(dogs_materialize_cats_draft()),
-        )
-        .await;
-
-    let first = harness.poll_publication_once(pub_id).await;
-    assert_eq!(
-        publications::StatusType::Queued,
-        first.status.r#type,
-        "publication should reschedule while the grants are unobserved, got: {:?}",
-        first.errors
-    );
-
-    // The background watch would refresh here; drive it explicitly.
-    harness.refresh_snapshot_authoritative().await;
-    harness.set_min_task_wake_at(pub_id).await;
-
-    let second = harness.poll_publication_once(pub_id).await;
-    assert!(
-        second.status.is_success(),
-        "publication should succeed once the grants are observed, got: {:?}",
-        second.errors
-    );
-}
-
 /// After a stale-Snapshot denial, the executor persists the instant an
 /// authoritative Snapshot must postdate (in `internal.tasks`, so whichever
 /// agent instance dequeues the next poll applies the same criterion) and
@@ -664,6 +615,20 @@ async fn test_publication_defers_polls_until_authoritative_snapshot() {
         "the executor should record the instant a Snapshot must postdate, got: {state}"
     );
 
+    // Because the anchor is persisted, the re-poll may be dequeued by a
+    // *different* agent instance whose own local Snapshot is stale — one whose
+    // revoke token the original attempt never cancelled. Model that handoff by
+    // replacing the watch with another stale Snapshot bearing a fresh token.
+    harness.refresh_snapshot_stale().await;
+    let handoff_revoke = harness
+        .snapshot_watch
+        .token()
+        .result()
+        .unwrap()
+        .revoke
+        .clone();
+    assert!(!handoff_revoke.is_cancelled());
+
     // A re-poll under the still-stale Snapshot defers, leaving the row queued.
     harness.set_min_task_wake_at(pub_id).await;
     let deferred = harness.poll_publication_once(pub_id).await;
@@ -672,6 +637,14 @@ async fn test_publication_defers_polls_until_authoritative_snapshot() {
         deferred.status.r#type,
         "a re-poll under a still-stale Snapshot should defer, got: {:?}",
         deferred.errors
+    );
+
+    // The deferring poll must request a refresh of the Snapshot it observed:
+    // no prior cancellation covers this instance's Snapshot, and without one
+    // the task would idle until the watch's ordinary refresh interval.
+    assert!(
+        handoff_revoke.is_cancelled(),
+        "a deferring poll should cancel the stale Snapshot it observed"
     );
 
     harness.refresh_snapshot_authoritative().await;

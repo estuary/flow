@@ -114,6 +114,7 @@ impl PublicationsExecutor {
         // point the retry is guaranteed to classify deterministically.
         if let Some(anchor) = state.as_ref().and_then(|s| s.awaiting_snapshot_after) {
             if !snapshot.taken_after(anchor) {
+                snapshot.revoke.cancel();
                 return Ok(automations::Action::Sleep(
                     Snapshot::STALE_RETRY_WAKE
                         .to_std()

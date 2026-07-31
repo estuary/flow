@@ -688,7 +688,7 @@ impl<C: DiscoverConnectors + MakeConnectors> ControlPlane for PGControlPlane<C> 
             snapshot: snapshot
                 .result()
                 .expect("authorization snapshot is not ready"),
-            // skip authz checks for controller-initiated publications
+            //  Skip user-to-catalog checks; spec-to-spec `RoleGrant` checks remain mandatory.
             verify_user_authz: false,
             initialize: NoopInitialize,
             finalize: PruneUnboundCollections,

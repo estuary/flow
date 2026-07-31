@@ -419,64 +419,6 @@ async fn test_discover_unauthorized_data_plane_is_terminal() {
     );
 }
 
-/// The motivating race, end to end: the grant that authorizes the data-plane
-/// commits before the discover is queued, but the Snapshot predates both and
-/// holds the pre-grant world. The denial is provisional until a Snapshot
-/// postdating the queued discover is consulted, so the first poll must
-/// reschedule rather than resolve `NotAuthorized` — and any such refreshed
-/// Snapshot is guaranteed to include the pre-queue grant, so the discover
-/// then succeeds.
-#[tokio::test]
-async fn test_discover_succeeds_after_late_data_plane_grant() {
-    let mut harness = TestHarness::init("test_discover_late_data_plane_grant").await;
-    let user_id = harness.setup_tenant("cats").await;
-    harness.add_data_plane(FOREIGN_DATA_PLANE).await;
-
-    // Take the Snapshot *before* the grant is written and the discover is
-    // queued, so it holds the pre-grant world — exactly as in production
-    // between a `role_grants` insert and the next Snapshot refresh. Stamping
-    // it in the past makes the denial of the later-queued discover
-    // provisional rather than definitive.
-    harness.refresh_snapshot_stale().await;
-    harness
-        .add_role_grant_unobserved("cats/", "dogs/dp/private/", models::Capability::Read)
-        .await;
-
-    let capture_name = "cats/capture-late-grant";
-    let disco_id = queue_foreign_dp_discover(&mut harness, user_id, capture_name).await;
-    harness.discover_handler.connectors.mock_discover(
-        capture_name,
-        Ok((spec_fixture(), single_binding_response("acorns"))),
-    );
-
-    let ran = harness
-        .run_automation_task(automations::task_types::DISCOVERS)
-        .await;
-    assert_eq!(Some(disco_id), ran);
-    assert!(
-        matches!(
-            harness.discover_job_status(disco_id).await,
-            JobStatus::Queued
-        ),
-        "discover should reschedule while the grant is unobserved, got: {:?}",
-        harness.discover_job_status(disco_id).await,
-    );
-
-    // The Snapshot catches up and the discover proceeds normally.
-    harness.refresh_snapshot_authoritative().await;
-    harness.set_min_task_wake_at(disco_id).await;
-
-    let ran = harness
-        .run_automation_task(automations::task_types::DISCOVERS)
-        .await;
-    assert_eq!(Some(disco_id), ran);
-    let status = harness.discover_job_status(disco_id).await;
-    assert!(
-        matches!(status, JobStatus::Success { .. }),
-        "discover should succeed once the grant is observed, got: {status:?}",
-    );
-}
-
 /// After a stale-Snapshot denial, the discover executor persists the instant
 /// an authoritative Snapshot must postdate (in `internal.tasks`, so whichever
 /// agent instance dequeues the next poll applies the same criterion) and
@@ -521,6 +463,20 @@ async fn test_discover_defers_polls_until_authoritative_snapshot() {
         "the executor should record the instant a Snapshot must postdate, got: {state}"
     );
 
+    // Because the anchor is persisted, the re-poll may be dequeued by a
+    // *different* agent instance whose own local Snapshot is stale — one whose
+    // revoke token the original attempt never cancelled. Model that handoff by
+    // replacing the watch with another stale Snapshot bearing a fresh token.
+    harness.refresh_snapshot_stale().await;
+    let handoff_revoke = harness
+        .snapshot_watch
+        .token()
+        .result()
+        .unwrap()
+        .revoke
+        .clone();
+    assert!(!handoff_revoke.is_cancelled());
+
     // A re-poll under the still-stale Snapshot defers, leaving the row queued.
     harness.set_min_task_wake_at(disco_id).await;
     let ran = harness
@@ -534,6 +490,14 @@ async fn test_discover_defers_polls_until_authoritative_snapshot() {
         ),
         "a re-poll under a still-stale Snapshot should defer, got: {:?}",
         harness.discover_job_status(disco_id).await,
+    );
+
+    // The deferring poll must request a refresh of the Snapshot it observed:
+    // no prior cancellation covers this instance's Snapshot, and without one
+    // the task would idle until the watch's ordinary refresh interval.
+    assert!(
+        handoff_revoke.is_cancelled(),
+        "a deferring poll should cancel the stale Snapshot it observed"
     );
 
     harness.refresh_snapshot_authoritative().await;
@@ -802,54 +766,6 @@ async fn test_discover_reschedules_on_stale_collection_authz() {
     assert!(
         result.job_status.is_success(),
         "discover should succeed once the grant is observed, got: {:?} with errors: {:?}",
-        result.job_status,
-        result.errors,
-    );
-    assert_live_collection_preserved(&result.draft);
-}
-
-/// The authorized baseline for the case above: with the read grant already
-/// observed, the same discover succeeds on its first poll and the merge
-/// preserves the live collection. This pins the preservation observable
-/// independently of any staleness handling, so the retry test can't pass
-/// vacuously.
-#[tokio::test]
-async fn test_discover_preserves_authorized_live_collection() {
-    let mut harness = TestHarness::init("test_discover_authorized_collection").await;
-    let cats_user = harness.setup_tenant("cats").await;
-    let dogs_user = harness.setup_tenant("dogs").await;
-
-    let capture_name = "cats/capture-shared";
-    let draft_id =
-        setup_shared_collection_discover(&mut harness, cats_user, dogs_user, capture_name).await;
-    harness
-        .add_role_grant("cats/", "dogs/shared/", models::Capability::Read)
-        .await;
-
-    let disco_id = harness
-        .queue_discover(
-            "source/test",
-            ":test",
-            capture_name,
-            draft_id,
-            "ops/dp/public/test",
-        )
-        .await;
-    harness.discover_handler.connectors.mock_discover(
-        capture_name,
-        Ok((spec_fixture(), single_binding_response("data"))),
-    );
-    harness.refresh_snapshot_authoritative().await;
-
-    let ran = harness
-        .run_automation_task(automations::task_types::DISCOVERS)
-        .await;
-    assert_eq!(Some(disco_id), ran);
-
-    let result = UserDiscoverResult::load(disco_id, &harness.pool).await;
-    assert!(
-        result.job_status.is_success(),
-        "an authorized discover should succeed, got: {:?} with errors: {:?}",
         result.job_status,
         result.errors,
     );

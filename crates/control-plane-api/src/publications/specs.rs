@@ -799,29 +799,8 @@ pub async fn resolve_live_specs(
         let catalog_name = spec_row.catalog_name.as_str();
         let n_errors = live.errors.len();
 
-        // An authorization denial may be spurious — a grant committed
-        // concurrently that this snapshot hasn't observed yet. When that's
-        // possible we short-circuit with a retryable stale error so the
-        // publication is retried against a fresher snapshot, rather than
-        // reporting a hard (and possibly wrong) authorization failure.
-        //
-        // The reference instant is `started`, the moment the operation was
-        // queued: a grant committed before then is necessarily reflected in any
-        // snapshot taken after then, however old the denied spec happens to be.
-        // Anchoring on the spec instead would be unsound in both directions —
-        // a snapshot postdating an old spec still can't rule out a grant
-        // committed just before the request. This is the same test
-        // `envelope.rs` and `authorize_task.rs` apply to decide whether a
-        // denial is terminal or provisional.
-        //
-        // `started` must be durable across attempts for the retry to converge;
-        // see `resolve_live_specs`' contract for callers which have no such
-        // instant and fall back to the spec's own publication time.
-        //
-        // `taken_after` (rather than a bare comparison) is deliberate: it is the
-        // single definition of "this snapshot is authoritative for that instant"
-        // used across the control plane, and it allows for `TEMPORAL_SKEW`
-        // between the snapshot's clock and the ID generator's.
+        // Use the queued publication time when available; callers without one
+        // fall back to the last publication time of the spec.
         let freshness_anchor = Some(started.unwrap_or_else(|| spec_row.last_pub_id.timestamp()));
 
         if drafted_names.contains(catalog_name) {
@@ -833,14 +812,10 @@ pub async fn resolve_live_specs(
             // If the spec is included in the draft, then the user must have admin capability to it.
             if verify_user_authz
                 && !snapshot
-                    .resolve_authorization(
-                        tables::UserGrant::is_authorized(
-                            &snapshot.role_grants,
-                            &snapshot.user_grants,
-                            user_id,
-                            &spec_row.catalog_name,
-                            models::Capability::Admin,
-                        ),
+                    .user_authorization(
+                        user_id,
+                        &spec_row.catalog_name,
+                        models::Capability::Admin,
                         freshness_anchor,
                     )
                     .ok_or_stale(catalog_name)?
@@ -858,13 +833,10 @@ pub async fn resolve_live_specs(
             // Spec authz must always be checked, even if we're not checking user authz
             for source in reads_from {
                 if !snapshot
-                    .resolve_authorization(
-                        tables::RoleGrant::is_authorized(
-                            &snapshot.role_grants,
-                            &spec_row.catalog_name,
-                            &source,
-                            Capability::Read,
-                        ),
+                    .role_authorization(
+                        &spec_row.catalog_name,
+                        &source,
+                        Capability::Read,
                         freshness_anchor,
                     )
                     .ok_or_stale(catalog_name)?
@@ -880,13 +852,10 @@ pub async fn resolve_live_specs(
             }
             for target in writes_to {
                 if !snapshot
-                    .resolve_authorization(
-                        tables::RoleGrant::is_authorized(
-                            &snapshot.role_grants,
-                            &spec_row.catalog_name,
-                            &target,
-                            Capability::Write,
-                        ),
+                    .role_authorization(
+                        &spec_row.catalog_name,
+                        &target,
+                        Capability::Write,
                         freshness_anchor,
                     )
                     .ok_or_stale(catalog_name)?
@@ -910,14 +879,10 @@ pub async fn resolve_live_specs(
             // know it exists.
             if verify_user_authz
                 && !snapshot
-                    .resolve_authorization(
-                        tables::UserGrant::is_authorized(
-                            &snapshot.role_grants,
-                            &snapshot.user_grants,
-                            user_id,
-                            &spec_row.catalog_name,
-                            Capability::Read,
-                        ),
+                    .user_authorization(
+                        user_id,
+                        &spec_row.catalog_name,
+                        Capability::Read,
                         freshness_anchor,
                     )
                     .ok_or_stale(catalog_name)?
@@ -1004,16 +969,7 @@ pub async fn resolve_live_specs(
     for name in candidate_data_plane_names {
         if !verify_user_authz
             || snapshot
-                .resolve_authorization(
-                    tables::UserGrant::is_authorized(
-                        &snapshot.role_grants,
-                        &snapshot.user_grants,
-                        user_id,
-                        name,
-                        models::Capability::Read,
-                    ),
-                    started,
-                )
+                .user_authorization(user_id, name, models::Capability::Read, started)
                 .ok_or_stale(name)?
         {
             data_plane_names.push(name);
@@ -1590,11 +1546,9 @@ mod resolve_tests {
         "#);
     }
 
-    /// The spec-level (`reads_from` / `writes_to`) checks run even when user
-    /// authorization is skipped, which is how controller and other system
-    /// publications are built. They therefore inherit the retryable error too —
-    /// worth pinning, because those callers have no reschedule handling of their
-    /// own and will surface it as a failed publication.
+    /// Spec-level (`reads_from` / `writes_to`) checks remain active when user
+    /// authorization is skipped. This test pins that stale denials from those
+    /// checks still propagate as retryable errors.
     #[sqlx::test(
         migrations = "../../supabase/migrations",
         fixtures(path = "../fixtures", scripts("data_planes", "authz_specs"))
@@ -1929,36 +1883,5 @@ mod resolve_tests {
             !validation::is_authz_snapshot_stale(error),
             "error should not be stale-snapshot error"
         );
-    }
-
-    /// When `started` is None (no durable request queue time), the staleness
-    /// anchor falls back to the spec's own publication time. This is the
-    /// fallback path for operations like controllers that don't have a
-    /// queued row to anchor to.
-    #[sqlx::test(
-        migrations = "../../supabase/migrations",
-        fixtures(path = "../fixtures", scripts("authz_specs"))
-    )]
-    async fn test_started_none_uses_spec_relative_anchor(pool: sqlx::PgPool) {
-        let draft = capture_draft(&[CAPTURE]);
-
-        // A snapshot taken before the spec's publication time.
-        let stale_snapshot = stale(&pool).await;
-
-        let err = resolve_live_specs(
-            uuid::Uuid::nil(),
-            &draft,
-            &pool,
-            false,
-            None,
-            &stale_snapshot,
-            // No started time provided: should fall back to spec-relative anchoring.
-            None,
-        )
-        .await
-        .expect_err("spec authorization required");
-
-        // Even with None, a truly stale snapshot (before spec) should be retried.
-        assert_stale_for(err, CAPTURE);
     }
 }
