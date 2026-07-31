@@ -117,19 +117,53 @@ pub async fn run_tests(
 
     let mut runners = start_runners(&collections, &store, &clock, &options).await?;
 
+    // From here on every exit must pass through `shutdown_all`. A resident
+    // session's shard tasks hold RocksDB open inside the run's tempdir, so
+    // dropping runners without stopping them lets the tempdir vanish underneath
+    // a live RocksDB — which aborts the process instead of reporting the error.
+    let result = run_cases(
+        &mut graph,
+        &mut runners,
+        &collections,
+        &store,
+        &clock,
+        &tests,
+        &options,
+    )
+    .await;
+    let shutdown = shutdown_all(runners).await;
+
+    let outcomes = result?;
+    () = shutdown?;
+
+    Ok(TestResults { outcomes })
+}
+
+/// Run each test case in order, resetting connector state after every one.
+#[allow(clippy::too_many_arguments)]
+async fn run_cases(
+    graph: &mut Graph,
+    runners: &mut BTreeMap<String, DerivationRunner>,
+    collections: &BTreeMap<String, CollectionSpec>,
+    store: &Arc<Mutex<CollectionStore>>,
+    clock: &Arc<AtomicU64>,
+    tests: &[TestSpec],
+    options: &Options,
+) -> anyhow::Result<Vec<TestOutcome>> {
     let mut outcomes = Vec::with_capacity(tests.len());
-    for test in &tests {
+
+    for test in tests {
         // Run the case; the driver borrows `runners` for its duration.
         let (result, failure, last_scope) = {
             let mut driver = LiveDriver {
-                runners: &mut runners,
+                runners,
                 store: store.clone(),
                 clock: clock.clone(),
-                collections: &collections,
+                collections,
                 failure: None,
                 last_scope: step_scope(test).to_string(),
             };
-            let result = run_test_case(&mut graph, &mut driver, test).await;
+            let result = run_test_case(graph, &mut driver, test).await;
             (result, driver.failure.take(), driver.last_scope)
         };
 
@@ -153,7 +187,8 @@ pub async fn run_tests(
         };
         outcomes.push(outcome);
 
-        // Reset connector state between cases (V1 resets after every case).
+        // Reset connector state between cases (V1 resets after every case,
+        // including the last).
         for runner in runners.values_mut() {
             runner
                 .reset()
@@ -162,15 +197,28 @@ pub async fn run_tests(
         }
     }
 
-    // Gracefully stop every resident session.
-    for (_, runner) in runners {
-        runner
-            .shutdown()
-            .await
-            .context("shutting down derivation session")?;
+    Ok(outcomes)
+}
+
+/// Gracefully stop every resident session, reporting the first failure but
+/// always attempting all of them.
+async fn shutdown_all(runners: BTreeMap<String, DerivationRunner>) -> anyhow::Result<()> {
+    let mut first_err = None;
+
+    for (name, runner) in runners {
+        match runner.shutdown().await {
+            Ok(()) => {}
+            Err(err) if first_err.is_none() => {
+                first_err = Some(err.context(format!("shutting down session for {name}")));
+            }
+            Err(err) => tracing::warn!(?err, %name, "secondary session shutdown error"),
+        }
     }
 
-    Ok(TestResults { outcomes })
+    match first_err {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
 }
 
 /// Start a resident [`DerivationRunner`] for every enabled derivation, choosing
@@ -207,7 +255,7 @@ async fn start_runners(
             options.splits.max(1)
         };
 
-        let runner = DerivationRunner::start(
+        let started = DerivationRunner::start(
             spec,
             n_shards,
             options.network.clone(),
@@ -216,9 +264,20 @@ async fn start_runners(
             clock.clone(),
             options.log_handler.clone(),
         )
-        .await
-        .with_context(|| format!("starting derivation session for {name}"))?;
-        runners.insert(name.clone(), runner);
+        .await;
+
+        match started {
+            Ok(runner) => {
+                runners.insert(name.clone(), runner);
+            }
+            Err(err) => {
+                // Stop the sessions already running before returning, so their
+                // shard tasks release RocksDB before its tempdir is removed.
+                // Dropping them instead aborts the process (see `run_tests`).
+                _ = shutdown_all(runners).await;
+                return Err(err).with_context(|| format!("starting derivation session for {name}"));
+            }
+        }
     }
 
     Ok(runners)

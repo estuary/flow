@@ -3432,6 +3432,7 @@ dependencies = [
  "axum",
  "build",
  "bytes",
+ "catalog-tests",
  "chrono",
  "clap",
  "comfy-table",
