@@ -376,12 +376,20 @@ evidence of a torn reduction, which was the first reading: a balance is signed, 
 duplicating a debit and duplicating a credit move the sum opposite ways. (There is a
 unit test making exactly that point, `duplicate_detection_does_not_depend_on_the_sign_of_the_balance`.)
 
-What implicates the harness is the timing. Passing runs finish in ~75s; every failing
-run took 199–240s, i.e. spent its time against deadlines. `drain` stops when the
-destination has gone unchanged for three polls *or* the deadline passes, and then
-judges whatever it has — but a task recovering from a membership change can plateau
-for longer than that while it restarts, so the runner can call an incomplete
-destination settled and report the shortfall as a violation.
+What implicates the harness is its own log line, immediately before the verdict:
+
+```
+WARN the destination stopped short of the collections log="722/740" merged="740/738"
+71 violation(s) over 1478 documents
+```
+
+Eighteen documents were still undelivered, and that run took 41s — it gave up *early*,
+on the three-quiet-polls heuristic, rather than exhausting a deadline. `drain` stops
+when the destination has gone unchanged for three polls or the deadline passes, and
+then judges whatever it has. A task restarting after a membership change stops writing
+for longer than three polls, so the runner calls an incomplete destination settled and
+reports its own impatience as loss. Measured rate before the fix: one failure in
+three runs.
 
 The fix is to make settling conditional on the task being healthy and idle rather than
 merely unchanged, and to be more patient after a reconfiguration. Until that is done

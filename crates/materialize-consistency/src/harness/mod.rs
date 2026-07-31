@@ -290,6 +290,7 @@ async fn execute(
         stack,
         &connector,
         &plan.subject.config,
+        &names.sink,
         (&merged_expected, &log_expected),
         deadline,
     )
@@ -506,12 +507,21 @@ async fn drain(
     stack: &stack::Stack,
     connector: &std::path::Path,
     config: &serde_json::Value,
+    task: &str,
     (merged_expected, log_expected): (&Expectation, &Expectation),
     timeout: std::time::Duration,
 ) -> anyhow::Result<Contents> {
     let deadline = std::time::Instant::now() + timeout;
     let mut unchanged_for = 0;
     let mut previous = usize::MAX;
+
+    /// Consecutive quiet polls before a destination counts as settled.
+    ///
+    /// Five rather than three, and gated on task health below, because a plateau is
+    /// weak evidence: a task restarting after a membership change stops writing for
+    /// longer than a short window, and calling that "settled" reports the runner's
+    /// impatience as data loss.
+    const QUIET_POLLS: usize = 5;
 
     loop {
         let contents = Contents {
@@ -538,16 +548,29 @@ async fn drain(
             return Ok(contents);
         }
 
-        // A short-fall is *not* an error, and giving up on it is how the run
-        // reports one: it is exactly the data loss the invariants exist to name,
-        // and a violation listing the missing documents says far more than a
-        // timeout would. So stop once the destination has gone quiet, or once
-        // patience runs out.
+        // A short-fall is *not* an error, and giving up on it is how the run reports
+        // one: it is exactly the data loss the invariants exist to name, and a
+        // violation listing the missing documents says far more than a timeout would.
+        // So stop once the destination has gone quiet, or once patience runs out.
+        //
+        // "Quiet" means unchanged *and* the task healthy. Without the health gate a
+        // shard that is mid-restart looks identical to one that has finished its
+        // work, and every membership-change scenario becomes flaky in the direction
+        // of falsely reporting loss.
         let total = contents.log.len() + merged_delivered;
-        unchanged_for = if total == previous { unchanged_for + 1 } else { 0 };
+        let healthy = stack
+            .await_primary(task, std::time::Duration::from_secs(15))
+            .await
+            .is_ok();
+
+        unchanged_for = if total == previous && healthy {
+            unchanged_for + 1
+        } else {
+            0
+        };
         previous = total;
 
-        if unchanged_for >= 3 || std::time::Instant::now() >= deadline {
+        if unchanged_for >= QUIET_POLLS || std::time::Instant::now() >= deadline {
             tracing::warn!(
                 log = format!("{}/{}", contents.log.len(), log_expected.documents()),
                 merged = format!("{merged_delivered}/{}", merged_expected.documents()),
