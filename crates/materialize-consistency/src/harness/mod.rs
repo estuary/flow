@@ -271,6 +271,9 @@ async fn execute(
     // split can fail a shard too, and unassigning a healthy one is a no-op, so
     // there is nothing to gain by predicting which perturbations need it.
     let after = count_commits(&trace)? + scenario.settle_commits;
+    if scenario.restart_after_fault {
+        restart_task(stack, plan, &names.sink, deadline).await?;
+    }
     recover(stack, &names.sink, &trace, after, deadline).await?;
     await_commits(&trace, after, deadline).await?;
     stack.await_primary(&names.sink, deadline).await?;
@@ -473,6 +476,32 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
 /// Polled rather than done once: the unassign has to land *after* the shard has
 /// reached FAILED, and a fault fires a moment before that. Retrying is simpler and
 /// more robust than trying to observe that transition.
+/// Take the task down and bring it back, for a fault that failed the whole task
+/// rather than one shard.
+///
+/// `recover` unassigns failed shards and waits for the allocator to reschedule them,
+/// which is right for a single-shard crash. It is not enough for a split task: a crash
+/// in *either* shard fails both — whichever died, the survivor reports `expected leader
+/// message ... unexpected EOF` — and unassigning on a 5-second loop for three minutes
+/// brought the task back only about two runs in three. Disabling the materialization
+/// tears its shards down; republishing the enabled catalog builds them again from the
+/// recovery log. That is a restart rather than a reschedule, and it is also what an
+/// operator would do.
+async fn restart_task(
+    stack: &stack::Stack,
+    plan: &catalog::Plan<'_>,
+    task: &str,
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    tracing::info!(%task, "restarting the task after its fault");
+
+    stack.publish(&catalog::sink_disabled(plan)?).await?;
+    stack.publish(&catalog::build(plan)?).await?;
+    stack.await_primary(task, timeout).await?;
+
+    Ok(())
+}
+
 async fn recover(
     stack: &stack::Stack,
     task: &str,

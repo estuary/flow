@@ -43,7 +43,8 @@ const COVERED: &[&str] = &[
     "zombie-at-start-commit",
     "counter-resumes-from-destination",
     "counter-reconciles-with-destination",
-    "counter-survives-a-split",
+    "counter-crash-in-split-leader",
+    "counter-crash-in-split-non-leader",
     "delta-replay-deduplicated",
     "at-least-once-never-loses",
 ];
@@ -212,8 +213,13 @@ async fn counter_reconciles_with_destination() {
 }
 
 #[tokio::test]
-async fn counter_survives_a_split() {
-    both_ways("counter-survives-a-split").await
+async fn counter_crash_in_split_leader() {
+    both_ways("counter-crash-in-split-leader").await
+}
+
+#[tokio::test]
+async fn counter_crash_in_split_non_leader() {
+    both_ways("counter-crash-in-split-non-leader").await
 }
 
 #[tokio::test]

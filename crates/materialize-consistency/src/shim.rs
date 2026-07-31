@@ -111,6 +111,9 @@ pub struct Shim {
     /// from either pump, and a *frozen* zombie left behind would outlive the run
     /// holding a lock on the destination.
     zombie_pid: std::sync::atomic::AtomicI32,
+    /// This session's shard range, as `(key_begin, key_end, r_clock_begin)`, set
+    /// from `Open.range`. Rules restricted to a [`ShardTarget`] consult it.
+    range: Mutex<(u32, u32, u32)>,
 }
 
 /// A connector process, and the pipes we speak to it over.
@@ -172,6 +175,7 @@ impl Shim {
             trace,
             counters: Mutex::new(Counters::new()),
             zombie_pid: std::sync::atomic::AtomicI32::new(0),
+            range: Mutex::new((0, u32::MAX, 0)),
         })
     }
 
@@ -197,6 +201,10 @@ impl Shim {
 
         for (idx, rule) in self.faults.iter().enumerate() {
             if rule.on != trigger || rule.nth != nth || committed < rule.arm_after {
+                continue;
+            }
+            let (key_begin, key_end, r_clock_begin) = *self.range.lock().unwrap();
+            if !rule.shard.admits(key_begin, key_end, r_clock_begin) {
                 continue;
             }
             match std::fs::OpenOptions::new()
@@ -491,6 +499,10 @@ where
 
             if let Some(open) = &req.open {
                 let range = open.range.clone().unwrap_or_default();
+                // Recorded before any fault can fire, because `Open` is the first
+                // request of every session and a rule restricted to a `ShardTarget`
+                // consults it.
+                *shim.range.lock().unwrap() = (range.key_begin, range.key_end, range.r_clock_begin);
                 shim.trace.log(Event::Opened {
                     key_begin: range.key_begin,
                     key_end: range.key_end,
@@ -644,7 +656,7 @@ async fn pump_responses(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::protocol::Action;
+    use crate::protocol::{Action, ShardTarget};
 
     fn shim(faults: Vec<FaultRule>) -> (Shim, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -684,6 +696,7 @@ mod test {
             on: Trigger::Store,
             nth: 2,
             arm_after: 1,
+            shard: ShardTarget::Any,
             action: Action::Stall { millis: 0 },
         }]);
 
@@ -696,6 +709,62 @@ mod test {
         // Second transaction: the same occurrence comes round again, and now fires.
         assert!(!offer(&shim, Trigger::Store));
         assert!(offer(&shim, Trigger::Store));
+    }
+
+    /// A rule aimed at the split leader must not fire in the pre-split parent, and
+    /// must not fire in a non-zero split shard either. Both misfires are worse than a
+    /// missed fault: the first kills the shard mid-split so the split never lands, and
+    /// the second EOFs the fan-in and takes the whole task down.
+    #[test]
+    fn a_rule_aimed_at_the_split_leader_fires_in_no_other_shard() {
+        // Two shims per case, because an offer consumes the occurrence: once `nth` has
+        // moved past 1 the rule can no longer match.
+        let rule = || {
+            vec![FaultRule::crash_at(Trigger::StartedCommit, 1).in_shard(ShardTarget::SplitLeader)]
+        };
+
+        for (name, range) in [
+            ("the unsplit parent", (0u32, u32::MAX, 0u32)),
+            ("a non-zero split shard", (0x8000_0000, u32::MAX, 0)),
+        ] {
+            let (shim, _dir) = shim(rule());
+            *shim.range.lock().unwrap() = range;
+            assert!(
+                !offer(&shim, Trigger::StartedCommit),
+                "a rule aimed at the split leader must not fire in {name}",
+            );
+        }
+
+        let (leader, _dir) = shim(rule());
+        *leader.range.lock().unwrap() = (0, 0x7fff_ffff, 0);
+        assert!(offer(&leader, Trigger::StartedCommit));
+    }
+
+    /// The dual: a rule aimed at a non-leader shard fires only there.
+    #[test]
+    fn a_rule_aimed_at_a_non_leader_fires_in_no_other_shard() {
+        let rule = || {
+            vec![
+                FaultRule::crash_at(Trigger::StartedCommit, 1)
+                    .in_shard(ShardTarget::SplitNonLeader),
+            ]
+        };
+
+        for (name, range) in [
+            ("the unsplit parent", (0u32, u32::MAX, 0u32)),
+            ("the split leader", (0, 0x7fff_ffff, 0)),
+        ] {
+            let (shim, _dir) = shim(rule());
+            *shim.range.lock().unwrap() = range;
+            assert!(
+                !offer(&shim, Trigger::StartedCommit),
+                "a rule aimed at a non-leader must not fire in {name}",
+            );
+        }
+
+        let (other, _dir) = shim(rule());
+        *other.range.lock().unwrap() = (0x8000_0000, u32::MAX, 0);
+        assert!(offer(&other, Trigger::StartedCommit));
     }
 
     /// One-shot per run, enforced by a marker file rather than in-process state, so

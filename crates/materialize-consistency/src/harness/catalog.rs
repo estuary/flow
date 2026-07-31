@@ -281,6 +281,24 @@ fn capture(plan: &Plan<'_>, target: &str, disable: bool) -> anyhow::Result<model
     })
 }
 
+/// The scenario's catalog with the materialization *disabled*, and the captures left
+/// running.
+///
+/// This is the escalation behind `harness::restart_task`. A crash in either shard of a
+/// split V2 task fails the whole task — the surviving shard reports `expected leader
+/// message ... unexpected EOF` whichever one died — and repeatedly unassigning the
+/// failed shards does not reliably bring it back. Disabling the materialization tears
+/// its shards down; republishing the enabled catalog builds them again from the
+/// recovery log, which is a restart rather than a reschedule.
+pub fn sink_disabled(plan: &Plan<'_>) -> anyhow::Result<models::Catalog> {
+    let mut catalog = build(plan)?;
+
+    for def in catalog.materializations.values_mut() {
+        def.shards.disable = true;
+    }
+    Ok(catalog)
+}
+
 fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef> {
     let mut env = std::collections::BTreeMap::new();
     env.insert(

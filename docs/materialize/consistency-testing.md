@@ -471,7 +471,7 @@ asking the destination how far it got, so a newly created shard needs no inherit
 a fresh channel simply starts at offset zero. Compare the post-commit-apply dead end
 below — a child inheriting staged work cannot tell whether its own resume point precedes
 it, so it must either duplicate or lose. The counted channel never asks that question.
-`counter-survives-a-split` verifies it directly, and it is the scenario that most closely
+`counter-crash-in-split-leader` verifies it directly, and it is the scenario that most closely
 mirrors what the Snowpipe path actually relies on in production.
 
 ### A known runtime limitation: a prepared transaction must outlive a membership change
@@ -501,9 +501,9 @@ than 14 — **duplicates**.
 shard that resolves "the channel whose range starts at 0" sees 14, skips 14, and **misses
 data**; `[5, 10)` opens a new channel and **duplicates** its first 7.
 
-**What the suite observes, and one difference worth keeping.** The crash-then-split run
-shows 40 duplicates, every one exactly ×2, and *nothing missing* — one transaction's worth
-of appends landed twice. The scaling-up analysis predicts one child missing data and the
+**What the suite observes, and one difference worth keeping.** A crash-then-split run in
+which the split did apply shows 40 duplicates, every one exactly ×2, and *nothing missing* —
+one transaction's worth of appends landed twice. The scaling-up analysis predicts one child missing data and the
 other duplicating; this connector only duplicates, because its channels are keyed by the
 whole range `(key_begin, key_end)` rather than by `key_begin` alone. A new child therefore
 never inherits an offset that isn't its own, so it never over-skips, so it cannot silently
@@ -513,6 +513,11 @@ That is worth preserving beyond this suite: **keying a channel by the shard's fu
 converts the scaling-up failure from silent data loss into duplication.** Duplication is
 detectable at the destination; loss of a prefix is not. It does not fix the limitation, but
 it makes the limitation's consequences the safer of the two.
+
+**Why only one scenario is marked.** `split-during-commit` stalls `StartCommit` and splits
+inside the stall, which reaches the window reliably. A *crash* cannot be aimed at that window
+as directly, and the attempts to do so produced three findings worth recording on their own —
+see "Crashing a split shard" below.
 
 **What passes anyway.** A split with no transaction in flight is survived cleanly: the
 counted-channel class passed three consecutive runs across a split of 1196, 1458 and 1498
@@ -635,3 +640,41 @@ Stated so they survive this document:
 2. Assertions happen at quiescence, not mid-flight.
 3. Scenarios never touch stack-wide state.
 4. No scenario is finished without a paired defect it provably catches.
+
+## Crashing a split shard
+
+Two scenarios crash a shard that a split produced, and they are deliberately separate
+because the two shards fail differently. `counter-crash-in-split-leader` crashes the child
+that is also shard zero — it owns half the keyspace and holds the recovery log.
+`counter-crash-in-split-non-leader` crashes a non-zero child, which in a V2 task is
+stateless: no recovery log, its state arriving by leader broadcast, so it is rebuilt from
+nothing rather than replayed from a log.
+
+Three things had to be got wrong before these scenarios said anything.
+
+**A split alone perturbs nothing this class can get wrong.** It lands at a transaction
+boundary, so nothing is replayed, so no channel has anything to skip — and skipping is the
+whole of the counted-channel's behaviour. A split-only scenario was paired with
+`drop-document-counter` and then with `ignore-key-range`, and each time the clean run passed
+*and the defective run passed too*, three runs each. The fault has to create a replay before
+either defect has anything to get wrong. This is exactly what the paired-defect rule exists
+to catch: without it, the scenario would have been counted as coverage.
+
+**A fault cannot be aimed after a membership change by occurrence count.** `arm_after` counts
+a session's own committed transactions, and a split child starts at zero, so any threshold low
+enough for a child to reach is one the pre-split parent reaches first. A crash keyed that way
+fires in the parent while the split is being applied, kills the shard, and the split never
+lands — three runs deadlocked that way with no child range in the trace. Hence
+`ShardTarget`, which selects the shard by its range rather than by when it got there.
+
+**Either shard's death fails the whole task, not just its own shard.** Whichever one dies, the
+survivor reports `expected leader message ... unexpected EOF` and the task goes down. Measured
+in both directions: a crash confirmed in `00000000-7fffffff` still left the run waiting out
+its deadline for a primary. Repeatedly unassigning the failed shards — a 5-second loop for
+three minutes — brought the task back only about two runs in three. So both scenarios set
+`restart_after_fault`, which disables the materialization to tear its shards down and
+republishes to build them again. A restart, not a reschedule, and what an operator would do.
+
+The remaining honest gap: whether a V2 task *should* need a republish to survive a connector
+crash in a split shard is a question about the runtime, not about a connector. This suite now
+measures it either way.

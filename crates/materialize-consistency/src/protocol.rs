@@ -91,12 +91,62 @@ pub struct FaultRule {
     /// startup, without the rule needing to know how large a transaction is.
     #[serde(default)]
     pub arm_after: u64,
+    /// Which shard of the task this rule may fire in.
+    #[serde(default)]
+    pub shard: ShardTarget,
     #[serde(flatten)]
     pub action: Action,
 }
 
 fn one() -> u64 {
     1
+}
+
+/// Which shard a rule is allowed to fire in.
+///
+/// `arm_after` cannot express any of this. It counts a session's own committed
+/// transactions, and a split child starts at zero, so any threshold low enough for a
+/// child to reach is one the pre-split parent reaches first — the fault lands while
+/// the split is still being applied, kills the shard, and the split never lands.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ShardTarget {
+    /// Any shard, including a task that has never been split.
+    #[default]
+    Any,
+    /// A shard a split produced which is *also* shard zero: it owns part of the
+    /// keyspace and holds the task's recovery log.
+    ///
+    /// This is the shard whose crash tests a connector's own recovery, because the
+    /// runtime can restart it from its log the way it restarts an unsplit shard.
+    SplitLeader,
+    /// A shard a split produced which is *not* shard zero.
+    ///
+    /// A non-zero shard of a V2 task is stateless — no recovery log, state arriving
+    /// by leader broadcast — so its crash is a different question: the connector's
+    /// exactly-once claim has to survive the shard being rebuilt from nothing, and
+    /// the runtime has to bring the task back at all. Killing one EOFs the fan-in
+    /// stream and fails the leader too, so the whole task goes down with it.
+    SplitNonLeader,
+}
+
+impl ShardTarget {
+    /// Whether a session over this range may fire a rule aimed at `self`.
+    ///
+    /// Shard zero is the origin of both axes. A split has happened when the range is
+    /// narrower than the whole keyspace — which has to be tested on *both* bounds:
+    /// the upper child of a split owns `[mid, MAX]`, so its `key_end` alone is
+    /// indistinguishable from an unsplit shard's.
+    pub fn admits(&self, key_begin: u32, key_end: u32, r_clock_begin: u32) -> bool {
+        let split = !(key_begin == 0 && key_end == u32::MAX);
+        let zero = key_begin == 0 && r_clock_begin == 0;
+
+        match self {
+            ShardTarget::Any => true,
+            ShardTarget::SplitLeader => split && zero,
+            ShardTarget::SplitNonLeader => split && !zero,
+        }
+    }
 }
 
 impl FaultRule {
@@ -106,6 +156,7 @@ impl FaultRule {
             on,
             nth,
             arm_after: 0,
+            shard: ShardTarget::Any,
             action: Action::Crash,
         }
     }
@@ -113,6 +164,12 @@ impl FaultRule {
     /// Arm this rule only once the session has committed `commits` transactions.
     pub fn armed_after(mut self, commits: u64) -> Self {
         self.arm_after = commits;
+        self
+    }
+
+    /// Restrict this rule to one kind of shard; see [`ShardTarget`].
+    pub fn in_shard(mut self, shard: ShardTarget) -> Self {
+        self.shard = shard;
         self
     }
 }

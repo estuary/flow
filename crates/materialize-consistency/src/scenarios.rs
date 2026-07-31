@@ -18,7 +18,7 @@
 
 use crate::harness::Exemption;
 use crate::invariants::Invariant;
-use crate::protocol::{Action, FaultRule, Trigger};
+use crate::protocol::{Action, FaultRule, ShardTarget, Trigger};
 use crate::reference::{Class, Defect};
 
 /// The connector under test.
@@ -64,6 +64,15 @@ pub struct Scenario {
     pub settle_commits: u64,
     /// Invariants this scenario does not hold the subject to.
     pub exempt: Vec<Exemption>,
+    /// Restart the whole task after the fault, rather than only unassigning its
+    /// failed shards.
+    ///
+    /// Needed where the fault fails the *task* rather than one shard. A crash in
+    /// either shard of a split V2 task does this: whichever one died, the survivor
+    /// reports `expected leader message ... unexpected EOF`, and repeatedly
+    /// unassigning does not reliably bring the task back. See
+    /// `harness::restart_task`.
+    pub restart_after_fault: bool,
     /// A limitation of the *runtime* — not of the subject — that this scenario is
     /// currently expected to expose, and which no connector can work around.
     ///
@@ -89,6 +98,7 @@ impl Scenario {
             warmup_commits: 3,
             settle_commits: 3,
             exempt: Vec::new(),
+            restart_after_fault: false,
             known_limitation: None,
         }
     }
@@ -152,7 +162,8 @@ pub fn all() -> Vec<Scenario> {
         zombie_at_start_commit(),
         counter_resumes_from_the_destination(),
         counter_reconciles_rather_than_trusting_its_checkpoint(),
-        counter_survives_a_split(),
+        counter_crash_in_split_leader(),
+        counter_crash_in_split_non_leader(),
         delta_replay_is_deduplicated(),
         at_least_once_never_loses(),
     ]
@@ -200,6 +211,7 @@ fn replayed_acknowledge_is_a_no_op() -> Scenario {
         on: Trigger::Acknowledge,
         nth: 4,
         arm_after: 0,
+        shard: ShardTarget::Any,
         action: Action::Replay { times: 3 },
     })
     .catches(Defect::NonIdempotentAcknowledge)
@@ -279,6 +291,7 @@ fn split_during_commit() -> Scenario {
         on: Trigger::StartCommit,
         nth: 4,
         arm_after: 0,
+        shard: ShardTarget::Any,
         action: Action::Stall { millis: 4_000 },
     })
     .catches(Defect::IgnoreKeyRange)
@@ -355,6 +368,7 @@ fn zombie_at_start_commit() -> Scenario {
         on: Trigger::Store,
         nth: 10,
         arm_after: 1,
+        shard: ShardTarget::Any,
         action: Action::Zombie {
             thaw_after_commits: 2,
         },
@@ -422,26 +436,32 @@ fn counter_reconciles_rather_than_trusting_its_checkpoint() -> Scenario {
 /// whether its own resume point precedes it), and it is why Snowpipe Streaming v2
 /// uses a channel rather than staged files.
 ///
-/// It also exercises the part of the model a single-shard run never reaches: one
-/// channel per binding *per shard*, several of them appending to one destination
-/// table, each with its own independent offset.
-fn counter_survives_a_split() -> Scenario {
+/// The two scenarios below crash a split shard, and they are kept apart because the
+/// two shards fail in different ways and conflating them makes a result unreadable.
+/// The split alone perturbs nothing worth checking: it lands at a transaction
+/// boundary, so nothing is replayed, so no channel has anything to skip — and
+/// skipping is the whole of this class's behaviour. Both `drop-document-counter` and
+/// `ignore-key-range` were paired with a split-only scenario in turn, and each time
+/// the clean run passed and the defective run passed too, over three runs each. The
+/// fault has to create a replay for either defect to have anything to get wrong.
+///
+/// Neither is the prepared-transaction window: the split has fully landed before the
+/// crash in both, so a correct connector recovers and the limitation recorded in the
+/// design document does not apply here.
+
+/// Crashing the shard a split produced which is *also* shard zero. It owns half the
+/// keyspace and holds the task's recovery log, so the runtime restarts it the way it
+/// restarts an unsplit shard, and what is being tested is the connector: its own
+/// channel, its own offset, crashing with appends the checkpoint does not know about.
+/// Recovery has to ask the destination how far *this* channel got.
+fn counter_crash_in_split_leader() -> Scenario {
     let mut scenario = Scenario::new(
-        "counter-survives-a-split",
-        "a counted-channel connector keeps exactly-once across a shard split, resuming \
-         each new channel from the destination's own offset",
+        "counter-crash-in-split-leader",
+        "a channel created by a shard split resumes from its own destination offset \
+         after the leader crashes, not from its parent's and not from zero",
         Class::DocumentCounter,
     )
-    // A crash *and* a split, because the split alone proves nothing here: it lands at a
-    // transaction boundary, so no input is replayed, so there is nothing for a channel
-    // to skip — and a defect about skipping wrongly has no opportunity to misbehave.
-    // The first three runs of this scenario passed clean and failed to catch their
-    // defect for exactly that reason.
-    //
-    // Crashing at `StartedCommit` leaves each channel holding appends the checkpoint
-    // does not know about; the split then changes the shard set underneath that state.
-    // Recovery has to reconcile both at once, which is the situation worth testing.
-    .fault(FaultRule::crash_at(Trigger::StartedCommit, 4))
+    .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitLeader))
     .catches(Defect::DropDocumentCounter)
     .declaring(
         Invariant::Monotonicity,
@@ -450,18 +470,54 @@ fn counter_survives_a_split() -> Scenario {
          channels at offsets the sink has already passed. Delivery order at the sink is \
          therefore not guaranteed to advance monotonically; the set-based checks carry \
          the exactly-once claim and are NOT exempt.",
-    )
-    .blocked_on_runtime(
-        "The runtime does not yet guarantee that a prepared transaction is finished under \
-         the same shard split it was prepared under. This scenario crashes with appends \
-         already accepted by the destination and then splits, so the departing channel's \
-         uncommitted rows belong to ranges that no longer exist. A per-shard offset is a \
-         count, not a set of keys, so the new channels cannot attribute those rows to \
-         themselves and cannot divide the skip. Observed: one transaction duplicated, \
-         nothing lost. See docs/materialize/consistency-testing.md.",
     );
     scenario.split_shards = true;
     scenario.settle_commits = 5;
+    // Crashing the leader fails the task too, not just its own shard: the surviving
+    // non-zero shard loses the leader it takes state from and reports `expected leader
+    // message ... unexpected EOF`. Measured — the crash fired in `00000000-7fffffff`
+    // and the run still timed out waiting for a primary. So this needs the same
+    // whole-task restart as its non-leader counterpart.
+    scenario.restart_after_fault = true;
+    scenario
+}
+
+/// Crashing a *non-zero* shard a split produced, then bringing the task back up.
+///
+/// This is the harder question, and a different one from the leader's. A non-zero
+/// shard of a V2 task is stateless: no recovery log, its state arriving by leader
+/// broadcast. Killing its connector EOFs the fan-in stream and fails the leader too,
+/// so the whole task goes down — `expected leader message ... unexpected EOF` — and
+/// the shard is then rebuilt from nothing rather than replayed from a log.
+///
+/// So the scenario asks two things at once, and both are worth knowing. Can the task
+/// be brought back at all after losing a participant; and once back, does the
+/// connector still hold exactly-once, given the rebuilt shard has to rediscover from
+/// the destination how far its channel got.
+fn counter_crash_in_split_non_leader() -> Scenario {
+    let mut scenario = Scenario::new(
+        "counter-crash-in-split-non-leader",
+        "a stateless non-zero shard rebuilt after its crash still delivers each \
+         document exactly once",
+        Class::DocumentCounter,
+    )
+    .fault(FaultRule::crash_at(Trigger::StartedCommit, 2).in_shard(ShardTarget::SplitNonLeader))
+    .catches(Defect::DropDocumentCounter)
+    .declaring(
+        Invariant::Monotonicity,
+        "This class appends during Store, so rows of a transaction that never commits \
+         stay visible until recovery skips past them, and a membership change re-opens \
+         channels at offsets the sink has already passed. Delivery order at the sink is \
+         therefore not guaranteed to advance monotonically; the set-based checks carry \
+         the exactly-once claim and are NOT exempt.",
+    );
+    scenario.split_shards = true;
+    scenario.settle_commits = 5;
+    // The crash takes the leader down with it, so recovery here is a whole-task
+    // restart rather than one shard being rescheduled. It needs longer than a
+    // single-shard crash, and it needs the harness to republish rather than only
+    // unassign — see `harness::restart_task`.
+    scenario.restart_after_fault = true;
     scenario
 }
 
@@ -477,6 +533,7 @@ fn delta_replay_is_deduplicated() -> Scenario {
         on: Trigger::Acknowledge,
         nth: 3,
         arm_after: 0,
+        shard: ShardTarget::Any,
         action: Action::Replay { times: 2 },
     })
     .catches(Defect::NonIdempotentAcknowledge)
