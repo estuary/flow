@@ -678,3 +678,39 @@ republishes to build them again. A restart, not a reschedule, and what an operat
 The remaining honest gap: whether a V2 task *should* need a republish to survive a connector
 crash in a split shard is a question about the runtime, not about a connector. This suite now
 measures it either way.
+
+### Any split scenario inherits the prepared-transaction gap
+
+`split-during-commit` is marked `blocked_on_runtime` because it *aims* at the window
+where a membership change lands on a prepared transaction. What the counted-channel
+scenarios showed is that every scenario which splits passes through that window whether
+it aims at it or not, because the harness cannot ask for a split at a transaction
+boundary. The workload commits every one to two seconds and a split takes seconds to
+apply, so a prepared transaction is nearly always in flight when the split lands.
+
+Measured once, from `counter-crash-in-split-non-leader`:
+
+| | |
+|---|---|
+| parent's `events` counter for `(0, MAX)` | 270, including its 6th transaction |
+| children's counters when created | 0 and 0 |
+| documents stored across all sessions | 1220 |
+| documents skipped on recovery | 150 |
+| delivered | 1070 |
+| correct | 1020 |
+
+The parent's trace ends `startCommit 6, startedCommit 6` with no seventh `Acknowledge`:
+its sixth transaction was prepared and never confirmed committed. Its rows are in the
+shared table and counted against `(0, MAX)`. The children start at zero, replay that
+transaction's inputs, and append them again — 50 duplicates, about one transaction's
+worth, and **nothing missing**.
+
+Duplication-without-loss is the signature to look for, and it follows from the channel
+keying described above: a child never inherits an offset that isn't its own, so it can
+never over-skip. A connector keying channels by `key_begin` alone would have shown the
+other half of the scaling-up case, a silently lost prefix.
+
+These scenarios are left unmarked rather than declared expected failures, because they
+pass whenever the race falls the other way — three consecutive runs at 4827, 4460 and
+5677 documents. A failure showing duplicates and no losses in a scenario that splits is
+this gap, not a connector defect; the same runtime guarantee closes all of them.
