@@ -1,31 +1,39 @@
 //! Run-scoped driver: spawns N shard tasks via
-//! `runtime_next::shard::Service::spawn_materialize`, synthesizing the
+//! `runtime_next::shard::Service::spawn_derive`, synthesizing the
 //! SessionLoop/Join/Task envelopes the controller (Go in production) would
-//! normally send.
+//! normally send. For SQLite derivations it threads a per-shard tempfile path
+//! as the `Task.sqlite_vfs_uri` (production supplies a recorded recovery-log
+//! VFS instead).
 
-use crate::raw::preview_next::Controls;
-use crate::raw::preview_next::services::Run;
+use crate::Controls;
+use crate::services::Run;
 use anyhow::Context;
 use prost::Message;
-use proto_flow::{flow, runtime as cruntime};
+use proto_flow::{flow, flow::collection_spec::derivation::ConnectorType, runtime as cruntime};
 use runtime_next::proto;
+use runtime_next::{LoggerFactory, PublisherFactory};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 
-/// Run preview sessions against the prepared topology. Sessions are
-/// numbered `1..` for log context, and all run over the same per-shard
-/// SessionLoop streams.
-pub async fn run_sessions(
+pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
     run: &Run,
-    spec: &flow::MaterializationSpec,
+    spec: &flow::CollectionSpec,
     session_targets: Vec<u32>,
     fixture_dirs: Vec<String>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
-    let join_shards =
-        crate::raw::preview_next::shards::build_materialize_join_shards(run.n_shards, spec)?;
+    let join_shards = crate::shards::build_derive_join_shards(run.n_shards, spec)?;
+
+    // SQLite derivations require a VFS URI; preview supplies a plain tempfile
+    // path (the connector opens it with SQLite's default file VFS).
+    let is_sqlite = spec
+        .derivation
+        .as_ref()
+        .map(|d| d.connector_type == ConnectorType::Sqlite as i32)
+        .unwrap_or(false);
+
     // Encode the spec once; each shard's Task carries a cheap refcount clone of
     // these bytes rather than deep-cloning and re-encoding the spec per shard.
     let spec_bytes: bytes::Bytes = spec.encode_to_vec().into();
@@ -51,6 +59,7 @@ pub async fn run_sessions(
                 run_handle,
                 spec_bytes,
                 i,
+                is_sqlite,
                 join_shards,
                 session_targets,
                 fixture_dirs,
@@ -61,9 +70,6 @@ pub async fn run_sessions(
         }));
     }
 
-    // Await all shard drivers. The first error surfaces; remaining drivers
-    // observe their request channel dropping (when their handle drops) and
-    // tear down naturally.
     let mut first_err: Option<anyhow::Error> = None;
     for handle in handles {
         match handle.await {
@@ -85,8 +91,6 @@ pub async fn run_sessions(
     Ok(())
 }
 
-/// `Run` fields a single shard driver needs. Cheaper to clone than `&Run`
-/// so we can hand it into a spawned task without lifetime gymnastics.
 struct RunHandle {
     peer_endpoint: String,
     shuffle_log_dir: String,
@@ -95,19 +99,20 @@ struct RunHandle {
     registry: service_kit::Registry,
 }
 
-async fn drive_one_shard(
+async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
     run: RunHandle,
     spec_bytes: bytes::Bytes,
     shard_index: u32,
+    is_sqlite: bool,
     join_shards: Vec<proto::join::Shard>,
     session_targets: Vec<u32>,
     fixture_dirs: Vec<String>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
-    let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
+    let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
 
-    let task_name = format!("preview-shard-{shard_index:03}");
+    let task_name = format!("preview-derive-{shard_index:03}");
 
     let shard_svc = runtime_next::shard::Service::new(
         cruntime::Plane::Local,
@@ -120,12 +125,20 @@ async fn drive_one_shard(
         None, // No AuthN+AuthZ signer (local loopback).
     );
 
-    let mut response_rx = shard_svc.spawn_materialize(UnboundedReceiverStream::new(request_rx));
+    let mut response_rx = shard_svc.spawn_derive(UnboundedReceiverStream::new(request_rx));
+
+    // A tempfile under the run RocksDB tempdir, persistent across the run's
+    // sessions so the connector's checkpoint recovers across them.
+    let sqlite_vfs_uri = if is_sqlite {
+        format!("{}/derive-sqlite-{shard_index:03}.db", run.rocksdb_path)
+    } else {
+        String::new()
+    };
 
     // Seed shard zero's RocksDB with any `--initial-state` before the runtime
     // opens it at SessionLoop, so it recovers the state on its first scan.
     if shard_index == 0 && !controls.initial_state_json.is_empty() {
-        super::seed_preview_state(
+        crate::seed_connector_state(
             cruntime::RocksDbDescriptor {
                 rocksdb_path: run.rocksdb_path.clone(),
                 rocksdb_env_memptr: 0,
@@ -136,8 +149,6 @@ async fn drive_one_shard(
         .context("seeding --initial-state into shard-zero RocksDB")?;
     }
 
-    // Open the SessionLoop once. `runtime-next` opens RocksDB here and keeps
-    // the handle live across the repeated Join/Task sessions below.
     let rocksdb_descriptor = if shard_index == 0 {
         Some(cruntime::RocksDbDescriptor {
             rocksdb_path: run.rocksdb_path.clone(),
@@ -147,29 +158,17 @@ async fn drive_one_shard(
         None
     };
     request_tx
-        .send(Ok(proto::Materialize {
+        .send(Ok(proto::Derive {
             session_loop: Some(proto::SessionLoop { rocksdb_descriptor }),
             ..Default::default()
         }))
         .map_err(|_| anyhow::anyhow!("serve task closed before SessionLoop"))?;
 
-    // Every run ends with one additional empty "drain" session (represented
-    // as `None`): the runtime halts a session after its final commit without
-    // running its post-commit work, so the drain session's startup recovery
-    // performs the last transaction's Acknowledge before the preview exits.
-    // A run aborted by timeout or Ctrl-C skips it, like any other session.
-    let sessions = session_targets
-        .into_iter()
-        .map(Some)
-        .chain(std::iter::once(None));
-
-    for (idx, target_txns) in sessions.enumerate() {
+    for (idx, target_txns) in session_targets.into_iter().enumerate() {
         if stop_token.is_cancelled() {
             break;
         }
         let session_index = idx + 1;
-        let drain = target_txns.is_none();
-        let target_txns = target_txns.unwrap_or(0);
 
         // A fixture preview reads each session from its own directory (fresh
         // segments from segment one); live preview shares the run's directory.
@@ -179,7 +178,7 @@ async fn drive_one_shard(
             .unwrap_or_else(|| run.shuffle_log_dir.clone());
 
         request_tx
-            .send(Ok(proto::Materialize {
+            .send(Ok(proto::Derive {
                 join: Some(proto::Join {
                     etcd_mod_revision: session_index as i64,
                     shards: join_shards.clone(),
@@ -192,35 +191,27 @@ async fn drive_one_shard(
             }))
             .map_err(|_| anyhow::anyhow!("serve task closed before Join"))?;
 
-        // All shards receive Task. Shard zero alone forwards to the leader.
+        // All shards receive Task (each carries its own VFS URI); shard zero
+        // forwards it to the leader.
         tracing::info!(
             session = session_index,
             shard_index,
             target_txns,
-            drain,
-            "starting preview session",
+            "starting preview derive session",
         );
-
         request_tx
-            .send(Ok(proto::Materialize {
+            .send(Ok(proto::Derive {
                 task: Some(proto::Task {
                     spec: spec_bytes.clone(),
                     max_transactions: target_txns,
-                    sqlite_vfs_uri: String::new(),
+                    sqlite_vfs_uri: sqlite_vfs_uri.clone(),
                     publisher_id: Default::default(), // The harness forwards no leader producer.
                 }),
                 ..Default::default()
             }))
             .map_err(|_| anyhow::anyhow!("serve task closed before Task"))?;
 
-        drive_session_responses(
-            &request_tx,
-            &mut response_rx,
-            session_index,
-            &stop_token,
-            drain,
-        )
-        .await?;
+        drive_session_responses(&request_tx, &mut response_rx, session_index, &stop_token).await?;
     }
 
     drop(request_tx);
@@ -232,13 +223,12 @@ async fn drive_one_shard(
 }
 
 async fn drive_session_responses(
-    request_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
-    response_rx: &mut mpsc::UnboundedReceiver<tonic::Result<proto::Materialize>>,
+    request_tx: &mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
+    response_rx: &mut mpsc::UnboundedReceiver<tonic::Result<proto::Derive>>,
     session_index: usize,
     stop_token: &CancellationToken,
-    drain: bool,
 ) -> anyhow::Result<()> {
-    let verify = runtime_next::verify("Materialize", "Joined, Opened, or Stopped", "shard");
+    let verify = runtime_next::verify("Derive", "Joined, Opened, or Stopped", "shard");
 
     let mut requested_stop = false;
     loop {
@@ -248,7 +238,7 @@ async fn drive_session_responses(
             _ = stop_token.cancelled(), if !requested_stop => {
                 requested_stop = true;
                 _ = request_tx
-                    .send(Ok(proto::Materialize {
+                    .send(Ok(proto::Derive {
                         stop: Some(proto::Stop {}),
                         ..Default::default()
                     }));
@@ -258,20 +248,8 @@ async fn drive_session_responses(
 
                 if let Some(proto::Joined { max_etcd_revision }) = msg.joined {
                     tracing::debug!(session_index, max_etcd_revision, "session joined");
-                } else if let Some(proto::materialize::Opened { container, .. }) = &msg.opened {
+                } else if let Some(proto::derive::Opened { container, .. }) = &msg.opened {
                     tracing::debug!(session_index, ?container, "session opened");
-
-                    // A drain session runs no transactions: request a graceful
-                    // stop as soon as it opens. The leader completes its
-                    // startup tail — which acknowledges the prior session's
-                    // final committed transaction — before honoring the stop.
-                    if drain && !requested_stop {
-                        requested_stop = true;
-                        _ = request_tx.send(Ok(proto::Materialize {
-                            stop: Some(proto::Stop {}),
-                            ..Default::default()
-                        }));
-                    }
                 } else if let Some(proto::Stopped {}) = msg.stopped {
                     tracing::debug!(session_index, "session stopped");
                     return Ok(());
