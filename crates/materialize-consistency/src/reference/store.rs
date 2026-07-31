@@ -651,6 +651,30 @@ mod test {
         assert!(!store.apply_staged(0, 7, true).unwrap());
         assert_eq!(store.read_all(&delta).unwrap().len(), 2);
 
+        // Several transactions can be staged and committed without being applied — a
+        // session fenced mid-flight leaves exactly that — so recovery has to see all of
+        // them, not just the newest. Applying only the newest strands the others: the
+        // discard path never reclaims them either, because it only removes transactions
+        // *after* the committed one.
+        store
+            .stage(0, u32::MAX, 8, &[(delta.clone(), row("[2,0]", r#"{"id":2}"#))])
+            .unwrap();
+        store
+            .stage(0, u32::MAX, 9, &[(delta.clone(), row("[3,0]", r#"{"id":3}"#))])
+            .unwrap();
+        assert_eq!(store.staged_txns(0).unwrap(), vec![8, 9]);
+
+        let before = store.read_all(&delta).unwrap().len();
+        for txn in store.staged_txns(0).unwrap() {
+            store.apply_staged(0, txn, true).unwrap();
+        }
+        assert_eq!(
+            store.read_all(&delta).unwrap().len(),
+            before + 2,
+            "every staged transaction must be applied, not only the newest",
+        );
+        assert!(store.staged_txns(0).unwrap().is_empty());
+
         // The append counter is the destination's own record of how far it got.
         store
             .append_counted(0, &[(delta.clone(), row("[1,2]", r#"{"id":1,"seq":2}"#))])

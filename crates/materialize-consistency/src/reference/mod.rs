@@ -799,14 +799,35 @@ fn start_commit_txn(
 
 fn acknowledge(session: &mut Session) -> anyhow::Result<materialize::Response> {
     if session.class == Class::PostCommitApply {
-        // The transaction's rows are durably staged and the recovery log has
-        // committed; making them visible now is what completes the transaction.
-        // A replay must be a no-op, which the claim on (shard, txn) provides.
-        session.store.apply_staged(
-            session.key_begin,
-            session.committed_txn,
-            !session.has(Defect::NonIdempotentAcknowledge),
-        )?;
+        // Apply *every* committed-but-unapplied transaction, not just the newest.
+        //
+        // The steady state has exactly one — the transaction whose recovery-log commit
+        // this Acknowledge reports — so the loop is usually a single pass. Recovery is
+        // where it matters: a session fenced mid-flight can leave more than one
+        // transaction staged and log-committed but unacknowledged, and applying only
+        // the newest leaves the older ones stranded forever. `discard_staged_after`
+        // will not reclaim them either, since it only removes transactions *after* the
+        // committed one — so they are neither applied nor discarded, and their
+        // documents are simply lost.
+        //
+        // That is what made `split-during-commit` lose one transaction's worth of
+        // documents: ~20 of them, spread thinly over half the accounts at early
+        // sequences, with no duplicates. The connector had been handed every document
+        // (the trace showed *more* Stores than the collection holds, because the split
+        // replays) and applied fewer.
+        //
+        // Idempotent per transaction, so re-applying an already-claimed one is a
+        // no-op and this is safe to run on every Acknowledge.
+        for txn in session.store.staged_txns(session.key_begin)? {
+            if txn > session.committed_txn {
+                continue; // Not yet committed to the recovery log.
+            }
+            session.store.apply_staged(
+                session.key_begin,
+                txn,
+                !session.has(Defect::NonIdempotentAcknowledge),
+            )?;
+        }
     }
 
     Ok(materialize::Response {
