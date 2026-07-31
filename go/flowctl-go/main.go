@@ -63,10 +63,6 @@ Activate tasks and collections of a Flow catalog.
 Run tests of an activated catalog
 `, &apiTest{})
 
-	addCmd(apis, "await", "Wait for a catalog's dataflow to complete", `
-Monitor a catalog's dataflow execution in the data-plane, and exit when it finishes.
-`, &apiAwait{})
-
 	addCmd(apis, "delete", "Delete from a built Flow catalog", `
 Delete tasks and collections of a built Flow catalog.
 `, &apiDelete{})
