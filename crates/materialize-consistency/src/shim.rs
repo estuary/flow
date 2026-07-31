@@ -260,6 +260,20 @@ impl Shim {
         // the connector's status: the runtime may close our stdin at any time.
         let status = live.child.wait().await.context("waiting for connector")?;
 
+        // Record how the connector died, because the reactor's account of it —
+        // "connector exited with no log output" — is identical whether the shim killed
+        // it for a fault or it fell over by itself. Three suite runs were spent unable
+        // to tell those apart. A rule that fired is already in the trace, so a `died`
+        // with no preceding `fault` from this process is the connector's own doing.
+        if !status.success() {
+            shim.trace.log(Event::Failed {
+                error: match std::os::unix::process::ExitStatusExt::signal(&status) {
+                    Some(signal) => format!("connector killed by signal {signal}"),
+                    None => format!("connector exited with status {:?}", status.code()),
+                },
+            });
+        }
+
         if let Ok(Err(err)) = responses.await {
             shim.trace.log(Event::Failed {
                 error: format!("response pump: {err}"),

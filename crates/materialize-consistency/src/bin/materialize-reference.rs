@@ -33,6 +33,8 @@ enum Command {
 }
 
 fn main() -> std::process::ExitCode {
+    install_panic_hook();
+
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(err) => {
@@ -52,6 +54,28 @@ fn main() -> std::process::ExitCode {
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+/// Report a panic as one structured line, for the same reason errors are: the reactor
+/// parses a connector's stderr as logs and drops what is not, so the default hook's
+/// plain text is discarded and the death surfaces as "connector exited with no log
+/// output" — indistinguishable from an injected crash. `at-least-once-never-loses`
+/// failed three consecutive suite runs with exactly that message, at a point where its
+/// crash fault could not yet have armed.
+fn install_panic_hook() {
+    let default = std::panic::take_hook();
+
+    std::panic::set_hook(Box::new(move |info| {
+        let line = serde_json::json!({
+            "level": "error",
+            "msg": "the reference connector panicked",
+            "fields": {
+                "panic": info.to_string(),
+            },
+        });
+        eprintln!("{line}");
+        default(info);
+    }));
 }
 
 fn run() -> anyhow::Result<()> {

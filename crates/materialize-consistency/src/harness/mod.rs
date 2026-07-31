@@ -738,11 +738,12 @@ async fn drain(
 
     /// Consecutive quiet polls before a destination counts as settled.
     ///
-    /// Five rather than three, and gated on task health below, because a plateau is
-    /// weak evidence: a task restarting after a membership change stops writing for
-    /// longer than a short window, and calling that "settled" reports the runner's
-    /// impatience as data loss.
-    const QUIET_POLLS: usize = 5;
+    /// Ten, at three seconds each, because a plateau is weak evidence and a short one
+    /// is worthless: transactions land every one to two seconds, so five polls was
+    /// fifteen seconds — a gap a task takes just by restarting after a fault, or by
+    /// being starved on a loaded stack. `replayed-acknowledge` was failed by exactly
+    /// that, reporting 229 undelivered documents as invariant violations.
+    const QUIET_POLLS: usize = 10;
 
     loop {
         let standard = match standard_binding {
@@ -824,14 +825,32 @@ async fn drain(
             // Which of the two ended the wait matters when reading a failure: "quiet"
             // means the task stopped writing while still short, which is a finding;
             // "deadline" means the runner ran out of patience, which is not.
-            tracing::warn!(
-                log = format!("{}/{}", contents.log.len(), log_expected.documents()),
-                merged = format!("{merged_delivered}/{}", merged_expected.documents()),
-                reason = if quiet { "went quiet" } else { "deadline" },
-                healthy,
-                "the destination stopped short of the collections",
+            // Reported as the *delta* row count, the same figure the completion gate
+            // uses. The seq-derived `merged_delivered` belongs in the plateau check and
+            // nowhere else: it read "1020/997" — complete — for a destination whose
+            // delta binding held 768 of 997, which is precisely the shortfall being
+            // reported. A warning that hides what it is warning about is worse than
+            // none.
+            let short = format!(
+                "log {}/{}, mergedDelta {}/{}",
+                contents.log.len(),
+                log_expected.documents(),
+                contents.merged_delta.len(),
+                merged_expected.documents(),
             );
-            return Ok(contents);
+
+            // An `Err`, not a short destination handed to the checkers. Whether those
+            // documents were lost by the connector or merely not waited for is exactly
+            // what cannot be told apart here, and attributing it to the connector
+            // produces confident nonsense: 109 oracle-agreement violations over a log
+            // binding that was perfect at 1020 of 1020. The defective half of a scenario
+            // counts an `Err` as caught, so a defect that genuinely loses data is still
+            // reported as caught rather than passing.
+            anyhow::bail!(
+                "the destination stopped short of the collections ({short}); \
+                 reason={}, task healthy={healthy}",
+                if quiet { "went quiet" } else { "deadline" },
+            );
         }
 
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
