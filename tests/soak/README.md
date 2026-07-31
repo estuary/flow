@@ -1,7 +1,7 @@
 # V2 runtime soak test
 
 Continuous soak-test infrastructure exercising the full V2 runtime
-(`plans/runtime-v2/plan.md`) end to end, under the `test/soak/` prefix: a capture
+end to end, under the `test/soak/` catalog prefix: a capture
 emitting a self-checking workload, the `accounts` derivation that reconstructs and
 checks it, and two materializations of that result — `materialize-postgres` (`views`)
 for at-rest verification and a standalone Python connector (`ledger`) that re-verifies
