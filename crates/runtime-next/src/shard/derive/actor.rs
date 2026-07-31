@@ -28,6 +28,10 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     connector_tx: mpsc::Sender<derive::Request>,
     // Wire codec negotiated with the connector.
     codec: connector_init::Codec,
+    // Channel for sending to the controller. Used only to answer the test-only
+    // `Reset` with `ResetDone`; `Joined` / `Stopped` are sent by the session
+    // handler, not the Actor.
+    controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     // RocksDB, when a Persist is not in flight (shard zero only persists).
     db: Option<crate::shard::RocksDB>,
     // RocksDB future when a Persist is in flight. Resolves to the reply the
@@ -65,6 +69,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         codec: connector_init::Codec,
         connector_tx: mpsc::Sender<derive::Request>,
+        controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
         db: crate::shard::RocksDB,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
         metrics: super::Metrics,
@@ -77,6 +82,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             connector_pending: Vec::new(),
             connector_tx,
             codec,
+            controller_tx,
             db: Some(db),
             db_persist_fut: None,
             drain_fut: None,
@@ -566,7 +572,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         &mut self,
         msg: Option<tonic::Result<proto::Derive>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify("Derive", "Stop or CloseNow", "controller");
+        let verify = crate::verify("Derive", "Stop, CloseNow, or Reset", "controller");
         let msg = verify.not_eof(msg)?;
 
         if matches!(msg.stop, Some(proto::Stop {})) {
@@ -579,6 +585,15 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 close_now: Some(close_now),
                 ..Default::default()
             });
+        } else if matches!(msg.reset, Some(proto::Reset {})) {
+            self.connector_pending.push(derive::Request {
+                reset: Some(derive::request::Reset {}),
+                ..Default::default()
+            });
+            _ = self.controller_tx.send(Ok(proto::Derive {
+                reset_done: Some(proto::ResetDone {}),
+                ..Default::default()
+            }));
         } else {
             return Err(verify.fail_msg(msg));
         }
@@ -647,6 +662,8 @@ mod tests {
     async fn observe_throttle_split_dispatch() {
         let (actor_to_conn_tx, _conn_rx) = mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
         let (actor_to_leader_tx, _leader_rx) = mpsc::unbounded_channel::<proto::Derive>();
+        let (actor_to_controller_tx, _controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
         let task = Arc::new(test_task());
 
         let spec = proto_flow::flow::CollectionSpec {
@@ -663,6 +680,7 @@ mod tests {
         let mut actor = Actor::new(
             connector_init::Codec::Proto,
             actor_to_conn_tx,
+            actor_to_controller_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
@@ -725,8 +743,9 @@ mod tests {
 
     /// Drive `Actor::serve` end-to-end over mpsc channels standing in for the
     /// connector, leader, and controller. Walks a derive transaction:
-    /// C:Published → L:Flush/C:Flush/C:Flushed/L:Flushed → L:Store/drain/L:Stored
-    /// → L:StartCommit/C:StartCommit/C:StartedCommit/L:StartedCommit →
+    /// C:Published → controller Reset/C:Reset/ResetDone →
+    /// L:Flush/C:Flush/C:Flushed/L:Flushed → L:Store/drain/L:Stored →
+    /// L:StartCommit/C:StartCommit/C:StartedCommit/L:StartedCommit →
     /// L:Persist/L:Persisted → controller Stop/CloseNow → L:Stopped. Asserts the
     /// actor translates leader commands into connector requests, accumulates and
     /// publishes a derived document, persists state, and forwards controller
@@ -743,6 +762,8 @@ mod tests {
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
         let (controller_to_actor_tx, controller_to_actor_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+        let (actor_to_controller_tx, mut actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
 
         let task = Arc::new(test_task());
         let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
@@ -754,6 +775,7 @@ mod tests {
         let actor = Actor::new(
             connector_init::Codec::Proto,
             actor_to_conn_tx,
+            actor_to_controller_tx,
             db,
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
@@ -789,7 +811,31 @@ mod tests {
             .await
             .unwrap();
 
-        // 2) L:Flush → C:Flush → C:Flushed → L:Flushed.
+        // 2) Controller Reset → C:Reset → ResetDone, with the leader never in
+        // the path. Reset clears *connector* state and not runtime state: the
+        // document published above stays in the output combiner, as step 4
+        // confirms. The harness sends one Reset per test case, so repeated
+        // Resets must work.
+        for _ in 0..3 {
+            controller_to_actor_tx
+                .send(Ok(proto::Derive {
+                    reset: Some(proto::Reset {}),
+                    ..Default::default()
+                }))
+                .unwrap();
+
+            let req = actor_to_conn_rx.recv().await.unwrap();
+            assert!(req.reset.is_some(), "connector receives C:Reset");
+
+            let done = actor_to_controller_rx.recv().await.unwrap().unwrap();
+            assert!(done.reset_done.is_some(), "controller receives ResetDone");
+        }
+        assert!(actor_to_leader_rx.try_recv().is_err());
+
+        // 3) L:Flush → C:Flush → C:Flushed → L:Flushed. C:Flush being the next
+        // connector request also shows C:Reset was drained ahead of it from the
+        // same FIFO — the ordering which lets the harness treat ResetDone as
+        // sufficient before it drives a following transaction.
         leader_to_actor_tx
             .send(Ok(proto::Derive {
                 flush: Some(proto::derive::Flush {
@@ -820,7 +866,7 @@ mod tests {
         let flushed = resp.flushed.unwrap();
         assert!(!flushed.more);
 
-        // 3) L:Store → drain + publish → L:Stored (published=1, drained=1).
+        // 4) L:Store → drain + publish → L:Stored (published=1, drained=1).
         leader_to_actor_tx
             .send(Ok(proto::Derive {
                 store: Some(proto::derive::Store {}),
@@ -835,7 +881,7 @@ mod tests {
         // Preview publisher reports no commit.
         assert!(stored.publisher_commit.is_none());
 
-        // 4) L:StartCommit → C:StartCommit → C:StartedCommit → L:StartedCommit.
+        // 5) L:StartCommit → C:StartCommit → C:StartedCommit → L:StartedCommit.
         leader_to_actor_tx
             .send(Ok(proto::Derive {
                 start_commit: Some(proto::derive::StartCommit {
@@ -859,7 +905,7 @@ mod tests {
         let resp = actor_to_leader_rx.recv().await.unwrap();
         assert!(resp.started_commit.is_some());
 
-        // 5) L:Persist → RocksDB write → L:Persisted echoes seq_no.
+        // 6) L:Persist → RocksDB write → L:Persisted echoes seq_no.
         leader_to_actor_tx
             .send(Ok(proto::Derive {
                 persist: Some(proto::Persist {
@@ -874,7 +920,7 @@ mod tests {
         let resp = actor_to_leader_rx.recv().await.unwrap();
         assert_eq!(resp.persisted.unwrap().seq_no, 42);
 
-        // 6) Controller Stop + CloseNow → forwarded to the leader.
+        // 7) Controller Stop + CloseNow → forwarded to the leader.
         controller_to_actor_tx
             .send(Ok(proto::Derive {
                 stop: Some(proto::Stop {}),
@@ -891,7 +937,7 @@ mod tests {
             .unwrap();
         assert!(actor_to_leader_rx.recv().await.unwrap().close_now.is_some());
 
-        // 7) L:Stopped + leader EOF → serve completes, returning the DB.
+        // 8) L:Stopped + leader EOF → serve completes, returning the DB.
         leader_to_actor_tx
             .send(Ok(proto::Derive {
                 stopped: Some(proto::Stopped::default()),
