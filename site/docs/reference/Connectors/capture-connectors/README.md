@@ -198,6 +198,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 - Looker
   - [Configuration](./looker.md)
   - Package - ghcr.io/estuary/source-looker:v1
+- Mailchimp
+  - [Configuration](./mailchimp-native.md)
+  - Package - ghcr.io/estuary/source-mailchimp-native:v1
 - MariaDB
   - [Configuration](./MariaDB/)
   - Package - ghcr.io/estuary/source-mariadb:v3
@@ -390,7 +393,7 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 - LinkedIn Ads
   - [Configuration](./linkedin-ads.md)
   - Package - ghcr.io/estuary/source-linkedin-ads:v2
-- Mailchimp
+- Mailchimp (deprecated)
   - [Configuration](./mailchimp.md)
   - Package - ghcr.io/estuary/source-mailchimp:v3
 - Marketo
