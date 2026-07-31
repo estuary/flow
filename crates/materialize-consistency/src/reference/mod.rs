@@ -602,7 +602,9 @@ fn load_document(
 
     let key = std::str::from_utf8(&load.key_json).context("Load key is not UTF-8")?;
 
-    let Some(doc) = session.store.load(session.key_begin, &binding.table, key)? else {
+    let Some(doc) = session
+        .store
+        .load(session.key_begin, session.key_end, &binding.table, key)? else {
         return Ok(Vec::new()); // Keys not found MUST be omitted.
     };
 
@@ -677,7 +679,7 @@ fn store_document(
                 let batch = std::mem::take(&mut session.buffered);
                 session
                     .store
-                    .stage(session.key_begin, session.staging_txn, &batch)?;
+                    .stage(session.key_begin, session.key_end, session.staging_txn, &batch)?;
             }
         }
 
@@ -740,7 +742,7 @@ fn start_commit_txn(
             if !rows.is_empty() {
                 session
                     .store
-                    .stage(session.key_begin, session.staging_txn, &rows)?;
+                    .stage(session.key_begin, session.key_end, session.staging_txn, &rows)?;
             }
             session.committed_txn = session.staging_txn;
             session.staging_txn += 1;

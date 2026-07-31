@@ -90,14 +90,15 @@ impl Store {
              );
 
              CREATE TABLE IF NOT EXISTS _flow_staged (
-                 ord     INTEGER PRIMARY KEY AUTOINCREMENT,
-                 txn     INTEGER NOT NULL,
-                 shard   INTEGER NOT NULL,
-                 tbl     TEXT    NOT NULL,
-                 delta   INTEGER NOT NULL,
-                 key     TEXT    NOT NULL,
-                 doc     TEXT    NOT NULL,
-                 del     INTEGER NOT NULL
+                 ord       INTEGER PRIMARY KEY AUTOINCREMENT,
+                 txn       INTEGER NOT NULL,
+                 shard     INTEGER NOT NULL,
+                 shard_end INTEGER NOT NULL,
+                 tbl       TEXT    NOT NULL,
+                 delta     INTEGER NOT NULL,
+                 key       TEXT    NOT NULL,
+                 doc       TEXT    NOT NULL,
+                 del       INTEGER NOT NULL
              );
 
              CREATE TABLE IF NOT EXISTS _flow_applied_txn (
@@ -245,24 +246,34 @@ impl Store {
     /// A split gives its children cold caches, they issue real Loads, and any that
     /// lands inside the staged-but-unapplied window gets a stale answer.
     ///
-    /// Scoped to the caller's own staging, deliberately.
+    /// Staging is consulted for every range that *contains* this session's, which is
+    /// this session's own range and its ancestors'.
     ///
-    /// Reading every shard's staged rows also works — a key belongs to one shard at a
-    /// time, so the newest staged row for it is unambiguous — and it additionally
-    /// covers the window after a split where a parent's staged rows sit under the
-    /// parent's range while a child already owns some of those keys. But it lets two
-    /// shards see each other's staging, and that *repairs* the `ignore-key-range`
-    /// defect: shards sharing one fixed range stop losing each other's writes, and
-    /// the scenario paired with that defect stops catching it. A reference connector
-    /// that quietly fixes the defect it is meant to exhibit is worse than one with a
-    /// narrow residual gap, so this reads only its own.
-    pub fn load(&self, shard: u32, table: &Table, key: &str) -> anyhow::Result<Option<String>> {
+    /// Its own, because a `Load` must reflect writes it has staged but not applied.
+    /// Its ancestors', because a split child inherits keys whose staged rows still sit
+    /// under the parent's wider range — and missing those is what made
+    /// `split-during-commit` fail: the delta binding, which needs no `Load`,
+    /// accumulated exactly to the expectation while the standard binding's reduced
+    /// value was wrong with its sequence fully up to date. Only a stale `Load` base
+    /// can do that.
+    ///
+    /// Containment rather than "every shard" is what keeps the `ignore-key-range`
+    /// defect catchable: siblings never contain one another, so they still cannot see
+    /// each other's writes.
+    pub fn load(
+        &self,
+        key_begin: u32,
+        key_end: u32,
+        table: &Table,
+        key: &str,
+    ) -> anyhow::Result<Option<String>> {
         let staged: Option<(String, i64)> = self
             .conn
             .query_row(
-                "SELECT doc, del FROM _flow_staged WHERE shard = ?1 AND tbl = ?2 AND key = ?3
+                "SELECT doc, del FROM _flow_staged
+                 WHERE shard <= ?1 AND shard_end >= ?2 AND tbl = ?3 AND key = ?4
                  ORDER BY ord DESC LIMIT 1",
-                (shard, &table.name, key),
+                (key_begin, key_end, &table.name, key),
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
@@ -329,17 +340,24 @@ impl Store {
 
     /// Durably stage `rows` against `txn_id` without making them visible in the
     /// destination tables. The post-commit-apply class's `Store` path.
-    pub fn stage(&self, shard: u32, txn_id: i64, rows: &[(Table, Row)]) -> anyhow::Result<()> {
+    pub fn stage(
+        &self,
+        shard: u32,
+        shard_end: u32,
+        txn_id: i64,
+        rows: &[(Table, Row)],
+    ) -> anyhow::Result<()> {
         let txn = self.write_txn()?;
         {
             let mut stmt = txn.prepare(
-                "INSERT INTO _flow_staged (txn, shard, tbl, delta, key, doc, del)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO _flow_staged (txn, shard, shard_end, tbl, delta, key, doc, del)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )?;
             for (table, row) in rows {
                 stmt.execute((
                     txn_id,
                     shard,
+                    shard_end,
                     &table.name,
                     table.delta as i64,
                     &row.key,
@@ -596,7 +614,7 @@ mod test {
             )
             .unwrap();
 
-        assert_eq!(store.load(0, &standard, "[1]").unwrap().as_deref(), Some(r#"{"id":1}"#));
+        assert_eq!(store.load(0, u32::MAX, &standard, "[1]").unwrap().as_deref(), Some(r#"{"id":1}"#));
         assert_eq!(store.read_all(&delta).unwrap().len(), 1);
 
         // A standard binding upserts, so the same key does not accumulate rows.
@@ -623,7 +641,7 @@ mod test {
 
         // Staging is invisible until applied, and applying twice is a no-op.
         store
-            .stage(0, 7, &[(delta.clone(), row("[1,1]", r#"{"id":1,"seq":1}"#))])
+            .stage(0, u32::MAX, 7, &[(delta.clone(), row("[1,1]", r#"{"id":1,"seq":1}"#))])
             .unwrap();
         assert_eq!(store.read_all(&delta).unwrap().len(), 1);
         assert_eq!(store.staged_txns(0).unwrap(), vec![7]);
@@ -669,41 +687,69 @@ mod test {
 
         // Applied: visible the ordinary way.
         store
-            .stage(0, 1, &[(table.clone(), row(r#"{"balance":10}"#))])
+            .stage(0, u32::MAX, 1, &[(table.clone(), row(r#"{"balance":10}"#))])
             .unwrap();
         assert!(store.apply_staged(0, 1, true).unwrap());
         assert_eq!(
-            store.load(0, &table, "[1]").unwrap().as_deref(),
+            store.load(0, u32::MAX, &table, "[1]").unwrap().as_deref(),
             Some(r#"{"balance":10}"#),
         );
 
         // Staged and *not* applied: still the answer a Load must give, because the
         // connector has been asked to store it.
         store
-            .stage(0, 2, &[(table.clone(), row(r#"{"balance":25}"#))])
+            .stage(0, u32::MAX, 2, &[(table.clone(), row(r#"{"balance":25}"#))])
             .unwrap();
         assert_eq!(
-            store.load(0, &table, "[1]").unwrap().as_deref(),
+            store.load(0, u32::MAX, &table, "[1]").unwrap().as_deref(),
             Some(r#"{"balance":25}"#),
             "a Load must reflect staged-but-unapplied writes",
         );
 
-        // Another shard's staging is *not* consulted. Doing so would repair the
-        // `ignore-key-range` defect, whose whole point is that shards sharing a range
-        // lose each other's writes — see `load`.
+        // An *ancestor's* staging is visible to a split child: the child inherits keys
+        // whose staged rows still sit under the parent's wider range.
+        assert_eq!(
+            store
+                .load(0x8000_0000, 0xffff_ffff, &table, "[1]")
+                .unwrap()
+                .as_deref(),
+            Some(r#"{"balance":25}"#),
+            "an ancestor's staging must be visible to a split child",
+        );
+
+        // A *sibling's* is not: its range does not contain the loader's. This is what
+        // keeps the `ignore-key-range` defect catchable, and it is why the lookup is
+        // by containment rather than simply "every shard".
         store
-            .stage(0x8000_0000, 1, &[(table.clone(), row(r#"{"balance":40}"#))])
+            .stage(
+                0x8000_0000,
+                0xffff_ffff,
+                1,
+                &[(table.clone(), row(r#"{"balance":40}"#))],
+            )
             .unwrap();
         assert_eq!(
-            store.load(0, &table, "[1]").unwrap().as_deref(),
+            store
+                .load(0, 0x7fff_ffff, &table, "[1]")
+                .unwrap()
+                .as_deref(),
             Some(r#"{"balance":25}"#),
-            "a shard must see only its own staging",
+            "a sibling's staging must not be visible",
+        );
+        assert_eq!(
+            store
+                .load(0x8000_0000, 0xffff_ffff, &table, "[1]")
+                .unwrap()
+                .as_deref(),
+            Some(r#"{"balance":40}"#),
+            "a shard sees its own staging, newest first",
         );
 
         // A staged deletion is a tombstone, not a fall-through to the stale table row.
         store
             .stage(
                 0,
+                u32::MAX,
                 3,
                 &[(
                     table.clone(),
@@ -716,7 +762,7 @@ mod test {
                 )],
             )
             .unwrap();
-        assert_eq!(store.load(0, &table, "[1]").unwrap(), None);
+        assert_eq!(store.load(0, u32::MAX, &table, "[1]").unwrap(), None);
     }
 
     /// A split subdivides a range that has never been opened, so the child has to
