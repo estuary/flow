@@ -407,19 +407,47 @@ Own-shard-only fails because a split child's inherited keys have their staged ro
 the *parent's* wider range. Containment admits ancestors and excludes siblings, which is
 the correct rule — sibling ranges never contain one another.
 
-### Open: the log binding loses ~2-3% of its documents
+### Found: apply every committed-but-unapplied transaction, not just the newest
 
-In roughly three runs of five the append-only binding finishes short —
-`log="724/740" reason="went quiet" healthy=true` — with the task healthy and no longer
-writing. That binding is delta-updates and is never loaded, so the fix above cannot
-explain it, and the shortfall is not a tail: an earlier capture showed 23 documents
-missing from the *middle* of accounts' histories with delivery continuing past the gap,
-and zero extra rows.
+`acknowledge` applied only `committed_txn`, the newest, while `discard_staged_after`
+removes only transactions *after* it. A transaction staged and log-committed but never
+acknowledged, with a newer one behind it, is therefore neither applied nor discarded —
+it leaks permanently. A split fences the parent mid-flight, which is exactly how two of
+them pile up.
 
-The suspicion is the post-commit-apply staging lifecycle across a membership change —
-staged rows that are neither applied nor discarded when transaction identity resets per
-shard — but that is a hypothesis, not a finding, and it should be established from an
-`evidence.json` of a clean failure before anything is changed.
+Counting located it where reasoning had not. The shim's trace records documents Stored
+per binding, and comparing that against the destination gave, over three failing runs:
+
+| Stored | delivered | in the collection |
+| --- | --- | --- |
+| 640 | 582 | 600 |
+| 790 | 738 | 760 |
+| 780 | 724 | 740 |
+
+The connector was handed *more* than the collection holds — a split replays input — and
+applied fewer. That eliminated the runtime, the harness and the expectation in one step,
+and it is the single most useful measurement in this whole investigation: **compare what
+the connector was asked to store against what the destination holds before theorising
+about either side.**
+
+With the fix the append-only binding is exactly right: 730 expected, 730 delivered, none
+missing, none duplicated, where before it lost 18-23 in three runs of five.
+
+### Open: an ancestor's *uncommitted* staging is visible to a child
+
+The standard binding is still wrong for about a third of accounts, over- and
+under-counting — the wrong-`Load`-base signature again, with a narrower cause. A child
+can see an ancestor's staged rows by containment, but it cannot tell which of them belong
+to a transaction the recovery log never committed, and it cannot discard them either:
+`discard_staged_after` is keyed on the *shard*, and those rows belong to the parent's
+range. So a child may reduce from an aborted transaction's staging.
+
+The underlying flaw is transaction identity: staging is keyed by a *per-shard* counter
+that restarts at one for a new key range, so "which transactions are committed" is not a
+question a child can answer about its ancestor's rows. Keying staged work by something
+stable across a membership change — the runtime checkpoint, or a task-level monotonic
+counter — makes the whole class of question answerable, and is the direction to take
+rather than another containment refinement.
 
 ### Open: the paired defect no longer bites
 
