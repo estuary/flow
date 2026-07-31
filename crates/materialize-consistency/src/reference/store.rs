@@ -229,7 +229,43 @@ impl Store {
         Ok(())
     }
 
+    /// Load a key, honouring staged writes that have not yet been applied.
+    ///
+    /// A connector must answer `Load` consistently with everything it has been asked
+    /// to `Store` in a committed transaction — whether or not it has physically
+    /// applied it yet. Reading the destination table alone is *not* sufficient for a
+    /// class that stages during `Store` and applies during `Acknowledge`: between
+    /// those two points the rows are durable but invisible, and a `Load` answered
+    /// from the table returns a document missing that transaction's contribution.
+    /// The runtime then reduces from a stale base and stores an incorrect reduction.
+    ///
+    /// This is only reachable after a shard reconfiguration, which is why it hid for
+    /// so long: the runtime re-uses documents it has cached from prior transactions,
+    /// so a long-lived session rarely issues a real `Load` for a key it just stored.
+    /// A split gives its children cold caches, they issue real Loads, and any that
+    /// lands inside the staged-but-unapplied window gets a stale answer.
+    ///
+    /// Staged rows are consulted across *all* shards rather than only the caller's.
+    /// A key belongs to one shard at a time, so the newest staged row for it is
+    /// unambiguous — and after a split the parent's staged rows sit under the
+    /// parent's range while a child now owns some of those keys, so a per-shard
+    /// lookup would miss exactly the rows that matter.
     pub fn load(&self, table: &Table, key: &str) -> anyhow::Result<Option<String>> {
+        let staged: Option<(String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT doc, del FROM _flow_staged WHERE tbl = ?1 AND key = ?2
+                 ORDER BY ord DESC LIMIT 1",
+                (&table.name, key),
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .context("loading from staged writes")?;
+
+        if let Some((doc, deleted)) = staged {
+            return Ok(if deleted != 0 { None } else { Some(doc) });
+        }
+
         let doc = self
             .conn
             .query_row(
@@ -596,6 +632,83 @@ mod test {
             .append_counted(0, &[(delta.clone(), row("[1,2]", r#"{"id":1,"seq":2}"#))])
             .unwrap();
         assert_eq!(store.appended(0, &delta.name).unwrap(), 1);
+    }
+
+    /// The root cause of `split-during-commit`'s intermittent failures: a `Load` must
+    /// see writes that are staged but not yet applied.
+    ///
+    /// Between `Store` and `Acknowledge` a post-commit-apply connector's rows are
+    /// durable and invisible. A `Load` answered from the destination table alone
+    /// returns a document missing that transaction's contribution, the runtime
+    /// reduces from that stale base, and the reduction it stores is wrong by exactly
+    /// one transaction — under-counting or over-counting according to the sign of the
+    /// delta, which is what made the symptom look like a torn reduction.
+    #[test]
+    fn a_load_sees_staged_writes_before_they_are_applied() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
+
+        let table = Table {
+            name: "accounts".to_string(),
+            delta: false,
+        };
+        store.ensure_table(&table).unwrap();
+
+        let row = |doc: &str| Row {
+            binding: 0,
+            key: "[1]".to_string(),
+            doc: doc.to_string(),
+            delete: false,
+        };
+
+        // Applied: visible the ordinary way.
+        store
+            .stage(0, 1, &[(table.clone(), row(r#"{"balance":10}"#))])
+            .unwrap();
+        assert!(store.apply_staged(0, 1, true).unwrap());
+        assert_eq!(
+            store.load(&table, "[1]").unwrap().as_deref(),
+            Some(r#"{"balance":10}"#),
+        );
+
+        // Staged and *not* applied: still the answer a Load must give, because the
+        // connector has been asked to store it.
+        store
+            .stage(0, 2, &[(table.clone(), row(r#"{"balance":25}"#))])
+            .unwrap();
+        assert_eq!(
+            store.load(&table, "[1]").unwrap().as_deref(),
+            Some(r#"{"balance":25}"#),
+            "a Load must reflect staged-but-unapplied writes",
+        );
+
+        // Staged by *another* shard: after a split the parent's staging outlives it
+        // while a child owns the key, so a per-shard lookup would miss this.
+        store
+            .stage(0x8000_0000, 1, &[(table.clone(), row(r#"{"balance":40}"#))])
+            .unwrap();
+        assert_eq!(
+            store.load(&table, "[1]").unwrap().as_deref(),
+            Some(r#"{"balance":40}"#),
+        );
+
+        // A staged deletion is a tombstone, not a fall-through to the stale table row.
+        store
+            .stage(
+                0,
+                3,
+                &[(
+                    table.clone(),
+                    Row {
+                        binding: 0,
+                        key: "[1]".to_string(),
+                        doc: String::new(),
+                        delete: true,
+                    },
+                )],
+            )
+            .unwrap();
+        assert_eq!(store.load(&table, "[1]").unwrap(), None);
     }
 
     /// A split subdivides a range that has never been opened, so the child has to
