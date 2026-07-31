@@ -182,6 +182,22 @@ impl Stack {
         Ok(shards)
     }
 
+    /// Whether every shard of `task` currently reports a primary.
+    ///
+    /// A single listing with no waiting. `await_primary` would block for its whole
+    /// timeout, and a caller polling in a loop — like `drain` — would spend its
+    /// patience inside this check rather than on giving the task time to finish.
+    pub async fn all_primary(&self, task: &str) -> anyhow::Result<bool> {
+        use proto_gazette::consumer::replica_status::Code;
+
+        let shards = self.shards(task).await?;
+
+        Ok(!shards.is_empty()
+            && shards
+                .iter()
+                .all(|s| s.status.iter().any(|s| s.code() == Code::Primary)))
+    }
+
     /// Await every shard of `task` reporting a primary.
     ///
     /// A `Failed` status is *not* fatal here, and that is the whole subtlety: after

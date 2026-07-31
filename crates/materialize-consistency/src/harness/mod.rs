@@ -307,6 +307,18 @@ async fn execute(
 
     let (violations, exempted) = partition_exempt(invariants::check(&bindings), &scenario.exempt);
 
+    // A failure writes down everything it judged, next to the trace.
+    //
+    // Diagnosing one of these from the violation list alone means guessing which side
+    // is wrong — the destination, or the expectation read from the collection. Both
+    // are cheap to record and impossible to reconstruct afterwards, because the run's
+    // tasks are deleted on the way out.
+    if !violations.is_empty() {
+        if let Err(err) = dump_evidence(run_dir, &bindings) {
+            tracing::error!(%err, "failed to write the failure's evidence");
+        }
+    }
+
     Ok(Outcome {
         scenario: scenario.name,
         violations,
@@ -315,6 +327,45 @@ async fn execute(
         documents,
         run_dir: run_dir.to_path_buf(),
     })
+}
+
+/// Write what a failing run compared, so the next reader does not have to guess
+/// which side was wrong.
+fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow::Result<()> {
+    let expectation = |e: &Expectation| -> Vec<serde_json::Value> {
+        e.accounts
+            .iter()
+            .map(|(id, a)| {
+                serde_json::json!({
+                    "id": id,
+                    "documents": a.seqs.len(),
+                    "maxSeq": a.max_seq,
+                    "totalDelta": a.total_delta,
+                    "finalOracleBalance": a.final_oracle.balance,
+                    "seqs": a.seqs.iter().collect::<Vec<_>>(),
+                })
+            })
+            .collect()
+    };
+
+    let evidence = serde_json::json!({
+        "expected": {
+            "merged": expectation(&b.merged_expected),
+            "log": expectation(&b.log_expected),
+        },
+        "delivered": {
+            "standard": &b.standard,
+            "mergedDelta": &b.merged_delta,
+            "log": &b.log,
+        },
+    });
+
+    let path = run_dir.join("evidence.json");
+    std::fs::write(&path, serde_json::to_vec_pretty(&evidence)?)
+        .with_context(|| format!("writing {path:?}"))?;
+
+    tracing::warn!(?path, "wrote the failure's expectation and destination contents");
+    Ok(())
 }
 
 /// Split violations into those the subject is held to and those it is exempt
@@ -558,10 +609,7 @@ async fn drain(
         // work, and every membership-change scenario becomes flaky in the direction
         // of falsely reporting loss.
         let total = contents.log.len() + merged_delivered;
-        let healthy = stack
-            .await_primary(task, std::time::Duration::from_secs(15))
-            .await
-            .is_ok();
+        let healthy = stack.all_primary(task).await.unwrap_or(false);
 
         unchanged_for = if total == previous && healthy {
             unchanged_for + 1
@@ -570,10 +618,18 @@ async fn drain(
         };
         previous = total;
 
-        if unchanged_for >= QUIET_POLLS || std::time::Instant::now() >= deadline {
+        let quiet = unchanged_for >= QUIET_POLLS;
+        let expired = std::time::Instant::now() >= deadline;
+
+        if quiet || expired {
+            // Which of the two ended the wait matters when reading a failure: "quiet"
+            // means the task stopped writing while still short, which is a finding;
+            // "deadline" means the runner ran out of patience, which is not.
             tracing::warn!(
                 log = format!("{}/{}", contents.log.len(), log_expected.documents()),
                 merged = format!("{merged_delivered}/{}", merged_expected.documents()),
+                reason = if quiet { "went quiet" } else { "deadline" },
+                healthy,
                 "the destination stopped short of the collections",
             );
             return Ok(contents);

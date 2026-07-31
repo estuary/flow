@@ -602,7 +602,7 @@ fn load_document(
 
     let key = std::str::from_utf8(&load.key_json).context("Load key is not UTF-8")?;
 
-    let Some(doc) = session.store.load(&binding.table, key)? else {
+    let Some(doc) = session.store.load(session.key_begin, &binding.table, key)? else {
         return Ok(Vec::new()); // Keys not found MUST be omitted.
     };
 

@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// One workload document, in the fields the invariants rest on. See
 /// `tests/soak/capture/events.schema.json` for the full wire contract.
-#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[derive(Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
 pub struct Event {
     pub id: i64,
     pub seq: i64,
@@ -30,7 +30,7 @@ pub struct Event {
     pub oracle: Oracle,
 }
 
-#[derive(Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Deserialize, serde::Serialize, Clone, Debug, Default, PartialEq)]
 pub struct Oracle {
     pub seq: i64,
     pub balance: i64,

@@ -245,18 +245,24 @@ impl Store {
     /// A split gives its children cold caches, they issue real Loads, and any that
     /// lands inside the staged-but-unapplied window gets a stale answer.
     ///
-    /// Staged rows are consulted across *all* shards rather than only the caller's.
-    /// A key belongs to one shard at a time, so the newest staged row for it is
-    /// unambiguous — and after a split the parent's staged rows sit under the
-    /// parent's range while a child now owns some of those keys, so a per-shard
-    /// lookup would miss exactly the rows that matter.
-    pub fn load(&self, table: &Table, key: &str) -> anyhow::Result<Option<String>> {
+    /// Scoped to the caller's own staging, deliberately.
+    ///
+    /// Reading every shard's staged rows also works — a key belongs to one shard at a
+    /// time, so the newest staged row for it is unambiguous — and it additionally
+    /// covers the window after a split where a parent's staged rows sit under the
+    /// parent's range while a child already owns some of those keys. But it lets two
+    /// shards see each other's staging, and that *repairs* the `ignore-key-range`
+    /// defect: shards sharing one fixed range stop losing each other's writes, and
+    /// the scenario paired with that defect stops catching it. A reference connector
+    /// that quietly fixes the defect it is meant to exhibit is worse than one with a
+    /// narrow residual gap, so this reads only its own.
+    pub fn load(&self, shard: u32, table: &Table, key: &str) -> anyhow::Result<Option<String>> {
         let staged: Option<(String, i64)> = self
             .conn
             .query_row(
-                "SELECT doc, del FROM _flow_staged WHERE tbl = ?1 AND key = ?2
+                "SELECT doc, del FROM _flow_staged WHERE shard = ?1 AND tbl = ?2 AND key = ?3
                  ORDER BY ord DESC LIMIT 1",
-                (&table.name, key),
+                (shard, &table.name, key),
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
@@ -590,7 +596,7 @@ mod test {
             )
             .unwrap();
 
-        assert_eq!(store.load(&standard, "[1]").unwrap().as_deref(), Some(r#"{"id":1}"#));
+        assert_eq!(store.load(0, &standard, "[1]").unwrap().as_deref(), Some(r#"{"id":1}"#));
         assert_eq!(store.read_all(&delta).unwrap().len(), 1);
 
         // A standard binding upserts, so the same key does not accumulate rows.
@@ -667,7 +673,7 @@ mod test {
             .unwrap();
         assert!(store.apply_staged(0, 1, true).unwrap());
         assert_eq!(
-            store.load(&table, "[1]").unwrap().as_deref(),
+            store.load(0, &table, "[1]").unwrap().as_deref(),
             Some(r#"{"balance":10}"#),
         );
 
@@ -677,19 +683,21 @@ mod test {
             .stage(0, 2, &[(table.clone(), row(r#"{"balance":25}"#))])
             .unwrap();
         assert_eq!(
-            store.load(&table, "[1]").unwrap().as_deref(),
+            store.load(0, &table, "[1]").unwrap().as_deref(),
             Some(r#"{"balance":25}"#),
             "a Load must reflect staged-but-unapplied writes",
         );
 
-        // Staged by *another* shard: after a split the parent's staging outlives it
-        // while a child owns the key, so a per-shard lookup would miss this.
+        // Another shard's staging is *not* consulted. Doing so would repair the
+        // `ignore-key-range` defect, whose whole point is that shards sharing a range
+        // lose each other's writes — see `load`.
         store
             .stage(0x8000_0000, 1, &[(table.clone(), row(r#"{"balance":40}"#))])
             .unwrap();
         assert_eq!(
-            store.load(&table, "[1]").unwrap().as_deref(),
-            Some(r#"{"balance":40}"#),
+            store.load(0, &table, "[1]").unwrap().as_deref(),
+            Some(r#"{"balance":25}"#),
+            "a shard must see only its own staging",
         );
 
         // A staged deletion is a tombstone, not a fall-through to the stale table row.
@@ -708,7 +716,7 @@ mod test {
                 )],
             )
             .unwrap();
-        assert_eq!(store.load(&table, "[1]").unwrap(), None);
+        assert_eq!(store.load(0, &table, "[1]").unwrap(), None);
     }
 
     /// A split subdivides a range that has never been opened, so the child has to
