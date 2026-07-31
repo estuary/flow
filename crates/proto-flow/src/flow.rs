@@ -1072,44 +1072,6 @@ pub mod build_api {
         pub project_root: ::prost::alloc::string::String,
     }
 }
-/// ResetStateRequest is the request of the Testing.ResetState RPC.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ResetStateRequest {}
-/// ResetStateResponse is the response of the Testing.ResetState RPC.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ResetStateResponse {}
-/// AdvanceTimeRequest is the request of the Testing.AdvanceTime RPC.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AdvanceTimeRequest {
-    #[prost(uint64, tag = "1")]
-    pub advance_seconds: u64,
-}
-/// AdvanceTimeResponse is the response of the Testing.AdvanceTime RPC.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AdvanceTimeResponse {}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct IngestRequest {
-    /// Name of the collection into which to ingest.
-    #[prost(string, tag = "1")]
-    pub collection: ::prost::alloc::string::String,
-    /// Build ID of the ingested collection.
-    #[prost(string, tag = "2")]
-    pub build_id: ::prost::alloc::string::String,
-    /// JSON documents to ingest or verify.
-    #[prost(bytes = "bytes", repeated, tag = "3")]
-    pub docs_json_vec: ::prost::alloc::vec::Vec<::prost::bytes::Bytes>,
-}
-/// IngestResponse is the response of the Testing.Ingest RPC.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct IngestResponse {
-    /// Journals appended to by this ingestion, and their maximum offset on commit.
-    #[prost(btree_map = "string, int64", tag = "1")]
-    pub journal_write_heads:
-        ::prost::alloc::collections::BTreeMap<::prost::alloc::string::String, i64>,
-    /// Etcd header which describes current journal partitions.
-    #[prost(message, optional, tag = "2")]
-    pub journal_etcd: ::core::option::Option<::proto_gazette::broker::header::Etcd>,
-}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TaskNetworkProxyRequest {
     #[prost(message, optional, tag = "1")]
