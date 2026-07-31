@@ -92,10 +92,30 @@ impl Stack {
         cmd
     }
 
+    /// Every flowctl invocation is bounded, because none of the scenario deadlines
+    /// bound *this*: they guard the wait loops, and a subprocess that never returns
+    /// sits under all of them. `counter-resumes-from-destination` hit nextest's 960s
+    /// ceiling having logged only its publish line — a `catalog publish` had blocked,
+    /// and with four publish retries a single hang multiplies.
+    ///
+    /// Generous, because a publish on a loaded stack legitimately takes tens of
+    /// seconds; the point is to convert "hangs forever" into a named failure that the
+    /// publish retry can act on.
+    const INVOCATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(150);
+
     async fn run(&self, args: &[&str]) -> anyhow::Result<String> {
-        let output = async_process::output(self.command().args(args))
-            .await
-            .with_context(|| format!("running flowctl {args:?}"))?;
+        let output = tokio::time::timeout(
+            Self::INVOCATION_TIMEOUT,
+            async_process::output(self.command().args(args)),
+        )
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "flowctl {args:?} did not return within {}s",
+                Self::INVOCATION_TIMEOUT.as_secs(),
+            )
+        })?
+        .with_context(|| format!("running flowctl {args:?}"))?;
 
         if !output.status.success() {
             anyhow::bail!(

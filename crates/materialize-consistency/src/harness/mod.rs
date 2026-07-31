@@ -781,8 +781,19 @@ async fn drain(
             }
         };
 
+        // Completion is counted from the *delta* binding over the merged collection,
+        // one row per document delivered, exactly as for the log binding.
+        //
+        // Not from `merged_delivered`: that derives progress from each account's highest
+        // `seq`, which assumes sequences arrive contiguously. After a fault they do not —
+        // an account's latest document can land before earlier ones — so the proxy reads
+        // as complete while the summed balance is still short. The drain then stops and
+        // the checker reports the shortfall as data loss: `replayed-acknowledge` failed
+        // with 88 oracle-agreement violations whose log binding was perfect at 570 of 570
+        // rows, no losses and no duplicates. `merged_delivered` stays as the plateau
+        // measure below, where an upper bound is harmless.
         if contents.log.len() >= log_expected.documents()
-            && merged_delivered >= merged_expected.documents()
+            && contents.merged_delta.len() >= merged_expected.documents()
         {
             return Ok(contents);
         }
