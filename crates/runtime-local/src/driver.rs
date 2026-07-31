@@ -3,12 +3,13 @@
 //! SessionLoop/Join/Task envelopes the controller (Go in production) would
 //! normally send.
 
-use crate::raw::preview_next::Controls;
-use crate::raw::preview_next::services::Run;
+use crate::Controls;
+use crate::services::Run;
 use anyhow::Context;
 use prost::Message;
 use proto_flow::{flow, runtime as cruntime};
 use runtime_next::proto;
+use runtime_next::{LoggerFactory, PublisherFactory};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
@@ -16,16 +17,15 @@ use tokio_util::sync::CancellationToken;
 /// Run preview sessions against the prepared topology. Sessions are
 /// numbered `1..` for log context, and all run over the same per-shard
 /// SessionLoop streams.
-pub async fn run_sessions(
+pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
     run: &Run,
     spec: &flow::MaterializationSpec,
     session_targets: Vec<u32>,
     fixture_dirs: Vec<String>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
-    let join_shards =
-        crate::raw::preview_next::shards::build_materialize_join_shards(run.n_shards, spec)?;
+    let join_shards = crate::shards::build_materialize_join_shards(run.n_shards, spec)?;
     // Encode the spec once; each shard's Task carries a cheap refcount clone of
     // these bytes rather than deep-cloning and re-encoding the spec per shard.
     let spec_bytes: bytes::Bytes = spec.encode_to_vec().into();
@@ -95,14 +95,14 @@ struct RunHandle {
     registry: service_kit::Registry,
 }
 
-async fn drive_one_shard(
+async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
     run: RunHandle,
     spec_bytes: bytes::Bytes,
     shard_index: u32,
     join_shards: Vec<proto::join::Shard>,
     session_targets: Vec<u32>,
     fixture_dirs: Vec<String>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
     let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Materialize>>();
@@ -125,7 +125,7 @@ async fn drive_one_shard(
     // Seed shard zero's RocksDB with any `--initial-state` before the runtime
     // opens it at SessionLoop, so it recovers the state on its first scan.
     if shard_index == 0 && !controls.initial_state_json.is_empty() {
-        super::seed_preview_state(
+        crate::seed_connector_state(
             cruntime::RocksDbDescriptor {
                 rocksdb_path: run.rocksdb_path.clone(),
                 rocksdb_env_memptr: 0,

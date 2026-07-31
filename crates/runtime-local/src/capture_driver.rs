@@ -12,25 +12,25 @@
 //! interpreting the output as a workload signal requires a range-partitioning
 //! connector.
 
-use crate::raw::preview_next::Controls;
-use crate::raw::preview_next::services::Run;
+use crate::Controls;
+use crate::services::Run;
 use anyhow::Context;
 use prost::Message;
 use proto_flow::{flow, runtime as cruntime};
 use runtime_next::proto;
+use runtime_next::{LoggerFactory, PublisherFactory};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 
-pub async fn run_sessions(
+pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
     run: &Run,
     spec: &flow::CaptureSpec,
     session_targets: Vec<u32>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
-    let join_shards =
-        crate::raw::preview_next::shards::build_capture_join_shards(run.n_shards, spec)?;
+    let join_shards = crate::shards::build_capture_join_shards(run.n_shards, spec)?;
     // Encode the spec once; each shard's Task carries a cheap refcount clone of
     // these bytes rather than deep-cloning and re-encoding the spec per shard.
     let spec_bytes: bytes::Bytes = spec.encode_to_vec().into();
@@ -96,13 +96,13 @@ struct RunHandle {
     registry: service_kit::Registry,
 }
 
-async fn drive_one_shard(
+async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
     run: RunHandle,
     spec_bytes: bytes::Bytes,
     shard_index: u32,
     join_shard: proto::join::Shard,
     session_targets: Vec<u32>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
     let task_name = format!("preview-capture-{shard_index:03}");
@@ -126,7 +126,7 @@ async fn drive_one_shard(
     // Only shard zero carries a tracked `rocksdb_path`.
     if let Some(rocksdb_path) = &run.rocksdb_path {
         if !controls.initial_state_json.is_empty() {
-            super::seed_preview_state(
+            crate::seed_connector_state(
                 cruntime::RocksDbDescriptor {
                     rocksdb_path: rocksdb_path.clone(),
                     rocksdb_env_memptr: 0,

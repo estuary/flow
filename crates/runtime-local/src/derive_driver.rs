@@ -5,26 +5,26 @@
 //! as the `Task.sqlite_vfs_uri` (production supplies a recorded recovery-log
 //! VFS instead).
 
-use crate::raw::preview_next::Controls;
-use crate::raw::preview_next::services::Run;
+use crate::Controls;
+use crate::services::Run;
 use anyhow::Context;
 use prost::Message;
 use proto_flow::{flow, flow::collection_spec::derivation::ConnectorType, runtime as cruntime};
 use runtime_next::proto;
+use runtime_next::{LoggerFactory, PublisherFactory};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 
-pub async fn run_sessions(
+pub async fn run_sessions<P: PublisherFactory, L: LoggerFactory>(
     run: &Run,
     spec: &flow::CollectionSpec,
     session_targets: Vec<u32>,
     fixture_dirs: Vec<String>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
-    let join_shards =
-        crate::raw::preview_next::shards::build_derive_join_shards(run.n_shards, spec)?;
+    let join_shards = crate::shards::build_derive_join_shards(run.n_shards, spec)?;
 
     // SQLite derivations require a VFS URI; preview supplies a plain tempfile
     // path (the connector opens it with SQLite's default file VFS).
@@ -99,7 +99,7 @@ struct RunHandle {
     registry: service_kit::Registry,
 }
 
-async fn drive_one_shard(
+async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
     run: RunHandle,
     spec_bytes: bytes::Bytes,
     shard_index: u32,
@@ -107,7 +107,7 @@ async fn drive_one_shard(
     join_shards: Vec<proto::join::Shard>,
     session_targets: Vec<u32>,
     fixture_dirs: Vec<String>,
-    controls: Controls,
+    controls: Controls<P, L>,
     stop_token: CancellationToken,
 ) -> anyhow::Result<()> {
     let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
@@ -138,7 +138,7 @@ async fn drive_one_shard(
     // Seed shard zero's RocksDB with any `--initial-state` before the runtime
     // opens it at SessionLoop, so it recovers the state on its first scan.
     if shard_index == 0 && !controls.initial_state_json.is_empty() {
-        super::seed_preview_state(
+        crate::seed_connector_state(
             cruntime::RocksDbDescriptor {
                 rocksdb_path: run.rocksdb_path.clone(),
                 rocksdb_env_memptr: 0,

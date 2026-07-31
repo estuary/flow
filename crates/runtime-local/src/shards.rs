@@ -1,15 +1,14 @@
-//! Synthetic shard topology for `flowctl preview`. The two shard lists
-//! (the leader's `proto::join::Shard` and the shuffle service's
-//! `shuffle::proto::Shard`) carry overlapping but distinct fields, both
-//! built here off a shared even key-space split. All shards point at the
-//! single ephemeral preview endpoint.
+//! Synthetic shard topology for a local run. The two shard lists (the leader's
+//! `proto::join::Shard` and the shuffle service's `shuffle::proto::Shard`) carry
+//! overlapping but distinct fields, both built here off a shared even key-space
+//! split. All shards point at the single ephemeral loopback endpoint.
 
 use proto_flow::flow;
 use runtime_next::proto;
 
 /// Compute `[key_begin, key_end]` for shard `i` of `count` over the full
 /// `u32` key space.
-pub(super) fn key_range(i: u32, count: u32) -> (u32, u32) {
+pub fn key_range(i: u32, count: u32) -> (u32, u32) {
     let begin = if i == 0 {
         0
     } else {
