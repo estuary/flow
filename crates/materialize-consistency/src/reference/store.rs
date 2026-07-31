@@ -550,7 +550,10 @@ impl Store {
         let order = if table.delta { "ord" } else { "key" };
         let mut stmt = self
             .conn
-            .prepare(&format!("SELECT doc FROM \"{}\" ORDER BY {order}", table.name))
+            .prepare(&format!(
+                "SELECT doc FROM \"{}\" ORDER BY {order}",
+                table.name
+            ))
             .with_context(|| format!("reading table {}", table.name))?;
 
         let docs = stmt
@@ -639,7 +642,13 @@ mod test {
             )
             .unwrap();
 
-        assert_eq!(store.load(0, u32::MAX, &standard, "[1]").unwrap().as_deref(), Some(r#"{"id":1}"#));
+        assert_eq!(
+            store
+                .load(0, u32::MAX, &standard, "[1]")
+                .unwrap()
+                .as_deref(),
+            Some(r#"{"id":1}"#)
+        );
         assert_eq!(store.read_all(&delta).unwrap().len(), 1);
 
         // A standard binding upserts, so the same key does not accumulate rows.
@@ -666,7 +675,12 @@ mod test {
 
         // Staging is invisible until applied, and applying twice is a no-op.
         store
-            .stage(0, u32::MAX, 7, &[(delta.clone(), row("[1,1]", r#"{"id":1,"seq":1}"#))])
+            .stage(
+                0,
+                u32::MAX,
+                7,
+                &[(delta.clone(), row("[1,1]", r#"{"id":1,"seq":1}"#))],
+            )
             .unwrap();
         assert_eq!(store.read_all(&delta).unwrap().len(), 1);
         assert_eq!(store.staged_txns(0, u32::MAX).unwrap(), vec![7]);
@@ -682,10 +696,20 @@ mod test {
         // discard path never reclaims them either, because it only removes transactions
         // *after* the committed one.
         store
-            .stage(0, u32::MAX, 8, &[(delta.clone(), row("[2,0]", r#"{"id":2}"#))])
+            .stage(
+                0,
+                u32::MAX,
+                8,
+                &[(delta.clone(), row("[2,0]", r#"{"id":2}"#))],
+            )
             .unwrap();
         store
-            .stage(0, u32::MAX, 9, &[(delta.clone(), row("[3,0]", r#"{"id":3}"#))])
+            .stage(
+                0,
+                u32::MAX,
+                9,
+                &[(delta.clone(), row("[3,0]", r#"{"id":3}"#))],
+            )
             .unwrap();
         assert_eq!(store.staged_txns(0, u32::MAX).unwrap(), vec![8, 9]);
 
@@ -702,7 +726,11 @@ mod test {
 
         // The append counter is the destination's own record of how far it got.
         store
-            .append_counted(0, u32::MAX, &[(delta.clone(), row("[1,2]", r#"{"id":1,"seq":2}"#))])
+            .append_counted(
+                0,
+                u32::MAX,
+                &[(delta.clone(), row("[1,2]", r#"{"id":1,"seq":2}"#))],
+            )
             .unwrap();
         assert_eq!(store.appended(0, u32::MAX, &delta.name).unwrap(), 1);
     }

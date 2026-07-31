@@ -272,7 +272,9 @@ fn check_standard(expected: &Expectation, rows: &[Event], out: &mut Vec<Violatio
         if !expected.accounts.contains_key(id) {
             out.push(Violation {
                 invariant: Invariant::NoDuplicates,
-                detail: format!("the standard binding holds account {id}, which the collection does not"),
+                detail: format!(
+                    "the standard binding holds account {id}, which the collection does not"
+                ),
             });
         }
     }

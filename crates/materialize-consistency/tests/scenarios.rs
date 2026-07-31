@@ -94,11 +94,27 @@ async fn both_ways(name: &str) {
         .expect("the clean run completes");
 
     for exempt in &scenario.exempt {
-        eprintln!(
-            "exempt: [{}] {}",
-            exempt.invariant, exempt.justification
-        );
+        eprintln!("exempt: [{}] {}", exempt.invariant, exempt.justification);
     }
+    // A scenario blocked on the runtime reports its result and stops. Failing the suite
+    // for it would be asking a connector author to fix something outside a connector's
+    // reach; the defect pairing below is skipped too, because a subject that cannot pass
+    // clean tells us nothing about whether its defect would have been caught.
+    if let Some(limitation) = scenario.known_limitation {
+        // Deliberately not asserted in either direction. Not `passed()`, because that
+        // would ask a connector author to fix the runtime; not `!passed()` either,
+        // because whether the limitation bites depends on where the fault lands relative
+        // to the split — `split-during-commit` upheld everything on 1 run in 5 — and a
+        // scenario that flakes red while claiming "the runtime is fixed" is worse than no
+        // signal at all. The line below is the signal: if it starts reading "upheld" every
+        // run, the marker has outlived the limitation.
+        eprintln!(
+            "blocked on the runtime: {}\n  {limitation}",
+            clean.summary(),
+        );
+        return;
+    }
+
     assert!(
         clean.passed(),
         "the clean build must uphold {}:\n{}",

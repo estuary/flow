@@ -196,7 +196,10 @@ fn merged_schema(mut schema: serde_json::Value) -> anyhow::Result<serde_json::Va
         let Some(property) = properties.get_mut(field).and_then(|p| p.as_object_mut()) else {
             anyhow::bail!("the event schema has no `{field}` property to annotate");
         };
-        property.insert("reduce".to_string(), serde_json::json!({"strategy": strategy}));
+        property.insert(
+            "reduce".to_string(),
+            serde_json::json!({"strategy": strategy}),
+        );
     }
 
     Ok(schema)

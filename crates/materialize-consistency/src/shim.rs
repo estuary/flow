@@ -361,7 +361,6 @@ impl Zombie {
         self.frozen = false;
         self.sealed = true;
     }
-
 }
 
 fn request_trigger(req: &materialize::Request) -> Option<Trigger> {

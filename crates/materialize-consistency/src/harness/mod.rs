@@ -57,8 +57,8 @@ impl Exemption {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("reading exemptions {path:?}"))?;
 
-        let exemptions: Vec<Self> = serde_json::from_str(&raw)
-            .with_context(|| format!("parsing exemptions {path:?}"))?;
+        let exemptions: Vec<Self> =
+            serde_json::from_str(&raw).with_context(|| format!("parsing exemptions {path:?}"))?;
 
         for exemption in &exemptions {
             anyhow::ensure!(
@@ -226,7 +226,14 @@ async fn execute(
         stack.split_shards(&names.sink).await?;
         // Both children must come up before the run can continue; a split that
         // wedges is itself a finding.
-        recover(stack, &names.sink, &trace, count_commits(&trace)? + 1, deadline).await?;
+        recover(
+            stack,
+            &names.sink,
+            &trace,
+            count_commits(&trace)? + 1,
+            deadline,
+        )
+        .await?;
         stack.await_primary(&names.sink, deadline).await?;
     }
 
@@ -239,7 +246,14 @@ async fn execute(
 
         tracing::info!(task = %names.sink, "joining shards");
         stack.join_shards(&names.sink).await?;
-        recover(stack, &names.sink, &trace, count_commits(&trace)? + 1, deadline).await?;
+        recover(
+            stack,
+            &names.sink,
+            &trace,
+            count_commits(&trace)? + 1,
+            deadline,
+        )
+        .await?;
         stack.await_primary(&names.sink, deadline).await?;
     }
 
@@ -284,7 +298,9 @@ async fn execute(
             .await?,
     );
     let log_expected = Expectation::from_documents(
-        stack.read_collection_when_final(&names.log, deadline).await?,
+        stack
+            .read_collection_when_final(&names.log, deadline)
+            .await?,
     );
 
     let destination = drain(
@@ -366,7 +382,10 @@ fn dump_evidence(run_dir: &std::path::Path, b: &invariants::Bindings) -> anyhow:
     std::fs::write(&path, serde_json::to_vec_pretty(&evidence)?)
         .with_context(|| format!("writing {path:?}"))?;
 
-    tracing::warn!(?path, "wrote the failure's expectation and destination contents");
+    tracing::warn!(
+        ?path,
+        "wrote the failure's expectation and destination contents"
+    );
     Ok(())
 }
 
@@ -388,10 +407,7 @@ fn capture_command() -> anyhow::Result<std::path::PathBuf> {
     let root = repo_root()?;
     let path = root.join("tests/soak/capture/source-soak");
 
-    anyhow::ensure!(
-        path.exists(),
-        "the workload capture is missing at {path:?}",
-    );
+    anyhow::ensure!(path.exists(), "the workload capture is missing at {path:?}",);
     // It runs out of the repository's poetry venv, which the mise task installs.
     anyhow::ensure!(
         root.join(".venv/bin/python").exists(),
@@ -440,7 +456,15 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
     let events = read_trace(run)?;
     Ok(events
         .iter()
-        .filter(|e| matches!(e.event, Event::Phase { trigger: Trigger::StartedCommit, .. }))
+        .filter(|e| {
+            matches!(
+                e.event,
+                Event::Phase {
+                    trigger: Trigger::StartedCommit,
+                    ..
+                }
+            )
+        })
         .count() as u64)
 }
 

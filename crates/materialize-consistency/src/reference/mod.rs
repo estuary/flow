@@ -293,7 +293,9 @@ fn spec() -> materialize::Response {
             protocol: 3032023,
             config_schema_json: config_schema.to_string().into(),
             resource_config_schema_json: resource_schema.to_string().into(),
-            documentation_url: "https://github.com/estuary/flow/tree/master/crates/materialize-consistency".to_string(),
+            documentation_url:
+                "https://github.com/estuary/flow/tree/master/crates/materialize-consistency"
+                    .to_string(),
             ..Default::default()
         }),
         ..Default::default()
@@ -575,9 +577,10 @@ fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Res
     session.skip = Vec::with_capacity(session.bindings.len());
 
     for binding in &session.bindings {
-        let destination = session
-            .store
-            .appended(session.key_begin, session.key_end, &binding.table.name)?;
+        let destination =
+            session
+                .store
+                .appended(session.key_begin, session.key_end, &binding.table.name)?;
         let checkpointed = shard_state
             .appended
             .get(&binding.table.name)
@@ -635,13 +638,14 @@ fn ancestors(state: &State, key_begin: u32, key_end: u32) -> Vec<(u32, u32, Shar
             let (begin, end) = parse_shard_key(key)?;
             let contains = begin <= key_begin && end >= key_end;
 
-            (contains && (begin, end) != (key_begin, key_end))
-                .then(|| (begin, end, entry.clone()))
+            (contains && (begin, end) != (key_begin, key_end)).then(|| (begin, end, entry.clone()))
         })
         .collect()
 }
 
-fn decode_checkpoint(bytes: Option<&[u8]>) -> anyhow::Result<Option<proto_flow::RuntimeCheckpoint>> {
+fn decode_checkpoint(
+    bytes: Option<&[u8]>,
+) -> anyhow::Result<Option<proto_flow::RuntimeCheckpoint>> {
     let Some(bytes) = bytes else { return Ok(None) };
     if bytes.is_empty() {
         return Ok(None);
@@ -664,7 +668,8 @@ fn load_document(
 
     let Some(doc) = session
         .store
-        .load(session.key_begin, session.key_end, &binding.table, key)? else {
+        .load(session.key_begin, session.key_end, &binding.table, key)?
+    else {
         return Ok(Vec::new()); // Keys not found MUST be omitted.
     };
 
@@ -686,10 +691,7 @@ fn load_document(
 /// document.
 const STAGE_BATCH: usize = 64;
 
-fn store_document(
-    session: &mut Session,
-    store: materialize::request::Store,
-) -> anyhow::Result<()> {
+fn store_document(session: &mut Session, store: materialize::request::Store) -> anyhow::Result<()> {
     let binding_index = store.binding as usize;
     let binding = session
         .bindings
@@ -737,9 +739,12 @@ fn store_document(
             session.buffered.push((table, row));
             if session.buffered.len() >= STAGE_BATCH {
                 let batch = std::mem::take(&mut session.buffered);
-                session
-                    .store
-                    .stage(session.key_begin, session.key_end, session.staging_txn, &batch)?;
+                session.store.stage(
+                    session.key_begin,
+                    session.key_end,
+                    session.staging_txn,
+                    &batch,
+                )?;
             }
         }
 
@@ -796,9 +801,12 @@ fn start_commit_txn(
         Class::PostCommitApply => {
             let rows = std::mem::take(&mut session.buffered);
             if !rows.is_empty() {
-                session
-                    .store
-                    .stage(session.key_begin, session.key_end, session.staging_txn, &rows)?;
+                session.store.stage(
+                    session.key_begin,
+                    session.key_end,
+                    session.staging_txn,
+                    &rows,
+                )?;
             }
             session.committed_txn = session.staging_txn;
             session.staging_txn += 1;

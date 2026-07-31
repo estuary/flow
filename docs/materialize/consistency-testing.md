@@ -474,6 +474,51 @@ it, so it must either duplicate or lose. The counted channel never asks that que
 `counter-survives-a-split` verifies it directly, and it is the scenario that most closely
 mirrors what the Snowpipe path actually relies on in production.
 
+### A known runtime limitation: a prepared transaction must outlive a membership change
+
+Two scenarios fail for a reason that is **not** a connector defect and not a harness
+defect. It is a known limitation of the current runtime, and fixing it is out of scope for
+this suite. The scenarios are kept, red, because they are the regression detector for it.
+
+The rule the runtime does not yet enforce:
+
+> Once a transaction is prepared, that same transaction **and the same shard split** must
+> be used to finish it, through to the commit of the driver checkpoint. A change in the
+> number of shards should only become active after any prior prepared transaction has been
+> fully processed.
+
+Without that guarantee, a split or join landing between "prepared" and "checkpoint
+committed" corrupts any strategy that reconciles against a per-shard destination counter:
+
+**Scaling down** — `[0, 5)` and `[5, 10)` become `[0, 10)`. A prepared transaction holds 7
+keys per range, 14 total; each shard writes its 7, so each channel counter reads 7. The
+task scales down and crashes before the driver checkpoint commits. The single new shard
+reads a counter of 7 and a checkpointed 0, so it skips 7 of the coming transaction rather
+than 14 — **duplicates**.
+
+**Scaling up** — `[0, 10)` becomes `[0, 5)` and `[5, 10)`. The prepared transaction holds
+14 keys; `[0, 10)` writes all 14. The task splits before the checkpoint commits. A `[0, 5)`
+shard that resolves "the channel whose range starts at 0" sees 14, skips 14, and **misses
+data**; `[5, 10)` opens a new channel and **duplicates** its first 7.
+
+**What the suite observes, and one difference worth keeping.** The crash-then-split run
+shows 40 duplicates, every one exactly ×2, and *nothing missing* — one transaction's worth
+of appends landed twice. The scaling-up analysis predicts one child missing data and the
+other duplicating; this connector only duplicates, because its channels are keyed by the
+whole range `(key_begin, key_end)` rather than by `key_begin` alone. A new child therefore
+never inherits an offset that isn't its own, so it never over-skips, so it cannot silently
+lose data — it can only duplicate.
+
+That is worth preserving beyond this suite: **keying a channel by the shard's full range
+converts the scaling-up failure from silent data loss into duplication.** Duplication is
+detectable at the destination; loss of a prefix is not. It does not fix the limitation, but
+it makes the limitation's consequences the safer of the two.
+
+**What passes anyway.** A split with no transaction in flight is survived cleanly: the
+counted-channel class passed three consecutive runs across a split of 1196, 1458 and 1498
+documents when no appends were pending. The limitation bites only in the window the
+mitigation names.
+
 ### The post-commit-apply limit: staged work cannot be inherited across a split
 
 Range-pair keying (below) removed the ambiguity between an ancestor and a sibling, and

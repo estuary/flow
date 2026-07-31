@@ -9,8 +9,8 @@
 //! not exported. Re-deriving it here would be a second copy of something with no
 //! test of its own.
 
-use anyhow::Context;
 use crate::invariants::Event;
+use anyhow::Context;
 
 /// Identity of the stack this checkout owns, as `mise` makes it ambient.
 pub struct Stack {
@@ -48,8 +48,8 @@ impl Stack {
         let auth_token = var("FLOW_AUTH_TOKEN")?;
 
         let home = var("HOME")?;
-        let ca_cert = std::env::var("SSL_CERT_FILE")
-            .unwrap_or_else(|_| format!("{home}/flow-local/ca.crt"));
+        let ca_cert =
+            std::env::var("SSL_CERT_FILE").unwrap_or_else(|_| format!("{home}/flow-local/ca.crt"));
 
         let flowctl = target_dir.join("debug/flowctl");
         anyhow::ensure!(
@@ -261,7 +261,14 @@ impl Stack {
     /// tail-truncated materialization is internally consistent.
     pub async fn read_collection(&self, collection: &str) -> anyhow::Result<Vec<Event>> {
         let stdout = self
-            .run(&["collections", "read", "--collection", collection, "-o", "json"])
+            .run(&[
+                "collections",
+                "read",
+                "--collection",
+                collection,
+                "-o",
+                "json",
+            ])
             .await
             .with_context(|| format!("reading collection {collection}"))?;
 
