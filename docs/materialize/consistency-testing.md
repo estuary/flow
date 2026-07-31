@@ -440,21 +440,53 @@ So: a genuine defect removed, and the symptom it was expected to explain still p
 Whatever strands those documents is either a second path into the same staging leak or
 something else, and the open item below is the likelier candidate.
 
-### Open: an ancestor's *uncommitted* staging is visible to a child
+### Found, and it is a design limit: staged work cannot be inherited across a split
 
-The standard binding is still wrong for about a third of accounts, over- and
-under-counting — the wrong-`Load`-base signature again, with a narrower cause. A child
-can see an ancestor's staged rows by containment, but it cannot tell which of them belong
-to a transaction the recovery log never committed, and it cannot discard them either:
-`discard_staged_after` is keyed on the *shard*, and those rows belong to the parent's
-range. So a child may reduce from an aborted transaction's staging.
+Range-pair keying (below) removed the ambiguity between an ancestor and a sibling, and
+produced the first fully-correct run — the clean build upheld every invariant over 1913
+documents while the defective build was caught with 129 violations. But four runs in five
+still fail, now by *duplicating* rather than losing, and the evidence says why.
 
-The underlying flaw is transaction identity: staging is keyed by a *per-shard* counter
-that restarts at one for a new key range, so "which transactions are committed" is not a
-question a child can answer about its ancestor's rows. Keying staged work by something
-stable across a membership change — the runtime checkpoint, or a task-level monotonic
-counter — makes the whole class of question answerable, and is the direction to take
-rather than another containment refinement.
+Every failing account has repeated `(id, seq)` rows in the merged delta binding, and the
+running sum diverges from the oracle **exactly at the first repeat**:
+
+| account | repeated seqs | first divergence | final oracle |
+| --- | --- | --- | --- |
+| 2 | 4, 6 | seq 4, off by −34 | correct |
+| 3 | 3, 5 | seq 3, off by −59 | correct |
+| 4 | 1, 3 | seq 1, off by +74 | correct |
+| 5 | 2, 3 | seq 2, off by −110 | correct |
+
+Accounts that pass have no repeats. Final oracle and final sequence are right everywhere,
+so nothing is lost — early transactions are applied twice. The append-only binding agrees:
+783 delivered against 779 expected, three duplicates, nothing missing.
+
+The cause is the repair itself, and it is not a keying problem. When a split child finds an
+ancestor's staged-but-unapplied transaction it faces a question it cannot answer: **is my
+own resume point before or after that transaction?**
+
+- If after, the work is committed and unapplied, and applying it is the only way to avoid
+  losing it — the leak fixed above.
+- If before, the runtime is about to replay that same input, and applying it duplicates.
+
+A shard's resume point is not something the connector is told. For shard zero it follows
+its own recovery log, but a *non-zero* V2 shard is stateless — no recovery log, its
+progress arriving through the leader — so a child's starting point can legitimately predate
+its ancestor's last committed transaction. Applying risks duplication; discarding risks
+loss; the connector has no third option.
+
+**The conclusion is about the class, not the reference connector.** Post-commit-apply
+staging is only safe across a membership change if re-application is idempotent *per
+document* rather than per transaction — which a keyed, merged destination gets for free and
+an append-only one cannot have without a deduplication key. That is precisely why the
+Snowpipe Streaming v2 path uses a *counted channel* — the document-counter class, which
+resumes by asking the destination how far it got — rather than post-commit staging. This
+scenario has, the long way round, derived the reason that design exists.
+
+So `split-during-commit` against the post-commit-apply class is testing something that
+class cannot do. The options are to pair the scenario with a connector class that can
+(document-counter), or to keep it as a declared exemption with this reasoning attached.
+Either way it should not be silently made green.
 
 ### Open: the paired defect no longer bites
 
