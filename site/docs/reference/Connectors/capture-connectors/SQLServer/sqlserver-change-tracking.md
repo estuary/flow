@@ -164,6 +164,7 @@ See [connectors](/concepts/connectors.md#using-connectors) to learn more about u
 | `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query.                                                    | integer | `50000`                     |
 | `/advanced/skip_backfills`      | Skip Backfills      | A comma-separated list of fully-qualified table names which should not be backfilled.                                                       | string  |                            |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document, when set. | string |  |
+| `/advanced/rediscovery_interval` | Rediscovery Interval | How often the connector re-runs discovery while a capture is running, in order to notice schema changes and newly added tables. Accepts duration strings like `15m` or `1h`, from `1m` up to `8760h`. | string | `"15m"` |
 
 #### Bindings
 

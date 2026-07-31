@@ -177,6 +177,7 @@ these filters exclude will be deactivated the next time discovery runs.
 | `/advanced/discover_unpublished_tables` | Discover Unpublished Tables | If `true`, the capture discovers all tables, even ones not currently in the publication. | boolean |  |
 | `/advanced/source_tag` | Source Tag | This value is added as the property 'tag' in the source metadata of each document. | string |  |
 | `/advanced/statement_timeout` | Statement Timeout | Overrides the statement timeout used by the connector. Leave blank to use the default of 2 minutes. Set to `0` to disable statement timeouts entirely. Options include `""`, `0`, `30s`, `1m`, `2m`, `5m`, and `30m`. | string | `""` |
+| `/advanced/rediscovery_interval` | Rediscovery Interval | How often the connector re-runs discovery while a capture is running, in order to notice schema changes and newly added tables. Accepts duration strings like `15m` or `1h`, from `1m` up to `8760h`. | string | `"15m"` |
 
 #### Bindings
 
