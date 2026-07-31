@@ -28,6 +28,10 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     connector_tx: mpsc::Sender<derive::Request>,
     // Wire codec negotiated with the connector.
     codec: connector_init::Codec,
+    // Channel for sending to the controller. Used only to answer the test-only
+    // `Reset` with `ResetDone`; `Joined` / `Stopped` are sent by the session
+    // handler, not the Actor.
+    controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
     // RocksDB, when a Persist is not in flight (shard zero only persists).
     db: Option<crate::shard::RocksDB>,
     // RocksDB future when a Persist is in flight. Resolves to the reply the
@@ -65,6 +69,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
     pub fn new(
         codec: connector_init::Codec,
         connector_tx: mpsc::Sender<derive::Request>,
+        controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
         db: crate::shard::RocksDB,
         leader_tx: mpsc::UnboundedSender<proto::Derive>,
         metrics: super::Metrics,
@@ -77,6 +82,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
             connector_pending: Vec::new(),
             connector_tx,
             codec,
+            controller_tx,
             db: Some(db),
             db_persist_fut: None,
             drain_fut: None,
@@ -553,7 +559,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         &mut self,
         msg: Option<tonic::Result<proto::Derive>>,
     ) -> anyhow::Result<()> {
-        let verify = crate::verify("Derive", "Stop or CloseNow", "controller");
+        let verify = crate::verify("Derive", "Stop, CloseNow, or Reset", "controller");
         let msg = verify.not_eof(msg)?;
 
         if matches!(msg.stop, Some(proto::Stop {})) {
@@ -566,6 +572,33 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 close_now: Some(proto::CloseNow {}),
                 ..Default::default()
             });
+        } else if matches!(msg.reset, Some(proto::Reset {})) {
+            // Test-only connector state reset. This is handled entirely
+            // shard-locally: the leader is not involved, because the caller
+            // (the catalog-test harness) is quiescent whenever it sends Reset.
+            //
+            // C:Reset is fire-and-forget — the connector protocol defines no
+            // response. Queueing it on `connector_pending` is what makes
+            // ResetDone meaningful: `connector_pending` drains in order into
+            // `connector_tx`, so any C:Read subsequently queued by a later
+            // transaction necessarily sits behind this C:Reset. Answering the
+            // controller now therefore promises exactly what the harness needs,
+            // without waiting on the connector.
+            //
+            // Note the invariant this creates: a session which restarted after
+            // a Reset would re-`Open` its connector with the stale, pre-reset
+            // `connector_state_json`, because nothing here clears the persisted
+            // state. That is safe only because Reset is test-only and the
+            // harness keeps exactly one resident session per derivation for the
+            // whole run.
+            self.connector_pending.push(derive::Request {
+                reset: Some(derive::request::Reset {}),
+                ..Default::default()
+            });
+            _ = self.controller_tx.send(Ok(proto::Derive {
+                reset_done: Some(proto::ResetDone {}),
+                ..Default::default()
+            }));
         } else {
             return Err(verify.fail_msg(msg));
         }
@@ -616,6 +649,8 @@ mod tests {
     async fn observe_throttle_split_dispatch() {
         let (actor_to_conn_tx, _conn_rx) = mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
         let (actor_to_leader_tx, _leader_rx) = mpsc::unbounded_channel::<proto::Derive>();
+        let (actor_to_controller_tx, _controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
         let task = Arc::new(test_task());
 
         let spec = proto_flow::flow::CollectionSpec {
@@ -632,6 +667,7 @@ mod tests {
         let mut actor = Actor::new(
             connector_init::Codec::Proto,
             actor_to_conn_tx,
+            actor_to_controller_tx,
             crate::shard::RocksDB::open(None).await.unwrap(),
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
@@ -712,6 +748,8 @@ mod tests {
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
         let (controller_to_actor_tx, controller_to_actor_rx) =
             mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+        let (actor_to_controller_tx, _actor_to_controller_rx) =
+            mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
 
         let task = Arc::new(test_task());
         let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
@@ -723,6 +761,7 @@ mod tests {
         let actor = Actor::new(
             connector_init::Codec::Proto,
             actor_to_conn_tx,
+            actor_to_controller_tx,
             db,
             actor_to_leader_tx,
             super::super::Metrics::new("test/shard"),
@@ -874,5 +913,195 @@ mod tests {
         // Confirm the Persist round-tripped.
         let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();
         assert_eq!(recover.last_applied.as_ref(), b"persisted-spec-bytes");
+    }
+
+    /// Channels and handles of a running `Actor::serve`, for the Reset tests.
+    struct Fixture {
+        conn_rx: mpsc::Receiver<derive::Request>,
+        conn_tx: mpsc::Sender<tonic::Result<derive::Response>>,
+        controller_rx: mpsc::UnboundedReceiver<tonic::Result<proto::Derive>>,
+        controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
+        leader_rx: mpsc::UnboundedReceiver<proto::Derive>,
+        leader_tx: mpsc::UnboundedSender<tonic::Result<proto::Derive>>,
+        serve: tokio::task::JoinHandle<anyhow::Result<crate::shard::RocksDB>>,
+        // Held so the shuffle directory outlives the session.
+        _shuffle_dir: tempfile::TempDir,
+    }
+
+    impl Fixture {
+        async fn start() -> Self {
+            let (actor_to_conn_tx, conn_rx) =
+                mpsc::channel::<derive::Request>(crate::CHANNEL_BUFFER);
+            let (conn_tx, conn_to_actor_rx) =
+                mpsc::channel::<tonic::Result<derive::Response>>(crate::CHANNEL_BUFFER);
+            let (actor_to_leader_tx, leader_rx) = mpsc::unbounded_channel::<proto::Derive>();
+            let (leader_tx, leader_to_actor_rx) =
+                mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+            let (controller_tx, controller_to_actor_rx) =
+                mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+            let (actor_to_controller_tx, controller_rx) =
+                mpsc::unbounded_channel::<tonic::Result<proto::Derive>>();
+
+            let task = Arc::new(test_task());
+            let accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
+            let write_shape = task.write_shape.clone();
+            let db = crate::shard::RocksDB::open(None).await.unwrap();
+            let shuffle_dir = tempfile::tempdir().unwrap();
+            let shuffle_reader = shuffle::log::Reader::new(shuffle_dir.path(), 0);
+
+            let actor = Actor::new(
+                connector_init::Codec::Proto,
+                actor_to_conn_tx,
+                actor_to_controller_tx,
+                db,
+                actor_to_leader_tx,
+                super::super::Metrics::new("test/shard"),
+                crate::TracingLogger,
+                crate::publish::NoopPublisher,
+                task,
+                write_shape,
+            );
+
+            let serve = tokio::spawn(async move {
+                let mut conn_stream = ReceiverStream::new(conn_to_actor_rx);
+                let mut leader_stream = UnboundedReceiverStream::new(leader_to_actor_rx);
+                let mut controller_stream = UnboundedReceiverStream::new(controller_to_actor_rx);
+                actor
+                    .serve(
+                        accumulator,
+                        &mut conn_stream,
+                        &mut controller_stream,
+                        &mut leader_stream,
+                        shuffle_reader,
+                    )
+                    .await
+            });
+
+            Self {
+                conn_rx,
+                conn_tx,
+                controller_rx,
+                controller_tx,
+                leader_rx,
+                leader_tx,
+                serve,
+                _shuffle_dir: shuffle_dir,
+            }
+        }
+
+        /// Send a controller Reset and await its ResetDone, returning the
+        /// `derive::Request` the connector observed.
+        async fn reset(&mut self) -> derive::Request {
+            self.controller_tx
+                .send(Ok(proto::Derive {
+                    reset: Some(proto::Reset {}),
+                    ..Default::default()
+                }))
+                .unwrap();
+
+            let req = self.conn_rx.recv().await.unwrap();
+            let done = self.controller_rx.recv().await.unwrap().unwrap();
+            assert!(done.reset_done.is_some(), "controller receives ResetDone");
+            req
+        }
+
+        /// Drive L:Stopped + leader EOF and assert `serve` completed cleanly.
+        async fn shutdown(self) {
+            self.leader_tx
+                .send(Ok(proto::Derive {
+                    stopped: Some(proto::Stopped {}),
+                    ..Default::default()
+                }))
+                .unwrap();
+            std::mem::drop(self.leader_tx);
+
+            _ = self.serve.await.unwrap().unwrap();
+        }
+    }
+
+    /// A controller Reset arriving while the shard is idle forwards C:Reset to
+    /// the connector and answers ResetDone, without involving the leader. The
+    /// harness sends one Reset per test case, so repeated Resets must work.
+    #[tokio::test]
+    async fn reset_while_idle() {
+        let mut fixture = Fixture::start().await;
+
+        for _ in 0..3 {
+            let req = fixture.reset().await;
+            assert!(req.reset.is_some(), "connector receives C:Reset");
+        }
+
+        // The leader was never in the path.
+        assert!(fixture.leader_rx.try_recv().is_err());
+
+        fixture.shutdown().await;
+    }
+
+    /// The session continues normally after a Reset, and the C:Reset is ordered
+    /// ahead of the following transaction's connector requests — the property
+    /// which lets the harness treat ResetDone as sufficient.
+    #[tokio::test]
+    async fn reset_then_transaction() {
+        let mut fixture = Fixture::start().await;
+
+        // A document published before the Reset. It sits in the shard's output
+        // combiner, which Reset does not touch — Reset clears *connector*
+        // state, not runtime state.
+        fixture
+            .conn_tx
+            .send(Ok(derive::Response {
+                published: Some(response::Published {
+                    doc_json: bytes::Bytes::from_static(br#"{"id":"a","_meta":{"uuid":""}}"#),
+                }),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+
+        let req = fixture.reset().await;
+        assert!(req.reset.is_some());
+
+        // A full flush → store cycle still completes afterward.
+        fixture
+            .leader_tx
+            .send(Ok(proto::Derive {
+                flush: Some(proto::derive::Flush {
+                    connector_patches_json: bytes::Bytes::new(),
+                }),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        // The connector's next request is C:Flush: C:Reset was already drained
+        // ahead of it from the same FIFO.
+        let req = fixture.conn_rx.recv().await.unwrap();
+        assert!(req.flush.is_some(), "C:Flush follows C:Reset in order");
+
+        fixture
+            .conn_tx
+            .send(Ok(derive::Response {
+                flushed: Some(response::Flushed {
+                    state: None,
+                    more: false,
+                }),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+        assert!(fixture.leader_rx.recv().await.unwrap().flushed.is_some());
+
+        fixture
+            .leader_tx
+            .send(Ok(proto::Derive {
+                store: Some(proto::derive::Store {}),
+                ..Default::default()
+            }))
+            .unwrap();
+
+        let stored = fixture.leader_rx.recv().await.unwrap().stored.unwrap();
+        assert_eq!(stored.published_docs_total, 1);
+        assert_eq!(stored.drained_docs_total, 1);
+
+        fixture.shutdown().await;
     }
 }

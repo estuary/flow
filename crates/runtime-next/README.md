@@ -121,6 +121,34 @@ src/
 The only messages that flow controller → runtime-next → leader unmodified are
 `Stop` and `CloseNow`.
 
+### `Reset` (derive only, test-only)
+
+`Reset` is the one controller-facing message a shard answers *by itself*. It
+asks the shard's connector to reset its internal state to an
+as-just-initialized condition, mapping onto `derive::Request.Reset`, and is used
+by the catalog-test harness to isolate test cases. The leader is not in its
+path, and `Reset` is answered directly with `ResetDone`
+(`shard/derive/actor.rs::on_controller_request`).
+
+The leader is absent by design. Sequencing a reset at a transaction boundary
+common to all shards would be the leader's job — but the caller already has
+that property: the harness drives exactly one transaction per `stat()` and
+awaits its commit, so it only sends `Reset` while quiescent. Nothing is
+persisted either, because connector state is read exactly once per session, at
+`Open`.
+
+`ResetDone` is still needed, because a shard receives transaction messages from
+its *leader* and `Reset` from its *controller*; ordering within one stream says
+nothing about the other. What makes an immediate `ResetDone` honest is that
+`C:Reset` is queued on the actor's `connector_pending` FIFO, which drains in
+order into `connector_tx` — so any `C:Read` a later transaction queues
+necessarily sits behind it.
+
+The consequence to keep in mind: because nothing is persisted, a session which
+restarted after a `Reset` would re-`Open` its connector with stale, pre-reset
+state. That is sound only because `Reset` is test-only and the harness keeps one
+resident session per derivation for an entire run.
+
 ## Protocol
 
 `go/protocols/runtime/runtime.proto` defines `Leader` and `Shard` RPCs. Both
