@@ -181,6 +181,17 @@ documented inline in the proto.
 - **`shard/rocksdb.rs` is the single Persist application path.** Capture
   reuses it by synthesizing `Persist` messages locally rather than receiving
   them from a leader.
+- **A `Stop` may outrun the session it addresses.** The controller sends
+  `Stop` when it observes its task term cancelled, and it selects over that
+  cancellation and our `Stopped` concurrently — so the two cross on the wire
+  whenever a session ends at the same moment the term does. A publish does
+  exactly that to every shard at once, and an idempotent-replay session that
+  stops itself can coincide with one. Each session loop therefore absorbs a
+  `Stop` received while awaiting a `Join`: the session it addressed is over,
+  and its `Stopped` is already on its way to the controller.
+  Failing the stream instead strands the shard, since the stream is created
+  once per replica (`NewStore`) and reused by every later session — each of
+  which would then fail its `Join`, recoverable only by unassigning.
 
 ## Coexistence with `runtime`
 
