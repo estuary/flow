@@ -158,6 +158,17 @@ where
                 )
                 .await?;
             }
+
+            // A Stop addressed to a session which has already returned here.
+            // The controller's teardown select observes its term cancellation
+            // and our Stopped concurrently — a publish cancels every shard's
+            // term at once, and also ends every session, so both are ready
+            // together and either can win. The session it asked us to stop is
+            // over, so the Stop is already satisfied; failing the stream over
+            // it instead strands the shard, because every later session on
+            // this stream then fails its Join.
+            proto::Materialize { stop: Some(_), .. } => continue,
+
             request => return Err(verify.fail_msg(request)),
         };
     }
