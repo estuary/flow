@@ -368,45 +368,66 @@ a snapshot would add a stale artifact without adding information.
 The shard-split and join scenarios were the last to work, and getting them to run
 surfaced more than they were written to check. One lead remains open at the bottom.
 
-**`split-during-commit` — root cause found: a `Load` must see staged writes.** It
-failed roughly one run in three with oracle-agreement violations, each account off by
-about one transaction's worth, in either direction. Two causes stacked up, and only the
-second is interesting.
+**`split-during-commit` — one root cause found and fixed, one still open.**
 
-The first was the harness: `drain` gave up after three quiet polls, and a shard
-restarting after a split stops writing for longer than that, so an incomplete
-destination read as settled. Its own log said so — `the destination stopped short of
-the collections log="722/740"` — and settling is now gated on the task having a primary
-on every shard.
+### Found: a `Load` must see staged writes, including an ancestor's
 
-The second is a real requirement on the post-commit-apply class, and it is the root
-cause. **A connector must answer `Load` consistently with everything it has been asked
-to `Store` in a committed transaction, whether or not it has physically applied it
-yet.** That class stages during `Store` and applies during `Acknowledge`; between those
-points its rows are durable and *invisible*. The reference connector's `load()` read
-only the destination table, so a Load landing in that window returned a document
-missing that transaction's contribution — and the runtime reduced from that stale base
-and stored the result.
+The proof is one account from a failing run's `evidence.json`. Same collection, same
+transactions, two bindings:
 
-Three details make the symptoms line up exactly:
+| binding | value | uses `Load`? |
+| --- | --- | --- |
+| merged delta | 57 → 48 → … → **321**, matching the oracle at every step | no |
+| merged standard | **152** (expected 321), `seq` fully current | yes |
 
-- **Why it needs a split.** The runtime re-uses documents it cached from prior
-  transactions, so a long-lived session rarely issues a real `Load` for a key it just
-  stored — the bug is unreachable. A split gives its children cold caches, and they
-  issue real Loads.
-- **Why it is intermittent.** A Load has to land inside the staged-but-unapplied
-  window. This scenario stalls `StartCommit` by four seconds, which widens that window
-  enormously; `split-during-store`, which does not stall, passes.
-- **Why it looked like a torn reduction.** A balance is signed, so a contribution
-  missed once and re-applied once move the sum in opposite directions. Mixed over- and
-  under-counting is the signature of a *wrong base*, not of tearing. (I read it as
-  tearing first, despite a unit test in this repository making precisely that point.)
+Nothing was lost — the sequence is up to date. Only the reduced *sum* is wrong, and only
+on the binding the runtime computes by loading, reducing and storing. Nothing but a
+stale `Load` base produces that.
 
-The lesson generalises past this connector: **if you stage writes, your Load path has
-to see your staging.** Any connector that defers application — staged files, a
-post-commit merge, a queued batch — owes the runtime a read-your-writes view over
-committed transactions, and a single-shard test cannot detect its absence because the
-runtime's cache hides it.
+The post-commit-apply class stages during `Store` and applies during `Acknowledge`;
+between those points its rows are durable and invisible, and `load()` consulted only the
+destination table. **A connector must answer `Load` consistently with everything it has
+been asked to `Store` in a committed transaction, applied or not.**
+
+Why it needs a split: the runtime re-uses documents it cached from prior transactions,
+so a long-lived session rarely issues a real `Load` for a key it just stored — the bug
+is unreachable. Split children start with cold caches. Why it is intermittent: a Load
+must land inside the staged-but-unapplied window, which this scenario's 4-second
+`StartCommit` stall widens.
+
+Three scopes were measured before the right one:
+
+| staged visibility | clean half | paired defect |
+| --- | --- | --- |
+| own shard only | 0 of 5 passed | caught |
+| every shard | passed | not reliably caught |
+| ranges containing mine | 1500–1800 documents upheld | not reliably caught |
+
+Own-shard-only fails because a split child's inherited keys have their staged rows under
+the *parent's* wider range. Containment admits ancestors and excludes siblings, which is
+the correct rule — sibling ranges never contain one another.
+
+### Open: the log binding loses ~2-3% of its documents
+
+In roughly three runs of five the append-only binding finishes short —
+`log="724/740" reason="went quiet" healthy=true` — with the task healthy and no longer
+writing. That binding is delta-updates and is never loaded, so the fix above cannot
+explain it, and the shortfall is not a tail: an earlier capture showed 23 documents
+missing from the *middle* of accounts' histories with delivery continuing past the gap,
+and zero extra rows.
+
+The suspicion is the post-commit-apply staging lifecycle across a membership change —
+staged rows that are neither applied nor discarded when transaction identity resets per
+shard — but that is a hypothesis, not a finding, and it should be established from an
+`evidence.json` of a clean failure before anything is changed.
+
+### Open: the paired defect no longer bites
+
+`IgnoreKeyRange` makes both shards claim the *identical* full range, so containment
+admits them to each other's staging and repairs part of the damage the defect exists to
+cause. The scenario needs a defect containment cannot repair — `DropDocuments` is the
+obvious candidate — but re-pairing it while the clean half still fails would only hide
+the open bug above.
 
 **`join-after-split` — the task does not resume committing after the join.** The
 join itself applies correctly (verified by hand: two shards collapse to one covering
