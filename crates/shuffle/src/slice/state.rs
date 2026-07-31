@@ -253,17 +253,22 @@ pub struct ResolvedCheckpoint {
     /// The offset at which the main journal read starts; the maximum
     /// offset magnitude across all producer entries.
     pub offset: i64,
-    /// Recovered producer states to become the read's `settled` map.
+    /// Recovered producer states to become the read's `reported` map.
     /// Entries with an open span beginning before `offset` are marked as gapped.
     pub producers: ProducerMap<ProducerState>,
+    /// Producers carrying an unresolved causal hint, mapped to that hinted Clock.
+    /// Non-empty only for a read started by an idempotent-recovery session.
+    pub hinted: ProducerMap<uuid::Clock>,
 }
 
-/// Resolve a checkpoint into a start offset and initial ProducerStates.
+/// Resolve a checkpoint into a start offset, initial ProducerStates, and the
+/// causal hints those states must read through.
 pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> ResolvedCheckpoint {
     let mut producers = ProducerMap::<ProducerState>::with_capacity_and_hasher(
         checkpoint.len(),
         Default::default(),
     );
+    let mut hinted = ProducerMap::<uuid::Clock>::default();
     // First pass: recover producer states and offset of maximum progress.
     let mut max_offset = 0i64;
 
@@ -271,7 +276,7 @@ pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> Resolve
         let shuffle::ProducerFrontier {
             producer,
             last_commit,
-            hinted_commit: _,
+            hinted_commit,
             offset,
         } = frontier;
 
@@ -289,6 +294,11 @@ pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> Resolve
         } else {
             last_commit
         });
+
+        let hinted_commit = uuid::Clock::from_u64(hinted_commit);
+        if hinted_commit > last_commit {
+            hinted.insert(producer, hinted_commit);
+        }
 
         max_offset = max_offset.max(offset.abs());
 
@@ -323,6 +333,7 @@ pub fn resolve_checkpoint(checkpoint: Vec<shuffle::ProducerFrontier>) -> Resolve
     ResolvedCheckpoint {
         offset: max_offset,
         producers,
+        hinted,
     }
 }
 
@@ -660,7 +671,7 @@ mod test {
         Producer::from_bytes([id | 0x01, 0, 0, 0, 0, 0])
     }
 
-    /// Test helper mirroring the drain loop's hot path: one pending-else-settled
+    /// Test helper mirroring the drain loop's hot path: one unreported-else-reported
     /// lookup, then the pure `sequence_producer` (the single sequencing path for
     /// gapped and non-gapped producers alike).
     fn sequence(
@@ -710,7 +721,7 @@ mod test {
             let read = &mut self.reads[read_id];
             read.backfill_begin = read.backfill_begin.max(seq.backfill_begin);
             read.backfill_complete = read.backfill_complete.max(seq.backfill_complete);
-            _ = read.pending.insert(producer, seq.producer_state);
+            _ = read.unreported.insert(producer, seq.producer_state);
             if seq.is_commit {
                 self.flush.set_ready();
             }
@@ -767,7 +778,7 @@ mod test {
         assert!(no_gaps(&r));
 
         // Mixed: M = 1000 (max magnitude, from the committed -1000); both
-        // uncommitted spans (300, 100) begin before M → gapped.
+        // open spans (300, 100) begin before M → gapped.
         let r = resolve_checkpoint(vec![cp(&p1, -1000), cp(&p3, 300), cp(&p5, 100)]);
         assert_eq!(r.offset, 1000);
         assert_eq!(
@@ -775,7 +786,7 @@ mod test {
             vec![(-1000, false), (100, true), (300, true)]
         );
 
-        // An uncommitted span at exactly M is recovered normally: the main
+        // An open span at exactly M is recovered normally: the main
         // read encounters it from its first document.
         let r = resolve_checkpoint(vec![cp(&p1, -300), cp(&p3, 300), cp(&p5, 100)]);
         assert_eq!(r.offset, 300);
@@ -990,7 +1001,7 @@ mod test {
 
         // Any OUTSIDE against the gapped sentinel errors with
         // `OutsideWithPrecedingContinue` — identical to a non-gapped producer
-        // carrying a genuine pending span. The sentinel `max_continue == L`
+        // carrying a genuine open span. The sentinel `max_continue == L`
         // stands for a real (if unread) open span, and the producer protocol
         // forbids an OUTSIDE_TXN before that span's terminating ACK_TXN. The error
         // precedes any clock comparison, so it holds at every clock: a gapped
@@ -1110,20 +1121,16 @@ mod test {
         let p1 = producer(0x01);
 
         // Start read with p1 in the checkpoint.
-        let producers = resolve_checkpoint(vec![checkpoint_entry(&p1, 0)]).producers;
-        s.reads.push(ReadState {
-            binding_index: 0,
-            journal: "test/journal/A".into(),
-            truncated_at: Clock::zero(),
-            backfill_begin: Clock::zero(),
-            backfill_complete: Clock::zero(),
-            settled: producers,
-            pending: Default::default(),
-            read_offset: 0,
-            prev_read_offset: 0,
-            write_head: 0,
-            prev_write_head: 0,
-        });
+        let ResolvedCheckpoint {
+            producers, hinted, ..
+        } = resolve_checkpoint(vec![checkpoint_entry(&p1, 0)]);
+        s.reads.push(ReadState::recovered(
+            0,
+            "test/journal/A".into(),
+            Clock::zero(),
+            producers,
+            hinted,
+        ));
 
         // Clock before notBefore: suppresses append but not commit.
         let seq = sequence(
@@ -1166,21 +1173,16 @@ mod test {
         let p3 = producer(0x03);
 
         // Start read with both producers in the checkpoint.
-        let producers =
-            resolve_checkpoint(vec![checkpoint_entry(&p1, 0), checkpoint_entry(&p3, 0)]).producers;
-        s.reads.push(ReadState {
-            binding_index: 0,
-            journal: "test/journal/A".into(),
-            truncated_at: Clock::zero(),
-            backfill_begin: Clock::zero(),
-            backfill_complete: Clock::zero(),
-            settled: producers,
-            pending: Default::default(),
-            read_offset: 0,
-            prev_read_offset: 0,
-            write_head: 0,
-            prev_write_head: 0,
-        });
+        let ResolvedCheckpoint {
+            producers, hinted, ..
+        } = resolve_checkpoint(vec![checkpoint_entry(&p1, 0), checkpoint_entry(&p3, 0)]);
+        s.reads.push(ReadState::recovered(
+            0,
+            "test/journal/A".into(),
+            Clock::zero(),
+            producers,
+            hinted,
+        ));
 
         // Initially: flush not ready → should_flush false.
         assert!(!s.flush.should_flush());
@@ -1214,7 +1216,10 @@ mod test {
         let flush_cycle = s.flush.start(3, frontier);
         assert_eq!(flush_cycle, 1, "flush_cycle is the current cycle");
         assert!(!s.flush.should_flush(), "not ready after start");
-        assert!(s.reads[0].pending.is_empty(), "pending drained to settled");
+        assert!(
+            s.reads[0].unreported.is_empty(),
+            "unreported drained to reported"
+        );
 
         // Partial flushed: still in flight.
         assert!(
@@ -1331,20 +1336,16 @@ mod test {
 
         let p1 = producer(0x01);
 
-        let producers = resolve_checkpoint(vec![checkpoint_entry(&p1, 0)]).producers;
-        s.reads.push(ReadState {
-            binding_index: 0,
-            journal: "test/journal/A".into(),
-            truncated_at: Clock::zero(),
-            backfill_begin: Clock::zero(),
-            backfill_complete: Clock::zero(),
-            settled: producers,
-            pending: Default::default(),
-            read_offset: 0,
-            prev_read_offset: 0,
-            write_head: 0,
-            prev_write_head: 0,
-        });
+        let ResolvedCheckpoint {
+            producers, hinted, ..
+        } = resolve_checkpoint(vec![checkpoint_entry(&p1, 0)]);
+        s.reads.push(ReadState::recovered(
+            0,
+            "test/journal/A".into(),
+            Clock::zero(),
+            producers,
+            hinted,
+        ));
 
         // ContinueBeginSpan: enqueued, no commit, offset set to begin_offset.
         let seq = sequence(
@@ -1357,7 +1358,7 @@ mod test {
         assert!(!seq.is_commit);
         assert_eq!(
             seq.producer_state.offset, 100,
-            "offset = begin of uncommitted span"
+            "offset = `+begin` of the open span"
         );
         s.commit(0, p1, seq);
 
@@ -1440,24 +1441,19 @@ mod test {
 
         let p1 = producer(0x01);
 
-        let ResolvedCheckpoint { producers, .. } =
-            resolve_checkpoint(vec![checkpoint_entry(&p1, 0)]);
-        s.reads.push(ReadState {
-            binding_index: 0,
-            journal: "test/journal/A".into(),
-            truncated_at: Clock::zero(),
-            backfill_begin: Clock::zero(),
-            backfill_complete: Clock::zero(),
-            settled: producers,
-            pending: Default::default(),
-            read_offset: 0,
-            prev_read_offset: 0,
-            write_head: 0,
-            prev_write_head: 0,
-        });
+        let ResolvedCheckpoint {
+            producers, hinted, ..
+        } = resolve_checkpoint(vec![checkpoint_entry(&p1, 0)]);
+        s.reads.push(ReadState::recovered(
+            0,
+            "test/journal/A".into(),
+            Clock::zero(),
+            producers,
+            hinted,
+        ));
 
         // A BackfillBegin marker rides on an ACK. In a journal the producer never
-        // wrote to (no pending span), it sequences as AckEmpty: it commits, folds
+        // wrote to (no open span), it sequences as AckEmpty: it commits, folds
         // its clock into backfill_begin, and is never appended (ACKs never append).
         let seq = sequence(
             &s.reads[0],

@@ -3,8 +3,23 @@ source: crates/shuffle/src/session/state.rs
 expression: pipeline_snapshot(&pipeline)
 ---
 PipelineSnapshot {
-    recovery_pending: false,
+    recovery_session: true,
     ready: Frontier {
+        journals: [],
+        flushed_lsn: [],
+        latest_backfill_begin: {},
+        latest_backfill_complete: {},
+        unresolved_hints: 0,
+    },
+    unresolved: Frontier {
+        journals: [],
+        flushed_lsn: [],
+        latest_backfill_begin: {},
+        latest_backfill_complete: {},
+        unresolved_hints: 0,
+    },
+    unresolved_count: 0,
+    progressed: Frontier {
         journals: [
             JournalFrontier {
                 journal: "journal/A",
@@ -66,21 +81,6 @@ PipelineSnapshot {
         flushed_lsn: [
             0/3000,
         ],
-        latest_backfill_begin: {},
-        latest_backfill_complete: {},
-        unresolved_hints: 0,
-    },
-    unresolved: Frontier {
-        journals: [],
-        flushed_lsn: [],
-        latest_backfill_begin: {},
-        latest_backfill_complete: {},
-        unresolved_hints: 0,
-    },
-    unresolved_count: 0,
-    progressed: Frontier {
-        journals: [],
-        flushed_lsn: [],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
         unresolved_hints: 0,

@@ -16,14 +16,15 @@ use std::collections::BTreeMap;
 ///
 /// `offset` encodes journal position using the same sign convention as the
 /// wire format (`ProducerFrontier.offset`):
-///   - Non-negative: Begin offset of first pending CONTINUE_TXN
-///   - Negative: Negation of end offset of last committing ACK_TXN / OUTSIDE_TXN
+///   - Non-negative: `+begin` of the open span
+///   - Negative: negation of the end offset of the last committing close
+///     (ACK_TXN / OUTSIDE_TXN)
 /// Internal default state uses zero before any document has been observed.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ProducerState {
     /// Clock of the last committing ACK_TXN or OUTSIDE_TXN.
     pub last_commit: Clock,
-    /// Maximum Clock of an uncommitted CONTINUE_TXN, or zero if no pending span.
+    /// Maximum Clock of an open span's CONTINUE_TXN, or zero if no open span.
     ///
     /// A non-zero value `max_continue == last_commit` is special and marks the
     /// producer as *gapped*: it has an open span beginning after `last_commit`
@@ -36,7 +37,7 @@ pub struct ProducerState {
     /// `last_commit`, and advances `last_commit` only while `max_continue` is
     /// zero — so a live `max_continue` is always either zero or strictly above
     /// `last_commit`, never equal. A gapped producer always has a non-negative
-    /// offset (begin of first CONTINUE_TXN of its span).
+    /// offset (the `+begin` of its open span).
     ///
     /// This field is in-memory only. It doesn't contribute to a
     /// `ProducerFrontier` checkpoint and a recovered session rebuilds it.
@@ -47,7 +48,7 @@ pub struct ProducerState {
 
 impl ProducerState {
     /// Whether this producer is *gapped* (see [`ProducerState::max_continue`]): its
-    /// uncommitted span begins at `offset` below the journal restart read position.
+    /// open span begins at `offset` below the journal restart read position.
     pub fn is_gapped(&self) -> bool {
         self.max_continue.as_u64() != 0 && self.max_continue == self.last_commit
     }
@@ -57,7 +58,7 @@ const _: () = assert!(std::mem::size_of::<ProducerState>() == 24);
 /// Build a [`crate::Frontier`] by reducing read-derived producer state with
 /// causal hints.
 ///
-/// `reads` provides the journal name, binding index, and pending producers
+/// `reads` provides the journal name, binding index, and unreported producers
 /// for each active read. `hints` yields owned `((journal, binding),
 /// Vec<(producer, hinted_clock)>)` entries, typically from a HashMap drain.
 ///
@@ -73,7 +74,7 @@ pub fn build_flush_frontier(
     let mut latest_backfill_complete = BTreeMap::<u16, Clock>::new();
 
     for read_state in reads.iter_mut() {
-        if read_state.pending.is_empty() {
+        if read_state.unreported.is_empty() {
             // No reportable progress for this journal since the last flush.
             // We intentionally defer offset-based reporting as well:
             // the next reported deltas are computed from prev_read_offset
@@ -84,7 +85,7 @@ pub fn build_flush_frontier(
 
         // Backfill clocks are per-binding metadata. Drain this journal's clocks
         // into the checkpoint maps; a non-zero clock implies the read has
-        // pending work. Multiple journals of one binding fold to their max.
+        // unreported work. Multiple journals of one binding fold to their max.
         let binding = read_state.binding_index;
         let backfill_begin = std::mem::take(&mut read_state.backfill_begin);
         if backfill_begin != Clock::zero() {
@@ -102,7 +103,7 @@ pub fn build_flush_frontier(
         }
 
         let mut producers: Vec<_> = read_state
-            .pending
+            .unreported
             .iter()
             .map(|(producer, ps)| crate::ProducerFrontier {
                 producer: *producer,
@@ -133,7 +134,7 @@ pub fn build_flush_frontier(
         // Update the baselines for the next delta computation.
         read_state.prev_read_offset = read_state.read_offset;
         read_state.prev_write_head = read_state.write_head;
-        read_state.settled.extend(read_state.pending.drain());
+        read_state.reported.extend(read_state.unreported.drain());
     }
 
     journals.sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
@@ -177,7 +178,7 @@ pub fn build_flush_frontier(
         })
         .collect();
 
-    // Sort to restore the sorted Frontier invariant
+    // Sort to restore the Frontier ordering invariant
     // (entries must be unique since they come from HashMap keys).
     hint_journals.sort_by(|a, b| a.journal.cmp(&b.journal).then(a.binding.cmp(&b.binding)));
 
@@ -204,22 +205,22 @@ mod test {
     fn read_state(
         journal: &str,
         binding: u16,
-        pending: &[(u8, u64, i64)],
+        unreported: &[(u8, u64, i64)],
     ) -> super::super::read::ReadState {
-        read_state_with_bytes(journal, binding, pending, 0, 0, 0, 0)
+        read_state_with_bytes(journal, binding, unreported, 0, 0, 0, 0)
     }
 
     fn read_state_with_bytes(
         journal: &str,
         binding: u16,
-        pending: &[(u8, u64, i64)],
+        unreported: &[(u8, u64, i64)],
         prev_read_offset: i64,
         write_head: i64,
         read_offset: i64,
         prev_write_head: i64,
     ) -> super::super::read::ReadState {
         let mut map = ProducerMap::default();
-        for &(id, last_commit, offset) in pending {
+        for &(id, last_commit, offset) in unreported {
             map.insert(
                 producer(id),
                 ProducerState {
@@ -230,17 +231,18 @@ mod test {
             );
         }
         super::super::read::ReadState {
-            binding_index: binding,
-            journal: journal.into(),
-            truncated_at: Clock::zero(),
-            backfill_begin: Clock::zero(),
-            backfill_complete: Clock::zero(),
-            settled: ProducerMap::default(),
-            pending: map,
+            unreported: map,
             read_offset,
             prev_read_offset,
             write_head,
             prev_write_head,
+            ..super::super::read::ReadState::recovered(
+                binding,
+                journal.into(),
+                Clock::zero(),
+                ProducerMap::default(),
+                ProducerMap::default(),
+            )
         }
     }
 
@@ -294,7 +296,7 @@ mod test {
                         9500,
                         9500,
                     ),
-                    // No pending producers: not part of frontier, not modified.
+                    // No unreported producers: not part of frontier, not modified.
                     read_state_with_bytes("journal/C", 0, &[], 0, 25000, 123, 456),
                 ],
                 vec![],
@@ -308,9 +310,9 @@ mod test {
                     hint("journal/A", 0, &[(0x01, 150)]),
                 ],
             ),
-            // Empty-pending reads are skipped.
+            // Reads with nothing unreported are skipped.
             (
-                "empty_pending_skipped",
+                "empty_unreported_skipped",
                 vec![
                     read_state("journal/A", 0, &[(0x01, 100, -500)]),
                     read_state("journal/B", 0, &[]),

@@ -67,18 +67,19 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {
+                reported: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
                         max_continue: Clock(0s 0ns),
                         offset: -1000,
                     },
                 },
-                pending: {},
+                unreported: {},
                 read_offset: 45000,
                 prev_read_offset: 45000,
                 write_head: 50000,
                 prev_write_head: 50000,
+                park: Never,
             },
             ReadState {
                 binding_index: 0,
@@ -86,18 +87,19 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {
+                reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
                         max_continue: Clock(0s 0ns),
                         offset: -500,
                     },
                 },
-                pending: {},
+                unreported: {},
                 read_offset: 9500,
                 prev_read_offset: 9500,
                 write_head: 10000,
                 prev_write_head: 10000,
+                park: Never,
             },
             ReadState {
                 binding_index: 0,
@@ -105,12 +107,13 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {},
-                pending: {},
+                reported: {},
+                unreported: {},
                 read_offset: 123,
                 prev_read_offset: 0,
                 write_head: 25000,
                 prev_write_head: 456,
+                park: Never,
             },
         ],
     ),
@@ -159,7 +162,7 @@ expression: snap
         [],
     ),
     (
-        "empty_pending_skipped",
+        "empty_unreported_skipped",
         Frontier {
             journals: [
                 JournalFrontier {
@@ -193,18 +196,19 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {
+                reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
                         max_continue: Clock(0s 0ns),
                         offset: -500,
                     },
                 },
-                pending: {},
+                unreported: {},
                 read_offset: 0,
                 prev_read_offset: 0,
                 write_head: 0,
                 prev_write_head: 0,
+                park: Never,
             },
             ReadState {
                 binding_index: 0,
@@ -212,12 +216,13 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {},
-                pending: {},
+                reported: {},
+                unreported: {},
                 read_offset: 0,
                 prev_read_offset: 0,
                 write_head: 0,
                 prev_write_head: 0,
+                park: Never,
             },
         ],
     ),
@@ -290,18 +295,19 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {
+                reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
                         max_continue: Clock(0s 0ns),
                         offset: -500,
                     },
                 },
-                pending: {},
+                unreported: {},
                 read_offset: 19000,
                 prev_read_offset: 19000,
                 write_head: 20000,
                 prev_write_head: 20000,
+                park: Never,
             },
             ReadState {
                 binding_index: 0,
@@ -309,7 +315,7 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {
+                reported: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 32ns),
                         max_continue: Clock(0s 0ns),
@@ -321,11 +327,12 @@ expression: snap
                         offset: -200,
                     },
                 },
-                pending: {},
+                unreported: {},
                 read_offset: 75000,
                 prev_read_offset: 75000,
                 write_head: 80000,
                 prev_write_head: 80000,
+                park: Never,
             },
         ],
     ),
@@ -392,18 +399,19 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {
+                reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 16ns),
                         max_continue: Clock(0s 0ns),
                         offset: -400,
                     },
                 },
-                pending: {},
+                unreported: {},
                 read_offset: 0,
                 prev_read_offset: 0,
                 write_head: 0,
                 prev_write_head: 0,
+                park: Never,
             },
             ReadState {
                 binding_index: 0,
@@ -411,18 +419,19 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {
+                reported: {
                     Producer(03:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),
                         max_continue: Clock(0s 0ns),
                         offset: -200,
                     },
                 },
-                pending: {},
+                unreported: {},
                 read_offset: 0,
                 prev_read_offset: 0,
                 write_head: 0,
                 prev_write_head: 0,
+                park: Never,
             },
         ],
     ),
@@ -491,18 +500,19 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {
+                reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 8ns),
                         max_continue: Clock(0s 0ns),
                         offset: -300,
                     },
                 },
-                pending: {},
+                unreported: {},
                 read_offset: 0,
                 prev_read_offset: 0,
                 write_head: 0,
                 prev_write_head: 0,
+                park: Never,
             },
         ],
     ),
@@ -567,7 +577,7 @@ expression: snap
                 truncated_at: Clock(0s 0ns),
                 backfill_begin: Clock(0s 0ns),
                 backfill_complete: Clock(0s 0ns),
-                settled: {
+                reported: {
                     Producer(01:00:00:00:00:00): ProducerState {
                         last_commit: Clock(0s 0ns),
                         max_continue: Clock(0s 0ns),
@@ -584,11 +594,12 @@ expression: snap
                         offset: 0,
                     },
                 },
-                pending: {},
+                unreported: {},
                 read_offset: 0,
                 prev_read_offset: 0,
                 write_head: 0,
                 prev_write_head: 0,
+                park: Never,
             },
         ],
     ),

@@ -18,23 +18,9 @@ PipelineSnapshot {
                     },
                     ProducerFrontier {
                         producer: Producer(03:00:00:00:00:00),
-                        last_commit: Clock(80s 0ns),
-                        hinted_commit: Clock(0s 0ns),
-                        offset: -100,
-                    },
-                ],
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
-            },
-            JournalFrontier {
-                journal: "journal/C",
-                binding: 1,
-                producers: [
-                    ProducerFrontier {
-                        producer: Producer(03:00:00:00:00:00),
-                        last_commit: Clock(40s 0ns),
-                        hinted_commit: Clock(0s 0ns),
-                        offset: -50,
+                        last_commit: Clock(200s 0ns),
+                        hinted_commit: Clock(200s 0ns),
+                        offset: -600,
                     },
                 ],
                 bytes_read_delta: 0,
@@ -47,28 +33,13 @@ PipelineSnapshot {
         unresolved_hints: 0,
     },
     unresolved: Frontier {
-        journals: [
-            JournalFrontier {
-                journal: "journal/C",
-                binding: 1,
-                producers: [
-                    ProducerFrontier {
-                        producer: Producer(01:00:00:00:00:00),
-                        last_commit: Clock(0s 0ns),
-                        hinted_commit: Clock(100s 0ns),
-                        offset: -50,
-                    },
-                ],
-                bytes_read_delta: 0,
-                bytes_behind_delta: 0,
-            },
-        ],
+        journals: [],
         flushed_lsn: [],
         latest_backfill_begin: {},
         latest_backfill_complete: {},
-        unresolved_hints: 1,
+        unresolved_hints: 0,
     },
-    unresolved_count: 1,
+    unresolved_count: 0,
     progressed: Frontier {
         journals: [],
         flushed_lsn: [],

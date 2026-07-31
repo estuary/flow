@@ -177,7 +177,7 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 self.stats_write_fut
                     .is_none()
                     .then_some(&mut self.pending_ack_intents),
-                stopping,
+                &mut stopping,
                 &mut tail,
                 &self.task,
             );

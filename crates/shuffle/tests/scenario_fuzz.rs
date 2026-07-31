@@ -71,8 +71,8 @@ impl Arbitrary for TestCase {
         let num_producers = 1 + usize::arbitrary(g) % MAX_PRODUCERS;
         let num_rounds = 1 + usize::arbitrary(g) % MAX_ROUNDS;
         let mut retired: HashSet<ProducerId> = HashSet::new();
-        // Producers with an uncommitted span opened by a prior ContinueOnly.
-        // They must not write OUTSIDE (which would error against a pending
+        // Producers with an open span opened by a prior ContinueOnly.
+        // They must not write OUTSIDE (which would error against an open
         // span); they may keep the span open, commit it, or roll it back.
         let mut open: HashSet<ProducerId> = HashSet::new();
         let mut rounds = Vec::with_capacity(num_rounds);
@@ -185,6 +185,13 @@ struct SharedHarness {
 }
 
 static HARNESS: std::sync::OnceLock<SharedHarness> = std::sync::OnceLock::new();
+
+/// Idempotent-replay sessions run across the whole sweep, and how many exercise
+/// the accounted-progress ratchet's primary recovery use case by advancing the
+/// emitted checkpoint beyond the frontier the replay resumed from. Sweep-wide
+/// coverage counters, checked once by `fuzz_shuffle_pipeline`.
+static HINTED_RECOVERIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RATCHET_ADVANCED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn get_harness() -> &'static SharedHarness {
     HARNESS.get_or_init(|| {
@@ -704,7 +711,7 @@ fn record_oracle_with_counters(
                 }
             }
             Action::CommitOpen => {
-                // Commits the pending span accumulated by a prior ContinueOnly.
+                // Commits the open span accumulated by a prior ContinueOnly.
                 oracle.record_ack_commit(prod_id);
             }
         }
@@ -720,18 +727,40 @@ fn polling_complete(
     frontier: &shuffle::Frontier,
     commit_clocks: &HashMap<ProducerId, uuid::Clock>,
 ) -> bool {
-    for (&prod_id, &expected_clock) in commit_clocks {
-        let producer = make_producer_id(prod_id);
-        let visible = frontier.journals.iter().any(|jf| {
-            jf.producers
-                .iter()
-                .any(|pf| pf.producer == producer && pf.last_commit >= expected_clock)
-        });
-        if !visible {
-            return false;
-        }
-    }
-    true
+    commit_clocks
+        .iter()
+        .all(|(&prod_id, &clock)| commit_visible(frontier, prod_id, clock))
+}
+
+/// Offset of `(journal, binding, producer)` within `frontier`, or None if it
+/// carries no such entry. Used to compare a recovery checkpoint's cut against
+/// the one its replay resumed from.
+fn producer_offset(
+    frontier: &shuffle::Frontier,
+    journal: &str,
+    binding: u16,
+    producer: uuid::Producer,
+) -> Option<i64> {
+    let index = frontier.find_journal(journal, binding)?;
+    frontier.journals[index]
+        .producers
+        .iter()
+        .find(|pf| pf.producer == producer)
+        .map(|pf| pf.offset)
+}
+
+/// Does `frontier` show `prod_id` committed at-or-past `expected_clock`?
+fn commit_visible(
+    frontier: &shuffle::Frontier,
+    prod_id: ProducerId,
+    expected_clock: uuid::Clock,
+) -> bool {
+    let producer = make_producer_id(prod_id);
+    frontier.journals.iter().any(|jf| {
+        jf.producers
+            .iter()
+            .any(|pf| pf.producer == producer && pf.last_commit >= expected_clock)
+    })
 }
 
 /// Client-side hints projection with production hint fidelity: project
@@ -1020,7 +1049,7 @@ async fn run_test_case_inner(
         record_oracle_with_counters(&mut oracle, &round.actions, &counter_starts);
 
         // Compute commit clocks for polling termination.
-        let commit_clocks: HashMap<ProducerId, uuid::Clock> = round
+        let mut commit_clocks: HashMap<ProducerId, uuid::Clock> = round
             .actions
             .iter()
             .filter(|(_, action)| {
@@ -1100,11 +1129,18 @@ async fn run_test_case_inner(
         // recovered checkpoint justifies, re-reads everything above it — the
         // crash round's writes — and re-commits its transactions at their
         // original clocks. Poll until every committing producer of the crash
-        // round is visible again. When the recovery frontier carries unresolved
-        // hints (this round's multi-journal ACK commits), the pipeline first
-        // emits recovery peeks and then the recovery checkpoint; polling
-        // reduces through them until all hints resolve AND all commits are
-        // visible.
+        // round is visible again.
+        //
+        // A recovery checkpoint carrying unresolved hints (this round's
+        // multi-journal ACK commits) takes *two* sessions, as production does:
+        // the first replays exactly the hinted transaction — emitting recovery
+        // peeks and then the recovery checkpoint, and reading nothing beyond
+        // its hinted frontier — and then quiesces, standing in for a leader
+        // which commits that checkpoint and exits. Its log dies with it, so it
+        // is scanned before the restart, which resumes from that committed
+        // checkpoint and delivers everything else.
+        let mut recovered_scan = Vec::new();
+
         if round.crash {
             session
                 .close()
@@ -1136,12 +1172,90 @@ async fn run_test_case_inner(
                 ..Default::default()
             };
 
-            if !commit_clocks.is_empty() || recovery.unresolved_hints != 0 {
+            if recovery.unresolved_hints != 0 {
+                // The idempotent-replay session: peeks, then its one resolved
+                // checkpoint. It emits nothing further.
                 loop {
                     let delta = session
                         .next_checkpoint()
                         .await
                         .map_err(|e| format!("recovery next_checkpoint: {e}"))?;
+
+                    round_frontier = round_frontier.reduce(delta);
+
+                    if round_frontier.unresolved_hints == 0 {
+                        break;
+                    }
+                }
+                // The accounted-progress ratchet (see `CheckpointPipeline`) only
+                // ever moves a cut forward: every producer the recovery
+                // checkpoint reports sits at-or-beyond the offset magnitude the
+                // replay resumed from. When the replay was purely accounted it
+                // sits strictly beyond, which is the point of the ratchet — the
+                // restarted session below then re-reads only the novel tail, not
+                // the whole hinted span.
+                let mut ratchet_advanced = false;
+                for jf in &round_frontier.journals {
+                    for pf in &jf.producers {
+                        let Some(resumed) =
+                            producer_offset(&recovery, &jf.journal, jf.binding, pf.producer)
+                        else {
+                            continue;
+                        };
+                        if pf.offset.abs() < resumed.abs() {
+                            return Err(format!(
+                                "recovery checkpoint cut regressed in {:?} binding {} \
+                                 producer {:?}: {} resumed from {resumed}\n  Test case: \
+                                 {test_case:?}",
+                                jf.journal, jf.binding, pf.producer, pf.offset,
+                            ));
+                        }
+                        ratchet_advanced |= pf.offset.abs() > resumed.abs();
+                    }
+                }
+                HINTED_RECOVERIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if ratchet_advanced {
+                    RATCHET_ADVANCED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+
+                recovered_scan =
+                    collect_scanned_entries(&round_frontier, log_dir, &mut shard_state);
+
+                session
+                    .close()
+                    .await
+                    .map_err(|e| format!("session.close on recovery: {e}"))?;
+
+                // The leader commits the recovery checkpoint and restarts.
+                // Commits it took are done; the rest are re-delivered by the
+                // restarted session.
+                commit_clocks.retain(|&prod_id, &mut clock| {
+                    !commit_visible(&round_frontier, prod_id, clock)
+                });
+
+                recovery = recovery.reduce(std::mem::take(&mut round_frontier));
+                recovery.flushed_lsn = vec![];
+                recovery.journals.iter_mut().for_each(|jf| {
+                    jf.bytes_behind_delta = 0;
+                });
+
+                shard_state = (0..test_case.num_shards).map(|_| None).collect();
+                session = shuffle::SessionClient::open(
+                    service,
+                    task.clone(),
+                    shards.clone(),
+                    recovery.clone(),
+                )
+                .await
+                .map_err(|e| format!("SessionClient::open on restart: {e}"))?;
+            }
+
+            if !commit_clocks.is_empty() {
+                loop {
+                    let delta = session
+                        .next_checkpoint()
+                        .await
+                        .map_err(|e| format!("restarted next_checkpoint: {e}"))?;
 
                     round_frontier = round_frontier.reduce(delta);
 
@@ -1158,11 +1272,14 @@ async fn run_test_case_inner(
         // Skip scanning when there's no log data yet (flushed_lsn is empty before
         // any checkpoint has been received). FrontierScan::new requires flushed_lsn
         // to contain an entry for our shard_index.
-        let scanned = if round_frontier.flushed_lsn.is_empty() {
-            vec![]
-        } else {
-            collect_scanned_entries(&round_frontier, log_dir, &mut shard_state)
-        };
+        let mut scanned = recovered_scan;
+        if !round_frontier.flushed_lsn.is_empty() {
+            scanned.extend(collect_scanned_entries(
+                &round_frontier,
+                log_dir,
+                &mut shard_state,
+            ));
+        }
         oracle.verify_round(&scanned).map_err(|e| {
             format!("Round {round_idx} verification failed: {e}\n  Test case: {test_case:?}")
         })?;
@@ -1188,7 +1305,7 @@ async fn run_test_case_inner(
 /// were found by fuzz sweeps while ratifying the last-commit floor and
 /// hint-fidelity changes, and specifically stress crash recovery of commits
 /// that project no causal hint (single-journal and OUTSIDE commits) alongside
-/// uncommitted spans at journal offset zero (the last-commit floor).
+/// open spans at journal offset zero (the last-commit floor).
 fn regression_cases() -> Vec<TestCase> {
     fn round(actions: Vec<(ProducerId, Action)>, crash: bool) -> Round {
         Round {
@@ -1315,7 +1432,25 @@ fn fuzz_shuffle_pipeline() {
                 "deterministic regression case {idx} failed",
             );
         }
-        quickcheck::QuickCheck::new().quickcheck(prop as fn(TestCase) -> quickcheck::TestResult)
+        quickcheck::QuickCheck::new().quickcheck(prop as fn(TestCase) -> quickcheck::TestResult);
+
+        // Coverage of the ratchet's primary recovery use case across the sweep.
+        // A replay whose content is entirely accounted for by the recovery
+        // checkpoint ratchets its cut forward; one which re-reads an un-hinted
+        // commit of the crash round (an OUTSIDE or single-journal ACK, which no
+        // hint covers) freezes the ratchet instead. Both shapes occur here, and
+        // the assertion pins the one a regression would silence.
+        let hinted = HINTED_RECOVERIES.load(std::sync::atomic::Ordering::Relaxed);
+        let advanced = RATCHET_ADVANCED.load(std::sync::atomic::Ordering::Relaxed);
+        eprintln!("idempotent replays: {hinted}, of which ratcheted forward: {advanced}");
+        assert!(
+            hinted != 0,
+            "the sweep did not exercise an idempotent replay",
+        );
+        assert!(
+            advanced != 0,
+            "{hinted} idempotent replay(s) ran and none ratcheted its cut forward",
+        );
     });
 
     // Tear down the data plane gracefully (OnceLock statics are never dropped).

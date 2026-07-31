@@ -32,12 +32,13 @@ pub struct ReadState {
     /// Truncation boundary of the latest `BackfillComplete` folded from a
     /// committing ACK on this journal, awaiting the next flush (zero = none).
     pub backfill_complete: uuid::Clock,
-    /// Producers whose state is settled: either from the initial checkpoint
-    /// or drained from `pending` at the start of a flush cycle.
-    pub settled: ProducerMap<ProducerState>,
+    /// Producers whose state has been reported in a flush frontier: either from
+    /// the initial checkpoint or drained from `unreported` at the start of a
+    /// flush cycle.
+    pub reported: ProducerMap<ProducerState>,
     /// Producers updated since the last flush cycle started.
-    /// Drained into `settled` at the start of each flush.
-    pub pending: ProducerMap<ProducerState>,
+    /// Drained into `reported` at the start of each flush.
+    pub unreported: ProducerMap<ProducerState>,
     /// End offset of most recently processed document.
     pub read_offset: i64,
     /// Read offset as of last flush (baseline for bytes_read_delta).
@@ -46,16 +47,36 @@ pub struct ReadState {
     pub write_head: i64,
     /// Write head as of last flush (baseline for bytes_behind_delta).
     pub prev_write_head: i64,
+    /// Whether this read stops at the hinted frontier of the transaction its
+    /// session is replaying, and how far away that is.
+    pub park: Park,
+}
+
+/// Recovery parking state of a read.
+#[derive(Debug)]
+pub enum Park {
+    /// Non-recovery read: it resumed with no unresolved hints and never parks.
+    Never,
+    /// Recovery read: parks once each of these producers commits at-or-above
+    /// its hinted Clock. Entries are removed as they resolve.
+    When(ProducerMap<uuid::Clock>),
+    /// Parked at the hinted frontier: the read's `ReadLines` stream and in-hand
+    /// batch were dropped mid-batch, so it sequences nothing further. The
+    /// `ReadState` is retained so the resolving flush delta still rides to the
+    /// Session.
+    Parked,
 }
 
 impl ReadState {
-    /// Construct a `ReadState` for a read with `settled` producers recovered
-    /// from its checkpoint.
+    /// Construct a `ReadState` for a read with `reported` producers and `hinted`
+    /// causal hints recovered from its checkpoint (see
+    /// [`super::state::resolve_checkpoint`]).
     pub fn recovered(
         binding_index: u16,
         journal: Box<str>,
         truncated_at: uuid::Clock,
-        settled: ProducerMap<ProducerState>,
+        reported: ProducerMap<ProducerState>,
+        hinted: ProducerMap<uuid::Clock>,
     ) -> Self {
         Self {
             binding_index,
@@ -63,12 +84,17 @@ impl ReadState {
             truncated_at,
             backfill_begin: uuid::Clock::zero(),
             backfill_complete: uuid::Clock::zero(),
-            settled,
-            pending: Default::default(),
+            reported,
+            unreported: Default::default(),
             read_offset: 0,
             prev_read_offset: 0,
             write_head: 0,
             prev_write_head: 0,
+            park: if hinted.is_empty() {
+                Park::Never
+            } else {
+                Park::When(hinted)
+            },
         }
     }
 
@@ -90,10 +116,32 @@ impl ReadState {
         self.prev_write_head = offset;
     }
 
+    /// Fold a just-sequenced commit's `post` producer state into [`Park`],
+    /// returning true if the read must now park.
+    pub fn resolve_hint(&mut self, producer: uuid::Producer, post: &ProducerState) -> bool {
+        let Park::When(hinted) = &mut self.park else {
+            return false;
+        };
+        if !hinted
+            .get(&producer)
+            .is_some_and(|hint| post.last_commit >= *hint)
+        {
+            return false;
+        }
+        hinted.remove(&producer);
+
+        if hinted.is_empty() {
+            self.park = Park::Parked;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Retrieve the latest state of a Producer.
     pub fn producer_state(&self, producer: uuid::Producer) -> ProducerState {
-        (self.pending.get(&producer))
-            .or_else(|| self.settled.get(&producer))
+        (self.unreported.get(&producer))
+            .or_else(|| self.reported.get(&producer))
             .cloned()
             .unwrap_or_default()
     }
@@ -404,6 +452,78 @@ mod test {
 
     fn producer(id: u8) -> uuid::Producer {
         uuid::Producer::from_bytes([id | 0x01, 0, 0, 0, 0, 0])
+    }
+
+    /// A producer state committed at second-valued `last_commit`.
+    fn ps(last_commit: u64, offset: i64) -> ProducerState {
+        ProducerState {
+            last_commit: uuid::Clock::from_unix(last_commit, 0),
+            max_continue: uuid::Clock::zero(),
+            offset,
+        }
+    }
+
+    /// A `ReadState` recovered with `hinted` (producer, second-valued Clock) hints.
+    fn recovered(hinted: &[(u8, u64)]) -> ReadState {
+        let mut map = crate::ProducerMap::default();
+        for &(id, secs) in hinted {
+            map.insert(producer(id), uuid::Clock::from_unix(secs, 0));
+        }
+        ReadState::recovered(
+            0,
+            "test/journal/A".into(),
+            uuid::Clock::zero(),
+            Default::default(),
+            map,
+        )
+    }
+
+    #[test]
+    fn test_arms_and_parks_at_hinted_frontier() {
+        // P1 is hinted at T200, and P3 — hint-only, never observed by journal
+        // read — at T150. P5 carries no hint and is absent from the map.
+        let mut read = recovered(&[(0x01, 200), (0x03, 150)]);
+        assert!(matches!(&read.park, Park::When(hinted) if hinted.len() == 2));
+
+        // P5 commits: it is no part of the replay's hinted frontier.
+        assert!(!read.resolve_hint(producer(0x05), &ps(300, -400)));
+
+        // P1 advances toward but below its hint: no resolution, no park.
+        assert!(!read.resolve_hint(producer(0x01), &ps(150, -600)));
+        assert!(matches!(&read.park, Park::When(hinted) if hinted.len() == 2));
+
+        // P1 commits at-or-above its hint: its hint drops, but P3's holds the
+        // read open — precisely the cohort which must not be abandoned.
+        assert!(!read.resolve_hint(producer(0x01), &ps(250, -700)));
+        assert!(matches!(&read.park, Park::When(hinted) if hinted.len() == 1));
+
+        // Further P1 commits are past a hint which is already gone.
+        assert!(!read.resolve_hint(producer(0x01), &ps(300, -800)));
+
+        // P3's hint-only entry resolves on its first commit: the read has now
+        // read through its entire hinted frontier and parks.
+        assert!(
+            read.resolve_hint(producer(0x03), &ps(150, -900)),
+            "the last resolution parks the read",
+        );
+        assert!(matches!(read.park, Park::Parked));
+
+        // A re-entrant call (which cannot happen, the stream being gone).
+        assert!(!read.resolve_hint(producer(0x03), &ps(200, -950)));
+    }
+
+    #[test]
+    fn test_steady_state_read_never_parks() {
+        // A steady-state session resumes from a checkpoint with no unresolved
+        // hints, so its reads never arm — which is what makes parking
+        // self-gating, with no recovery flag on the wire.
+        let mut read = recovered(&[]);
+        assert!(matches!(read.park, Park::Never));
+
+        for last_commit in [100, 200, 300] {
+            assert!(!read.resolve_hint(producer(0x01), &ps(last_commit, -600)));
+        }
+        assert!(matches!(read.park, Park::Never));
     }
 
     fn make_uuid_str(producer: uuid::Producer, clock: uuid::Clock, flags: uuid::Flags) -> String {

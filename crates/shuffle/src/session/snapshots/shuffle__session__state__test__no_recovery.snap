@@ -3,7 +3,7 @@ source: crates/shuffle/src/session/state.rs
 expression: pipeline_snapshot(&pipeline)
 ---
 PipelineSnapshot {
-    recovery_pending: false,
+    recovery_session: false,
     ready: Frontier {
         journals: [
             JournalFrontier {

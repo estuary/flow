@@ -347,7 +347,7 @@ fn build_visibility_index(
     frontier: &crate::Frontier,
     block: &block::ArchivedBlock<'_>,
 ) -> Vec<((u16, u16, u16), uuid::Clock)> {
-    // Frontier invariant: journals are ordered & unique by (journal, binding).
+    // Frontier ordering invariant: journals are ordered & unique by (journal, binding).
     debug_assert!(
         frontier
             .journals
@@ -383,7 +383,7 @@ fn build_visibility_index(
 
         let journal_bid = block_journals[bj_cursor].1;
 
-        // Frontier invariant: producers are ordered and unique.
+        // Frontier ordering invariant: producers are ordered and unique.
         debug_assert!(
             jf.producers
                 .windows(2)

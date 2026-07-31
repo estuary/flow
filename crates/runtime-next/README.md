@@ -181,6 +181,32 @@ key. An authoritative (unmarked) checkpoint implies no V2 transaction has
 committed, so clearing `FC:` loses no V2 state. The transaction loop then
 only ever writes `FC:` deltas.
 
+## Committed-frontier pruning
+
+The startup scan also drops ancient, closed, far-behind `FC:` producers
+(`shard::recovery::prune_committed_frontier`), bounding the frontier a shard
+carries forever. This deliberately relaxes the Frontier invariant, and both
+horizons it uses are load-bearing: `FRONTIER_PRUNE_BYTE_HORIZON` is local, but
+the *clock* horizon is `shuffle::PRODUCER_STALENESS_HORIZON`, shared with the
+session's `shuffle::Completed`. Pruning forgets a producer, so only the
+session's matching horizon rule can still discharge a later backfill's causal
+hints naming it. Read both doc comments before touching either.
+
+## Idempotent recovery (materialize)
+
+A leader whose startup scan finds a hinted-but-uncommitted transaction opens
+its session in *idempotent replay*: it must re-establish exactly that
+transaction, because its effects may have been partially released to the
+connector. Such a session does the replay and nothing else, driving a replay
+to transaction commit and then stopping. A next session is an ordinary one,
+completing the recovery's post-commit work and resuming regular processing.
+
+Exiting is what makes the replay's disk usage bounded in the face of bindings
+with differing priorities. The shuffle Session mirrors this split, stopping
+journal reads once they read through hinted spans. This prevents over-read
+from consuming disk quota, and prevents starving lower-priority bindings.
+See `crates/shuffle/README.md` and issue #3246.
+
 ## Backfill truncation (materialize)
 
 When a source collection is backfill-truncated, documents a materialization

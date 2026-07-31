@@ -1,0 +1,24 @@
+---
+source: crates/shuffle/src/session/state.rs
+expression: frontier_readout(&recovery)
+---
+[
+    (
+        "journal/B",
+        1,
+        [
+            (
+                290,
+                250,
+                -900,
+            ),
+            (
+                400,
+                0,
+                -900,
+            ),
+        ],
+        0,
+        0,
+    ),
+]

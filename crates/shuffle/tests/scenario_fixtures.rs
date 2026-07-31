@@ -747,8 +747,9 @@ async fn multiple_producers(
 /// Phase 1: multi-journal CONTINUE_TXN + ACK, producing hinted_commit values.
 /// Construct a modified resume frontier with unresolved hints (simulating a
 /// crash before hint resolution). Phase 2: write more data, resume from the
-/// modified frontier. First checkpoint advances to exactly the hinted boundary;
-/// second checkpoint picks up the remaining progress.
+/// modified frontier — an idempotent-recovery session, which advances to
+/// exactly the hinted boundary, emits that one checkpoint, and then quiesces.
+/// Phase 3: a fresh session resuming from it picks up the remaining progress.
 async fn resume_from_checkpoint(
     materialization_spec: &flow::MaterializationSpec,
     capture_spec: &flow::CaptureSpec,
@@ -758,8 +759,10 @@ async fn resume_from_checkpoint(
 ) {
     let phase1_dir = log_dir.join("resume_checkpoint_p1");
     let phase2_dir = log_dir.join("resume_checkpoint_p2");
-    std::fs::create_dir_all(&phase1_dir).unwrap();
-    std::fs::create_dir_all(&phase2_dir).unwrap();
+    let phase3_dir = log_dir.join("resume_checkpoint_p3");
+    for dir in [&phase1_dir, &phase2_dir, &phase3_dir] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
 
     let producer = uuid::Producer::from_bytes([0x01, 0x00, 0x00, 0x00, 0x00, 0x01]);
 
@@ -869,13 +872,16 @@ async fn resume_from_checkpoint(
         service,
         build_task(materialization_spec),
         build_shards(1, service.peer_endpoint(), &phase2_dir),
-        resume_frontier,
+        resume_frontier.clone(),
     )
     .await
     .expect("SessionClient::open phase 2");
 
-    // First checkpoint: recovery resolves the banana hint. New progress
-    // (apple2) is held back by recovery_pending.
+    // The recovery checkpoint: the replay resolves both hints and stops there.
+    // The whole replay is *accounted* — every commit it re-reads is one the
+    // resume frontier hints at — so the accounted-progress ratchet adopts it:
+    // checkpoint's offsets are the replay's own (-257, not the zero it resumed
+    // from) and carry the bytes it read.
     let recovery_frontier =
         next_resolved_checkpoint(&mut session, "phase 2 recovery checkpoint").await;
     let mut phase2_shard_state: ShardState = (0..1).map(|_| None).collect();
@@ -889,11 +895,36 @@ async fn resume_from_checkpoint(
         }
     );
 
-    // Second checkpoint: picks up remaining progress (apples original + new).
-    let progress_frontier =
-        next_resolved_checkpoint(&mut session, "phase 2 progress checkpoint").await;
+    // Recovery is the whole job of this session: its reads have parked at the
+    // hinted frontier and its pipeline holds back every later delta, so no
+    // second checkpoint is forthcoming. (`close` tolerates the abandoned
+    // request.) A leader observes this by exiting at the recovery commit.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(3), session.next_checkpoint())
+            .await
+            .is_err(),
+        "a recovery session emits exactly one checkpoint, then quiesces",
+    );
+    session.close().await.expect("close phase 2");
+
+    // ---- Phase 3: the restart, which does the ordinary work. ----
+    // It resumes from the ratcheted recovery checkpoint, so it re-reads none of
+    // the replayed span: the apples journal reports only the 105 novel bytes of
+    // "r-apple2", and the bananas journal — whose every byte the replay
+    // accounted for — reports nothing at all.
+    let mut session = shuffle::SessionClient::open(
+        service,
+        build_task(materialization_spec),
+        build_shards(1, service.peer_endpoint(), &phase3_dir),
+        resume_frontier.reduce(recovery_frontier),
+    )
+    .await
+    .expect("SessionClient::open phase 3");
+
+    let progress_frontier = next_resolved_checkpoint(&mut session, "phase 3 checkpoint").await;
+    let mut phase3_shard_state: ShardState = (0..1).map(|_| None).collect();
     let progress_read =
-        collect_read_entries(&progress_frontier, &phase2_dir, &mut phase2_shard_state);
+        collect_read_entries(&progress_frontier, &phase3_dir, &mut phase3_shard_state);
     insta::assert_debug_snapshot!(
         "resume_from_checkpoint_progress",
         Checkpoint {
@@ -902,7 +933,7 @@ async fn resume_from_checkpoint(
         }
     );
 
-    session.close().await.expect("close phase 2");
+    session.close().await.expect("close phase 3");
 }
 
 /// One publisher writes CONTINUE_TXN documents across two different
@@ -1928,9 +1959,9 @@ fn scrub_measures(frontier: &shuffle::Frontier) -> shuffle::Frontier {
 ///
 /// Phase 3 (resumed): resuming from the cumulative checkpoint recovers P1
 /// committed (negative offset) — NOT gapped — so the apples read starts at M
-/// with no replay and never re-reads the settled span `[O, M)`. The
+/// with no replay and never re-reads the closed span `[O, M)`. The
 /// withheld bananas ACK is written before the resume, so T2 resolves and
-/// delivers its bananas document exactly once; nothing of P1's settled apples
+/// delivers its bananas document exactly once; nothing of P1's closed apples
 /// span is re-delivered.
 async fn hint_elevated_offset_flip(
     materialization_spec: &flow::MaterializationSpec,
@@ -2175,7 +2206,7 @@ async fn hint_elevated_offset_flip(
 
     // Resume from the cumulative checkpoint. P1's apples entry {H1, H1, -M}
     // recovers committed — NOT gapped — so the read starts at M, skips the
-    // settled span [O, M) without a replay, and treats apples' recovery ACK
+    // closed span [O, M) without a replay, and treats apples' recovery ACK
     // as an empty commit. Only T2's bananas document is newly delivered.
     let mut resumed = shuffle::SessionClient::open(
         service,
@@ -2195,7 +2226,7 @@ async fn hint_elevated_offset_flip(
             .map(|e| e.doc["id"].as_str().unwrap())
             .collect::<Vec<_>>(),
         vec!["he-p1-b2"],
-        "only T2's bananas document is delivered; the settled apples span is never re-read",
+        "only T2's bananas document is delivered; the closed apples span is never re-read",
     );
     insta::assert_debug_snapshot!(
         "hint_elevated_offset_resumed",
@@ -2212,13 +2243,13 @@ async fn hint_elevated_offset_flip(
 /// real (if unread) open span, and an OUTSIDE_TXN with no intervening rollback
 /// ACK cannot sequence against it. The session must fail-fast with
 /// `OutsideWithPrecedingContinue` — identical to a non-gapped producer carrying a
-/// genuine pending span.
+/// genuine open span.
 ///
 /// P2 opens a CONTINUE span at F = 0; P1 commits an OUTSIDE advancing M past F;
 /// session 1 captures the checkpoint. P2 then violates the producer protocol by
 /// writing an OUTSIDE without first rolling back its open span. On resume P2 is
 /// gapped, and the main read reaches P2's OUTSIDE: `uuid::sequence` rejects it
-/// against the pending sentinel and the session tears down with the sequencing
+/// against the open-span sentinel and the session tears down with the sequencing
 /// error. No replay is attempted — an OUTSIDE never triggers one.
 async fn gapped_outside_violation(
     materialization_spec: &flow::MaterializationSpec,
