@@ -1,8 +1,8 @@
 # runtime-sidecar
 
-Production sidecar process for the runtime-v2 architecture
-(`plans/runtime-v2/plan.md`). One per reactor machine, supervised by
-systemd, hosting two gRPC services on a fixed fleet-wide port:
+Production sidecar process for the runtime-v2 architecture. One per
+reactor machine, supervised by systemd, hosting two gRPC services on
+a fixed fleet-wide port:
 
 - **Shuffle Leader** — `runtime_next::leader::Service`, the per-task
   Join rendezvous and HeadFSM/TailFSM coordination for tasks whose
