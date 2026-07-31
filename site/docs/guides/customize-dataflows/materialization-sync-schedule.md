@@ -18,13 +18,18 @@ reduce the costs incurred in the destination from the actions the connector
 takes to load data to it.
 :::
 
-Sync schedules are supported by two kinds of materialization connectors:
+Sync schedules are supported by **warehouse** materialization connectors, such as [Snowflake](/reference/Connectors/materialization-connectors/Snowflake), [Databricks](/reference/Connectors/materialization-connectors/databricks), [BigQuery](/reference/Connectors/materialization-connectors/BigQuery), Amazon Redshift, MotherDuck, ClickHouse, and Azure Fabric Warehouse.
 
-- Warehouse connectors, such as [Snowflake](/reference/Connectors/materialization-connectors/Snowflake), [Databricks](/reference/Connectors/materialization-connectors/databricks), and [BigQuery](/reference/Connectors/materialization-connectors/BigQuery), as well as Amazon Redshift, MotherDuck, ClickHouse, and Azure Fabric Warehouse.
-- File and object-store connectors that write data in batches, such as the Amazon S3, Google Cloud Storage, and Azure Blob Storage file materializations, and the Apache Iceberg materializations. For these connectors the batching interval (for example, an upload interval) is the sync frequency.
+In contrast, transactional database materializations (such as PostgreSQL, MySQL, and SQL Server) and streaming or API destinations (such as Elasticsearch, MongoDB, DynamoDB, and Pinecone) do _not_ use a sync schedule; they apply updates as they arrive.
 
-Transactional database materializations (such as PostgreSQL, MySQL, and SQL Server) and streaming or API destinations (such as Elasticsearch, MongoDB, DynamoDB, and Pinecone) do _not_ use a sync schedule; they apply updates as they arrive.
-Check the connector reference docs to determine if a specific connector supports sync schedules.
+The connector reference docs will note whether a specific connector supports sync schedules.
+
+:::note
+File and object-store connectors support a similar concept to sync schedules.
+These connectors (such as the Amazon S3, Google Cloud Storage, and Azure Blob Storage file materializations) use an `uploadInterval` property or similar to manage data load frequency.
+
+They do not support other sync schedule functionality like fast sync times.
+:::
 
 ## How transactions are used to sync data to a destination
 
@@ -55,8 +60,7 @@ materialization is assumed to still be backfilling, and the sync schedule delay
 is skipped so that it can catch up as fast as possible. Once several consecutive
 transactions are all below that size, the materialization is treated as caught
 up and the sync schedule delay applies. This behavior is the same for every
-connector that supports a sync schedule, including the file and object-store
-connectors.
+connector that supports a sync schedule or upload interval.
 
 You can read about [how continuous materialization
 works](/concepts/materialization/#how-continuous-materialization-works) for
