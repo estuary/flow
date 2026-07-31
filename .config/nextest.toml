@@ -2,6 +2,14 @@
 
 serial-db-tests = { max-threads = 1 }
 
+# Consistency scenarios that reconfigure a task's shards. Two of these at once
+# contend badly on one stack: `flowctl raw split-shards` fails outright, or a
+# crashed task cannot get a primary back inside its deadline while another
+# scenario is republishing and rescheduling shards of its own. The scenarios pass
+# reliably alone and flake in pairs, so they are serialised against each other —
+# every other scenario still runs alongside them.
+serial-shard-reconfiguration = { max-threads = 1 }
+
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 # Exclude e2e tests from Dekaf by default because they require special setup.
@@ -20,6 +28,16 @@ default-filter = 'binary_id(/materialize-consistency::scenarios/)'
 # recovery, then drains the workload. Minutes, not seconds, and the useful
 # signal is the invariant report rather than a timeout.
 slow-timeout = { period = "120s", terminate-after = 8 }
+
+# Named individually rather than by a substring: a scenario that splits or joins
+# shards has to be in this group, and a name-pattern match would silently drop a
+# future one that happened not to match.
+[[profile.consistency.overrides]]
+filter = '''
+    test(split_during_store) + test(split_during_commit) + test(join_after_split)
+    + test(counter_crash_in_split_leader) + test(counter_crash_in_split_non_leader)
+'''
+test-group = 'serial-shard-reconfiguration'
 
 [[profile.default.overrides]]
 filter = 'package(agent) and (test(discovers::) + test(directives::) + test(integration_tests::))'

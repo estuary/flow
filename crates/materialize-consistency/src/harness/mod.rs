@@ -274,7 +274,7 @@ async fn execute(
     // there is nothing to gain by predicting which perturbations need it.
     let after = count_commits(&trace)? + scenario.settle_commits;
     if scenario.restart_after_fault {
-        restart_task(stack, plan, &names.sink, deadline).await?;
+        restart_task(stack, plan, &names.sink).await?;
     }
     recover(stack, &names.sink, &trace, after, deadline).await?;
     await_commits(&trace, after, deadline).await?;
@@ -562,17 +562,21 @@ fn count_commits(run: &RunDir) -> anyhow::Result<u64> {
 /// tears its shards down; republishing the enabled catalog builds them again from the
 /// recovery log. That is a restart rather than a reschedule, and it is also what an
 /// operator would do.
+/// Deliberately does *not* wait for a primary. `recover` runs immediately after and is
+/// the resilient step — it unassigns on a loop until the task is committing again — so
+/// waiting here only adds a way to fail before that loop gets its turn. Which is exactly
+/// what happened: the republish would land, this await would time out on the surviving
+/// shard's `expected leader message ... unexpected EOF`, and the run failed with the
+/// unassign that would have cleared it never attempted.
 async fn restart_task(
     stack: &stack::Stack,
     plan: &catalog::Plan<'_>,
     task: &str,
-    timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
     tracing::info!(%task, "restarting the task after its fault");
 
     stack.publish(&catalog::sink_disabled(plan)?).await?;
     stack.publish(&catalog::build(plan)?).await?;
-    stack.await_primary(task, timeout).await?;
 
     Ok(())
 }

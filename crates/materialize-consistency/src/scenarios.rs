@@ -196,7 +196,7 @@ fn crash_between_commits() -> Scenario {
          without applying it twice",
         Class::PostCommitApply,
     )
-    .fault(FaultRule::crash_at(Trigger::Acknowledged, 4))
+    .fault(FaultRule::crash_at(Trigger::Acknowledged, 5))
     .catches(Defect::NonIdempotentAcknowledge)
 }
 
@@ -230,7 +230,7 @@ fn crash_mid_store() -> Scenario {
          double-applies on replay",
         Class::RemoteAuthoritative,
     )
-    .fault(FaultRule::crash_at(Trigger::Store, 25).armed_after(2))
+    .fault(FaultRule::crash_at(Trigger::Store, 25).armed_after(3))
     .catches(Defect::CommitDuringStore)
 }
 
@@ -646,6 +646,85 @@ mod test {
                     scenario.name,
                 );
             }
+        }
+    }
+
+    /// No fault may be able to fire before the warmup gate is satisfied.
+    ///
+    /// `await_commits` for the warmup has no recovery step — deliberately, since nothing
+    /// has been perturbed yet — so a crash landing inside that window leaves the shard
+    /// FAILED with nobody to unassign it, and the run waits out its deadline instead of
+    /// testing anything. Only a crash does this: a stall, replay or zombie leaves the
+    /// shard running and the warmup still completes. `crash-mid-store` did exactly this: armed after 2 commits with a
+    /// warmup of 3, it fired in the third transaction whenever that transaction reached
+    /// 25 stores, which made it fail perhaps one run in three.
+    #[test]
+    fn no_fault_can_fire_before_the_warmup_completes() {
+        for scenario in all() {
+            for rule in &scenario.faults {
+                // Only a crash matters. A stall, a replay or a zombie leaves the shard
+                // running, so the warmup gate keeps making progress through them —
+                // `zombie-at-start-commit` fires in the second transaction and is fine.
+                if rule.action != Action::Crash {
+                    continue;
+                }
+                // A rule restricted to a split shard cannot fire before the warmup: the
+                // split happens after it, so those sessions do not exist yet.
+                if rule.shard != ShardTarget::Any {
+                    continue;
+                }
+                // `arm_after: N` arms the rule once N transactions have committed, so
+                // the earliest it can fire is transaction N+1.
+                let armed_at = match rule.on {
+                    // Counted per transaction: the occurrence recurs every transaction,
+                    // so arming alone decides where it lands.
+                    Trigger::Store | Trigger::Load => rule.arm_after + 1,
+                    // Counted per session, once per transaction, so occurrence `nth`
+                    // falls in transaction `nth`.
+                    _ => rule.nth.max(rule.arm_after + 1),
+                };
+                assert!(
+                    armed_at > scenario.warmup_commits,
+                    "scenario {} arms a {:?} fault at transaction {armed_at}, which is not \
+                     past its warmup of {} commits. The warmup gate does not recover a \
+                     failed shard, so the run would wait out its deadline rather than \
+                     verify anything.",
+                    scenario.name,
+                    rule.on,
+                    scenario.warmup_commits,
+                );
+            }
+        }
+    }
+
+    /// Every scenario that reconfigures shards must be in the nextest group that
+    /// serialises them against each other.
+    ///
+    /// Two concurrent reconfigurations contend badly on one stack — `split-shards`
+    /// fails outright, or a crashed task cannot get a primary back inside its deadline
+    /// while another scenario is republishing shards of its own — and the symptom is a
+    /// flake in an unrelated-looking scenario. Checked here rather than left to review,
+    /// because the cost of forgetting lands on whoever is debugging something else.
+    #[test]
+    fn every_shard_reconfiguring_scenario_is_serialised() {
+        let config = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.config/nextest.toml"),
+        )
+        .expect("reading the workspace nextest configuration");
+
+        for scenario in all() {
+            if !(scenario.split_shards || scenario.join_shards) {
+                continue;
+            }
+            // Test function names are the scenario name with dashes replaced.
+            let test_fn = scenario.name.replace('-', "_");
+            assert!(
+                config.contains(&format!("test({test_fn})")),
+                "scenario {} reconfigures shards but is not in the \
+                 `serial-shard-reconfiguration` group in .config/nextest.toml, so it will \
+                 run concurrently with another that does and flake",
+                scenario.name,
+            );
         }
     }
 
