@@ -102,16 +102,18 @@ impl Store {
              );
 
              CREATE TABLE IF NOT EXISTS _flow_applied_txn (
-                 shard INTEGER NOT NULL,
-                 txn   INTEGER NOT NULL,
-                 PRIMARY KEY (shard, txn)
+                 shard     INTEGER NOT NULL,
+                 shard_end INTEGER NOT NULL,
+                 txn       INTEGER NOT NULL,
+                 PRIMARY KEY (shard, shard_end, txn)
              );
 
              CREATE TABLE IF NOT EXISTS _flow_counter (
-                 shard    INTEGER NOT NULL,
-                 tbl      TEXT    NOT NULL,
-                 appended INTEGER NOT NULL,
-                 PRIMARY KEY (shard, tbl)
+                 shard     INTEGER NOT NULL,
+                 shard_end INTEGER NOT NULL,
+                 tbl       TEXT    NOT NULL,
+                 appended  INTEGER NOT NULL,
+                 PRIMARY KEY (shard, shard_end, tbl)
              );
 
              CREATE TABLE IF NOT EXISTS _flow_spec (
@@ -382,13 +384,20 @@ impl Store {
     /// find nothing. That is the `non-idempotent-acknowledge` defect, and it models
     /// the real-world shape of it — staged files that the connector forgets to
     /// retire — rather than a contrived one.
-    pub fn apply_staged(&self, shard: u32, txn_id: i64, idempotent: bool) -> anyhow::Result<bool> {
+    pub fn apply_staged(
+        &self,
+        key_begin: u32,
+        key_end: u32,
+        txn_id: i64,
+        idempotent: bool,
+    ) -> anyhow::Result<bool> {
         let txn = self.write_txn()?;
 
         if idempotent {
             let claimed = txn.execute(
-                "INSERT OR IGNORE INTO _flow_applied_txn (shard, txn) VALUES (?1, ?2)",
-                (shard, txn_id),
+                "INSERT OR IGNORE INTO _flow_applied_txn (shard, shard_end, txn)
+                 VALUES (?1, ?2, ?3)",
+                (key_begin, key_end, txn_id),
             )?;
             if claimed == 0 {
                 txn.commit()?;
@@ -399,10 +408,10 @@ impl Store {
         let rows = {
             let mut stmt = txn.prepare(
                 "SELECT tbl, delta, key, doc, del FROM _flow_staged
-                 WHERE shard = ?1 AND txn = ?2 ORDER BY ord",
+                 WHERE shard = ?1 AND shard_end = ?2 AND txn = ?3 ORDER BY ord",
             )?;
             let rows = stmt
-                .query_map((shard, txn_id), |r| {
+                .query_map((key_begin, key_end, txn_id), |r| {
                     Ok((
                         Table {
                             name: r.get::<_, String>(0)?,
@@ -424,8 +433,9 @@ impl Store {
 
         if idempotent {
             txn.execute(
-                "DELETE FROM _flow_staged WHERE shard = ?1 AND txn = ?2",
-                (shard, txn_id),
+                "DELETE FROM _flow_staged
+                 WHERE shard = ?1 AND shard_end = ?2 AND txn = ?3",
+                (key_begin, key_end, txn_id),
             )?;
         }
         txn.commit()?;
@@ -436,33 +446,40 @@ impl Store {
     /// Discard staged rows of transactions after `txn_id` — work of a
     /// transaction that never committed to the recovery log, and so must never
     /// become visible.
-    pub fn discard_staged_after(&self, shard: u32, txn_id: i64) -> anyhow::Result<usize> {
+    pub fn discard_staged_after(
+        &self,
+        key_begin: u32,
+        key_end: u32,
+        txn_id: i64,
+    ) -> anyhow::Result<usize> {
         let n = self.conn.execute(
-            "DELETE FROM _flow_staged WHERE shard = ?1 AND txn > ?2",
-            (shard, txn_id),
+            "DELETE FROM _flow_staged
+             WHERE shard = ?1 AND shard_end = ?2 AND txn > ?3",
+            (key_begin, key_end, txn_id),
         )?;
         Ok(n)
     }
 
     /// Shards holding staged rows. `Apply` has no range of its own, so this is
     /// how it finds the pending work it must drain.
-    pub fn staged_shard_keys(&self) -> anyhow::Result<Vec<u32>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT DISTINCT shard FROM _flow_staged ORDER BY shard")?;
-        let shards = stmt
-            .query_map((), |r| r.get::<_, u32>(0))?
+    pub fn staged_shard_keys(&self) -> anyhow::Result<Vec<(u32, u32)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT shard, shard_end FROM _flow_staged ORDER BY shard, shard_end",
+        )?;
+        let ranges = stmt
+            .query_map((), |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(shards)
+        Ok(ranges)
     }
 
     /// Every transaction with staged rows for this shard, oldest first.
-    pub fn staged_txns(&self, shard: u32) -> anyhow::Result<Vec<i64>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT DISTINCT txn FROM _flow_staged WHERE shard = ?1 ORDER BY txn")?;
+    pub fn staged_txns(&self, key_begin: u32, key_end: u32) -> anyhow::Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT txn FROM _flow_staged
+             WHERE shard = ?1 AND shard_end = ?2 ORDER BY txn",
+        )?;
         let txns = stmt
-            .query_map((shard,), |r| r.get::<_, i64>(0))?
+            .query_map((key_begin, key_end), |r| r.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(txns)
     }
@@ -471,17 +488,22 @@ impl Store {
     /// committed append count, in one transaction. The document-counter class's
     /// `Store` path: rows become visible immediately, and the count is the
     /// destination's own record of how far it got.
-    pub fn append_counted(&self, shard: u32, rows: &[(Table, Row)]) -> anyhow::Result<()> {
+    pub fn append_counted(
+        &self,
+        key_begin: u32,
+        key_end: u32,
+        rows: &[(Table, Row)],
+    ) -> anyhow::Result<()> {
         let txn = self.write_txn()?;
 
         write_rows(&txn, rows)?;
 
         let mut stmt = txn.prepare(
-            "INSERT INTO _flow_counter (shard, tbl, appended) VALUES (?1, ?2, 1)
-             ON CONFLICT (shard, tbl) DO UPDATE SET appended = appended + 1",
+            "INSERT INTO _flow_counter (shard, shard_end, tbl, appended) VALUES (?1, ?2, ?3, 1)
+             ON CONFLICT (shard, shard_end, tbl) DO UPDATE SET appended = appended + 1",
         )?;
         for (table, _) in rows {
-            stmt.execute((shard, &table.name))?;
+            stmt.execute((key_begin, key_end, &table.name))?;
         }
         drop(stmt);
 
@@ -491,12 +513,13 @@ impl Store {
 
     /// The destination's committed append count for a resource — the "committed
     /// offset token" the document-counter class resumes from.
-    pub fn appended(&self, shard: u32, table: &str) -> anyhow::Result<i64> {
+    pub fn appended(&self, key_begin: u32, key_end: u32, table: &str) -> anyhow::Result<i64> {
         let n = self
             .conn
             .query_row(
-                "SELECT appended FROM _flow_counter WHERE shard = ?1 AND tbl = ?2",
-                (shard, table),
+                "SELECT appended FROM _flow_counter
+                 WHERE shard = ?1 AND shard_end = ?2 AND tbl = ?3",
+                (key_begin, key_end, table),
                 |r| r.get::<_, i64>(0),
             )
             .optional()?
@@ -504,9 +527,11 @@ impl Store {
         Ok(n)
     }
 
-    pub fn reset_appended(&self, shard: u32) -> anyhow::Result<()> {
-        self.conn
-            .execute("DELETE FROM _flow_counter WHERE shard = ?1", (shard,))?;
+    pub fn reset_appended(&self, key_begin: u32, key_end: u32) -> anyhow::Result<()> {
+        self.conn.execute(
+            "DELETE FROM _flow_counter WHERE shard = ?1 AND shard_end = ?2",
+            (key_begin, key_end),
+        )?;
         Ok(())
     }
 
@@ -644,11 +669,11 @@ mod test {
             .stage(0, u32::MAX, 7, &[(delta.clone(), row("[1,1]", r#"{"id":1,"seq":1}"#))])
             .unwrap();
         assert_eq!(store.read_all(&delta).unwrap().len(), 1);
-        assert_eq!(store.staged_txns(0).unwrap(), vec![7]);
+        assert_eq!(store.staged_txns(0, u32::MAX).unwrap(), vec![7]);
 
-        assert!(store.apply_staged(0, 7, true).unwrap());
+        assert!(store.apply_staged(0, u32::MAX, 7, true).unwrap());
         assert_eq!(store.read_all(&delta).unwrap().len(), 2);
-        assert!(!store.apply_staged(0, 7, true).unwrap());
+        assert!(!store.apply_staged(0, u32::MAX, 7, true).unwrap());
         assert_eq!(store.read_all(&delta).unwrap().len(), 2);
 
         // Several transactions can be staged and committed without being applied — a
@@ -662,24 +687,24 @@ mod test {
         store
             .stage(0, u32::MAX, 9, &[(delta.clone(), row("[3,0]", r#"{"id":3}"#))])
             .unwrap();
-        assert_eq!(store.staged_txns(0).unwrap(), vec![8, 9]);
+        assert_eq!(store.staged_txns(0, u32::MAX).unwrap(), vec![8, 9]);
 
         let before = store.read_all(&delta).unwrap().len();
-        for txn in store.staged_txns(0).unwrap() {
-            store.apply_staged(0, txn, true).unwrap();
+        for txn in store.staged_txns(0, u32::MAX).unwrap() {
+            store.apply_staged(0, u32::MAX, txn, true).unwrap();
         }
         assert_eq!(
             store.read_all(&delta).unwrap().len(),
             before + 2,
             "every staged transaction must be applied, not only the newest",
         );
-        assert!(store.staged_txns(0).unwrap().is_empty());
+        assert!(store.staged_txns(0, u32::MAX).unwrap().is_empty());
 
         // The append counter is the destination's own record of how far it got.
         store
-            .append_counted(0, &[(delta.clone(), row("[1,2]", r#"{"id":1,"seq":2}"#))])
+            .append_counted(0, u32::MAX, &[(delta.clone(), row("[1,2]", r#"{"id":1,"seq":2}"#))])
             .unwrap();
-        assert_eq!(store.appended(0, &delta.name).unwrap(), 1);
+        assert_eq!(store.appended(0, u32::MAX, &delta.name).unwrap(), 1);
     }
 
     /// The root cause of `split-during-commit`'s intermittent failures: a `Load` must
@@ -713,7 +738,7 @@ mod test {
         store
             .stage(0, u32::MAX, 1, &[(table.clone(), row(r#"{"balance":10}"#))])
             .unwrap();
-        assert!(store.apply_staged(0, 1, true).unwrap());
+        assert!(store.apply_staged(0, u32::MAX, 1, true).unwrap());
         assert_eq!(
             store.load(0, u32::MAX, &table, "[1]").unwrap().as_deref(),
             Some(r#"{"balance":10}"#),
@@ -787,6 +812,73 @@ mod test {
             )
             .unwrap();
         assert_eq!(store.load(0, u32::MAX, &table, "[1]").unwrap(), None);
+    }
+
+    /// Staged work is identified by its whole key range, so a split child can tell an
+    /// ancestor's leftovers from a live sibling's in-flight work.
+    ///
+    /// Keying on `key_begin` alone cannot: after a two-way split the low child shares
+    /// its begin with the departed parent, so "shard 0's staging" names both the
+    /// ancestor's and the sibling's. Acting on that ambiguity means discarding a
+    /// sibling's uncommitted transaction — the exact loss this suite exists to catch.
+    #[test]
+    fn staged_work_distinguishes_an_ancestor_from_a_sibling() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
+
+        let table = Table {
+            name: "events".to_string(),
+            delta: true,
+        };
+        store.ensure_table(&table).unwrap();
+
+        let row = |key: &str| Row {
+            binding: 0,
+            key: key.to_string(),
+            doc: format!(r#"{{"k":"{key}"}}"#),
+            delete: false,
+        };
+
+        // The parent staged a transaction and departed. Both children of the split
+        // share nothing with each other; the low child shares `key_begin` with the
+        // parent.
+        const PARENT: (u32, u32) = (0, u32::MAX);
+        const LOW: (u32, u32) = (0, 0x7fff_ffff);
+        const HIGH: (u32, u32) = (0x8000_0000, u32::MAX);
+
+        store
+            .stage(PARENT.0, PARENT.1, 4, &[(table.clone(), row("[1]"))])
+            .unwrap();
+        store
+            .stage(LOW.0, LOW.1, 1, &[(table.clone(), row("[2]"))])
+            .unwrap();
+
+        // Each range sees only its own staging, even where begins coincide.
+        assert_eq!(store.staged_txns(PARENT.0, PARENT.1).unwrap(), vec![4]);
+        assert_eq!(store.staged_txns(LOW.0, LOW.1).unwrap(), vec![1]);
+        assert!(store.staged_txns(HIGH.0, HIGH.1).unwrap().is_empty());
+
+        // The high child discarding its ancestor's uncommitted work must not touch the
+        // low child's, though the two share a `key_begin`.
+        store.discard_staged_after(PARENT.0, PARENT.1, 3).unwrap();
+        assert!(store.staged_txns(PARENT.0, PARENT.1).unwrap().is_empty());
+        assert_eq!(
+            store.staged_txns(LOW.0, LOW.1).unwrap(),
+            vec![1],
+            "a sibling's in-flight staging must survive",
+        );
+
+        // And an applied transaction is claimed per range, so the same number under a
+        // different range is a different transaction.
+        store
+            .stage(HIGH.0, HIGH.1, 1, &[(table.clone(), row("[3]"))])
+            .unwrap();
+        assert!(store.apply_staged(LOW.0, LOW.1, 1, true).unwrap());
+        assert!(
+            store.apply_staged(HIGH.0, HIGH.1, 1, true).unwrap(),
+            "txn 1 of one range must not be mistaken for txn 1 of another",
+        );
+        assert_eq!(store.read_all(&table).unwrap().len(), 2);
     }
 
     /// A split subdivides a range that has never been opened, so the child has to

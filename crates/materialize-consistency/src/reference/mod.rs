@@ -99,14 +99,20 @@ pub struct ResourceConfig {
     pub delta: bool,
 }
 
-/// Connector state, keyed by shard so that a task's shards do not clobber one
-/// another.
+/// Connector state, keyed by each shard's whole key range so that a task's shards do
+/// not clobber one another *and* a shard can tell an ancestor from a sibling.
 ///
 /// The runtime concatenates every shard's state patch and consolidates them into
-/// shard zero, so a shard writing whole-state would erase its peers'. Keying by
-/// `key_begin` and emitting a merge patch is also what makes the state
-/// split-safe: a child inherits the parent's entries, and the one under its own
-/// (new) key is simply absent.
+/// shard zero, so a shard writing whole-state would erase its peers'. Keying it and
+/// emitting a merge patch is also what makes the state split-safe: a child inherits
+/// the parent's entries and its own is simply absent.
+///
+/// The key is `begin-end`, not `begin` alone, and that is load-bearing. After a
+/// two-way split the low child shares its `key_begin` with the departed parent, so a
+/// `begin`-keyed entry cannot say whether it describes an ancestor or a live sibling
+/// — and acting on it would mean discarding a sibling's in-flight staging. With both
+/// bounds, containment answers the question: strictly containing is an ancestor,
+/// equal is oneself, and two live shards never contain each other.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct State {
     #[serde(default)]
@@ -383,10 +389,12 @@ fn apply_spec(apply: materialize::request::Apply) -> anyhow::Result<materialize:
     // here precisely because Apply runs while the task is quiescent: no session can
     // be adding more. Idempotently, because Apply may be called again for the same
     // version.
-    for shard in store.staged_shard_keys()? {
-        for txn in store.staged_txns(shard)? {
-            if store.apply_staged(shard, txn, true)? {
-                actions.push(format!("drained staged transaction {txn} of shard {shard}"));
+    for (begin, end) in store.staged_shard_keys()? {
+        for txn in store.staged_txns(begin, end)? {
+            if store.apply_staged(begin, end, txn, true)? {
+                actions.push(format!(
+                    "drained staged transaction {txn} of range [{begin:08x}, {end:08x}]"
+                ));
             }
         }
     }
@@ -462,7 +470,7 @@ fn open_session(
     };
     let shard_state = state
         .shards
-        .get(&shard_key(key_begin))
+        .get(&shard_key(key_begin, key_end))
         .cloned()
         .unwrap_or_default();
 
@@ -499,12 +507,38 @@ fn open_session(
         Class::RemoteAuthoritative if shard_zero => decode_checkpoint(checkpoint.as_deref())?,
         Class::RemoteAuthoritative => None,
         Class::PostCommitApply => {
-            // Staging beyond the last committed transaction belongs to a
-            // transaction the recovery log never committed. It must never become
-            // visible, and the runtime is about to replay that input, so drop it.
-            session
-                .store
-                .discard_staged_after(session.key_begin, session.committed_txn)?;
+            // Staging beyond the last committed transaction belongs to a transaction
+            // the recovery log never committed. It must never become visible, and the
+            // runtime is about to replay that input, so drop it.
+            session.store.discard_staged_after(
+                session.key_begin,
+                session.key_end,
+                session.committed_txn,
+            )?;
+
+            // Then settle what an ancestor left behind. A split child owns keys whose
+            // staged work is filed under the wider range that used to contain them,
+            // and the ancestor is gone, so nobody else will: its committed
+            // transactions must be applied and its uncommitted ones discarded.
+            //
+            // Both children of a split do this for the same ancestor, which is
+            // harmless — applying is idempotent per transaction and discarding is a
+            // delete. Neither can touch the other's staging, because a sibling is
+            // never an ancestor.
+            for (begin, end, ancestor) in ancestors(&state, session.key_begin, session.key_end) {
+                session
+                    .store
+                    .discard_staged_after(begin, end, ancestor.txn)?;
+
+                for txn in session.store.staged_txns(begin, end)? {
+                    session.store.apply_staged(
+                        begin,
+                        end,
+                        txn,
+                        !session.has(Defect::NonIdempotentAcknowledge),
+                    )?;
+                }
+            }
             None
         }
         Class::DocumentCounter => {
@@ -536,7 +570,9 @@ fn open_session(
 /// impossible and is refused rather than guessed at.
 fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Result<()> {
     if session.has(Defect::ResetCounterOnOpen) {
-        session.store.reset_appended(session.key_begin)?;
+        session
+            .store
+            .reset_appended(session.key_begin, session.key_end)?;
     }
 
     session.skip = Vec::with_capacity(session.bindings.len());
@@ -545,7 +581,7 @@ fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Res
     for binding in &session.bindings {
         let destination = session
             .store
-            .appended(session.key_begin, &binding.table.name)?;
+            .appended(session.key_begin, session.key_end, &binding.table.name)?;
         let checkpointed = shard_state
             .appended
             .get(&binding.table.name)
@@ -577,8 +613,37 @@ fn open_counters(session: &mut Session, shard_state: &ShardState) -> anyhow::Res
     Ok(())
 }
 
-fn shard_key(key_begin: u32) -> String {
-    format!("{key_begin:08x}")
+fn shard_key(key_begin: u32, key_end: u32) -> String {
+    format!("{key_begin:08x}-{key_end:08x}")
+}
+
+/// The range a state key names.
+fn parse_shard_key(key: &str) -> Option<(u32, u32)> {
+    let (begin, end) = key.split_once('-')?;
+    Some((
+        u32::from_str_radix(begin, 16).ok()?,
+        u32::from_str_radix(end, 16).ok()?,
+    ))
+}
+
+/// Entries whose range *strictly* contains this session's — its ancestors.
+///
+/// A split child inherits keys whose staged work is still filed under the range that
+/// contained them, and nobody else is going to reconcile it: the ancestor is gone.
+/// Strict containment excludes the session itself, and no two live shards contain
+/// one another, so a sibling can never appear here.
+fn ancestors(state: &State, key_begin: u32, key_end: u32) -> Vec<(u32, u32, ShardState)> {
+    state
+        .shards
+        .iter()
+        .filter_map(|(key, entry)| {
+            let (begin, end) = parse_shard_key(key)?;
+            let contains = begin <= key_begin && end >= key_end;
+
+            (contains && (begin, end) != (key_begin, key_end))
+                .then(|| (begin, end, entry.clone()))
+        })
+        .collect()
 }
 
 fn decode_checkpoint(bytes: Option<&[u8]>) -> anyhow::Result<Option<proto_flow::RuntimeCheckpoint>> {
@@ -691,7 +756,9 @@ fn store_document(
             session.buffered.push((table, row));
             if session.buffered.len() >= STAGE_BATCH {
                 let batch = std::mem::take(&mut session.buffered);
-                session.store.append_counted(session.key_begin, &batch)?;
+                session
+                    .store
+                    .append_counted(session.key_begin, session.key_end, &batch)?;
                 for (table, _) in &batch {
                     if let Some(i) = session.bindings.iter().position(|b| b.table.name == table.name)
                     {
@@ -749,6 +816,7 @@ fn start_commit_txn(
 
             Some(shard_patch(
                 session.key_begin,
+                session.key_end,
                 ShardState {
                     txn: session.committed_txn,
                     appended: BTreeMap::new(),
@@ -759,7 +827,9 @@ fn start_commit_txn(
         Class::DocumentCounter => {
             let rows = std::mem::take(&mut session.buffered);
             if !rows.is_empty() {
-                session.store.append_counted(session.key_begin, &rows)?;
+                session
+                    .store
+                    .append_counted(session.key_begin, session.key_end, &rows)?;
                 for (table, _) in &rows {
                     if let Some(i) = session.bindings.iter().position(|b| b.table.name == table.name)
                     {
@@ -784,6 +854,7 @@ fn start_commit_txn(
 
             Some(shard_patch(
                 session.key_begin,
+                session.key_end,
                 ShardState { txn: 0, appended },
             ))
         }
@@ -818,12 +889,16 @@ fn acknowledge(session: &mut Session) -> anyhow::Result<materialize::Response> {
         //
         // Idempotent per transaction, so re-applying an already-claimed one is a
         // no-op and this is safe to run on every Acknowledge.
-        for txn in session.store.staged_txns(session.key_begin)? {
+        for txn in session
+            .store
+            .staged_txns(session.key_begin, session.key_end)?
+        {
             if txn > session.committed_txn {
                 continue; // Not yet committed to the recovery log.
             }
             session.store.apply_staged(
                 session.key_begin,
+                session.key_end,
                 txn,
                 !session.has(Defect::NonIdempotentAcknowledge),
             )?;
@@ -837,8 +912,8 @@ fn acknowledge(session: &mut Session) -> anyhow::Result<materialize::Response> {
 }
 
 /// A merge patch carrying only this shard's entry.
-fn shard_patch(key_begin: u32, state: ShardState) -> flow::ConnectorState {
-    let patch = serde_json::json!({"shards": {shard_key(key_begin): state}});
+fn shard_patch(key_begin: u32, key_end: u32, state: ShardState) -> flow::ConnectorState {
+    let patch = serde_json::json!({"shards": {shard_key(key_begin, key_end): state}});
 
     flow::ConnectorState {
         updated_json: patch.to_string().into(),
