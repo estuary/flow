@@ -291,6 +291,7 @@ where
     let result = super::actor::Actor::new(
         codec,
         connector_tx,
+        controller_tx.clone(),
         db,
         leader_tx,
         metrics,
