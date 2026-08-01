@@ -297,12 +297,16 @@ fn split_during_commit() -> Scenario {
          are NOT exempt.",
     )
     .blocked_on_runtime(
-        "The runtime does not yet guarantee that a prepared transaction is finished under \
-         the same shard split it was prepared under, through to the commit of the driver \
-         checkpoint. This scenario stalls StartCommit and splits inside exactly that \
-         window, so the connector is asked to reconcile a transaction whose ownership \
-         changed underneath it — which no connector can do correctly. See \
-         docs/materialize/consistency-testing.md.",
+        "The runtime does not yet guarantee that a transaction started under a given shard \
+         split is replayed under that same split before a scale up or down takes effect — \
+         a capability named as a requirement in estuary/flow discussion 2581, and not \
+         specific to any one strategy. This scenario stalls StartCommit and splits inside \
+         that window, so documents already applied under the pre-split shard are \
+         re-delivered to its children. An append-only binding survives it, because the \
+         destination recognises a load it has already accepted; a merge binding cannot, \
+         because the runtime recomputes the reduced value from a Load that already \
+         reflects them, and stores a sum that counts them twice. No connector can close \
+         that from its side.",
     );
     scenario.split_shards = true;
     scenario.settle_commits = 5;

@@ -313,100 +313,37 @@ monotonicity — the sharpest checks here.
 
 ### A known runtime limitation: a prepared transaction must outlive a membership change
 
-Two scenarios fail for a reason that is **not** a connector defect and not a harness
-defect. It is a known limitation of the current runtime, and fixing it is out of scope for
-this suite. The scenarios are kept, red, because they are the regression detector for it.
+Two scenarios fail for a reason that is not a connector defect. The runtime does not yet
+provide a capability that
+[discussion 2581](https://github.com/estuary/flow/discussions/2581) names as a requirement
+for materialization scale-out:
 
-The rule the runtime does not yet enforce:
+> Idempotent runtime transactions that respect shard splits: Any transactions that have
+> been started with a given task shard split must be replayed with that same shard split
+> before a shard scale up / down is applied.
 
-> Once a transaction is prepared, that same transaction **and the same shard split** must
-> be used to finish it, through to the commit of the driver checkpoint. A change in the
-> number of shards should only become active after any prior prepared transaction has been
-> fully processed.
+Put the other way: a change in the number of shards should only become active once any
+prepared transaction has been fully processed. Without that, a split or join landing
+between "prepared" and "checkpoint committed" re-delivers documents already applied under
+the old shard set.
 
-Without that guarantee, a split or join landing between "prepared" and "checkpoint
-committed" corrupts any strategy that reconciles against a per-shard destination counter:
+**What survives it and what does not.** An append-only binding survives: the destinations
+this class targets recognise a load they have already accepted — re-running the same
+`COPY INTO` of the same staged file is a no-op — so a re-delivered batch is absorbed. A
+*merge* binding cannot be protected the same way. The runtime recomputes the reduced value
+from a `Load` that already reflects those documents and stores the result, so the sum counts
+them twice. The connector faithfully writes what it was given; there is nothing for it to
+deduplicate.
 
-**Scaling down** — `[0, 5)` and `[5, 10)` become `[0, 10)`. A prepared transaction holds 7
-keys per range, 14 total; each shard writes its 7, so each channel counter reads 7. The
-task scales down and crashes before the driver checkpoint commits. The single new shard
-reads a counter of 7 and a checkpointed 0, so it skips 7 of the coming transaction rather
-than 14 — **duplicates**.
+The counted-channel strategy has its own version of this, set out in the same discussion:
+scaling down, a survivor reads one departing channel's counter and skips too few, giving
+duplicates; scaling up, a child reading "the channel whose range starts at 0" skips too many
+and misses data.
 
-**Scaling up** — `[0, 10)` becomes `[0, 5)` and `[5, 10)`. The prepared transaction holds
-14 keys; `[0, 10)` writes all 14. The task splits before the checkpoint commits. A `[0, 5)`
-shard that resolves "the channel whose range starts at 0" sees 14, skips 14, and **misses
-data**; `[5, 10)` opens a new channel and **duplicates** its first 7.
-
-**What the suite observes, and one difference worth keeping.** A crash-then-split run in
-which the split did apply duplicates about one transaction's worth of appends, every one
-exactly twice, with *nothing missing*. The scaling-up analysis predicts one child missing
-data and the other duplicating; this connector only duplicates, because its channels are
-keyed by the whole range `(key_begin, key_end)` rather than by `key_begin` alone. A new
-child therefore never inherits an offset that isn't its own, so it never over-skips, and
-cannot silently lose data — it can only duplicate.
-
-That is worth preserving beyond this suite: **keying a channel by the shard's full range
-converts the scaling-up failure from silent data loss into duplication.** Duplication is
-detectable at the destination; loss of a prefix is not. It does not fix the limitation, but
-it makes the limitation's consequences the safer of the two.
-
-**Why only one scenario is marked.** `split-during-commit` stalls `StartCommit` and splits
-inside the stall, which reaches the window reliably. A *crash* cannot be aimed at that window
-as directly; see "Crashing a split shard" for how the counted-channel scenarios are aimed
-instead.
-
-**What passes anyway.** A split with no transaction in flight is survived cleanly: the
-counted-channel class passed three consecutive runs across a split of 1196, 1458 and 1498
-documents when no appends were pending. The limitation bites only in the window the
-mitigation names.
-
-### The post-commit-apply limit: staged work cannot be inherited across a split
-
-Range-pair keying (below) removes the ambiguity between an ancestor and a sibling, but the
-scenario still fails most runs — by *duplicating* rather than losing — and the evidence says
-why.
-
-Every failing account has repeated `(id, seq)` rows in the merged delta binding, and the
-running sum diverges from the oracle **exactly at the first repeat**:
-
-| account | repeated seqs | first divergence | final oracle |
-| --- | --- | --- | --- |
-| 2 | 4, 6 | seq 4, off by −34 | correct |
-| 3 | 3, 5 | seq 3, off by −59 | correct |
-| 4 | 1, 3 | seq 1, off by +74 | correct |
-| 5 | 2, 3 | seq 2, off by −110 | correct |
-
-Accounts that pass have no repeats. Final oracle and final sequence are right everywhere,
-so nothing is lost — early transactions are applied twice. The append-only binding agrees:
-783 delivered against 779 expected, three duplicates, nothing missing.
-
-The cause is the repair itself, and it is not a keying problem. When a split child finds an
-ancestor's staged-but-unapplied transaction it faces a question it cannot answer: **is my
-own resume point before or after that transaction?**
-
-- If after, the work is committed and unapplied, and applying it is the only way to avoid
-  losing it — the leak fixed above.
-- If before, the runtime is about to replay that same input, and applying it duplicates.
-
-A shard's resume point is not something the connector is told. For shard zero it follows
-its own recovery log, but a *non-zero* V2 shard is stateless — no recovery log, its
-progress arriving through the leader — so a child's starting point can legitimately predate
-its ancestor's last committed transaction. Applying risks duplication; discarding risks
-loss; the connector has no third option.
-
-**The conclusion is about the class, not the reference connector.** Post-commit-apply
-staging is only safe across a membership change if re-application is idempotent *per
-document* rather than per transaction — which a keyed, merged destination gets for free and
-an append-only one cannot have without a deduplication key. That is precisely why the
-Snowpipe Streaming v2 path uses a *counted channel* — the document-counter class, which
-resumes by asking the destination how far it got — rather than post-commit staging. This
-scenario has, the long way round, derived the reason that design exists.
-
-So `split-during-commit` against the post-commit-apply class is testing something that
-class cannot do. The options are to pair the scenario with a connector class that can
-(document-counter), or to keep it as a declared exemption with this reasoning attached.
-Either way it should not be silently made green.
+**One property worth carrying elsewhere.** Keying a channel by the shard's whole range
+rather than by `key_begin` alone converts the scaling-up failure from silent data loss into
+duplication: a new child never inherits an offset that isn't its own, so it cannot
+over-skip. Duplication is detectable at the destination; a lost prefix is not.
 
 ## Deferred
 
@@ -492,31 +429,15 @@ restart rather than a reschedule, and what an operator would do.
 Whether a V2 task *should* need a republish to survive a connector crash in a split shard is
 a question about the runtime rather than about a connector. The suite measures it either way.
 
-### Any split scenario inherits the prepared-transaction gap
+### Any split scenario passes through that window
 
-`split-during-commit` is marked `blocked_on_runtime` because it *aims* at the window
-where a membership change lands on a prepared transaction. What the counted-channel
-scenarios showed is that every scenario which splits passes through that window whether
-it aims at it or not, because the harness cannot ask for a split at a transaction
-boundary. The workload commits every one to two seconds and a split takes seconds to
-apply, so a prepared transaction is nearly always in flight when the split lands.
+`split-during-commit` is marked `blocked_on_runtime` because it *aims* at the window where
+a membership change lands on a prepared transaction. Every scenario that splits passes
+through the same window whether it aims at it or not: the harness cannot ask for a split at
+a transaction boundary, the workload commits every one to two seconds, and a split takes
+seconds to apply, so a prepared transaction is nearly always in flight when one lands.
 
-The shape of it, from `counter-crash-in-split-non-leader`: the parent's counter includes
-its final transaction, the children's counters start at zero, and the destination ends up
-holding more than the collection by about one transaction's worth.
-
-The parent's trace ends with a `startCommit`/`startedCommit` pair and no following
-`Acknowledge`: its last transaction was prepared and never confirmed committed. Its rows are in the
-shared table and counted against `(0, MAX)`. The children start at zero, replay that
-transaction's inputs, and append them again — about one transaction's worth of duplicates,
-and **nothing missing**.
-
-Duplication-without-loss is the signature to look for, and it follows from the channel
-keying described above: a child never inherits an offset that isn't its own, so it can
-never over-skip. A connector keying channels by `key_begin` alone would have shown the
-other half of the scaling-up case, a silently lost prefix.
-
-These scenarios are left unmarked rather than declared expected failures, because they
-pass whenever the race falls the other way, which is most of the time. A failure showing duplicates and no losses in a scenario that splits is
-this gap, not a connector defect; the same runtime guarantee closes all of them.
-
+The counted-channel scenarios are left unmarked rather than declared expected failures,
+because they pass whenever the race falls the other way, which is most of the time. The
+signature to recognise is duplicates with no losses in a scenario that splits: that is this
+gap rather than a connector defect, and one runtime guarantee closes all of them.
