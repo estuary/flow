@@ -10,6 +10,18 @@ use superslice::Ext;
 use tables::EitherOrBoth as EOB;
 use xxhash_rust::xxh3::Xxh3;
 
+/// Live transforms of a derivation, indexed on name and paired with their
+/// resolved source collections. The live derivation may be in either encoding,
+/// so its transforms are meaningless apart from the derivation which resolves
+/// them.
+type LiveTransforms<'a> = BTreeMap<
+    &'a str,
+    (
+        &'a flow::collection_spec::derivation::Transform,
+        Option<&'a flow::CollectionSpec>,
+    ),
+>;
+
 pub async fn walk_all_derivations<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
@@ -362,18 +374,25 @@ async fn walk_derivation<C: Connectors>(
         .map(|model| (&model.name, model))
         .collect();
 
-    // Index live transform specs, both active and inactive, on their name.
-    let mut live_transforms_spec: BTreeMap<&str, &flow::collection_spec::derivation::Transform> =
-        live_spec
-            .and_then(|collection| collection.derivation.as_ref())
-            .iter()
-            .flat_map(|spec| {
-                spec.inactive_transforms
-                    .iter()
-                    .chain(spec.transforms.iter())
-            })
-            .map(|transform| (transform.name.as_str(), transform))
-            .collect();
+    // Index live transform specs, both active and inactive, on their name,
+    // each paired with its resolved source collection.
+    let mut live_transforms_spec: LiveTransforms = live_spec
+        .and_then(|collection| collection.derivation.as_ref())
+        .iter()
+        .flat_map(|spec| {
+            spec.resolved_inactive_transforms()
+                .chain(spec.resolved_transforms())
+        })
+        .map(|(transform, resolved)| {
+            (
+                transform.name.as_str(),
+                (
+                    transform,
+                    resolved.map(|(collection, _identity)| collection),
+                ),
+            )
+        })
+        .collect();
 
     // Map enumerated transform models into paired validation requests.
     let transforms_model_len = transforms_model.len();
@@ -712,9 +731,18 @@ async fn walk_derivation<C: Connectors>(
     for transform in &transforms_spec {
         live_transforms_spec.remove(transform.name.as_str());
     }
+    // Carry over inactive transforms, re-inlining each resolved collection:
+    // an index into the *live* derivation's table is meaningless in the
+    // derivation we're building, so it's never copied across generations.
     let inactive_transforms = live_transforms_spec
         .values()
-        .map(|v| (*v).clone())
+        .map(
+            |(transform, collection)| flow::collection_spec::derivation::Transform {
+                collection: collection.map(Clone::clone),
+                collection_index: 0,
+                ..(*transform).clone()
+            },
+        )
         .collect();
 
     // Use manual salt if provided, otherwise the live salt, otherwise generate a new one.
@@ -795,7 +823,7 @@ fn walk_derive_transform<'a>(
     data_plane_id: models::Id,
     disable: bool,
     live_transforms_model: &BTreeMap<&models::Transform, &models::TransformDef>,
-    live_transforms_spec: &BTreeMap<&str, &flow::collection_spec::derivation::Transform>,
+    live_transforms_spec: &LiveTransforms,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (models::TransformDef, Option<ValidateContext>) {
@@ -855,10 +883,13 @@ fn walk_derive_transform<'a>(
     }
 
     // Was this transform's source collection reset under its current backfill count?
-    let live_spec = live_transforms_spec.get(model.name.as_str());
+    let live_entry = live_transforms_spec.get(model.name.as_str());
+    let live_spec = live_entry.map(|(transform, _collection)| *transform);
+    let live_collection = live_entry.and_then(|(_transform, collection)| *collection);
+
     let was_reset = live_spec.is_some_and(|live_spec| {
         live_spec.backfill == model.backfill
-            && super::collection_was_reset(&source_spec, &live_spec.collection)
+            && super::collection_was_reset(&source_spec, live_collection)
     });
 
     if was_reset {

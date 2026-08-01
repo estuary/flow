@@ -123,9 +123,22 @@ where
                     parsed_outer_config.variant
                 ))?;
 
+                // Resolve collections while `validate` is whole: the bindings
+                // are taken below, after which they can no longer index the
+                // shared `linked_collections` table.
+                let binding_collections = validate
+                    .resolved_bindings()
+                    .map(|(_binding, resolved)| {
+                        resolved
+                            .map(|(collection, _identity)| collection.clone())
+                            .context("collection must exist")
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
                 let validated_bindings = std::mem::take(&mut validate.bindings)
                     .into_iter()
-                    .map(|binding| {
+                    .zip(binding_collections)
+                    .map(|(binding, collection)| {
                         let resource_config = serde_json::from_slice::<DekafResourceConfig>(
                             &binding.resource_config_json,
                         )
@@ -134,9 +147,7 @@ where
                             parsed_outer_config.variant.clone()
                         ))?;
 
-                        let projection_constraints = binding
-                            .collection
-                            .context("collection must exist")?
+                        let projection_constraints = collection
                             .projections
                             .iter()
                             .map(|projection| validated::ProjectionConstraint {

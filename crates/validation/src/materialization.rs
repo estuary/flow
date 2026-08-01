@@ -8,6 +8,18 @@ use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
 use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 
+/// Live bindings of a materialization, indexed on resource path and paired
+/// with their resolved collections. The live built spec may be in either
+/// encoding, so its bindings are meaningless apart from the spec which
+/// resolves them.
+type LiveBindings<'a> = BTreeMap<
+    &'a [String],
+    (
+        &'a flow::materialization_spec::Binding,
+        Option<&'a flow::CollectionSpec>,
+    ),
+>;
+
 pub async fn walk_all_materializations<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
@@ -217,13 +229,21 @@ async fn walk_materialization<C: Connectors>(
         })
         .collect();
 
-    // Index live binding specs, both active and inactive, on their declared resource paths.
-    let mut live_bindings_spec: BTreeMap<&[String], &flow::materialization_spec::Binding> =
-        live_spec
-            .iter()
-            .flat_map(|spec| spec.inactive_bindings.iter().chain(spec.bindings.iter()))
-            .map(|binding| (binding.resource_path.as_slice(), binding))
-            .collect();
+    // Index live binding specs, both active and inactive, on their declared
+    // resource paths, each paired with its resolved collection.
+    let mut live_bindings_spec: LiveBindings = live_spec
+        .iter()
+        .flat_map(|spec| {
+            spec.resolved_inactive_bindings()
+                .chain(spec.resolved_bindings())
+        })
+        .map(|(binding, resolved)| {
+            (
+                binding.resource_path.as_slice(),
+                (binding, resolved.map(|(collection, _identity)| collection)),
+            )
+        })
+        .collect();
 
     let scope_bindings = scope.push_prop("bindings");
 
@@ -433,8 +453,9 @@ async fn walk_materialization<C: Connectors>(
         }
 
         // Map to the live binding now that we have a validated resource path.
-        let live_spec: Option<&flow::materialization_spec::Binding> =
-            live_bindings_spec.get(path.as_slice()).cloned();
+        let live_spec: Option<&flow::materialization_spec::Binding> = live_bindings_spec
+            .get(path.as_slice())
+            .map(|(binding, _collection)| *binding);
 
         if let Some(live_spec) = live_spec {
             if model.backfill < live_spec.backfill {
@@ -612,12 +633,12 @@ async fn walk_materialization<C: Connectors>(
     // Otherwise remove built bindings from `live_bindings_spec`, and the remainder must be inactive.
     let inactive_bindings = if shards.disable {
         bindings_spec.clear();
-        live_bindings_spec.values().map(|v| (*v).clone()).collect()
+        inactive_bindings(&live_bindings_spec)
     } else {
         for binding in &bindings_spec {
             live_bindings_spec.remove(binding.resource_path.as_slice());
         }
-        live_bindings_spec.values().map(|v| (*v).clone()).collect()
+        inactive_bindings(&live_bindings_spec)
     };
 
     let recovery_log_template = assemble::recovery_log_template(
@@ -726,7 +747,7 @@ fn walk_materialization_binding<'a>(
     data_plane_id: models::Id,
     disable: bool,
     live_bindings_model: &BTreeMap<Vec<String>, &models::MaterializationBinding>,
-    live_bindings_spec: &BTreeMap<&[String], &flow::materialization_spec::Binding>,
+    live_bindings_spec: &LiveBindings,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (
@@ -743,7 +764,9 @@ fn walk_materialization_binding<'a>(
     }
 
     let live_model = live_bindings_model.get(&model_path);
-    let live_spec = live_bindings_spec.get(model_path.as_slice());
+    let live_entry = live_bindings_spec.get(model_path.as_slice());
+    let live_spec = live_entry.map(|(binding, _collection)| *binding);
+    let live_collection = live_entry.and_then(|(_binding, collection)| *collection);
     let modified_source = Some(&model.source) != live_model.map(|l| &l.source);
 
     // We must resolve the source collection to continue.
@@ -818,7 +841,7 @@ fn walk_materialization_binding<'a>(
     // Was this binding's source collection reset under its current backfill count?
     let was_reset = live_spec.is_some_and(|live_spec| {
         live_spec.backfill == model.backfill
-            && super::collection_was_reset(&source_spec, &live_spec.collection)
+            && super::collection_was_reset(&source_spec, live_collection)
     });
     // Has the effective group-by key of the live materialization changed?
     let group_by_changed = live_spec
@@ -900,6 +923,25 @@ fn walk_materialization_binding<'a>(
     };
 
     (model_path, model, None, Some(validate))
+}
+
+/// Carry live bindings over as inactive bindings of the spec being built,
+/// re-inlining each resolved collection: an index into the *live* spec's
+/// table is meaningless in the spec we're building, so it's never copied
+/// across generations.
+fn inactive_bindings(
+    live_bindings_spec: &LiveBindings,
+) -> Vec<flow::materialization_spec::Binding> {
+    live_bindings_spec
+        .values()
+        .map(
+            |(binding, collection)| flow::materialization_spec::Binding {
+                collection: collection.map(Clone::clone),
+                collection_index: 0,
+                ..(*binding).clone()
+            },
+        )
+        .collect()
 }
 
 fn walk_materialization_fields(
