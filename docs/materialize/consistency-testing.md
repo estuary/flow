@@ -292,31 +292,7 @@ These are assertion-shaped tests, a departure from this repository's snapshot
 convention. The oracle makes the correct answer computable rather than recorded, so
 a snapshot would add a stale artifact without adding information.
 
-## Rules the reference connector obeys
-
-Two rules govern the post-commit-apply class. A connector that breaks either delivers a
-destination disagreeing with its own collection while every delivered row looks correct —
-nothing lost, nothing duplicated, only the reduced sums wrong.
-
-**A `Load` must see staged writes, including an ancestor's.** The class stages during
-`Store` and applies during `Acknowledge`, so between those points its rows are durable and
-invisible in the table. A connector must answer `Load` consistently with everything it has
-been asked to `Store` in a committed transaction, applied or not — and after a split, that
-includes rows staged under the parent's wider range, since a child inherits those keys.
-Visibility is scoped by containment: ranges containing mine, which admits ancestors and
-excludes siblings.
-
-**Recovery applies every committed-but-unapplied transaction, not just the newest.**
-`acknowledge` must apply every staged transaction at or below `committed_txn`, because
-discarding removes only transactions *after* it. One that is staged and log-committed but
-never acknowledged, with a newer one behind it, would otherwise be neither applied nor
-discarded, and would leak permanently. A split fences the parent mid-flight, which is
-precisely how two of them come to pile up.
-
-Both are invisible to a single-shard run, which is why the shard-reconfiguration scenarios
-belong in the default set.
-
-### The counted channel, and why it is the class that survives a split
+### The counted channel
 
 The document-counter class emulates Snowpipe Streaming v2.
 
@@ -334,14 +310,6 @@ reference class refuses a merge binding rather than emulating something no such 
 does. Scenarios therefore choose their binding set, and a subject without a standard
 binding is still held to per-document cardinality, running-sum-against-oracle and
 monotonicity — the sharpest checks here.
-
-**Why this is the class that survives a membership change.** A counted channel resumes by
-asking the destination how far it got, so a newly created shard needs no inherited state:
-a fresh channel simply starts at offset zero. Compare the post-commit-apply dead end
-below — a child inheriting staged work cannot tell whether its own resume point precedes
-it, so it must either duplicate or lose. The counted channel never asks that question.
-`counter-crash-in-split-leader` verifies it directly, and it is the scenario that most closely
-mirrors what the Snowpipe path actually relies on in production.
 
 ### A known runtime limitation: a prepared transaction must outlive a membership change
 
@@ -465,11 +433,6 @@ its converse need a task that is multi-shard from the start plus a fault targete
 at one shard's process. The shim currently applies its rules per process, so both
 shards would match the same rule; targeting needs the rule to be scoped by key
 range, which the trace already records.
-
-**CI gating.** Connectors CI downloads released Flow binaries and has no flow
-checkout, and publishing a catalog needs the control plane. Whether building flow
-in CI is worth it depends on real per-connector runtime, which could not be
-estimated honestly before the harness existed. A deferral, not a rejection.
 
 **Reactor-level zombies.** Running two reactors and partitioning the owner from
 etcd would exercise the runtime's fencing and the connector's together at maximum

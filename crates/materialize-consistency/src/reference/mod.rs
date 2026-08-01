@@ -713,13 +713,7 @@ fn load_document(
 
     let key = std::str::from_utf8(&load.key_json).context("Load key is not UTF-8")?;
 
-    let loaded = session.store.load(
-        session.key_begin,
-        session.key_end,
-        &binding.table,
-        key,
-        session.committed_txn,
-    )?;
+    let loaded = session.store.load(&binding.table, key)?;
 
     trace_reduce(
         "load",

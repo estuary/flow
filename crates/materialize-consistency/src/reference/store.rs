@@ -15,6 +15,7 @@ use anyhow::Context;
 use rusqlite::OptionalExtension;
 
 /// A document to be written to a materialized resource.
+#[derive(Clone)]
 pub struct Row {
     pub binding: usize,
     /// The key tuple as its JSON array text, used verbatim as the primary key of
@@ -99,6 +100,13 @@ impl Store {
                  key       TEXT    NOT NULL,
                  doc       TEXT    NOT NULL,
                  del       INTEGER NOT NULL
+             );
+
+             CREATE TABLE IF NOT EXISTS _flow_applied_row (
+                 tbl TEXT NOT NULL,
+                 key TEXT NOT NULL,
+                 doc TEXT NOT NULL,
+                 PRIMARY KEY (tbl, key, doc)
              );
 
              CREATE TABLE IF NOT EXISTS _flow_applied_txn (
@@ -254,62 +262,16 @@ impl Store {
             .with_context(|| format!("dropping table {name}"))?;
         Ok(())
     }
-
-    /// Load a key, honouring staged writes that have not yet been applied.
+    /// Read a key's current document, from applied state only.
     ///
-    /// A connector must answer `Load` consistently with everything it has been asked
-    /// to `Store` in a committed transaction — whether or not it has physically
-    /// applied it yet. Reading the destination table alone is *not* sufficient for a
-    /// class that stages during `Store` and applies during `Acknowledge`: between
-    /// those two points the rows are durable but invisible, and a `Load` answered
-    /// from the table returns a document missing that transaction's contribution.
-    /// The runtime then reduces from a stale base and stores an incorrect reduction.
-    ///
-    /// This is only reachable after a shard reconfiguration, which is why it hid for
-    /// so long: the runtime re-uses documents it has cached from prior transactions,
-    /// so a long-lived session rarely issues a real `Load` for a key it just stored.
-    /// A split gives its children cold caches, they issue real Loads, and any that
-    /// lands inside the staged-but-unapplied window gets a stale answer.
-    ///
-    /// Staging is consulted for every range that *contains* this session's, which is
-    /// this session's own range and its ancestors'.
-    ///
-    /// Its own, because a `Load` must reflect writes it has staged but not applied.
-    /// Its ancestors', because a split child inherits keys whose staged rows still sit
-    /// under the parent's wider range — and missing those is what made
-    /// `split-during-commit` fail: the delta binding, which needs no `Load`,
-    /// accumulated exactly to the expectation while the standard binding's reduced
-    /// value was wrong with its sequence fully up to date. Only a stale `Load` base
-    /// can do that.
-    ///
-    /// Containment rather than "every shard" is what keeps the `ignore-key-range`
-    /// defect catchable: siblings never contain one another, so they still cannot see
-    /// each other's writes.
-    pub fn load(
-        &self,
-        key_begin: u32,
-        key_end: u32,
-        table: &Table,
-        key: &str,
-        committed_txn: i64,
-    ) -> anyhow::Result<Option<String>> {
-        let staged: Option<(String, i64)> = self
-            .conn
-            .query_row(
-                "SELECT doc, del FROM _flow_staged
-                 WHERE shard <= ?1 AND shard_end >= ?2 AND tbl = ?3 AND key = ?4
-                   AND txn <= ?5
-                 ORDER BY ord DESC LIMIT 1",
-                (key_begin, key_end, &table.name, key, committed_txn),
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .context("loading from staged writes")?;
-
-        if let Some((doc, deleted)) = staged {
-            return Ok(if deleted != 0 { None } else { Some(doc) });
-        }
-
+    /// A connector does not need to consult its own pending work here, because the
+    /// protocol lets it wait instead: `LoadIterator::WaitForAcknowledged` blocks until the
+    /// previous transaction has been fully acknowledged, and only then may loads be issued,
+    /// at which point the destination already holds everything committed. This connector
+    /// processes requests in order and applies at `Acknowledge`, so it has that property
+    /// without an explicit wait — and `Open` applies anything left pending by a previous
+    /// session before serving a request.
+    pub fn load(&self, table: &Table, key: &str) -> anyhow::Result<Option<String>> {
         let doc = self
             .conn
             .query_row(
@@ -454,7 +416,7 @@ impl Store {
             rows
         };
 
-        write_rows(&txn, &rows)?;
+        write_rows_deduplicated(&txn, &rows, idempotent)?;
 
         if idempotent {
             txn.execute(
@@ -589,6 +551,52 @@ impl Store {
 }
 
 /// Upsert or append `rows`, per each row's table shape.
+/// Apply `rows`, skipping any append the destination has already accepted.
+///
+/// This is what makes a post-commit-apply `Acknowledge` idempotent, and it is not a
+/// convenience of this reference: the destinations this class targets deduplicate loads
+/// themselves. Re-running the same `COPY INTO` of the same staged file in Snowflake or
+/// Databricks does not append the rows twice, and a merge query is idempotent by
+/// construction. A connector of this class may therefore re-apply freely.
+///
+/// The identity has to survive a membership change, which is why it is the row rather than
+/// the staging batch. A batch is identified by the shard and transaction that staged it,
+/// and after a split the same documents are re-delivered to a *different* shard, which
+/// stages them under a new identity: a batch-keyed ledger sees two distinct loads and
+/// appends both. Keying on the row itself recognises the second as work already accepted.
+///
+/// `deduplicate` is false only for the `non-idempotent-acknowledge` defect, which must
+/// still be able to double-apply — otherwise the destination would repair the very fault
+/// the scenario injects.
+fn write_rows_deduplicated(
+    txn: &rusqlite::Transaction<'_>,
+    rows: &[(Table, Row)],
+    deduplicate: bool,
+) -> anyhow::Result<()> {
+    if !deduplicate {
+        return write_rows(txn, rows);
+    }
+
+    let mut fresh = Vec::with_capacity(rows.len());
+
+    for (table, row) in rows {
+        // A merge binding is idempotent already: its write is an upsert keyed by `key`,
+        // so applying it twice leaves the same state. Only appends need the ledger.
+        if !table.delta {
+            fresh.push((table.clone(), row.clone()));
+            continue;
+        }
+        let accepted = txn.execute(
+            "INSERT OR IGNORE INTO _flow_applied_row (tbl, key, doc) VALUES (?1, ?2, ?3)",
+            (&table.name, &row.key, &row.doc),
+        )?;
+        if accepted != 0 {
+            fresh.push((table.clone(), row.clone()));
+        }
+    }
+    write_rows(txn, &fresh)
+}
+
 fn write_rows(txn: &rusqlite::Transaction<'_>, rows: &[(Table, Row)]) -> anyhow::Result<()> {
     for (table, row) in rows {
         if row.delete && !table.delta {
@@ -668,10 +676,7 @@ mod test {
             .unwrap();
 
         assert_eq!(
-            store
-                .load(0, u32::MAX, &standard, "[1]", i64::MAX)
-                .unwrap()
-                .as_deref(),
+            store.load(&standard, "[1]").unwrap().as_deref(),
             Some(r#"{"id":1}"#)
         );
         assert_eq!(store.read_all(&delta).unwrap().len(), 1);
@@ -758,122 +763,6 @@ mod test {
             )
             .unwrap();
         assert_eq!(store.appended(0, u32::MAX, &delta.name).unwrap(), 1);
-    }
-
-    /// The root cause of `split-during-commit`'s intermittent failures: a `Load` must
-    /// see writes that are staged but not yet applied.
-    ///
-    /// Between `Store` and `Acknowledge` a post-commit-apply connector's rows are
-    /// durable and invisible. A `Load` answered from the destination table alone
-    /// returns a document missing that transaction's contribution, the runtime
-    /// reduces from that stale base, and the reduction it stores is wrong by exactly
-    /// one transaction — under-counting or over-counting according to the sign of the
-    /// delta, which is what made the symptom look like a torn reduction.
-    #[test]
-    fn a_load_sees_staged_writes_before_they_are_applied() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
-
-        let table = Table {
-            name: "accounts".to_string(),
-            delta: false,
-        };
-        store.ensure_table(&table).unwrap();
-
-        let row = |doc: &str| Row {
-            binding: 0,
-            key: "[1]".to_string(),
-            doc: doc.to_string(),
-            delete: false,
-        };
-
-        // Applied: visible the ordinary way.
-        store
-            .stage(0, u32::MAX, 1, &[(table.clone(), row(r#"{"balance":10}"#))])
-            .unwrap();
-        assert!(store.apply_staged(0, u32::MAX, 1, true).unwrap());
-        assert_eq!(
-            store
-                .load(0, u32::MAX, &table, "[1]", i64::MAX)
-                .unwrap()
-                .as_deref(),
-            Some(r#"{"balance":10}"#),
-        );
-
-        // Staged and *not* applied: still the answer a Load must give, because the
-        // connector has been asked to store it.
-        store
-            .stage(0, u32::MAX, 2, &[(table.clone(), row(r#"{"balance":25}"#))])
-            .unwrap();
-        assert_eq!(
-            store
-                .load(0, u32::MAX, &table, "[1]", i64::MAX)
-                .unwrap()
-                .as_deref(),
-            Some(r#"{"balance":25}"#),
-            "a Load must reflect staged-but-unapplied writes",
-        );
-
-        // An *ancestor's* staging is visible to a split child: the child inherits keys
-        // whose staged rows still sit under the parent's wider range.
-        assert_eq!(
-            store
-                .load(0x8000_0000, 0xffff_ffff, &table, "[1]", i64::MAX)
-                .unwrap()
-                .as_deref(),
-            Some(r#"{"balance":25}"#),
-            "an ancestor's staging must be visible to a split child",
-        );
-
-        // A *sibling's* is not: its range does not contain the loader's. This is what
-        // keeps the `ignore-key-range` defect catchable, and it is why the lookup is
-        // by containment rather than simply "every shard".
-        store
-            .stage(
-                0x8000_0000,
-                0xffff_ffff,
-                1,
-                &[(table.clone(), row(r#"{"balance":40}"#))],
-            )
-            .unwrap();
-        assert_eq!(
-            store
-                .load(0, 0x7fff_ffff, &table, "[1]", i64::MAX)
-                .unwrap()
-                .as_deref(),
-            Some(r#"{"balance":25}"#),
-            "a sibling's staging must not be visible",
-        );
-        assert_eq!(
-            store
-                .load(0x8000_0000, 0xffff_ffff, &table, "[1]", i64::MAX)
-                .unwrap()
-                .as_deref(),
-            Some(r#"{"balance":40}"#),
-            "a shard sees its own staging, newest first",
-        );
-
-        // A staged deletion is a tombstone, not a fall-through to the stale table row.
-        store
-            .stage(
-                0,
-                u32::MAX,
-                3,
-                &[(
-                    table.clone(),
-                    Row {
-                        binding: 0,
-                        key: "[1]".to_string(),
-                        doc: String::new(),
-                        delete: true,
-                    },
-                )],
-            )
-            .unwrap();
-        assert_eq!(
-            store.load(0, u32::MAX, &table, "[1]", i64::MAX).unwrap(),
-            None
-        );
     }
 
     /// Staged work is identified by its whole key range, so a split child can tell an
@@ -972,17 +861,61 @@ mod test {
         assert!(high >= low);
     }
 
-    /// A merge binding's reduction base must not include a transaction the recovery log
-    /// has not committed.
+    /// Applying the same documents twice must not append them twice, even when the second
+    /// apply comes from a different shard under a different transaction number.
     ///
-    /// This is the difference between a wrong stored sum and a correct one. The runtime
-    /// reduces new documents onto whatever `load` returns and stores the result, so a base
-    /// from a transaction that is later discarded means the runtime re-delivers those
-    /// documents and reduces them onto a base that already counted them. Nothing is missing
-    /// and nothing is duplicated in the delivered *set* — only the sums are wrong, so every
-    /// set-based check still passes.
+    /// This is the post-commit-apply contract: the destinations this class targets
+    /// deduplicate loads themselves, so `Acknowledge` is idempotent for append-only
+    /// bindings as well as merged ones. After a split the same documents are re-delivered
+    /// to a child, which stages them under its own identity — so the identity that must
+    /// match is the row, not the staging batch.
     #[test]
-    fn a_load_excludes_staging_the_log_has_not_committed() {
+    fn applying_the_same_rows_from_another_shard_does_not_append_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
+
+        let table = Table {
+            name: "events".to_string(),
+            delta: true,
+        };
+        store.ensure_table(&table).unwrap();
+
+        let row = Row {
+            binding: 0,
+            key: "[1,7]".to_string(),
+            doc: r#"{"id":1,"seq":7}"#.to_string(),
+            delete: false,
+        };
+
+        // The pre-split parent stages and applies it.
+        store
+            .stage(0, u32::MAX, 1, &[(table.clone(), row.clone())])
+            .unwrap();
+        assert!(store.apply_staged(0, u32::MAX, 1, true).unwrap());
+
+        // A split child is re-delivered the same document, stages it under its own range
+        // and transaction number, and applies that.
+        let mid = u32::MAX / 2;
+        store.stage(0, mid, 1, &[(table.clone(), row)]).unwrap();
+        store.apply_staged(0, mid, 1, true).unwrap();
+
+        let rows = store.read_all(&table).unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "the destination recognised a load it had already accepted",
+        );
+    }
+
+    /// A `Load` reads applied state, and nothing else.
+    ///
+    /// The protocol's contract is that a connector *waits* for the previous transaction to
+    /// be acknowledged before issuing loads — `LoadIterator::WaitForAcknowledged` — rather
+    /// than reading around its own pending work. Staged rows are therefore invisible to a
+    /// `Load` until they are applied, and a connector that peeks at them is modelling
+    /// something no real one does.
+    #[test]
+    fn a_load_reads_applied_state_only() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("d.sqlite")).unwrap();
 
@@ -999,30 +932,19 @@ mod test {
             delete: false,
         };
 
-        // Transaction 1 committed; transaction 2 is staged but still in flight.
         store
             .stage(0, u32::MAX, 1, &[(table.clone(), row(r#"{"balance":10}"#))])
             .unwrap();
-        store
-            .stage(0, u32::MAX, 2, &[(table.clone(), row(r#"{"balance":99}"#))])
-            .unwrap();
-
         assert_eq!(
-            store
-                .load(0, u32::MAX, &table, "[1]", 1)
-                .unwrap()
-                .as_deref(),
-            Some(r#"{"balance":10}"#),
-            "the in-flight transaction's write must not become a reduction base",
+            store.load(&table, "[1]").unwrap(),
+            None,
+            "staged but unapplied work is not yet part of the destination",
         );
 
-        // Once its commit is durable, it is the base.
+        assert!(store.apply_staged(0, u32::MAX, 1, true).unwrap());
         assert_eq!(
-            store
-                .load(0, u32::MAX, &table, "[1]", 2)
-                .unwrap()
-                .as_deref(),
-            Some(r#"{"balance":99}"#),
+            store.load(&table, "[1]").unwrap().as_deref(),
+            Some(r#"{"balance":10}"#),
         );
     }
 
