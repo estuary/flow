@@ -66,12 +66,11 @@ pub fn run() -> anyhow::Result<()> {
         .context("Failed to parse derivation config")?;
 
     let transforms = derivation
-        .transforms
-        .iter()
-        .map(|transform| {
+        .resolved_transforms()
+        .map(|(transform, resolved)| {
             let flow::collection_spec::derivation::Transform {
                 lambda_config_json,
-                collection,
+                collection: _,
                 name,
                 ..
             } = transform;
@@ -83,7 +82,9 @@ pub fn run() -> anyhow::Result<()> {
                     .context("Failed to parse lambda config")?
             };
 
-            Ok((name.as_str(), collection.as_ref().unwrap(), lambda))
+            let (source, _identity) = resolved.context("transform missing source collection")?;
+
+            Ok((name.as_str(), source, lambda))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -143,7 +144,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         connector_type: _,
         collection,
         config_json,
-        transforms,
+        transforms: _,
         shuffle_key_types: _,
         project_root,
         import_map,
@@ -155,12 +156,12 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
     let config = serde_json::from_slice::<Config>(config_json)
         .with_context(|| format!("invalid derivation configuration: {config_json:?}"))?;
 
-    let transforms = transforms
-        .iter()
-        .map(|transform| {
+    let transforms = validate
+        .resolved_transforms()
+        .map(|(transform, resolved)| {
             let derive::request::validate::Transform {
                 lambda_config_json,
-                collection,
+                collection: _,
                 name,
                 shuffle_lambda_config_json,
                 ..
@@ -177,7 +178,9 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
                 anyhow::bail!("computed shuffles are not supported yet");
             }
 
-            Ok((name.as_str(), collection.as_ref().unwrap(), lambda))
+            let (source, _identity) = resolved.context("transform missing source collection")?;
+
+            Ok((name.as_str(), source, lambda))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
