@@ -12,6 +12,20 @@ NAME="${FLOW_STACK_NAME}"
 # All ETCD_* config lives in the env file so the unit stays parameter-free.
 # etcd advertises on this stack's client/peer ports; a single-node cluster with
 # a per-stack data dir keeps stacks fully independent.
+#
+# Auto-compaction is not optional here. Etcd keeps every revision until told otherwise,
+# and a stack left running accumulates them from ordinary shard and journal churn. On
+# reaching the default two-gigabyte quota it arms a NOSPACE alarm and refuses writes — at
+# which point the reactor can no longer advertise shard status, and every task fails to
+# reach primary with nothing in its own logs to explain why. One stack hit exactly that
+# after a day of use; compacting took it from 2.1 GB to 3.3 MB, so essentially all of it
+# was revisions nobody could read. An hour is far more history than a local stack has any
+# use for: nothing here reads a revision older than the session that wrote it.
+#
+# Compaction bounds the live revision set, so the backend stops growing and the quota
+# stays out of reach. It does not shrink the file — freed pages are reused rather than
+# returned — so a stack that has already ballooned wants a one-off `etcdctl defrag` to
+# hand the space back to the filesystem.
 ENV_FILE="${FLOW_ENV_DIR}/etcd-${NAME}.env"
 {
     emit_common_vars
@@ -20,6 +34,8 @@ ENV_FILE="${FLOW_ENV_DIR}/etcd-${NAME}.env"
 # Etcd configuration for stack ${NAME}.
 ETCD_DATA_DIR="${FLOW_STACK_DIR}/etcd/"
 ETCD_LOG_LEVEL=info
+ETCD_AUTO_COMPACTION_MODE=periodic
+ETCD_AUTO_COMPACTION_RETENTION=1h
 ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:${FLOW_PORT_ETCD}
 ETCD_ADVERTISE_CLIENT_URLS=http://etcd.flow.localhost:${FLOW_PORT_ETCD}
 ETCD_LISTEN_PEER_URLS=http://0.0.0.0:${FLOW_PORT_ETCD_PEER}
