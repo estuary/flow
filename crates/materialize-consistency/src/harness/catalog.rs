@@ -305,8 +305,6 @@ fn materialization(plan: &Plan<'_>) -> anyhow::Result<models::MaterializationDef
         ENV_RUN_DIR.to_string(),
         plan.run_dir.to_string_lossy().to_string(),
     );
-    // Investigating a wrong stored sum in a merge binding; see `reference::trace_reduce`.
-    env.insert("FLOW_CONSISTENCY_TRACE_REDUCE".to_string(), "1".to_string());
     env.insert(
         ENV_FAULTS.to_string(),
         serde_json::to_string(plan.faults).context("encoding fault rules")?,

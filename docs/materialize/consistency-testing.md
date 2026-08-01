@@ -714,3 +714,42 @@ These scenarios are left unmarked rather than declared expected failures, becaus
 pass whenever the race falls the other way — three consecutive runs at 4827, 4460 and
 5677 documents. A failure showing duplicates and no losses in a scenario that splits is
 this gap, not a connector defect; the same runtime guarantee closes all of them.
+
+### An open defect: a merge binding's sums, once
+
+`replayed-acknowledge` failed its clean run once with 85 oracle-agreement violations, and
+the cause is not yet known. It is recorded here rather than left in a tracker because the
+signature is precise and whoever meets it next should not have to re-derive it.
+
+What was measured, from one failing run:
+
+| | |
+|---|---|
+| log binding | 610 of 610, no losses, no duplicates |
+| merged **delta** binding, summed per account | correct for **40 of 40** |
+| merged **standard** binding | correct for **12 of 40** |
+| errors | both directions — one account off by 1, another short by 305, another over by 292 |
+
+Both merged bindings are written from the same `Store` requests in one transaction, so
+delivery is correct and the stored *value* is wrong. A standard binding holds the
+runtime-reduced document, reduced onto whatever `Load` returned, so the fault is in the
+load-and-reduce path — and the delta binding staying exact is consistent with that,
+because it never consults a base.
+
+Ruled out so far: staged rows surviving a non-idempotent apply (the clean path always
+deletes); `staged_txns` ordering (it orders by transaction); `write_rows` upsert semantics;
+Load and Store disagreeing about a key (both use `key_json`); and a reduction base drawn
+from uncommitted staging, which was a real defect, is fixed, and did *not* fix this — the
+failure occurred with that fix in place, verified by timestamp.
+
+It has not reproduced since: fifteen consecutive passes, of which seven are full-suite
+runs. A three-scenario subset intended to reproduce the concurrency cheaply produced four
+clean runs and disproved the assumption that concurrency alone is the trigger.
+
+The tool for the next occurrence is in place. Setting `FLOW_CONSISTENCY_TRACE_REDUCE=1` in
+the connector's environment records, per merge-binding key, the base each `Load` returned
+and the value each `Store` wrote, with the connector's pid and transaction. The invariant
+to check is that a `load`'s base equals the preceding `store`'s value for that key; the
+first violation is the fault, and a pid change at that point would implicate an unplanned
+restart. It is off by default because it writes two lines per merge-binding document and
+one scenario's trace reached 61 MB.
