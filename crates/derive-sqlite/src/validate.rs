@@ -12,7 +12,7 @@ pub fn parse_validate(
         connector_type: _,
         collection: _,
         config_json,
-        transforms,
+        transforms: _,
         shuffle_key_types: _,
         project_root: _,
         import_map: _,
@@ -24,19 +24,19 @@ pub fn parse_validate(
     let config: Config = serde_json::from_slice(&config_json)
         .with_context(|| format!("failed to parse SQLite configuration: {config_json:?}"))?;
 
-    let transforms: Vec<Transform> = transforms
-        .into_iter()
-        .map(|transform| {
+    let transforms: Vec<Transform> = validate
+        .resolved_transforms()
+        .map(|(transform, resolved)| {
             let request::validate::Transform {
                 name,
-                collection: source,
+                collection: _,
                 lambda_config_json,
                 shuffle_lambda_config_json: _,
                 backfill: _,
                 collection_index: _,
             } = transform;
 
-            let source = source.as_ref().unwrap();
+            let (source, _identity) = resolved.context("transform missing source collection")?;
             let params = source
                 .projections
                 .iter()
