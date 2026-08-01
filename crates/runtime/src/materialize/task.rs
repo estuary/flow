@@ -109,15 +109,19 @@ impl Task {
             .map(|(index, binding)| binding.combiner_spec().context(index))
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Build combiner Spec with all bindings, plus one extra for state reductions.
-        let combiner_spec = doc::combine::Spec::with_bindings(
-            combiner_spec
-                .into_iter()
-                .map(|(is_full, key, name, validator)| (is_full, key, name, validator)),
-            Vec::new(),
-        );
+        let (bindings, validators): (Vec<_>, Vec<_>) = combiner_spec
+            .into_iter()
+            .enumerate()
+            .map(|(index, (is_full, key, name, validator))| {
+                ((is_full, key, index as u32), (name, validator))
+            })
+            .unzip();
 
-        Ok(combiner_spec)
+        Ok(doc::combine::Spec::with_bindings(
+            bindings,
+            validators,
+            Vec::new(),
+        ))
     }
 }
 

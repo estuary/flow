@@ -416,9 +416,12 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
             meta.set_front(); // Transfer stale existence onto the fresh output.
         }
 
-        let is_full = self.spec.is_full[meta.binding()];
-        let key = self.spec.keys[meta.binding()].as_ref();
-        let validator = &mut self.spec.validators[meta.binding()];
+        let binding = meta.binding();
+        let validator_index = self.spec.validator_index[binding] as usize;
+
+        let is_full = self.spec.is_full[binding];
+        let key = self.spec.keys[binding].as_ref();
+        let validator = &mut self.spec.validators[validator_index];
 
         // `reduced` root which is updated as reductions occur.
         let mut reduced: Option<HeapNode<'_>> = None;
@@ -441,8 +444,11 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
             let rhs_outcomes = validator
                 .validate(next.head.root.get(), validation::reduce_filter)
                 .map_err(|invalid| {
+                    let rhs_binding = next.head.meta.binding();
+                    let rhs_index = self.spec.validator_index[rhs_binding] as usize;
+
                     Error::FailedValidation(
-                        self.spec.names[next.head.meta.binding()].clone(),
+                        super::memtable::failed_name(&self.spec.names[rhs_index], rhs_binding),
                         invalid,
                     )
                 })?;
@@ -487,7 +493,10 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
                 Some(reduced) => validator.validate(reduced, validation::redact_filter),
             }
             .map_err(|invalid| {
-                Error::FailedValidation(self.spec.names[meta.binding()].clone(), invalid)
+                Error::FailedValidation(
+                    super::memtable::failed_name(&self.spec.names[validator_index], binding),
+                    invalid,
+                )
             })?
         };
 
@@ -681,6 +690,17 @@ mod test {
     #[test]
     fn test_heap_merge() {
         let spec = Spec::with_bindings(
+            (0..3).map(|binding| {
+                (
+                    true, // Full reduction.
+                    vec![Extractor::with_default(
+                        "/key",
+                        &SerPolicy::noop(),
+                        json!("def"),
+                    )],
+                    binding as u32,
+                )
+            }),
             std::iter::repeat_with(|| {
                 let schema = json::schema::build(
                     &url::Url::parse("http://example/schema").unwrap(),
@@ -697,16 +717,7 @@ mod test {
                 )
                 .unwrap();
 
-                (
-                    true, // Full reduction.
-                    vec![Extractor::with_default(
-                        "/key",
-                        &SerPolicy::noop(),
-                        json!("def"),
-                    )],
-                    "source-name",
-                    Validator::new(schema).unwrap(),
-                )
+                ("source-name", Validator::new(schema).unwrap())
             })
             .take(3),
             Vec::new(),
@@ -835,27 +846,24 @@ mod test {
 
     #[test]
     fn test_drain_validation() {
-        let spec = Spec::with_bindings(
-            std::iter::repeat_with(|| {
-                let schema = json::schema::build(
-                    &url::Url::parse("http://example/schema").unwrap(),
-                    &json!({
-                        "properties": {
-                            "key": { "type": "string" },
-                            "v": { "const": "good" },
-                        }
-                    }),
-                )
-                .unwrap();
+        let schema = json::schema::build(
+            &url::Url::parse("http://example/schema").unwrap(),
+            &json!({
+                "properties": {
+                    "key": { "type": "string" },
+                    "v": { "const": "good" },
+                }
+            }),
+        )
+        .unwrap();
 
-                (
-                    true, // Full reduction.
-                    vec![Extractor::new("/key", &SerPolicy::noop())],
-                    "source-name",
-                    Validator::new(schema).unwrap(),
-                )
-            })
-            .take(1),
+        let spec = Spec::with_bindings(
+            [(
+                true, // Full reduction.
+                vec![Extractor::new("/key", &SerPolicy::noop())],
+                0, // Slot.
+            )],
+            [("source-name", Validator::new(schema).unwrap())],
             Vec::new(),
         );
 
@@ -1059,10 +1067,9 @@ mod test {
             [(
                 false, // Associative (not full) reduction.
                 vec![Extractor::new("/key", &SerPolicy::noop())],
-                "source",
-                Validator::new(schema).unwrap(),
-            )]
-            .into_iter(),
+                0, // Slot.
+            )],
+            [("source", Validator::new(schema).unwrap())],
             Vec::new(),
         );
 

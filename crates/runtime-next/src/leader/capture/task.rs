@@ -212,16 +212,27 @@ impl Task {
         let state_schema = doc::validation::build_bundle(state_schema.as_bytes()).unwrap();
         let state_validator = doc::Validator::new(state_schema).unwrap();
 
+        // Identity mapping: one validator per binding, plus the
+        // connector-state pseudo-binding at index `bindings.len()`.
+        let (bindings, validators): (Vec<_>, Vec<_>) = self
+            .bindings
+            .iter()
+            .map(|binding| binding.combiner_spec())
+            .chain(std::iter::once((
+                false,
+                Vec::new(),
+                "connector state".to_string(),
+                state_validator,
+            )))
+            .enumerate()
+            .map(|(index, (is_full, key, name, validator))| {
+                ((is_full, key, index as u32), (name, validator))
+            })
+            .unzip();
+
         Ok(doc::combine::Spec::with_bindings(
-            self.bindings
-                .iter()
-                .map(|binding| binding.combiner_spec())
-                .chain(std::iter::once((
-                    false,
-                    Vec::new(),
-                    "connector state".to_string(),
-                    state_validator,
-                ))),
+            bindings,
+            validators,
             self.redact_salt.to_vec(),
         ))
     }

@@ -133,21 +133,27 @@ impl Task {
         let state_schema = doc::validation::build_bundle(state_schema.as_bytes()).unwrap();
         let state_validator = doc::Validator::new(state_schema).unwrap();
 
-        // Build combiner Spec with all bindings, plus one extra for state reductions.
-        let combiner_spec = doc::combine::Spec::with_bindings(
-            combiner_spec
-                .into_iter()
-                .map(|(is_full, key, name, validator)| (is_full, key, name, validator))
-                .chain(std::iter::once((
-                    false,
-                    Vec::new(),
-                    "connector state".to_string(),
-                    state_validator,
-                ))),
-            self.redact_salt.to_vec(),
-        );
+        // Build combiner Spec with all bindings, plus one extra for state
+        // reductions. Identity mapping: V1 builds one validator per binding.
+        let (bindings, validators): (Vec<_>, Vec<_>) = combiner_spec
+            .into_iter()
+            .chain(std::iter::once((
+                false,
+                Vec::new(),
+                "connector state".to_string(),
+                state_validator,
+            )))
+            .enumerate()
+            .map(|(index, (is_full, key, name, validator))| {
+                ((is_full, key, index as u32), (name, validator))
+            })
+            .unzip();
 
-        Ok(combiner_spec)
+        Ok(doc::combine::Spec::with_bindings(
+            bindings,
+            validators,
+            self.redact_salt.to_vec(),
+        ))
     }
 }
 
