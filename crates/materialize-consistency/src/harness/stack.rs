@@ -319,7 +319,9 @@ impl Stack {
     /// healthy shard costs a brief reassignment, and the harness only calls this
     /// while it is already waiting for a task that is not making progress.
     pub async fn unassign_shards(&self, task: &str) -> anyhow::Result<()> {
-        self.run(&["raw", "unassign-shards", "--task", task, "--all"])
+        // Every shard, not only the failed ones. A crash leaves its shard FAILED, but a
+        // *primary* that is merely wedged is not, and `--failed` skipped exactly those.
+        self.shard_tool(&["unassign", task])
             .await
             .with_context(|| format!("unassigning shards of {task}"))?;
         Ok(())
@@ -346,10 +348,51 @@ impl Stack {
     /// deleted, so any key the departing shard still owed work for has to be picked
     /// up by the one that remains.
     pub async fn join_shards(&self, task: &str) -> anyhow::Result<()> {
-        self.run(&["raw", "join-shards", "--task", task])
+        self.shard_tool(&["join", task])
             .await
             .with_context(|| format!("joining shards of {task}"))?;
         Ok(())
+    }
+
+    /// Run the suite's shard tooling, which drives `gazctl` rather than `flowctl`.
+    ///
+    /// Unassigning a shard and joining a task's shards are local test affordances, not
+    /// things an operator or connector author needs from the CLI, so they are scripts in
+    /// this crate instead of `flowctl` subcommands. `gazctl` already implements both; the
+    /// only missing piece was pointing it at a Flow data plane, which
+    /// `flowctl raw gazctl-env` supplies.
+    async fn shard_tool(&self, args: &[&str]) -> anyhow::Result<String> {
+        // Resolved from the crate's own source directory, not from the target directory:
+        // a build may put artefacts far outside the checkout, but the scripts ship beside
+        // the code that calls them.
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("shard-tools.sh");
+
+        let mut cmd = async_process::Command::new(&script);
+        cmd.args(args);
+        cmd.env("FLOWCTL", &self.flowctl);
+        cmd.env("FLOW_AUTH_TOKEN", &self.auth_token);
+        cmd.env("SSL_CERT_FILE", &self.ca_cert);
+        cmd.env("FLOWCTL_PROFILE", &self.name);
+
+        let output =
+            tokio::time::timeout(Self::INVOCATION_TIMEOUT, async_process::output(&mut cmd))
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "{script:?} {args:?} did not return within {}s",
+                        Self::INVOCATION_TIMEOUT.as_secs(),
+                    )
+                })?
+                .with_context(|| format!("running {script:?} {args:?}"))?;
+
+        anyhow::ensure!(
+            output.status.success(),
+            "{script:?} {args:?} failed:\n{}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
     /// Read a materialized resource back through the connector binary.
