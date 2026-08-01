@@ -1007,47 +1007,10 @@ pub fn map_shard_to_split(
     ))
 }
 
-/// Pair up `shards` and merge each pair, returning the survivors — which absorb
-/// their partner's range — and the shards to be deleted.
-///
-/// This is the inverse of [`map_shard_to_split`], and it halves a task's shard
-/// count just as that doubles it. A pair merges into the shard with the lower
-/// range, whose key and r-clock *begin* are therefore unchanged — and since a
-/// shard's ID derives from those, the survivor keeps its ID, its recovery log, and
-/// its accumulated state. Only its `end` widens.
-///
-/// Shards are joined only where they are genuinely adjacent, on exactly one axis:
-/// two shards that came from the same split. Anything else is refused rather than
-/// guessed at, because a range gap would silently drop the keys inside it and an
-/// overlap would deliver them twice.
-///
-
 #[cfg(test)]
 mod test {
     use super::*;
     use serde_json::json;
-
-    /// A shard as it would exist after `map_shard_to_split`, for join tests.
-    fn shard(id: &str, range: flow::RangeSpec) -> ShardSplit {
-        ShardSplit {
-            id: id.to_string(),
-            labels: labels::shard::encode_range_spec(LabelSet::default(), &range),
-            mod_revision: 123,
-            primary_hints: None,
-        }
-    }
-
-    fn key_range(begin: u32, end: u32) -> flow::RangeSpec {
-        flow::RangeSpec {
-            key_begin: begin,
-            key_end: end,
-            r_clock_begin: 0,
-            r_clock_end: u32::MAX,
-        }
-    }
-
-
-
 
     #[test]
     fn test_list_partition_request() {
