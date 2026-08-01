@@ -111,7 +111,16 @@ impl Stack {
     /// most. One blanket bound failed `join-after-split` on exactly that: a
     /// `collections read` of the collection it had spent 270 seconds filling took
     /// longer than a publish ever would, and 150s cut it off.
-    const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+    const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+    /// Attempts at a read before giving up.
+    ///
+    /// A read does not merely run slowly under contention, it *hangs*: a
+    /// `collections read` of an unremarkable 1200-document collection sat for the full
+    /// 600s bound and failed the baseline scenario. Whatever stalls it — a broker
+    /// reassignment mid-read is the likeliest — clears, so a fresh attempt succeeds where
+    /// waiting longer does not. Raising the bound instead just makes the failure slower.
+    const READ_ATTEMPTS: usize = 3;
 
     async fn run(&self, args: &[&str]) -> anyhow::Result<String> {
         self.run_bounded(args, Self::INVOCATION_TIMEOUT).await
@@ -246,20 +255,30 @@ impl Stack {
     /// a self-consistency check over the destination alone cannot: a
     /// tail-truncated materialization is internally consistent.
     pub async fn read_collection(&self, collection: &str) -> anyhow::Result<Vec<Event>> {
-        let stdout = self
-            .run_bounded(
-                &[
-                    "collections",
-                    "read",
-                    "--collection",
-                    collection,
-                    "-o",
-                    "json",
-                ],
-                Self::READ_TIMEOUT,
-            )
-            .await
-            .with_context(|| format!("reading collection {collection}"))?;
+        let args = [
+            "collections",
+            "read",
+            "--collection",
+            collection,
+            "-o",
+            "json",
+        ];
+
+        let mut stdout = String::new();
+        for attempt in 1..=Self::READ_ATTEMPTS {
+            match self.run_bounded(&args, Self::READ_TIMEOUT).await {
+                Ok(out) => {
+                    stdout = out;
+                    break;
+                }
+                Err(err) if attempt < Self::READ_ATTEMPTS => {
+                    tracing::warn!(%err, %collection, attempt, "the read stalled; retrying");
+                }
+                Err(err) => {
+                    return Err(err).with_context(|| format!("reading collection {collection}"));
+                }
+            }
+        }
 
         let mut events = Vec::new();
         for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
