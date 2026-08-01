@@ -304,23 +304,35 @@ impl Stack {
         collection: &str,
         timeout: std::time::Duration,
     ) -> anyhow::Result<Vec<Event>> {
+        // Bounded by attempts as well as by the clock, because the two limits fail for
+        // different reasons and only one of them means the capture is still writing.
+        //
+        // A read of this collection can take a minute under contention, so a wall-clock
+        // deadline alone can expire having compared only two or three samples — and it
+        // then reports "still growing", which reads as a capture that would not stop
+        // when it is really a runner that did not get to look. Both `split-during-store`
+        // and `delta-replay-deduplicated` failed that way.
+        const ATTEMPTS: usize = 8;
+
         let deadline = std::time::Instant::now() + timeout;
         let mut previous = usize::MAX;
 
-        loop {
+        for attempt in 1..=ATTEMPTS {
             let documents = self.read_collection(collection).await?;
 
             if documents.len() == previous {
                 return Ok(documents);
             }
             anyhow::ensure!(
-                std::time::Instant::now() < deadline,
-                "collection {collection} was still growing after {timeout:?} ({} documents)",
+                attempt < ATTEMPTS && std::time::Instant::now() < deadline,
+                "collection {collection} was still growing after {attempt} reads over \
+                 {timeout:?} ({} documents, previously {previous})",
                 documents.len(),
             );
             previous = documents.len();
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         }
+        unreachable!("the loop returns or the ensure fails on the last attempt")
     }
 
     /// Unassign a task's shards so the allocator can schedule them again.

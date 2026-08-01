@@ -216,6 +216,11 @@ async fn execute(
     stack.publish(&catalog::build(plan)?).await?;
 
     let deadline = std::time::Duration::from_secs(180);
+
+    /// Longer than the general deadline, because settling a collection means *reading*
+    /// it repeatedly and a read of a large one can take a minute under contention.
+    const FINALITY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
     let trace = RunDir::new(run_dir);
 
     // Nothing in a run waits on shard *status*, at any point. Progress is the gate
@@ -311,12 +316,12 @@ async fn execute(
     // something it merely delivered on time.
     let merged_expected = Expectation::from_documents(
         stack
-            .read_collection_when_final(&names.merged, deadline)
+            .read_collection_when_final(&names.merged, FINALITY_TIMEOUT)
             .await?,
     );
     let log_expected = Expectation::from_documents(
         stack
-            .read_collection_when_final(&names.log, deadline)
+            .read_collection_when_final(&names.log, FINALITY_TIMEOUT)
             .await?,
     );
 
