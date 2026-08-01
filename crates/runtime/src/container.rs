@@ -19,8 +19,13 @@ const PORT_PROTO_LABEL_PREFIX: &str = "dev.estuary.port-proto.";
 
 // `flow-connector-init` is extracted from this image when a locally-built copy
 // isn't found by `locate_bin` (dev/CI builds place one alongside the executable).
+//
+// Bump this pin whenever a field is added to a task spec or the connector protocol:
+// this binary decodes and re-encodes every request passing between the runtime and
+// the connector, so a copy older than the field silently drops it and connectors see
+// a spec without it.
 // TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
-const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/reactor:v0.6.10-62-g8b6aeec1cd3";
+const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/reactor:v0.6.12-37-g4cb160dc000";
 const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 /// Determines the protocol of an image. If the image has a `FLOW_RUNTIME_PROTOCOL` label,
