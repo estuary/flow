@@ -143,7 +143,7 @@ impl Task {
             .context("could not build a derived collection schema validator")?;
         let mut write_shape = doc::Shape::infer(validator.schema(), validator.schema_index());
         // Stamp the generation id so inferred-schema updates carry it (mirrors
-        // capture `Task::binding_shapes_by_index`).
+        // capture `Task::shapes_by_slot`).
         write_shape.annotations.insert(
             crate::X_GENERATION_ID.to_string(),
             serde_json::Value::String(collection_generation_id.to_string()),

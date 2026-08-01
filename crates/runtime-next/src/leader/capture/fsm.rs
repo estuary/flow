@@ -912,11 +912,16 @@ mod tests {
     }
 
     fn mk_task(explicit_acknowledgements: bool) -> Task {
+        let mut bindings = vec![
+            mk_binding("test/collectionA", "stateA"),
+            mk_binding("test/collectionB", "stateB"),
+        ];
+        let inference_slots =
+            crate::leader::capture::task::assign_inference_slots(&mut bindings).unwrap();
+
         Task {
-            bindings: vec![
-                mk_binding("test/collectionA", "stateA"),
-                mk_binding("test/collectionB", "stateB"),
-            ],
+            bindings,
+            inference_slots,
             // Wide thresholds: `policy_extend` is always true and `policy_close`
             // is always satisfiable, so a close is driven only by
             // `close_requested` / `stopping` or by `ready` going Pending — which
@@ -938,11 +943,11 @@ mod tests {
             collection_generation_id: models::Id::zero(),
             document_uuid_ptr: json::Pointer::empty(),
             fan_in: false,
+            inference_slot: 0,
             key_extractors: Vec::new(),
             partition_template_name: collection_name.to_string(),
             state_key: state_key.to_string(),
             write_schema_json: Bytes::from_static(b"{}"),
-            write_shape: doc::Shape::nothing(),
         }
     }
 

@@ -61,7 +61,7 @@ pub(super) struct Actor<P: crate::Publisher, L: crate::Logger> {
     // RocksDB is parked with its per-binding state keys.
     db: Option<(crate::shard::RocksDB, Vec<String>)>,
     publisher: Option<P>,
-    // Inferred per-binding write-shapes. Seeded from prior sessions at
+    // Inferred write-shapes, indexed by inference slot. Seeded from prior sessions at
     // construction, parked into the drain future, handed back at session end.
     shapes: Option<Vec<doc::Shape>>,
     // Long-lived per-journal throttle policy, fed once per transaction once the
@@ -935,22 +935,35 @@ mod tests {
             collection_generation_id: models::Id::zero(),
             document_uuid_ptr: json::Pointer::from(uuid_ptr),
             fan_in: false,
+            inference_slot: 0,
             key_extractors: Vec::new(),
             partition_template_name: collection_name.to_string(),
             state_key: state_key.to_string(),
             write_schema_json: Bytes::from_static(b"{}"),
-            write_shape: doc::Shape::nothing(),
         }
     }
 
     fn mk_task(explicit_acknowledgements: bool) -> Task {
-        Task {
-            // Binding 0 carries a UUID pointer (exercising placeholder injection),
-            // binding 1 does not.
-            bindings: vec![
+        // Binding 0 carries a UUID pointer (exercising placeholder injection),
+        // binding 1 does not.
+        mk_task_over(
+            explicit_acknowledgements,
+            vec![
                 mk_binding("test/collectionA", "stateA", "/_meta/uuid"),
                 mk_binding("test/collectionB", "stateB", ""),
             ],
+        )
+    }
+
+    /// A Task over `bindings`, with inference slots (and each binding's
+    /// `inference_slot` / `fan_in`) assigned as `Task::new` would.
+    fn mk_task_over(explicit_acknowledgements: bool, mut bindings: Vec<Binding>) -> Task {
+        let inference_slots =
+            crate::leader::capture::task::assign_inference_slots(&mut bindings).unwrap();
+
+        Task {
+            bindings,
+            inference_slots,
             // Wide thresholds: a transaction closes as soon as the connector
             // idles (its checkpoint sequence completes and no further input is
             // ready), free of policy-driven close timing.
@@ -1009,7 +1022,7 @@ mod tests {
             mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();
 
         let task = std::sync::Arc::new(mk_task(true));
-        let shapes = task.binding_shapes_by_index(Default::default());
+        let shapes = task.shapes_by_slot(Default::default());
 
         let actor = Actor::new(
             BTreeMap::new(),
@@ -1097,7 +1110,7 @@ mod tests {
             ..Default::default()
         };
         let publisher = crate::JournalPublisher::new_test_real([&spec]);
-        let shapes = task.binding_shapes_by_index(Default::default());
+        let shapes = task.shapes_by_slot(Default::default());
 
         let mut actor = Actor::new(
             BTreeMap::new(),
@@ -1173,7 +1186,7 @@ mod tests {
         let db = crate::shard::RocksDB::open(None).await.unwrap();
         let task = std::sync::Arc::new(mk_task(true));
         let publisher = crate::publish::NoopPublisher;
-        let shapes = task.binding_shapes_by_index(Default::default());
+        let shapes = task.shapes_by_slot(Default::default());
 
         let actor = Actor::new(
             BTreeMap::new(),
@@ -1233,7 +1246,7 @@ mod tests {
 
         let task = std::sync::Arc::new(task);
         let publisher = crate::publish::NoopPublisher;
-        let shapes = task.binding_shapes_by_index(Default::default());
+        let shapes = task.shapes_by_slot(Default::default());
 
         let actor = Actor::new(
             active_backfills,
@@ -1340,17 +1353,16 @@ mod tests {
     /// converges — its Complete takes the orphaned-complete no-op path.
     #[tokio::test]
     async fn serve_fan_in_backfill_is_suppressed() {
-        // Both bindings target one collection, so each is fan-in. `fan_in` is
-        // stamped by `Task::new`; these literal Bindings set it directly.
+        // Both bindings target one collection, so slot assignment marks each fan-in.
         let mk_fan_in_task = || {
-            let mut task = mk_task(true);
-            task.bindings = vec![
-                mk_binding("test/collectionA", "stateA", "/_meta/uuid"),
-                mk_binding("test/collectionA", "stateB", ""),
-            ];
-            for binding in task.bindings.iter_mut() {
-                binding.fan_in = true;
-            }
+            let task = mk_task_over(
+                true,
+                vec![
+                    mk_binding("test/collectionA", "stateA", "/_meta/uuid"),
+                    mk_binding("test/collectionA", "stateB", ""),
+                ],
+            );
+            assert!(task.bindings.iter().all(|binding| binding.fan_in));
             task
         };
         let state_keys = || vec!["stateA".to_string(), "stateB".to_string()];
@@ -1404,7 +1416,7 @@ mod tests {
         let (connector_tx, _connector_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
         let task = std::sync::Arc::new(mk_task(true));
         let publisher = crate::publish::NoopPublisher;
-        let shapes = task.binding_shapes_by_index(Default::default());
+        let shapes = task.shapes_by_slot(Default::default());
 
         let mut actor = Actor::new(
             BTreeMap::from([(0u32, 5u64)]), // recovered mid-backfill
@@ -1438,7 +1450,7 @@ mod tests {
         let (connector_tx, _connector_rx) = mpsc::channel::<Request>(crate::CHANNEL_BUFFER);
         let task = std::sync::Arc::new(mk_task(true));
         let publisher = crate::publish::NoopPublisher;
-        let shapes = task.binding_shapes_by_index(Default::default());
+        let shapes = task.shapes_by_slot(Default::default());
 
         let mut actor = Actor::new(
             BTreeMap::from([(0u32, 5u64)]), // inherited mid-backfill via a split

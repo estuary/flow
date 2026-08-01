@@ -97,10 +97,14 @@ pub enum LogEvent<'a> {
     Applied { action_description: &'a str },
 
     /// A collection's inferred write-schema widened this transaction.
-    /// `binding` is the source binding index for captures (multiple bindings
-    /// per task) and `None` for derivations (a single derived collection).
     /// `schema` is the representative JSON Schema of the widened write-shape,
     /// as produced by [`doc::shape::schema::to_schema`].
+    ///
+    /// `binding` is `None` from every runtime producer: inference is scoped to
+    /// the collection, which for a fan-in capture is several bindings' shapes
+    /// merged into one — the merge the L1 rollup (keyed on `collection_name`)
+    /// would otherwise do. The field remains for hosts which intercept events
+    /// structurally, and is omitted from the flattened log when `None`.
     #[non_exhaustive]
     InferredSchema {
         collection_name: &'a str,

@@ -77,6 +77,10 @@ src/
 │   ├── shuffle.rs       # ShuffleSession / ShuffleSessionFactory traits + ShuffleServiceFactory
 │   │                     #   (journal-reading Session) impl; leader is monomorphized over the
 │   │                     #   factory (preview installs its own fixture replay from flowctl)
+│   ├── capture/
+│   │   ├── fsm.rs           # head/tail state machines for capture transactions
+│   │   └── task.rs          # per-capture task: bindings, and the inference slots
+│   │                         #   (one per target collection) they group into
 │   └── materialize/
 │       ├── handler.rs       # gRPC stream handler, dispatches to startup/actor
 │       ├── startup.rs       # Recover / Open / Apply / Recovered phase
@@ -92,11 +96,11 @@ src/
     ├── recovery.rs      # Persist <-> RocksDB WriteBatch encode/decode + scan-time FC: pruning
     ├── rocksdb.rs       # single Persist application path
     ├── capture/
-    │   ├── handler.rs       # startup, apply/open, recovery scan, publisher setup
+    │   ├── handler.rs       # startup, apply/open, recovery scan, publisher setup;
+    │   │                     #   stows inferred shapes by collection across sessions
     │   ├── connector.rs     # capture connector RPC bridging
     │   ├── actor.rs         # independent per-shard capture transaction loop
-    │   ├── fsm.rs           # head/tail state machines for capture transactions
-    │   └── task.rs          # per-capture task and binding shape
+    │   └── drain.rs         # combiner drain: publish documents, widen inference
     └── materialize/
         ├── handler.rs       # gRPC stream handler
         ├── startup.rs       # join leader, scan RocksDB, open connector
@@ -207,6 +211,41 @@ with differing priorities. The shuffle Session mirrors this split, stopping
 journal reads once they read through hinted spans. This prevents over-read
 from consuming disk quota, and prevents starving lower-priority bindings.
 See `crates/shuffle/README.md` and issue #3246.
+
+## Schema inference (capture)
+
+Inference is keyed by *collection*, not by binding. `Task::new` groups bindings
+into `InferenceSlot`s — one per distinct `partition_template_name` — and every
+binding of a collection widens that collection's single shape, which is logged
+once per transaction with no `binding` field. This is the merge the L1
+inferred-schemas rollup (keyed on `collection_name`) would otherwise perform, and
+it makes a task's inference state and log volume scale with its collections
+rather than its bindings.
+
+The grouping key is journal identity, *not* the `collection_index` that
+value-identity-derived state groups on, because shapes outlive the build that
+produced an index: the interner sorts collections by name, so adding one shifts
+every index after it. Shapes are stowed between sessions under
+`partition_template_name`, which also embeds the generation — so a collection
+reset starts inference fresh for free. `Task::new` `debug_assert`s that the two
+groupings coincide (indirect form) and that bindings of a slot share a write
+schema (inline form).
+
+Two consequences, both intended:
+
+- **The complexity limit now binds.** Previously each binding's shape was capped
+  at `DEFAULT_SCHEMA_COMPLEXITY_LIMIT` and the rollup merged them *without* a
+  cap, so a fan-in capture's effective per-collection limit was the limit times
+  its binding count. The union is now capped once, which is the point of having
+  a limit at this scale.
+- **`SOURCED_SCHEMA_COMPLEXITY_LIMIT` is per-collection.** Any one binding
+  reporting a `SourcedSchema` ratchets its whole collection's limit. The sourced
+  schema describes the collection, so this is right; the ratchet's blast radius
+  is simply wider.
+
+Unlike the rest of the indirect-encoding work, this needs no flag
+(`partition_template_name` is present in both spec forms) and so applies to every
+capture.
 
 ## Backfill truncation (capture)
 

@@ -155,8 +155,9 @@ where
     let verify = crate::verify("Capture", "Join", "controller");
 
     // Inferred document shapes are held only in memory and accumulate across
-    // every session of this Shard stream. They're keyed by stable binding
-    // identity so a spec update that reorders bindings still resumes inference.
+    // every session of this Shard stream. They're keyed by stable collection
+    // identity (`partition_template_name`) so a spec update that reorders or
+    // re-fans bindings still resumes inference of each collection.
     let mut shapes_by_key: BTreeMap<String, doc::Shape> = BTreeMap::new();
 
     // Producer identity for this shard's Publisher, selected once and held
@@ -386,8 +387,8 @@ where
     });
 
     // Restore inferred shapes accumulated by prior sessions into this session's
-    // binding layout, and stow the session's final shapes back when it ends.
-    let shapes = task.binding_shapes_by_index(std::mem::take(shapes_by_key));
+    // inference-slot layout, and stow the session's final shapes back when it ends.
+    let shapes = task.shapes_by_slot(std::mem::take(shapes_by_key));
 
     // Only shard zero drives backfill truncation: it owns the origin of the key
     // and r-clock ranges, so it sees each backfill's full lifecycle even when split.
@@ -409,7 +410,7 @@ where
     .serve(connector_rx, controller_rx, head, tail)
     .await?;
 
-    *shapes_by_key = task.binding_shapes_by_key(shapes);
+    *shapes_by_key = task.shapes_by_key(shapes);
 
     _ = controller_tx.send(Ok(proto::Capture {
         stopped: Some(proto::Stopped {}),
