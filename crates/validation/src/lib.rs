@@ -719,9 +719,9 @@ fn validate_resource_paths<'a>(
 /// re-created (either literally, or through a reset).
 fn collection_was_reset(
     built_spec: &proto_flow::flow::CollectionSpec,
-    live_spec: &Option<proto_flow::flow::CollectionSpec>,
+    live_collection: Option<&proto_flow::flow::CollectionSpec>,
 ) -> bool {
-    if let Some(live_collection) = live_spec {
+    if let Some(live_collection) = live_collection {
         if let Some(live_partition_template) = &live_collection.partition_template {
             let built_spec_partition_template_name = built_spec
                 .partition_template

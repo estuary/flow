@@ -5,6 +5,17 @@ use std::collections::BTreeMap;
 use tables::EitherOrBoth as EOB;
 use xxhash_rust::xxh3::Xxh3;
 
+/// Live bindings of a capture, indexed on resource path and paired with their
+/// resolved collections. The live built spec may be in either encoding, so its
+/// bindings are meaningless apart from the spec which resolves them.
+type LiveBindings<'a> = BTreeMap<
+    &'a [String],
+    (
+        &'a flow::capture_spec::Binding,
+        Option<&'a flow::CollectionSpec>,
+    ),
+>;
+
 pub async fn walk_all_captures<C: Connectors>(
     pub_id: models::Id,
     build_id: models::Id,
@@ -197,11 +208,20 @@ async fn walk_capture<C: Connectors>(
         })
         .collect();
 
-    // Index live binding specs, both active and inactive, on their declared resource paths.
-    let mut live_bindings_spec: BTreeMap<&[String], &flow::capture_spec::Binding> = live_spec
+    // Index live binding specs, both active and inactive, on their declared
+    // resource paths, each paired with its resolved collection.
+    let mut live_bindings_spec: LiveBindings = live_spec
         .iter()
-        .flat_map(|spec| spec.inactive_bindings.iter().chain(spec.bindings.iter()))
-        .map(|binding| (binding.resource_path.as_slice(), binding))
+        .flat_map(|spec| {
+            spec.resolved_inactive_bindings()
+                .chain(spec.resolved_bindings())
+        })
+        .map(|(binding, resolved)| {
+            (
+                binding.resource_path.as_slice(),
+                (binding, resolved.map(|(collection, _identity)| collection)),
+            )
+        })
         .collect();
 
     let scope_bindings = scope.push_prop("bindings");
@@ -346,10 +366,11 @@ async fn walk_capture<C: Connectors>(
         }
 
         // Map to the live binding now that we have a validated resource path.
-        let live_spec: Option<&flow::capture_spec::Binding> =
-            live_bindings_spec.get(path.as_slice()).cloned();
+        let live_binding: Option<&flow::capture_spec::Binding> = live_bindings_spec
+            .get(path.as_slice())
+            .map(|(binding, _collection)| *binding);
 
-        if let Some(live_spec) = live_spec {
+        if let Some(live_spec) = live_binding {
             if model.backfill < live_spec.backfill {
                 model_fixes.push(format!("restored `backfill` of resource {path:?}"));
                 model.backfill = live_spec.backfill;
@@ -407,7 +428,17 @@ async fn walk_capture<C: Connectors>(
     for binding in &bindings_spec {
         live_bindings_spec.remove(binding.resource_path.as_slice());
     }
-    let inactive_bindings = live_bindings_spec.values().map(|v| (*v).clone()).collect();
+    // Carry over inactive bindings, re-inlining each resolved collection: an
+    // index into the *live* spec's table is meaningless in the spec we're
+    // building, so it's never copied across generations.
+    let inactive_bindings = live_bindings_spec
+        .values()
+        .map(|(binding, collection)| flow::capture_spec::Binding {
+            collection: collection.map(Clone::clone),
+            collection_index: 0,
+            ..(*binding).clone()
+        })
+        .collect();
 
     // Use manual salt if provided, otherwise the live salt, otherwise generate a new one.
     let redact_salt = if let Some(salt) = &model_redact_salt {
@@ -493,7 +524,7 @@ fn walk_capture_binding<'a>(
     _catalog_name: &models::Capture,
     disable: bool,
     live_bindings_model: &BTreeMap<Vec<String>, &models::CaptureBinding>,
-    live_bindings_spec: &BTreeMap<&[String], &flow::capture_spec::Binding>,
+    live_bindings_spec: &LiveBindings,
     model_fixes: &mut Vec<String>,
     errors: &mut tables::Errors,
 ) -> (
@@ -538,10 +569,10 @@ fn walk_capture_binding<'a>(
     }
 
     // Was this binding's target collection reset under its current backfill count?
-    let live_spec = live_bindings_spec.get(model_path.as_slice());
-    let was_reset = live_spec.is_some_and(|live_spec| {
-        live_spec.backfill == model.backfill
-            && super::collection_was_reset(&target_spec, &live_spec.collection)
+    let live_binding = live_bindings_spec.get(model_path.as_slice());
+    let was_reset = live_binding.is_some_and(|(live_binding, live_collection)| {
+        live_binding.backfill == model.backfill
+            && super::collection_was_reset(&target_spec, *live_collection)
     });
 
     if was_reset {
