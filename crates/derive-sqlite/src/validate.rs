@@ -18,6 +18,7 @@ pub fn parse_validate(
         import_map: _,
         last_collection: _,
         last_version: _,
+        linked_collections: _,
     } = &validate;
 
     let config: Config = serde_json::from_slice(&config_json)
@@ -32,6 +33,7 @@ pub fn parse_validate(
                 lambda_config_json,
                 shuffle_lambda_config_json: _,
                 backfill: _,
+                collection_index: _,
             } = transform;
 
             let source = source.as_ref().unwrap();

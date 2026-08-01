@@ -19,6 +19,7 @@ pub fn build_bindings(
         triggers_json: _,
         created_at: _,
         sync_schedule_json: _,
+        linked_collections: _,
     } = spec;
 
     let ops::proto::ShardLabeling {
@@ -55,6 +56,7 @@ fn build_binding(spec: &flow::materialization_spec::Binding) -> anyhow::Result<B
     let flow::materialization_spec::Binding {
         backfill: _,
         collection,
+        collection_index: _,
         delta_updates,
         deprecated_shuffle: _,
         field_selection,

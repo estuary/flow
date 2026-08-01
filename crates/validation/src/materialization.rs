@@ -290,6 +290,7 @@ async fn walk_materialization<C: Connectors>(
         } else {
             expect_build_id.to_string()
         },
+        linked_collections: Vec::new(),
     };
 
     // Send Request.Validate and receive Response.Validated.
@@ -367,6 +368,7 @@ async fn walk_materialization<C: Connectors>(
             field_config_json_map: _,
             backfill: _, // Same as `model.backfill`.
             group_by,
+            collection_index: _,
         } = validate;
         let collection = collection.unwrap();
 
@@ -544,6 +546,7 @@ async fn walk_materialization<C: Connectors>(
             backfill: model.backfill,
             state_key,
             ser_policy: *ser_policy,
+            collection_index: 0,
         };
 
         bindings_path.push(path);
@@ -675,6 +678,7 @@ async fn walk_materialization<C: Connectors>(
         triggers_json,
         created_at: crate::created_at_date(control_id),
         sync_schedule_json,
+        linked_collections: Vec::new(),
     };
     let model = models::MaterializationDef {
         source: sources,
@@ -892,6 +896,7 @@ fn walk_materialization_binding<'a>(
         field_config_json_map,
         backfill: model.backfill,
         group_by: group_by_fields,
+        collection_index: 0,
     };
 
     (model_path, model, None, Some(validate))

@@ -152,6 +152,7 @@ impl Binding {
         let flow::collection_spec::derivation::Transform {
             backfill: _,
             collection,
+            collection_index: _,
             journal_read_suffix,
             lambda_config_json: _,
             name: _,
@@ -247,6 +248,7 @@ impl Binding {
         let flow::materialization_spec::Binding {
             backfill: _,
             collection,
+            collection_index: _,
             delta_updates: _,
             deprecated_shuffle: _,
             field_selection: _,

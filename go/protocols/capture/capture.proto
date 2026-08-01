@@ -120,7 +120,8 @@ message Request {
       json_name = "config"
     ];
     // Bindings of endpoint resources and collections to which they would be
-    // captured. Bindings are ordered and unique on the bound collection name.
+    // captured. Bindings are ordered and unique on their resource path.
+    // Multiple bindings may capture into a single collection.
     message Binding {
       // JSON-encoded object which specifies the endpoint resource to be captured.
       bytes resource_config_json = 1 [
@@ -128,9 +129,15 @@ message Request {
         json_name = "resourceConfig"
       ];
       // Collection to be captured.
+      // Unset if the request uses `linked_collections`, in which case
+      // `collection_index` identifies the bound collection instead.
       flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
       // Backfill counter for this binding.
       uint32 backfill = 3;
+      // Index of this binding's collection within the request's
+      // `linked_collections`. Used instead of `collection` when the request is
+      // in indirect form, and unset otherwise.
+      uint32 collection_index = 4;
     }
     repeated Binding bindings = 4;
     // Last CaptureSpec which was validated and published.
@@ -138,6 +145,23 @@ message Request {
     flow.CaptureSpec last_capture = 5;
     // Version of the last validated CaptureSpec.
     string last_version = 6;
+    // Table of collections referenced by `collection_index` of this request's
+    // bindings, in place of an inlined `collection` (the "indirect" form).
+    //
+    // The form is a property of the request as a whole: if
+    // `linked_collections` is non-empty then every binding leaves `collection`
+    // unset and resolves through `collection_index`. If it's empty then every
+    // binding inlines its `collection` and `collection_index` is unset.
+    // Mixed forms are invalid. `last_capture` is self-contained and carries
+    // whichever form it was built with, independent of this request.
+    //
+    // Entries have `derivation` cleared, as inlined collections always do.
+    // Builders emit entries which are unique by value and ordered on name,
+    // but that's a convention only and not an invariant of the message:
+    // readers resolve `collection_index` and must not assume that entries
+    // are unique on name.
+    repeated flow.CollectionSpec linked_collections = 7
+        [ (gogoproto.nullable) = false ];
   }
   Validate validate = 3;
 

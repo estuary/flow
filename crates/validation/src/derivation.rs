@@ -519,6 +519,7 @@ async fn walk_derivation<C: Connectors>(
         } else {
             expect_build_id.to_string()
         },
+        linked_collections: Vec::new(),
     };
 
     // Send Request.Validate and receive Response.Validated.
@@ -607,6 +608,7 @@ async fn walk_derivation<C: Connectors>(
                     shuffle_lambda_config_json,
                     lambda_config_json,
                     backfill,
+                    collection_index: _,
                 },
             inferred_shuffle_types: _,
             reads_from_self,
@@ -679,6 +681,7 @@ async fn walk_derivation<C: Connectors>(
             // and backfill (`runtime-next` `shard::derive::Task`), matching the value
             // computed here for `journal_read_suffix`.
             state_key: String::new(),
+            collection_index: 0,
         };
 
         transforms_model.push(model);
@@ -753,6 +756,7 @@ async fn walk_derivation<C: Connectors>(
         network_ports,
         inactive_transforms,
         redact_salt,
+        linked_collections: Vec::new(),
     };
     let model = models::Derivation {
         using,
@@ -929,6 +933,7 @@ fn walk_derive_transform<'a>(
             lambda_config_json: model.lambda.to_string().into(),
             shuffle_lambda_config_json: shuffle_lambda_config_json.into(),
             backfill: model.backfill,
+            collection_index: 0,
         },
         inferred_shuffle_types: shuffle_types,
         reads_from_self,

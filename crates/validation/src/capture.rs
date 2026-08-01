@@ -254,6 +254,7 @@ async fn walk_capture<C: Connectors>(
         } else {
             expect_build_id.to_string()
         },
+        linked_collections: Vec::new(),
     };
 
     // Send Request.Validate and receive Response.Validated.
@@ -329,6 +330,7 @@ async fn walk_capture<C: Connectors>(
             resource_config_json,
             collection,
             backfill: _, // Same as `model.backfill`.
+            collection_index: _,
         } = validate;
 
         let capture::response::validated::Binding {
@@ -363,6 +365,7 @@ async fn walk_capture<C: Connectors>(
             collection,
             backfill: model.backfill,
             state_key,
+            collection_index: 0,
         };
 
         bindings_path.push(path);
@@ -447,6 +450,7 @@ async fn walk_capture<C: Connectors>(
         inactive_bindings,
         redact_salt,
         created_at: crate::created_at_date(control_id),
+        linked_collections: Vec::new(),
     };
     let model = models::CaptureDef {
         auto_discover,
@@ -549,6 +553,7 @@ fn walk_capture_binding<'a>(
         resource_config_json: super::strip_resource_meta(&model.resource),
         collection: Some(target_spec),
         backfill: model.backfill,
+        collection_index: 0,
     };
 
     (model_path, model, Some(validate))

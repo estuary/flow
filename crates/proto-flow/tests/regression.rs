@@ -214,11 +214,13 @@ fn ex_capture_spec() -> flow::CaptureSpec {
             collection: Some(ex_collection_spec()),
             backfill: 3,
             state_key: "a%2Fcdc%2Ftable+baz.v3".to_string(),
+            collection_index: 0,
         }],
         network_ports: ex_network_ports(),
         inactive_bindings: Vec::new(),
         redact_salt: b"test-capture-salt".to_vec().into(),
         created_at: "2025-07-09".to_string(),
+        linked_collections: Vec::new(),
     }
 }
 
@@ -251,6 +253,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
             }),
             backfill: 2,
             state_key: "transform_name.v2".to_string(),
+            collection_index: 0,
         }],
         shuffle_key_types: vec![
             flow::collection_spec::derivation::ShuffleType::String as i32,
@@ -259,6 +262,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         network_ports: ex_network_ports(),
         inactive_transforms: Vec::new(),
         redact_salt: b"test-derivation-salt".to_vec().into(),
+        linked_collections: Vec::new(),
     });
 
     spec
@@ -312,12 +316,14 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
                 nested_obj_truncate_after: 1000,
                 array_truncate_after: 1000,
             }),
+            collection_index: 0,
         }],
         network_ports: ex_network_ports(),
         inactive_bindings: Vec::new(),
         triggers_json: json!([{"url": "https://example.com/webhook", "method": "POST", "payloadTemplate": "{}"}]).to_string().into(),
         created_at: "2025-07-09".to_string(),
         sync_schedule_json: json!({"baseInterval": "4h", "timezone": "America/New_York", "windows": [{"interval": "30m", "start": "09:00", "end": "17:00"}]}).to_string().into(),
+        linked_collections: Vec::new(),
     }
 }
 
@@ -428,9 +434,11 @@ fn ex_capture_request() -> capture::Request {
                 collection: Some(ex_collection_spec()),
                 resource_config_json: json!({"resource":"config"}).to_string().into(),
                 backfill: 1,
+                collection_index: 0,
             }],
             last_capture: None,
             last_version: "11:22:33:44".to_string(),
+            linked_collections: Vec::new(),
         }),
         apply: Some(capture::request::Apply {
             capture: Some(ex_capture_spec()),
@@ -521,6 +529,7 @@ fn ex_derive_request() -> derive::Request {
                 lambda_config_json: json!({"lambda": "config"}).to_string().into(),
                 shuffle_lambda_config_json: json!({"shuffle": "config"}).to_string().into(),
                 backfill: 2,
+                collection_index: 0,
             }],
             shuffle_key_types: vec![
                 flow::collection_spec::derivation::ShuffleType::Boolean as i32,
@@ -534,6 +543,7 @@ fn ex_derive_request() -> derive::Request {
             .into(),
             last_collection: None,
             last_version: "00:11:22:33".to_string(),
+            linked_collections: Vec::new(),
         }),
         open: Some(derive::request::Open {
             collection: Some(ex_collection_spec()),
@@ -618,9 +628,11 @@ fn ex_materialize_request() -> materialize::Request {
                 field_config_json_map: ex_field_config(),
                 backfill: 3,
                 group_by: vec!["key/one".to_string()],
+                collection_index: 0,
             }],
             last_materialization: None,
             last_version: "00:11:22:33".to_string(),
+            linked_collections: Vec::new(),
         }),
         apply: Some(materialize::request::Apply {
             materialization: Some(ex_materialization_spec()),
