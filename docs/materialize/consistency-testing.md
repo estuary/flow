@@ -42,19 +42,6 @@ zombie processes are real runtime messages, and only their *scheduling* is the
 shim's. Everything else the shim does is observation and perturbation of a stream
 it did not author.
 
-### Target the V2 runtime exclusively
-
-V2 is where connectors are heading, where the coordinator/shard-zero state
-scatter-gather exists, and where idempotent transaction replay exists — which the
-document-counter class depends on.
-
-Shard splits do apply to V2. The split workflow lives at the shared gazette
-consumer layer and runs before the v1/v2 dispatch, so it is available to both, and
-`flowctl raw split-shards` already refuses a task that lacks the
-`enable-runtime-v2` flag. This was a correction made while designing: the
-shard-reconfiguration scenarios are testable now rather than blocked on runtime
-work.
-
 ### Connectors run as binaries via `local:`, not as images
 
 This is what makes the loop fast enough for an agent to use — a change is `go
@@ -73,13 +60,11 @@ event", which the shim decides on its own. A control server is needed only if a
 scenario must be triggered from *outside* the connector's protocol stream, and none
 of the current scenarios is.
 
-**Fault state is a marker file in the run directory.** This is load-bearing rather
-than incidental. A crash fault kills the connector; the runtime restarts it; the
-replacement process reaches the same trigger. Without cross-process state it would
-crash again, forever, leaving the shard permanently down — and a destination
-nothing wrote to is trivially consistent, so the scenario would *pass*. The marker
-is created with `create_new`, so the claim is atomic between a live instance and
-its zombie.
+**A fired fault is recorded as a file, so it fires only once.** A crash fault kills
+the connector and the runtime starts a fresh one, which would reach the same trigger
+and crash again — forever. The file outlives the process, so the replacement knows the
+fault has already fired. It is created with `create_new`, which makes the claim atomic
+when two processes race for it.
 
 ### The workload
 
@@ -109,9 +94,7 @@ failure localizes. The capture connector is still reused unmodified.
 capture and the materialization are separate tasks joined only by the collection's
 journals. Once a document is written it is durable and immutable, and interrupting
 the materialization neither touches the capture nor rewrites the collection. Every
-crash-and-replay scenario replays byte-identical input by construction. (This was
-the second correction made while designing: a seeded generator was thought
-necessary and is not.)
+crash-and-replay scenario replays byte-identical input by construction.
 
 ### Transaction boundaries are approximate, by choice
 
@@ -125,65 +108,57 @@ Hence the rule that constrains every scenario: **keyed on protocol events the sh
 observes, never on document identity.** This costs nothing because verification is
 invariant-based rather than snapshot-based.
 
-### Invariants are checked at quiescence
+### Invariants are checked once the task is idle
 
 Not a convenience. Some legitimate patterns make rows visible before the Flow
 transaction commits — the document-counter class appends during `Store` — so a
 mid-flight destination read would report a violation where none exists.
 
-**Deviation: a run quiesces by disabling its own captures.** The spec had the
-workload published once per stack, which leaves the capture running forever and
-gives a scenario no quiescent moment to read. Publishing the workload per run
-instead bounds the data volume, makes quiescence reachable, and is *more* isolated,
+**Deviation: a run goes idle by disabling its own captures.** The spec had the
+workload published once per stack, which leaves the capture running forever so a
+scenario never has a settled moment to read. Publishing the workload per run
+instead bounds the data volume, lets the task go idle, and is *more* isolated,
 not less. It respects the rule that matters — a scenario touches only its own
 tasks, never anything stack-wide.
 
-### Joining shards needed a new subcommand
+### Shard surgery runs through scripts, not new `flowctl` subcommands
 
-Splitting was already a `flowctl` subcommand. Joining was not, and the spec assumed
-the harness would drive both by linking `gazette` and `labels` directly. It drives
-neither: the data-plane admin authorization both need lives inside `flowctl` and is
-not exported, so a second copy here would be an untested duplicate of the
-fiddliest part of the platform's auth.
+Splitting is already a `flowctl` subcommand. Unassigning a shard and joining a task's
+shards are not, and they are local test affordances rather than things an operator needs
+from the CLI, so the suite ships them as scripts under `scripts/` that drive `gazctl`.
+`flowctl raw gazctl-env` supplies the data-plane addresses and tokens, so no authorization
+logic is duplicated.
 
-So `activate` gained `map_shards_to_join`, the inverse of its existing
-`map_shard_to_split`, and `flowctl raw join-shards` sits beside `split-shards`.
-The mechanism is the one an operator would use by hand with `gazctl shards
-list -o yaml` / `apply`: widen the surviving shard's key range to cover its
-partner's, and mark the partner deleted.
+A join widens the surviving shard's key range to cover its partner's and marks the partner
+deleted. Two properties make it safe, and both are why the *lower* shard of each pair
+survives:
 
-Two properties make it safe, and both are why the *lower* shard of each pair is the
-survivor:
+- **The survivor keeps its identity.** A shard's ID derives from its range *begin*, and
+  merging into the lower shard leaves that unchanged — so it keeps its ID, its recovery
+  log, and its accumulated state. Only its `end` widens.
+- **No key is ever unowned.** Shard upserts land before shard deletions, so the survivor
+  owns the widened range before its partner goes away.
 
-- **The survivor keeps its identity.** A shard's ID derives from its range
-  *begin*, and merging into the lower shard leaves that unchanged — so it keeps its
-  ID, its recovery log, and its accumulated state. Only its `end` widens.
-- **No key is ever unowned.** `activate::apply_changes` already orders changes so
-  that shard upserts land before shard deletions, and those before journal
-  deletions. The survivor therefore owns the widened range before its partner
-  goes away.
+A join is refused unless the pair is genuinely adjacent on exactly one axis — two shards
+from the same split. A gap would silently drop the keys inside it and an overlap would
+deliver them twice, so guessing is worse than failing.
 
-A join is refused unless the pair is genuinely adjacent on exactly one axis — two
-shards from the same split. A gap would silently drop the keys inside it and an
-overlap would deliver them twice, so guessing is worse than failing.
-
-The asymmetry with a split is real and is recorded in the scenario: a split child
-inherits its checkpoint from the range that contained it, but two ranges collapsing
-into one leave no single range that contained the result, so a join falls back to
-the recovery log. The `join-after-split` scenario therefore asserts only on the
-destination, never on which checkpoint the connector chose.
+The asymmetry with a split is real and is recorded in the scenario: a split child inherits
+its checkpoint from the range that contained it, but two ranges collapsing into one leave
+no single range that contained the result, so a join falls back to the recovery log. The
+`join-after-split` scenario therefore asserts only on the destination, never on which
+checkpoint the connector chose.
 
 ### Monotonicity is not a membership-change-safe invariant
 
-The second finding from the shard-split scenarios, and the one that shaped the
-invariant set: **a membership change preserves exactly-once delivery of the *set*,
-but not delivery *order* at the sink.**
+**A membership change preserves exactly-once delivery of the *set*, but not delivery
+*order* at the sink.**
 
 A split child resumes from its inherited checkpoint and may deliver a sequence that
 the departing parent had already raced past, so an id's rows can land out of order
-while remaining exactly one row per document. The suite observed precisely that:
-1513 documents, no loss, no duplicates, conservation intact, oracle agreement
-intact — and 78 monotonicity complaints.
+while remaining exactly one row per document. The suite observes exactly that shape: no
+loss, no duplicates, conservation intact and oracle agreement intact, alongside a crop of
+monotonicity complaints.
 
 So the reconfiguration scenarios declare a monotonicity exemption, with the
 set-based checks explicitly *not* exempt. Those four carry the exactly-once claim,
@@ -198,10 +173,6 @@ property the runtime offers whenever sessions can overlap.
 
 ### Only shard zero may propose a runtime checkpoint
 
-The first thing the shard-split scenarios found, once they could run at all, is a
-V2 contract rule that a destination-authoritative connector has to respect and
-which nothing had previously forced anyone to discover:
-
 Under V2 the non-zero shards of a leaderful task are **stateless** — they have no
 recovery log and acquire everything through the leader protocol. The leader
 therefore *refuses* an `Opened` from a non-zero shard that carries a runtime
@@ -213,10 +184,6 @@ class returned its stored checkpoint from every shard, which worked perfectly on
 single-shard task and took the task down the moment it was split. That is exactly
 the class of latent defect the suite exists to surface, and it surfaced here in the
 suite's own reference connector before any production one.
-
-It is also a good argument for the shard-reconfiguration scenarios being part of the
-default set rather than an optional extra: nothing about a single-shard run can
-reveal it.
 
 ### The reference destination is genuinely shared, and that has teeth
 
@@ -246,31 +213,14 @@ layers above the actual fault, which was a connector exiting during `Open`.
 
 ### Recovering a crashed shard is part of the scenario
 
-A crash fault is only half of crash-and-replay. The other half turned out to need
-work the spec did not anticipate: **a Gazette shard whose processing loop fails is
-marked FAILED and stays that way** — the allocator will not reschedule it. Every
-crash scenario would otherwise wait out its deadline against a shard that never
-came back, and report a *pass*, because a destination nothing wrote to is trivially
-consistent.
+A crash fault is only half of crash-and-replay. A Gazette shard whose processing loop
+fails is marked FAILED and stays that way, so recovery means unassigning it, which the
+suite does with a script rather than by republishing the task — a republish would bump the
+materialization's version and open a new session, perturbing the task under test at the
+moment the run has stopped perturbing it on purpose.
 
-In production something eventually re-activates the task, and `activate` unassigns
-every shard it upserts, so failures clear as a side effect of a publication. The
-suite cannot use that: republishing the materialization bumps its version, drives
-an `Apply`, and opens a new session — perturbing the task under test at the moment
-the run has stopped perturbing it on purpose.
+One consequence is worth knowing:
 
-So `flowctl raw unassign-shards` was added beside its sibling `split-shards`, where
-the data-plane auth it needs already lives, and the runner calls it until the task
-is committing again. It does only the unassigning, changing no specification.
-
-Two consequences worth knowing:
-
-- **Shard administration needs `estuary_support/`.** Both splitting and unassigning
-  authorize at Admin capability, which the control plane grants only to a user
-  holding that role — correctly, since these are support-level operations. The
-  `ci:consistency` task grants it to the test user and warms the agent's
-  authorization snapshot, rather than widening what `local:test-tenant` hands every
-  test.
 - **The runner requires progress after the fault.** Recovery is not assumed from
   the unassign returning: the scenario waits for further committed transactions,
   which is what distinguishes a connector that recovered from one that merely
@@ -278,11 +228,12 @@ Two consequences worth knowing:
 
 ### The expectation is read from the collection
 
-The oracle each document carries makes a destination row self-checking, and that
-catches duplication and gaps arithmetically. It does not catch a *tail-truncated*
-materialization, which is internally consistent: every delivered prefix agrees with
-its own oracle, and conservation still holds because a transaction boundary
-contains whole capture checkpoints, so both legs of every transfer are present.
+Every document carries an oracle, so a destination row can be checked against itself.
+That catches duplicates and gaps. It cannot catch a materialization that simply *stops
+early*, because everything it did deliver is correct — the rows that arrived agree with
+their oracles, and the sums still balance.
+
+So the harness reads the collection and compares against that instead.
 
 So the harness reads the collection itself with `flowctl collections read` and
 compares. That expectation is authoritative and the connector under test had no
@@ -304,20 +255,6 @@ Every connector is held to every invariant. Anything weaker is an explicit
 `Exemption` naming the invariant and carrying a written justification — a required
 constructor argument rather than an optional field, so one cannot be added without
 stating why.
-
-The rejected alternative was having each connector declare its class and running
-only that class's invariants. It fails for a specific reason: the cheapest way to
-make a failing test pass becomes downgrading the claim, and a connector that
-silently regresses to a weaker class gets reclassified and passes. Default-strict
-inverts that pressure, and the set of exemptions becomes a map of where the fleet
-is actually weak.
-
-An exemption records a reviewed property, not a defect. The Snowpipe Streaming v2
-deviation is the model case: rows become visible before the Flow transaction
-commits, and rows appended by a transaction that never commits persist — recovery
-skips rather than re-sends them, so a *committed* transaction is still
-exactly-once. That must be declared, so the checker's silence about it is a
-decision somebody made rather than an accident.
 
 ### The suite proves itself
 
@@ -355,95 +292,33 @@ These are assertion-shaped tests, a departure from this repository's snapshot
 convention. The oracle makes the correct answer computable rather than recorded, so
 a snapshot would add a stale artifact without adding information.
 
-## Deviations from the spec, collected
-
-| Spec said | Implementation does | Why |
-| --- | --- | --- |
-| One capture, several collections | Two single-binding captures | `source-soak` partitions documents across bindings, which would make conservation and standard/delta agreement uncheckable per collection |
-| Workload published once per stack | Workload published per run | The spec's model leaves no quiescent moment to read, and per-run is strictly more isolated |
-| Link `gazette`/`labels` to drive splits | Shell out to `flowctl raw split-shards`, and a new `join-shards` | Splitting already existed as a subcommand that refuses non-V2 tasks and returns a status rather than text to parse. Joining did not exist, and was added beside it rather than reimplemented here — see below |
-
 ## Rules the reference connector obeys
 
-Two rules govern the post-commit-apply class, and both are load-bearing rather than
-stylistic: a connector of this class that breaks either delivers a destination that
-disagrees with its own collection while every delivered row looks correct.
+Two rules govern the post-commit-apply class. A connector that breaks either delivers a
+destination disagreeing with its own collection while every delivered row looks correct —
+nothing lost, nothing duplicated, only the reduced sums wrong.
 
-### A `Load` must see staged writes, including an ancestor's
+**A `Load` must see staged writes, including an ancestor's.** The class stages during
+`Store` and applies during `Acknowledge`, so between those points its rows are durable and
+invisible in the table. A connector must answer `Load` consistently with everything it has
+been asked to `Store` in a committed transaction, applied or not — and after a split, that
+includes rows staged under the parent's wider range, since a child inherits those keys.
+Visibility is scoped by containment: ranges containing mine, which admits ancestors and
+excludes siblings.
 
-What establishes it, from one account's `evidence.json`. Same collection, same
-transactions, two bindings:
+**Recovery applies every committed-but-unapplied transaction, not just the newest.**
+`acknowledge` must apply every staged transaction at or below `committed_txn`, because
+discarding removes only transactions *after* it. One that is staged and log-committed but
+never acknowledged, with a newer one behind it, would otherwise be neither applied nor
+discarded, and would leak permanently. A split fences the parent mid-flight, which is
+precisely how two of them come to pile up.
 
-| binding | value | uses `Load`? |
-| --- | --- | --- |
-| merged delta | 57 → 48 → … → **321**, matching the oracle at every step | no |
-| merged standard | **152** (expected 321), `seq` fully current | yes |
-
-Nothing was lost — the sequence is up to date. Only the reduced *sum* is wrong, and only
-on the binding the runtime computes by loading, reducing and storing. Nothing but a
-stale `Load` base produces that.
-
-The post-commit-apply class stages during `Store` and applies during `Acknowledge`;
-between those points its rows are durable and invisible, and `load()` consulted only the
-destination table. **A connector must answer `Load` consistently with everything it has
-been asked to `Store` in a committed transaction, applied or not.**
-
-Why it needs a split: the runtime re-uses documents it cached from prior transactions,
-so a long-lived session rarely issues a real `Load` for a key it just stored — the bug
-is unreachable. Split children start with cold caches. Why it is intermittent: a Load
-must land inside the staged-but-unapplied window, which this scenario's 4-second
-`StartCommit` stall widens.
-
-Three scopes were measured before the right one:
-
-| staged visibility | clean half | paired defect |
-| --- | --- | --- |
-| own shard only | 0 of 5 passed | caught |
-| every shard | passed | not reliably caught |
-| ranges containing mine | 1500–1800 documents upheld | not reliably caught |
-
-Own-shard-only fails because a split child's inherited keys have their staged rows under
-the *parent's* wider range. Containment admits ancestors and excludes siblings, which is
-the correct rule — sibling ranges never contain one another.
-
-### Recovery applies every committed-but-unapplied transaction, not just the newest
-
-`acknowledge` must apply *every* staged transaction at or below `committed_txn`, not only
-that transaction itself, because `discard_staged_after` removes only transactions *after*
-it. A transaction that is staged and log-committed but never acknowledged, with a newer one
-behind it, would otherwise be neither applied nor discarded — it would leak permanently. A
-split fences the parent mid-flight, which is precisely how two of them come to pile up.
-
-The measurement that establishes this is worth keeping as a technique. The shim's trace
-records documents Stored
-per binding, and comparing that against the destination gave, over three failing runs:
-
-| Stored | delivered | in the collection |
-| --- | --- | --- |
-| 640 | 582 | 600 |
-| 790 | 738 | 760 |
-| 780 | 724 | 740 |
-
-The connector was handed *more* than the collection holds — a split replays input — and
-applied fewer. That eliminated the runtime, the harness and the expectation in one step,
-and it is the single most useful measurement in this whole investigation: **compare what
-the connector was asked to store against what the destination holds before theorising
-about either side.**
-
-This is a real bug and the fix is correct by inspection — `Apply` already looped over
-`staged_txns` for exactly this reason, and a unit test pins it. But **it did not close the
-log shortfall.** One run afterwards delivered 730 of 730 with no duplicates; two of the
-next four were still 18 short (`log="752/770"`, healthy and quiescent). Against a pre-fix
-rate of three failures in five, that is indistinguishable.
-
-So: a genuine defect removed, and the symptom it was expected to explain still present.
-Whatever strands those documents is either a second path into the same staging leak or
-something else, and the open item below is the likelier candidate.
+Both are invisible to a single-shard run, which is why the shard-reconfiguration scenarios
+belong in the default set.
 
 ### The counted channel, and why it is the class that survives a split
 
-The document-counter class emulates Snowpipe Streaming v2, and getting it faithful took a
-correction worth recording, because the whole point of the class turns on it.
+The document-counter class emulates Snowpipe Streaming v2.
 
 **The offset belongs to the destination.** One channel is opened per (binding, shard);
 several channels of one binding append to the same destination table, each with its own
@@ -452,12 +327,6 @@ accepting the row. The connector keeps the offset in its checkpoint too — comm
 the recovery log — and on restart compares the two: `skip = destination − checkpointed`
 tells it how many documents of the replayed transaction the destination already holds. A
 destination *behind* the checkpoint is impossible and is refused rather than guessed at.
-
-The reference connector originally reported a connector-side *mirror* of that offset,
-incremented as it wrote, instead of reading the destination back. That is wrong in itself —
-a second copy of the only number that matters — and wrong in a way this class cannot
-tolerate, since the mirror's drift is invisible in exactly the case the design exists for:
-a process dying between the destination accepting a row and the connector noting it.
 
 It also has to be **delta-updates only**. An offset counts rows the destination accepted,
 which says nothing about an upsert; Snowpipe v2 supports only delta bindings, so the
@@ -502,12 +371,12 @@ shard that resolves "the channel whose range starts at 0" sees 14, skips 14, and
 data**; `[5, 10)` opens a new channel and **duplicates** its first 7.
 
 **What the suite observes, and one difference worth keeping.** A crash-then-split run in
-which the split did apply shows 40 duplicates, every one exactly ×2, and *nothing missing* —
-one transaction's worth of appends landed twice. The scaling-up analysis predicts one child missing data and the
-other duplicating; this connector only duplicates, because its channels are keyed by the
-whole range `(key_begin, key_end)` rather than by `key_begin` alone. A new child therefore
-never inherits an offset that isn't its own, so it never over-skips, so it cannot silently
-lose data — it can only duplicate.
+which the split did apply duplicates about one transaction's worth of appends, every one
+exactly twice, with *nothing missing*. The scaling-up analysis predicts one child missing
+data and the other duplicating; this connector only duplicates, because its channels are
+keyed by the whole range `(key_begin, key_end)` rather than by `key_begin` alone. A new
+child therefore never inherits an offset that isn't its own, so it never over-skips, and
+cannot silently lose data — it can only duplicate.
 
 That is worth preserving beyond this suite: **keying a channel by the shard's full range
 converts the scaling-up failure from silent data loss into duplication.** Duplication is
@@ -526,10 +395,9 @@ mitigation names.
 
 ### The post-commit-apply limit: staged work cannot be inherited across a split
 
-Range-pair keying (below) removed the ambiguity between an ancestor and a sibling, and
-produced the first fully-correct run — the clean build upheld every invariant over 1913
-documents while the defective build was caught with 129 violations. But four runs in five
-still fail, now by *duplicating* rather than losing, and the evidence says why.
+Range-pair keying (below) removes the ambiguity between an ancestor and a sibling, but the
+scenario still fails most runs — by *duplicating* rather than losing — and the evidence says
+why.
 
 Every failing account has repeated `(id, seq)` rows in the merged delta binding, and the
 running sum diverges from the oracle **exactly at the first repeat**:
@@ -621,7 +489,7 @@ at-least-once by design and would be exempt regardless.
 Stated so they survive this document:
 
 1. Scenarios are keyed on protocol events, not document identity.
-2. Assertions happen at quiescence, not mid-flight.
+2. Assertions happen once the task is idle, not mid-flight.
 3. Scenarios never touch stack-wide state.
 4. No scenario is finished without a paired defect it provably catches.
 
@@ -670,22 +538,15 @@ it aims at it or not, because the harness cannot ask for a split at a transactio
 boundary. The workload commits every one to two seconds and a split takes seconds to
 apply, so a prepared transaction is nearly always in flight when the split lands.
 
-Measured once, from `counter-crash-in-split-non-leader`:
+The shape of it, from `counter-crash-in-split-non-leader`: the parent's counter includes
+its final transaction, the children's counters start at zero, and the destination ends up
+holding more than the collection by about one transaction's worth.
 
-| | |
-|---|---|
-| parent's `events` counter for `(0, MAX)` | 270, including its 6th transaction |
-| children's counters when created | 0 and 0 |
-| documents stored across all sessions | 1220 |
-| documents skipped on recovery | 150 |
-| delivered | 1070 |
-| correct | 1020 |
-
-The parent's trace ends `startCommit 6, startedCommit 6` with no seventh `Acknowledge`:
-its sixth transaction was prepared and never confirmed committed. Its rows are in the
+The parent's trace ends with a `startCommit`/`startedCommit` pair and no following
+`Acknowledge`: its last transaction was prepared and never confirmed committed. Its rows are in the
 shared table and counted against `(0, MAX)`. The children start at zero, replay that
-transaction's inputs, and append them again — 50 duplicates, about one transaction's
-worth, and **nothing missing**.
+transaction's inputs, and append them again — about one transaction's worth of duplicates,
+and **nothing missing**.
 
 Duplication-without-loss is the signature to look for, and it follows from the channel
 keying described above: a child never inherits an offset that isn't its own, so it can
@@ -693,7 +554,6 @@ never over-skip. A connector keying channels by `key_begin` alone would have sho
 other half of the scaling-up case, a silently lost prefix.
 
 These scenarios are left unmarked rather than declared expected failures, because they
-pass whenever the race falls the other way — three consecutive runs at 4827, 4460 and
-5677 documents. A failure showing duplicates and no losses in a scenario that splits is
+pass whenever the race falls the other way, which is most of the time. A failure showing duplicates and no losses in a scenario that splits is
 this gap, not a connector defect; the same runtime guarantee closes all of them.
 
