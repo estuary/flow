@@ -552,3 +552,51 @@ async fn multi_shard_segment_routing() {
         "keys did not spread across shards: {used:?}"
     );
 }
+
+/// A session that fails *after* its shards Open must report that failure rather
+/// than hang, and must not take the process down as it unwinds.
+///
+/// derive-sqlite is remote-authoritative, so every shard reports connector state
+/// at Opened and the leader rejects the non-zero ones — a session that gets past
+/// readiness and only then dies. Two properties are asserted: `start` returns the
+/// shard's own error (rather than blocking forever on a commit signal whose
+/// sender the run's tonic server keeps alive), and it stops the shards it already
+/// started (rather than dropping the run and deleting the tempdirs underneath a
+/// live RocksDB, which crashes the process).
+#[tokio::test]
+async fn start_failure_after_open_reports_and_tears_down() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+    let collections = build_collections(SINGLE_HOP).await;
+    let spec = collections.get("acmeCo/sums").unwrap();
+
+    // Bounded: the defect this guards against is an unbounded wait, which would
+    // otherwise hang the suite rather than fail it.
+    let started = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        DerivationRunner::start(
+            spec,
+            3, // Rejected: remote-authoritative derivations must be single-shard.
+            String::new(),
+            service_kit::Registry::new(),
+            Arc::new(Mutex::new(CollectionStore::new())),
+            Arc::new(AtomicU64::new(1)),
+            Arc::new(::ops::tracing_log_handler),
+        ),
+    )
+    .await
+    .expect("start must report the failure, not block on a signal that cannot arrive");
+
+    let err = started
+        .err()
+        .expect("a multi-shard derive-sqlite session cannot start");
+
+    let err = format!("{err:#}");
+    assert!(
+        err.contains("must be single-shard"),
+        "unexpected error: {err}"
+    );
+
+    // Outlive the teardown a crashing run would not survive.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+}

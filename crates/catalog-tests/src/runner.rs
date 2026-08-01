@@ -68,6 +68,10 @@ pub struct DerivationRunner {
     /// One `()` per shard `ResetDone`. Reset is shard-local, so a
     /// [`reset`](Self::reset) sends one Reset per shard and awaits one reply each.
     reset_rx: mpsc::UnboundedReceiver<()>,
+    /// The error of the first shard drainer to end without stopping. Neither
+    /// signal channel above can observe a dead session on its own — see
+    /// [`await_signal`] — so a failure is reported here instead.
+    failure_rx: mpsc::UnboundedReceiver<anyhow::Error>,
 
     // --- Feed state (segment writer inputs, advanced across the run). ---
     bindings: Vec<shuffle::Binding>,
@@ -129,8 +133,8 @@ impl DerivationRunner {
         let (opener, frontier_tx) = segments::fixture_opener();
         let (commit_tx, mut commit_rx) = mpsc::unbounded_channel::<()>();
         let (reset_done_tx, reset_rx) = mpsc::unbounded_channel::<()>();
-        let publisher_factory =
-            TestPublisherFactory::new(store.clone(), publish_clock, commit_tx.clone());
+        let (failure_tx, mut failure_rx) = mpsc::unbounded_channel::<anyhow::Error>();
+        let publisher_factory = TestPublisherFactory::new(store.clone(), publish_clock, commit_tx);
         let logger_factory = TestLoggerFactory::new(log_handler);
 
         let run = runtime_local::services::Run::start_with_shuffle_leader(
@@ -235,27 +239,46 @@ impl DerivationRunner {
                 i,
                 ready_tx,
                 reset_done_tx.clone(),
+                failure_tx.clone(),
             )));
             request_txs.push(request_tx);
             ready_rxs.push(ready_rx);
         }
+        // Hold no sender ourselves, so `failure_rx` closes once every drainer has
+        // exited — the terminal case `await_signal` reports when no shard is left
+        // to explain the failure.
+        std::mem::drop(failure_tx);
 
-        // Block until every shard has joined and opened its connector.
-        for (i, ready_rx) in ready_rxs.into_iter().enumerate() {
-            ready_rx
-                .await
-                .map_err(|_| anyhow::anyhow!("shard {i} exited before opening its session"))?;
-        }
-
-        // Consume the leader's session-startup commit signal. Its Tail FSM begins
+        // Block until every shard has joined and opened its connector, then
+        // consume the leader's session-startup commit signal. Its Tail FSM begins
         // in `Recover`, replaying any recovered ACK intents through `WriteIntents`
         // before it can begin a transaction — so exactly one signal precedes the
         // first transaction's, and leaving it queued would let the first stat
         // mistake it for its own commit.
-        commit_rx
-            .recv()
+        let started = async {
+            for (i, ready_rx) in ready_rxs.into_iter().enumerate() {
+                ready_rx
+                    .await
+                    .map_err(|_| anyhow::anyhow!("shard {i} exited before opening its session"))?;
+            }
+            await_signal(
+                &mut commit_rx,
+                &mut failure_rx,
+                &task_name,
+                "startup completed",
+            )
             .await
-            .with_context(|| format!("{task_name}: session ended before startup completed"))?;
+        }
+        .await;
+
+        // Startup failed with shard sessions already live. Stop them and await
+        // their drainers before `run` drops: its tempdirs are removed on drop,
+        // and a shard still holding RocksDB open inside one crashes the process
+        // in place of reporting `err`.
+        if let Err(err) = started {
+            _ = stop_shards(&request_txs, shard_handles).await;
+            return Err(err);
+        }
 
         Ok(Self {
             task_name,
@@ -266,6 +289,7 @@ impl DerivationRunner {
             frontier_tx,
             commit_rx,
             reset_rx,
+            failure_rx,
             bindings,
             validators,
             suffix_to_binding,
@@ -352,10 +376,13 @@ impl DerivationRunner {
         for (key, target) in targets {
             self.fed.insert(key, target);
         }
-        self.commit_rx
-            .recv()
-            .await
-            .with_context(|| format!("{}: session ended before commit", self.task_name))?;
+        await_signal(
+            &mut self.commit_rx,
+            &mut self.failure_rx,
+            &self.task_name,
+            "commit",
+        )
+        .await?;
 
         // The task's cumulative read-through, and its output write clock. We fed
         // exactly through `read_through`, so reporting it is exact — V1 instead
@@ -392,78 +419,143 @@ impl DerivationRunner {
         }
 
         for _ in 0..self.request_txs.len() {
-            self.reset_rx.recv().await.with_context(|| {
-                format!("{}: session ended before Reset completed", self.task_name)
-            })?;
+            await_signal(
+                &mut self.reset_rx,
+                &mut self.failure_rx,
+                &self.task_name,
+                "Reset completed",
+            )
+            .await?;
         }
         Ok(())
     }
 
-    /// Gracefully stop the session: Stop every shard, await each drainer's
-    /// Stopped confirmation, then drop the request streams (EOF). Dropping the
-    /// senders before Stopped would EOF mid-handshake, which the shard rejects as
-    /// an unexpected controller EOF.
+    /// Gracefully stop the session, then drop the request streams (EOF).
     pub async fn shutdown(mut self) -> anyhow::Result<()> {
-        for request_tx in &self.request_txs {
-            let _ = request_tx.send(Ok(proto::Derive {
-                stop: Some(proto::Stop {}),
-                ..Default::default()
-            }));
-        }
-
-        // Drainers return once they observe Stopped; the request streams stay open
-        // through the handshake because we still hold `request_txs`.
-        let mut first_err = None;
-        for handle in std::mem::take(&mut self.shard_handles) {
-            match handle.await {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) if first_err.is_none() => first_err = Some(e),
-                Ok(Err(e)) => tracing::warn!(error = ?e, "secondary shard drainer error"),
-                Err(panic) if first_err.is_none() => {
-                    first_err = Some(anyhow::anyhow!("shard drainer panic: {panic}"))
-                }
-                Err(panic) => tracing::warn!(?panic, "secondary shard drainer panic"),
-            }
-        }
+        let result = stop_shards(&self.request_txs, std::mem::take(&mut self.shard_handles)).await;
         // Now EOF each request stream, letting each shard's serve loop finish.
         self.request_txs.clear();
+        result
+    }
+}
 
-        match first_err {
-            Some(e) => Err(e),
-            None => Ok(()),
+/// Stop every shard and await each drainer's Stopped confirmation, reporting the
+/// first failure but always awaiting all of them.
+///
+/// Shared by [`DerivationRunner::shutdown`] and by [`DerivationRunner::start`]'s
+/// error path, which must also reach here: shard tasks hold RocksDB open inside
+/// the run's tempdirs, which are removed when the run drops.
+///
+/// The caller retains `request_txs` and drops them only once this returns.
+/// EOF-ing them mid-handshake is rejected by the shard as an unexpected
+/// controller EOF, so the streams must outlive the Stopped exchange.
+async fn stop_shards(
+    request_txs: &[mpsc::UnboundedSender<tonic::Result<proto::Derive>>],
+    shard_handles: Vec<tokio::task::JoinHandle<anyhow::Result<()>>>,
+) -> anyhow::Result<()> {
+    for request_tx in request_txs {
+        let _ = request_tx.send(Ok(proto::Derive {
+            stop: Some(proto::Stop {}),
+            ..Default::default()
+        }));
+    }
+
+    let mut first_err = None;
+    for handle in shard_handles {
+        match handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) if first_err.is_none() => first_err = Some(e),
+            Ok(Err(e)) => tracing::warn!(error = ?e, "secondary shard drainer error"),
+            Err(panic) if first_err.is_none() => {
+                first_err = Some(anyhow::anyhow!("shard drainer panic: {panic}"))
+            }
+            Err(panic) => tracing::warn!(?panic, "secondary shard drainer panic"),
         }
+    }
+
+    match first_err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Await one signal of a running session — a transaction commit, or one shard's
+/// `ResetDone` — failing with the session's own error if it died first.
+///
+/// Neither signal channel can detect a dead session by observing closure, so
+/// waiting on one alone can only ever hang. `commit_rx`'s sender is held by
+/// `TestPublisherFactory`, which the run's tonic server owns and which therefore
+/// outlives every session; `reset_rx`'s senders are held per-shard, so a partial
+/// failure leaves the surviving shards holding it open. `failure_rx` closes the
+/// gap: each drainer reports there as it ends, and the channel itself closes once
+/// none are left.
+async fn await_signal(
+    signal_rx: &mut mpsc::UnboundedReceiver<()>,
+    failure_rx: &mut mpsc::UnboundedReceiver<anyhow::Error>,
+    task_name: &str,
+    what: &str,
+) -> anyhow::Result<()> {
+    tokio::select! {
+        biased;
+
+        Some(err) = failure_rx.recv() => {
+            Err(err.context(format!("{task_name}: session failed awaiting {what}")))
+        }
+        Some(()) = signal_rx.recv() => Ok(()),
+        else => Err(anyhow::anyhow!("{task_name}: session ended before {what}")),
     }
 }
 
 /// Drain a shard's response stream: signal readiness on the first Opened, forward
 /// each `ResetDone`, then keep draining (surfacing errors) until the request
 /// stream closes and the shard EOFs.
+///
+/// Ending without having seen Stopped ends the shard's session: no further commit
+/// or `ResetDone` can arrive, so the reason is published to `failure_tx` for
+/// whichever [`await_signal`] is waiting on one.
 async fn drain_shard(
     mut response_rx: mpsc::UnboundedReceiver<tonic::Result<proto::Derive>>,
     shard_index: u32,
     ready_tx: tokio::sync::oneshot::Sender<()>,
     reset_done_tx: mpsc::UnboundedSender<()>,
+    failure_tx: mpsc::UnboundedSender<anyhow::Error>,
 ) -> anyhow::Result<()> {
     let mut ready_tx = Some(ready_tx);
 
-    while let Some(msg) = response_rx.recv().await {
-        let msg = msg.map_err(runtime_next::status_to_anyhow)?;
+    let stopped = async {
+        while let Some(msg) = response_rx.recv().await {
+            let msg = msg.map_err(runtime_next::status_to_anyhow)?;
 
-        if msg.opened.is_some() {
-            if let Some(tx) = ready_tx.take() {
-                let _ = tx.send(());
+            if msg.opened.is_some() {
+                if let Some(tx) = ready_tx.take() {
+                    let _ = tx.send(());
+                }
+            } else if msg.joined.is_some() {
+                tracing::debug!(shard_index, "runner shard joined");
+            } else if msg.reset_done.is_some() {
+                tracing::debug!(shard_index, "runner shard reset done");
+                let _ = reset_done_tx.send(());
+            } else if msg.stopped.is_some() {
+                // Graceful shutdown reached. Return so `shutdown` can drop the
+                // request stream and end the serve loop.
+                tracing::debug!(shard_index, "runner shard stopped");
+                return anyhow::Ok(true);
             }
-        } else if msg.joined.is_some() {
-            tracing::debug!(shard_index, "runner shard joined");
-        } else if msg.reset_done.is_some() {
-            tracing::debug!(shard_index, "runner shard reset done");
-            let _ = reset_done_tx.send(());
-        } else if msg.stopped.is_some() {
-            // Graceful shutdown reached. Return so `shutdown` can drop the
-            // request stream and end the serve loop.
-            tracing::debug!(shard_index, "runner shard stopped");
-            return Ok(());
+        }
+        anyhow::Ok(false)
+    }
+    .await;
+
+    match &stopped {
+        Ok(true) => {}
+        Ok(false) => {
+            let _ = failure_tx.send(anyhow::anyhow!(
+                "shard {shard_index} ended its session without stopping"
+            ));
+        }
+        Err(err) => {
+            let _ = failure_tx.send(anyhow::anyhow!("shard {shard_index} failed: {err:#}"));
         }
     }
-    Ok(())
+    stopped.map(|_| ())
 }
