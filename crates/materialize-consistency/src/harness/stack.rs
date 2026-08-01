@@ -200,6 +200,17 @@ impl Stack {
         Ok(())
     }
 
+    /// Delete a task's ops log and stats journal partitions.
+    ///
+    /// See `harness::cleanup` for why this is necessary and why it must run before the
+    /// task's specification is deleted.
+    pub async fn delete_ops_journals(&self, task: &str) -> anyhow::Result<()> {
+        self.run(&["raw", "delete-ops-journals", "--task", task])
+            .await
+            .with_context(|| format!("deleting ops journals of {task}"))?;
+        Ok(())
+    }
+
     /// Every shard of a task, as the data plane reports it.
     pub async fn shards(
         &self,
@@ -220,9 +231,14 @@ impl Stack {
 
     /// Whether every shard of `task` currently reports a primary.
     ///
-    /// A single listing with no waiting. `await_primary` would block for its whole
-    /// timeout, and a caller polling in a loop — like `drain` — would spend its
-    /// patience inside this check rather than on giving the task time to finish.
+    /// A single listing with no waiting, used only as `drain`'s health signal — to tell
+    /// a task that has genuinely gone quiet from one that has fallen over.
+    ///
+    /// Nothing *waits* on shard status any more. A blocking version existed and was
+    /// removed: it failed both after a perturbation, by catching the crash the scenario
+    /// had just injected, and before one, because a task starts processing the moment it
+    /// is activated and could crash while the harness was still checking a sibling.
+    /// Progress — `await_commits` over the shim's trace — is the gate instead.
     pub async fn all_primary(&self, task: &str) -> anyhow::Result<bool> {
         use proto_gazette::consumer::replica_status::Code;
 
@@ -232,61 +248,6 @@ impl Stack {
             && shards
                 .iter()
                 .all(|s| s.status.iter().any(|s| s.code() == Code::Primary)))
-    }
-
-    /// Await every shard of `task` reporting a primary.
-    ///
-    /// A `Failed` status is *not* fatal here, and that is the whole subtlety: after
-    /// an injected crash the connector exited non-zero, so the shard reports Failed
-    /// until the runtime's backoff restarts it. Treating that as an error would
-    /// abort every crash scenario before it could check anything. So a failure is
-    /// remembered and reported only if the deadline passes with the shard still
-    /// down — which is itself a finding, and one that arrives with the shard's own
-    /// error text.
-    pub async fn await_primary(
-        &self,
-        task: &str,
-        timeout: std::time::Duration,
-    ) -> anyhow::Result<()> {
-        use proto_gazette::consumer::replica_status::Code;
-
-        let deadline = std::time::Instant::now() + timeout;
-        let mut last_failure = String::new();
-
-        loop {
-            match self.shards(task).await {
-                Ok(shards) if !shards.is_empty() => {
-                    let mut all_primary = true;
-
-                    for shard in &shards {
-                        if let Some(failed) = shard.status.iter().find(|s| s.code() == Code::Failed)
-                        {
-                            last_failure = failed.errors.join("\n");
-                            tracing::debug!(%task, failure = %last_failure, "shard is down; awaiting restart");
-                        }
-                        all_primary &= shard.status.iter().any(|s| s.code() == Code::Primary);
-                    }
-                    if all_primary {
-                        return Ok(());
-                    }
-                }
-                // The shard may not exist yet, which is not yet a failure.
-                Ok(_) => {}
-                Err(err) => tracing::debug!(%err, %task, "listing shards"),
-            }
-
-            if std::time::Instant::now() >= deadline {
-                anyhow::bail!(
-                    "timed out waiting for {task} to have a primary on every shard{}",
-                    if last_failure.is_empty() {
-                        String::new()
-                    } else {
-                        format!("; its last reported failure was:\n{last_failure}")
-                    },
-                );
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        }
     }
 
     /// Read every committed document of a collection.
