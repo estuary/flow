@@ -1,16 +1,16 @@
 pub mod appender;
-pub mod binding;
 pub mod intents;
 pub mod mapping;
 pub mod publisher;
+pub mod target;
 pub mod watch;
 
 pub use appender::{Appender, AppenderGroup, ThrottleSample};
-pub use binding::{Binding, FixedBinding, MappedBinding};
 pub use mapping::{MIN_PARTITION_WIDTH, SplitOutcome};
 pub use publisher::Publisher;
+pub use target::{FixedTarget, MappedTarget, Target};
 
-/// Boxed closure for lazy initialization of a Mapped binding's partitions
+/// Boxed closure for lazy initialization of a Mapped target's partitions
 /// watch and journal Client.
 type MappedClientInit = Box<
     dyn FnOnce() -> (
@@ -19,22 +19,22 @@ type MappedClientInit = Box<
         ) + Send,
 >;
 
-/// Boxed closure for lazy initialization of a Fixed binding's journal Client.
+/// Boxed closure for lazy initialization of a Fixed target's journal Client.
 type FixedClientInit = Box<dyn FnOnce() -> gazette::journal::Client + Send>;
 
-/// LazyBindingClient defers initialization of per-binding journal resources
+/// LazyTargetClient defers initialization of per-target journal resources
 /// until first use.
 ///
-/// Mapped bindings need both a journal Client and a long-lived list-watch
-/// stream of partitions. Fixed bindings only need a Client (the journal is
+/// Mapped targets need both a journal Client and a long-lived list-watch
+/// stream of partitions. Fixed targets only need a Client (the journal is
 /// known by name; no listing is required).
 ///
 /// An instantiated client and watch each consume background resources:
 /// periodic token refreshes for the client, and a long-lived list RPC for the
-/// watch. However, many (most?) bindings and collections are infrequently
-/// written and a Publisher instance may never interact with the binding during
-/// its lifetime, so avoid paying this cost until we know it's needed.
-pub(crate) enum LazyBindingClient {
+/// watch. However, many (most?) collections are infrequently written and a
+/// Publisher instance may never interact with the target during its lifetime,
+/// so avoid paying this cost until we know it's needed.
+pub(crate) enum LazyTargetClient {
     Mapped(
         std::sync::LazyLock<
             (
@@ -47,7 +47,7 @@ pub(crate) enum LazyBindingClient {
     Fixed(std::sync::LazyLock<gazette::journal::Client, FixedClientInit>),
 }
 
-impl LazyBindingClient {
+impl LazyTargetClient {
     /// Force initialization and return the underlying journal Client.
     pub(crate) fn client(&self) -> &gazette::journal::Client {
         match self {
