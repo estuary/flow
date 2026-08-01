@@ -34,6 +34,18 @@ pub fn build_bindings(
         anyhow::bail!("materialization cannot split on r-clock: {range:?}");
     }
 
+    // `doc::combine` packs its binding index into a u16. This guards the
+    // *format* limit and deliberately shares no constant with
+    // `validation::MAX_BINDINGS`, which gates published tasks far below it:
+    // tripping this means an unvalidated spec reached the runtime.
+    if spec.bindings.len() > u16::MAX as usize {
+        anyhow::bail!(
+            "materialization has {} bindings, which exceeds the combiner limit of {}",
+            spec.bindings.len(),
+            u16::MAX,
+        );
+    }
+
     let bindings = spec
         .resolved_bindings()
         .enumerate()

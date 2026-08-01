@@ -1972,6 +1972,51 @@ test://example/int-string-captures:
 }
 
 #[test]
+fn test_capture_indirect_specs_raises_binding_ceiling() {
+    // One binding past the unflagged ceiling, which the `indirect-specs` flag lifts
+    // to MAX_BINDINGS_INDIRECT_SPECS. Asserting here rather than at the flagged
+    // ceiling keeps the fixture small; the flag either gates the check or it
+    // doesn't, and the raised constant is checked by the runtime format guards.
+    let bindings_count = validation::MAX_BINDINGS + 1;
+
+    let mut patch = r##"
+test://example/int-string-captures:
+  captures:
+    testing/s3-source:
+      shards:
+        flags: { indirect-specs: "true" }
+      bindings:
+"##
+    .to_string();
+
+    for i in 0..bindings_count {
+        patch.push_str(&format!(
+            r##"        - target: testing/int-string
+          resource:
+            stream: "binding{}"
+"##,
+            i
+        ));
+    }
+
+    // The mock connector must respond with a matching binding count.
+    patch.push_str(
+        r##"
+driver:
+  captures:
+    testing/s3-source:
+      bindings:
+"##,
+    );
+    for i in 0..bindings_count {
+        patch.push_str(&format!("        - resourcePath: [binding{}]\n", i));
+    }
+
+    let errors = common::run_errors(MODEL_YAML, &patch);
+    insta::assert_debug_snapshot!(errors, @"[]");
+}
+
+#[test]
 fn test_derivation_too_many_transforms() {
     let transforms_count = validation::MAX_BINDINGS + 1;
 

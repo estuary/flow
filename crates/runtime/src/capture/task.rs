@@ -40,6 +40,20 @@ impl Task {
             anyhow::bail!("captures cannot split on r-clock: {range:?}");
         }
 
+        // `doc::combine` packs its binding index into a u16, and the
+        // connector-state pseudo-binding sits at index `bindings.len()`, so the
+        // length itself must also fit. This guards the *format* limit and
+        // deliberately shares no constant with `validation::MAX_BINDINGS`, which
+        // gates published tasks far below it: tripping this means an unvalidated
+        // spec reached the runtime.
+        if spec.bindings.len() > u16::MAX as usize {
+            anyhow::bail!(
+                "capture has {} bindings, which exceeds the combiner limit of {}",
+                spec.bindings.len(),
+                u16::MAX,
+            );
+        }
+
         let ser_policy = doc::SerPolicy::noop();
 
         let bindings = spec

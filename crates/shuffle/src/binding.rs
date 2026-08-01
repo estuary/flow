@@ -86,6 +86,8 @@ impl Binding {
                     .as_ref()
                     .context("CollectionSpec missing derivation")?;
 
+                guard_index_width("derivation", derivation.transforms.len())?;
+
                 let pairs = derivation
                     .resolved_transforms()
                     .enumerate()
@@ -99,6 +101,8 @@ impl Binding {
                 pairs
             }
             Some(shuffle::task::Task::Materialization(materialization)) => {
+                guard_index_width("materialization", materialization.bindings.len())?;
+
                 let pairs = materialization
                     .resolved_bindings()
                     .enumerate()
@@ -374,6 +378,21 @@ impl Binding {
     }
 }
 
+/// Guard [`Binding::index`]'s u16 width, which is also the width of
+/// `doc::combine`'s binding index. This is a *format* limit and deliberately
+/// shares no constant with `validation::MAX_BINDINGS`, which gates published
+/// tasks far below it: tripping this means an unvalidated spec reached the
+/// runtime.
+fn guard_index_width(entity: &str, count: usize) -> anyhow::Result<()> {
+    if count > u16::MAX as usize {
+        anyhow::bail!(
+            "{entity} has {count} bindings, which exceeds the shuffle limit of {}",
+            u16::MAX,
+        );
+    }
+    Ok(())
+}
+
 /// Assign cohort indices to bindings. Bindings sharing the same
 /// (priority, read_delay) tuple belong to the same cohort. Cohorts are
 /// assigned ascending integers by walking bindings in index order.
@@ -644,6 +663,35 @@ mod test {
 
     fn fields(names: &[&str]) -> Vec<String> {
         names.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// `Binding::index` is a u16, so a task past the format limit must error
+    /// early -- before any per-binding work, and independently of
+    /// `validation::MAX_BINDINGS`, which gates published tasks far below it.
+    #[test]
+    fn from_task_guards_the_index_width() {
+        let over = u16::MAX as usize + 1;
+
+        for task in [
+            shuffle::task::Task::Materialization(flow::MaterializationSpec {
+                bindings: vec![Default::default(); over],
+                ..Default::default()
+            }),
+            shuffle::task::Task::Derivation(flow::CollectionSpec {
+                derivation: Some(flow::collection_spec::Derivation {
+                    transforms: vec![Default::default(); over],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        ] {
+            let err = Binding::from_task(&shuffle::Task { task: Some(task) }).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("65536 bindings, which exceeds the shuffle limit of 65535"),
+                "unexpected error: {err}",
+            );
+        }
     }
 
     #[test]

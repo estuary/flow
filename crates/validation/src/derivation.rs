@@ -256,11 +256,14 @@ async fn walk_derivation<C: Connectors>(
 
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
 
-    if transforms_model.len() > crate::MAX_BINDINGS {
+    let max_bindings = crate::max_bindings(indirect_specs);
+
+    if transforms_model.len() > max_bindings {
         Error::TooManyBindings {
             entity: "derivation",
             name: collection.to_string(),
             count: transforms_model.len(),
+            limit: max_bindings,
         }
         .push(scope, errors);
         return None;
